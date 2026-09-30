@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__laforge-sovereign-hub__ask",
+      "mcp__laforge-sovereign-hub__rag",
+      "mcp__laforge-sovereign-hub__query",
+      "mcp__laforge-sovereign-hub__hub",
+      "mcp__laforge-sovereign-hub__read",
+      "mcp__laforge-sovereign-hub__run",
+      "mcp__laforge-sovereign-hub__web_search",
+      "mcp__laforge-sovereign-hub__research_agent",
+      "mcp__laforge-sovereign-hub__route_task",
+      "mcp__laforge-sovereign-hub__event",
+      "mcp__laforge-sovereign-hub__task",
+      "mcp__laforge-sovereign-hub__biblio",
+      "mcp__laforge-sovereign-hub__crawl",
+      "mcp__laforge-sovereign-hub__trigger_autonomous_evolution",
+      "mcp__laforge-sovereign-hub__auto_test",
+      "mcp__laforge-sovereign-hub__write",
+      "Bash(curl -s http://127.0.0.1:8766/*)",
+      "Bash(curl -s -m * http://127.0.0.1:8766/*)",
+      "Bash(curl -s -m * http://127.0.0.1:*)",
+      "Bash(netstat -ano *)",
+      "Bash(powershell -Command \"Get-Process *\")",
+      "Bash(wsl --list *)",
+      "Bash(wsl -d kali-linux -- docker ps *)",
+      "Bash(wsl -d kali-linux -- docker inspect *)",
+      "Bash(wsl -d kali-linux -- docker logs *)",
+      "Bash(exegol info *)"
+    ]
+  }
+}

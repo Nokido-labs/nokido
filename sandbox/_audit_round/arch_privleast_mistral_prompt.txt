@@ -1,0 +1,158 @@
+Tu es architecte sécurité senior. Mission : valider et affiner une décision
+de contrôle d'accès pour Nokido MCP Hub (Python, Windows, SQLite WAL, 14 outils MCP).
+
+CONTEXTE EXISTANT :
+- Hub Nokido sur 127.0.0.1:8766, 3 agents connectés localement : CLAUDE, GEMINI, CLINE
+- Tous les agents locaux sont Ring 0 (accès complet via Bearer token)
+- SecretGuard existant bloque 8 fichiers critiques (forge_mcp_registry.py, nokido_hub.py, etc.)
+- MCPSecurity._ROLE_MAP existe (gemini -> "ollama") mais n'est PAS branché dans handle_write
+
+CODE EXISTANT forge_mcp_security.py (extrait) :
+```python
+from __future__ import annotations
+"""
+FORGE INTELLIGENCE v3 [GREEN]
+DATE:2026-03-25 | VER:v_batch_forge_mcp_security
+#FORGE:[score:80|agent:batch-hd-injector|temp:0.00|risk:0.30|ast:KO|test:KO|lint:KO|color:GREEN|attempt:1]
+CONTRAINTE: header HD batch — statut initial
+"""
+__FORGE_COLOR__ = "GREEN"
+__FORGE_TAGS__  = "#FORGE:[score:80|agent:batch-hd-injector|temp:0.00|risk:0.30|ast:KO|test:KO|lint:KO|color:GREEN|attempt:1]"
+
+"""
+forge_mcp_security.py — FORGE_HARDENED_MCP_V1
+==============================================
+Module de sécurité pour le serveur MCP Nokido.
+Zero-Trust sur tous les inputs. Dernier rempart avant le système de fichiers.
+
+Features :
+  1. Path sandboxing  — jamais hors de ROOT
+  2. Allow-list tools — commandes autorisées uniquement
+  3. Limite taille    — max 2MB par fichier lu/écrit
+  4. Hash audit       — détection modification externe
+  5. Audit log        — TIMESTAMP | TOOL | ARGS | STATUS (non modifiable par l'IA)
+  6. Validation args  — typage strict sur chaque tool call
+"""
+
+
+import hashlib
+
+
+class SecretGuardViolation(PermissionError):
+    """Levée quand un agent tente d'accéder à un fichier protégé."""
+    pass
+
+import json
+import os
+import re
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+AUDIT_LOG = ROOT / "logs" / "mcp_audit.log"
+
+# Allow-list actions run()
+ALLOWED_RUN_ACTIONS = {
+    "python",
+    "github",
+    "atlas_build",
+    "atlas_get",
+    "save_situation",
+    "make_snapshot",
+    "hub_restart",
+    "hub_status",
+    "setup_check",
+    "unified_discovery",
+    "audit_log",
+    "test_nr",
+    "test_module",
+    "test_status",
+    "task_status",
+    "mutation:start",
+    "mutation:poll",
+}
+
+# Patterns dangereux dans le code Python soumis
+DANGEROUS_PATTERNS = [
+    r"os\.system\s*\(",
+    r"subprocess\..*shell\s*=\s*True",
+    r"eval\s*\(",
+    r"exec\s*\(",
+    r"__import__\s*\(",
+    r"open\s*\([^)]*['\"]w['\"]",  # write arbitraire
+    r"\brm\s+-rf\b",
+    r"shutil\.rmtree",
+    r"os\.remove\s*\(",
+    r"os\.unlink\s*\(",
+]
+_danger_re = [re.compile(p) for p in DANGEROUS_PATTERNS]
+
+# ── Fichiers critiques : non modifiables par les agents LLM via write() ─────
+# Même un agent Ring 0 ne peut PAS écrire ces fichiers via le tool write().
+# Exception : si LAFORGE_ALLOW_CRITICAL_WRITE=1 dans l'env (maintenance manuelle).
+
+CRITICAL_FILES = {
+    "tools/nokido_hub.py",
+    "app/forge_mcp_registry.py",
+    "app/forge_mcp_security.py",
+    "app/forge_rbac.py",
+    "app/web_hub/auth.py",
+    "app/web_hub/app.py",
+    ".env",
+    "Nokido.env",
+}
+
+def _is_critical(path: str | Path) -> bool:
+    """Retourne True si le fichier est dans la liste noire critique."""
+    import os as _os
+    p_str = str(path).replace("\\", "/").replace("\\", "/")
+    # Normaliser les séparateurs
+    p_norm = p_str.replace("\\", "/").replace("\\\\", "/")
+    for critical in CRITICAL_
+```
+
+DÉCISION À VALIDER :
+Implémenter le Principe du Moindre Privilège par agent sur l'outil write().
+Chaque agent LLM ne peut écrire QUE dans ses paths autorisés, même en Ring 0.
+
+PROPOSITION CONCRÈTE :
+```python
+AGENT_WRITE_PATHS = {
+    "CLAUDE":    ["*"],                    # admin total (supervisé par humain)
+    "GEMINI":    ["sandbox/", "docs/", "tests/biblio/", "migrations/"],
+    "CLINE":     ["app/", "tests/", "src/", "sandbox/"],
+    "INSPECTOR": [],                       # read-only
+    "default":   ["sandbox/"],             # tout agent inconnu
+}
+```
+
+Impact sur handle_write() :
+1. Résoudre le path demandé
+2. Vérifier si path commence par un des patterns autorisés pour cet agent
+3. Si non : retourner RBAC_DENIED (pas d'exception, juste refus propre)
+4. Si oui : continuer vers SecretGuard + assert_can_write existant
+
+QUESTIONS (max 500 mots, français, tranchant) :
+
+Q1 : Cette liste AGENT_WRITE_PATHS est-elle bien calibrée ?
+     Trop restrictive pour GEMINI (bloque des cas légitimes) ?
+     Trop permissive pour CLINE (app/ = risque) ?
+
+Q2 : Le pattern de matching (startswith) est-il suffisant ou faut-il
+     une allowlist par fichier individuel pour certains cas ?
+
+Q3 : CLAUDE a ["*"] = admin total. Est-ce cohérent avec le principe
+     du moindre privilège, sachant que Claude est supervisé par l'humain ?
+     Faut-il quand même des restrictions sur Claude ?
+
+Q4 : Faut-il un override "break-glass" (env var LAFORGE_AGENT_OVERRIDE)
+     pour les maintenances exceptionnelles ?
+
+Q5 : La granularité agent -> paths est-elle le bon niveau, ou faut-il
+     une granularité agent + ring + tool (plus complexe mais plus précis) ?
+
+Format : verdict + recommandation chiffrée par question. Pas de code.

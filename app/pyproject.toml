@@ -1,0 +1,31 @@
+# =============================================================================
+# La Forge — Configuration outils d'analyse statique
+# =============================================================================
+# Placé à la racine du projet (à côté de Nokido_Lanceur.bat)
+
+# Ruff config canonique : voir ruff.toml a la racine LaForge/.
+# Bloc supprime pour eviter double source de verite (precedence imprevisible).
+
+[tool.mypy]
+python_version = "3.14"
+ignore_missing_imports = true
+follow_imports = "silent"
+# Désactiver les checks trop stricts pour un fichier monolithique de 11000 lignes
+disallow_untyped_defs = false
+check_untyped_defs = false
+warn_return_any = false
+warn_unused_ignores = false
+no_error_summary = true
+
+[tool.pylint.main]
+# Un seul job pour éviter le stack overflow Windows (rc=3221225786)
+jobs = 1
+# Pas de persistance (évite les conflits de cache)
+persistent = false
+
+[tool.pylint."messages control"]
+# Désactiver les conventions (C) et refactoring (R) — garder Erreurs (E) + Fatales (F) + Warnings (W)
+disable = ["C", "R"]
+
+[tool.pylint.format]
+max-line-length = 120

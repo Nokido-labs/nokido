@@ -1,0 +1,83 @@
+#!/usr/bin/env python
+# Nokido — post-commit (git-lfs + vectorisation RAG + SKILL.md). Réplique
+# .git/hooks/post-commit qui est SHADOWÉ dès que core.hooksPath=.githooks.
+# Non bloquant (background) : une erreur d'indexation ne casse jamais le commit.
+import os
+import subprocess
+import sys
+
+root = subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, encoding="utf-8",
+).stdout.strip()
+# git-lfs (obligatoire dans ce repo)
+try:
+    subprocess.run(["git", "lfs", "post-commit", *sys.argv[1:]], cwd=root)
+except Exception:
+    pass
+# Identite de l'agent : NOTE git (refs/notes/laforge-agent), pas trailer de message.
+# Contrat owner 2026-08-29 : identifier l'agent en LOCAL, ne rien publier -- mais
+# anonymiser AU PUSH imposait de reecrire les commits, donc des sha differents du
+# local, alors que le superrepo bumpe un gitlink qui doit exister au distant (il
+# pointerait un commit absent = submodule irrecuperable au clone). Une note n'entre
+# pas dans le hash : elle identifie sans deplacer le commit, et ne part pas au push
+# (refs/notes/* n'est pas dans le refspec par defaut).
+# Synchrone et AVANT les background : ici HEAD est forcement le commit qu'on vient
+# de faire, donc aucune course avec un commit suivant.
+try:
+    sys.path.insert(0, os.path.join(root, "tools"))
+    from forge_git_gate import _CHANNEL, _agent
+
+    _ag = (_agent() or "UNKNOWN").strip()
+    # Le canal est une propriete de l'APPEL, pas de l'agent : le meme CLAUDE commit
+    # tantot depuis le pont stdio, tantot depuis un shell du hub. Un override
+    # explicite prime donc sur la table par agent -- sans lui, tout CLAUDE
+    # redeviendrait STDIO_CLAUDE et la note perdrait la moitie de son information.
+    _ch = (os.environ.get("LAFORGE_AGENT_CHANNEL", "").strip()
+           or _CHANNEL.get(_ag.upper(), "UNKNOWN") or "UNKNOWN").strip()
+    subprocess.run(["git", "notes", "--ref", "laforge-agent", "add", "-f",
+                    "-m", "%s|%s" % (_ag, _ch), "HEAD"],
+                   cwd=root, capture_output=True)
+except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, mais jamais muet
+    sys.stderr.write("[post-commit] note d'identite NON posee (%s: %s)\n"
+                     % (type(_e).__name__, _e))
+
+# indexation RAG en background
+script = os.path.join(root, "tools", "forge_post_commit.py")
+if os.path.exists(script):
+    try:
+        os.makedirs(os.path.join(root, "logs"), exist_ok=True)
+        log = open(os.path.join(root, "logs", "post_commit.log"), "a", encoding="utf-8")
+        subprocess.Popen(
+            ["%USERPROFILE%/miniforge3/python.exe", script],
+            cwd=root, stdout=log, stderr=log,
+        )
+    except Exception:
+        pass
+# SSoT — refresh du state structuré (docs/<domain>_state.json) en background.
+# Trusted (user du commit) = write docs/ OK. refresh_all = cheap (state, 0 LLM) ;
+# le regen roadmap lourd reste hors POST_COMMIT (anti-stacking LLM, cadence rare).
+ssot = os.path.join(root, "app", "forge_ssot_maintainer.py")
+if os.path.exists(ssot):
+    try:
+        os.makedirs(os.path.join(root, "logs"), exist_ok=True)
+        slog = open(os.path.join(root, "logs", "ssot_maintainer.log"), "a", encoding="utf-8")
+        subprocess.Popen(
+            ["%USERPROFILE%/miniforge3/python.exe", ssot],
+            cwd=root, stdout=slog, stderr=slog,
+        )
+    except Exception:
+        pass
+# MEMOIRE DES CORRECTIONS. Un commit de correction est une verite terrain datee :
+# symptome constate -> procedure appliquee -> preuve (le commit). Nokido indexait
+# deja ses ECHECS (forge_symptom_index) et pas ses reussites. Synchrone car le
+# cout est de deux `git show` ; append-only et idempotent par sha.
+try:
+    sys.path.insert(0, os.path.join(root, "tools"))
+    from forge_success_oplog import enregistrer
+
+    enregistrer("HEAD", root=root)
+except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, jamais muet
+    sys.stderr.write("[post-commit] oplog de correction NON ecrit (%s: %s)\n"
+                     % (type(_e).__name__, _e))
+sys.exit(0)

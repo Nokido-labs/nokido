@@ -1,0 +1,69 @@
+{
+  "_comment": "Config MCP pour Ollama/Qwen via LiteLLM — Nokido HTTP transport",
+  "_usage": "Passer ce fichier à LiteLLM via --mcp-config ou dans forge_litellm_bridge.py",
+  "_doc": "Qwen appelle le MCP HTTP sur 127.0.0.1:8765 avec Bearer token. Droits ring=3 (read + query).",
+
+  "mcpServers": {
+    "Nokido_Collab": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp",
+      "headers": {
+        "Authorization": "Bearer __SET_LAFORGE_TOKEN__",
+        "X-Agent-Id": "ollama:qwen2.5-coder",
+        "X-Ring": "3"
+      },
+      "disabled": false,
+      "alwaysAllow": ["query", "read"],
+      "_droits": "ring=3 COLLAB — rag_search, rag_ingest, task_claim, task_result, read only",
+      "_outils_namespaced": [
+        "Nokido_Collab_read",
+        "Nokido_Collab_query"
+      ]
+    }
+  },
+
+  "_litellm_mcp_call_example": {
+    "_doc": "Comment Qwen appelle un outil MCP via LiteLLM",
+    "model": "ollama/qwen2.5-coder:latest",
+    "mcp_servers": [
+      {
+        "type": "url",
+        "url": "http://127.0.0.1:8765/mcp",
+        "name": "Nokido_Collab"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "Recherche dans le RAG : 'forge_rag_cache numpy performance'"
+      }
+    ]
+  },
+
+  "_ollama_modelfile_tools": {
+    "_doc": "Si Ollama supporte les tools natifs (Ollama >= 0.3.0 + modèle compatible)",
+    "_inject_in_system": "Tu as accès au serveur MCP Nokido sur http://127.0.0.1:8765/mcp. Utilise query(action='rag_search', q='...') pour chercher dans la base de connaissances Nokido. Utilise read(action='file', path='...') pour lire des fichiers. Envoie toujours author='ollama:qwen2.5-coder' dans tes appels.",
+    "tools_available": [
+      {
+        "name": "Nokido_Collab_read",
+        "description": "Lire/explorer les fichiers du projet Nokido",
+        "parameters": {
+          "action": {"type": "string", "enum": ["list", "file", "search"]},
+          "path": {"type": "string"},
+          "mode": {"type": "string", "enum": ["full", "stub"], "default": "stub"}
+        }
+      },
+      {
+        "name": "Nokido_Collab_query",
+        "description": "Rechercher dans le RAG ou la base de données Nokido",
+        "parameters": {
+          "action": {"type": "string", "enum": ["rag_search", "rag_ingest", "db_status", "task_claim", "task_result"]},
+          "q": {"type": "string", "default": ""},
+          "text": {"type": "string", "default": ""},
+          "author": {"type": "string", "default": "ollama:qwen2.5-coder"},
+          "k": {"type": "integer", "default": 5}
+        }
+      }
+    ]
+  }
+}

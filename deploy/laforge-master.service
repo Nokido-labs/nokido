@@ -1,0 +1,13 @@
+[Unit]
+Description=Nokido Master Supervisor
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%NOKIDO_WORKSPACE%\LaForge
+ExecStart=deno run -A proxy_deno/core/supervisor.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

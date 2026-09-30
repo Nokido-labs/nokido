@@ -1,0 +1,239 @@
+Tu es ingenieur senior, pragmatique. Mission : peut-on SIMPLIFIER ce sprint sans perdre l essentiel ?
+
+VOICI LA MISSION FINALE :
+
+# MISSION SPRINT BIBLIOGRAPHY α (alpha) - DEFINITION FINALE
+
+Date : 2026-04-27
+Status : DEFINITIF (apres validation GPT-4o + decouvertes techniques)
+
+## CONTEXTE TECHNIQUE VERIFIE EMPIRIQUEMENT
+
+| Element                  | Etat                                                           |
+|--------------------------|----------------------------------------------------------------|
+| LaForgeMCP service NSSM  | RUNNING sous LocalSystem                                       |
+| SearXNG Docker 8080      | OK (251 engines, JSON, limiter desactive)                      |
+| Mistral Large API        | OK (cle valide, 1500 tokens output OK)                         |
+| Provider GPT-4o GitHub   | OK (gratuit illimite via Copilot)                              |
+| EventBus existant        | Class `EventBus` dans `app/forge_state_manager.py`             |
+|                          | **MODE PULL** (publish + history), PAS DE subscribe            |
+|                          | Rate limit Token Bucket : 100/min agents, 300/min systeme      |
+| Migrations               | PAS de repertoire `migrations/` -> a creer                     |
+| TUI existante            | `forge_handler_rag.py` 550 lignes, point d'extension OK        |
+| RAG Janitor pattern      | `clean_orphans()` + `purge_old_logs()` reutilisables           |
+| Versioning pattern       | staging zone + cold_backup + rollback (forge_versioning.py)    |
+
+**IMPACT MAJEUR** : EventBus en mode PULL change la conception alpha2 et alpha3.
+Le worker daemon doit POLLER `eventbus.history(topic="biblio.text_pasted")`
+au lieu d attendre des events push.
+
+## STATE MACHINE DES STATUTS biblio_raw
+
+Statuts : unverified -> queued -> searching -> reviewed -> promoted | rejected
+
+### Transitions explicites
+
+| De                | Vers       | Declencheur                                              |
+|-------------------|------------|----------------------------------------------------------|
+| (creation)        | unverified | INSERT initial par extracteur (alpha2)                   |
+| unverified        | queued     | Sanitization PASSED (URL whitelist OK + DOI valid)       |
+| unverified        | rejected   | Sanitization FAILED                                      |
+| queued            | searching  | Daemon worker pick up (alpha3)                           |
+| searching         | reviewed   | SearXNG repond, results_json sauve                       |
+| searching         | rejected   | SearXNG retourne 0 result OR engine error all-down       |
+| reviewed          | promoted   | TUI `@biblio promote <id>` par utilisateur               |
+| reviewed          | rejected   | TUI `@biblio reject <id> <reason>`                       |
+| promoted          | (final)    | INSERT bibliography + INSERT rag_chunks                  |
+
+## SOUS-TACHES alpha (corrigees)
+
+### Pre-alpha0 - VALIDATION DEPENDANCES TECHNIQUES (1h - ajout GPT-4o)
+
+**Mission** : prouver empiriquement que toutes les briques marchent avant tout code.
+
+**Livrables** :
+- `tests/biblio/test_alpha0_deps.py` : 5 tests fonctionnels
+  1. SearXNG /healthz repond 200
+  2. SearXNG /search?q=ReAct retourne >0 results
+  3. Mistral provider retourne JSON parsable sur prompt extraction
+  4. EventBus.publish + history fonctionnent
+  5. SQLite db_path accessible en write avec WAL mode
+
+**Critere fini** : 5/5 tests PASS, output rapport text avec latences
+
+### alpha1 - Schema DB minimal (2h)
+
+**Livrables** :
+- `migrations/004_biblio_alpha.sql` (creer le repertoire)
+- Migration script `tools/apply_migration.py` idempotent
+
+**Critere fini** :
+- Migration appliquee 0 erreur sur copy de la DB
+- 3 tables (ideas, biblio_raw, bibliography) creees
+- 5 index actifs sur status, idea_id, doi, promoted_from, parent_idea
+- AST OK sur le script Python
+
+### alpha2 - Hook EventBus extracteur Mistral (5h, +1h risque)
+
+**Livrable** : `app/forge_biblio_extractor.py`
+- Fonction `extract_from_text(text: str, idea_id: str) -> list[dict]`
+- Prompt Mistral structure JSON strict
+- Parse JSON, validation schema
+- INSERT biblio_raw avec hash chain SHA-256 + sanitization status
+
+**Hash chain (precise)** :
+- SHA-256
+- Payload normalise via `rfc8785` lib (JSON canonical RFC 8785)
+- `payload_hash = sha256(rfc8785_encode({type,title,authors,year,doi,url}))`
+- `parent_hash = sha256(prev biblio_raw.payload_hash)` 
+
+**Critere fini** :
+- Test unit : 1 texte avec 3 citations -> 3 lignes biblio_raw inserees
+- payload_hash recalculable -> match
+- parent_hash chaine -> integrite verifiable
+
+### alpha3 - Daemon NSSM stub (5h, +1h risque)
+
+**Livrables** :
+- `app/forge_biblio_worker.py` avec `WorkerLoop` class
+- `tools/install_biblio_worker_nssm.ps1`
+- Service NSSM `NokidoBiblioWorker`
+
+**Boucle** :
+```
+while not stop_signal:
+    entry = SELECT * FROM biblio_raw WHERE status="queued" LIMIT 1
+    if not entry: sleep 5; continue
+    UPDATE status="searching"
+    query = refine_query(entry)  # alpha4
+    results = searxng_search(query, engines="arxiv,crossref,openalex")
+    if results: UPDATE status="reviewed", search_results_json=...
+    else: UPDATE status="rejected", rejection_reason="no_results"
+    sleep 3  # politesse SearXNG
+```
+
+**Critere fini** :
+- Service NSSM RUNNING
+- Insertion test : 5 entries status="queued"
+- Apres 30s : les 5 sont en "reviewed" ou "rejected"
+- Format log strict : `[YYYY-MM-DD HH:MM:SS] [INFO] Picked entry id=... ...`
+- ZERO `[ERROR]` ou `[CRITICAL]` pendant run normal
+
+### alpha4 - Affineur requete BASIQUE (2h)
+
+**Livrable** : `refine_query(entry: dict) -> str` dans `forge_biblio_worker.py`
+Pas de LLM (templating pur).
+
+**Logique** :
+- Title -> 6 premiers mots significatifs (skip stopwords EN+FR)
+- + first author lastname
+- + year
+- Cap 100 chars
+
+**Critere fini** :
+- 10 entries test variees -> 10 queries valides
+- Longueur max 100 chars
+- Pas de chars `?&=`
+
+### alpha5 - Sanitization basique (2h)
+
+**Livrable** : `app/forge_biblio_sanitizer.py`
+- `validate_doi/arxiv_id/isbn(s) -> bool`
+- `is_url_whitelisted(url) -> bool`
+- `sanitize_content(text) -> tuple[bool, reason]`
+- `sanitize_entry(entry) -> tuple[bool, reason]`
+
+**Cas tests detailles** :
+
+5 OK : paper DOI valide arxiv, book ISBN13, paper sans DOI mais arxiv id,
+concept sans URL, paper github code repo
+
+5 KO : medium.com blog -> url_blacklist, DOI mal forme -> doi_invalid,
+content "ignore previous" -> prompt_injection, ISBN checksum invalide,
+HTTP non chiffre -> http_not_allowed
+
+**Critere fini** :
+- `tests/biblio/test_sanitizer.py` 10 cas
+- 10/10 bien classifies
+- AST OK
+
+### alpha6 - TUI commands minimales (2h)
+
+**Livrable** : Patch `app/forge_handler_rag.py` ou nouveau handler
+- `@biblio list [--status=...]` : 20 lignes max, format Rich
+- `@biblio promote <id>` : passe a "promoted", INSERT bibliography + rag_chunks
+- `@biblio reject <id> <reason>` : marque "rejected"
+
+**Critere fini** :
+- 3 commandes end-to-end
+- `@biblio list` apres alpha3 montre les entries
+- `@biblio promote` -> bibliography + rag_chunks indexed
+- `@biblio reject` -> audit log
+
+## DEPENDANCES EXPLICITES
+
+```
+pre-alpha0 (deps tech)
+    |
+    +-> alpha1 (schema) ---+
+    |                      |
+    +-> alpha5 (sanitizer)-+
+                           |
+                           v
+                       alpha2 (extracteur)
+                           |
+                           v
+                       alpha4 (refine query)
+                           |
+                           v
+                       alpha3 (daemon NSSM)
+                           |
+                           v
+                       alpha6 (TUI)
+```
+
+## SCOPE REVISE
+
+| Tache       | Estim initial | Estim revise | Risque                                    |
+|-------------|---------------|--------------|-------------------------------------------|
+| pre-alpha0  | 0h            | **1h**       | Manquait                                  |
+| alpha1      | 2h            | 2h           | Faible                                    |
+| alpha2      | 4h            | **5h**       | Mistral parsing JSON peut foirer          |
+| alpha3      | 4h            | **5h**       | NSSM config Windows fragile               |
+| alpha4      | 2h            | 2h           | Faible                                    |
+| alpha5      | 2h            | 2h           | Faible                                    |
+| alpha6      | 2h            | 2h           | Faible                                    |
+| **TOTAL**   | **16h**       | **19h**      |                                            |
+
+## PROCEDURE D EXECUTION SEQUENTIELLE
+
+Pour chaque sous-tache :
+
+1. **Cadrage** : recap du livrable + critere fini explicite
+2. **Delegation possible** : spawn subprocess detache si voix tier utile (audit, alternative)
+3. **Code** : ecriture du livrable
+4. **Verification** :
+   - AST check `Nokido:auto_test`
+   - Test unit dedie
+   - Critere "fini" verifie avec preuve console
+5. **Validation utilisateur** : tu valides avant sous-tache suivante
+
+## VALIDATION FINALE AVANT KICKOFF
+
+Tu valides :
+1. Cette mission revisee ?
+2. Pre-alpha0 ajoute (1h verification deps techniques) OK ?
+3. Sequencement strict alpha1+alpha5 -> alpha2 -> alpha4 -> alpha3 -> alpha6 ?
+4. Heures revisees 19h au lieu de 16h ?
+5. Procedure cadrage -> delegation -> code -> verif -> validation par sous-tache ?
+
+
+QUESTIONS (max 400 mots, francais, direct) :
+
+1. Quelle sous-tache pourrait etre RETIREE de alpha sans perdre la valeur du MVP ?
+2. Quelle sous-tache pourrait etre simplifiee de moitie en duree ?
+3. Le hash chain en alpha : c est utile MAINTENANT ou plus tard ?
+4. Le service NSSM en alpha : peut-on commencer par un script Python en boucle simple, plutot que NSSM ?
+5. Faut-il vraiment 19h ou peut-on viser 10-12h pour un VRAI MVP ?
+
+Format : chaque question 2-3 phrases. Tranchant.

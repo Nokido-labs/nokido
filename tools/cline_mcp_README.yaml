@@ -1,0 +1,51 @@
+# ============================================================
+# Nokido MCP — Configuration Cline
+# Fichier : cline_mcp_settings.json
+# Mis à jour : 2026-03-14 — noms SEP-986 (tirets → underscores)
+# Emplacement Windows :
+#   %APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\
+# ============================================================
+#
+# DEUX MODES :
+#   1. Nokido_Local (stdio) — MCP server spawné directement par Cline
+#                              Toujours disponible, pas de serveur à lancer
+#
+#   2. Nokido_Cloud (HTTP)  — MCP server HTTP accessible depuis partout
+#                              Nécessite : python tools/forge_mcp_http.py
+#                              + tunnel ngrok/cloudflared optionnel
+#
+# CONFORMITÉ SEP-986 (LiteLLM v1.80.18+) :
+#   Les noms de serveurs MCP doivent respecter ^[a-zA-Z0-9_-]{1,64}$
+#   LiteLLM namespaced les outils : {server_name}_{tool_name}
+#   → Nokido_Local_read, Nokido_Local_write, Nokido_Local_query, Nokido_Local_run
+#   Les tirets (-) sont tolérés par SEP-986 mais risqués dans certains parsers.
+#   Convention recommandée : underscores uniquement (_) → renommage appliqué.
+#
+# Activer un mode : mettre "disabled": false
+# Désactiver      : mettre "disabled": true
+# ============================================================
+
+# NOTES IMPORTANTES :
+#
+# Mode Nokido_Local :
+#   - Cline lance le process Python directement
+#   - Accès complet à tous les outils (read/write/run/query)
+#   - Pas de token requis (stdio = accès direct)
+#   - Droits : nokido (supercontrôleur)
+#   - Outils namespaced LiteLLM : Nokido_Local_read, _write, _query, _run
+#
+# Mode Nokido_Cloud (HTTP) :
+#   - forge_mcp_http.py doit tourner : python tools/forge_mcp_http.py
+#   - Token : <your-FORGE_MCP_TOKEN from vault>  # voir docs/wiki/08-Vault-and-Secrets.md
+#   - Droits : ollama (rag_search, rag_ingest, task_claim, task_result)
+#   - Outils namespaced LiteLLM : Nokido_Cloud_read, _write, _query, _run
+#   - Pour accès complet depuis cloud : changer author= à "laforge"
+#     (mais attention sécurité)
+#
+# Pour le tunnel ngrok :
+#   ngrok http 8765
+#   → remplacer http://localhost:8765 par https://xxxx.ngrok.io
+#
+# Identité de l'agent Ollama dans les appels :
+#   Ajouter "author": "ollama:qwen2.5" dans les args de chaque appel query
+#   Exemple : query(action="rag_search", q="nginx", author="ollama:qwen2.5")

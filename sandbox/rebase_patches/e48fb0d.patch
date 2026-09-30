@@ -1,0 +1,129 @@
+From e48fb0dbb02ef5e484dbdec079fcdc7dad659a03 Mon Sep 17 00:00:00 2001
+From: user <naarobb@gmail.com>
+Date: Sat, 25 Apr 2026 13:49:54 +0200
+Subject: [PATCH] feat(agent_proxy): +3 providers Cohere/Perplexity/Tavily
+ (10->13)
+
+Ajoute trois nouveaux providers au registry forge_agent_proxy :
+- Cohere (command-r-plus) via API OpenAI-compat
+- Perplexity (llama-3.1-sonar-large-128k-online, online search)
+- TavilySearch (recherche web pure, pas un LLM conversationnel)
+
+Tous suivent la signature Provider.ask() et la convention api_key_env.
+
+Fix: search_depth='basic' au lieu de 'smart' (valeur invalide cote
+API Tavily, aurait declenche une 4xx au premier appel).
+---
+ app/forge_agent_proxy.py | 87 +++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 85 insertions(+), 2 deletions(-)
+
+diff --git a/app/forge_agent_proxy.py b/app/forge_agent_proxy.py
+index eb7f712..cab3584 100644
+--- a/app/forge_agent_proxy.py
++++ b/app/forge_agent_proxy.py
+@@ -1,4 +1,4 @@
+-from __future__ import annotations
++﻿from __future__ import annotations
+ # -*- coding: utf-8 -*-
+ """
+ FORGE INTELLIGENCE v3 [GREEN]
+@@ -432,12 +432,95 @@ class MistralLarge(Provider):
+         return resp.choices[0].message.content
+ 
+ 
++class Cohere(Provider):
++    name = "cohere"
++    model = "command-r-plus"
++    api_key_env = "COHERE_API_KEY"
++    cost_tier = 2
++    display_name = "Cohere Command R+"
++    
++    async def ask(self, message, thread_messages, system_prompt, max_tokens, timeout):
++        from openai import AsyncOpenAI
++        client = AsyncOpenAI(
++            api_key=_load_api_key(self.api_key_env),
++            base_url="https://api.cohere.ai/v1",
++        )
++        msgs = [{"role": "system", "content": system_prompt}]
++        msgs.extend(thread_messages)
++        msgs.append({"role": "user", "content": message})
++        resp = await asyncio.wait_for(
++            client.chat.completions.create(
++                model=self.model, messages=msgs,
++                max_tokens=max_tokens, temperature=0.3,
++            ),
++            timeout=timeout,
++        )
++        return resp.choices[0].message.content
++
++
++class Perplexity(Provider):
++    name = "perplexity"
++    model = "llama-3.1-sonar-large-128k-online"
++    api_key_env = "PERPLEXITY_API_KEY"
++    cost_tier = 2
++    display_name = "Perplexity (Online)"
++    
++    async def ask(self, message, thread_messages, system_prompt, max_tokens, timeout):
++        from openai import AsyncOpenAI
++        client = AsyncOpenAI(
++            api_key=_load_api_key(self.api_key_env),
++            base_url="https://api.perplexity.ai",
++        )
++        msgs = [{"role": "system", "content": system_prompt}]
++        msgs.extend(thread_messages)
++        msgs.append({"role": "user", "content": message})
++        resp = await asyncio.wait_for(
++            client.chat.completions.create(
++                model=self.model, messages=msgs,
++                max_tokens=max_tokens, temperature=0.2,
++            ),
++            timeout=timeout,
++        )
++        return resp.choices[0].message.content
++
++
++class TavilySearch(Provider):
++    name = "tavily"
++    model = "tavily-search"
++    api_key_env = "TAVILY_API_KEY"
++    cost_tier = 1
++    display_name = "Tavily AI Search"
++    
++    async def ask(self, message, thread_messages, system_prompt, max_tokens, timeout):
++        import aiohttp
++        api_key = _load_api_key(self.api_key_env)
++        url = "https://api.tavily.com/search"
++        payload = {
++            "api_key": api_key,
++            "query": message,
++            "search_depth": "basic",
++            "include_answer": True,
++            "max_results": 5
++        }
++        async with aiohttp.ClientSession() as session:
++            async with session.post(url, json=payload, timeout=timeout) as resp:
++                if resp.status != 200:
++                    return f"Error: Tavily API returned {resp.status}"
++                data = await resp.json()
++                answer = data.get("answer", "")
++                results = data.get("results", [])
++                if answer:
++                    return f"[TAVILY ANSWER] {answer}\n\nSources:\n" + "\n".join([f"- {r['url']}" for r in results])
++                return "\n\n".join([f"[{r['title']}] {r['content']}\nSource: {r['url']}" for r in results])
++
++
+ _PROVIDERS: Dict[str, Provider] = {}
+ 
+ def _init_registry():
+     global _PROVIDERS
+     for cls in [ClaudeOpenRouter, ClaudeGitHub, Gemini, Grok, DeepSeek, Groq,
+-                HuggingFace, Ollama, OpenAI_GPT, MistralLarge]:
++                HuggingFace, Ollama, OpenAI_GPT, MistralLarge,
++                Cohere, Perplexity, TavilySearch]:
+         inst = cls()
+         _PROVIDERS[inst.name] = inst
+ 
+-- 
+2.53.0.windows.1
+

@@ -1,0 +1,129 @@
+# OWNERS.toml — Registry des responsabilités modulaires Nokido
+#
+# Phase 30 (2026-05-25). Anti-collision modules (critique Plan-fusion :
+# "2 modules Hippocampe, 2 endocriniens, futures collisions immune system/
+# lymphatique garanties si pas de registre"). Source de verite déclarative.
+#
+# Format : chaque [[module]] décrit UN module forge_*.py.
+# Champs : path, owner (sous-systeme conceptuel), purpose (1 ligne descriptif
+# tech), consumes (autres modules requis), exposes (API publique).
+#
+# REGLE : avant de creer un nouveau forge_*.py, lire ce fichier + grep si
+# le scope est deja couvert. Si chevauchement >50%, ETENDRE l'existant.
+
+[[module]]
+path = "app/forge_hormones.py"
+owner = "endocrine_view"
+purpose = "View in-RAM + SSE push 8 hormones canoniques (transport temps-reel)"
+consumes = ["forge_endocrine (dual-write Phase 25)", "forge_critical_events (persist >= 0.9)"]
+exposes = ["release", "active", "system_state", "subscribe_event_queue"]
+
+[[module]]
+path = "app/forge_endocrine.py"
+owner = "endocrine_authority"
+purpose = "SQLite persistant 9+ hormones — autorite source-of-truth (decision Phase 25 fusion)"
+consumes = ["RAG/endocrine_signals.db"]
+exposes = ["release", "read", "read_full", "scan", "purge_expired", "all_hormones"]
+
+[[module]]
+path = "app/forge_proprioception.py"
+owner = "vitality_atlas"
+purpose = "Atlas vitalite multi-axes (knowledge/memory/code/regulation/evolution) SQLite snapshots"
+consumes = ["embeddings.db", "lessons_learned.md"]
+exposes = ["build_atlas", "snapshot", "axis_score"]
+
+[[module]]
+path = "app/forge_ast_index.py"
+owner = "code_navigation"
+purpose = "Index AST callers/callees in-RAM TTL 10min (Phase 8/27 — ex forge_code_atlas)"
+consumes = ["app/", "tools/"]
+exposes = ["get_index", "ego", "summary"]
+
+[[module]]
+path = "app/forge_agent_lats.py"
+owner = "agent_loop"
+purpose = "LATS wrapper retry+rollback git worktree isole par agent (Phase 16)"
+consumes = ["forge_hormones", "git worktree"]
+exposes = ["run_with_lats"]
+
+[[module]]
+path = "app/forge_bounded_queue.py"
+owner = "backpressure"
+purpose = "Bounded queue helper + leptin release sur saturation (Phase 7b)"
+consumes = ["forge_hormones"]
+exposes = ["BoundedQueue"]
+
+[[module]]
+path = "app/forge_critical_events.py"
+owner = "persistence_critique"
+purpose = "Append-only SQLite events survie-restart (quarantine, cve, hormones >= 0.9)"
+consumes = ["sandbox/critical_events.db"]
+exposes = ["persist", "unprocessed", "mark_processed", "purge_older_than", "backup", "rotate_backups"]
+
+[[module]]
+path = "app/forge_glymphatic_gc.py"
+owner = "maintenance"
+purpose = "GC NREM3 : wal_checkpoint + incremental_vacuum + rotate logs + cleanup caches + critical_events backup"
+consumes = ["embeddings.db", "forge_hormones", "forge_ast_index", "forge_critical_events"]
+exposes = ["run_gc"]
+
+[[module]]
+path = "app/forge_auth_jwt.py"
+owner = "security_auth"
+purpose = "JWT HS256 stdlib + capability scopes (services:*, admin:*, sandbox:*)"
+consumes = ["FORGE_MCP_TOKEN/LAFORGE_JWT_SECRET env"]
+exposes = ["issue_token", "verify_token", "parse_bearer_header"]
+
+[[module]]
+path = "app/forge_docker_sandbox.py"
+owner = "sandbox_exec"
+purpose = "spawn_sandbox_container Docker isolation strict (NetworkMode=none, Memory cap, NanoCPUs, ReadonlyRootfs, cap_drop ALL)"
+consumes = ["docker SDK Python", "Docker Desktop daemon"]
+exposes = ["spawn_sandbox", "list_allowed_runtimes"]
+
+[[module]]
+path = "tools/nokido_hub.py"
+owner = "hub_facade"
+purpose = "Hub MCP HTTP Starlette :8766. Facade unique tous CLI tiers + proxy supervisor :8765"
+consumes = ["TOUS forge_* modules"]
+exposes = ["routes /api/services/* /api/resource/* /api/hormones/* /api/graph/* /api/sandbox/* /api/maintenance/*"]
+
+[[module]]
+path = "proxy_deno/core/supervisor.ts"
+owner = "supervisor_deno"
+purpose = "LaForge-Master Deno supervisor :8765 services.toml + heartbeat 3-tier + circadian + auth Bearer Phase 23A"
+consumes = ["services.toml", "service_loader.ts"]
+exposes = ["HTTP /supervisor/* (wake/sleep/restart/status/shutdown/logs/circadian)"]
+
+[[module]]
+path = "tools/forge_docker_keeper.py"
+owner = "docker_lifecycle"
+purpose = "Daemon supervisor.toml probe docker info + relance Docker Desktop si daemon down + heartbeat"
+consumes = ["Docker Desktop"]
+exposes = ["main loop"]
+
+[[module]]
+path = "tools/forge_tdr_sentinel.py"
+owner = "reflex_spinal"
+purpose = "Win32 EvtSubscribe EventID 4101 TDR -> SIGSTOP services GPU touching <100ms (Phase 7a+12)"
+consumes = ["pywin32 win32evtlog", "Win EventLog System"]
+exposes = ["main loop"]
+
+[[module]]
+path = "tools/forge_hormones_listener.py"
+owner = "endocrine_sse_consumer"
+purpose = "Daemon SSE consumer /api/hormones/stream (Phase 10+12) — demo pattern subscribe"
+consumes = ["hub /api/hormones/stream"]
+exposes = ["heartbeat"]
+
+[[module]]
+path = "tools/forge_ingestion_pipeline.py"
+owner = "ingestion_watcher"
+purpose = "Pipeline ingest watchdog inotify-like (Phase 15) + boot scan + coarse backup 30min"
+consumes = ["watchdog Observer", "WATCH_DIR"]
+exposes = ["daemon_loop", "scan_and_process"]
+
+# Regle de nommage future :
+#  - Pas de metaphore biologique sans entry OWNERS.toml + scope distinct
+#  - Renommer si collision (cf Phase 27 forge_code_atlas -> forge_ast_index)
+#  - ADR (docs/adr/XXX-*.md) obligatoire pour creation nouveau module

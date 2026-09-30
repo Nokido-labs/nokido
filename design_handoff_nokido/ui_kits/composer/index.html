@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido — Composer son app</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>html, body { height: 100%; } body { margin: 0; background: var(--bg-0); overflow: hidden; }</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" src="composer-app.ref.jsx"></script>
+<script type="text/babel">
+ReactDOM.createRoot(document.getElementById("root")).render(<window.ComposerApp />);
+setTimeout(() => window.lucide && lucide.createIcons(), 90);
+</script>
+</body></html>

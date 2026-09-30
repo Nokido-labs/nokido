@@ -1,0 +1,15 @@
+{
+  "_comment": "Nokido MCP config — COPY to .mcp.json, then run: python tools/forge_mcp_json_sync.py --path .mcp.json",
+  "_security": "Bearer tokens are placeholders. The sync tool reads vault DPAPI (forge_machine_vault) and writes the real values. .mcp.json is gitignored — never commit secrets.",
+  "mcpServers": {
+    "laforge-sovereign-hub": {
+      "type": "http",
+      "url": "http://127.0.0.1:8766/mcp",
+      "headers": {
+        "Authorization": "Bearer __FILLED_BY_forge_mcp_json_sync__",
+        "X-Agent-Name": "CLAUDE"
+      },
+      "timeout": 120000
+    }
+  }
+}

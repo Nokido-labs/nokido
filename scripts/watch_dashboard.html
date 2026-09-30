@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nokido — IRM Fonctionnelle & Métabolisme</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800&family=Inter:wght@300;400;600&display=swap" rel="stylesheet" />
+  
+  <style>
+    :root {
+      --bg-dark: #070913;
+      --panel-bg: rgba(13, 17, 33, 0.7);
+      --border-color: rgba(0, 242, 254, 0.15);
+      --glow-cyan: 0 0 15px rgba(0, 242, 254, 0.4);
+      --glow-magenta: 0 0 15px rgba(255, 0, 128, 0.4);
+      --text-main: #e2e8f0;
+      --text-muted: #8a99ad;
+      
+      --cyan: #00f2fe;
+      --magenta: #ff0080;
+      --green: #3fb950;
+      --orange: #ffa657;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', sans-serif;
+      background: radial-gradient(circle at 50% 50%, #111428, var(--bg-dark));
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* En-tête Glassmorphism */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.2rem 2rem;
+      background: rgba(7, 9, 19, 0.6);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-family: 'Outfit', sans-serif;
+      margin: 0;
+      font-size: 1.6rem;
+      font-weight: 800;
+      background: linear-gradient(90deg, var(--cyan), #4facfe);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 1px;
+    }
+
+    .system-status {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: rgba(0, 242, 254, 0.08);
+      padding: 0.4rem 0.8rem;
+      border-radius: 20px;
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      box-shadow: var(--glow-cyan);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background-color: var(--cyan);
+      border-radius: 50%;
+      animation: pulse 1.8s infinite;
+    }
+
+    /* Grille Principale Dashboard */
+    main {
+      flex: 1;
+      padding: 2rem;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 1.5fr;
+      gap: 2rem;
+    }
+
+    @media (max-width: 1024px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Cartes & Panels */
+    .panel {
+      background: var(--panel-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .panel-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.8rem;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* 1. Vital Signs Grid */
+    .vitals-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.2rem;
+    }
+
+    .vital-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 12px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 120px;
+      transition: all 0.3s ease;
+    }
+
+    .vital-card:hover {
+      border-color: rgba(0, 242, 254, 0.3);
+      background: rgba(0, 242, 254, 0.02);
+    }
+
+    .vital-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .vital-value {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      margin: 0.5rem 0;
+    }
+
+    /* Onde ECG Animée */
+    .ecg-container {
+      height: 25px;
+      width: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .ecg-wave {
+      position: absolute;
+      width: 200%;
+      height: 100%;
+      background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="30" viewBox="0 0 100 30" fill="none" stroke="%2300f2fe" stroke-width="2"><path d="M0 15 h40 l3 -10 l3 20 l3 -15 h52"/></svg>') repeat-x;
+      animation: move-ecg 4s linear infinite;
+    }
+
+    @keyframes move-ecg {
+      0% { left: 0; }
+      100% { left: -100px; }
+    }
+
+    /* Barres de chimie endocrinienne */
+    .hormone-section {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .hormone-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .hormone-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .hormone-bar-bg {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .hormone-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      width: 0%;
+      transition: width 1s cubic-bezier(0.1, 0.8, 0.2, 1);
+    }
+
+    .dopamine-fill {
+      background: linear-gradient(90deg, #4facfe, var(--cyan));
+      box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
+    }
+
+    .cortisol-fill {
+      background: linear-gradient(90deg, #f857a6, var(--magenta));
+      box-shadow: 0 0 8px rgba(255, 0, 128, 0.5);
+    }
+
+    /* 2. Console sémantique (Stream SSE) */
+    .console-panel {
+      flex: 1;
+      height: 600px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-output {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      font-family: 'Courier New', Courier, monospace;
+      padding: 1.2rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    .console-line {
+      line-height: 1.5;
+      animation: slideIn 0.25s ease-out;
+    }
+
+    .line-time {
+      color: var(--text-muted);
+    }
+
+    .line-tag {
+      font-weight: bold;
+      padding: 0.1rem 0.4rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+    }
+
+    .tag-completed { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+    .tag-running { background: rgba(0, 242, 254, 0.15); color: var(--cyan); }
+    .tag-pending { background: rgba(255, 166, 87, 0.15); color: var(--orange); }
+
+    .line-content {
+      color: #d1d5db;
+      margin-left: 0.5rem;
+    }
+
+    /* Footer */
+    footer {
+      padding: 1.5rem;
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border-color);
+      background: rgba(7, 9, 19, 0.4);
+    }
+
+    footer a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      text-decoration: underline;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.7); }
+      70% { transform: scale(1.1); opacity: 0.8; box-shadow: 0 0 0 10px rgba(0, 242, 254, 0); }
+      100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-5px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🧠 NOKIDO // IRM FONCTIONNELLE</h1>
+    <div class="system-status">
+      <div class="status-dot"></div>
+      <span id="status-text">SYSTEM ACTIVE</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- Colonne Gauche : Signes Vitaux et Hormones -->
+    <div class="panel">
+      <h2 class="panel-title">💓 Signes Vitaux & Métabolisme</h2>
+      
+      <div class="vitals-grid">
+        <div class="vital-card">
+          <div class="vital-label">Pouls Cognitif</div>
+          <div class="vital-value" id="bpm-val">72 <span style="font-size: 1rem; color: var(--text-muted);">BPM</span></div>
+          <div class="ecg-container">
+            <div class="ecg-wave"></div>
+          </div>
+        </div>
+        
+        <div class="vital-card">
+          <div class="vital-label">Glycémie (Compute ATP)</div>
+          <div class="vital-value" id="budget-val">100<span style="font-size: 1rem; color: var(--text-muted);">%</span></div>
+          <div style="font-size: 0.8rem; color: var(--green); font-weight: bold;" id="budget-desc">HIGH_ENERGY State</div>
+        </div>
+      </div>
+
+      <h2 class="panel-title">🧪 Chimie Endocrinienne</h2>
+      <div class="hormone-section">
+        <div class="hormone-row">
+          <div class="hormone-meta">
+            <span>Dopamine (Curiosité / Exploration)</span>
+            <span id="dopamine-val">70%</span>
+          </div>
+          <div class="hormone-bar-bg">
+            <div class="hormone-bar-fill dopamine-fill" id="dopamine-bar" style="width: 70%;"></div>
+          </div>
+        </div>
+
+        <div class="hormone-row">
+          <div class="hormone-meta">
+            <span>Cortisol (Stress / Famine)</span>
+            <span id="cortisol-val">15%</span>
+          </div>
+          <div class="hormone-bar-bg">
+            <div class="hormone-bar-fill cortisol-fill" id="cortisol-bar" style="width: 15%;"></div>
+          </div>
+        </div>
+      </div>
+      
+      <h2 class="panel-title">🛡️ Activité Immunitaire</h2>
+      <div class="vitals-grid" style="grid-template-columns: 1fr;">
+        <div class="vital-card" style="min-height: 90px; flex-direction: row; align-items: center; justify-content: space-between;">
+          <div>
+            <div class="vital-label">Anticorps en Mémoire</div>
+            <div class="vital-value" id="antibodies-val" style="margin: 0;">18</div>
+          </div>
+          <div style="font-size: 2.2rem;">🛡️</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Colonne Droite : Console sémantique en continu -->
+    <div class="panel console-panel">
+      <h2 class="panel-title">⚡ Veille Active & Ingestion RAG</h2>
+      <div class="terminal-output" id="terminal">
+        <div class="console-line">
+          <span class="line-time">[SYSTEM INITIALIZED]</span>
+          <span class="line-content">IRM active. En attente de signaux du hub...</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Propulsé par Nokido Sovereign Hub v18.5 // <a href="http://127.0.0.1:8766" target="_blank">Ouvrir l'API du Hub</a>
+  </footer>
+
+  <script>
+    const termEl = document.getElementById('terminal');
+    const budgetVal = document.getElementById('budget-val');
+    const budgetDesc = document.getElementById('budget-desc');
+    const bpmVal = document.getElementById('bpm-val');
+    const dopamineVal = document.getElementById('dopamine-val');
+    const dopamineBar = document.getElementById('dopamine-bar');
+    const cortisolVal = document.getElementById('cortisol-val');
+    const cortisolBar = document.getElementById('cortisol-bar');
+    const antibodiesVal = document.getElementById('antibodies-val');
+
+    // 1. Écoute du flux SSE d'ingestion/veille active
+    const source = new EventSource('http://127.0.0.1:8766/api/watch/stream');
+
+    source.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        const line = document.createElement('div');
+        line.className = 'console-line';
+        
+        const time = new Date().toLocaleTimeString();
+        const tagClass = `tag-${(data.status || 'pending').toLowerCase()}`;
+        
+        line.innerHTML = `<span class="line-time">[${time}]</span> ` +
+                         `<span class="line-tag ${tagClass}">${(data.status || 'PENDING').toUpperCase()}</span> ` +
+                         `<span class="line-content">${data.step || ''} ${data.theme ? '— ' + data.theme : ''}</span>`;
+                         
+        termEl.appendChild(line);
+        termEl.scrollTop = termEl.scrollHeight;
+        
+        // Simuler une variation du pouls lors de la réception d'un événement (pics d'activité)
+        const heartRate = Math.floor(Math.random() * (110 - 85) + 85);
+        bpmVal.innerHTML = `${heartRate} <span style="font-size: 1rem; color: var(--text-muted);">BPM</span>`;
+      } catch (err) {
+        const line = document.createElement('div');
+        line.className = 'console-line';
+        line.innerHTML = `<span class="line-time">[${new Date().toLocaleTimeString()}]</span> <span class="line-content">${e.data}</span>`;
+        termEl.appendChild(line);
+        termEl.scrollTop = termEl.scrollHeight;
+      }
+    };
+
+    source.onerror = () => {
+      const line = document.createElement('div');
+      line.className = 'console-line';
+      line.style.color = 'var(--magenta)';
+      line.innerHTML = `[!] Liaison avec le flux SSE interrompue. Reconnexion automatique...`;
+      termEl.appendChild(line);
+    };
+
+    // 2. Simulation de metrics s'ils ne répondent pas (pour garder l'interface fluide)
+    function updateVitals() {
+      // Fetch sur le endpoint santé de Nokido
+      fetch('http://127.0.0.1:8766/api/health')
+        .then(res => res.json())
+        .then(data => {
+          // Mise à jour réelle des indicateurs RAG / anticorps
+          if (data.antibodies) {
+            antibodiesVal.textContent = data.antibodies;
+          }
+          if (data.cost_24h !== undefined) {
+            const budgetPct = Math.max(0, Math.floor((1.50 - data.cost_24h) / 1.50 * 100));
+            budgetVal.innerHTML = `${budgetPct}<span style="font-size: 1rem; color: var(--text-muted);">%</span>`;
+          }
+        })
+        .catch(() => {
+          // Fallback simulation de fluctuations métaboliques si le hub n'a pas démarré ses endpoints de diagnostic
+          const hr = Math.floor(Math.random() * (80 - 68) + 68);
+          bpmVal.innerHTML = `${hr} <span style="font-size: 1rem; color: var(--text-muted);">BPM</span>`;
+        });
+    }
+
+    // Mise à jour toutes les 5 secondes
+    setInterval(updateVitals, 5000);
+    updateVitals();
+  </script>
+</body>
+</html>

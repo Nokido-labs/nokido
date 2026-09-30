@@ -1,0 +1,66 @@
+Nokido MCP Hub v18.3 - audit selon 4 axes biblio multi-agents :
+
+CONTEXTE NOKIDO (faits verifies) :
+- Hub HTTP /mcp + bridge stdio + import direct = 3 chemins
+- 14 outils composites (run/read/write/query/ask/route_task/research_agent/...)
+- forge_python_runner = pool 3 workers pre-warmed (PID 28788, 21036, 32696)
+  MAIS : code > 400c OU multiline -> bypass pool -> _run_isolated subprocess fresh
+  Donc tout mon dev quotidien (multiline) ne profite JAMAIS du pre-warm
+- forge_agent_proxy : 19 providers cloud (OpenRouter, Gemini, Groq, GitHub Models, ...)
+- agent_debate(rounds, agents) : pattern AutoGen-like deja implemente
+- forge_cognitive_router._estimate_complexity + _select_model = LLM cascading basique
+- intent_router : bypass LLM si intention connue (cache/rule-based)
+- forge_secret_guard : sanitize_python_code + sanitize_sql + assert_can_read/write
+- EventBus topics tool.{name}.start/end avec corr_id + parent_id
+- Sentinel + RBAC forge_tools.min_ring DB
+
+SEPs MCP officiels (roadmap 2025-2026) qui s'alignent avec biblio :
+- SEP-1577 sampling/createMessage avec tools -> serveurs MCP font leurs propres agentic loops avec les tokens du client (pattern AutoGen + ChatDev)
+- SEP-1686 tasks (64KB) -> task primitive + task ID, query state apres completion
+- SEP-2260 server requests doivent etre lies a client requests (anti-orphan)
+- SEP-2243 HTTP header standardization (mirror JSON-RPC en headers pour load balancers)
+- SEP-1303 input validation errors AS tool execution errors (LLM peut self-correct)
+
+BIBLIOGRAPHIE A INTEGRER :
+1. ORCHESTRATION (AutoGen, ChatDev) : agent_debate existe mais lineaire.
+   ChatDev = bus events avec roles (CEO/CTO/coder/tester). EventBus Nokido
+   peut-il devenir ce bus ?
+   
+2. FUNCTION CALLING (Toolformer, Gorilla) : Gorilla insiste sur "injection
+   stricte du schema dans les payloads vers LLM tiers" pour eviter
+   hallucinations methode destructrice. Nokido route_task injecte-t-il
+   les schemas tools dans payloads vers Gemini/Groq/etc ?
+   
+3. LLM CASCADING (FrugalGPT) : routing par complexite + cascade local->cloud.
+   forge_cognitive_router._estimate_complexity existe mais TROP basique
+   (vraisemblablement regex/longueur). FrugalGPT propose un classifier ML
+   pre-route. Faut-il un petit Ollama tiny pour pre-classifier ?
+   
+4. SANDBOX (AgentBench) : forge_ps_sandbox 3 niveaux (PreFlight/CLM/JEA) +
+   sanitize_python_code OK pour PowerShell. Mais run.python = subprocess
+   isole = pas de WASM, pas de namespace KILL. Si un agent autonome
+   genere import os; os.system(...), c'est juste sanitize regex qui filtre.
+
+QUESTIONS PRECISES (reponds 1 par axe) :
+
+AXE 1 (orchestration) : agent_debate de Nokido est lineaire (rounds N, A->B->A->B).
+Pour vraiment matcher ChatDev : EventBus doit-il devenir un broadcast bus avec 
+roles (system_rules par agent persistes en DB) et un convergence detector
+(trigger fin si consensus N agents) ? Action concrete +/- 100 lignes max.
+
+AXE 2 (function calling) : verifier maintenant si route_task injecte les
+inputSchema des outils dans le payload vers Gemini/Groq. Si NON = bug
+securite type Gorilla (hallucination methode). Si OUI = OK. Comment auditer
+sans casser ?
+
+AXE 3 (cascading) : SEP-1686 tasks fournit le primitive natif MCP. Au lieu
+d'ecrire forge_cognitive_router maison, doit-on adopter SEP-1686 tasks 
+quand il sera GA ? Combien de % du code custom Nokido devient redondant ?
+
+AXE 4 (sandbox) : Pour run.python multiline, est-ce raisonnable de viser
+WASM (Pyodide) plutot que subprocess Python ? Latence WASM cold start ~3s 
+mais isolation parfaite. Cas d'usage : code genere par LLM external.
+
+Bonus : la decouverte que mon code multi-line bypass _run_isolated au lieu
+du pool pre-warmed est connue (commentaire 'solution historique v13.6').
+Vraie raison ? Faut-il l'optimiser maintenant ou laisser ?

@@ -1,0 +1,30 @@
+Screen {
+    layout: grid;
+    grid-size: 2 2; /* Crée une grille de 2 colonnes par 2 lignes */
+    grid-rows: 1fr;
+    grid-columns: 1fr;
+    background: #0a050f;
+}
+
+AgentTerminal {
+    border: solid #3a1a5c; 
+    margin: 1;
+    height: 100%;
+    background: #140a1e;
+    color: #e8d5f5;
+}
+
+AgentTerminal:focus {
+    border: double #c084fc; /* Mise en évidence de l'agent actif */
+}
+
+/* Couleurs spécifiques pour chaque terminal pour s'y retrouver */
+#term_router { border-title-color: #ff6b35; border: solid #ff6b35; }
+#term_coder { border-title-color: #00ff00; border: solid #00ff00; }
+#term_cloud { border-title-color: #00aaff; border: solid #00aaff; }
+#term_hub { border-title-color: #c084fc; border: solid #c084fc; }
+
+#term_router:focus { border: double #ff6b35; }
+#term_coder:focus { border: double #00ff00; }
+#term_cloud:focus { border: double #00aaff; }
+#term_hub:focus { border: double #c084fc; }

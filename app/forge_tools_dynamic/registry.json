@@ -1,0 +1,23 @@
+{
+  "orchestrate": {
+    "description": "Orchestrateur multi-pool VSM (2 CLI OAuth claude_cli+gemini_cli + local ollama + cloud groq, authorize S5, anti-API)",
+    "signature": "orchestrate(macro_task, roles, plan_id, token, local, execute)",
+    "path": "%NOKIDO_ROOT%\\app\\forge_tools_dynamic\\tool_orchestrate.py",
+    "created": "2026-06-14T14:24:15",
+    "hash": "3a4d017c"
+  },
+  "skill_forge": {
+    "description": "Generation NATIVE de SKILL.md depuis une source (url|text) - reimpl souveraine Skill_Seekers (crawl + LLM local + SkillGuardian). Sortie en proposition; install gate confirm+owner. Anti-API claude/gemini.",
+    "signature": "skill_forge(source, slug, kind, provider, install, confirm, owner, token)",
+    "path": "%NOKIDO_ROOT%\\app\\forge_tools_dynamic\\tool_skill_forge.py",
+    "created": "2026-06-14T17:30:00",
+    "hash": "ca716f07"
+  },
+  "metier_dispatch": {
+    "description": "Route une tache vers la bonne persona metier (89) + assemble sa KB et son system_prompt. Routage semantique BGE-M3 + repli lexical. Appeler sandboxed=False (embedder :8099 local).",
+    "signature": "metier_dispatch(task)",
+    "path": "%NOKIDO_ROOT%\\app\\forge_tools_dynamic\\tool_metier_dispatch.py",
+    "created": "2026-08-02T00:00:00",
+    "hash": "8ae0f2e8"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "_doc": "Politique de PARTAGE et d'EGRESS du swarm. Repond a UNE question, avant que forge_swarm_router choisisse un provider : « ai-je le droit de donner CETTE information a CE cerveau pour CETTE tache ? ». Ne remplace ni le Videur (identite x capacite), ni le SemanticFirewall (redaction du contenu), ni la SovereignMembrane (aliasing) : ceux-la traitent QUI parle et CE QUI sort, celle-ci traite OU cela a le droit d'aller.",
+  "_invariants": [
+    "COLLABORATION N'EFFACE JAMAIS LA SENSIBILITE. Une tache peut etre COLLABORATIVE et CONFIDENTIAL a la fois : le caractere collaboratif autorise le partage, il ne declasse pas la donnee.",
+    "POOL VIDE = REFUSE. Jamais de repli vers « le provider le moins mauvais » : c'est exactement ainsi qu'une donnee SECRET partirait au cloud.",
+    "UNKNOWN = REFUSE. Classe absente, politique absente, provider inconnu du catalogue : on refuse et on NOMME ce qu'on ne savait pas. Ne pas savoir n'est pas autoriser.",
+    "UN PROVIDER AUTORISE N'EST PAS UN PROVIDER JOIGNABLE. L'admissibilite est une politique ; la joignabilite est une mesure (forge_free_tier_census). Les deux sont exigees, et l'exclusion dit LAQUELLE a manque."
+  ],
+  "version": "1.0.0",
+  "updated_at": "2026-09-02",
+  "mode_defaut": "shadow",
+  "_mode": "shadow = la decision est CALCULEE et JOURNALISEE, jamais appliquee. error = elle bloque. Le defaut est shadow parce qu'aucun appelant ne declare encore sa classe de donnee : armer 'error' d'emblee refuserait tout et rendrait le corps muet -- erreur exacte payee sur le M2M le 2026-09-01. On arme quand la mesure montre un denominateur sain.",
+  "data_class": {
+    "PUBLIC": {
+      "description": "Donnee deja publique ou publiable en l'etat (doc ouverte, code open source tiers).",
+      "pools": ["local", "approuve", "ouvert"]
+    },
+    "INTERNAL": {
+      "description": "Interne au systeme, non secrete : code Nokido, mesures, journaux non sensibles.",
+      "pools": ["local", "approuve"]
+    },
+    "CONFIDENTIAL": {
+      "description": "Sensible : configuration, topologie, contenu d'enquete, memoire owner.",
+      "pools": ["local", "confidentiel"]
+    },
+    "SECRET": {
+      "description": "Secrets, cles, jetons, certificats prives, journal DPAPI. Ne sort JAMAIS de la machine.",
+      "pools": ["local"]
+    }
+  },
+  "collaboration": {
+    "PRIVATE": {
+      "description": "Aucun partage. Le travail reste chez le demandeur.",
+      "audience_requise": false,
+      "pools_max": ["local"]
+    },
+    "SELECTED_AGENTS": {
+      "description": "Partage a une audience NOMMEE et non vide. Une audience vide est un refus, pas un partage universel.",
+      "audience_requise": true,
+      "pools_max": ["local", "approuve", "confidentiel"]
+    },
+    "SWARM": {
+      "description": "Partage au swarm. Elargit l'audience, PAS la classe de donnee.",
+      "audience_requise": false,
+      "pools_max": ["local", "approuve", "confidentiel", "ouvert"]
+    }
+  },
+  "pools": {
+    "local": {
+      "description": "Inference sur la machine. Aucun octet ne quitte le poste.",
+      "providers": ["llamacpp", "llamacpp_native", "llamacpp_python", "ollama", "lmstudio", "local"]
+    },
+    "confidentiel": {
+      "description": "Fournisseurs EXPLICITEMENT autorises pour de la donnee confidentielle. Liste volontairement VIDE tant que l'owner n'en a pas autorise un : un pool confidentiel se remplit par decision, jamais par defaut.",
+      "providers": []
+    },
+    "approuve": {
+      "description": "Fournisseurs approuves pour de l'interne.",
+      "providers": ["gemini", "gemini_cli", "groq"]
+    },
+    "ouvert": {
+      "description": "Tout fournisseur du catalogue, pour du public uniquement.",
+      "providers": ["gemini", "gemini_cli", "groq", "mistral", "openrouter", "sambanova", "cerebras", "gpt4o_github", "claude", "zai"]
+    }
+  }
+}

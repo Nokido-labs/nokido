@@ -1,0 +1,18 @@
+import * as React from "react";
+
+/**
+ * Étiquette compacte Nokido. Trois variantes (soft/solid/outline) × palette
+ * d'accents. `mono` rend un micro-badge mono majuscule (type « EXT », « BIENTÔT »).
+ *
+ * @startingPoint section="Feedback" subtitle="Badge — soft / solid / outline" viewport="700x110"
+ */
+export interface BadgeProps {
+  children?: React.ReactNode;
+  color?: "purple" | "blue" | "cyan" | "green" | "yellow" | "orange" | "red" | "pink" | "dim";
+  variant?: "soft" | "solid" | "outline";
+  /** Micro-badge mono majuscule */
+  mono?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function Badge(props: BadgeProps): JSX.Element;

@@ -1,0 +1,39 @@
+{
+  "runtime": {
+    "ts": "2026-05-29T06:51:46.478438+00:00",
+    "python_version": "3.14.5",
+    "executable": "%USERPROFILE%\\miniforge3\\envs\\laforge_py314t\\python.exe",
+    "env_alias": "PY314T",
+    "free_threaded": true,
+    "platform": "win32"
+  },
+  "label": "py314t_nogil_baseline",
+  "config": {
+    "runs": 1000
+  },
+  "phases": {
+    "build_payload": {
+      "p50_ms": 0.0005,
+      "p95_ms": 0.0005,
+      "p99_ms": 0.0007,
+      "mean_ms": 0.0005,
+      "stdev_ms": 0.0001
+    },
+    "validate_serialize": {
+      "p50_ms": 0.0096,
+      "p95_ms": 0.0103,
+      "p99_ms": 0.0137,
+      "mean_ms": 0.0097,
+      "stdev_ms": 0.0014
+    },
+    "parse_response": {
+      "p50_ms": 0.0027,
+      "p95_ms": 0.0028,
+      "p99_ms": 0.0034,
+      "mean_ms": 0.0027,
+      "stdev_ms": 0.0006
+    }
+  },
+  "total_duration_s": 0.01,
+  "cycles_per_s": 72538.9
+}

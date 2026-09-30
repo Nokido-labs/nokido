@@ -1,0 +1,51 @@
+{
+  "note": "Baseline T0 de token_usage, figee AVANT le chantier P0-A (identite d'execution et centralisation du transient LLM). Sert de preuve a l'etape 5 'verifier compte / bornes / hash' : toute migration vers m2m.db doit reproduire lignes, bornes ts, sommes et empreinte. Ne JAMAIS regenerer ce fichier apres une migration -- il perdrait sa fonction de temoin.",
+  "fige_le": "2026-09-12",
+  "source_db": "%NOKIDO_DATA%\embeddings.db",
+  "table": "token_usage",
+  "lignes": 7839,
+  "lignes_hachees": 7839,
+  "ts_min": "2026-04-27 06:37:06",
+  "ts_max": "2026-09-11 22:15:48",
+  "prompt_tokens": 10074559,
+  "completion_tokens": 1025269,
+  "total_tokens": 11099046,
+  "cost_usd": 5.92719137,
+  "agents_distincts": 11,
+  "providers_distincts": 43,
+  "session_id_renseigne": 0,
+  "meta_renseigne": 2,
+  "empreinte_sha256": "5c6d1cbc37ec66458fc76dc0d6385f8b49d1d8526792039e06b48ff6d688cbdf",
+  "empreinte_recette": "sha256 sur les lignes ORDER BY id, colonnes id|ts|agent_id|provider|model|prompt_tokens|completion_tokens|total_tokens|cost_usd|source jointes par '|', NULL rendu chaine vide, UTF-8",
+  "par_agent_id": {
+    "CLAUDE": 59,
+    "CODEX": 1,
+    "OPENAI_PROXY": 1,
+    "TASK_EXECUTOR": 65,
+    "agt_deepseek": 5,
+    "agt_gemini": 1,
+    "agt_groq": 32,
+    "agt_mistral": 2,
+    "forge_agent_proxy": 7671,
+    "role_router": 1,
+    "role_summarizer": 1
+  },
+  "defaut_constate": "agent_id porte le MODULE ECRIVAIN, pas le demandeur : forge_agent_proxy = 7671/7839 (97,9 %). session_id et meta, prevus pour la provenance, n'ont jamais servi. La provenance est donc NON MESUREE, et non pas 'inconnue a 2 %'.",
+  "writers_au_T0": {
+    "vers_embeddings_db": [
+      "app/forge_llm_transport.py",
+      "app/forge_token_monitor.py",
+      "tools/forge_broker_base.py"
+    ],
+    "vers_DB_PATH": [
+      "app/forge_roles.py"
+    ],
+    "recoit_la_connexion": [
+      "app/forge_llm_usage_adapters.py"
+    ],
+    "vers_m2m_path": [
+      "tools/nokido_statusline.py"
+    ],
+    "ecrit_par_procuration": "app/forge_agent_proxy.py n'ouvre aucune connexion : il appelle un writer en passant son propre nom comme agent_id (signature `agent_id: str`). C'est le mecanisme exact du defaut ci-dessus."
+  }
+}

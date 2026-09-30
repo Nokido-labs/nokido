@@ -1,0 +1,16 @@
+vendor: _generic
+netmiko_device_type: autodetect
+display_name: "Générique (Netmiko Autodetect)"
+
+commands:
+  show_running:      "show running-config"
+  enter_config:      "configure terminal"
+  exit_config:       "end"
+  save_config:       "write memory"
+
+operations: {}
+
+destructive_blacklist:
+  - "^erase"
+  - "^reload"
+  - "^factory-reset"

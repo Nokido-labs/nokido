@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="laforge-bearer" content="__LAFORGE_BEARER__">
+<title>Nokido — Inter-LLM Debate</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  /* Convergence DS : --bg/--border/--text fournis par laforge-tokens.css (retirés ici) ;
+     noms locaux + accents providers remappés sur les tokens DS. */
+  :root { --card:var(--bg-2); --muted:var(--text-dim);
+          --ollama:var(--green); --groq:var(--blue); --cerebras:var(--orange); --debate:var(--purple); }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:0; min-height:100vh;
+         background:var(--bg-0);
+         color:var(--text); font-family:var(--font-sans,-apple-system,"Segoe UI",sans-serif); }
+  header { padding:14px 24px; background:rgba(0,0,0,0.4); border-bottom:1px solid var(--border);
+           display:flex; justify-content:space-between; align-items:center; }
+  h1 { margin:0; font-size:1.2rem; color:var(--debate); }
+  .prompt { padding:14px 24px; background:rgba(255,255,255,0.03); border-bottom:1px solid var(--border);
+            font-size:0.9rem; }
+  .prompt-label { color:var(--muted); margin-right:8px; }
+  .prompt-text { color:var(--text-primary); font-weight:600; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; padding:14px; }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:8px;
+           padding:14px; display:flex; flex-direction:column; min-height:380px; }
+  .panel-h { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;
+             padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .provider-name { font-weight:700; font-size:0.95rem; }
+  .provider-tag { font-size:0.7rem; padding:2px 6px; border-radius:3px;
+                  background:rgba(255,255,255,0.08); color:var(--muted); }
+  .panel.ollama .provider-name { color:var(--ollama); }
+  .panel.groq .provider-name { color:var(--groq); }
+  .panel.cerebras .provider-name { color:var(--cerebras); }
+  .status { font-size:0.7rem; padding:3px 8px; border-radius:10px;
+            background:rgba(255,255,255,0.05); color:var(--muted); margin-left:6px; }
+  .status.live { background:var(--blue); color:white; animation:pulse 1.2s infinite; }
+  .status.done { background:var(--green); color:white; }
+  .status.err  { background:var(--red); color:white; }
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+  .body { flex-grow:1; overflow:auto; font-size:0.85rem; line-height:1.5;
+          white-space:pre-wrap; word-wrap:break-word; }
+  .meta { margin-top:8px; padding-top:8px; border-top:1px solid var(--border);
+          font-size:0.7rem; color:var(--muted); display:flex; gap:14px; }
+  .footer { padding:10px 24px; text-align:center; color:var(--muted); font-size:0.75rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nokido — Inter-LLM Debate (3 providers, 1 prompt)</h1>
+  <div style="font-size:0.8rem; color:var(--muted);">routed via /mcp ask · vault auth</div>
+</header>
+
+<!-- Le prompt etait un <span> FIGE (mesure 2026-08-26) : la page affichait un debat
+     mais n'en laissait lancer aucun. Un commentaire du script l'assumait — « typewriter
+     pour rendre les responses visibles dans la GIF ». Vitrine, pas outil. -->
+<div class="prompt">
+  <label class="prompt-label" for="prompt">Prompt :</label>
+  <textarea class="prompt-text" id="prompt" rows="2" spellcheck="false"
+    style="width:100%; background:var(--bg-1,#111); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:8px; font-family:inherit; font-size:0.95rem; resize:vertical;"
+    placeholder="Pose ta question aux trois providers…">En une phrase claire et technique : quelle est la difference fondamentale entre RAG dense et RAG sparse ?</textarea>
+  <div style="display:flex; gap:10px; align-items:center; margin-top:8px;">
+    <button id="lancer" type="button"
+      style="padding:7px 16px; border-radius:6px; border:1px solid var(--border); background:var(--purple,#7c5cff); color:#fff; cursor:pointer; font-size:0.9rem;">
+      Lancer le debat
+    </button>
+    <span style="font-size:0.78rem; color:var(--muted);">Ctrl+Entree — 3 appels LLM reels par lancement</span>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="panel ollama" id="p1">
+    <div class="panel-h">
+      <span class="provider-name" data-prov>ollama</span>
+      <span class="provider-tag">qwen2.5-coder · 100% local</span>
+      <span class="status" data-status>pending</span>
+    </div>
+    <div class="body" data-body>—</div>
+    <div class="meta">
+      <span data-latency>—</span>
+      <span data-tokens>—</span>
+      <span data-cost>$0 (local)</span>
+    </div>
+  </div>
+
+  <div class="panel groq" id="p2">
+    <div class="panel-h">
+      <span class="provider-name" data-prov>groq</span>
+      <span class="provider-tag">llama-3.3-70b · cloud free</span>
+      <span class="status" data-status>pending</span>
+    </div>
+    <div class="body" data-body>—</div>
+    <div class="meta">
+      <span data-latency>—</span>
+      <span data-tokens>—</span>
+      <span data-cost>—</span>
+    </div>
+  </div>
+
+  <div class="panel cerebras" id="p3">
+    <div class="panel-h">
+      <span class="provider-name" data-prov>cerebras</span>
+      <span class="provider-tag">gpt-oss-120b · cloud free</span>
+      <span class="status" data-status>pending</span>
+    </div>
+    <div class="body" data-body>—</div>
+    <div class="meta">
+      <span data-latency>—</span>
+      <span data-tokens>—</span>
+      <span data-cost>—</span>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Aucun consensus impose — chaque provider parle pour soi. SemanticFirewall pre_flight + post_flight cote serveur.
+</div>
+
+<script>
+// MESURE 2026-08-26 (signale par l'owner) : le panneau local rendait
+// « Provider 'ollama_local' inconnu » — ce nom n'existe pas au registre du hub, qui
+// connait `ollama`. La page appelait donc un provider imaginaire depuis toujours, et
+// l'echec etait mis sur le compte du backend alors qu'il venait de l'appelant.
+// Les noms ci-dessous doivent exister dans `hub action=list_providers`.
+const PROVIDERS = [
+  { panel: "p1", provider: "ollama" },
+  { panel: "p2", provider: "groq" },
+  { panel: "p3", provider: "cerebras" },
+];
+
+async function askProvider(panelId, provider, prompt) {
+  const root = document.getElementById(panelId);
+  const status = root.querySelector("[data-status]");
+  const body = root.querySelector("[data-body]");
+  const lat = root.querySelector("[data-latency]");
+  const tok = root.querySelector("[data-tokens]");
+
+  status.textContent = "live"; status.className = "status live";
+  body.textContent = "";
+  const t0 = performance.now();
+
+  try {
+    const tok = document.querySelector('meta[name="laforge-bearer"]')?.content || "";
+    const res = await fetch("/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(tok ? {"Authorization": "Bearer " + tok, "X-Agent-Name": "CLAUDE"} : {}),
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: panelId,
+        method: "tools/call",
+        params: { name: "ask", arguments: { prompt, provider } }
+      })
+    });
+    const data = await res.json();
+    const text = (data?.result?.content?.[0]?.text) || data?.result?.text || JSON.stringify(data).slice(0, 400);
+    // typewriter pour rendre les responses visibles dans la GIF
+    body.textContent = "";
+    for (const ch of text) {
+      body.textContent += ch;
+      body.scrollTop = body.scrollHeight;
+      await new Promise(r => setTimeout(r, 6));
+    }
+    const dt = ((performance.now() - t0) / 1000).toFixed(1);
+    lat.textContent = `${dt}s`;
+    tok.textContent = `~${Math.round(text.length / 4)} tok`;
+    status.textContent = "done"; status.className = "status done";
+  } catch (e) {
+    body.textContent = `ERROR: ${e.message || e}`;
+    status.textContent = "err"; status.className = "status err";
+  }
+}
+
+// Lancement A LA DEMANDE. L'ancien code tirait les trois providers au `load` : ouvrir la
+// page coutait TROIS appels LLM que personne n'avait demandes, et le prompt n'etant pas
+// saisissable, on ne pouvait que regarder. On lit maintenant la valeur du champ.
+function lancerDebat() {
+  const champ = document.getElementById("prompt");
+  const prompt = (champ.value || "").trim();
+  if (!prompt) {
+    champ.focus();
+    return;                      // rien a demander : ne pas depenser 3 appels
+  }
+  const bouton = document.getElementById("lancer");
+  bouton.disabled = true;        // un double-clic couterait 6 appels
+  bouton.textContent = "En cours…";
+  Promise.allSettled(
+    PROVIDERS.map(p => askProvider(p.panel, p.provider, prompt))
+  ).finally(() => {
+    bouton.disabled = false;
+    bouton.textContent = "Lancer le debat";
+  });
+}
+
+window.addEventListener("load", () => {
+  document.getElementById("lancer").addEventListener("click", lancerDebat);
+  document.getElementById("prompt").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      lancerDebat();
+    }
+  });
+});
+</script>
+
+</body>
+</html>

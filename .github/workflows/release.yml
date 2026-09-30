@@ -1,0 +1,682 @@
+# release.yml — Track A : publication de l'open core sur PyPI.
+#
+# Déclenché par un tag `v*`. Build via uv (standard 2025, rapide) puis publie
+# sur PyPI en **Trusted Publishing (OIDC)** : AUCUN token PyPI stocké en secret
+# — GitHub s'authentifie à PyPI via OIDC. Plus sûr que twine + API token.
+#
+# ⚠️ EDITEUR = Nokido-labs/nokido-dist depuis le 2026-09-30 (owner) : le paquet
+# publie est le contenu FILTRE du dist. Les jobs de publication ne tournent que
+# la-bas (garde `github.repository`), et seulement par workflow_dispatch. Les
+# prerequis ci-dessous valent donc avec repo=nokido-dist ; l'env `testpypi` du
+# dist admet la branche `main`.
+#
+# PRÉREQUIS (une fois) — canonique owner 2026-09-16 : release depuis Nokido-labs/nokido.
+#   1. Sur pypi.org : projet `nokido-agent` (= pyproject.name, PAS `laforge-agent`
+#      — le wheel porte ce nom, un pending publisher sous l'ancien nom ferait
+#      refuser la publication) -> Settings -> Publishing ->
+#      "Add a new pending publisher" : owner=Nokido-labs, repo=nokido-dist
+#      (l'editeur depuis le 2026-09-30), workflow=release.yml, environment=pypi.
+#   2. GitHub Actions doit être DÉBLOQUÉ (billing) — sinon le job ne démarre pas
+#      (cause actuelle des échecs : "recent account payments have failed").
+#   3. Vérifier que `pyproject` n'a plus d'entry-point cassé (nokido-cli OK).
+#   4. Environnement GitHub `pypi` : Settings -> Environments -> pypi ->
+#      Deployment branches and tags = "Selected" -> regle Tag `v*`. L'env `pypi`
+#      porte id-token:write (= pouvoir publier) : le restreindre aux tags v*
+#      empeche une branche quelconque d'y acceder.
+#
+# ESSAI A BLANC (fortement recommande avant le 1er upload PyPI — une version
+# publiee ne peut JAMAIS etre re-uploadee). Lancer ce workflow via
+# "Run workflow" (workflow_dispatch) publie sur TestPyPI, jamais sur PyPI.
+# Prerequis TestPyPI : sur test.pypi.org, trusted publisher projet=nokido-agent,
+# owner=Nokido-labs, repo=nokido-dist, workflow=release.yml, environment=testpypi
+# (FAIT le 2026-09-30) ; et environnement GitHub `testpypi` sur nokido-dist,
+# branche `main` admise (FAIT le 2026-09-30).
+#
+# ⚠️ SA REGLE DE DEPLOIEMENT DOIT ADMETTRE **LES DEUX** : Branch `alpha` (l'essai
+# a blanc tourne par workflow_dispatch sur une BRANCHE) **ET** Tag `v*`.
+#
+# Mesure du 2026-09-10 — la consigne precedente disait « Branch alpha, PAS Tag v* »,
+# et elle rendait le pipeline INEXECUTABLE. Depuis que TestPyPI est un passage
+# OBLIGE (`publish` needs `verify-testpypi`), un push de tag traverse
+# `publish-testpypi` : avec la seule regle Branch, GitHub refuse l'environnement
+# AVANT l'OIDC, le job echoue, et `verify` / `publish` / `create-release` sont
+# tous skippes. Le chemin `tag -> PyPI -> Release` etait mort par construction.
+# Mesure (depot source, avant le 2026-09-30) :
+# `gh api repos/Nokido-labs/nokido/environments/testpypi/deployment-branch-policies`
+# -- sur l'editeur actuel : `gh api repos/Nokido-labs/nokido-dist/environments/testpypi/deployment-branch-policies`
+# -> `branch alpha` seul. Un gate qui ne peut jamais tourner ne garde rien.
+#
+# `pypi` garde la regle Tag `v*` SEULE : c'est le durcissement voulu — aucune
+# branche ne doit pouvoir atteindre l'environnement qui porte `id-token: write`
+# vers l'index public.
+#
+# Note : ce workflow publie le SOURCE (AGPLv3). La distribution propriétaire
+# obfusquée (Track B) = `tools/build_dist.py` -> index PRIVÉ, jamais ici.
+
+name: Release to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:   # essai a blanc -> TestPyPI uniquement (jamais PyPI)
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel (uv)
+    # EDITEUR = le depot DIST (owner 2026-09-30). Ce fichier vit dans les DEUX
+    # depots : le promoteur (`tools/forge_dist_publish.py`) l'embarque dans le
+    # snapshot dist. Sur le dist, seul le declenchement MANUEL construit : le tag
+    # `v*` que pousse la promotion ne publie rien, et comme `publish` exige un
+    # `push`, PyPI reel est inatteignable partout tant que l'owner ne rouvre pas
+    # ce chemin. Sur la source, `build` tourne toujours (verification du paquet).
+    if: github.repository != 'Nokido-labs/nokido-dist' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # UNE SEULE CONSTRUCTION, et ce qu'elle a produit voyage vers les jobs de
+    # preuve. Ceux-ci ne relisent JAMAIS `pyproject.toml` : ils valideraient
+    # alors l'arbre source au lieu de l'artefact. La version est derivee du NOM
+    # DE LA WHEEL, pas du source — c'est ce qui garantit qu'on teste ce qui a
+    # ete construit.
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      wheel_name: ${{ steps.meta.outputs.wheel_name }}
+      wheel_sha256: ${{ steps.meta.outputs.wheel_sha256 }}
+    steps:
+      # `fetch-depth: 0` : sans l'historique complet, `git log -- <chemins>` ne
+      # peut pas remonter au dernier commit ayant touche le CONTENU empaquete —
+      # il rendrait vide des que le dernier commit ne concerne que la CI.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Garde — le tag v* doit == pyproject.version (anti-release incohérente)
+        if: github.event_name == 'push'   # sur workflow_dispatch, ref = branche, pas un tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          echo "tag=$TAG  pyproject=$VER"
+          test "$TAG" = "$VER" || { echo "::error::tag $TAG != version $VER — bump pyproject ou retague"; exit 1; }
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      # BUILD REPRODUCTIBLE — mesure du 2026-09-10, deux builds du MEME SHA :
+      #
+      #   sans SOURCE_DATE_EPOCH, mtime modifie -> 940c30c6... puis 1bf2af77...
+      #   avec SOURCE_DATE_EPOCH, mtime modifie -> dbed0370... deux fois
+      #
+      # setuptools tire les horodatages du zip du `mtime` des sources, et un
+      # checkout les REECRIT a chaque run : deux builds du meme commit donnaient
+      # donc des octets differents. Consequence directe sur la chaine : l'essai a
+      # blanc publie la version sur TestPyPI, le tag rejoue, `skip-existing` fait
+      # servir la wheel de l'essai — et la garde d'identite des octets bloquait
+      # le pipeline a juste titre. Fige l'horodatage sur la DATE DU COMMIT : un
+      # SHA donne produit toujours les memes octets.
+      # ⚠️ L'HORODATAGE SUIT LE CONTENU EMPAQUETE, PAS LE DERNIER COMMIT.
+      #
+      # Premiere version : `git log -1 --pretty=%ct` tout court. Consequence
+      # mesuree en raisonnant sur la campagne du 2026-09-10 : corriger le
+      # WORKFLOW change ce timestamp, donc les octets de la wheel, alors que le
+      # contenu du paquet est identique. `skip-existing` sert alors la version
+      # deja publiee, la garde d'empreinte rougit — et elle aurait raison, pour
+      # un changement qui ne touche pas le paquet. On serait force de bumper a
+      # chaque retouche de CI.
+      #
+      # On date donc sur le dernier commit ayant touche ce qui ENTRE dans la
+      # distribution. Un correctif de CI laisse la wheel bit-a-bit identique.
+      - name: Horodatage reproductible (date du dernier changement EMPAQUETE)
+        run: |
+          SDE=$(git -c safe.directory='*' log -1 --pretty=%ct -- \
+                  nokido_agent app tools pyproject.toml README.md LICENSE)
+          test -n "$SDE" || SDE=$(git -c safe.directory='*' log -1 --pretty=%ct)
+          echo "contenu empaquete date du $(date -u -d "@$SDE" 2>/dev/null || echo "$SDE")"
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+      - name: Build
+        run: uv build
+      - name: Vérifier les métadonnées
+        run: uvx twine check dist/*
+      # INVARIANT DE VERSION, deuxieme moitie. La garde precedente compare le tag
+      # a `pyproject.version` ; elle ne dit RIEN des octets produits. Si le build
+      # servait une autre version (cache, arbre sale, metadonnee dynamique), le
+      # tag et la wheel divergeraient sans que rien ne rougisse — et la chaine
+      # `tag = pyproject = wheel = sdist = PyPI = Release` serait fausse des la
+      # premiere maille.
+      - name: Garde — wheel ET sdist portent la version du tag
+        if: github.event_name == 'push'
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          ls -l dist/
+          test "$(ls dist/*.whl | wc -l)" = "1" || { echo "::error::attendu exactement 1 wheel"; exit 1; }
+          test "$(ls dist/*.tar.gz | wc -l)" = "1" || { echo "::error::attendu exactement 1 sdist"; exit 1; }
+          W=$(ls dist/*.whl); S=$(ls dist/*.tar.gz)
+          case "$W" in *"-$VER-"*) ;; *) echo "::error::wheel $W ne porte pas la version $VER"; exit 1;; esac
+          case "$S" in *"-$VER.tar.gz") ;; *) echo "::error::sdist $S ne porte pas la version $VER"; exit 1;; esac
+          echo "invariant version OK : tag=$VER  wheel=$W  sdist=$S"
+      # L'EMPREINTE EST CALCULEE ICI, sur la wheel qui part en artefact, et
+      # transmise par OUTPUT. Consequence voulue : les runners de preuve n'ont
+      # jamais besoin de telecharger l'artefact, donc ils ne PEUVENT PAS
+      # installer depuis lui par megarde. La regle « l'artefact sert a comparer,
+      # jamais a installer » cesse d'etre une consigne pour devenir une
+      # propriete du graphe.
+      - name: Empreinte et version de l'artefact — transmises aux jobs de preuve
+        id: meta
+        run: |
+          test "$(ls dist/*.whl | wc -l)" = "1" || { echo "::error::attendu exactement 1 wheel"; exit 1; }
+          W=$(ls dist/*.whl)
+          BASE=$(basename "$W")
+          VER=$(echo "$BASE" | cut -d- -f2)
+          SHA=$(sha256sum "$W" | cut -d' ' -f1)
+          case "$VER" in
+            [0-9]*.[0-9]*) ;;
+            *) echo "::error::version illisible depuis le nom de wheel : $BASE"; exit 1;; esac
+          echo "wheel   = $BASE"
+          echo "version = $VER"
+          echo "sha256  = $SHA"
+          {
+            echo "version=$VER"
+            echo "wheel_name=$BASE"
+            echo "wheel_sha256=$SHA"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dist
+          path: dist/
+
+  # Essai a blanc : ne tourne QUE sur declenchement manuel, publie sur TestPyPI.
+  publish-testpypi:
+    name: TestPyPI (passage oblige)
+    # Un seul editeur par version : TestPyPI refuse un second upload, et les
+    # octets du dist (filtre + generise) different de ceux de la source. La
+    # source ne publie donc plus ; `verify`, `publish` et `create-release` en
+    # dependent et sautent avec lui.
+    if: github.repository == 'Nokido-labs/nokido-dist'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write        # OIDC TestPyPI — pending publisher separe (voir en-tete)
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # Une version deja presente (essai a blanc joue avant le tag) ne doit
+          # pas casser la chaine : TestPyPI refuse le re-upload, ce n'est pas un
+          # defaut de l'artefact.
+          skip-existing: true
+
+  # LA PREUVE. Publier n'est pas fonctionner : une wheel s'installe tres bien avec
+  # des imports internes casses. Ce job installe DEPUIS L'INDEX, dans un
+  # environnement neuf qui n'a jamais vu le depot, et EXECUTE du code du corps.
+  # Ni `--no-index` ni `--find-links` : ils feraient reussir l'installation en la
+  # nourrissant de ce qu'on veut precisement exclure.
+  verify-testpypi:
+    name: Preuve ${{ matrix.name }}
+    needs: [build, publish-testpypi]
+    runs-on: ${{ matrix.os }}
+    # `fail-fast: false` est OBLIGATOIRE : un echec sur un OS ne doit pas
+    # annuler les preuves des deux autres. Trois VM neuves, aucun etat partage —
+    # seul moyen de distinguer « le paquet est casse » de « cet OS-la est casse ».
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x64
+          - os: windows-latest
+            name: windows-x64
+          - os: macos-latest
+            name: macos-arm64
+    steps:
+      # AUCUN `actions/checkout` : le depot ne doit pas etre une source Python.
+      # S'il etait la, `sys.path` pourrait le contenir et l'installation
+      # « reussirait » en lisant l'arbre — exactement ce que cette preuve existe
+      # pour exclure.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      # La version ne se relit PLUS depuis `pyproject.toml` : sans checkout il
+      # n'y en a pas, et surtout on validerait l'arbre SOURCE au lieu de
+      # l'artefact. Elle vient de `needs.build.outputs.version`, derivee du nom
+      # de la wheel effectivement construite.
+      # PREUVE D'IDENTITE DES OCTETS — sans elle, toute la chaine ment.
+      #
+      # `skip-existing: true` (job precedent) est NECESSAIRE : TestPyPI refuse un
+      # re-upload, et un essai a blanc joue AVANT le tag. Mais il ouvre un trou
+      # silencieux : si l'essai a blanc a deja publie cette version, TestPyPI sert
+      # la wheel DE L'ESSAI, pas celle du tag. La preuve porterait alors sur des
+      # octets que PyPI ne servira jamais, et `tag -> PyPI -> Release` cesserait
+      # de decrire UN SEUL objet — precisement la propriete que ce pipeline
+      # existe pour garantir.
+      #
+      # On ne retire pas le garde, on corrige son DOMAINE DE VALIDITE : l'identite
+      # se MESURE. Une divergence devient un refus nomme, pas un vert trompeur.
+      # UN SEUL SCRIPT, IDENTIQUE SUR LES TROIS OS. Ecrit en Python et non en
+      # shell : les chemins de venv (`bin/` vs `Scripts/`), les outils
+      # d'empreinte et les quotes different d'une plateforme a l'autre, et trois
+      # variantes de script mesureraient trois choses legerement differentes.
+      #
+      # L'artefact GitHub n'est JAMAIS telecharge ici : seule son EMPREINTE
+      # voyage, par output du job `build`. Il devient donc structurellement
+      # impossible d'installer depuis l'artefact au lieu de l'index.
+      - name: Preuve d'installation depuis TestPyPI
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+          WHEEL_NAME: ${{ needs.build.outputs.wheel_name }}
+          PLATEFORME: ${{ matrix.name }}
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, subprocess, sys, time, venv
+          from pathlib import Path
+
+          VERSION = os.environ["VERSION"]
+          ATTENDU = os.environ["WHEEL_SHA256"]
+          PLATEFORME = os.environ["PLATEFORME"]
+          INDEX = "https://test.pypi.org/simple/"
+          EXTRA = "https://pypi.org/simple/"
+
+          base = Path("nokido-test").resolve()
+          base.mkdir(exist_ok=True)
+          etapes = {}
+
+          def note(cle, etat, detail=""):
+              etapes[cle] = etat
+              print("  %-22s %-8s %s" % (cle, etat, detail), flush=True)
+
+          def bloquer(depuis, motif):
+              for c in ("SHA artefact", "installation", "version", "import",
+                        "chemin hors checkout", "smoke test", "pip check",
+                        "entrypoint nokido-doctor", "sdist installable"):
+                  if c not in etapes:
+                      note(c, "BLOCKED", motif)
+
+          def run(cmd, **kw):
+              return subprocess.run(cmd, capture_output=True, text=True,
+                                    errors="replace", timeout=1200, **kw)
+
+          def sortir(verdict):
+              print("")
+              print("%s  verdict = %s" % (PLATEFORME, verdict))
+              print("SYNTHESE:" + json.dumps(
+                  {"plateforme": PLATEFORME, "verdict": verdict,
+                   "version": VERSION, "sha256_attendu": ATTENDU,
+                   "etapes": etapes}))
+              sys.exit(0 if verdict == "PASS" else 1)
+
+          # --- venv VIERGE, hors de tout checkout -----------------------------
+          vdir = base / "venv"
+          venv.EnvBuilder(with_pip=True, clear=True).create(vdir)
+          py = vdir / ("Scripts" if os.name == "nt" else "bin") / (
+              "python.exe" if os.name == "nt" else "python")
+          if not py.is_file():
+              note("venv", "BLOCKED", "interpreteur introuvable")
+              bloquer(None, "venv indisponible")
+              sortir("BLOCKED")
+          note("venv", "PASS", str(vdir))
+
+          # `PYTHONPATH` retire : un heritage rendrait un arbre importable et
+          # FABRIQUERAIT la reussite qu'on cherche a mesurer.
+          env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+          env["PYTHONNOUSERSITE"] = "1"
+
+          # --- 1. telechargement depuis TestPyPI, polling BORNE ---------------
+          # Un index met parfois quelques secondes a servir une version fraiche.
+          # L'attente est bornee, et son epuisement est un ECHEC, jamais un PASS.
+          servi = base / "servi"
+          r = None
+          for essai in range(1, 7):
+              r = run([str(py), "-m", "pip", "download", "--no-cache-dir",
+                       "--no-deps", "--only-binary=:all:",
+                       "--index-url", INDEX, "--extra-index-url", EXTRA,
+                       "nokido-agent==%s" % VERSION, "-d", str(servi)],
+                      cwd=str(base), env=env)
+              if r.returncode == 0:
+                  break
+              print("  TestPyPI n'a pas encore la version - essai %d/6" % essai,
+                    flush=True)
+              if essai < 6:
+                  time.sleep(20)
+          if r is None or r.returncode != 0:
+              note("download TestPyPI", "FAIL",
+                   "introuvable apres 6 essais : %s" % (r.stderr[-250:] if r else ""))
+              bloquer(None, "telechargement prealable en echec")
+              sortir("FAIL")
+          note("download TestPyPI", "PASS")
+
+          # --- 2. IDENTITE DES OCTETS -----------------------------------------
+          # `skip-existing: true` peut faire servir une wheel deja publiee sous
+          # la MEME version. Ce controle est la seule chose qui distingue « la
+          # bonne wheel » de « une wheel qui porte le bon numero ».
+          whl = sorted(servi.glob("*.whl"))
+          if len(whl) != 1:
+              note("SHA artefact", "FAIL", "%d wheel(s) telechargee(s)" % len(whl))
+              bloquer(None, "artefact servi ambigu")
+              sortir("FAIL")
+          recu = hashlib.sha256(whl[0].read_bytes()).hexdigest()
+          print("  sha256 servi par TestPyPI  = %s" % recu, flush=True)
+          print("  sha256 construit par build = %s" % ATTENDU, flush=True)
+          if recu != ATTENDU:
+              note("SHA artefact", "FAIL", "TestPyPI sert un AUTRE artefact")
+              print("::error::TestPyPI sert un autre artefact pour %s "
+                    "(servi=%s attendu=%s). Ne rien supprimer, ne rien "
+                    "republier : la version doit etre bumpee." % (
+                        VERSION, recu[:16], ATTENDU[:16]))
+              bloquer(None, "artefact servi != artefact construit")
+              sortir("FAIL")
+          note("SHA artefact", "PASS", recu[:16] + "...")
+
+          # --- 3. installation REELLE depuis l'index --------------------------
+          # Jamais depuis la wheel telechargee ci-dessus, jamais depuis un
+          # artefact : on mesure ce qu'un utilisateur obtiendrait.
+          r = run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                   "--index-url", INDEX, "--extra-index-url", EXTRA,
+                   "nokido-agent==%s" % VERSION], cwd=str(base), env=env)
+          if r.returncode != 0:
+              note("installation", "FAIL", r.stderr[-350:])
+              bloquer(None, "installation en echec")
+              sortir("FAIL")
+          note("installation", "PASS")
+
+          # --- 4 a 7. ce que l'installation permet REELLEMENT -----------------
+          # ⚠️ L'ORACLE DE CHEMIN, CORRIGE apres la campagne du 2026-09-10.
+          #
+          # Sa premiere version listait « tout ce qui n'est ni site-packages ni
+          # venv » et declarait donc suspecte la STDLIB — qu'un venv herite
+          # toujours de son interpreteur de base :
+          #
+          #   /opt/hostedtoolcache/Python/3.12.14/x64/lib/python312.zip
+          #
+          # Resultat : FAIL identique sur les trois OS alors que les huit autres
+          # etapes passaient. Cherchait une SOUS-CHAINE la ou il fallait tester
+          # une APPARTENANCE. La propriete voulue n'est pas « rien hors du
+          # venv » mais « rien qui vienne du DEPOT ».
+          sonde = (
+              "import json, os, sys, sysconfig, importlib.metadata as md\n"
+              "res = {}\n"
+              "import nokido_agent\n"
+              "res['version_module'] = getattr(nokido_agent, '__version__', None)\n"
+              "res['version_metadata'] = md.version('nokido-agent')\n"
+              "res['fichier'] = nokido_agent.__file__\n"
+              "legitimes = tuple(os.path.realpath(p) for p in (\n"
+              "    sys.prefix, sys.base_prefix, sysconfig.get_paths()['stdlib']) if p)\n"
+              "res['syspath_suspects'] = [p for p in sys.path if p\n"
+              "    and not os.path.realpath(p).startswith(legitimes)]\n"
+              "_ws = os.environ.get('GITHUB_WORKSPACE') or ''\n"
+              "res['syspath_workspace'] = [p for p in sys.path if p and _ws\n"
+              "    and os.path.realpath(p).startswith(os.path.realpath(_ws))]\n"
+              "import nokido_agent.app, nokido_agent.tools\n"
+              "res['paquets'] = 3\n"
+              "from nokido_agent.app import forge_secrets\n"
+              "res['secret_absent_vide'] = not forge_secrets.get_secret(\n"
+              "    'NOKIDO_CLE_QUI_N_EXISTE_PAS_XXXXXXXX')\n"
+              "from nokido_agent.tools import forge_ports\n"
+              "res['ports_declares'] = len(getattr(forge_ports, 'PORTS', {}) or {})\n"
+              # Compte les fichiers de donnees embarques. Sert de REFERENCE a
+              # l'etape sdist : une comparaison entre les deux distributions
+              # detecte un MANIFEST incomplet sans avoir a coder un nombre
+              # attendu, qui se perimerait au premier fichier ajoute.
+              "import importlib.resources as ir\n"
+              "try:\n"
+              "    _n = [p.name for p in ir.files('nokido_agent.app').iterdir()]\n"
+              "    res['donnees'] = sum(1 for n in _n\n"
+              "        if n.endswith(('.json', '.toml', '.yaml')))\n"
+              "except Exception as e:\n"
+              "    res['donnees'] = -1\n"
+              "    res['donnees_motif'] = '%s: %s' % (type(e).__name__, e)\n"
+              "print('JSON:' + json.dumps(res))\n"
+          )
+          r = run([str(py), "-c", sonde], cwd=str(base), env=env)
+          ligne = next((l for l in r.stdout.splitlines() if l.startswith("JSON:")), None)
+          if r.returncode != 0 or ligne is None:
+              note("import", "FAIL", r.stderr[-350:])
+              bloquer(None, "la sonde n'a rendu aucun resultat")
+              sortir("FAIL")
+          d = json.loads(ligne[5:])
+          print("  sonde = %s" % json.dumps(d)[:500], flush=True)
+
+          coherent = d["version_module"] == VERSION == d["version_metadata"]
+          note("version", "PASS" if coherent else "FAIL",
+               "module=%s metadata=%s attendu=%s" % (
+                   d["version_module"], d["version_metadata"], VERSION))
+          note("import", "PASS" if d["paquets"] == 3 else "FAIL",
+               "nokido_agent + .app + .tools")
+          dans_venv = str(vdir).lower() in (d["fichier"] or "").lower()
+          propre = (dans_venv and not d["syspath_suspects"]
+                    and not d["syspath_workspace"])
+          note("chemin hors checkout", "PASS" if propre else "FAIL",
+               "__file__=%s hors_prefixes=%s sous_workspace=%s" % (
+                   d["fichier"], d["syspath_suspects"], d["syspath_workspace"]))
+          note("smoke test",
+               "PASS" if d["secret_absent_vide"] and d["ports_declares"] > 0 else "FAIL",
+               "secret_absent_vide=%s ports_declares=%s" % (
+                   d["secret_absent_vide"], d["ports_declares"]))
+
+          # --- 8. coherence des dependances -----------------------------------
+          r = run([str(py), "-m", "pip", "check"], cwd=str(base), env=env)
+          note("pip check", "PASS" if r.returncode == 0 else "FAIL",
+               (r.stdout + r.stderr).strip()[-250:])
+
+          # --- 9. un ENTRYPOINT declare repond-il vraiment ? -------------------
+          # Tout ce qui precede prouve que le paquet s'INSTALLE et s'IMPORTE.
+          # Un `[project.scripts]` peut pourtant s'installer parfaitement et
+          # mourir au premier lancement — c'est arrive ici, un entrypoint qui
+          # importait un module sous un nom que la wheel n'expose pas. Rien ne
+          # l'aurait vu, parce que personne ne LANCAIT la commande.
+          #
+          # `nokido-doctor` est choisi parce qu'il ne depend d'aucune
+          # bibliotheque tierce : il repond meme sur un runner nu.
+          #
+          # ATTENTION AU VERDICT. Cette commande rend 1 quand un prerequis
+          # critique est ABSENT — et sur un runner GitHub, deno et ollama le
+          # sont. C'est le resultat ATTENDU, pas un echec du paquet. On juge
+          # donc sur « la commande a-t-elle produit un rapport exploitable »,
+          # jamais sur son code de retour seul.
+          doctor = py.parent / ("nokido-doctor.exe" if os.name == "nt"
+                                else "nokido-doctor")
+          if not doctor.is_file():
+              note("entrypoint nokido-doctor", "FAIL",
+                   "declare dans pyproject mais pas installe: %s" % doctor)
+          else:
+              r = run([str(doctor), "--json"], cwd=str(base), env=env)
+              rap, lisible = {}, False
+              try:
+                  rap = json.loads(r.stdout)
+                  lisible = (isinstance(rap.get("lignes"), list)
+                             and rap.get("total", 0) > 0
+                             and "indetermines_critiques" in rap)
+              except (ValueError, TypeError):
+                  lisible = False
+              note("entrypoint nokido-doctor",
+                   "PASS" if (r.returncode in (0, 1) and lisible) else "FAIL",
+                   "rc=%s prerequis=%s absents=%s%s" % (
+                       r.returncode, rap.get("total"), rap.get("absent"),
+                       "" if lisible else " | " + (r.stderr or r.stdout)[-200:]))
+
+          # --- 10. le SDIST est-il installable, et COMPLET ? -------------------
+          # Une wheel correcte n'implique pas un sdist correct : la wheel sort de
+          # l'arbre, le sdist de MANIFEST.in. Un fichier de donnees oublie ne se
+          # voit QUE par la, et seulement si on installe reellement depuis le
+          # sdist — `--no-binary` force pip a le reconstruire au lieu de prendre
+          # la wheel deja publiee.
+          #
+          # Le verdict se prend par COMPARAISON avec la wheel, jamais sur un
+          # nombre attendu ecrit en dur : un seuil code se perimerait au premier
+          # fichier de donnees ajoute, et personne ne le verrait.
+          vdir2 = base / "venv-sdist"
+          venv.EnvBuilder(with_pip=True, clear=True).create(vdir2)
+          py2 = vdir2 / ("Scripts" if os.name == "nt" else "bin") / (
+              "python.exe" if os.name == "nt" else "python")
+          if not py2.is_file():
+              note("sdist installable", "FAIL", "venv secondaire indisponible")
+          else:
+              r = run([str(py2), "-m", "pip", "install", "--no-cache-dir",
+                       "--no-binary", "nokido-agent",
+                       "--index-url", INDEX, "--extra-index-url", EXTRA,
+                       "nokido-agent==%s" % VERSION], cwd=str(base), env=env)
+              if r.returncode != 0:
+                  note("sdist installable", "FAIL",
+                       "pip refuse de construire depuis le sdist : %s"
+                       % r.stderr[-300:])
+              else:
+                  sonde_sdist = (
+                      "import json\n"
+                      "import nokido_agent, nokido_agent.app, nokido_agent.tools\n"
+                      "import importlib.resources as ir\n"
+                      "res = {'modules': 3}\n"
+                      "try:\n"
+                      "    _n = [p.name for p in ir.files('nokido_agent.app').iterdir()]\n"
+                      "    res['donnees'] = sum(1 for n in _n\n"
+                      "        if n.endswith(('.json', '.toml', '.yaml')))\n"
+                      "except Exception as e:\n"
+                      "    res['donnees'] = -1\n"
+                      "print('JSON:' + json.dumps(res))\n"
+                  )
+                  r = run([str(py2), "-c", sonde_sdist], cwd=str(base), env=env)
+                  l2 = next((l for l in r.stdout.splitlines()
+                             if l.startswith("JSON:")), None)
+                  if l2 is None:
+                      note("sdist installable", "FAIL",
+                           "installe mais inutilisable : %s" % r.stderr[-300:])
+                  else:
+                      d2 = json.loads(l2[5:])
+                      attendu_donnees = d.get("donnees", -1)
+                      # -1 des deux cotes = la sonde n'a pas su compter. C'est
+                      # INDETERMINE, pas un echec : on ne condamne pas sur une
+                      # mesure qu'on n'a pas pu prendre.
+                      if d2["donnees"] < 0 or attendu_donnees < 0:
+                          note("sdist installable", "PASS",
+                               "import OK ; comptage des donnees indisponible "
+                               "(wheel=%s sdist=%s)" % (attendu_donnees, d2["donnees"]))
+                      elif d2["donnees"] < attendu_donnees:
+                          note("sdist installable", "FAIL",
+                               "sdist INCOMPLET : %d fichier(s) de donnees contre %d "
+                               "dans la wheel — MANIFEST.in a completer"
+                               % (d2["donnees"], attendu_donnees))
+                      else:
+                          note("sdist installable", "PASS",
+                               "import OK, %d fichier(s) de donnees (wheel: %d)"
+                               % (d2["donnees"], attendu_donnees))
+
+          echecs = [k for k, e in etapes.items() if e == "FAIL"]
+          bloques = [k for k, e in etapes.items() if e == "BLOCKED"]
+          sortir("FAIL" if echecs else ("BLOCKED" if bloques else "PASS"))
+          PY
+
+  # Publication reelle : UNIQUEMENT sur un tag v* (jamais sur declenchement manuel).
+  publish:
+    name: Publish (Trusted Publishing OIDC)
+    if: github.event_name == 'push'
+    # PyPI n'est atteignable QUE derriere la preuve TestPyPI. Propriete du GRAPHE,
+    # pas consigne : le chemin `tag -> PyPI` devient impossible sans installation
+    # reelle validee depuis l'index.
+    needs: verify-testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write        # requis pour l'OIDC PyPI — pas de token stocké
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+
+  # GitHub Release : APRES PyPI, jamais avant. Mesure du 2026-09-10 : le depot
+  # portait un tag `v17.0.0` et l'API GitHub rendait `[]` — aucune Release. Le
+  # pipeline publiait sur PyPI et s'arretait la.
+  #
+  # L'ORDRE est la garantie : une Release creee avant (ou en parallele de) la
+  # publication annoncerait une version que PyPI ne sert pas encore — ou pas du
+  # tout si la publication echoue. `needs: publish` l'impose.
+  create-release:
+    name: GitHub Release (apres PyPI seulement)
+    if: github.event_name == 'push'
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # creer la Release. PAS d'id-token : rien n'est publie ici.
+    steps:
+      # On REPREND l'artefact construit par `build` et publie par `publish` :
+      # reconstruire donnerait les MEMES versions avec d'AUTRES octets, et la
+      # tracabilite serait fausse. Aucun `uv build` dans ce job, volontairement.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+      - name: La version, depuis le tag (build a garanti tag == pyproject == artefacts)
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      # INVARIANT ARTEFACT — on ne se contente pas d'etre le meme job.
+      #
+      # Les octets joints a la Release sont ceux de `build` par construction
+      # (meme artefact, aucun rebuild). Mais « vrai par construction » n'est pas
+      # « constate » : c'est exactement la classe de defaut qui a laisse
+      # `skip-existing` faire prouver la mauvaise wheel sur TestPyPI. On MESURE
+      # donc que PyPI sert bien ces octets-la — ce qui prouve du meme coup que
+      # PyPI sert bien CETTE version.
+      - name: PyPI sert-il EXACTEMENT les octets que la Release va joindre
+        run: |
+          python3 -m venv /tmp/verif
+          for essai in 1 2 3 4 5 6; do
+            /tmp/verif/bin/python -m pip download --no-deps --only-binary=:all: \
+              "nokido-agent==${{ steps.v.outputs.version }}" -d /tmp/servi && break
+            echo "PyPI n a pas encore indexe la version - essai $essai/6"
+            sleep 20
+          done
+          SERVI=$(sha256sum /tmp/servi/*.whl | cut -d' ' -f1)
+          JOINT=$(sha256sum dist/*.whl | cut -d' ' -f1)
+          echo "servi par PyPI = $SERVI"
+          echo "joint a Release = $JOINT"
+          test "$SERVI" = "$JOINT" || {
+            echo "::error::la wheel que PyPI sert n'est pas celle qui serait jointe a la Release — la Release et PyPI ne decriraient pas le meme objet"
+            exit 1
+          }
+      - name: Empreintes des artefacts publies
+        run: |
+          cd dist && sha256sum * | tee SHA256SUMS.txt
+      # TRACABILITE EXPLICITE. Une Release doit permettre de remonter seule a
+      # PyPI et au SHA certifie : des notes auto-generees listent des PR, jamais
+      # la version publiee ni le commit juge. On genere les notes par l'API puis
+      # on les PREFIXE — `--generate-notes` et `--notes` ne se combinent pas de
+      # facon garantie, et on ne pose pas un pipeline sur un comportement suppose.
+      - name: Notes de release — tracabilite d'abord
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$GITHUB_REF_NAME" --jq .body > /tmp/notes_auto.md || : > /tmp/notes_auto.md
+          {
+            echo "## Tracabilite"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Version PyPI | [\`nokido-agent ${{ steps.v.outputs.version }}\`](https://pypi.org/project/nokido-agent/${{ steps.v.outputs.version }}/) |"
+            echo "| Tag | \`$GITHUB_REF_NAME\` |"
+            echo "| SHA certifie | \`$GITHUB_SHA\` |"
+            echo "| Run | [\`$GITHUB_RUN_ID\`]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID) |"
+            echo
+            echo "Wheel et sdist joints ici sont les **memes octets** que ceux publies sur PyPI"
+            echo "(verifie par empreinte dans ce run) et n'ont ete reconstruits a aucun moment."
+            echo "Empreintes : \`SHA256SUMS.txt\`."
+            echo
+            cat /tmp/notes_auto.md
+          } > /tmp/notes.md
+      # `--verify-tag` refuse de creer une Release sur un tag inexistant : sans
+      # lui, une faute de frappe produirait une Release orpheline.
+      - name: Creer la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME — nokido-agent ${{ steps.v.outputs.version }}" \
+            --notes-file /tmp/notes.md \
+            --verify-tag

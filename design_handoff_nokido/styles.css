@@ -1,0 +1,13 @@
+/* ============================================================================
+   Nokido Design System — point d'entrée CSS global
+   Les projets consommateurs ne lient QUE ce fichier.
+   Ne contient que des @import (aucune règle inline).
+   ============================================================================ */
+
+@import "tokens/fonts.css";
+@import "tokens/colors.css";
+@import "tokens/themes.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/effects.css";
+@import "tokens/base.css";

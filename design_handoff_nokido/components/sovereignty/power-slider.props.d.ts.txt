@@ -1,0 +1,19 @@
+import * as React from "react";
+
+/**
+ * Curseur de puissance / souveraineté — contrôle central de Nokido. Plus on
+ * alloue de puissance, plus l'IA reste locale ; le compromis confidentialité ↔
+ * puissance ↔ coût ↔ latence se lit en direct sous le curseur.
+ * Contrôlé (`value` + `onChange`) ou autonome.
+ *
+ * @startingPoint section="Sovereignty" subtitle="Curseur puissance/souveraineté + métriques live" viewport="700x220"
+ */
+export interface PowerSliderProps {
+  /** Valeur 0–100 (% de puissance allouée → % local) */
+  value?: number;
+  /** Rend le curseur contrôlé */
+  onChange?: (value: number) => void;
+  style?: React.CSSProperties;
+}
+
+export function PowerSlider(props: PowerSliderProps): JSX.Element;

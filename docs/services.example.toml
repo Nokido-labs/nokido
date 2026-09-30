@@ -1,0 +1,134 @@
+# Gabarit de declaration des services — Nokido
+#
+# POURQUOI CE FICHIER EXISTE. La declaration reelle
+# (`proxy_deno/core/services.toml`, 93 services) est RETENUE a la publication :
+# elle porte la topologie de la machine d'origine — chemins absolus, nom de
+# compte, ports et interpreteurs propres a une installation. La publier
+# reviendrait a livrer une carte de cette machine-la.
+#
+# Mais la retenir sans rien mettre a la place laisse une CAPACITE LIVREE SANS
+# DECLARATION : le code du hub, du pont et du tunnel part dans la distribution,
+# et rien ne dit au superviseur qu'ils existent ni comment les lancer. Un
+# mecanisme present mais non declare n'est pas une fonctionnalite, c'est une
+# dette de cablage — la distinction que ce depot applique partout ailleurs.
+#
+# Ce gabarit ne remplace pas la declaration reelle : il montre sa FORME et
+# declare le minimum vital, a copier vers `proxy_deno/core/services.toml` puis a
+# completer.
+#
+# ── Comment l'utiliser ────────────────────────────────────────────────────────
+#   1. copier ce fichier vers `proxy_deno/core/services.toml`
+#   2. n'ajuster que la section [vars] (voir ci-dessous)
+#   3. demarrer le superviseur ; il lit ce fichier au boot et expose
+#      `/supervisor/reload` pour le relire a chaud
+#
+# ── Ce qui N'EST PAS ici ──────────────────────────────────────────────────────
+# Les ~85 autres services (embedders, rerankers, veille, circadien, graphe, SNN,
+# docker, sidecars...). Ils s'ajoutent sur le meme modele. Ce fichier couvre ce
+# sans quoi RIEN d'autre ne demarre, plus le tunnel, parce que c'est lui qu'on
+# ne peut pas deviner.
+
+[vars]
+# LES CHEMINS NE SE MODIFIENT PAS ICI SI L'ENVIRONNEMENT LES PORTE. Le loader
+# fait PRIMER les variables d'environnement sur cette table : sur une autre
+# machine, exporter NOKIDO_BIN ou PYTHON suffit, aucun fichier a editer. C'est
+# la raison d'etre de cette indirection — un chemin en dur dans une declaration
+# est un chemin qu'il faudra corriger a chaque installation.
+ROOT        = "."
+PROXY_DIR   = "./proxy_deno"
+
+# Interpreteur Python qui lance les services. Pointer l'environnement du projet,
+# JAMAIS un `python` du PATH : la resolution ambigue (PATH, user-site) est une
+# cause d'incident deja payee ici — versions divergentes, imports casses.
+PYTHON      = "python"
+
+# Magasin des BINAIRES TIERS (navigateur, relais, moteur vectoriel), hors depot
+# par construction : poids, licences, et ils casseraient la distribution.
+# Surchargeable par la variable d'environnement NOKIDO_BIN.
+NOKIDO_BIN  = "./bin"
+
+# ── Le coeur : sans lui, rien d'autre ne sert ────────────────────────────────
+[[service]]
+name = "NokidoHub"
+intention = "coeur:mcp"
+objectif = "port 8766 ouvert | outils MCP servis"
+wave = 1
+cmd = "${PYTHON}"
+args = ["tools/nokido_hub.py"]
+cwd = "${ROOT}"
+port = 8766
+essential = true
+
+[[service]]
+name = "NokidoWebHub"
+intention = "interface:web"
+objectif = "port 7400 ouvert | tableau de bord servi"
+wave = 2
+cmd = "${PYTHON}"
+args = ["-m", "uvicorn", "app.web_hub.app:app", "--port", "7400"]
+cwd = "${ROOT}"
+port = 7400
+# `deps` = ports qui doivent REPONDRE avant le lancement. Un service qui demarre
+# avant sa dependance ne plante pas toujours : il se degrade en silence, ce qui
+# est pire a diagnostiquer qu'un refus franc.
+deps = [8766]
+essential = false
+
+# ── Le tunnel vers un assistant externe ───────────────────────────────────────
+# Deux services distincts, et la distinction n'est pas cosmetique : l'un ECOUTE
+# (ingress), l'autre SORT (egress). Les confondre ferait ouvrir vers l'exterieur
+# ce qui doit rester en boucle locale.
+[[service]]
+name = "NokidoGithubBridgeMCP"
+intention = "ingress:mcp_assistant"
+objectif = "port 8791 ouvert | registre OAuth persiste sur disque"
+wave = 5
+cmd = "${PYTHON}"
+# LE LANCEUR, PAS LE MODULE. Lui seul lit le coffre et pose les secrets dans
+# l'environnement du serveur (appariement OAuth + jeton GitHub). Le module lance
+# en direct demarre parfaitement... et n'a aucun jeton pour appeler GitHub —
+# une panne qui ressemble a un probleme de reseau et n'en est pas un.
+args = ["tools/forge_bridge_launch.py", "--port", "8791"]
+cwd = "${ROOT}"
+port = 8791
+deps = [8766]
+essential = false
+# Persistance des clients inscrits dynamiquement (RFC 7591). SANS ce chemin,
+# aucune persistance : au redemarrage le serveur oublie les clients, et
+# l'appelant presente un identifiant que plus personne ne connait. Le refus
+# « client inconnu » ne ressemble alors a rien et ne se rattache pas
+# spontanement a un redemarrage survenu des heures plus tot.
+env = { NOKIDO_BRIDGE_OAUTH_CLIENTS = "./sandbox/bridge_oauth_clients.json" }
+
+[[service]]
+name = "NokidoOpenAITunnel"
+intention = "egress:tunnel_assistant"
+objectif = "health 8792 repond | canal MCP relaye vers 8791"
+wave = 6
+cmd = "${PYTHON}"
+args = ["tools/forge_tunnel_client_launch.py", "--port", "8792"]
+cwd = "${ROOT}"
+# Pour un relais, le port de sante EST le capteur : `/healthz` et `/readyz` sont
+# servis par le daemon lui-meme, un heartbeat y serait redondant.
+port = 8792
+deps = [8791]
+essential = false
+
+# ── Notes de securite, a lire avant d'exposer quoi que ce soit ───────────────
+#
+# PORTEES. Le pont verifie la portee A LA PORTE *et* PAR OUTIL
+# (`forge_github_bridge.PORTEE_PAR_OUTIL`). Toute operation ajoutee doit y
+# figurer : la table est une liste BLANCHE, une operation absente est refusee.
+# Deux portees existent — `github:read` (code commite) et `runtime:read`
+# (observation en lecture seule). Un jeton de l'une n'atteint pas les outils de
+# l'autre, et un NR le verifie dans les deux sens.
+#
+# RESSOURCE. Une habilitation est liee a UNE ressource : un depot pour
+# `github:read`, l'instance pour `runtime:read`. C'est ce qui empeche un jeton
+# emis pour un depot d'en lire un autre.
+#
+# ECOUTE. Ces services ecoutent sur la boucle locale. L'exposition vers
+# l'exterieur passe par le tunnel, qui est SORTANT — jamais par un bind sur
+# toutes les interfaces. Un service dont l'adresse d'ecoute est omise bind
+# souvent `0.0.0.0` par defaut : verifier avec `netstat`, pas avec la
+# declaration.

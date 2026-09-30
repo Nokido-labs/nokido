@@ -1,0 +1,878 @@
+{
+  "forge_adr_rag_sync.py": {
+    "complexity": 14,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_agent_authority.py": {
+    "complexity": 35,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_agentic.py": {
+    "complexity": 29,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_agents.py": {
+    "complexity": 257,
+    "size_kb": 119,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_app_context.py": {
+    "complexity": 13,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_arbitrator.py": {
+    "complexity": 52,
+    "size_kb": 17,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_at_dispatch.py": {
+    "complexity": 162,
+    "size_kb": 43,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_auto_pilot.py": {
+    "complexity": 54,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_autonomous_orchestrator.py": {
+    "complexity": 30,
+    "size_kb": 13,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_banner.py": {
+    "complexity": 2,
+    "size_kb": 0,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_boot.py": {
+    "complexity": 16,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_brain_client.py": {
+    "complexity": 20,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_capabilities.py": {
+    "complexity": 3,
+    "size_kb": 3,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_code.py": {
+    "complexity": 219,
+    "size_kb": 93,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_codeberg_sync.py": {
+    "complexity": 14,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_cognitive_router.py": {
+    "complexity": 38,
+    "size_kb": 14,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_collab_modes.py": {
+    "complexity": 203,
+    "size_kb": 67,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_commands.py": {
+    "complexity": 47,
+    "size_kb": 16,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_compose.py": {
+    "complexity": 12,
+    "size_kb": 4,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_context.py": {
+    "complexity": 27,
+    "size_kb": 5,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_context_steadiness.py": {
+    "complexity": 20,
+    "size_kb": 3,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_conv_sanitizer.py": {
+    "complexity": 37,
+    "size_kb": 19,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_core_agents.py": {
+    "complexity": 176,
+    "size_kb": 63,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_core_models.py": {
+    "complexity": 177,
+    "size_kb": 58,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_dataset_loader.py": {
+    "complexity": 45,
+    "size_kb": 13,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_dataset_sync.py": {
+    "complexity": 41,
+    "size_kb": 26,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_db.py": {
+    "complexity": 13,
+    "size_kb": 3,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_deepseek_bridge.py": {
+    "complexity": 8,
+    "size_kb": 3,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_disco.py": {
+    "complexity": 24,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_dispatch.py": {
+    "complexity": 8,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_dispatch_ai.py": {
+    "complexity": 108,
+    "size_kb": 28,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_dispatch_network.py": {
+    "complexity": 69,
+    "size_kb": 19,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_distiller.py": {
+    "complexity": 27,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_distribution.py": {
+    "complexity": 47,
+    "size_kb": 16,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_env_crypt.py": {
+    "complexity": 62,
+    "size_kb": 17,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_env_sync.py": {
+    "complexity": 29,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_events.py": {
+    "complexity": 72,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_gemini_bridge.py": {
+    "complexity": 36,
+    "size_kb": 14,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_ghost_router.py": {
+    "complexity": 61,
+    "size_kb": 12,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_git_worker.py": {
+    "complexity": 23,
+    "size_kb": 3,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_github_mcp_connector.py": {
+    "complexity": 29,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_gui_debug.py": {
+    "complexity": 24,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_advanced.py": {
+    "complexity": 49,
+    "size_kb": 10,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_agents.py": {
+    "complexity": 42,
+    "size_kb": 13,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_build.py": {
+    "complexity": 34,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_ci.py": {
+    "complexity": 126,
+    "size_kb": 30,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_patch.py": {
+    "complexity": 57,
+    "size_kb": 13,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handler_rag.py": {
+    "complexity": 76,
+    "size_kb": 22,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_handlers.py": {
+    "complexity": 469,
+    "size_kb": 121,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_health.py": {
+    "complexity": 81,
+    "size_kb": 29,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_heartbeat.py": {
+    "complexity": 38,
+    "size_kb": 7,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_help.py": {
+    "complexity": 1,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_hot_ingest.py": {
+    "complexity": 37,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_hub_client.py": {
+    "complexity": 16,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_hub_handlers.py": {
+    "complexity": 137,
+    "size_kb": 33,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_hub_storage.py": {
+    "complexity": 12,
+    "size_kb": 3,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_hub_worker.py": {
+    "complexity": 17,
+    "size_kb": 7,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_hw.py": {
+    "complexity": 3,
+    "size_kb": 2,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_hw_allocator.py": {
+    "complexity": 37,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_idle_watchdog.py": {
+    "complexity": 15,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_ingest_self.py": {
+    "complexity": 56,
+    "size_kb": 17,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_inspector.py": {
+    "complexity": 24,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_integrity.py": {
+    "complexity": 55,
+    "size_kb": 31,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_intent_parser.py": {
+    "complexity": 11,
+    "size_kb": 5,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_interaction_test.py": {
+    "complexity": 50,
+    "size_kb": 23,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_kaggle_bridge.py": {
+    "complexity": 32,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_knowledge_distiller.py": {
+    "complexity": 8,
+    "size_kb": 9,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_knowledge_harvester.py": {
+    "complexity": 37,
+    "size_kb": 12,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_litellm_bridge.py": {
+    "complexity": 27,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_litellm_connector.py": {
+    "complexity": 19,
+    "size_kb": 7,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_llamacpp.py": {
+    "complexity": 45,
+    "size_kb": 11,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_llm.py": {
+    "complexity": 35,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_llm_router.py": {
+    "complexity": 36,
+    "size_kb": 17,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_logger.py": {
+    "complexity": 3,
+    "size_kb": 3,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_logging.py": {
+    "complexity": 14,
+    "size_kb": 4,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_loop.py": {
+    "complexity": 42,
+    "size_kb": 15,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mcp_security.py": {
+    "complexity": 96,
+    "size_kb": 33,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mem_watchdog.py": {
+    "complexity": 21,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_memory.py": {
+    "complexity": 44,
+    "size_kb": 13,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mermaid_gen.py": {
+    "complexity": 19,
+    "size_kb": 7,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mesh_memory.py": {
+    "complexity": 39,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_metrics.py": {
+    "complexity": 18,
+    "size_kb": 8,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mixin_ai.py": {
+    "complexity": 27,
+    "size_kb": 8,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mixin_patch.py": {
+    "complexity": 169,
+    "size_kb": 53,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mixin_rag.py": {
+    "complexity": 53,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mixin_ui.py": {
+    "complexity": 116,
+    "size_kb": 30,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mmap_context.py": {
+    "complexity": 23,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_mutation_cache.py": {
+    "complexity": 5,
+    "size_kb": 2,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_network.py": {
+    "complexity": 106,
+    "size_kb": 19,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_nlu.py": {
+    "complexity": 48,
+    "size_kb": 21,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_npu.py": {
+    "complexity": 73,
+    "size_kb": 25,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_npu_embedder.py": {
+    "complexity": 49,
+    "size_kb": 18,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_npu_env.py": {
+    "complexity": 12,
+    "size_kb": 4,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_ollama.py": {
+    "complexity": 50,
+    "size_kb": 11,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_ollama_bridge.py": {
+    "complexity": 120,
+    "size_kb": 32,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_ollama_memory.py": {
+    "complexity": 38,
+    "size_kb": 9,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_onnx_genai.py": {
+    "complexity": 33,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_orchestrator.py": {
+    "complexity": 177,
+    "size_kb": 71,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_performance_tuner.py": {
+    "complexity": 8,
+    "size_kb": 3,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_phi3_npu.py": {
+    "complexity": 19,
+    "size_kb": 6,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_pipeline_node.py": {
+    "complexity": 23,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_prefect.py": {
+    "complexity": 70,
+    "size_kb": 15,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_promotion_queue.py": {
+    "complexity": 29,
+    "size_kb": 19,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_prompt_guard.py": {
+    "complexity": 26,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_pty.py": {
+    "complexity": 71,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_cache.py": {
+    "complexity": 49,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_engine.py": {
+    "complexity": 333,
+    "size_kb": 85,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_index_app.py": {
+    "complexity": 48,
+    "size_kb": 10,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_mixin.py": {
+    "complexity": 44,
+    "size_kb": 19,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_qualify.py": {
+    "complexity": 33,
+    "size_kb": 13,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_store.py": {
+    "complexity": 71,
+    "size_kb": 19,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_truth.py": {
+    "complexity": 69,
+    "size_kb": 36,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_rag_warmup.py": {
+    "complexity": 61,
+    "size_kb": 23,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_recursive_debugger.py": {
+    "complexity": 38,
+    "size_kb": 14,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_registry.py": {
+    "complexity": 29,
+    "size_kb": 12,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_resonance_filter.py": {
+    "complexity": 36,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_router_gateway.py": {
+    "complexity": 34,
+    "size_kb": 10,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_routing.py": {
+    "complexity": 7,
+    "size_kb": 6,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_runner.py": {
+    "complexity": 7,
+    "size_kb": 4,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_runtime.py": {
+    "complexity": 130,
+    "size_kb": 43,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_safe_integration.py": {
+    "complexity": 42,
+    "size_kb": 14,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_secrets.py": {
+    "complexity": 51,
+    "size_kb": 10,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_self_correction.py": {
+    "complexity": 13,
+    "size_kb": 8,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_semantic_firewall.py": {
+    "complexity": 36,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_sentinel.py": {
+    "complexity": 19,
+    "size_kb": 9,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_services.py": {
+    "complexity": 33,
+    "size_kb": 16,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_settings.py": {
+    "complexity": 114,
+    "size_kb": 21,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_snapshot.py": {
+    "complexity": 93,
+    "size_kb": 25,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_ssh.py": {
+    "complexity": 176,
+    "size_kb": 41,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_startup.py": {
+    "complexity": 136,
+    "size_kb": 29,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_startup_logger.py": {
+    "complexity": 32,
+    "size_kb": 11,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_state.py": {
+    "complexity": 57,
+    "size_kb": 10,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_swarm.py": {
+    "complexity": 48,
+    "size_kb": 18,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_swarm_team.py": {
+    "complexity": 94,
+    "size_kb": 37,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_task_bus.py": {
+    "complexity": 21,
+    "size_kb": 15,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_timecode.py": {
+    "complexity": 29,
+    "size_kb": 19,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_triad_authority.py": {
+    "complexity": 43,
+    "size_kb": 10,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_ui_widgets.py": {
+    "complexity": 38,
+    "size_kb": 17,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_unified_discovery.py": {
+    "complexity": 42,
+    "size_kb": 13,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_unified_logger.py": {
+    "complexity": 7,
+    "size_kb": 6,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_utils.py": {
+    "complexity": 4,
+    "size_kb": 0,
+    "purity_rank": "A",
+    "recommended_model": "qwen2.5-coder:1.5b"
+  },
+  "forge_vec_ledger.py": {
+    "complexity": 18,
+    "size_kb": 9,
+    "purity_rank": "B",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_version.py": {
+    "complexity": 26,
+    "size_kb": 7,
+    "purity_rank": "C",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_versioning.py": {
+    "complexity": 115,
+    "size_kb": 41,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_web.py": {
+    "complexity": 99,
+    "size_kb": 22,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  },
+  "forge_web_service.py": {
+    "complexity": 131,
+    "size_kb": 45,
+    "purity_rank": "D",
+    "recommended_model": "qwen2.5-coder:7b-instruct-q4_K_M"
+  }
+}

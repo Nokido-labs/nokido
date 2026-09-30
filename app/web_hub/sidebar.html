@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nokido</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+/* Specifique sidebar (chat bubbles + ingest) - le reste vient de /static/nokido.css */
+html, body { height: 100vh; overflow: hidden; }
+body { display: flex; flex-direction: column; font-size: 13px; }
+header { display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: var(--bg-1);
+  border-bottom: 1px solid var(--border-subtle); flex-shrink: 0; }
+.logo { color: var(--purple); font-weight: 700; font-size: 14px; }
+.dot { width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); animation: laforge-pulse 2s infinite; }
+.sel { margin-left: auto; background: var(--bg-0); border: 1px solid var(--border);
+  color: var(--text-secondary); padding: 2px 6px;
+  border-radius: var(--radius-sm); font-size: 11px; }
+.msgs { flex: 1; overflow-y: auto; padding: 12px;
+  display: flex; flex-direction: column; gap: 10px; }
+.msg { display: flex; flex-direction: column; gap: 3px; max-width: 92%; }
+.msg.user { align-self: flex-end; }
+.msg.bot  { align-self: flex-start; }
+.msg.sys  { align-self: center; max-width: 100%; }
+.bub { padding: 8px 12px; border-radius: var(--radius-sm);
+  font-size: 12px; line-height: 1.6; word-break: break-word; }
+.user .bub { background: rgba(119, 74, 255, 0.1); border: 1px solid rgba(119, 74, 255, 0.3); }
+.bot  .bub { background: var(--bg-2); border: 1px solid var(--border); }
+.sys  .bub { background: rgba(74, 194, 139, 0.06); border: 1px solid rgba(74, 194, 139, 0.18);
+  color: var(--text-dim); font-size: 11px; text-align: center; }
+.meta { font-size: 10px; color: var(--text-disabled); padding: 0 4px; font-family: 'JetBrains Mono', monospace; }
+.user .meta { text-align: right; }
+.inp-area { padding: 8px 12px; background: var(--bg-1);
+  border-top: 1px solid var(--border-subtle); flex-shrink: 0; }
+.inp-row { display: flex; gap: 6px; align-items: flex-end; }
+textarea { flex: 1; background: var(--bg-0); border: 1px solid var(--border);
+  color: var(--text-primary); padding: 8px; border-radius: var(--radius-sm);
+  font-family: inherit; font-size: 12px; resize: none;
+  min-height: 36px; max-height: 120px; line-height: 1.5; }
+textarea:focus { outline: none; border-color: var(--purple); box-shadow: 0 0 0 3px rgba(119, 74, 255, 0.15); }
+.sbtn { background: var(--purple); color: #fff; border: none;
+  padding: 8px 14px; border-radius: var(--radius-sm); cursor: pointer;
+  font-weight: 700; font-size: 12px; height: 36px; transition: background 120ms; }
+.sbtn:hover { background: var(--purple-dim); }
+.sbtn:disabled { opacity: 0.4; cursor: default; }
+.ingest-zone { padding: 6px 12px; background: var(--bg-1);
+  border-top: 1px solid var(--border-subtle); flex-shrink: 0; }
+.ingest-row { display: flex; gap: 6px; }
+.iinput { flex: 1; background: var(--bg-0); border: 1px solid var(--border);
+  color: var(--text-primary); padding: 4px 8px; border-radius: var(--radius-sm);
+  font-size: 11px; font-family: inherit; }
+.ibtn { background: var(--bg-2); border: 1px solid var(--border);
+  color: var(--text-secondary); padding: 4px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; font-size: 11px; }
+.ibtn:hover { border-color: var(--purple); color: var(--purple); }
+.ist { font-size: 10px; color: var(--text-disabled); margin-top: 3px; min-height: 14px;
+  font-family: 'JetBrains Mono', monospace; }
+</style></head><body>
+<header>
+  <div class="dot" id="dot"></div>
+  <div class="logo"><img src="/static/nokido-mark.svg" alt="" width="22" height="22" style="vertical-align:middle"> Nokido</div>
+  <select class="sel" id="mdl">
+    <option value="groq">Groq</option>
+    <option value="gemini">Gemini</option>
+    <option value="mistral">Mistral</option>
+    <option value="ollama">Ollama</option>
+  </select>
+</header>
+<div class="msgs" id="msgs">
+  <div class="msg sys"><div class="bub">Nokido Hub v<span id="ver">18.3</span> &middot; Ring 0 &middot; LF1.S.H.1.3.INT</div></div>
+</div>
+<div class="inp-area"><div class="inp-row">
+  <textarea id="inp" placeholder="Message a Nokido..." rows="1"
+    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"
+    oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
+  <button class="sbtn" id="sbtn" onclick="send()">&#9654;</button>
+</div></div>
+<div class="ingest-zone"><div class="ingest-row">
+  <input class="iinput" id="iurl" placeholder="URL ou texte > /api/ingest centralise">
+  <button class="ibtn" onclick="doIngest()">&#9889;</button>
+</div><div class="ist" id="ist"></div></div>
+<script>
+const HUB='http://'+location.hostname+':8766';  // hôte dynamique -> marche via IP LAN/tunnel, pas que localhost
+const HDR_CHAT='LF1.S.H.1.3.INT';
+const HDR_ING='LF1.S.H.1.5.ING';
+
+function ts(){return new Date().toTimeString().slice(0,8);}
+function addMsg(role,text,meta){
+  const m=document.getElementById('msgs');
+  const d=document.createElement('div');
+  d.className='msg '+role;
+  d.innerHTML='<div class="bub">'+text.replace(/</g,'&lt;').replace(/\n/g,'<br>')+'</div>'+(meta?'<div class="meta">'+meta+'</div>':'');
+  m.appendChild(d);m.scrollTop=m.scrollHeight;return d;
+}
+function setOk(ok){document.getElementById('dot').style.background=ok?'var(--ok)':'var(--err)';}
+
+async function send(){
+  const inp=document.getElementById('inp');
+  const txt=inp.value.trim();if(!txt)return;
+  inp.value='';inp.style.height='auto';
+  document.getElementById('sbtn').disabled=true;
+  addMsg('user',txt,ts());
+  const prov=document.getElementById('mdl').value;
+  const ld=addMsg('bot','...');
+  try{
+    const r=await fetch(HUB+'/mcp',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',
+        params:{name:'ask',arguments:{provider:prov,message:txt,max_tokens:800,_lf_header:HDR_CHAT}}})});
+    const d=await r.json();
+    const raw=d.result&&d.result.content&&d.result.content[0]?d.result.content[0].text:'{}';
+    let resp={};try{resp=JSON.parse(raw);}catch{resp={text:raw};}
+    const out=resp.text||raw;
+    const meta=[resp.model||prov,resp.latency_ms?Math.round(resp.latency_ms)+'ms':''].filter(Boolean).join(' - ');
+    ld.querySelector('.bub').innerHTML=out.replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    if(meta){const me=document.createElement('div');me.className='meta';me.textContent=meta;ld.appendChild(me);}
+    setOk(true);
+  }catch(e){ld.querySelector('.bub').textContent='Erreur: '+e.message;setOk(false);}
+  document.getElementById('sbtn').disabled=false;
+}
+
+async function doIngest(){
+  const val=document.getElementById('iurl').value.trim();
+  const st=document.getElementById('ist');
+  if(!val)return;
+  st.textContent='Envoi...';st.style.color='var(--dim)';
+  try{
+    const isUrl=val.startsWith('http');
+    const r=await fetch('/api/ingest',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({header:HDR_ING,source:'sidebar',
+        data:isUrl?{url:val,title:val}:{text:val}})});
+    const d=await r.json();
+    st.textContent=d.ok?('En file de veille'+(d.id?' · '+d.id:'')):('ERR '+(d.error||''));
+    st.style.color=d.ok?'var(--ok)':'var(--err)';
+    if(d.ok)document.getElementById('iurl').value='';
+  }catch(e){st.textContent='Hub offline: '+e.message;st.style.color='var(--err)';}
+}
+
+(async function init(){
+  try{
+    const r=await fetch(HUB+'/health');
+    const d=await r.json();
+    document.getElementById('ver').textContent=d.version||'?';
+    setOk(true);
+  }catch(e){setOk(false);}
+})();
+</script></body></html>

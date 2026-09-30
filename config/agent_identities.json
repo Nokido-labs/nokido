@@ -1,0 +1,2447 @@
+{
+  "_doc": "Registre LIVE identite x canal x ring x machine x FACON D'AGIR. Edite (GUI #10/main) -> reload mtime, PAS de restart. ring 0=plus de droits.",
+  "_doc_mode": "mode=interactive|autonomous|relay ; drains=la file consommee ; acts=execute|respond ; wake=service a reveiller ('-' si l'owner l'ouvre). Ajoute 2026-07-26 : le registre disait QUI et AVEC QUELS DROITS, jamais COMMENT il agit -- d'ou une liste de CLI interactifs recopiee en dur dans forge_task_executor, qui pouvait diverger du registre en silence. Champs ADDITIFS : les lecteurs (videur, mcp_security, postal, ring_admin) ne lisent que ring/write_paths/channel.",
+  "version": 1,
+  "agents": {
+    "LAFORGE_CLI": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "LAFORGE",
+      "surface": "interactive",
+      "mailbox": "LAFORGE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "_note": "2026-09-20 : les alias NOKIDO_CLI / nokido_cli / agt_nokido_cli ont ete RETIRES. Ils designaient l'identite NOKIDO_CLI (acteur NOKIDO, ring 4) alors que cette entree est acteur LAFORGE, ring 1 : la resolution dependait de l'ordre de parcours et pouvait rendre le ring 1 a un appelant se presentant comme 'nokido_cli' -- une elevation de privilege latente. RFC 6749 §2.2 : un identifiant de client designe UN enregistrement. Origine mesuree : residu du cutover laforge->nokido, ajoute par tools/forge_identity_registry_upgrade.py:91. Aucun appelant ne se presente sous ce nom (llama_cli.py envoie X-Agent-Name: LAFORGE_CLI). Le multi-nom d'un MEME acteur reste licite -- cf. AGY/GEMINI/ANTIGRAVITY. Garde : tests/nr/test_registre_identite_unicite_nr.py",
+      "aliases": [
+        "agt_laforge_cli",
+        "laforge_cli"
+      ]
+    },
+    "CLAUDE_CLI": {
+      "ring": 1,
+      "channel": "STDIO_CLAUDE",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "CLAUDE",
+      "surface": "interactive",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude_cli",
+        "claude_cli"
+      ]
+    },
+    "CLAUDE": {
+      "ring": 1,
+      "write_paths": [
+        "*"
+      ],
+      "channel": "STDIO_CLAUDE",
+      "transport": "http",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "CLAUDE",
+      "surface": "interactive",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude",
+        "claude"
+      ]
+    },
+    "CLAUDE_HOOK": {
+      "ring": 4,
+      "channel": "STDIO_CLAUDE",
+      "transport": "hook",
+      "machine": "local",
+      "kind": "hook",
+      "actor": "CLAUDE",
+      "surface": "internal",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude_hook",
+        "claude_hook"
+      ]
+    },
+    "CLAUDE_DESKTOP": {
+      "ring": 1,
+      "channel": "HTTP_DIRECT",
+      "transport": "gateway",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "CLAUDE",
+      "surface": "interactive",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude_desktop",
+        "claude_desktop"
+      ]
+    },
+    "AGY": {
+      "mode": "interactive",
+      "drains": "-",
+      "acts": "execute",
+      "wake": "-",
+      "same_actor": "ANTIGRAVITY",
+      "aliases": [
+        "GEMINI",
+        "agt_agy",
+        "agy"
+      ],
+      "_ring_note": "ring 1 = celui de CLAUDE. Owner 2026-07-26 : les clients de Nokido sont a EQUIVALENCE. Et surtout, le MEME acteur n'a plus des droits differents selon le nom qu'il presente (il etait 1 en ANTIGRAVITY, 2 en AGY, 2 en GEMINI, 3 en headless).",
+      "_note": "IDENTIFIANT VIVANT. AGY = GEMINI = ANTIGRAVITY : un seul acteur, plusieurs noms, TOUS actifs. Ce qui est mort, c'est la MARQUE 'Gemini CLI' (produit remplace par Antigravity) -- pas l'identifiant, pas ses jetons, pas ses variantes. Un identifiant qui s'authentifie et rend 200 est VIVANT : ne jamais le revoquer ni le traiter en orphelin, ca couperait AGY.",
+      "ring": 1,
+      "write_paths": [
+        "sandbox/",
+        "docs/",
+        "tests/",
+        "logs/",
+        "migrations/",
+        "config/"
+      ],
+      "channel": "GEMINI_OAUTH",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp"
+    },
+    "AGY_HEADLESS": {
+      "mode": "autonomous",
+      "drains": "postal",
+      "acts": "respond",
+      "wake": "NokidoGeminiAutonomous",
+      "same_actor": "ANTIGRAVITY",
+      "aliases": [
+        "GEMINI_HEADLESS",
+        "agt_agy_headless",
+        "agy_headless"
+      ],
+      "_note": "Mode AUTONOME du meme acteur : depile le postal et REPOND (LLM), n'EXECUTE pas -- l'execution passe par le relais WORKER_CODE qui lance agy en mode agent.",
+      "_ring_note": "ring 1 comme le reste de l'acteur. CONSEQUENCE ASSUMEE : un service NON SURVEILLE porte donc des droits ring 1. C'est le prix de l'equivalence demandee ; le garde reste l'intention et le videur, pas un ring rabaisse qui faisait surtout echouer le meme acteur selon son etiquette.",
+      "ring": 1,
+      "channel": "GEMINI_OAUTH",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp"
+    },
+    "AGY_DAEMON": {
+      "mode": "autonomous",
+      "drains": "postal",
+      "acts": "respond",
+      "wake": "NokidoGeminiDaemon",
+      "same_actor": "ANTIGRAVITY",
+      "aliases": [
+        "GEMINI_DAEMON",
+        "agt_agy_daemon",
+        "agy_daemon"
+      ],
+      "_ring_note": "ring 1 comme le reste de l'acteur (cf AGY_HEADLESS).",
+      "ring": 1,
+      "channel": "GEMINI_OAUTH",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp"
+    },
+    "AGY_HOOK": {
+      "mode": "hook",
+      "drains": "-",
+      "acts": "-",
+      "wake": "-",
+      "same_actor": "ANTIGRAVITY",
+      "aliases": [
+        "GEMINI_HOOK",
+        "agt_agy_hook",
+        "agy_hook"
+      ],
+      "ring": 4,
+      "channel": "GEMINI_OAUTH",
+      "transport": "hook",
+      "machine": "local",
+      "kind": "hook",
+      "actor": "ANTIGRAVITY",
+      "surface": "internal",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp"
+    },
+    "GEMINI": {
+      "mode": "interactive",
+      "drains": "-",
+      "acts": "execute",
+      "wake": "-",
+      "same_actor": "ANTIGRAVITY",
+      "canonical": "AGY",
+      "_note": "IDENTIFIANT VIVANT, ne pas revoquer. Meme acteur qu'AGY et ANTIGRAVITY. Seule la MARQUE du produit a change (Gemini CLI -> Antigravity) ; les jetons et le canal GEMINI_OAUTH restent en service.",
+      "ring": 1,
+      "write_paths": [
+        "sandbox/",
+        "docs/",
+        "tests/",
+        "logs/",
+        "migrations/",
+        "config/"
+      ],
+      "channel": "GEMINI_OAUTH",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini",
+        "gemini"
+      ]
+    },
+    "ANTIGRAVITY": {
+      "mode": "interactive",
+      "drains": "tasks.db (claim)",
+      "acts": "execute",
+      "wake": "-",
+      "same_actor": "ANTIGRAVITY",
+      "noms_vivants": [
+        "AGY",
+        "GEMINI",
+        "AGY_HEADLESS",
+        "GEMINI_HEADLESS",
+        "AGY_DAEMON",
+        "GEMINI_DAEMON",
+        "AGY_HOOK",
+        "GEMINI_HOOK"
+      ],
+      "mode_autonomous": {
+        "drains": "postal",
+        "acts": "respond",
+        "wake": "NokidoGeminiAutonomous",
+        "identites": [
+          "AGY_HEADLESS",
+          "AGY_DAEMON"
+        ],
+        "_note": "MEME acteur, autre facon d'agir : le service depile le postal et REPOND (LLM), il n'EXECUTE pas. L'execution passe par le relais WORKER_CODE, qui lance agy en mode agent."
+      },
+      "_note": "L'ACTEUR, seul et unique : agy / Antigravity. « Gemini » est son ANCIEN NOM et ne designe rien d'autre. Deux facons d'agir : interactive (surface IDE ouverte par l'owner, EXECUTE) et autonomous (service, REPOND). Ses taches lui sont RESERVEES : l'executor autonome ne les vole pas, sinon il les tenterait en ring 4 -> GATE_DENIED et brulerait la tache. Corollaire mesure 2026-07-26 : surface fermee = tache qui dort en silence, d'ou tasks_unclaimed au digest whoami.",
+      "ring": 1,
+      "write_paths": [
+        "app/",
+        "tools/",
+        "proxy_deno/",
+        "src/",
+        "tests/",
+        "docs/",
+        "config/",
+        "migrations/",
+        "logs/",
+        "sandbox/"
+      ],
+      "channel": "ANTIGRAVITY_MCP",
+      "transport": "http",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "AGY",
+        "GEMINI",
+        "agt_agy",
+        "agt_antigravity",
+        "agt_gemini",
+        "agy",
+        "antigravity",
+        "gemini"
+      ]
+    },
+    "GEMINI_HOOK": {
+      "mode": "hook",
+      "same_actor": "ANTIGRAVITY",
+      "canonical": "AGY_HOOK",
+      "ring": 4,
+      "channel": "GEMINI_OAUTH",
+      "transport": "hook",
+      "machine": "local",
+      "kind": "hook",
+      "actor": "ANTIGRAVITY",
+      "surface": "internal",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_hook",
+        "gemini_hook"
+      ]
+    },
+    "GEMINI_HEADLESS": {
+      "mode": "autonomous",
+      "drains": "postal",
+      "acts": "respond",
+      "wake": "NokidoGeminiAutonomous",
+      "same_actor": "ANTIGRAVITY",
+      "canonical": "AGY_HEADLESS",
+      "ring": 1,
+      "channel": "GEMINI_OAUTH",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_headless",
+        "gemini_headless"
+      ]
+    },
+    "COPILOT": {
+      "ring": 3,
+      "channel": "HTTP_DIRECT",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "COPILOT",
+      "surface": "interactive",
+      "mailbox": "COPILOT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_copilot",
+        "copilot"
+      ]
+    },
+    "COPILOT_CLI": {
+      "ring": 3,
+      "channel": "HTTP_DIRECT",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "COPILOT",
+      "surface": "interactive",
+      "mailbox": "COPILOT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_copilot_cli",
+        "copilot_cli"
+      ]
+    },
+    "COPILOT_HOOK": {
+      "ring": 4,
+      "channel": "HTTP_DIRECT",
+      "transport": "hook",
+      "machine": "local",
+      "kind": "hook",
+      "actor": "COPILOT",
+      "surface": "internal",
+      "mailbox": "COPILOT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_copilot_hook",
+        "copilot_hook"
+      ]
+    },
+    "CODEX": {
+      "ring": 2,
+      "write_paths": [
+        "app/",
+        "tools/",
+        "proxy_deno/",
+        "src/",
+        "tests/",
+        "docs/",
+        "config/",
+        "migrations/",
+        "logs/",
+        "sandbox/"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "cli",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "CODEX",
+      "surface": "interactive",
+      "mailbox": "CODEX",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_codex",
+        "codex"
+      ]
+    },
+    "OPENAI_PROXY": {
+      "ring": 2,
+      "channel": "INTERNAL_HUB",
+      "transport": "http",
+      "machine": "local",
+      "kind": "relay",
+      "actor": "OPENAI",
+      "surface": "internal",
+      "mailbox": "OPENAI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "delegation": {
+        "ring_min_delegue": 1,
+        "motif": "Passerelle OpenAI-compatible (:7777) qui relaie des clients reels (CLAUDE_DESKTOP, CLINE, COPILOT...) et doit conserver LEUR identite cote hub. Portait le jeton MAITRE pour y parvenir : CONFUSED DEPUTY, toute requete atteignant :7777 choisissait son identite ET son ring, administration comprise. Depuis le 2026-09-02 elle prouve la SIENNE avec son jeton derive, et ce champ lui accorde le droit borne de DECLARER un autre nom. `ring_min_delegue: 1` est la borne qui compte : meme compromise, la passerelle peut usurper une identite existante mais n'atteint JAMAIS le ring 0. La trace porte `via=delegated:OPENAI_PROXY` -- une delegation ne doit pas etre indiscernable d'une authentification directe.",
+        "limite_connue": "LE DEGAT EST BORNE, PAS SUPPRIME -- et il faut le savoir avant de lire ce champ comme une fermeture. Mesure du 2026-09-02 (tools/forge_openai_proxy.py, handler chat) : la passerelle N'AUTHENTIFIE PAS ses clients entrants. Elle prend l'identite dans l'en-tete de la requete (`LaForge-Agent-Name` sinon `OPENAI_PROXY`) sans exiger la moindre preuve -- aucune clef d'API, aucun 401 dans tout le module. Un appelant de :7777 CHOISIT donc encore son identite ; la delegation l'empeche seulement de depasser le plancher. La fermeture complete demande une AUTHENTIFICATION ENTRANTE (une clef par client, associee a une identite), ce qui casserait tous les clients actuels et releve d'un arbitrage owner. Le `pass-through` -- relayer le credential du client au lieu d'en forger un -- est INAPPLICABLE tant que cette authentification n'existe pas : il n'y a aucun credential client a relayer, seulement un nom."
+      },
+      "aliases": [
+        "agt_openai_proxy",
+        "openai_proxy"
+      ]
+    },
+    "TRAY": {
+      "ring": 2,
+      "_note": "2026-09-26 : ring 4 -> 2, decision owner. Le tray vit dans la session de l'owner : il lit le mode (get_mode, ring 2) et prend les ordres de redemarrage que l'owner a CONFIRMES par elicitation (hub action=ordre_bureau, app/forge_ordres_bureau.py). set_mode reste ring 0.",
+      "channel": "INTERNAL_HUB",
+      "transport": "local",
+      "machine": "local",
+      "kind": "service",
+      "actor": "TRAY",
+      "surface": "internal",
+      "mailbox": "TRAY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_tray",
+        "tray"
+      ]
+    },
+    "SERVICES": {
+      "ring": 4,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "SERVICES",
+      "surface": "internal",
+      "mailbox": "SERVICES",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_services",
+        "services"
+      ]
+    },
+    "SUPERVISOR": {
+      "ring": 1,
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "kind": "service",
+      "actor": "SUPERVISOR",
+      "surface": "internal",
+      "mailbox": "SUPERVISOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "organe": "tronc cerebral -- regule le cycle veille/sommeil des organes (spawn, arret, differe). Ring 1 comme TDR_SENTINEL : un organe qui REGULE les autres agit au niveau des vitaux, sans etre ring 0, qui reste l'owner.",
+      "porte_son_propre_marqueur": "FORGE_TOKEN_SUPERVISOR au coffre. Il ne doit PAS emprunter FORGE_MCP_TOKEN : le master est le badge du corps entier, et un organe qui le porte devient indiscernable des autres dans le journal -- la chaine d'appel cesse d'etre remontable, ce qui est exactement ce qu'on construit. Tant que son jeton propre n'est pas seme, il se NOMME quand meme (en-tete LaForge-Agent-Name) pour que la trace soit lisible ; le nom sans jeton apparie ne donne aucun droit (plancher anti-spoof), et c'est voulu.",
+      "aliases": [
+        "agt_supervisor",
+        "supervisor",
+        "nokido_supervisor",
+        "deno_supervisor"
+      ],
+      "tpm_jkt": "aD4F0nKKQqwEgYqcVt5MuiPLChGCuSF3Wf4ZoynLdF4",
+      "tpm_jkt_enregistre_le": "2026-09-24"
+    },
+    "RESCUE": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "cli",
+      "machine": "local",
+      "mode": "interactive",
+      "acts": "execute",
+      "drains": "-",
+      "wake": "-",
+      "_note": "Canal de secours tools/forge_rescue.py (--resync, --restart-*). Declare le 2026-08-05 : son notify partait SANS Authorization et a ete surpris par le controle d'identification du diagnostic de sante -- c'est le troisieme emetteur anonyme, celui qu'aucune enquete manuelle n'avait vu. Preuve que la garantie doit etre un CONTROLE PERMANENT et non un correctif ponctuel.",
+      "_ring_note": "Ring 3 comme ORGAN_PULSE et COAGULATION : minimum pour notify. Un outil de secours ne doit PAS porter plus de droits que necessaire -- c'est precisement l'outil qu'on lance quand le systeme va mal.",
+      "kind": "service",
+      "actor": "RESCUE",
+      "surface": "internal",
+      "mailbox": "RESCUE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_rescue",
+        "rescue"
+      ]
+    },
+    "ORGAN_PULSE": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "mode": "autonomous",
+      "acts": "respond",
+      "drains": "-",
+      "wake": "NokidoOrganPulse",
+      "_note": "Daemon tools/forge_organ_pulse.py (--watch 600). Declare le 2026-08-05 : il postait sur /mcp SANS Bearer et avalait l'echec, donc ses alertes de pouls n'ont JAMAIS ete delivrees et il comptait dans les 4 730 rejets no_auth/24 h. Passe desormais par forge_hub_client, qui presente LaForge-Agent-Name et le jeton du coffre.",
+      "_ring_note": "Ring 3 = le MINIMUM qui autorise `hub notify` (mesure 2026-08-05 : ring 4 -> GATE_DENIED ring 4 <= requis 3). Pas de ring 2 : ce daemon n'a besoin ni de `ask` ni d'ecriture. Le jeton doit etre PROPRE a cette identite -- avec un jeton d'un autre agent, le plancher anti-spoof rabat en ring 4 (piege paye par TASK_EXECUTOR le 2026-06-23).",
+      "kind": "service",
+      "actor": "ORGAN_PULSE",
+      "surface": "internal",
+      "mailbox": "ORGAN_PULSE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_organ_pulse",
+        "organ_pulse"
+      ]
+    },
+    "STATE_ENCODER": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "mode": "autonomous",
+      "acts": "respond",
+      "drains": "-",
+      "wake": "-",
+      "_note": "Encodeur d'état système (Phase 0). Lit l'état du hub via /mcp pour générer l'embedding de cognition 384d. Nécessite le ring 3 pour exécuter tools/call (ex: task/whoami).",
+      "kind": "service",
+      "actor": "STATE_ENCODER",
+      "surface": "internal",
+      "mailbox": "STATE_ENCODER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_state_encoder",
+        "state_encoder"
+      ]
+    },
+    "COAGULATION": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "mode": "autonomous",
+      "acts": "execute",
+      "drains": "forge_critical_events",
+      "wake": "NokidoCoagulation",
+      "_note": "Daemon tools/forge_coagulation.py (--watch 300). Meme defaut copie-colle que ORGAN_PULSE : POST maison au format {tool, args} -- qui n'est PAS du JSON-RPC 2.0 -- sans Bearer, plus `except: pass`. Ses ESCALADES etaient donc perdues deux fois : rejetees par le hub, puis tues par le garde muet.",
+      "_ring_note": "Ring 3, meme raison que ORGAN_PULSE : minimum pour notifier. Une escalade qui ne part pas est pire qu'une escalade absente -- elle donne l'illusion d'une surveillance.",
+      "kind": "service",
+      "actor": "COAGULATION",
+      "surface": "internal",
+      "mailbox": "COAGULATION",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_coagulation",
+        "coagulation"
+      ]
+    },
+    "CLINE": {
+      "ring": 1,
+      "write_paths": [
+        "app/",
+        "tests/",
+        "src/",
+        "sandbox/",
+        "docs/"
+      ],
+      "channel": "CLINE_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "CLINE",
+      "surface": "interactive",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline",
+        "cline"
+      ]
+    },
+    "CLINE_PLAN": {
+      "ring": 2,
+      "channel": "CLINE_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "CLINE",
+      "surface": "interactive",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_plan",
+        "cline_plan"
+      ]
+    },
+    "CLINE_ACT": {
+      "ring": 1,
+      "channel": "CLINE_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "CLINE",
+      "surface": "interactive",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_act",
+        "cline_act"
+      ]
+    },
+    "ROO_PLAN": {
+      "ring": 2,
+      "channel": "ROO_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "ROO",
+      "surface": "interactive",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_plan",
+        "roo_plan"
+      ]
+    },
+    "ROO_ACT": {
+      "ring": 1,
+      "channel": "ROO_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "surface",
+      "actor": "ROO",
+      "surface": "interactive",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_act",
+        "roo_act"
+      ]
+    },
+    "SIXTH": {
+      "ring": 2,
+      "channel": "SIXTH_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "SIXTH",
+      "surface": "interactive",
+      "mailbox": "SIXTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_sixth",
+        "sixth"
+      ]
+    },
+    "AZURE": {
+      "ring": 3,
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "kind": "service",
+      "actor": "AZURE",
+      "surface": "internal",
+      "mailbox": "AZURE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_azure",
+        "azure"
+      ]
+    },
+    "BRIDGE": {
+      "ring": 2,
+      "write_paths": [
+        "*"
+      ],
+      "channel": "STDIO_CLAUDE",
+      "transport": "stdio",
+      "machine": "local",
+      "kind": "relay",
+      "actor": "BRIDGE",
+      "surface": "internal",
+      "mailbox": "BRIDGE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_bridge",
+        "bridge"
+      ]
+    },
+    "COLLAB_BROKER": {
+      "ring": 2,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "relay",
+      "actor": "COLLAB_BROKER",
+      "surface": "internal",
+      "mailbox": "COLLAB_BROKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_collab_broker",
+        "collab_broker"
+      ]
+    },
+    "NETCFG": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "mcp",
+      "machine": "local",
+      "kind": "service",
+      "actor": "NETCFG",
+      "surface": "backend",
+      "mailbox": "NETCFG",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_netcfg",
+        "netcfg"
+      ]
+    },
+    "LLAMACPP": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "local",
+      "machine": "local",
+      "kind": "endpoint",
+      "actor": "LLAMACPP",
+      "surface": "backend",
+      "mailbox": "LLAMACPP",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_llamacpp",
+        "llamacpp"
+      ]
+    },
+    "VSCODE": {
+      "ring": 2,
+      "channel": "VSCODE_MCP",
+      "transport": "http",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "VSCODE",
+      "surface": "interactive",
+      "mailbox": "VSCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vscode",
+        "vscode"
+      ]
+    },
+    "LMSTUDIO": {
+      "ring": 3,
+      "channel": "LMSTUDIO_MCP",
+      "transport": "http",
+      "machine": "local",
+      "kind": "endpoint",
+      "actor": "LMSTUDIO",
+      "surface": "backend",
+      "mailbox": "LMSTUDIO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_lmstudio",
+        "lmstudio"
+      ]
+    },
+    "WATCH_EXECUTOR": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "WATCH_EXECUTOR",
+      "surface": "internal",
+      "mailbox": "WATCH_EXECUTOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_watch_executor",
+        "watch_executor"
+      ]
+    },
+    "INTERNAL_WORKER": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "INTERNAL_WORKER",
+      "surface": "internal",
+      "mailbox": "INTERNAL_WORKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_internal_worker",
+        "internal_worker"
+      ]
+    },
+    "TASK_EXECUTOR": {
+      "ring": 2,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "relay",
+      "actor": "TASK_EXECUTOR",
+      "surface": "internal",
+      "mailbox": "TASK_EXECUTOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_task_executor",
+        "task_executor"
+      ]
+    },
+    "CHAIN_EXECUTOR": {
+      "ring": 2,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "CHAIN_EXECUTOR",
+      "surface": "internal",
+      "mailbox": "CHAIN_EXECUTOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_chain_executor",
+        "chain_executor"
+      ]
+    },
+    "AUTONOMOUS_LOOPS": {
+      "ring": 2,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "AUTONOMOUS_LOOPS",
+      "surface": "internal",
+      "mailbox": "AUTONOMOUS_LOOPS",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_autonomous_loops",
+        "autonomous_loops"
+      ]
+    },
+    "AUTO_EVOLUTION": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "AUTO_EVOLUTION",
+      "surface": "internal",
+      "mailbox": "AUTO_EVOLUTION",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_auto_evolution",
+        "auto_evolution"
+      ]
+    },
+    "EMBED_TRIGGER": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "EMBED_TRIGGER",
+      "surface": "internal",
+      "mailbox": "EMBED_TRIGGER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_embed_trigger",
+        "embed_trigger"
+      ]
+    },
+    "HEBBIAN": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "HEBBIAN",
+      "surface": "internal",
+      "mailbox": "HEBBIAN",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_hebbian",
+        "hebbian"
+      ]
+    },
+    "GRAPH": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "GRAPH",
+      "surface": "internal",
+      "mailbox": "GRAPH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_graph",
+        "graph"
+      ]
+    },
+    "TRACE_SIDECAR": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "TRACE_SIDECAR",
+      "surface": "internal",
+      "mailbox": "TRACE_SIDECAR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_trace_sidecar",
+        "trace_sidecar"
+      ]
+    },
+    "TRACE_COLLECTOR": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "TRACE_COLLECTOR",
+      "surface": "internal",
+      "mailbox": "TRACE_COLLECTOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_trace_collector",
+        "trace_collector"
+      ]
+    },
+    "DOCKER_KEEPER": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "DOCKER_KEEPER",
+      "surface": "internal",
+      "mailbox": "DOCKER_KEEPER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_docker_keeper",
+        "docker_keeper"
+      ]
+    },
+    "LLAMA_KEEPER": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "LLAMA_KEEPER",
+      "surface": "internal",
+      "mailbox": "LLAMA_KEEPER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_llama_keeper",
+        "llama_keeper"
+      ]
+    },
+    "LOG_GUARD": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "LOG_GUARD",
+      "surface": "internal",
+      "mailbox": "LOG_GUARD",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_log_guard",
+        "log_guard"
+      ]
+    },
+    "TDR_SENTINEL": {
+      "ring": 1,
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "TDR_SENTINEL",
+      "surface": "internal",
+      "mailbox": "TDR_SENTINEL",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_tdr_sentinel",
+        "tdr_sentinel"
+      ]
+    },
+    "GEMINI_DAEMON": {
+      "mode": "autonomous",
+      "drains": "postal",
+      "acts": "respond",
+      "wake": "NokidoGeminiDaemon",
+      "same_actor": "ANTIGRAVITY",
+      "canonical": "AGY_DAEMON",
+      "ring": 1,
+      "channel": "GEMINI_OAUTH",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_daemon",
+        "gemini_daemon"
+      ]
+    },
+    "WEBHUB": {
+      "ring": 2,
+      "delegation": {
+        "ring_min_delegue": 1,
+        "motif": "Interface web (:7400) qui relaie vers le hub les appels d'outils de ses utilisateurs (MCP Lab, routes cablees), en devant conserver LEUR identite. Elle portait le jeton MAITRE pour y parvenir tout en declarant `X-Agent-Name: WEBHUB` : CONFUSED DEPUTY, exactement le defaut ferme le 2026-09-02 pour OPENAI_PROXY et DENOHUBMCP. Elle avait ete OUBLIEE par cette campagne : mesure du 2026-09-18, FORGE_TOKEN_DENOHUBMCP et FORGE_TOKEN_OPENAI_PROXY etaient PRESENTS au coffre, FORGE_TOKEN_WEBHUB ABSENT -- et ce n'etait pas le filtre de ring qui l'ecartait (`ring_max=3`, WEBHUB est ring 2), seulement un semis jamais relance. `ring_min_delegue: 1` est la borne qui compte : meme compromise, l'interface peut usurper une identite existante mais n'atteint JAMAIS le ring 0.",
+        "atout_specifique": "Contrairement a OPENAI_PROXY, cette passerelle AUTHENTIFIE ses clients entrants -- `AuthMiddleware`, cookie `lf_session`, JWT dont le `sub` est verifie. L'identite qu'elle declarera est donc PROUVEE en amont, la ou :7777 ne fait que recopier un nom fourni. La limite connue d'OPENAI_PROXY (`le degat est borne, pas supprime`) ne s'applique pas ici de la meme facon.",
+        "etat_2026_09_18": "Jeton derive SEME ce jour (relu apres ecriture). Le code des deux appelants (app/web_hub/mcp_lab.py, app/web_hub/wired_routes.py) bascule sur ce jeton ; l'effet demande un redemarrage du hub, qui charge `_AGENT_TOKENS` au boot, ET du webhub. Tant que les deux n'ont pas redemarre, chacun tourne son ancien code et rien ne change -- il n'y a donc pas de fenetre de casse."
+      },
+      "channel": "INTERNAL_HUB",
+      "transport": "http",
+      "machine": "local",
+      "kind": "service",
+      "actor": "WEBHUB",
+      "surface": "internal",
+      "mailbox": "WEBHUB",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_webhub",
+        "webhub"
+      ]
+    },
+    "DSPY_ROUTER": {
+      "ring": 3,
+      "channel": "INTERNAL_HUB",
+      "transport": "http",
+      "machine": "local",
+      "kind": "service",
+      "actor": "DSPY_ROUTER",
+      "surface": "internal",
+      "mailbox": "DSPY_ROUTER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_dspy_router",
+        "dspy_router"
+      ]
+    },
+    "ZCODE": {
+      "ring": 2,
+      "write_paths": [
+        "reviews/"
+      ],
+      "channel": "ZCODE_HTTP",
+      "transport": "http",
+      "machine": "local",
+      "kind": "cli_agent",
+      "actor": "ZCODE",
+      "surface": "interactive",
+      "mailbox": "ZCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_zcode",
+        "zcode"
+      ]
+    },
+    "VIBE": {
+      "ring": 2,
+      "write_paths": [
+        "app/",
+        "tools/",
+        "proxy_deno/",
+        "src/",
+        "tests/",
+        "docs/",
+        "config/",
+        "migrations/",
+        "logs/",
+        "sandbox/"
+      ],
+      "channel": "VIBE_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "mode": "interactive",
+      "acts": "execute",
+      "drains": "-",
+      "wake": "-",
+      "_note": "CLI mistral-vibe (binaire `vibe`, mistralai/mistral-vibe). Se branche en streamable-http sur :8766/mcp comme Antigravity, Codex et ZCode. AUCUN Bearer dans un fichier : le token est lu dans l'environnement (auth.api_key_env=FORGE_MCP_TOKEN) et l'identite vient du header X-Agent-Name. Config gouvernee VERSIONNEE : config/clients/vibe/config.toml (pointer VIBE_HOME dessus).",
+      "_ring_note": "Ring 2 depuis le 2026-07-29, apres verification EN SESSION des trois criteres poses a son arrivee le matin meme : (a) 25 outils vus cote client, soit exactement le compte reserve a VIBE par le RBAC -- CLAUDE en voit 48 -- donc l'identite passe bien par X-Agent-Name et n'est pas rabattue sur un agent par defaut ; (b) l'execution shell native est REFUSEE ; (c) l'ecriture de fichier native est REFUSEE, l'ecriture passant par governed_edit. Le ring 3 initial etait provisoire faute d'avoir pu tester la coupure : elle est desormais mesuree, pas supposee. write_paths aligne sur CODEX, son pair de meme ring. RETOUR EN ARRIERE SI : un outil natif d'execution ou d'ecriture redevient disponible (config.toml reecrit par vibe au lancement -- relire le diff), ou si des editions arrivent sans claim tree_lock prealable. Rappel : vibe est le SEUL client du parc dont l'execution native est coupee par son propre mecanisme plutot que par la discipline.",
+      "kind": "cli_agent",
+      "actor": "VIBE",
+      "surface": "interactive",
+      "mailbox": "VIBE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vibe",
+        "vibe"
+      ]
+    },
+    "MAMMOUTH": {
+      "ring": 3,
+      "write_paths": [
+        "sandbox/",
+        "docs/",
+        "tests/"
+      ],
+      "channel": "MAMMOUTH_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "mode": "interactive",
+      "acts": "execute",
+      "drains": "-",
+      "wake": "-",
+      "_note": "CLI mammouth (mammouth-ai/code) — FORK d'opencode : son package.json porte name=opencode, et le schema de config vient de @opencode-ai/core. Se branche en MCP remote sur :8766/mcp. AUCUN Bearer dans un fichier : l'interpolation {env:FORGE_MCP_TOKEN} est valide dans les headers, l'identite vient de l'en-tete X-Agent-Name. Config gouvernee VERSIONNEE dans config/clients/mammouth/ (pointer OPENCODE_CONFIG_DIR dessus). ATTENTION au format, INVERSE de vibe : `mcp` est un Schema.Record KEYE PAR NOM, pas un tableau.",
+      "_ring_note": "Ring 3 PROVISOIRE (pose le 2026-07-29, jour de son arrivee), meme protocole que VIBE le matin meme. Son schema de permissions est PLUS FIN que celui de vibe (ask|allow|deny sur read/edit/glob/grep/list/bash/task/external_directory/webfetch/websearch/skill, avec regles par pattern), donc il est structurellement tres gouvernable — mais la coupure n'a PAS ENCORE ete verifiee sur la machine. Remonter en ring 2 quand une session aura prouve les trois points : (a) le compte d'outils vus cote client correspond a celui que le RBAC reserve a MAMMOUTH et non a un agent par defaut, (b) execution shell native REFUSEE, (c) ecriture de fichier native REFUSEE, l'ecriture passant par governed_edit.",
+      "kind": "cli_agent",
+      "actor": "MAMMOUTH",
+      "surface": "interactive",
+      "mailbox": "MAMMOUTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mammouth",
+        "mammouth"
+      ]
+    },
+    "OPENCODE": {
+      "ring": 3,
+      "write_paths": [
+        "sandbox/",
+        "docs/",
+        "tests/",
+        "app/web_hub/",
+        "design_handoff_nokido/"
+      ],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local",
+      "mode": "interactive",
+      "acts": "execute",
+      "drains": "-",
+      "wake": "-",
+      "_note": "opencode (sst/opencode, npm opencode-ai) servi en web par le lanceur :7400 (tools/nokido_opencode_web.py, decision owner 2026-09-25 choix A : 127.0.0.1:4096, mot de passe Basic du gestionnaire d'identification de l'owner). Se branche en MCP remote sur :8766/mcp avec SON jeton derive FORGE_TOKEN_OPENCODE (jamais le maitre, qui conserve l'agent de l'en-tete et son ring), injecte par le wrapper depuis le coffre -- aucun Bearer dans un fichier. Config gouvernee VERSIONNEE dans config/clients/opencode/ (OPENCODE_CONFIG_DIR pose par le wrapper). Meme format que MAMMOUTH (fork d'opencode) : `mcp` est un Record keye par nom.",
+      "_ring_note": "Ring 3 (pose le 2026-09-25, jour de son arrivee), meme protocole que VIBE et MAMMOUTH. Preuves OBTENUES le 2026-09-25 (audit hub 12:04 -> 12:12) : (a) outils vus = RBAC OPENCODE ; (b) pas de shell natif, passage par `run` du hub, refus ring 3 rapporte (reponse exacte illisible : audit tronque) ; (c) pas d'ecriture native, ecriture par governed_edit dans sandbox/. Decision owner (moindre privilege) : RESTE ring 3 -- l'ecart ring 1 n'est pas mesure pour un agent pilote par un modele cloud -- et write_paths elargis aux interfaces (app/web_hub/, design_handoff_nokido/).",
+      "kind": "cli_agent",
+      "actor": "OPENCODE",
+      "surface": "interactive",
+      "mailbox": "OPENCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_opencode",
+        "opencode"
+      ]
+    },
+    "MAMMOUTH_HOOK": {
+      "ring": 4,
+      "channel": "MAMMOUTH_MCP",
+      "transport": "hook",
+      "machine": "local",
+      "_note": "Reserve : plugins/hooks eventuels du fork opencode. Ring 4 comme CLAUDE_HOOK, AGY_HOOK et VIBE_HOOK — un hook observe et refuse, il n'agit pas.",
+      "kind": "hook",
+      "actor": "MAMMOUTH",
+      "surface": "internal",
+      "mailbox": "MAMMOUTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mammouth_hook",
+        "mammouth_hook"
+      ]
+    },
+    "VIBE_HOOK": {
+      "ring": 4,
+      "channel": "VIBE_MCP",
+      "transport": "hook",
+      "machine": "local",
+      "_note": "Hooks pre_tool/post_tool de vibe (~/.vibe/hooks.toml ou <projet>/.vibe/hooks.toml). Ring 4 comme CLAUDE_HOOK et AGY_HOOK : un hook observe et refuse, il n'agit pas.",
+      "kind": "hook",
+      "actor": "VIBE",
+      "surface": "internal",
+      "mailbox": "VIBE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vibe_hook",
+        "vibe_hook"
+      ]
+    },
+    "AGENT_PROXY": {
+      "ring": 4,
+      "kind": "relay",
+      "actor": "AGENT",
+      "surface": "internal",
+      "mailbox": "AGENT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agent_proxy",
+        "agt_agent_proxy"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "AGY_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_agy_cli",
+        "agy_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ANTHROPIC_API": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "ANTHROPIC_API",
+      "surface": "backend",
+      "mailbox": "ANTHROPIC_API",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_anthropic_api",
+        "anthropic_api"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ANTIGRAVITY_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_antigravity_cli",
+        "antigravity_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ANTIGRAVITY_DAEMON": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_antigravity_daemon",
+        "antigravity_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ANTIGRAVITY_HEADLESS": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_antigravity_headless",
+        "antigravity_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ANTIGRAVITY_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "ANTIGRAVITY",
+      "surface": "internal",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_antigravity_hook",
+        "antigravity_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "BRAIN_WORKER": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "BRAIN_WORKER",
+      "surface": "backend",
+      "mailbox": "BRAIN_WORKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_brain_worker",
+        "brain_worker"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CEREBRAS": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "CEREBRAS",
+      "surface": "backend",
+      "mailbox": "CEREBRAS",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cerebras",
+        "cerebras"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLAUDE_DAEMON": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "CLAUDE",
+      "surface": "autonomous",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude_daemon",
+        "claude_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLAUDE_HEADLESS": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "CLAUDE",
+      "surface": "autonomous",
+      "mailbox": "CLAUDE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_claude_headless",
+        "claude_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLINE_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "CLINE",
+      "surface": "interactive",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_cli",
+        "cline_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLINE_DAEMON": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "CLINE",
+      "surface": "autonomous",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_daemon",
+        "cline_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLINE_HEADLESS": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "CLINE",
+      "surface": "autonomous",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_headless",
+        "cline_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CLINE_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "CLINE",
+      "surface": "internal",
+      "mailbox": "CLINE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cline_hook",
+        "cline_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CODEX_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "CODEX",
+      "surface": "interactive",
+      "mailbox": "CODEX",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_codex_cli",
+        "codex_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CODEX_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "CODEX",
+      "surface": "autonomous",
+      "mailbox": "CODEX",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_codex_daemon",
+        "codex_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CODEX_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "CODEX",
+      "surface": "autonomous",
+      "mailbox": "CODEX",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_codex_headless",
+        "codex_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "CODEX_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "CODEX",
+      "surface": "internal",
+      "mailbox": "CODEX",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_codex_hook",
+        "codex_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "COHERE": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "COHERE",
+      "surface": "backend",
+      "mailbox": "COHERE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_cohere",
+        "cohere"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "COPILOT_DAEMON": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "COPILOT",
+      "surface": "autonomous",
+      "mailbox": "COPILOT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_copilot_daemon",
+        "copilot_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "COPILOT_HEADLESS": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "COPILOT",
+      "surface": "autonomous",
+      "mailbox": "COPILOT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_copilot_headless",
+        "copilot_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "DEEPSEEK": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "DEEPSEEK",
+      "surface": "backend",
+      "mailbox": "DEEPSEEK",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_deepseek",
+        "deepseek"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "DENOHUBMCP": {
+      "ring": 4,
+      "kind": "service",
+      "actor": "DENOHUBMCP",
+      "surface": "internal",
+      "mailbox": "DENOHUBMCP",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "porte_son_propre_marqueur": true,
+      "delegation": {
+        "ring_min_delegue": 1,
+        "motif": "Serveur MCP Deno qui relaie vers le hub Python les appels de ses clients, en conservant LEUR identite. Il portait le jeton MAITRE pour ce relais tout en declarant un autre nom (`X-Agent-Name`) : CONFUSED DEPUTY, puisque le porteur du maitre HERITE du ring de l'identite qu'il annonce (mesure du 2026-09-02 : maitre + « CLAUDE » rend ring 1, la ou un derive retombe au plancher anti-spoof). Depuis, il prouve la SIENNE avec son marqueur propre et ce champ lui accorde le droit BORNE de declarer un autre nom : `ring_min_delegue: 1` place l'administration hors d'atteinte, et la trace porte `via=delegated:DENOHUBMCP` -- une delegation ne doit jamais etre indiscernable d'une authentification directe.",
+        "difference_avec_openai_proxy": "Celui-ci AUTHENTIFIE ses clients entrants (`authCheck` : Bearer -> table de jetons -> nom d'agent), la ou la passerelle :7777 prend le nom dans un en-tete sans preuve. L'identite relayee ici est donc PROUVEE, pas choisie par l'appelant -- c'est la difference qui rend cette delegation defendable.",
+        "limite_connue": "La table de jetons entrants est peuplee depuis `Nokido.env`, et ce fichier ne porte AUCUN `FORGE_TOKEN_*` (mesure du 2026-09-02 : zero). En pratique le seul credential accepte est donc le maitre, sous le nom `MCP_DEFAULT` : la granularite par client existe dans le code et pas dans la configuration. Tant que c'est le cas, ce service distingue « authentifie » de « non authentifie », mais pas un client d'un autre.",
+        "regression_attendue": "Si `FORGE_TOKEN_DENOHUBMCP` n'atteint pas l'environnement du service, il retombe sur le maitre et le DIT sur stderr. Le relais continue alors de fonctionner mais redevient un passe-partout : le silence serait la vraie panne, pas l'erreur."
+      },
+      "aliases": [
+        "agt_denohubmcp",
+        "denohubmcp"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "EMBED": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "EMBED",
+      "surface": "backend",
+      "mailbox": "EMBED",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_embed",
+        "embed"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "EXEGOL": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "EXEGOL",
+      "surface": "backend",
+      "mailbox": "EXEGOL",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_exegol",
+        "exegol"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GEMINI_API": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "GEMINI_API",
+      "surface": "backend",
+      "mailbox": "GEMINI_API",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_api",
+        "gemini_api"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GEMINI_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "ANTIGRAVITY",
+      "surface": "interactive",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_cli",
+        "gemini_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GEMINI_RELAY": {
+      "ring": 2,
+      "kind": "relay",
+      "actor": "ANTIGRAVITY",
+      "surface": "internal",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_relay",
+        "gemini_relay"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GITHUB_MODELS": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "GITHUB_MODELS",
+      "surface": "backend",
+      "mailbox": "GITHUB_MODELS",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_github_models",
+        "github_models"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GRAPH_EXPLORER": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "GRAPH_EXPLORER",
+      "surface": "backend",
+      "mailbox": "GRAPH_EXPLORER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_graph_explorer",
+        "graph_explorer"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GROK": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "GROK",
+      "surface": "backend",
+      "mailbox": "GROK",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_grok",
+        "grok"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GROQ": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "GROQ",
+      "surface": "backend",
+      "mailbox": "GROQ",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_groq",
+        "groq"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "INSPECTOR": {
+      "ring": 4,
+      "kind": "daemon",
+      "actor": "INSPECTOR",
+      "surface": "internal",
+      "mailbox": "INSPECTOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_inspector",
+        "inspector"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LAFORGE_CLI_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "LAFORGE_CLI",
+      "surface": "interactive",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_laforge_cli_cli",
+        "laforge_cli_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LAFORGE_CLI_DAEMON": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "LAFORGE_CLI",
+      "surface": "autonomous",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_laforge_cli_daemon",
+        "laforge_cli_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LAFORGE_CLI_HEADLESS": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "LAFORGE_CLI",
+      "surface": "autonomous",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_laforge_cli_headless",
+        "laforge_cli_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LAFORGE_CLI_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "LAFORGE_CLI",
+      "surface": "internal",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_laforge_cli_hook",
+        "laforge_cli_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "MAMMOUTH_CLI": {
+      "ring": 3,
+      "kind": "surface",
+      "actor": "MAMMOUTH",
+      "surface": "interactive",
+      "mailbox": "MAMMOUTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mammouth_cli",
+        "mammouth_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "MAMMOUTH_DAEMON": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "MAMMOUTH",
+      "surface": "autonomous",
+      "mailbox": "MAMMOUTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mammouth_daemon",
+        "mammouth_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "MAMMOUTH_HEADLESS": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "MAMMOUTH",
+      "surface": "autonomous",
+      "mailbox": "MAMMOUTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mammouth_headless",
+        "mammouth_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "MISTRAL": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "MISTRAL",
+      "surface": "backend",
+      "mailbox": "MISTRAL",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_mistral",
+        "mistral"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "NOKIDO_CLI": {
+      "ring": 4,
+      "kind": "surface",
+      "actor": "NOKIDO",
+      "surface": "interactive",
+      "mailbox": "NOKIDO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_nokido_cli",
+        "nokido_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "NOKIDO_CLI_CLI": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "LAFORGE_CLI",
+      "surface": "interactive",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_nokido_cli_cli",
+        "nokido_cli_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "NOKIDO_CLI_DAEMON": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "LAFORGE_CLI",
+      "surface": "autonomous",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_nokido_cli_daemon",
+        "nokido_cli_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "NOKIDO_CLI_HEADLESS": {
+      "ring": 1,
+      "kind": "daemon",
+      "actor": "LAFORGE_CLI",
+      "surface": "autonomous",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_nokido_cli_headless",
+        "nokido_cli_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "NOKIDO_CLI_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "LAFORGE_CLI",
+      "surface": "internal",
+      "mailbox": "LAFORGE_CLI",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_nokido_cli_hook",
+        "nokido_cli_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "OLLAMA": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "OLLAMA",
+      "surface": "backend",
+      "mailbox": "OLLAMA",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_ollama",
+        "ollama"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "OPENAI_API": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "OPENAI_API",
+      "surface": "backend",
+      "mailbox": "OPENAI_API",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_openai_api",
+        "openai_api"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "OPENROUTER": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "OPENROUTER",
+      "surface": "backend",
+      "mailbox": "OPENROUTER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_openrouter",
+        "openrouter"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "POST_COMMIT": {
+      "ring": 4,
+      "kind": "service",
+      "actor": "POST_COMMIT",
+      "surface": "internal",
+      "mailbox": "POST_COMMIT",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_post_commit",
+        "post_commit"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "RERANKER": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "RERANKER",
+      "surface": "backend",
+      "mailbox": "RERANKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_reranker",
+        "reranker"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ROO": {
+      "ring": 2,
+      "kind": "cli_agent",
+      "actor": "ROO",
+      "surface": "interactive",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo",
+        "roo"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ROO_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "ROO",
+      "surface": "interactive",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_cli",
+        "roo_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ROO_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "ROO",
+      "surface": "autonomous",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_daemon",
+        "roo_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ROO_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "ROO",
+      "surface": "autonomous",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_headless",
+        "roo_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ROO_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "ROO",
+      "surface": "internal",
+      "mailbox": "ROO",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_roo_hook",
+        "roo_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "SEARXNG": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "SEARXNG",
+      "surface": "backend",
+      "mailbox": "SEARXNG",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_searxng",
+        "searxng"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "SIXTH_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "SIXTH",
+      "surface": "interactive",
+      "mailbox": "SIXTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_sixth_cli",
+        "sixth_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "SIXTH_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "SIXTH",
+      "surface": "autonomous",
+      "mailbox": "SIXTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_sixth_daemon",
+        "sixth_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "SIXTH_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "SIXTH",
+      "surface": "autonomous",
+      "mailbox": "SIXTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_sixth_headless",
+        "sixth_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "SIXTH_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "SIXTH",
+      "surface": "internal",
+      "mailbox": "SIXTH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_sixth_hook",
+        "sixth_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "TOGETHER": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "TOGETHER",
+      "surface": "backend",
+      "mailbox": "TOGETHER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_together",
+        "together"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VEC_SIDECAR": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "VEC_SIDECAR",
+      "surface": "backend",
+      "mailbox": "VEC_SIDECAR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vec_sidecar",
+        "vec_sidecar"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VERIFY": {
+      "ring": 4,
+      "kind": "service",
+      "actor": "VERIFY",
+      "surface": "internal",
+      "mailbox": "VERIFY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_verify",
+        "verify"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VIBE_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "VIBE",
+      "surface": "interactive",
+      "mailbox": "VIBE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vibe_cli",
+        "vibe_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VIBE_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "VIBE",
+      "surface": "autonomous",
+      "mailbox": "VIBE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vibe_daemon",
+        "vibe_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VIBE_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "VIBE",
+      "surface": "autonomous",
+      "mailbox": "VIBE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vibe_headless",
+        "vibe_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VSCODE_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "VSCODE",
+      "surface": "interactive",
+      "mailbox": "VSCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vscode_cli",
+        "vscode_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VSCODE_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "VSCODE",
+      "surface": "autonomous",
+      "mailbox": "VSCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vscode_daemon",
+        "vscode_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VSCODE_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "VSCODE",
+      "surface": "autonomous",
+      "mailbox": "VSCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vscode_headless",
+        "vscode_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "VSCODE_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "VSCODE",
+      "surface": "internal",
+      "mailbox": "VSCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_vscode_hook",
+        "vscode_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ZCODE_CLI": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "ZCODE",
+      "surface": "interactive",
+      "mailbox": "ZCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_zcode_cli",
+        "zcode_cli"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ZCODE_DAEMON": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "ZCODE",
+      "surface": "autonomous",
+      "mailbox": "ZCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_zcode_daemon",
+        "zcode_daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ZCODE_HEADLESS": {
+      "ring": 2,
+      "kind": "daemon",
+      "actor": "ZCODE",
+      "surface": "autonomous",
+      "mailbox": "ZCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_zcode_headless",
+        "zcode_headless"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "ZCODE_HOOK": {
+      "ring": 4,
+      "kind": "hook",
+      "actor": "ZCODE",
+      "surface": "internal",
+      "mailbox": "ZCODE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_zcode_hook",
+        "zcode_hook"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "DAEMON": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "DAEMON",
+      "surface": "internal",
+      "mailbox": "DAEMON",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_daemon",
+        "daemon"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "EDITOR": {
+      "ring": 2,
+      "kind": "surface",
+      "actor": "EDITOR",
+      "surface": "internal",
+      "mailbox": "EDITOR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_editor",
+        "editor"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "GEMINI_FLASH": {
+      "ring": 3,
+      "kind": "provider",
+      "actor": "GEMINI_FLASH",
+      "surface": "internal",
+      "mailbox": "GEMINI_FLASH",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_gemini_flash",
+        "gemini_flash"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "HUB": {
+      "ring": 2,
+      "kind": "service",
+      "actor": "HUB",
+      "surface": "internal",
+      "mailbox": "HUB",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_hub",
+        "hub"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LAFORGE": {
+      "ring": 3,
+      "kind": "service",
+      "actor": "LAFORGE",
+      "surface": "internal",
+      "mailbox": "LAFORGE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_laforge",
+        "laforge"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "LOCAL": {
+      "ring": 3,
+      "kind": "service",
+      "actor": "LOCAL",
+      "surface": "internal",
+      "mailbox": "LOCAL",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_local",
+        "local"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "WORKER": {
+      "ring": 3,
+      "kind": "service",
+      "actor": "WORKER",
+      "surface": "internal",
+      "mailbox": "WORKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_worker",
+        "worker"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    },
+    "HANDOFF_WORKER": {
+      "ring": 2,
+      "kind": "worker",
+      "actor": "HANDOFF_WORKER",
+      "surface": "autonomous",
+      "mailbox": "HANDOFF_WORKER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "handoff_worker",
+        "agt_handoff_worker"
+      ],
+      "channel": "HANDOFF_WORKER",
+      "transport": "local",
+      "machine": "local"
+    },
+    "WORKER_CODE": {
+      "ring": 2,
+      "kind": "relay",
+      "actor": "ANTIGRAVITY",
+      "surface": "autonomous",
+      "mailbox": "ANTIGRAVITY",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_worker_code",
+        "worker_code"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local"
+    }
+  },
+  "schema_version": 3,
+  "_schema_doc": "actor=qui decide | kind=nature | surface=comment il parle | mailbox=acteur proprietaire de la boite (un hook/relais n'en a pas) | aliases=noms vivants (routage boite) | audience=RFC 8707 Resource Indicator attendu. Un ring declare ici n'est JAMAIS ecrase par la migration. Dette assumee : jetons porteurs opaques, non sender-constrained (RFC 9700) ; identite non attestee (SPIFFE)."
+}

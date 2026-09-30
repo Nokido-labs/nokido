@@ -1,0 +1,41 @@
+# Profil d'agent par défaut. `default_agent` est une clé de RACINE du schéma : elle
+# doit précéder toute section TOML. L'ancienne forme `[agent] default_agent = …`
+# (config d'avril) n'est plus valide. Le profil vit dans agents/laforge.toml,
+# versionné à côté — il coupe les mêmes outils par NOM, en seconde couche.
+default_agent = "laforge"
+
+[tools.bash]
+permission = "never"
+
+[tools.git_bash]
+permission = "never"
+
+[tools.powershell]
+permission = "never"
+
+[tools.write_file]
+permission = "never"
+
+[tools.edit]
+permission = "never"
+
+[tools.grep]
+permission = "ask"
+
+[tools.read_file]
+permission = "always"
+
+[[mcp_servers]]
+name = "laforge"
+transport = "streamable-http"
+url = "http://127.0.0.1:8766/mcp"
+sampling_enabled = false
+
+[mcp_servers.auth]
+type = "static"
+api_key_env = "FORGE_TOKEN_VIBE"
+api_key_header = "Authorization"
+api_key_format = "Bearer {token}"
+
+[mcp_servers.auth.headers]
+X-Agent-Name = "VIBE"

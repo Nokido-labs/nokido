@@ -1,0 +1,5 @@
+{
+ "genere_par": "tools/forge_rule_distiller.py --commit <sha> --ecrire",
+ "note": "Regles DECLARATIVES distillees de correctifs reels. Formes closes : appel_sans_kwarg, appel_interdit. Une regle n'entre ici qu'apres backtest (elle mord sur la version fautive, elle se tait sur HEAD). severity ERROR ignoree tant que promue != true.",
+ "regles": []
+}

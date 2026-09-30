@@ -1,0 +1,119 @@
+{
+  "summary": {
+    "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "difficulty": "easy",
+    "timestamp": "2026-04-15 14:53:25",
+    "overall_accuracy": 0.7,
+    "total_cases": 10,
+    "by_task": {
+      "cycle": {
+        "correct": 7,
+        "total": 10,
+        "accuracy": 0.7,
+        "avg_time": 35.01
+      }
+    }
+  },
+  "raw": [
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_0_efd53d",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "NO",
+      "score": 1.0,
+      "duration_s": 37.37
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_1_94fd98",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "NO",
+      "score": 1.0,
+      "duration_s": 38.53
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_2_573b99",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "YES",
+      "extracted": "NO",
+      "score": 0.0,
+      "duration_s": 37.24
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_3_7afa20",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "NO",
+      "score": 1.0,
+      "duration_s": 17.89
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_4_4e81f9",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "YES",
+      "extracted": "YES**",
+      "score": 1.0,
+      "duration_s": 30.47
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_5_a479c2",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "- From node 3, we can return to",
+      "score": 1.0,
+      "duration_s": 37.32
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_6_7e8b78",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "YES",
+      "extracted": "the graph contains",
+      "score": 0.0,
+      "duration_s": 36.95
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_7_1b0682",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "YES",
+      "extracted": "no cycles can be formed",
+      "score": 0.0,
+      "duration_s": 37.92
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_8_b56aed",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "NO",
+      "score": 1.0,
+      "duration_s": 38.31
+    },
+    {
+      "task": "cycle",
+      "difficulty": "easy",
+      "graph_id": "cycle_easy_9_7580b6",
+      "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+      "ground_truth": "NO",
+      "extracted": "**: NO",
+      "score": 1.0,
+      "duration_s": 38.13
+    }
+  ]
+}

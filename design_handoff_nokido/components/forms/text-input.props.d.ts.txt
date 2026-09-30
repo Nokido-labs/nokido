@@ -1,0 +1,29 @@
+import * as React from "react";
+
+/**
+ * Champ de saisie Nokido (ligne unique ou multiligne). Focus → bordure violette
+ * + anneau de focus. Supporte label majuscule, icône à gauche, hint mono, état invalide.
+ *
+ * @startingPoint section="Forms" subtitle="Champ texte / textarea avec label et hint" viewport="700x140"
+ */
+export interface TextInputProps {
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  /** Label majuscule au-dessus du champ */
+  label?: React.ReactNode;
+  /** Texte d'aide mono sous le champ */
+  hint?: React.ReactNode;
+  type?: string;
+  /** Rend un <textarea> */
+  multiline?: boolean;
+  rows?: number;
+  disabled?: boolean;
+  /** État d'erreur (bordure + hint rouges) */
+  invalid?: boolean;
+  /** Icône à gauche (nœud Lucide/SVG) */
+  icon?: React.ReactNode;
+  style?: React.CSSProperties;
+}
+
+export function TextInput(props: TextInputProps): JSX.Element;

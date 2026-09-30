@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}#root{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { ModuleCard } = window.NokidoDesignSystem_bdc2ac;
+const I = (n) => <i data-lucide={n} style={{width:22,height:22}}></i>;
+function Demo(){
+  const [a,setA]=React.useState(true);
+  return (
+    <>
+      <ModuleCard domain="sante" title="Santé" desc="Local forcé — confidentialité maximale" icon={I("heart-pulse")} provenance="local" enabled={a} onToggle={setA} pinned/>
+      <ModuleCard domain="transport" title="Transport" desc="Trajets, mobilité, temps réel" icon={I("route")} provenance="hybrid" status="up"/>
+      <ModuleCard domain="jeux" title="Jeux vidéo" desc="Bibliothèque & compagnons immersifs" icon={I("gamepad-2")} comingSoon/>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+setTimeout(()=>window.lucide&&lucide.createIcons(),50);
+</script>
+</body></html>

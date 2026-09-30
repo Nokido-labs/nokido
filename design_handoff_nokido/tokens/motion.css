@@ -1,0 +1,42 @@
+/* ============================================================================
+   Nokido — Motion tokens
+   Movement carries meaning: it signals the ORIGIN of computation, the PROMOTION
+   of a result (draft -> verified -> gold), and the PROGRESS of a roadmap.
+   Never decorative-for-its-own-sake. Honour prefers-reduced-motion.
+   ========================================================================== */
+
+:root {
+  --dur-fast:   120ms;   /* hovers, button states */ /* @kind other */
+  --dur-base:   180ms;   /* @kind other */
+  --dur-slow:   320ms;   /* panel / dialog entrances */ /* @kind other */
+  --dur-pulse:  2s;      /* live / "alive" indicators */ /* @kind other */
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);   /* @kind other */
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out:   cubic-bezier(0.4, 0, 0.2, 1); /* @kind other -- aligne sur le hub (owner 2026-09-29) */
+}
+
+/* Live indicator — used on local "alive" nodes and streaming responses */
+@keyframes laforge-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+/* Toast / panel entrance */
+@keyframes laforge-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Promotion glow — a result being promoted to a higher integrity ring */
+@keyframes laforge-promote {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 194, 45, 0); }
+  40%  { box-shadow: 0 0 18px 2px rgba(255, 194, 45, 0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 194, 45, 0); }
+}
+
+.laforge-pulse { animation: laforge-pulse var(--dur-pulse) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .laforge-pulse { animation: none; }
+}

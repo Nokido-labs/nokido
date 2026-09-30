@@ -1,0 +1,10 @@
+{
+  "title": "Nokido Export",
+  "id": "user/laforge-export",
+  "licenses": [
+    {
+      "name": "CC0-1.0"
+    }
+  ],
+  "description": "Nokido codebase analysis \u2014 GraphCodeBERT + complexity metrics"
+}

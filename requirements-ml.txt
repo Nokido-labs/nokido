@@ -1,0 +1,51 @@
+# Nokido — ML / embedding dependencies (heavy, optional)
+# Install: pip install -r requirements-ml.txt
+# Needed for: brain_worker, forge_npu_embedder, forge_spike_router
+
+-r requirements.txt
+
+# Embeddings (BGE-M3, MiniLM)
+sentence-transformers==3.3.1
+# 5.10.0 est le correctif annonce, mais il est YANKED sur PyPI -- motif publie par les
+# auteurs : « We pushed from a week old main branch [...] missing a bunch of fixes ».
+# pip l'installe quand meme s'il est epingle : on ne fait donc PAS d'une version retiree
+# une cible de manifeste. On reste sur la version qui TOURNE, et la CVE (1, severite
+# haute) reste OUVERTE et assumee jusqu'a une 5.10.x non retiree. Mesure 2026-09-06.
+# 5.9.0 -> 5.10.1 le 2026-09-09 : CVE-2026-9856 (path traversal, ecriture arbitraire).
+# PAS 5.10.0, pourtant nommee par pip-audit ET Dependabot : elle est YANKED par ses
+# auteurs (« pushed from a week old main branch [...] missing a bunch of fixes »).
+# 5.10.1 est la premiere SAINE >= 5.10.0 sur les 15 mesurees, requires_python >=3.10.0.
+# Pas la derniere publiee (5.16.1) : fermer une CVE n'est pas traverser six mineures.
+# Borne inscrite dans forge_deps_reconcilier.INCOMPATIBLES_PYTHON.
+transformers==5.10.1
+
+# PyTorch (CPU build — GPU/NPU via platform-specific install)
+# Windows NPU: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0
+
+# ONNX inference (CPU fallback — NPU via onnxruntime-vitisai on Windows)
+onnxruntime>=1.18.0
+
+# accelerate : borne de SECURITE, pas une dependance directe de Nokido.
+# Il est tire TRANSITIVEMENT par `peft` et `trl` (mesure `pip show accelerate`),
+# donc rien ne le retenait : la version installee etait 1.13.0 et la prochaine
+# resolution pouvait l'y ramener.
+# CVE-2026-69112 / GHSA-4j2p-28q2-5m79 — mesure du 2026-09-09 :
+#   avis OSV        introduced 0, last_affected 1.14.0
+#   PyPI            1.15.0 publiee le 2026-09-09
+#   OSV @ 1.15.0    0 avis
+#   fonctionnel     import OK, Accelerator(cpu=True) instancie, device=cpu
+# Nuance conservee : l'avis dit `last_affected`, pas `fixed`. La plage vulnerable
+# s'arrete avant 1.15.0 et les scanners cessent de la signaler, mais l'avis ne
+# certifie pas qu'un correctif a ete livre — c'est une sortie de plage, pas un
+# patch verifie. Borne basse et non epinglage strict : `peft`/`trl` restent libres
+# de monter, ils ne peuvent plus redescendre sous la plage vulnerable.
+accelerate>=1.15.0
+
+# diskcache : AUCUNE SORTIE PAR MONTEE DE VERSION, etat mesure le 2026-09-09.
+#   PYSEC-2026-2447   last_affected 5.6.3
+#   PyPI              5.6.3 est la DERNIERE publiee (84 releases)
+# Monter est donc impossible : il n'existe pas de version plus recente. Ce n'est pas
+# une negligence, c'est l'etat de l'amont — et le dire vaut mieux que de le taire ou
+# d'inventer une borne qui n'existe pas. La decision (mitigation ou acceptation
+# documentee) est au SSoT ; elle ne se resout pas dans ce fichier.

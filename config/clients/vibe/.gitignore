@@ -1,0 +1,27 @@
+# VIBE_HOME pointe ici : vibe y ECRIT son état local et ses secrets.
+# Tout ce qui suit reste HORS du dépôt. Seuls config.toml, AGENTS.md et README.md
+# sont versionnés — c'est la config gouvernée, relue et vue par la CI.
+#
+# `.env` porte MISTRAL_API_KEY. Le gate egress refuserait le push, mais un secret
+# ne doit pas dépendre d'un garde pour rester hors du dépôt.
+.env
+.env.*
+
+# État local, historique, sessions, journaux : bruit + traces d'usage.
+logs/
+sessions/
+worktrees/
+vibehistory
+trusted_folders.toml
+
+# Profils d'agents : VERSIONNÉS. Un profil décide de la sûreté (`safety`) et peut
+# redurcir ou relâcher les permissions d'outils par `overrides` — c'est de la
+# configuration gouvernée, elle doit être relue, pas dormir dans un profil local.
+# (`agents/` n'est donc PAS ignoré : voir agents/*.toml.)
+
+# Prompts : hors dépôt par défaut (ils peuvent porter du contexte privé), SAUF celui
+# de l'agent `laforge`, qui est de la configuration gouvernée au même titre que son
+# profil. `prompts/*` et non `prompts/` : git n'entre pas dans un dossier ignoré, donc
+# une exception à l'intérieur ne serait jamais évaluée.
+prompts/*
+!prompts/laforge.md

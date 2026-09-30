@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width">
+<title>Nokido RAG</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+/* Specifique RAG dashboard - le reste vient de /static/nokido.css */
+body { padding: 16px; }
+h1 { font-size: 1.2rem; font-weight: 600; color: var(--purple); margin-bottom: 12px; }
+h2 { font-size: 0.9rem; font-weight: 500; color: var(--text-dim);
+  margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.05em;
+  font-family: 'JetBrains Mono', monospace; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px; margin-bottom: 16px;
+}
+.card {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px;
+}
+.card .val { font-size: 1.5rem; font-weight: 700; color: var(--purple); }
+.card .lbl { font-size: 0.72rem; color: var(--text-dim); margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace; }
+.bars {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 16px;
+}
+.row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 0.78rem; }
+.row .nm { width: 160px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace; }
+.row .bar { height: 12px; border-radius: 3px; background: var(--purple);
+  opacity: 0.7; min-width: 2px; }
+.row .lf { background: var(--cyan); opacity: 1; }
+.row .cnt { color: var(--text-primary); min-width: 55px;
+  text-align: right; font-variant-numeric: tabular-nums; }
+.tk {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px; margin-bottom: 16px;
+}
+textarea {
+  width: 100%; height: 90px;
+  background: var(--bg-0); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  padding: 8px; font-size: 0.82rem; resize: vertical;
+  font-family: 'JetBrains Mono', monospace;
+}
+textarea:focus { outline: none; border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(119, 74, 255, 0.15); }
+.btn {
+  background: var(--purple); color: #fff; border: none;
+  border-radius: var(--radius-sm);
+  padding: 5px 14px; font-weight: 600; cursor: pointer;
+  margin-top: 6px; font-size: 0.82rem; transition: background 120ms;
+}
+.btn:hover { background: var(--purple-dim); }
+.res { margin-top: 8px; font-size: 0.85rem; color: var(--blue); min-height: 18px; }
+.badge {
+  display: inline-block; padding: 1px 7px; border-radius: 4px;
+  font-size: 0.7rem; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.ok   { background: rgba(74, 194, 139, 0.18); color: var(--green); }
+.warn { background: rgba(255, 194, 45, 0.18); color: var(--yellow); }
+.sep  { color: var(--border); margin: 0 4px; }
+.rq   { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 10px; }
+.rq input { flex:1 1 22rem; min-width:12rem; padding:7px 10px; border-radius:6px;
+            border:1px solid var(--border); background:#0d1117; color:#e6edf3; font:inherit; }
+#rq-etat { opacity:.75; font-size:.85em; }
+#rq-res:empty { display:none; }
+#rq-res { white-space:pre-wrap; max-height:20rem; overflow:auto; }
+</style></head><body>
+<h1>Nokido · RAG Dashboard</h1>
+<!-- Recherche REELLE : POST /api/rag/search -> hub :8766 `rag action=search`,
+     le seul process qui porte le RAGEngine. Meme chemin que le TUI (cmd_rag).
+     Placee EN HAUT : les 3 controles de cette page vivaient tous sous la ligne
+     de flottaison, ce que le contrat UI rapportait comme « aucun controle ». -->
+<div class="rq">
+  <input id="rq-in" type="search" placeholder="chercher dans le RAG (hybride vecteurs + BM25)…"
+         aria-label="Requete RAG">
+  <button class="btn" id="rq-go">Chercher</button>
+  <span id="rq-etat" aria-live="polite"></span>
+</div>
+<pre class="res" id="rq-res"></pre>
+<div class="grid" id="cards">
+  <div class="card"><div class="val">…</div><div class="lbl">Chargement</div></div>
+</div>
+<h2>Domaines <span class="badge ok" id="lf-badge">laforge_* en bleu</span></h2>
+<div class="bars" id="bars">…</div>
+<div class="tk">
+  <h2 style="margin-top:0">Tiktoken <span class="badge" id="tk-badge">…</span></h2>
+  <textarea id="tk-in" placeholder="Colle du texte ici pour compter les tokens…"></textarea>
+  <button class="btn" onclick="tokenize()">Compter</button>
+  <button class="btn" onclick="document.getElementById('tk-in').value='';document.getElementById('tk-res').textContent=''"
+    style="background:#21262d;color:#e6edf3;margin-left:6px">Effacer</button>
+  <div class="res" id="tk-res"></div>
+</div>
+<script>
+async function load(){
+  const r=await fetch('/api/rag/stats'),d=await r.json();
+  const vec=d.total-d.no_embedding,pct=Math.round(vec*100/Math.max(d.total,1));
+  document.getElementById('tk-badge').textContent=d.tiktoken_ok?'v0.8.0 OK':'absent';
+  document.getElementById('tk-badge').className='badge '+(d.tiktoken_ok?'ok':'warn');
+  document.getElementById('cards').innerHTML=
+    card(d.total.toLocaleString(),'Chunks total')+
+    card(pct+'%','Vectorises')+
+    card(d.no_embedding.toLocaleString(),'Sans embedding')+
+    card(d.domains.length,d.domaines_partiels?'Domaines (top)':'Domaines')+
+    // Age de la mesure : une valeur dont on ignore la fraicheur se lirait comme de l'instant (25/09).
+    card(d.age_s==null?'?':(d.age_s<120?d.age_s+' s':Math.round(d.age_s/60)+' min'),
+         d.source?('Age · '+d.source):'Age');
+  const mx=Math.max(...d.domains.map(x=>x.chunks));
+  document.getElementById('bars').innerHTML=d.domains.map(x=>{
+    const lf=x.name.startsWith('laforge');
+    const w=Math.round(x.chunks*100/mx);
+    const mb=x.chars?(x.chars/1e6).toFixed(1)+'M':'';
+    return `<div class="row">
+      <span class="nm" title="${x.name}">${x.name}</span>
+      <div class="bar${lf?' lf':''}" style="width:${w}%;max-width:220px"></div>
+      <span class="cnt">${x.chunks.toLocaleString()} <span style="color:#8b949e">${mb}</span></span>
+    </div>`;
+  }).join('');
+}
+function card(v,l){return`<div class="card"><div class="val">${v}</div><div class="lbl">${l}</div></div>`;}
+async function tokenize(){
+  const t=document.getElementById('tk-in').value;
+  if(!t.trim()){document.getElementById('tk-res').textContent='(vide)';return;}
+  document.getElementById('tk-res').textContent='Calcul…';
+  const r=await fetch('/api/rag/tokenize',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})});
+  const d=await r.json();
+  if(d.error){document.getElementById('tk-res').textContent='Erreur: '+d.error;return;}
+  const ratio=d.tokens?(d.chars/d.tokens).toFixed(2):'—';
+  document.getElementById('tk-res').innerHTML=
+    `<b>${d.tokens.toLocaleString()}</b> tokens`+
+    `<span class="sep">|</span>${d.chars.toLocaleString()} chars`+
+    `<span class="sep">|</span>ratio ${ratio} chars/tok`+
+    `<span class="sep">|</span><span style="color:#8b949e">${d.method||d.model||''}</span>`;
+}
+// Recherche RAG : POST /api/rag/search -> hub. Trois etats distincts a l'ecran —
+// des extraits, « rien trouve », ou « je n'ai pas pu chercher ». Les confondre
+// ferait lire une indisponibilite comme un corpus vide.
+async function chercher(){
+  const q=document.getElementById('rq-in').value.trim();
+  const res=document.getElementById('rq-res'), et=document.getElementById('rq-etat');
+  if(!q){et.textContent='(requete vide)';res.textContent='';return;}
+  et.textContent='recherche…';res.textContent='';
+  try{
+    const r=await fetch('/api/rag/search',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({q:q,limit:8})});
+    const d=await r.json();
+    if(!r.ok||!d.ok){
+      et.textContent='INDISPONIBLE ('+(d.raison||r.status)+')';
+      res.textContent=d.erreur||'la recherche n a pas pu etre faite — ce n est pas « aucun resultat »';
+      return;
+    }
+    et.textContent='resultats pour "'+d.q+'" (max '+d.limit+')';
+    res.textContent=d.texte||'(aucun extrait)';
+  }catch(e){
+    et.textContent='INDISPONIBLE (reseau)';res.textContent=String(e);
+  }
+}
+document.getElementById('rq-go').addEventListener('click',chercher);
+document.getElementById('rq-in').addEventListener('keydown',function(e){
+  if(e.key==='Enter'){e.preventDefault();chercher();}
+});
+load();setInterval(load,30000);
+</script></body></html>

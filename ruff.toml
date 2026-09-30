@@ -1,0 +1,97 @@
+# Ruff config Nokido - linter + formateur Rust (10-100x flake8/black/isort)
+# Doc : https://docs.astral.sh/ruff/
+
+target-version = "py314"
+line-length = 100
+indent-width = 4
+
+extend-exclude = [
+    "**/_attic/**",
+    "_attic/**",
+    "**/auto_boot_*.py",
+    "auto_boot_*.py",
+    "Nokido.py",
+    "**/_release_tmp.py",
+    "**/_run_python_new.py",
+    "**/_patch_*.py",
+    "**/tmp_*.py",
+    "**/_tmp_*.py",
+    "**/forge_at_dispatch*.py",
+    "**/forge_handler_*.py",
+    "**/forge_handlers.py",
+    "**/forge_hub_handlers*.py",
+    "**/forge_mixin_*.py",
+    "**/mixin_*.py",
+    "**/pytorch_*.py",
+    "**/forge_startup.py",
+    "**/startup*.py",
+    "**/forge_dispatch_*.py",
+    "**/dispatch_*.py",
+    "**/forge_loop.py",
+    "**/loop*.py",
+    "**/forge_core_models.py",
+    "**/forge_agentic.py",
+    "**/forge_agent_hardware.py",
+    "**/forge_versioning.py",
+    "**/forge_runtime.py",
+    "**/forge_ssh.py",
+    "**/forge_ui_widgets.py",
+    "**/forge_swarm_team.py",
+    "**/forge_disco.py",
+    "**/forge_rag_warmup.py",
+    "**/legacy/**",
+    "**/_legacy/**",
+    "sandbox/**",
+    "RAG/**",
+    "workspace/**",
+    "go_services/**",
+    "models/**",
+    "data/**",
+    ".git/**",
+    "__pycache__/**",
+    ".venv/**",
+    "venv/**",
+    "node_modules/**",
+    "versions/**",
+    "logs/**",
+    "_release_tmp.py",
+    "IndexNokido*.py",
+]
+
+[lint]
+# Tier "vrais bugs" uniquement. Modernization (UP) + sort (I) + style (SIM/C4/W) = passes
+# distinctes via `ruff check --select UP --fix` quand on veut nettoyer un dossier cible.
+select = [
+    "F8",    # pyflakes errors (undefined, unused, redefined = vrais bugs)
+    "F4",    # pyflakes import errors
+    "F6",    # pyflakes module level
+    "F7",    # pyflakes syntax / semantics
+    "E9",    # runtime errors (syntax, IO)
+    "B",     # bugbear (common bugs)
+]
+ignore = [
+    "F401",  # unused-import (lazy/re-export idiomatic Nokido)
+    "F403",  # import-star (re-exports legacy)
+    "F405",  # undefined-from-import-star
+    "F811",  # redefined-unused (debris monolith)
+    "F841",  # unused-variable (defensive bindings)
+    "B007",  # unused-loop-control-variable (idiom for/_)
+    "B008",  # mutable default arg (Nokido Agent dataclass)
+    "B904",  # raise without from (legacy)
+    "B905",  # zip strict (Python 3.10+ default OK)
+    "B023",  # function uses loop variable (intentional partial)
+    "B028",  # warnings.warn missing stacklevel (legacy)
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["S", "B"]  # tests = relâche
+"tools/tmp_*.py" = ["F", "S", "B"]  # scripts ad-hoc
+
+[format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[lint.isort]
+known-first-party = ["app", "tools"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Workflow — ChainExecutor</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#0C0A13;--paper-2:#1C1928;--ink:#EDEBF4;--muted:#B2AEC4;--soft:#6E6A82;
+        --rule:#262338;--accent:#774AFF;--warn:#FFC22D;--orange:#FF9142;--bad:#F24F4F;--ok:#4AC28B;
+        --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+        --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1060px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:62ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:820px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1.2fr 1fr .85fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}.card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · workflow 3/n · 2026-08-12</p>
+  <h1>ChainExecutor — le rendement réel</h1>
+  <p class="sub">Sept agents, 98 exécutions chacun, 686 nœuds. Les largeurs sont
+     proportionnelles aux comptes mesurés. ⚠️ <b>Correction du 12/08</b> : <code>degraded</code>
+     ne veut pas dire « en échec » mais <b>« résultat vide, étape terminée sans erreur »</b>
+     (<code>forge_chain_executor</code> l.132) — et la chaîne continue dessus. Ce n'est donc
+     pas une panne qui se propage, c'est du <b>vide</b> qui s'accumule.</p>
+
+  <figure>
+  <svg viewBox="0 0 960 568" role="img" aria-labelledby="wc-title wc-desc">
+    <title id="wc-title">Rendement de la chaîne d'exécution Nokido</title>
+    <desc id="wc-desc">Entonnoir en six couches montrant que sur 98 exécutions, la préparation
+      et le raffinage ne perdent rien, tandis que la recherche, l'ingestion et surtout le
+      rangement font tomber le compte à 61.</desc>
+    <rect width="960" height="568" fill="#0C0A13"/>
+
+    <!-- axe de perte -->
+    <line x1="56" y1="104" x2="56" y2="472" stroke="rgba(237,235,244,0.20)" stroke-width="1"/>
+    <polygon points="56,480 52,468 60,468" fill="rgba(237,235,244,0.30)"/>
+    <text x="40" y="300" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace"
+          text-anchor="middle" transform="rotate(-90 40 300)" letter-spacing="0.14em">PERTE CUMULÉE</text>
+
+    <!-- couches -->
+    <g font-family="'Inter',sans-serif" text-anchor="middle">
+      <polygon points="100,96 740,96 740,160 100,160" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.20)"/>
+      <text x="420" y="122" font-size="13" font-weight="600" fill="#EDEBF4">Préparation</text>
+      <text x="420" y="140" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">KeywordAgent · VerifyAgent — ollama puis groq</text>
+
+      <polygon points="100,160 740,160 694,224 146,224" fill="rgba(255,194,45,0.06)" stroke="rgba(255,194,45,0.35)"/>
+      <text x="420" y="188" font-size="13" font-weight="600" fill="#FFC22D">Recherche</text>
+      <text x="420" y="206" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">SearchAgent — searxng</text>
+
+      <polygon points="146,224 694,224 694,288 146,288" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.20)"/>
+      <text x="420" y="252" font-size="13" font-weight="600" fill="#EDEBF4">Raffinage</text>
+      <text x="420" y="270" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">RefineAgent — groq llama-70b</text>
+
+      <polygon points="146,288 694,288 694,352 146,352" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.20)"/>
+      <text x="420" y="316" font-size="13" font-weight="600" fill="#EDEBF4">Crawl</text>
+      <text x="420" y="334" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">CrawlAgent — pages</text>
+
+      <polygon points="146,352 694,352 664,416 176,416" fill="rgba(255,145,66,0.06)" stroke="rgba(255,145,66,0.35)"/>
+      <text x="420" y="380" font-size="13" font-weight="600" fill="#FF9142">Ingestion</text>
+      <text x="420" y="398" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">IngestAgent — chunk + embed</text>
+
+      <polygon points="176,416 664,416 620,480 220,480" fill="rgba(119,74,255,0.14)" stroke="#774AFF" stroke-width="1.4"/>
+      <text x="420" y="444" font-size="13" font-weight="600" fill="#EDEBF4">Rangement</text>
+      <text x="420" y="462" font-size="9" fill="#B2AEC4" font-family="'JetBrains Mono',monospace">StoreAgent — biblio_raw</text>
+    </g>
+
+    <!-- annotations de droite -->
+    <g font-family="'JetBrains Mono',monospace" font-size="10" text-anchor="start">
+      <text x="772" y="126" fill="#4AC28B">98 / 98</text>
+      <text x="772" y="140" fill="#6E6A82" font-size="8">aucune perte</text>
+      <text x="772" y="190" fill="#FFC22D">84 / 98</text>
+      <text x="772" y="204" fill="#6E6A82" font-size="8">−14 · searxng</text>
+      <text x="772" y="254" fill="#4AC28B">84 / 98</text>
+      <text x="772" y="268" fill="#6E6A82" font-size="8">aucune perte neuve</text>
+      <text x="772" y="318" fill="#4AC28B">84 / 98</text>
+      <text x="772" y="332" fill="#6E6A82" font-size="8">aucune perte neuve</text>
+      <text x="772" y="382" fill="#FF9142">75 / 98</text>
+      <text x="772" y="396" fill="#6E6A82" font-size="8">−9</text>
+      <text x="772" y="446" fill="#F24F4F">61 / 98</text>
+      <text x="772" y="460" fill="#6E6A82" font-size="8">−14 · le goulot</text>
+    </g>
+
+    <!-- légende -->
+    <line x1="32" y1="512" x2="928" y2="512" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <g font-family="'JetBrains Mono',monospace" font-size="9" fill="#B2AEC4">
+      <text x="32" y="532" font-size="8" fill="#6E6A82" letter-spacing="0.14em">LÉGENDE</text>
+      <text x="128" y="532">largeur ∝ exécutions non dégradées à l'étape</text>
+      <rect x="452" y="522" width="14" height="10" rx="2" fill="rgba(119,74,255,0.14)" stroke="#774AFF"/>
+      <text x="474" y="532">goulot</text>
+      <rect x="556" y="522" width="14" height="10" rx="2" fill="rgba(255,145,66,0.06)" stroke="rgba(255,145,66,0.35)"/>
+      <text x="578" y="532">perte moyenne</text>
+      <rect x="700" y="522" width="14" height="10" rx="2" fill="rgba(255,194,45,0.06)" stroke="rgba(255,194,45,0.35)"/>
+      <text x="722" y="532">perte légère</text>
+      <text x="128" y="550" fill="#6E6A82" font-size="8">rendement bout en bout 62 % — corroboré par watch_jobs : 63 completed sur 98</text>
+    </g>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>Du vide, pas des pannes</h3>
+      <ul>
+        <li><b>Rangement : 37 vides</b> sur 98 — plus que toute autre étape, et c'est la dernière.</li>
+        <li>Leur colonne <code>error</code> est <b>vide</b>, et ce n'est pas un défaut d'instrumentation : c'est la définition de <code>degraded</code>. Rien n'a casse, rien n'a été produit.</li>
+        <li>Corollaire : <b>on ne « répare » pas StoreAgent.</b> Il range fidèlement ce qu'on lui donne, et on lui donne souvent rien — 30 jobs sur 98 finissent <code>completed_empty</code>.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#4AC28B"></span>Ce qui produit toujours</h3>
+      <ul>
+        <li><code>KeywordAgent</code> et <code>VerifyAgent</code> : <b>0 vide sur 98</b>. Générer des mots-clés ne dépend de personne.</li>
+        <li>Raffinage et crawl n'ajoutent <b>aucun vide neuf</b> — leurs 14 sont ceux hérités de la recherche.</li>
+        <li>Les vides apparaissent là où il faut du <b>matériau extérieur</b> : recherche 14, ingestion +9, rangement +14.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>Honnêteté du dessin</h3>
+      <ul>
+        <li>Largeurs proportionnelles aux comptes, jamais ajustées à l'esthétique.</li>
+        <li>Comptes par <b>étape</b>, pas par cohorte suivie : le recoupement avec <code>watch_jobs</code> (63) valide l'ordre de grandeur, pas l'identité des jobs perdus.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Nokido · app/forge_chain_executor.py · agent_chain_nodes 686 nœuds / 7 agents × 98 · 2026-08-12</footer>
+</div>
+</html>

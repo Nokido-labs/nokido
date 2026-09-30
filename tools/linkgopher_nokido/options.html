@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Nokido Link Gopher — Options</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #0d1117; color: #cdd9e5; padding: 32px; min-width: 480px; }
+    h1 { color: #00d4ff; font-size: 18px; margin-bottom: 6px; }
+    .sub { color: #8b949e; font-size: 12px; margin-bottom: 24px; }
+    label { display: block; color: #00d4ff; font-size: 12px; margin-bottom: 6px; font-weight: bold; }
+    input[type=password], input[type=text] {
+      width: 100%; background: #161b22; border: 1px solid #30363d; color: #cdd9e5;
+      padding: 10px 12px; border-radius: 4px; font-family: monospace; font-size: 13px;
+    }
+    input:focus { outline: none; border-color: #00d4ff; }
+    .row { margin-bottom: 18px; }
+    .actions { display: flex; gap: 10px; margin-top: 20px; align-items: center; }
+    button {
+      background: #00d4ff; color: #000; border: none; padding: 8px 18px; border-radius: 4px;
+      cursor: pointer; font-weight: bold; font-family: monospace; font-size: 13px;
+    }
+    button.sec { background: #222; color: #ccc; border: 1px solid #444; font-weight: normal; }
+    .status { font-size: 12px; color: #8b949e; }
+    .status.ok { color: #00ff88; }
+    .status.warn { color: #ffaa00; }
+    .hint { color: #555; font-size: 11px; margin-top: 6px; }
+    .show-toggle { font-size: 11px; color: #8b949e; cursor: pointer; user-select: none; margin-top: 4px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <h1>⚡ Nokido Link Gopher</h1>
+  <div class="sub">Configuration du token Bearer pour le Hub <code>http://127.0.0.1:8766</code></div>
+
+  <div class="row">
+    <label for="tok">Token Bearer</label>
+    <input type="password" id="tok" placeholder="Coller le token Nokido ici" autocomplete="off" spellcheck="false">
+    <span class="show-toggle" id="show-tok">👁 afficher</span>
+    <div class="hint">Stocké localement via <code>chrome.storage.local</code>. Jamais envoyé ailleurs que vers le hub local. Jamais loggé.</div>
+  </div>
+
+  <div class="actions">
+    <button id="save">💾 Enregistrer</button>
+    <button class="sec" id="clear">✕ Effacer</button>
+    <button class="sec" id="test">🩺 Tester /search</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

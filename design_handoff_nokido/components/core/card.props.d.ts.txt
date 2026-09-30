@@ -1,0 +1,30 @@
+import * as React from "react";
+
+/**
+ * Carte Nokido — l'atome de surface réutilisé partout (modules, panneaux,
+ * tuiles du hub). Tuile d'icône teintée optionnelle, titre, sous-titre, pied
+ * mono. `interactive`/`href` activent le survol (fond bg-3 + halo violet).
+ *
+ * @startingPoint section="Core" subtitle="Carte de surface avec icône, titre, pied mono" viewport="700x200"
+ */
+export interface CardProps {
+  /** Contenu libre sous le sous-titre */
+  children?: React.ReactNode;
+  /** Titre de la carte */
+  title?: React.ReactNode;
+  /** Sous-titre / description */
+  subtitle?: React.ReactNode;
+  /** Icône (nœud Lucide/SVG) affichée dans une tuile teintée */
+  icon?: React.ReactNode;
+  /** Couleur de la tuile d'icône */
+  iconColor?: "purple" | "blue" | "cyan" | "green" | "yellow" | "orange" | "red" | "pink";
+  /** Active le survol interactif (fond + halo) */
+  interactive?: boolean;
+  /** Rend la carte comme lien <a> */
+  href?: string;
+  /** Pied de carte (méta mono : cible, ID, latence…) */
+  footer?: React.ReactNode;
+  style?: React.CSSProperties;
+}
+
+export function Card(props: CardProps): JSX.Element;

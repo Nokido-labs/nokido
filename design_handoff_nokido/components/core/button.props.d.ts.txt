@@ -1,0 +1,29 @@
+import * as React from "react";
+
+/**
+ * Bouton d'action Nokido. Violet plein par défaut ; ghost pour les actions
+ * secondaires, danger/success pour les actions à statut.
+ *
+ * @startingPoint section="Core" subtitle="Bouton — primary / ghost / danger / success" viewport="700x120"
+ */
+export interface ButtonProps {
+  /** Libellé du bouton */
+  children?: React.ReactNode;
+  /** Style visuel */
+  variant?: "primary" | "ghost" | "danger" | "success";
+  /** Taille */
+  size?: "sm" | "md" | "lg";
+  /** Icône à gauche (ex. <i data-lucide="…"> ou SVG) */
+  icon?: React.ReactNode;
+  /** Icône à droite */
+  iconRight?: React.ReactNode;
+  /** Désactivé */
+  disabled?: boolean;
+  /** Type HTML du bouton */
+  type?: "button" | "submit" | "reset";
+  /** Gestionnaire de clic */
+  onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+  style?: React.CSSProperties;
+}
+
+export function Button(props: ButtonProps): JSX.Element;

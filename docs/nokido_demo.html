@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokido — Demo</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;
+  --cyan:#79c0ff;--green:#56d364;--yellow:#e3b341;
+  --red:#f85149;--purple:#d2a8ff;--dim:#8b949e;
+  --white:#e6edf3;--mono:'JetBrains Mono',monospace
+}
+html,body{width:100%;height:100%;background:var(--bg);color:var(--white);font-family:var(--mono);overflow:hidden}
+
+/* ── TERMINAL FRAME ── */
+.terminal{
+  width:900px;height:560px;margin:20px auto;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;
+  box-shadow:0 0 60px rgba(121,192,255,.08)
+}
+.term-bar{
+  height:38px;background:#1c2128;
+  display:flex;align-items:center;gap:8px;padding:0 14px;
+  border-bottom:1px solid var(--border)
+}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+.term-title{flex:1;text-align:center;font-size:12px;color:var(--dim)}
+.term-body{
+  padding:18px 22px;font-size:13px;line-height:1.7;
+  height:calc(100% - 38px);overflow:hidden;position:relative
+}
+
+/* ── SCENES ── */
+.scene{position:absolute;inset:18px 22px;opacity:0;transition:opacity .5s}
+.scene.active{opacity:1}
+
+/* ── CURSOR ── */
+.cur{display:inline-block;width:8px;height:15px;background:var(--cyan);
+  margin-left:1px;animation:blink .9s step-end infinite;vertical-align:middle}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ── TYPING ── */
+.typed{overflow:hidden;white-space:pre;display:inline}
+
+/* ── COLORS ── */
+.c{color:var(--cyan)}.g{color:var(--green)}.y{color:var(--yellow)}
+.r{color:var(--red)}.p{color:var(--purple)}.d{color:var(--dim)}
+.w{color:var(--white)}.b{color:#ff9e3b}
+
+/* ── PROGRESS BAR ── */
+.pbar-wrap{margin:3px 0}
+.pbar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-bottom:2px}
+.pbar{height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:2px;transition:width .4s ease}
+
+/* ── TABLE ── */
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+th{text-align:left;color:var(--dim);font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;padding:4px 8px;border-bottom:1px solid var(--border)}
+td{padding:5px 8px;border-bottom:1px solid #21262d;vertical-align:middle}
+tr:hover td{background:#1c2128}
+.badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px}
+.open{color:var(--green);background:rgba(86,211,100,.1);border:1px solid rgba(86,211,100,.3)}
+
+/* ── STAT CARDS ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.stat{background:#1c2128;border:1px solid var(--border);border-radius:6px;
+  padding:10px 14px;text-align:center}
+.stat .val{font-size:28px;font-weight:700;line-height:1;margin-bottom:4px}
+.stat .lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+
+/* ── BANNER ── */
+.banner{font-size:11px;line-height:1.35;color:var(--cyan);text-align:center;
+  text-shadow:0 0 20px rgba(121,192,255,.4);white-space:pre;margin:4px 0 10px}
+
+/* ── PROGRESS OVERLAY ── */
+.progress-bar{
+  position:fixed;bottom:0;left:0;height:3px;background:var(--cyan);
+  transition:width .5s linear;z-index:100
+}
+
+/* ── SCENE LABEL ── */
+.scene-label{
+  position:fixed;top:14px;right:20px;font-size:10px;
+  color:var(--dim);letter-spacing:.1em
+}
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress-bar"></div>
+<div class="scene-label" id="scene-label">1 / 7</div>
+
+<div class="terminal">
+  <div class="term-bar">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <div class="term-title">nokido — autonomous oss agent — v17.0.0</div>
+  </div>
+  <div class="term-body">
+
+    <!-- ═══ SCENE 1 — BANNER ═══ -->
+    <div class="scene" id="s1">
+      <pre class="banner">
+ ██╗      █████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗
+ ██║     ██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝
+ ██║     ███████║█████╗  ██║   ██║██████╔╝██║  ███╗█████╗
+ ██║     ██╔══██║██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝
+ ███████╗██║  ██║██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗
+ ╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
+      <p style="text-align:center;color:var(--dim);font-size:12px;margin-bottom:14px">
+        Autonomous guardian of the Python supply chain
+      </p>
+      <div style="display:flex;flex-direction:column;gap:6px;max-width:580px;margin:0 auto">
+        <div class="d">The libraries that power your stack — requests, tenacity, starlette, loguru —</div>
+        <div class="d">are downloaded <span class="y">3.18 billion times per month</span>.</div>
+        <div class="d">Every unfixed bug in them silently affects every developer who depends on them.</div>
+        <div style="margin-top:8px;color:var(--white)">
+          Nokido finds those bugs, patches them, tests them, and opens a PR.
+        </div>
+        <div class="d" style="margin-top:2px">Autonomously. Zero human lines of code per PR.</div>
+      </div>
+    </div>
+
+    <!-- ═══ SCENE 2 — COMMAND ═══ -->
+    <div class="scene" id="s2">
+      <div class="d" style="margin-bottom:14px">─── psf/requests — DigestAuth crash on bytes credentials ───</div>
+
+      <div style="margin-bottom:16px">
+        <span class="g">$</span>
+        <span class="c"> nokido</span>
+        <span class="y"> "fix DigestAuth crash in psf/requests"</span>
+      </div>
+
+      <div id="s2-steps" style="display:flex;flex-direction:column;gap:5px"></div>
+    </div>
+
+    <!-- ═══ SCENE 3 — RAG ═══ -->
+    <div class="scene" id="s3">
+      <div class="d" style="margin-bottom:10px">─── RAG knowledge base — matching rules ───</div>
+      <div style="font-size:12px;display:flex;flex-direction:column;gap:7px">
+        <div>
+          <span class="c">rule #7</span>
+          <span class="d"> — score 0.94</span>
+          <div style="margin-left:16px;color:var(--white);margin-top:2px">
+            <span class="b">isinstance(x, bytes)</span>
+            <span class="d"> → call </span>
+            <span class="b">.decode()</span>
+            <span class="d"> before any string operation</span>
+          </div>
+          <div style="margin-left:16px;color:var(--dim);font-size:11px">anchored from psf/requests PR #7295 · March 26 2026</div>
+        </div>
+        <div>
+          <span class="c">rule #2</span>
+          <span class="d"> — score 0.71</span>
+          <div style="margin-left:16px;color:var(--white);margin-top:2px">
+            <span class="b">CancelledError</span>
+            <span class="d"> must propagate — never caught by bare except</span>
+          </div>
+          <div style="margin-left:16px;color:var(--dim);font-size:11px">anchored from jd/tenacity PR #638</div>
+        </div>
+        <div>
+          <span class="c">rule #16</span>
+          <span class="d"> — score 0.63</span>
+          <div style="margin-left:16px;color:var(--white);margin-top:2px">
+            <span class="b">Format key validation</span>
+            <span class="d"> at logger.add() not at first log call</span>
+          </div>
+          <div style="margin-left:16px;color:var(--dim);font-size:11px">anchored from Delgan/loguru PR #1453</div>
+        </div>
+      </div>
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:10px">
+        <div class="d" style="font-size:11px">8 419 chunks · 12 domains · FAISS + BM25 hybrid · SQLite WAL</div>
+        <div style="margin-top:6px;font-size:12px">
+          <span class="g">→</span> Rule #7 selected — best match for bytes credentials bug
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SCENE 4 — FIX ═══ -->
+    <div class="scene" id="s4">
+      <div class="d" style="margin-bottom:10px">─── Patch generated — requests/auth.py:88 ───</div>
+      <div style="font-size:12px;background:#1c2128;border:1px solid var(--border);border-radius:6px;padding:14px;line-height:1.9">
+        <div class="d">  # requests/auth.py — line 88</div>
+        <div class="d">  # <span style="text-decoration:line-through">qop = challenge.split('qop="')[1].split('"')[0]</span></div>
+        <div style="margin-top:4px">
+          <span class="d">  qop = challenge.split('qop="')[1].split('"')[0]</span>
+        </div>
+        <div style="color:var(--green);background:rgba(86,211,100,.06);padding:2px 4px;border-radius:3px;margin-top:2px">
+          <span class="g">+</span>
+          <span class="b"> if isinstance(qop, bytes):</span>
+        </div>
+        <div style="color:var(--green);background:rgba(86,211,100,.06);padding:2px 4px;border-radius:3px">
+          <span class="g">+</span>
+          <span class="d">     qop = qop.decode(</span><span class="y">"utf-8"</span><span class="d">)</span>
+          <span class="d" style="font-size:10px">  # Nokido: rule #7</span>
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px;font-size:12px">
+        <div><span class="g">✓</span> <span class="d">AST validated — tree-sitter, 0 syntax errors</span></div>
+        <div><span class="g">✓</span> <span class="d">3 lines changed · 0 lines deleted</span></div>
+        <div><span class="g">✓</span> <span class="d">test_digest_auth_bytes_credentials() — 238 assertions</span></div>
+      </div>
+    </div>
+
+    <!-- ═══ SCENE 5 — TESTS ═══ -->
+    <div class="scene" id="s5">
+      <div class="d" style="margin-bottom:10px">─── pytest · 0 regressions ───</div>
+      <div style="font-size:12px;background:#1c2128;border:1px solid var(--border);border-radius:6px;padding:14px;line-height:1.7">
+        <div class="d">collected 238 items</div>
+        <div style="margin-top:4px" id="test-progress-line">
+          <span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span>
+          <span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span>
+          <span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span><span class="g">.</span>
+          <span class="d"> [50/238]</span>
+        </div>
+        <div id="test-final" style="display:none">
+          <div style="margin-top:6px">
+            <span class="g">■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■</span>
+            <span class="d"> 100%</span>
+          </div>
+          <div style="margin-top:8px">
+            <span class="g" style="font-size:14px;font-weight:700">238 passed</span>
+            <span class="d">, 0 failed, 0 warnings — </span>
+            <span class="w">2.4s</span>
+          </div>
+          <div style="margin-top:4px;color:var(--dim);font-size:11px">
+            No regressions. Ring 0–3 AST Sentinel: clear.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SCENE 6 — PR SUBMITTED ═══ -->
+    <div class="scene" id="s6">
+      <div class="d" style="margin-bottom:10px">─── Pull request submitted ───</div>
+      <div style="font-size:12px;background:#1c2128;border:1px solid var(--border);border-radius:6px;padding:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="background:rgba(86,211,100,.15);color:var(--green);padding:3px 10px;border-radius:4px;font-size:11px;border:1px solid rgba(86,211,100,.3)">
+            ● open
+          </span>
+          <span class="w" style="font-weight:600">fix: support bytes credentials in DigestAuth</span>
+        </div>
+        <div class="d" style="margin-bottom:8px;font-size:11px">
+          user → psf/requests · PR #7295 · opened just now
+        </div>
+        <div class="d" style="font-size:11px;line-height:1.6">
+          Fixes #7294 — DigestAuth.handle_401() raises TypeError when credentials<br>
+          are bytes rather than str.<br>
+          <br>
+          <span class="w">Fix:</span> decode qop header value when isinstance(qop, bytes).<br>
+          <span class="w">Tests:</span> test_digest_auth_bytes_credentials — 238 assertions, 0 regressions.
+        </div>
+      </div>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:5px;font-size:12px">
+        <div>
+          <span class="c">github.com/user/requests/pull/7295</span>
+          <span class="d"> → open</span>
+        </div>
+        <div class="d">Time elapsed: <span class="w">47 minutes</span> · Human code: <span class="y">0 lines</span></div>
+        <div style="margin-top:4px">
+          <span class="g">✓</span>
+          <span class="d"> Rule #7 re-anchored in RAG — next fix benefits automatically</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SCENE 7 — RESULTS ═══ -->
+    <div class="scene" id="s7">
+      <div class="d" style="margin-bottom:8px">─── 1 session · March 26 2026 · ~3 hours ───</div>
+      <div class="stats">
+        <div class="stat"><div class="val c">12</div><div class="lbl">PRs opened</div></div>
+        <div class="stat"><div class="val g">4 890</div><div class="lbl">Tests written</div></div>
+        <div class="stat"><div class="val y">3.18B</div><div class="lbl">Monthly reach</div></div>
+        <div class="stat"><div class="val r">0</div><div class="lbl">Regressions</div></div>
+      </div>
+      <table style="margin-top:12px">
+        <thead><tr><th>Repository</th><th>Bugs fixed</th><th>Tests</th><th>Status</th></tr></thead>
+        <tbody id="results-table"></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SCENES = ['s1','s2','s3','s4','s5','s6','s7'];
+const DURATIONS = [4500, 6000, 5000, 5000, 5500, 5000, 7000]; // ms per scene
+const TOTAL = DURATIONS.reduce((a,b)=>a+b,0);
+let current = 0;
+let elapsed = 0;
+
+const PRS = [
+  ["jd/tenacity","CancelledError + None check","153"],
+  ["tox-dev/filelock","__exit__ + stored loop","338"],
+  ["Kludex/starlette","ETag strip() + HEAD route","241"],
+  ["aio-libs/yarl","UUID→str + password repr","850"],
+  ["encode/httpcore","FQDN trailing dot SSL","182"],
+  ["Delgan/loguru","Format key validation","1570"],
+  ["BerriAI/litellm ×2","429 routing + Bedrock + SSE","39"],
+];
+
+const STEPS = [
+  ["🔍 Analyzing",   "var(--dim)",   "DigestAuth.handle_401() — bytes credentials"],
+  ["📦 Cloning",     "var(--dim)",   "git clone --depth 1 psf/requests"],
+  ["🧠 RAG loaded",  "var(--dim)",   "Rule #7 matched — score 0.94"],
+  ["🔬 Bug located", "#e3b341",      "requests/auth.py:88 — qop as bytes"],
+  ["⚙  Generating",  "var(--dim)",   "3-line patch · idiomatic · minimal"],
+  ["🧪 Testing",     "var(--dim)",   "writing 238 assertions..."],
+  ["✅ 238 passed",  "#56d364",      "0 failed · 0 regressions · 2.4s"],
+  ["🚀 PR opened",   "#79c0ff",      "github.com/user/requests/pull/7295"],
+];
+
+function showScene(idx) {
+  document.querySelectorAll('.scene').forEach(s => s.classList.remove('active'));
+  document.getElementById(SCENES[idx]).classList.add('active');
+  document.getElementById('scene-label').textContent = (idx+1) + ' / ' + SCENES.length;
+
+  if (idx === 1) animateSteps();
+  if (idx === 4) animateTests();
+  if (idx === 6) buildResults();
+}
+
+function animateSteps() {
+  const container = document.getElementById('s2-steps');
+  container.innerHTML = '';
+  STEPS.forEach((step, i) => {
+    setTimeout(() => {
+      const d = document.createElement('div');
+      d.style.cssText = `color:${step[1]};font-size:12px;opacity:0;transition:opacity .3s`;
+      d.innerHTML = `<span style="min-width:120px;display:inline-block">${step[0]}</span><span style="color:var(--dim)">${step[2]}</span>`;
+      container.appendChild(d);
+      requestAnimationFrame(() => d.style.opacity = '1');
+    }, i * 520);
+  });
+}
+
+function animateTests() {
+  setTimeout(() => {
+    document.getElementById('test-progress-line').innerHTML =
+      '<span style="color:var(--green)">'.repeat(42) + '.' + '</span>'.repeat(42) +
+      ' <span style="color:var(--dim)">[238/238]</span>';
+    document.getElementById('test-final').style.display = 'block';
+  }, 2200);
+}
+
+function buildResults() {
+  const tb = document.getElementById('results-table');
+  tb.innerHTML = PRS.map(([r,f,t]) => `
+    <tr>
+      <td style="color:var(--cyan)">${r}</td>
+      <td style="color:var(--dim);font-size:11px">${f}</td>
+      <td style="color:var(--green);text-align:right">${t}</td>
+      <td><span class="badge open">open</span></td>
+    </tr>`).join('');
+}
+
+// Auto-advance
+function advance() {
+  if (current >= SCENES.length) return;
+  showScene(current);
+
+  setTimeout(() => {
+    elapsed += DURATIONS[current];
+    document.getElementById('progress-bar').style.width =
+      Math.min(100, (elapsed / TOTAL) * 100) + '%';
+    current++;
+    if (current < SCENES.length) advance();
+  }, DURATIONS[current]);
+}
+
+// Start after brief pause
+setTimeout(advance, 600);
+
+// Click to skip
+document.addEventListener('click', () => {
+  if (current < SCENES.length) {
+    current++;
+    if (current < SCENES.length) {
+      elapsed = DURATIONS.slice(0, current).reduce((a,b)=>a+b,0);
+      document.getElementById('progress-bar').style.width =
+        (elapsed / TOTAL * 100) + '%';
+      showScene(current - 1);
+    }
+  }
+});
+</script>
+</body>
+</html>

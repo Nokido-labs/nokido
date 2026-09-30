@@ -1,0 +1,197 @@
+Tu es architecte securite consulte sur Nokido MCP Hub.
+Sujet : memoire long-terme d'agent IA (table 'lessons'), garde-fous Q5.
+
+VOICI LA RECHERCHE FAITE (sources OWASP + MintMCP) :
+
+# Memory Poisoning - sources documentaires (Sprint 2 Q5)
+
+Date : 2026-04-27
+Status : DOC ONLY, pas de code
+
+## Sources lues
+
+### 1. OWASP Agent Memory Guard (project page)
+URL : https://owasp.org/www-project-agent-memory-guard/
+
+Principes cles :
+- Memoire agent = ecrivable a runtime + persiste = "high-value attack surface"
+- Differente des poids du modele (qui sont read-only)
+- Cible : LangChain, LlamaIndex, CrewAI memory state
+- Defenses du projet :
+  * Validation integrite via SHA-256 hashing baseline
+  * Detection injection / sensitive data leakage / protected key modifications / rapid changes / size anomalies
+  * Politiques YAML declaratives sur memory read/write
+  * Snapshots forensiques + rollback known-good
+  * Drop-in middleware
+
+Mappage OWASP : ASI06 - Memory Poisoning (OWASP Top 10 for Agentic Applications 2026).
+
+### 2. MintMCP - AI Agent Memory Poisoning (article 21 jan 2026)
+URL : https://www.mintmcp.com/blog/ai-agent-memory-poisoning
+
+Stats cles :
+- Taux de succes attaques : 40% baseline -> 80%+ quand l'agent consulte sa memoire avant de repondre
+- Cible : RAG databases, vector stores, conversation logs
+- Pas de signal a l'OS ni au reseau (stockee comme du contenu legitime)
+
+Cycle d'attaque (Phase 1-4) :
+- P1 Injection : email, doc, multi-turn conversation, RLHF feedback manipulation
+- P2 Storage : pas de validation semantique, score trust = legitime
+- P3 Triggered behavior : query unrelated retrouve le poison comme "context relevant"
+- P4 Persistence + spread : multi-agent partage = contamination croisee
+
+5 defenses architecturales :
+1. Memory partitioning : 4 niveaux de privilege
+   - L0 immutable system core (read-only)
+   - L1 admin-managed policies (admin-write, audit log)
+   - L2 user preferences (user-write, sandboxed, cannot override L0/L1)
+   - L3 conversation history (ephemeral, session-scoped)
+   REGLE CRITIQUE : user input ne doit JAMAIS modifier core behavioral rules
+2. Context isolation + input sanitization
+3. Provenance tracking : chaque entree a source/ts/agent_id/checksum
+4. Temporal decay : decay exponentiel sur contexte ancien
+   AATMF framework recommande decay tel que stored instruction = < 10% influence apres 48h en environnement sensible
+5. Behavioral monitoring : metriques continues
+   - Refusal Rate Delta (RR-delta) : alert a +/- 15% baseline
+   - Instruction Echo Score (IES) : alert a > 0.85 cosine similarity user vs output
+   - Context Influence Weight (CIW) : alert > 40% influence d'une seule session
+   - Behavioral Drift Index (BDI) : KL divergence > 0.5
+
+### 3. Echo chamber attack (multi-turn)
+Mentionne dans MintMCP. L'attaquant utilise une suite de conversations qui shape progressivement
+le contexte vers une politique violee. Specifique aux agents qui apprennent de leurs interactions.
+
+### 4. Application a Nokido
+
+Nokido est exactement la cible decrite :
+- Agent autonome (Claude/Gemini/Kimi) avec memoire RAG (rag_chunks + lessons future)
+- Hub centralise = MCP gateway potentiel
+- Multi-LLM partagent la meme DB
+- Tool calling avec acces fichier/code (forge_tools)
+
+Traduction des 5 defenses dans le contexte Nokido actuel :
+
+L1 Memory partitioning :
+- L0 immutable : system_rules table existe deja, peut etre marquee read-only
+- L1 admin : forge_secret_guard policy, lessons type=politique/securite (RING_0 only)
+- L2 user-write : lessons type=habitude/garde_fou/anti_pattern (RING <= 1, sandboxed)
+- L3 ephemeral : event_log + conversation thread (deja la)
+
+L2 Input sanitization : SecretGuard sanitize_python_code + sanitize_sql existe deja
+
+L3 Provenance tracking : table rag_chunks a deja `source` + `ingested_at` + `author`.
+Manque : checksum SHA-256 de la valeur, agent_id signataire, RING_0 si systeme
+
+L4 Temporal decay : pas implemente. Champ obsolete_at decide en Q3 + last_matched_at
+seraient les briques
+
+L5 Behavioral monitoring : provider_scores existe (TTFT/grade/status), mais pas
+de metrique sur les decisions LLM elles-memes
+
+## Question Q5 (garde-fous d'ecriture) - synthese
+
+Ma proposition initiale (workflow agent silencieux propose draft, toi valides) doit
+etre etendue avec ces principes :
+
+1. WHO can write
+   - L0 : personne (table immutable, version'ee dans git, pas en DB)
+   - L1 : RING_0 only (toi via TUI/Web), audit hash chain
+   - L2 : RING <= 1 + provenance verifiee + sanitize, en draft uniquement
+   - L3 : tout agent, ephemeral, jamais promu a L2+
+
+2. SCHEMA d'integrite
+   Chaque lesson : payload + sha256(payload) + parent_hash (chainage)
+   Permet rollback comme git, detection tampering immediate
+
+3. SOURCE de l'ecriture (provenance)
+   - source_kind : human | agent_silent | agent_validated | system
+   - source_id : agent name (claude/groq/gemini)
+   - source_session : thread_id ou cor_id
+   - reviewer_id : RING_0 qui a valide
+   - hash_chain : sha256(prev) + sha256(payload)
+
+4. SANITIZATION avant insertion
+   - Pas de code (regex flag) dans solution
+   - Pas de URL exfiltration potentielle (regex domains externes non whitelistes)
+   - Pas de mention de credentials/keys
+   - Pas de patterns OWASP LLM01 (instruction override : "ignore previous", "you are now", etc.)
+
+5. AUDIT log = chainage hash
+   Chaque INSERT/UPDATE/DELETE de lesson genere un evenement event_log avec hash.
+   Verifier integrite globale = re-derive chaque hash et compare.
+   (Identique au pattern netcfg-agent-mcp WAL audit_events)
+
+6. TEMPORAL DECAY (pas dans Q3 mais pertinent ici)
+   - Lesson sans match depuis 90j -> flag review (Q3)
+   - Lesson avec source agent_silent jamais validee apres 30j -> auto-archive
+   - Lesson L1+ : pas de decay automatique
+
+7. MONITORING
+   Metriques a suivre :
+   - lessons_inserted_per_day par source_kind
+   - lessons_validated_ratio (validees / proposees)
+   - lessons_match_rate par lesson_id
+   - provenance_hash_chain_integrity (alert if break)
+
+## Niveaux de risque Nokido specifique
+
+Nokido n'a PAS d'acces externe non controle :
+- Pas d'email automatique
+- Pas de RLHF feedback
+- Pas de doc upload depuis web non sanitise
+- L'agent silent ecrirait depuis EventBus interne, pas depuis user externe
+
+Le risque principal est :
+- Hallucination LLM transformee en lesson (false positive technique)
+- Lesson contredisant une autre (pas de verification de coherence entre lessons)
+- Lesson faisant reference a un detail obsolete (lib version remplacee)
+- Lesson injectee par un attaquant qui aurait pris le controle d'un agent (compromise propage)
+
+Donc Nokido doit prioriser :
+1. Differentiation source_kind (qui a propose vs qui a valide)
+2. Hash chain (detection tampering)
+3. Sandbox lessons L2 (jamais utilisees pour decisions critiques sans validation)
+4. Coherence checking (avant insertion, verifier qu'elle ne contredit pas une lesson L1+)
+
+
+DECISIONS DEJA PRISES :
+Q1 : table lessons + index FTS + domaine dans rag_chunks
+Q2 : workflow hybride C (agent propose draft, RING_0 valide)
+Q3 : versioning par superseded_by
+Q4 : compromis - politiques+securite en system_prompt cached, autres en user prefix
+
+Taxonomie 9 types : habitude, bonne_pratique, axe, politique, garde_fou,
+design, securite, anti_pattern, bug_resolu
+
+QUESTIONS QUE JE TE POSE (max 700 mots reponse, francais) :
+
+Q5a - Le mapping 4 niveaux OWASP (L0-L3) + types Nokido propose dans la synthese
+te semble-t-il pertinent ? Faut-il fusionner / decouper differemment ?
+
+Q5b - Le hash chain a la 'netcfg WAL audit_events' pour la table lessons :
+exagere pour Nokido (pas de menace externe directe) ou indispensable ?
+Si oui, quel format minimal sans devenir un Merkle tree complet ?
+
+Q5c - Sanitization avant INSERT lesson : quelles regex / heuristiques minimales
+qui blockent les patterns LLM01 (instruction override) sans bloquer les leçons
+legitimes qui mentionnent ces patterns en exemple (ex: leçon 'detection prompt injection')?
+
+Q5d - Coherence check avant insertion : faut-il appeler un LLM tier (Groq) pour
+verifier qu'une nouvelle lesson ne contredit pas une lesson L1+ existante ?
+Risque : si le LLM tier hallucine, on bloque a tort. Cout vs benefit ?
+
+Q5e - Temporal decay : applique aux types Nokido :
+  - politique/securite/axe : jamais decay (immutable conceptuellement)
+  - bonne_pratique/design : decay lent (1 an)
+  - habitude/garde_fou/anti_pattern : decay moyen (90j sans match)
+  - bug_resolu : decay long si pas reapparu
+Decay pertinent pour Nokido ou inutile etant donne le faible volume ?
+
+Q5f - Behavioral monitoring : les 4 metriques OWASP (RR-delta, IES, CIW, BDI)
+sont concues pour des prods enterprise multi-millions de tokens.
+Quelles versions allegees pour Nokido solo ?
+
+FORMAT REPONSE STRICT :
+- Pour chaque sous-question Q5a-f : 1-3 phrases verdict + recommandation chiffree
+- Conclusion : ordre execution P0-P3 avec effort en heures par sous-tache
+- Pas de code, juste concepts/specs/regles

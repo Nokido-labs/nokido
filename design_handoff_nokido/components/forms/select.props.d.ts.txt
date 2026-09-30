@@ -1,0 +1,18 @@
+import * as React from "react";
+
+type Option = string | { value: string; label: string };
+
+/**
+ * Menu déroulant Nokido avec chevron custom. Mêmes états de focus que TextInput.
+ */
+export interface SelectProps {
+  value?: string;
+  onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  /** Options : chaînes ou { value, label } */
+  options?: Option[];
+  label?: React.ReactNode;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function Select(props: SelectProps): JSX.Element;

@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Nokido Link Gopher",
+  "version": "4.1",
+  "description": "Liens, onglets, historique, texte → Hub Nokido",
+  "icons": {
+    "16": "icons/link-gopher-16.png",
+    "32": "icons/link-gopher-32.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "history",
+    "clipboardWrite",
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8766/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/link-gopher-16.png",
+      "32": "icons/link-gopher-32.png"
+    },
+    "default_title": "Nokido Link Gopher"
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "default_locale": "en",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "laforge-linkgopher@local",
+      "strict_min_version": "109.0"
+    }
+  }
+}

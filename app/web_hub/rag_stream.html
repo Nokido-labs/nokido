@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Nokido — RAG Stream (BM25 SSE)</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  /* Convergence DS : hex -> tokens nokido.css (JS colors inchanges). */
+  body { margin:0; padding:0; min-height:100vh;
+         background:linear-gradient(135deg, var(--bg-0) 0%, var(--bg-1) 100%);
+         color:var(--text-primary); font-family:var(--font-sans,-apple-system,"Segoe UI",monospace); }
+  header { padding:14px 24px; background:rgba(0,0,0,0.4); border-bottom:1px solid var(--border);
+           display:flex; justify-content:space-between; align-items:center; }
+  h1 { margin:0; font-size:1.15rem; color:var(--green); }
+  .controls { padding:14px 24px; display:flex; gap:10px; align-items:center;
+              border-bottom:1px solid var(--border); }
+  input { flex-grow:1; padding:8px 12px; border-radius:6px; border:1px solid var(--border);
+          background:var(--bg-0); color:var(--text-primary); font-size:0.9rem; font-family:inherit; }
+  button { padding:8px 16px; background:var(--green); color:#fff; border:none; border-radius:6px;
+           cursor:pointer; font-weight:600; }
+  button:hover { background:var(--prov-local-strong); }
+  .status { font-size:0.75rem; color:var(--text-dim); padding:0 24px; height:24px; display:flex;
+            align-items:center; gap:14px; }
+  .status .live { color:var(--blue); font-weight:600; animation:pulse 1s infinite; }
+  .status .done { color:var(--green); font-weight:600; }
+  @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:0.5;} }
+  .results { padding:8px 24px; }
+  .chunk { background:var(--surface); border:1px solid var(--border); border-radius:6px;
+           padding:10px 14px; margin-bottom:8px; animation:slideIn 0.3s ease; }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+  .chunk-h { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .src { font-size:0.75rem; color:var(--blue); font-weight:600; }
+  .score { font-size:0.7rem; color:var(--purple); }
+  .domain { font-size:0.7rem; color:var(--text-dim); padding:2px 6px;
+            background:rgba(255,255,255,0.05); border-radius:3px; }
+  .text { font-size:0.78rem; line-height:1.5; color:var(--text-primary); white-space:pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nokido — RAG stream BM25 (FTS5 sur embeddings.db)</h1>
+  <span style="font-size:0.8rem; color:var(--text-dim);">SSE · chunks fed un par un · 531k+ chunks indexes</span>
+</header>
+
+<div class="controls">
+  <input id="q" placeholder='Query BM25 (ex: "neuromorphic SNN spike encoding")' value="neuromorphic computing">
+  <button class="lf-btn lf-btn--primary" onclick="startStream()">Search (SSE)</button>
+</div>
+
+<div class="status" id="status">en attente · clique Search pour lancer</div>
+
+<div class="results" id="results"></div>
+
+<script>
+let evtSrc = null;
+
+function clear() {
+  document.getElementById("results").innerHTML = "";
+}
+
+function startStream() {
+  if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  clear();
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  const status = document.getElementById("status");
+  status.innerHTML = `<span class="live">streaming...</span> query=<code>${q}</code>`;
+
+  const t0 = performance.now();
+  let n = 0;
+  const url = `/api/rag/stream?q=${encodeURIComponent(q)}&limit=12`;
+  evtSrc = new EventSource(url);
+  evtSrc.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.done) {
+        const dt = ((performance.now() - t0) / 1000).toFixed(2);
+        status.innerHTML = `<span class="done">done</span> · ${data.total} chunks · ${dt}s`;
+        evtSrc.close(); evtSrc = null;
+        return;
+      }
+      if (data.error) {
+        status.innerHTML = `<span style="color:#da3633">ERR: ${data.error}</span>`;
+        evtSrc.close(); evtSrc = null;
+        return;
+      }
+      n++;
+      const div = document.createElement("div");
+      div.className = "chunk";
+      div.innerHTML = `
+        <div class="chunk-h">
+          <span class="src">${escapeHtml(data.source || "?")}</span>
+          <span>
+            <span class="score">bm25 ${data.score?.toFixed(2) ?? "—"}</span>
+            <span class="domain">${escapeHtml(data.domain || "—")}</span>
+          </span>
+        </div>
+        <div class="text">${escapeHtml(data.text || "").slice(0, 600)}</div>
+      `;
+      document.getElementById("results").appendChild(div);
+    } catch (e) {
+      console.error("parse fail", e, ev.data);
+    }
+  };
+  evtSrc.onerror = (e) => {
+    status.innerHTML = `<span style="color:#da3633">EventSource error · ${n} chunks recus</span>`;
+    if (evtSrc) { evtSrc.close(); evtSrc = null; }
+  };
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+
+// Auto-fire au load (pour la demo recording) seulement si parametre ?autofire=true ou ?demo=1
+window.addEventListener("load", () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("autofire") === "true" || params.get("demo") === "1") {
+    setTimeout(startStream, 500);
+  }
+});
+</script>
+
+</body>
+</html>

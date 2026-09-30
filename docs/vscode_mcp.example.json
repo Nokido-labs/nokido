@@ -1,0 +1,31 @@
+{
+  "//": "TEMPLATE Nokido MCP integration pour VS Code / GitHub Copilot Chat Agent",
+  "//usage": "Copier ce fichier vers .vscode/mcp.json dans LaForge/, puis demarrer via Copilot Chat",
+  "//prereq_vscode": "Version >= 1.99 + Copilot Chat Agent mode active",
+  "//prereq_nokido": "Hub HTTP Nokido UP sur 127.0.0.1:8766 (service NSSM ou lancement manuel)",
+  "//ref": "https://docs.github.com/fr/copilot/customizing-copilot/using-model-context-protocol",
+
+  "//securite": "Ne JAMAIS mettre le token en clair dans un fichier git-trackable. Le prompt string password=true stocke le token dans le keychain OS au premier usage.",
+
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "nokido_token",
+      "description": "FORGE_MCP_TOKEN (voir Nokido.env ligne FORGE_MCP_TOKEN=)",
+      "password": true
+    }
+  ],
+
+  "servers": {
+    "laforge": {
+      "url": "http://127.0.0.1:8766/mcp",
+      "requestInit": {
+        "headers": {
+          "Authorization": "Bearer ${input:nokido_token}",
+          "X-Agent-Name": "VSCODE_COPILOT",
+          "Content-Type": "application/json"
+        }
+      }
+    }
+  }
+}

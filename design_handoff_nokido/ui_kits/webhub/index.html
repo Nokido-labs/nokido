@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<title>Nokido Hub — :7400</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../assets/laforge-prefs.js"></script>
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>html, body { height: 100%; } body { margin: 0; background: var(--bg-0); overflow: hidden; }</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="web-hub.ref.jsx"></script>
+<script type="text/babel" src="web-hub-screens.ref.jsx"></script>
+<script type="text/babel" src="web-hub-extra.ref.jsx"></script>
+<script type="text/babel" src="web-hub-setup.ref.jsx"></script>
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "accent": "#774AFF",
+  "density": "confort",
+  "provenance": true,
+  "quicklinks": true,
+  "mcpPanel": true,
+  "motion": true
+}/*EDITMODE-END*/;
+
+function App() {
+  const { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakToggle, TweakColor } = window;
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  return (
+    <>
+      <window.WebHub t={t} />
+      <TweaksPanel title="Tweaks">
+        <TweakSection label="Apparence" />
+        <TweakColor label="Accent" value={t.accent}
+          options={["#774AFF", "#2DD4BF", "#3BB2D0", "#4AC28B"]}
+          onChange={(v) => setTweak("accent", v)} />
+        <TweakRadio label="Densité" value={t.density} options={["confort", "compact"]}
+          onChange={(v) => setTweak("density", v)} />
+        <TweakToggle label="Animations" value={t.motion} onChange={(v) => setTweak("motion", v)} />
+        <TweakSection label="Simplifier le portail" />
+        <TweakToggle label="Marqueurs de provenance" value={t.provenance} onChange={(v) => setTweak("provenance", v)} />
+        <TweakToggle label="Barre de liens rapides" value={t.quicklinks} onChange={(v) => setTweak("quicklinks", v)} />
+        <TweakToggle label="Panneau MCP" value={t.mcpPanel} onChange={(v) => setTweak("mcpPanel", v)} />
+      </TweaksPanel>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+setTimeout(() => window.lucide && lucide.createIcons(), 90);
+</script>
+</body></html>

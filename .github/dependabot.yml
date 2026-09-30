@@ -1,0 +1,185 @@
+# Dependabot — configuration en clair dans le depot plutot que dans l'interface GitHub.
+#
+# POURQUOI DU CODE ET PAS L'UI : l'interface ne donne ni le GROUPEMENT ni la couverture des
+# ecosystemes non-Python. Sans groupement, les 221 alertes ouvertes (4 critiques, 88 hautes
+# au 2026-09-06) deviennent autant de PR, et chaque PR declenche la CI sur un runner
+# SELF-HOSTED -- c'est-a-dire la machine de l'owner, qui heberge aussi le hub et les daemons.
+# Avec groupement : UNE PR par ecosysteme.
+#
+# LES CHEMINS SONT MESURES, PAS SUPPOSES (2026-09-06). Le patron habituel `directory: "/"`
+# pour tous les ecosystemes est FAUX sur ce depot : seul `pip` a un manifeste a la racine.
+# Verification faite par `git ls-files` -- Dependabot ne voit que ce qui est VERSIONNE :
+#
+#   pip     -> /  (pyproject.toml + requirements.txt) et /app (pyproject.toml)
+#   cargo   -> /rust_ext/forge_bm25 et /go_services/forge_brain_worker
+#   gomod   -> /go_services/forge_dispatcher
+#   docker  -> /docker/nokido
+#   npm     -> AUCUN manifeste versionne. `modelcontextprotocol/package.json` et
+#              `triathlon_server_chall/**` existent sur le disque mais ne sont PAS suivis :
+#              declarer npm produirait une erreur Dependabot, pas des mises a jour.
+#
+# CE QUI EST VOLONTAIREMENT HORS PERIMETRE : `RAG/swebench/**`, `RAG_plain_bak/**` et
+# `workspace/**` portent des dizaines de `pyproject.toml`/`Dockerfile` -- ce sont des
+# CORPUS DE TEST TIERS et des challenges CTF, pas nos dependances. Les inclure noierait
+# le signal et occuperait le runner pour rien.
+#
+# RYTHME : `weekly`. Les mises a jour de SECURITE ne suivent pas ce planning -- elles
+# arrivent immediatement, quel que soit l'intervalle. `daily` n'ajouterait donc que du bruit.
+#
+# GROUPES DE SECURITE (ajoutes le 2026-09-10) — CE QUI MANQUAIT.
+#
+# Mesure : 233 alertes ouvertes, `automated-security-fixes` ACTIF ({"enabled":true,
+# "paused":false}), et pourtant ZERO PR de securite jamais produite. Les deux seules PR
+# Dependabot du depot (#6, #7, fermees) etaient des VERSION updates groupees.
+#
+# Cause : un groupe sans `applies-to` ne vaut QUE pour les version updates. Les groupes
+# ci-dessous etaient donc tous des groupes de version updates, et les mises a jour de
+# securite n'avaient aucun groupe pour les porter -- elles auraient du sortir en PR
+# individuelles, c'est-a-dire 233 declenchements du runner SELF-HOSTED (la machine de
+# l'owner, qui heberge le hub et les daemons).
+#
+# On AJOUTE donc un groupe `applies-to: security-updates` par ecosysteme, sans toucher
+# aux groupes de version updates ni aux `open-pull-requests-limit` : cette limite
+# concerne les version updates, et le but n'est pas de produire 233 PR mais quelques PR
+# groupees, verifiables une par une.
+#
+#   version updates   -> groupes existants (inchanges)
+#   security updates  -> groupes dedies ci-dessous
+#
+# ============================================================================
+# ROUTAGE DES RUNNERS DEPENDABOT — le blocage REEL, mesure le 2026-09-10
+# ============================================================================
+#
+# Les groupes ci-dessus expliquent COMMENT les PR seraient regroupees. Ils
+# n'expliquent PAS pourquoi il n'y en avait aucune. La vraie cause est ailleurs,
+# et elle vit dans la configuration GitHub, pas dans ce fichier :
+#
+#     job Dependabot  ->  labels: ["dependabot"]  ->  runner: ""  ->  queued
+#
+# Mesure sur les 40 derniers cycles : 15 queued, 10 cancelled, 2 success.
+# Les DEUX qui ont reussi (2026-09-06) demandaient `ubuntu-latest` et ont tourne
+# sur un runner GitHub-hoste — ce sont eux qui ont produit les PR #6 et #7.
+# Depuis, le depot est passe en mode runner SELF-HOSTED pour Dependabot : les
+# jobs reclament un runner etiquete `dependabot`, et le seul runner enregistre
+# porte `self-hosted, Windows, X64, laforge`. Personne ne repond.
+#
+# ⛔ LE PIEGE, ET IL EST GRAVE. La correction « evidente » consiste a ajouter le
+#    label `dependabot` au runner existant. NE JAMAIS LE FAIRE ICI : Dependabot
+#    resoudrait alors les dependances SUR LA MACHINE DE L'OWNER, en amont meme
+#    de la quarantaine `ci-dependabot.yml`. On aurait ferme la porte de la PR et
+#    ouvert celle du resolveur.
+#
+# ✅ LE GESTE JUSTE (owner, interface GitHub) : Settings -> Security & quality
+#    -> Advanced Security -> Dependabot -> choisir **Standard GitHub runner**
+#    au lieu du mode self-hosted. Ce n'est pas « desactiver Dependabot sur
+#    Actions » : c'est sortir du mode qui force le label dedie.
+#
+# ⚠️ ET LE TOGGLE NE RELANCE RIEN. Basculer le reglage ne redeclenche pas les
+#    jobs deja en file. Il faut soit attendre un nouveau cycle, soit utiliser
+#    `Try again` sur une alerte. Ne jamais lire « le reglage est change » comme
+#    « les mises a jour repartent » — REQUESTED n'est pas ACHIEVED.
+#
+# VERIFICATION, par la mesure et jamais par l'interface :
+#     gh api repos/user/nokido/actions/runs/<id>/jobs --jq '.jobs[].labels'
+#   attendu   : ["ubuntu-latest"]  + runner GitHub-hoste
+#   interdit  : ["dependabot"]     ou runner DESKTOP-XXXX / laforge
+# Si un job Dependabot reclame encore `dependabot`, S'ARRETER — et ne toucher a
+# aucun runner local.
+
+version: 2
+
+updates:
+  # --- Actions GitHub : l'angle mort classique. Une action epinglee sur un tag mutable
+  #     ou tournant sur un Node deprecie ne declenche aucune alerte de dependance.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
+      securite-actions:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Python, racine du depot (pyproject.toml + requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    groups:
+      python-racine:
+        patterns: ["*"]
+      # Porte l'essentiel du stock : 230 des 233 alertes vivent dans
+      # `requirements.txt` et `requirements-ml.txt`, a la racine.
+      securite-python-racine:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Python, paquet applicatif
+  - package-ecosystem: "pip"
+    directory: "/app"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      python-app:
+        patterns: ["*"]
+      securite-python-app:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Rust : extension BM25
+  - package-ecosystem: "cargo"
+    directory: "/rust_ext/forge_bm25"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      cargo-bm25:
+        patterns: ["*"]
+      # 3 alertes mesurees ici (pyo3, Cargo.lock).
+      securite-cargo-bm25:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Rust : brain worker
+  - package-ecosystem: "cargo"
+    directory: "/go_services/forge_brain_worker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      cargo-brain-worker:
+        patterns: ["*"]
+      securite-cargo-brain-worker:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Go : dispatcher
+  - package-ecosystem: "gomod"
+    directory: "/go_services/forge_dispatcher"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      go-dispatcher:
+        patterns: ["*"]
+      securite-go-dispatcher:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  # --- Docker : image de base de la stack
+  - package-ecosystem: "docker"
+    directory: "/docker/nokido"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2
+    groups:
+      docker-nokido:
+        patterns: ["*"]
+      securite-docker-nokido:
+        applies-to: security-updates
+        patterns: ["*"]

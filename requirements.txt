@@ -1,0 +1,102 @@
+# Nokido — Core dependencies
+# Python 3.12+
+# Install: pip install -r requirements.txt
+# ML deps (torch, embeddings): pip install -r requirements-ml.txt
+
+# HTTP / API
+# 0.128.8 -> 0.136.1 le 2026-09-10. NON PAS une montee de confort : le fichier
+# etait NON RESOLUBLE. `fastapi 0.128.8` exige `starlette<1.0.0` alors que la
+# ligne 13 epingle `starlette==1.3.1` (montee pour fermer 14 alertes de
+# securite). La faille avait ete fermee et la resolution cassee dans le meme
+# geste -- « security alert = CLOSED mais Nokido = BROKEN ».
+# `fastapi>=0.140.12` a leve la borne haute ; 0.136.1 la porte deja et c'est la
+# version REELLEMENT INSTALLEE dans laforge_py314. Mesure : pip install
+# --dry-run passe de CONFLIT a RESOLUBLE avec cette seule ligne.
+fastapi==0.136.1
+uvicorn[standard]==0.29.0
+httpx==0.28.1
+aiofiles==25.1.0
+pydantic==2.12.5
+python-multipart==0.0.31
+starlette==1.3.1
+anyio==4.15.1
+h11==0.16.0
+click==8.3.3
+
+# Database / storage
+aiosqlite==0.22.1
+SQLAlchemy==2.0.48
+
+# RAG / search
+numpy==1.26.4
+faiss-cpu==1.13.2
+rank-bm25==0.2.2
+
+# LLM routing
+# 1.84.0 est le correctif ANNONCE par l'avis de securite, mais il exige Python <3.14 et
+# l'env tourne en 3.14 : toute la serie 1.83.8 a 1.92.x est exclue par Requires-Python.
+# 1.93.0 est la premiere version INSTALLABLE qui porte le correctif. Mesure 2026-09-06.
+# 1.96.0 et non 1.93.0 : la 1.93 ne publie AUCUN wheel cp314/win_amd64, donc pip retombe
+# sur le sdist -- et litellm est devenu un projet mixte Python/Rust (pyo3 + maturin). La
+# construction echoue au lien faute de Windows SDK (LNK1104: msvcrt.lib), mesure du
+# 2026-09-07. La 1.96.0 publie litellm-1.96.0-cp314-cp314-win_amd64.whl : installation
+# binaire, aucune toolchain requise. Toute la serie 1.84-1.92 reste hors de portee
+# (requires_python <3.14), la 1.96 declare <3.15,>=3.10.
+litellm==1.96.0
+# 2.32.5 -> 2.33.1 le 2026-09-10 : ferme 2 alertes (GHSA-gc5v-m9x4-r6x2, medium).
+# 2.33.1 et non 2.33.0 (la version que l'avis nomme) parce que c'est celle qui
+# tourne deja dans laforge_py314 : on aligne le fichier sur le reel plutot que
+# d'introduire une troisieme version dans le systeme.
+requests==2.33.1
+python-dotenv==1.2.2
+
+# Messaging / IPC
+pyzmq==27.1.0
+msgpack==1.2.1
+
+# Graph
+networkx==3.4.2
+
+# Web scraping / ingest
+markdownify==1.2.2
+beautifulsoup4==4.14.3
+pypdf==6.16.1
+
+# System / security
+psutil==7.2.2
+# 46.0.3 -> 50.0.0 le 2026-09-10 : ferme 14 alertes a elle seule (4 high,
+# 2 medium, 1 low, chacune comptee deux fois pour les deux manifestes).
+# Saut de quatre majeures, mais SANS RISQUE MESURABLE ici : 50.0.0 est deja
+# installee dans laforge_py314 et le systeme tourne avec depuis des jours.
+# requires_python `!=3.9.0,!=3.9.1,>=3.9` -- compatible 3.14. Non yanked.
+cryptography==50.0.0
+PyJWT==2.14.0
+# ⚠️ paramiko RESTE en 4.0.0 — EXCEPTION DOCUMENTEE, pas un oubli.
+#
+#   alertes    GHSA-r374-rxx8-8654 (x2, severite LOW) — SHA-1 dans rsakey.py
+#   plage      <= 4.0.0   donc 4.0.0 EST vulnerable
+#   correctif  aucune version nommee par l'avis, mais toute version > 4.0.0 en sort
+#   BLOCAGE    `netmiko 4.7.0`, DERNIERE version publiee, exige `paramiko<5.0`
+#
+# Aucune version de netmiko n'accepte paramiko 5.0.0. Monter paramiko fermerait
+# deux alertes LOW et casserait le SSH multi-vendor de netcfg — une correction
+# qui detruit une capacite annoncee se refuse. Classee B (remediable seulement
+# apres deblocage amont), a rouvrir des que netmiko elargira sa contrainte.
+#
+# ⚠️ ET L'ENVIRONNEMENT REEL PORTE DEJA CETTE RUPTURE, en silence. Mesure du
+# 2026-09-10 dans laforge_py314 :
+#     netmiko 4.7.0 has requirement paramiko<5.0, but you have paramiko 5.0.0
+# La montee a ete faite en local sans que rien ne le signale. Ce manifeste
+# revient donc a 4.0.0 : il decrit ce qui DOIT etre installe, pas ce qui l'est.
+paramiko==4.0.0
+netmiko==4.7.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), tire pynacl/bcrypt
+
+# Dev / UX
+rich==14.3.2
+tqdm==4.67.3
+GitPython==3.1.60
+
+# AMI cognitive stack — Liquid NN (forge_lnn_monitor) + DSPy router (forge_dspy_router)
+ncps==1.0.1
+dspy==3.2.1
+orjson==3.11.9

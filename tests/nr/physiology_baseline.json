@@ -1,0 +1,11 @@
+{
+ "constantes": {
+  "cpu_calm": 0.995,
+  "homeostasis_stability": 0.661,
+  "pressure_fraction": 0.009,
+  "recovery_time_p50_s": 77.9,
+  "resource_recovery_score": 1.0
+ },
+ "echantillons": 2880,
+ "genere_par": "tools/forge_physiology.py --baseline"
+}

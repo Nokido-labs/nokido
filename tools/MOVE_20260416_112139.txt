@@ -1,0 +1,33 @@
+# MOVE batch 20260416_112139
+# 25 modules orphelins deplaces vers tools/
+
+## ctf/
+  forge_ctf_runner.py (32299b)
+  forge_ctf_autonomy.py (15616b)
+  forge_ctf_exploit_writer.py (14835b)
+  forge_payload_forge.py (19212b)
+  forge_handler_exegol.py (6321b)
+  forge_pwn_leak_parser.py (3959b)
+  forge_exec.py (4583b)
+  forge_docker_orchestrator.py (7985b)
+  forge_gdb_live.py (11110b)
+
+## bench/
+  forge_longmemeval.py (20540b)
+  forge_longmemeval_bge.py (19010b)
+  forge_longmemeval_enhanced.py (26506b)
+  forge_snn_bench.py (9743b)
+  forge_graph_bench.py (16338b)
+  forge_ogb_arxiv_bench.py (11736b)
+  forge_knowledge_distiller.py (9928b)
+  forge_dataset_loader.py (14510b)
+  forge_domain_adapter.py (9809b)
+
+## research/
+  forge_gnn.py (16711b)
+  forge_graph_engine.py (13069b)
+  forge_onnx_genai.py (12320b)
+  forge_native_bridge.py (13765b)
+  forge_spike_router_lite.py (6826b)
+  forge_inhibition_bus.py (12920b)
+  forge_distribution.py (18149b)

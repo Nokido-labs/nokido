@@ -1,0 +1,2158 @@
+# services.toml — declarative service registry for the Nokido supervisor.
+#
+# Step 1 of the portable-supervisor migration (docs/portable_supervisor_plan.md).
+# This file is the cross-OS-portable replacement for the hardcoded SERVICES[]
+# array in supervisor.ts. The supervisor loads it; on parse error it falls
+# back to the in-code array, so editing this file cannot brick the boot.
+#
+# ${VAR} placeholders are resolved from [vars] below (or, for secrets like
+# ${FORGE_MCP_TOKEN}, from the process environment).
+# Per-OS overrides go in [[service.windows]] / [[service.linux]] /
+# [[service.macos]] sections (not yet used — Windows is the current target).
+#
+# runAs (optional) — de-privilege a service that handles untrusted input.
+#   runAs = "sandbox-offline"   loopback-only sandbox user (outbound blocked)
+#   runAs = "sandbox-online"    sandbox user with internet allowed
+# A WASM module is already a capability sandbox; runAs de-privileges the
+# *runtime process* (Wasmedge/Spin) — defense-in-depth. Candidates: WASM
+# runtime, crawler, CTF tooling. Core trusted services stay SYSTEM (no runAs).
+# ENFORCED (2026-06-08) : supervisor.ts route runAs via tools/forge_runas_launcher.py
+# -> spawn_as_{sandbox,interactive}_jobbed (LogonUser/WTSQueryUserToken +
+# CreateProcessAsUser + Job Object KILL_ON_JOB_CLOSE ; fail-loud si token KO,
+# jamais de fallback SYSTEM silencieux). Consommateurs : NokidoCTFBrowserMCP
+# (interactive), NokidoRSSWatcher (sandbox-online).
+#
+# Example (commented — no live consumer today):
+#   [[service]]
+#   name = "NokidoWasmRuntime"
+#   wave = 3
+#   cmd = "${WASMEDGE}"
+#   args = ["serve", "..."]
+#   cwd = "${ROOT}"
+#   essential = false
+#   runAs = "sandbox-offline"
+
+[vars]
+# Resolved relative to the supervisor's cwd at load time, except absolute
+# paths which stay literal until the platform shim (step 2) generalises them.
+ROOT        = "."
+PROXY_DIR   = "./proxy_deno"
+# Magasin des BINAIRES TIERS, hors depot par construction : un navigateur, un
+# relais ou un moteur vectoriel n'ont rien a faire dans git (poids, licences,
+# et ils casseraient la wheel PyPI). Ils ne sont pas non plus dans un `tmp`, qui
+# n'est ni sauvegarde ni stable. Une autre machine -- ou la distribution
+# publique -- surcharge NOKIDO_BIN par variable d'environnement : le loader fait
+# primer l'environnement sur cette table, donc aucun fichier n'est a modifier.
+NOKIDO_BIN  = "C:/nokido"
+PYTHON      = "%USERPROFILE%/miniforge3/python.exe"
+PYTHON_HOME = "%USERPROFILE%/miniforge3"
+PY314       = "%USERPROFILE%/miniforge3/envs/laforge_py314/python.exe"
+PY314T      = "%USERPROFILE%/miniforge3/envs/laforge_py314t/python.exe"
+PY312_RYZEN = "%USERPROFILE%/miniforge3/envs/ryzen-ai-final/python.exe"
+# Tier policy 2026-05-29 (per Gemini Web hybrid runtime + multi-thread bench proof):
+#   PYTHON      = legacy / compat / migrations one-shot (base 3.12)
+#   PY312_RYZEN = ONNX NPU embed workers (Ryzen AI 1.7 SDK exclusif)
+#   PY314       = canonical 2026 cortex single-thread (Hub, daemons, cortex RPC).
+#                 +8.2% pipeline pur Python vs py312 (bench_chain).
+#                 single-thread service handler -> PY314 ideal.
+#   PY314T      = free-threaded PARALLEL-CPU workloads uniquement.
+#                 Multi-thread bench 2026-05-29 PROVE :
+#                   - 6.3x speedup pure-Python @ 8 threads
+#                   - 2.5x AMI mix @ 4 threads
+#                   - py314 GIL REGRESS sur AMI @ 4+ threads
+#                 Acte 5 partial DEFER : per-workload flip via
+#                 tools/forge_py314t_readiness.py probe. 6/9 candidats prets :
+#                   - forge_handoff (multi-agent LLM eval)
+#                   - forge_world_model_ami (AMI JEPA batch)
+#                   - forge_lats_general (MCTS rollouts parallel)
+#                   - forge_tem_factorize (numpy batch)
+#                   - forge_semantic_pressure (cluster compute batch)
+#                   - forge_bge_m3_shared (in-process ONNX shared, requires cp314t onnxruntime)
+#                 Wire `cmd = "${PY314T}"` quand un service de cette liste
+#                 devient majoritairement CPU-parallel.
+DENO        = "%USERPROFILE%/.deno/bin/deno.exe"
+LLAMA       = "%USERPROFILE%/llama-vulkan/llama-server.exe"
+OLLAMA_EXE  = "%USERPROFILE%/AppData/Local/Programs/Ollama/ollama.exe"
+OLLAMA_DIR  = "%USERPROFILE%/AppData/Local/Programs/Ollama"
+LMS_EXE     = "%USERPROFILE%/.lmstudio/bin/lms.exe"
+LMS_DIR     = "%USERPROFILE%/.lmstudio"
+# NETCFG_EXE : binaire compile ABSENT du disque (verifie 2026-07-24) et reference
+# par AUCUN service — NokidoNetcfgMCP tourne via Python, seul NETCFG_DIR sert (cwd).
+# Laissee commentee plutot que supprimee : une variable morte qui a l'air vivante
+# fait echouer le premier qui s'y fie, et l'erreur parlera d'autre chose.
+# NETCFG_EXE  = "%NOKIDO_WORKSPACE%/netcfg-agent-mcp/dist/netcfg-agent-mcp.exe"
+NETCFG_DIR  = "%NOKIDO_WORKSPACE%/netcfg-agent-mcp"
+NETCFG_UI   = "%NOKIDO_WORKSPACE%/netcfg-agent-web/demo/serve_ui.py"
+MODEL_7B    = "D:/ollama/models/blobs/sha256-60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463"
+DRAFT_1B    = "D:/ollama/models/blobs/sha256-29d8c98fa6b098e200069bfb88b9508dc3e85586d20cba59f8dda9a808165104"
+
+# ── VAGUE 1 : Tronc Cérébral (réseau & hub principal) ──────────────────
+[[service]]
+name = "NokidoMCP"
+# INNERVATION (2026-08-25). Le hub tenait son contrat par PALPATION seule — cpu et
+# sockets, mesures du dehors. L'ancetre de tous les jobs ne disait rien de son etat.
+# `emis<600` exige desormais un battement EMIS dans la moelle afferente. Il est pour
+# l'instant MEDIE (son /health repond quand on l'interroge, cf forge_organ_afferent) ;
+# l'emission DIRECTE depuis sa propre boucle reste la cible.
+intention = "capability:hub"
+objectif = "emis<600 | listen | conn>0"
+wave = 1
+cmd = "${PY314}"
+args = ["tools/nokido_hub.py"]
+cwd = "${ROOT}"
+port = 8766
+# `capabilities` = ce que ce service SERT (≠ `deps`, qui dit ce dont il a besoin).
+# Lu par forge_service_capabilities : un porteur de capacité critique n'est jamais
+# évincé sous pression RAM. Sans ce champ, le 24-07 a endormi les 3 piliers du RAG.
+capabilities = ["hub"]
+essential = true
+neverSleep = true
+# BATTEMENT DECLARE (2026-08-26). Le contrat `objectif = "emis<600"` ci-dessus attendait
+# un pouls EMIS depuis le 25/08 — mais aucun heartbeat n'etait declare, et le hub n'en
+# emettait aucun : le contrat ne pouvait pas etre verifie. `_battement_de_service` (tache
+# asyncio de nokido_hub.py) ecrit desormais ce fichier toutes les 60 s.
+# Pourquoi ca compte : le superviseur arrete le hub par `proc.kill("SIGTERM")`, or Windows
+# n'a pas de SIGTERM — Deno le traduit en TerminateProcess, qui detruit le processus sans
+# qu'aucun handler ne s'execute (mesure : deux redemarrages, zero ligne de fin ecrite).
+# Le battement ne dit pas POURQUOI le hub est mort, il dit QUAND il vivait encore.
+heartbeat = "sandbox/hub.heartbeat"
+heartbeat_tier = "normal"
+# LAFORGE_VEC_SIDECAR_PORT=8098 => CUTOVER RAG dense vers Qdrant natif (chantier
+# 2026-07-06, parite 1.00 @ p50 61ms). Rollback = retirer cette cle (defaut 8097 faiss).
+# LAFORGE_PROXY_MEMORY(+_WRITE)=1 => memoire Letta stateful PAR THREAD dans agent_proxy.ask
+# (recall archival persistant injecte au system_prompt + persist ; 2026-07-07, latence
+# ~9ms p95 mesuree ; borne par retention keep-5000/agent). Rollback = "0" ou retirer.
+# LAFORGE_SAMPLER_AUTOSTART=1 (2026-07-30) => DESIGNE le hub proprietaire de
+# l'echantillonneur de ressources. Sans declaration, la propriete etait decidee par un
+# repli implicite (premier appelant, reprise si l'etat publie vieillit) et restait
+# INDETERMINABLE : impossible de savoir si l'eviction automatique a 75 % tournait dans
+# le process qui detient les caches reclamables. Or ce doit etre le hub, puisque c'est
+# lui qui porte la matrice dense (~2.3 Go) rendue par Step 1bis. Un seul proprietaire
+# reste la regle (mesure 2026-07-26 : un sampler par appelant = une sonde PowerShell
+# par tick chez chacun) ; il est desormais NOMME au lieu d'etre subi.
+# LAFORGE_EVICT_DYNAMIC=1 (2026-07-25) => rearme l'eviction par capacite (Step 2b-bis
+# de request_resources). Condition posee le 24-07 REMPLIE : forge_service_capabilities
+# existe et les piliers declarent leurs capabilities (hub/dense_search/embedding/
+# reranking) -> is_critical les protege, verdict world-model requis, abstention sinon.
+# Rollback = "0".
+# LAFORGE_ALLOW_CRITICAL_WRITE : fenetre de maintenance OUVERTE puis REFERMEE le
+# 2026-08-12 (autorisation owner explicite). Elle leve le refus de `governed_edit`
+# et de `forge_mcp_security` sur les CRITICAL_FILES — donc elle DESARME UNE GARDE
+# POUR TOUT LE DEPOT, pas pour un fichier. Une classe exemptee est une zone qui
+# n'est plus balayee : elle ne doit exister que le temps d'un chantier nomme.
+# Ouverte pour deux patches, livres au commit 2bbe6fa9 : `_session_courante()`
+# dans le hub (network_log.session_id etait rempli 0 fois sur 62 962) et
+# l'entree `poll` dans `_TOOL_MIN_RING`. Chantier clos -> refermee.
+# Pour rouvrir : remettre LAFORGE_ALLOW_CRITICAL_WRITE = "1" ici + relance par
+# LaForge-Master (la variable ne se recharge PAS a chaud), et la refermer apres.
+# PYTHONTRACEMALLOC : trace les allocations DES LE DEMARRAGE de l'interpreteur,
+# avant le premier import — la seule facon d'observer le pic du BOOT.
+# MESURE 2026-08-19 : ce process a atteint 13,8 Gio d'engagement (peak_pagefile)
+# sur une machine qui n'en expose que 23,67, une seule fois, jamais reatteint :
+# ce n'est ni une fuite ni une retention, c'est une AMPLITUDE, et c'est elle qui
+# declenche pagination et compression memoire.
+# `app/hardware/mem_watchdog.py` sait profiler mais s'arme SUR SEUIL : il
+# arriverait apres la bataille. Et `tracemalloc` ne trace QUE ce qui suit son
+# start(), d'ou cette variable plutot qu'un appel place dans le code.
+# ⚠️ COUT REEL : tracemalloc double le cout des allocations. C'est un reglage de
+# CAMPAGNE — mesurer, lire le dump, puis RETIRER cette entree. La laisser en
+# permanence sur un hub qui pique deja a 13,8 Gio ferait payer l'observation
+# plus cher que ce qu'elle apprend.
+# LAFORGE_EVICT_DYNAMIC : "1" -> "conditioned" (2026-08-25, go owner).
+# La cle valait "1" depuis le 2026-07-25 (commit 9e334efae). Or "1" est le mode
+# HISTORIQUE, SANS condition : `_heavy_evictable_services` ne consulte
+# `_evict_conditions_met` QUE pour "conditioned"/"auto". L'urgence mesuree et le
+# "aucun travail en cours" etaient donc sautes en production.
+# Le 2026-08-03 le defaut du CODE est passe a "conditioned", avec cette phrase
+# explicite : « PAS a "1" ». Personne n'a retire l'override d'env, plus ancien --
+# donc le mode conditionne n'a JAMAIS tourne, et le code se relisait comme garde.
+# Cout mesure le 2026-08-25 : NokidoLlamaEmbed, pilier embedding, endormi 9 fois en
+# 7 jours ; c'etait le seul organe a portee de l'effecteur.
+# Lecon generale : un defaut de code corrige ne corrige rien tant qu'un override
+# d'environnement plus ancien le recouvre. Le defaut se lit, l'override s'applique.
+#
+# PYTHONTRACEMALLOC : retire puis REMIS le 2026-08-25, pour une campagne NOMMEE —
+# « de quoi sont faits les ~6,7 Go que le hub tient, et son pic de 11 Go ».
+# Pourquoi il faut cet instrument-la et pas un autre, mesure a l'appui du jour meme :
+#   - `psutil.memory_maps()` sur le hub rend AccessDenied depuis un compte non
+#     privilegie — la carte des regions est hors de portee ;
+#   - `/admin/heap` parcourt `gc.get_objects()`, qui ne rend QUE les conteneurs suivis
+#     par le ramasse-miettes : 50 Mo tous types confondus sur 6,7 Go. Les `str`, les
+#     `bytes` et les tampons numpy — c'est-a-dire la masse — lui sont INVISIBLES ;
+#   - la lecture de code s'est trompee DEUX fois (module mort `forge_vector_index`,
+#     puis `_load_embeddings` dont la correction n'a pas bouge le pic : 11,878 -> 11,02).
+# Trois hypotheses fausses coutent plus cher que la campagne.
+# CAMPAGNE CLOSE le 2026-08-25, cle RETIREE, contrat tenu. Ce qu'elle a rendu, en un
+# seul appel a /admin/heap, apres que la lecture de code se soit trompee deux fois :
+#   4 720,1 Mo en 3 allocations -> app/forge_mcp_registry.py:6510
+#     = np.empty((1 152 197, 1024), float32), la matrice dense du RAG, en RAM ;
+#      264,1 Mo en 888 432 allocations -> :6576 (le dict meta, texte tronque a 512) ;
+#      153,5 Mo en 1 695 049 allocations -> :6542 (le parcours du curseur).
+# Soit 5,34 Go traces sur 5,95 Go d'engagement : la masse du hub est NOMMEE.
+# Et le point qui restait invisible sans cet instrument : `forge_rag_engine` n'est meme
+# pas importe dans ce process. Le cutover Qdrant est honore par ce module-la, et
+# IGNORE par `_load_dense_cache`, qui est celui que le hub execute vraiment (0
+# occurrence de "sidecar" dans forge_mcp_registry.py).
+# Pour rouvrir : remettre PYTHONTRACEMALLOC = "1", un restart, lire, puis retirer.
+# LAFORGE_MASTER_BORNE = "1" (2026-09-24, DECISION OWNER « 1 oui ») : le porteur du maitre
+# qui se presente sous un nom d'organe est ramene au plancher anti-spoof (ring 4) au lieu
+# d'heriter du ring de cet organe (forge_videur.resolve_identity, borne_appliquee=True).
+# Mesure qui l'a permis : impersonation +0 entre 15:49 et 16:24 ; ecart_si_borne = 36
+# declassements, tous WEBHUB historiques. Le maitre qui se dit MASTER et tout jeton propre
+# sont epargnes. Rollback = retirer la cle (observation, comme avant) + relance du hub.
+# LAFORGE_ADMIN_TPM_ENFORCE = "1" (2026-09-24, DECISION OWNER « si la preuve TPM est valide,
+# arme ») : un ORGANE qui presente son jeton propre sur une route d'administration doit
+# prouver la possession de sa cle TPM (DPoP adossee au TPM, empreinte ENREGISTREE au
+# registre) ; sans preuve LIEE -> 401. Mesure qui l'autorise : 17:02:29, les deux appels
+# /admin/run_job du superviseur, emis depuis SON compte, sont LIEE (preuve valide) ; le GC
+# NREM3 porte la preuve depuis le meme commit. Rollback = retirer la cle + relance du hub.
+env = { PYTHONIOENCODING = "utf-8", SANDBOX_EXEC = "1", PYTHONUTF8 = "1", LAFORGE_VEC_SIDECAR_PORT = "8098", LAFORGE_PROXY_MEMORY = "1", LAFORGE_PROXY_MEMORY_WRITE = "1", LAFORGE_M2M_ENVELOPE = "1", LAFORGE_EVICT_DYNAMIC = "conditioned", LAFORGE_SAMPLER_AUTOSTART = "1", LAFORGE_SWITCHES_DB_PATH = "${ROOT}/sandbox/access_switches.db", LAFORGE_MASTER_BORNE = "1", LAFORGE_ADMIN_TPM_ENFORCE = "1" }
+# PYTHONTRACEMALLOC 25 -> 1 (mesure 2026-08-20). 25 frames de pile conservees
+# par ALLOCATION VIVANTE : mesure comparee, meme interpreteur, memes imports —
+# 124,4 Mo sans / 394,5 Mo avec, soit x3,17 (+270 Mo) pour 63 Mo reellement
+# suivis. Ce surcout est INVISIBLE a tracemalloc lui-meme : ses tables ne sont
+# pas dans les chiffres qu'il rend, donc l'instrument ne peut pas se declarer.
+# Correlation : le hub etait a 7,66 Go pour une reference de 0,774 Go (x9,9,
+# pic engage 15,9 Go sur 23,67) avec TOUS ses threads `idle` au py-spy dump —
+# profil d'une memoire RETENUE, pas travaillee. 1 frame garde le diagnostic
+# (fichier + ligne qui alloue) pour ~1/25 du cout. Rollback = remettre "25".
+
+[[service]]
+name = "NokidoOllama"
+# ATTENTION : le temoignage d'Ollama passe par /api/tags, qui rend un CACHE et peut
+# mentir sur ce qui est reellement charge. `emis<` prouve donc qu'il VIT, jamais ce
+# dont il est capable — ne pas s'en servir pour conclure a une disponibilite modele.
+intention = "cognition:cerveaux_locaux"
+objectif = "emis<600 | listen"
+wave = 1
+cmd = "${OLLAMA_EXE}"
+args = ["serve"]
+cwd = "${OLLAMA_DIR}"
+port = 11434
+essential = true
+# OLLAMA_GPU_OVERHEAD = 1073741824 (1 GB) reserve compositeur Windows = cap
+# VRAM strict. RCA 2026-05-24 : driver Radeon 780M sature => BSOD VIDEO_SCHEDULER.
+# Sur APU iGPU partage VRAM systeme, JAMAIS laisser ollama bouffer > 80%.
+# OLLAMA_NO_CLOUD = "1" (2026-09-24, veille lot_B_23) : Ollama sait router vers SON cloud
+# (modeles `-cloud`, recherche web) ; l'Ollama installe affichait `OLLAMA_NO_CLOUD:false`.
+# Or `SemanticFirewall.pre_flight` classe le fournisseur « ollama » comme LOCAL et ne lui
+# applique pas la DLP : un modele cloud tire par Ollama sortirait sans pare-feu. On coupe a
+# la SOURCE (FAQ officielle : variable OLLAMA_NO_CLOUD=1, effet au redemarrage du service).
+env = { OLLAMA_MODELS = "D:/ollama/models", OLLAMA_KEEP_ALIVE = "30s", OLLAMA_MAX_LOADED_MODELS = "1", OLLAMA_HOST = "127.0.0.1:11434", OLLAMA_GPU_OVERHEAD = "1073741824", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NO_CLOUD = "1" }
+
+[[service]]
+name = "NokidoNetcfgProxy"
+# :8767 est le lazy PROXY ; le MCP reel vit sur :8768 et relaie le meme /health.
+# Chacun est interroge la ou IL vit, sinon l'un temoigne a la place de l'autre.
+intention = "pont:reseau_lazy"
+objectif = "emis<600 | listen | conn>0"
+wave = 1
+cmd = "${DENO}"
+args = ["run", "-A", "--no-check", "proxy_deno/organs/netcfg_lazy_proxy.ts"]
+cwd = "${ROOT}"
+port = 8767
+essential = true
+neverSleep = true
+
+[[service]]
+name = "NokidoNetcfgMCP"
+# MESURE 2026-08-25 : son /health sur :7500 ne repond pas (URLError) — l'organe est
+# donc MUET, et le contrat le dira au lieu de le couvrir par un pouls CPU. C'est un
+# defaut a instruire, pas un seuil a assouplir.
+intention = "pont:reseau"
+objectif = "emis<600 | listen | conn>0"
+wave = 1
+cmd = "${PYTHON}"
+args = ["-m", "netcfg_mcp", "serve", "--transport", "http", "--host", "127.0.0.1", "--port", "8768", "--standalone"]
+cwd = "${NETCFG_DIR}"
+port = 8768
+essential = true
+
+[[service]]
+# Boite noire du hub (2026-08-14) — le seul organe qui SURVIT a ce qu'il observe.
+#
+# Le hub est tombe 12 fois en 3 jours sans qu'aucun diagnostic soit possible :
+# tous les capteurs vivent DANS le hub, et `vitals_history.jsonl` s'interrompt a
+# la seconde de sa mort. Les minutes qui comptent sont exactement celles qui
+# manquent ; les pics RAM a 99,9 % qu'on y lit sont ceux du REDEMARRAGE.
+#
+# PAS de `deps` : un observateur qui attend sa cible ne l'observe pas. PAS de
+# `runAs` non plus, et c'est le seul point qui demande un mot. `runAs` sert ici
+# a DE-privilegier (interactive / sandbox-offline / sandbox-online) ; l'omettre
+# laisse le service sous le compte du superviseur, comme le hub lui-meme. C'est
+# necessaire et suffisant : sous un compte moindre, 310 process sur 314 ont une
+# cmdline illisible, donc le RSS du hub reste invisible et « process absent » ne
+# se distingue pas de « interdit de regarder » (mesure du 2026-08-14).
+#
+# Ce que ce privilege autorise, borne par le code : psutil en LECTURE, un
+# connect() sur 127.0.0.1:8766, et un append JSONL dans sandbox/. Aucun
+# subprocess, aucune sonde GPU (mesuree a 1562 ms — une sonde d'echantillonnage
+# a deja gele cette machine le 2026-07-26), aucun egress.
+name = "NokidoHubBlackbox"
+# INNERVE le 2026-08-25 par EMISSION DIRECTE : sans port, il ne pouvait pas temoigner
+# par une interface — il ecrit donc son propre battement. Un organe qui surveille doit
+# etre surveillable, sinon sa disparition ne se voit qu'au trou qu'elle laisse.
+intention = "observation:boite_noire"
+objectif = "hb<600 | cpu>0.05"
+heartbeat = "sandbox/hub_blackbox.heartbeat"
+heartbeat_tier = "normal"
+wave = 1
+cmd = "${PYTHON}"
+args = ["tools/forge_hub_blackbox.py"]
+cwd = "${ROOT}"
+essential = false
+
+[[service]]
+# NOEUD SINUSAL (owner 2026-09-03) — « le pouls doit emaner du coeur ».
+#
+# Avant lui, sept organes portaient chacun leur horloge : autant de pacemakers
+# independants qui derivent. Mesure qui l'a impose : forge_hebbian_linker cumulait
+# 765 relances « heartbeat stale » et 2377 sorties, parce qu'un cycle de 6 h ne peut
+# pas satisfaire un seuil de 600 s. Ce service publie tick + periode_s ; les organes
+# LISENT ce rythme au lieu de le calculer (forge_heartbeat.Cadence).
+#
+# WAVE 1 : il doit battre AVANT les organes qu'il perfuse. S'il manque, ceux-ci ne
+# meurent pas — ils passent en rythme d'ECHAPPEMENT a 45 s et le declarent.
+#
+# TIER `normal` ET NON `fast`, et c'est deliberé : `fast` declare degraded au-dela de
+# 30 s, or le coeur bat legitimement jusqu'a 45 s AU REPOS. Il serait donc rapporte
+# malade alors qu'il fonctionne — un garde qui crie a faux se fait desarmer. La
+# contrepartie assumee : un arret cardiaque est releve en 600 s, pendant lesquelles
+# l'echappement tient le corps et le DIT dans chaque afference.
+name = "NokidoCardiacNode"
+intention = "regulation:rythme"
+objectif = "hb<600 | periode 15..45s"
+heartbeat = "sandbox/cardiac_node.heartbeat"
+heartbeat_tier = "normal"
+wave = 1
+cmd = "${PYTHON}"
+args = ["app/forge_cardiac_node.py", "--daemon"]
+cwd = "${ROOT}"
+essential = false
+
+[[service]]
+# Docker daemon keeper (Phase 4 2026-05-24) — probe `docker info` toutes les
+# 30s, relance Docker Desktop.exe si daemon down (cooldown 2min), publie
+# heartbeat sandbox/docker_keeper.heartbeat. Avant ce keeper, Docker = SPOF
+# silencieux pour ~13 modules consommateurs (Exegol, SearXNG, agent_proxy,
+# rag_warmup, etc.). Aucun container Docker ne devrait depend du daemon
+# sans ce keeper actif en wave 1.
+name = "NokidoDockerKeeper"
+wave = 1
+cmd = "${PYTHON}"
+args = ["tools/forge_docker_keeper.py"]
+cwd = "${ROOT}"
+essential = false
+# 2026-07-23 : sous RAM >85% le boot Docker depasse 90s -> un keeper arme le
+# re-tuait mid-boot toutes les 120s (doom loop). 300s laisse _wait_daemon
+# bloquer la boucle pendant tout le boot = zero kill premature. On-demand inchange.
+# DOCKER_KEEPER_AUTOLAUNCH : REPASSE A "0" le 2026-07-25 (meme jour que son
+# armement). Mesure : l'engine ne survit que ~6 min a une charge conteneur, donc
+# AUTOLAUNCH ne produisait pas un Docker disponible mais une BOUCLE de relance
+# visible par l'owner (relance -> mort -> relance). Regle owner : lancer Docker
+# OUI, le faire BOUCLER NON. Ne PAS rearmer avant que l'engine tienne sous charge
+# (suspect n°1 = bind du settings.yml searxng, chemin hote a ESPACES
+# « Script python IA » -> « hostPathOfVolume ... failed, skipping bind »).
+# DOCKER_KEEPER_WSL_SHUTDOWN : REMIS A "0" le 2026-08-14 — il valait "1" alors que
+# `0a880f22` l'avait explicitement desarme (anti-sawtooth). Distinguer les DEUX
+# effecteurs : `wsl --unmount` (purge CIBLEE du verrou docker_data.vhdx, indispensable
+# — sans elle WSL_E_USER_VHD_ALREADY_ATTACHED entretient une boucle exit-15) reste
+# ACTIF ; `wsl --shutdown` (arret GLOBAL de WSL avant chaque launch) est ce qui
+# "decapitait chaque engine fraichement ready" a la cadence du cooldown.
+# ⚠️ CE N'EST PAS la cause racine du churn du 2026-08-14 : Docker mourait 31 s apres
+# un boot SAIN, arret propre, SANS aucune entree au journal lifecycle de Nokido — or
+# le silence de ce journal PROUVE un acteur externe. Signature connue = Resource Saver
+# de Docker Desktop (>= 4.24), qui eteint le moteur faute de conteneur actif. Le
+# correctif de la cause est cote PRODUIT (Settings > Resources > Resource Saver),
+# pas dans Nokido. Ici on retire seulement un effecteur brutal devenu inutile.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", DOCKER_KEEPER_BOOT_TIMEOUT_S = "300", DOCKER_KEEPER_WSL_SHUTDOWN = "0", DOCKER_KEEPER_AUTOLAUNCH = "0" }
+heartbeat = "sandbox/docker_keeper.heartbeat"
+heartbeat_tier = "fast"   # 5/30/90s — Docker DOWN doit etre detecte vite
+
+[[service]]
+# NERF AFFERENT (2026-08-25) — PERFUSION de la moelle des traces.
+# Pourquoi ce service existe : `forge_trace_spine` etait bien concue (provenance
+# declaree, cle causale, refus par defaut) mais `collecter()` rendait `ingeres: 0`
+# sur ses SEPT nerfs, tous en « raccordement au present ». L'afference n'etait pas
+# cassee : elle etait branchee et personne ne la re-derivait. Un appareil juste qui
+# ne tourne jamais ne se distingue pas d'un appareil absent.
+# Ce que la boucle fait, toutes les 5 min : recueille le temoignage des organes qui
+# ne savent pas ecrire dans la moelle (Qdrant, Ollama, hub, netcfg — ils repondent
+# sur EUX-MEMES, dans leurs termes) puis appelle `collecter()`.
+# Il porte son PROPRE heartbeat : l'organe qui recueille les pouls doit etre jugeable
+# par le contrat qu'il sert, sinon il s'exempte de la regle qu'il applique.
+name = "NokidoAfferent"
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_organ_afferent.py", "--boucle"]
+cwd = "${ROOT}"
+essential = false
+intention = "interoception:perfusion"
+objectif = "hb<900"
+heartbeat = "sandbox/organ_afferent.heartbeat"
+heartbeat_tier = "normal"
+env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+# Llama lifecycle keeper (2026-06-02, ACTIF 2026-06-12 tâche #12 close) — observe RAM
+# + llama-server, heartbeat sandbox/llama_keeper.heartbeat. Embed/Reranker (:8099,
+# bge-m3) PROTÉGÉS via _PROTECT_MARKERS (cmdline) ; dédup/unload/reload ne portent que
+# sur les llama-server CODER non protégés. Reload on-demand = start_llamacpp_native
+# (:8080) quand RAM <= RELOAD_OK. LlamaNative :8091 reste on-demand via wake --lite.
+name = "NokidoLlamaKeeper"
+# 2026-09-05 mode sauvegarde : rallumait le coder (4,8 Go) sur llama.wanted pose en boucle par
+# forge_viable_system -> deadlock documente 19/08. 2026-09-25 (decision owner) : REARME en mode
+# PILIERS SEULS (LAFORGE_LLAMA_KEEPER_PILIERS_ONLY=1, garde tests/nr/test_keeper_piliers_only_nr.py) :
+# il sert rerank.wanted / embed.wanted (piliers RAG, reveil si RAM <= RELOAD_OK, arret si inutile)
+# SANS jamais relancer le coder (_start_local et _kill inatteignables). Sans lui, personne ne lisait
+# rerank.wanted : la soif epistemique etait BLOQUEE PAR DEPENDANCE (commits 3be7814ac, 4b99acb1c).
+disabled = false
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_llama_keeper.py"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_LLAMA_KEEPER_MONITOR_ONLY = "0", LAFORGE_LLAMA_KEEPER_RELOAD_OK = "70", LAFORGE_LLAMA_KEEPER_PILIERS_ONLY = "1" }
+heartbeat = "sandbox/llama_keeper.heartbeat"
+heartbeat_tier = "slow"
+# 2026-09-25 (decision owner, « sans empecher l'autoregulation ») : 16:01:29, la RAFALE RAM
+# (supervisor.ts, memPct > RAM_SLEEP_PCT : tous les non-essentiels de plus de 5 min) a endormi
+# CE keeper -- donc la regulation fine des piliers elle-meme : plus personne n'entendait
+# rerank.wanted / embed.wanted, ni n'eteignait un pilier oisif. neverSleep n'exempte QUE de la
+# rafale ; l'eviction ciblee (POST /supervisor/sleep/<nom>) reste possible, et le keeper ne
+# rallume que sur intention ACCORDEE par l'arbitre et RAM <= RELOAD_OK (hysteresis FREE_AT).
+# NR : test_le_regulateur_des_piliers_n_est_pas_endormi_par_la_rafale_ram.
+neverSleep = true
+
+[[service]]
+# Sidecar Qdrant (:8098, chantier RAG 2026-07-06) — successeur de faiss :8097 pour le
+# RAG dense. Sert /search /upsert /delete /health ; cible le serveur natif qdrant.exe
+# :6333 (PREFER_DAEMON=1), INT8 exact+rescore = parite 1.00 @ p50 61ms. Persiste ici
+# pour survivre au reboot (le job detache mourait au reboot stack). CUTOVER = flip
+# LAFORGE_VEC_SIDECAR_PORT=8098 dans l'env du hub + restart (rollback = env). Depend du
+# serveur natif :6333 (a persister aussi, cf NokidoQdrantServer a venir).
+name = "NokidoQdrantSidecar"
+intention = "capability:dense_search"
+objectif = "emis<600 | listen"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_qdrant_sidecar.py", "--serve", "--port", "8098"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_QDRANT_PREFER_DAEMON = "1", LAFORGE_QDRANT_EXACT = "1" }
+port = 8098
+capabilities = ["dense_search"]
+
+[[service]]
+# Serveur Qdrant natif (:6333 REST / :6334 gRPC, chantier RAG 2026-07-06) — HNSW Rust,
+# collection nokido_sovereign_rag ~544k pts INT8, storage %NOKIDO_DATA%\qdrant_server. Binaire via
+# LAFORGE_QDRANT_BIN (defaut C:\tmp\qdrant_bin — A RELOCALISER hors tmp). wave 3 = demarre
+# AVANT le sidecar :8098 (wave 4) qui en depend. Persiste pour survivre au reboot.
+name = "NokidoQdrantServer"
+# Binaire TIERS : il ne peut pas ecrire dans notre moelle, mais il rend SES propres
+# compteurs (points_count, segments_count, status). Temoignage medie, pas palpation.
+intention = "capability:dense_search"
+objectif = "emis<600 | listen"
+wave = 3
+cmd = "${PYTHON}"
+args = ["tools/forge_qdrant_server.py"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+port = 6333
+capabilities = ["dense_search"]
+
+[[service]]
+# Garde anti-log-géant (2026-06-11) — épure les .log qui enflent (cap 200MB, garde tail 2MB).
+# Sécurité defense-in-depth post-incident 47GB/OOM : throttle hub + openLog superviseur + CE
+# guard continu (l'openLog ne coupe qu'au spawn ; un log qui enfle en cours de run = ce guard).
+name = "NokidoLogGuard"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_log_guard.py", "--daemon"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/log_guard.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# Worker bibliographie (revival 2026-06-25) - draine biblio_raw queued/unverified ->
+# refine_query -> SearXNG -> reviewed (+ topics). Etait MORT depuis 2026-05-03 (583 stranded
+# + vocab mismatch unverified/queued). Cable ici pour ne plus re-mourir. runAs interactive
+# (SearXNG :8080 via profil user).
+name = "NokidoBiblioWorker"
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_biblio_worker.py"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/biblio_worker.heartbeat"
+heartbeat_tier = "slow"
+
+
+[[service]]
+# Serveur LMStudio (:1234) maintenu UP comme ollama/llamacpp. runAs='interactive' car le CLI
+# `lms` a besoin du .lmstudio/OAuth de user (indispo en SYSTEM). Boucle lms daemon up + server start.
+name = "NokidoLMStudioServer"
+disabled = true  # boot-trim RAM : on-demand (wake au besoin)
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_lmstudio_server.py"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/lmstudio_server.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# GEMINI autonome (2026-06-14) — pickup LÉGER réactif : relève l'inbox postal GEMINI (facteur
+# self-contained), traite via MODÈLE LOCAL (LIGHT=1, zéro quota OAuth) et poste la réponse, sans
+# humain. runAs interactive (profil user = LMStudio/ollama + postal). FORCE=1 bypass le
+# faux-deferral (_is_gemini_interactive_running True dès qu'un gemini tourne, même non-réactif).
+# Mettre GEMINI_AUTO_MODE=off (ou retirer FORCE) quand user pilote gemini en interactif.
+name = "NokidoGeminiAutonomous"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_gemini_autonomous_agent.py"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+# REARME 2026-07-24 sur demande owner : le postal GEMINI n'etait draine par personne,
+# donc toute delegation a AGY expirait (job_3418a105, timeout 238s) sans que rien ne le
+# signale. Le drain est la moitie de la methode, pas un detail d'infra.
+# Contrepartie inchangee (cf. commentaires ci-dessous) : le tick entre en contention avec
+# les CLI interactifs. Repasser disabled=true + MODE=off quand user reprend la main.
+# DESARME apres test end-to-end reussi 24-07 : chaine assign->drain->AGY->M2M
+# validee (job_43960b64, writer corrige description len=196 vs 0). Contention CLI
+# interactifs -> reste coupe par defaut, reveil via nokido_ensure_service au besoin.
+disabled = true   # COUPÉ 2026-06-18 : user pilote Gemini en interactif -> pas d'auto-pickup. Re-activer (disabled=false + MODE=active) UNIQUEMENT quand les CLI sont fermés.
+# DÉFAUT OFF (opt-in) : FORCE+20s faisait ticker PENDANT les sessions interactives ->
+# ejectait codex/gemini au rythme du tick (contention ressources/inférence locale). Activer
+# MODE=active (+ FORCE si non-réactif) UNIQUEMENT quand user est ABSENT (CLI fermés).
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", GEMINI_AUTO_MODE = "active", GEMINI_AUTO_LIGHT = "1", GEMINI_AUTO_INTERVAL = "60" }
+heartbeat = "sandbox/gemini_autonomous.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# Keeper LMStudio : monitor :1234 + baseline + free-idle RAM + ensure_models (REST, SYSTEM OK).
+name = "NokidoLMStudioKeeper"
+disabled = true  # boot-trim RAM : on-demand (suit le serveur LMStudio)
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_lmstudio_keeper.py", "--daemon"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/lmstudio_keeper.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# Secrétaire PROACTIF (2026-06-11) : sur le tick, relève le courrier postal de chaque agent
+# (digest intelligent) + INTERPELLE via sandbox/inbox/<agent>.md que le hook d'amorce surface
+# au prochain tour. Passe le swarm de réactif (l'agent doit poll) à proactif (tape sur l'épaule).
+name = "NokidoSecretary"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_secretary.py"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/secretary.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# Hormones listener (Phase 10 2026-05-24) — demo daemon SUBSCRIBE au systeme
+# endocrinien forge_hormones. Poll /api/hormones/active 5s, log adrenaline >
+# 0.7 et cortisol > 0.5, publie heartbeat avec doses agregees. Sert de canal
+# d'observation TUI + reference pattern pour daemons metier qui veulent
+# reagir aux hormones (router, autonomous_loops, homeostasis).
+name = "NokidoHormonesListener"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_hormones_listener.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/hormones_listener.heartbeat"
+heartbeat_tier = "fast"   # 5/30/90s — reactivite endocrinienne
+
+[[service]]
+# SENTINELLE ANTI-EMBOLIE (2026-06-13) — pouls periodique 8 checks cross-process (hub wedge,
+# event-loop, signaux critiques NON consommes, RAM, disk, jobs coinces, embed backlog, cortisol).
+# Sur embolie -> cortisol + notify facteur + log. INDEPENDANT du hub (sonde /health par HTTP)
+# donc DETECTE le wedge au lieu d'en mourir. Pas de deps=[8766] (doit tourner meme hub down).
+# Pouls 600s ; heartbeat 60s (frais malgre le pouls espace -> pas de restart-loop superviseur).
+name = "NokidoOrganPulse"
+# MODE SAUVEGARDE 2026-09-06 (P1 au blackboard) : ce pouls recompte le backlog
+# d'embedding par `SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NULL AND
+# embedding_model IS NULL` sur la base de 24,9 Go toutes les 600 s — 107 Mo/s de
+# lecture mesures le 05/09 pendant le rattrapage, meme famille que le COUNT(*)
+# qui a couche le hub le 03/09. Coupe a chaud le 05/09, revenu au boot du 06/09.
+# Reactivation = quand forge_organ_pulse lit le snapshot du PRODUCTEUR
+# (forge_memory_availability / _backlog_pending_qualifie) au lieu de recompter.
+# FAIT le 2026-09-06 : _check_embed_backlog lit forge_memory_availability.snapshot
+# (perime = WARN INCONNU, jamais un recompte). Reactive ; effet au prochain restart.
+disabled = false
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_organ_pulse.py", "--watch", "600"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/organ_pulse.heartbeat"
+# cycle_s PROUVE par DECLARATION du consommateur : add_argument("--watch",
+# metavar="SECONDS") dans tools/forge_organ_pulse.py — l'unite est ecrite.
+cycle_s = 600
+heartbeat_max_s = 1800
+heartbeat_tier = "slow"
+
+[[service]]
+# COAGULATION (2026-06-13) — CONSOMME forge_critical_events (le caillot que personne ne
+# traitait) : triage escalade(securite/service/haute-sev)/heal-borne(forge_remediation)/ack
+# + mark_processed + dopamine au drain. Complement de la sentinelle (pulse VOIT, coagulation
+# SOIGNE). armed=false par defaut (heals risques -> escalade humain, jamais restart solo).
+# Drain 300s ; heartbeat 60s. deps=[8766] (notify facteur).
+name = "NokidoCoagulation"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_coagulation.py", "--watch", "300"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/coagulation.heartbeat"
+# cycle_s PROUVE par DECLARATION : add_argument("--watch", metavar="SECONDS")
+# dans tools/forge_coagulation.py.
+cycle_s = 300
+heartbeat_max_s = 900
+heartbeat_tier = "slow"
+
+[[service]]
+# TDR sentinel (Phase 7 2026-05-24) — reflexe spinal Win32 EventLog 4101.
+# Polle wevtutil toutes 2s, sur TDR detecte SIGSTOP via POST /api/services/stop
+# sur tous services GPU-touching (Ollama, Llama*, BrainWorker). Apres quiesce
+# 60s, restore. Evite la cascade TDR -> BSOD 0x119 (incident 2026-05-24, 3 BSODs).
+name = "NokidoTdrSentinel"
+wave = 1
+cmd = "${PYTHON}"
+args = ["tools/forge_tdr_sentinel.py"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/tdr_sentinel.heartbeat"
+heartbeat_tier = "fast"   # 5/30/90s — defaillance sentinel = perte protection
+
+[[service]]
+# Exegol MCP HTTP — Streamable HTTP transport sur :8770.
+# Wrapper maison forge_exegol_mcp_server.py (FastAPI) qui expose le
+# protocole MCP standard au-dessus du CLI Exegol (subprocess docker exec).
+# Bearer token obligatoire via LAFORGE_EXEGOL_MCP_TOKEN (cf Nokido.env).
+# Depend implicitement du daemon Docker — NokidoDockerKeeper (meme vague 1)
+# le garde up. Si Docker down, ExegolMCP echouera sur docker exec mais le
+# keeper relance Docker en background.
+name = "NokidoExegolMCP"
+wave = 1
+disabled = true  # boot-trim 2026-06-02 : CTF/pentest-only, idle au boot -> on-demand (POST :8765/supervisor/start/NokidoExegolMCP). Reduit pression boot.
+cmd = "${PYTHON}"
+args = ["app/forge_exegol_mcp_server.py", "--host", "127.0.0.1", "--port", "8770"]
+cwd = "${ROOT}"
+port = 8770
+essential = false
+
+[[service]]
+# CTF Browser MCP HTTP — Streamable HTTP transport sur :8771.
+# Wrapper forge_ctf_browser_mcp.py (aiohttp) qui expose 13 tools ctf_*
+# (browse/dom_text/dom_html/eval_js/click/fill/screenshot/url/list_chals/
+# read_chall/submit_flag/login/logout) au-dessus de RootMeBrowser
+# (Playwright Firefox isolé, profil persistent C:\nokido\browser-profiles\ctf-pw\).
+# Anubis bypass auto via wait_for_anubis(20s). Bearer token optionnel
+# via LAFORGE_CTF_BROWSER_MCP_TOKEN (vault DPAPI). Login auto au 1er call
+# via RootMeBrowser.login_from_vault() (ROOTME_LOGIN/PASSWORD vault DPAPI).
+#
+# Spawn via forge_runas_launcher.py runAs=interactive — token user console
+# session (WTSQueryUserToken) + lpDesktop=winsta0\default. Sans ça : Firefox
+# crashe exitCode=0xC0000005 sous Session 0 (NSSM LocalSystem default).
+# Supervisor (LocalSystem = SeTcbPrivilege) duplicate le token user,
+# Job Object KILL_ON_JOB_CLOSE garantit zéro orphans Firefox au restart.
+name = "NokidoCTFBrowserMCP"
+wave = 1
+disabled = true  # boot-trim 2026-06-02 : CTF-only + Firefox warm ~300MB (neverSleep) inutile au repos -> on-demand. Reduit pression boot.
+cmd = "${PYTHON}"
+args = ["app/forge_ctf_browser_mcp.py", "--host", "127.0.0.1", "--port", "8771"]
+cwd = "${ROOT}"
+port = 8771
+essential = false
+runAs = "interactive"
+# neverSleep : solver runs prennent plusieurs minutes ; sleep cycle hub
+# pendant un solver run = orphan Firefox + WinError 10061 sur tools/call
+# subséquents. Garder Firefox warm permanent (coût RAM ~300MB).
+neverSleep = true
+env = { PLAYWRIGHT_BROWSERS_PATH = "C:\\nokido\\ms-playwright", PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+# ── VAGUE 2 : Hémisphère Gauche (système nerveux Deno) ─────────────────
+[[service]]
+name = "NokidoDenoProxy"
+# Temoigne en TEXTE BRUT (« Nokido Proxy Active ») : un organe n'a pas a parler notre
+# format pour prouver qu'il vit.
+intention = "transport:proxy"
+objectif = "emis<600 | listen | conn>0"
+wave = 2
+cmd = "${DENO}"
+args = ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", "--no-check", "main.ts"]
+cwd = "${PROXY_DIR}"
+deps = [8766]
+port = 8000
+essential = true
+env = { LAFORGE_PERSIST_DIR = "${ROOT}/nokido_persist" }
+
+[[service]]
+name = "NokidoDenoHubMCP"
+intention = "transport:mcp"
+objectif = "emis<600 | listen | conn>0"
+wave = 2
+cmd = "${DENO}"
+args = ["run", "--allow-net", "--allow-read", "--allow-env", "--no-check", "hub_mcp/main.ts"]
+cwd = "${PROXY_DIR}"
+deps = [8766]
+port = 8769
+essential = false
+env = { LAFORGE_DENO_HUB_PORT = "8769", LAFORGE_PERSIST_DIR = "${ROOT}/nokido_persist" }
+
+# ── VAGUE 3 : Sondes vitales & cervelet ────────────────────────────────
+[[service]]
+name = "NokidoHomeostasis"
+# REACTIVE le 2026-09-06 apres MESURE, l'accusation du 05/09 etant fausse sur son motif
+# principal. Profil de 12 ticks consecutifs (tools/forge_homeostasis_tick_profil.py) :
+# RSS PLAT a 0,337 Go, objets suivis par le ramasse-miettes stables (~294 000, deltas
+# negatifs) -- AUCUNE accumulation. Les 4,9 Go liberes a l'arret ne venaient pas de son
+# cycle. Ce qui etait vrai : le TEMPS. `health` prenait 487 s des 700 s de la serie
+# (70 %, 40,6 s par appel) et `pluripotent` 116 s, quand tous les reflexes reunis
+# coutent 1,6 s -- un bilan complet battait au rythme des reflexes.
+# Correctif : rythmes propres (RYTHME_HEALTH=3, RYTHME_PLURIPOTENT=2). Mesure apres :
+# ticks de reflexes 2,5 a 8,4 s (contre 37), moyenne 25,5 s contre 58,4. Le 51 Mo/s de
+# lecture, lui, avait deja ete corrige le 06/09 (proprioception lit le snapshot).
+# NR : tests/nr/test_homeostasis_rythmes_nr.py (le canal algedonique reste servi par un
+# bilan rejoue AVEC son age -- espacer un bilan ne doit aveugler aucune alarme).
+disabled = false
+wave = 3
+cmd = "${PY314}"
+args = ["app/forge_homeostasis_orchestrator.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+# ALWAYS-ON (2026-07-05, plan activation organes) : le REGULATEUR ne dort jamais.
+# Sans ce flag, la sieste par uptime du superviseur le rendormait ~90min -> 1 tick
+# -> redort = hepatocyte draine 1x/90min, autoregulation intermittente. Complement
+# du fix ee4bbdd9 (retire de _SUPERVISOR_NON_ESSENTIAL / RAM-governor).
+neverSleep = true
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/homeostasis_orchestrator.heartbeat"
+
+[[service]]
+name = "NokidoBrainWorker"
+wave = 3
+cmd = "${PY312_RYZEN}"
+args = ["app/brain_worker.py"]
+cwd = "${ROOT}"
+port = 5557
+essential = false
+neverSleep = true  # 2026-07-23 : embedder NPU XDNA (pas iGPU), pas de sommeil RAM ni quarantine GPU
+disabled = true   # 2026-07-24 NPU PARQUE : ort-vitisai v4 n offloade pas les transformers (regression env, cf memoire) ; embedder souverain = GGUF :8099
+env = { PYTHONIOENCODING = "utf-8", BRAIN_WORKER_THREADS = "1", HF_HUB_OFFLINE = "1", TRANSFORMERS_OFFLINE = "1", FOR_DISABLE_CONSOLE_CTRL_HANDLER = "1" }
+
+[[service]]
+name = "NokidoBrainWorkerRust"
+wave = 3
+cmd = "${ROOT}/go_services/forge_brain_worker/target/release/forge_brain_worker.exe"
+args = []
+cwd = "${ROOT}/go_services/forge_brain_worker"
+port = 5557
+essential = false
+disabled = true   # 2026-05-25: remplace par NokidoEmbedWorkerIsolated (Job Object + mem cap + TDR pause)
+env = { LAFORGE_ROOT = "${ROOT}", RUST_LOG = "info" }
+
+[[service]]
+name = "NokidoEmbedWorkerIsolated"
+wave = 3
+cmd = "${PYTHON}"
+args = ["tools/forge_embed_worker_isolated.py", "--mem-gb", "3"]
+cwd = "${ROOT}"
+port = 5557
+essential = false
+disabled = true   # 2026-06-03 OFF: BGE-M3 ONNX CPU 'bad allocation' (OOM Cast node) à cap 3/5/6GB -> embed local KO + RAM 81%. Wake on-demand SEULEMENT si worker réparé (onnxruntime/model re-export). cf copilot_cli_integration memory.
+env = { LAFORGE_ROOT = "${ROOT}", RUST_LOG = "info", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/embed_worker_isolated.heartbeat"
+heartbeat_tier = "fast"
+
+[[service]]
+name = "NokidoGoDispatcher"
+intention = "routage:taches"
+objectif = "emis<600 | listen | conn>0"
+wave = 3
+cmd = "${ROOT}/go_services/forge_dispatcher/forge_dispatcher.exe"
+args = []
+cwd = "${ROOT}/go_services/forge_dispatcher"
+port = 8779
+essential = false
+
+# ── VAGUE 4 : Cortex cognitif (Python 3.14 & LLMs lourds) ──────────────
+[[service]]
+name = "NokidoHebbian"
+wave = 4
+cmd = "${PY314}"
+args = ["app/forge_hebbian_linker.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766, 8000]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/hebbian_linker.heartbeat"
+# cycle_s PROUVE : DEFAULT_INTERVAL_S = 21600 dans app/forge_hebbian_linker.py.
+# heartbeat_max_s est DERIVE (max(90, 3 x cycle_s)) : ne jamais le modifier seul.
+cycle_s = 21600
+heartbeat_max_s = 64800
+
+[[service]]
+name = "NokidoGraph"
+# MODE SAUVEGARDE 2026-09-05 (owner : « coupe tout ce qui ne sert pas ») : 0,4 Go
+# de RAM pour un explorateur de graphe pendant le rattrapage des veilles, aucun
+# service ne depend de :7474 (forge_health_diagnostic le SONDE seulement).
+# Reactivation = retirer cette ligne ; le body n'a pas change.
+disabled = true
+wave = 4
+cmd = "${PY314}"
+args = ["app/forge_graph_explorer.py"]
+# Port declare le 2026-07-28 : ce service ECOUTE sur 7474 (forge_health_diagnostic le
+# sonde deja a cette adresse) mais ne le DECLARAIT pas — il sortait donc SUPERVISE,
+# c'est-a-dire mort silencieuse possible, alors qu'une simple sonde suffit a le voir.
+# Pour un serveur, le port EST le capteur ; un heartbeat serait redondant.
+port = 7474
+cwd = "${ROOT}"
+deps = [8766, 8000]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoGeminiDaemon"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoGeminiDaemon
+wave = 4
+cmd = "${PY314}"
+args = ["tools/gemini_poll_daemon.py", "--mode", "active", "--interval", "30"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NODE_OPTIONS = "--max-old-space-size=2048" }
+heartbeat = "sandbox/gemini_poll_daemon.heartbeat"
+
+[[service]]
+name = "NokidoMultiLLMDaemon"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoMultiLLMDaemon
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/multi_llm_daemon.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/multi_llm_daemon.heartbeat"
+heartbeat_tier = "fast"   # cycle 15s — RT
+
+[[service]]
+name = "NokidoIngestDaemon"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoIngestDaemon
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_ingestion_pipeline.py", "--daemon", "--interval", "300"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/ingestion_pipeline.heartbeat"
+
+[[service]]
+# SOIF DE CONNAISSANCE : lit query_log, mesure la couverture (rerank double-seuil +
+# abstention), emet un ressenti sur gap CERTAIN et propose au blackboard. Veille
+# effective desarmee par defaut (LAFORGE_EPISTEMIC_AUTO_VEILLE=1 pour armer).
+name = "NokidoEpistemicSoif"
+disabled = false
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_epistemic_daemon.py", "--interval", "900"]
+cwd = "${ROOT}"
+# 2026-09-20 — :8100 RETIRE DES DEPS, et c'est une DEGRADATION ASSUMEE, pas une
+# reparation. Mesures qui l'autorisent, les deux branches exigees avant de
+# toucher a cette ligne :
+#   BASIC SANS :8100  -> job_7267c969409c rc=0 : soif_intention 6, soin 4
+#   HEAVY AVEC :8100  -> coverage_dense() rend ok=False gap=None en 3,4 s
+# Le chemin extero est donc FAIL-SAFE ET RAPIDE : sans reranker il S'ABSTIENT,
+# il ne plante ni ne bloque. Garder :8100 en dep sacrifiait le mode intero (qui
+# FONCTIONNE) pour proteger un mode extero qui s'abstient proprement de toute facon.
+#
+# POURQUOI LA DEP ETAIT INSATISFIABLE : NokidoLlamaReranker est disabled=true et
+# ne s'allume que sur l'intention `rerank.wanted` ; son UNIQUE consommateur est
+# forge_llama_keeper._piliers_on_demand ; or NokidoLlamaKeeper est disabled=true
+# depuis le 2026-09-05, gele pour un defaut du CODER etranger aux piliers RAG.
+# Le superviseur POSE pourtant l'intention a chaque tentative (declareDepWanted,
+# supervisor.ts:1019). L'emission reussit, personne ne recoit, le defer est
+# eternel -- dernier pouls du keeper 2026-09-05T20:36:02, minute exacte de la
+# mort notee au SSoT. :8099 reste ouvert parce que NokidoLlamaEmbed est PERMANENT,
+# pas parce qu'un second rallumeur existerait.
+#
+# CE QUI RESTE OUVERT, et n'est PAS referme par cette ligne : tant que le
+# reranker ne tourne pas, `coverage_dense` s'abstient et la soif n'a PAS de
+# detection de gap exteroceptive. Geste OWNER : redonner un consommateur vivant a
+# `rerank.wanted` SANS reveiller la fonction coder du keeper (deadlock du
+# 2026-08-19). La brique est deja separee -- `_piliers_on_demand` passe par
+# forge_ensure_service.ensure, jamais par _kill.
+# Garde : tests/nr/test_deps_on_demand_ont_un_rallumeur_vivant_nr.py
+deps = [8099, 6333]
+essential = false
+heartbeat = "sandbox/epistemic_daemon.heartbeat"
+# cycle_s PROUVE : default=900 et attente fractionnee sleep(min(60.0, reste))
+# dans tools/forge_epistemic_daemon.py.
+cycle_s = 900
+heartbeat_max_s = 2700
+# ARME le 2026-07-27 (owner : « que les capacites cognitives vivent enfin »). Le daemon
+# DETECTAIT deja : son log du jour porte quatre `DOULEUR high persistee -> algedonique
+# {escalate: True}` — le corps a mal, il escalade en S3->S5, et sa soif tournait
+# `auto_veille=False`. Il constatait sans jamais avoir le droit de chercher.
+# Le garde-fou n'est PAS ce drapeau, c'est le cap : MAX_VEILLES_CYCLE (=1) borne a une
+# veille par cycle, et coverage_dense s'abstient (gap=None) sur toute zone grise ou
+# hors-variete — jamais de veille sur un doute. Desarmer = remettre "0".
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_EPISTEMIC_AUTO_VEILLE = "1" }
+
+[[service]]
+# Sync CONTINUE SQLite -> Qdrant (outbox trigger). Draine qdrant_sync_pending vers
+# Qdrant, empeche la derive qui rendait Qdrant perime (cutover jamais reactualise).
+# ACTIF par design : sans lui Qdrant redérive des le prochain embedding ecrit.
+name = "NokidoQdrantSync"
+# MIS EN SOMMEIL 2026-09-05 (mode sauvegarde, temps du rattrapage des veilles).
+# Mesure : 112 Mo/s de lecture PERMANENTE sur embeddings.db (24,9 Go), --interval 30.
+# Avec ParietalFusion (112 Mo/s aussi) : ~224 Mo/s, disque a 100 %, pagination,
+# trois morts du hub en une heure. Le vrai remede est sa REQUETE (balayage complet
+# par passe, 5e incarnation du motif), pas son extinction. Reactiver apres correction.
+# CORRIGE le 2026-09-06 : EXPLAIN QUERY PLAN sur la base reelle montrait rag_chunks en
+# boucle EXTERNE (SCAN c) pour 40 lignes en attente ; CROSS JOIN impose l'ordre
+# (SCAN p, SEARCH c par cle), verrouille par NR. Reactive ; effet au prochain restart.
+# GELE 2026-09-24 (decision owner, option 2) : il n'avait en fait JAMAIS tourne depuis le
+# 06/09 (mort a chaque demarrage en ModuleNotFoundError, corrige par 6e8b4f848) ; ressuscite,
+# il rattrapait 18 jours vers Qdrant en ECRIVANT dans la base RAG (triggers + file), alors
+# que le chantier « retirer les ecrivains du verrou RAG » (19/09) n'est pas arbitre.
+# Aucune suppression, aucun rattrapage, aucune migration. Le retard est un STOCK a rattraper
+# (file qdrant_sync_pending), pas une perte. REACTIVATION = decision explicite apres ce
+# chantier. Les triggers restent poses : la file continue de se remplir (dette mesuree).
+disabled = true
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_qdrant_sync_daemon.py", "--interval", "30"]
+cwd = "${ROOT}"
+deps = [6333]
+essential = false
+heartbeat = "sandbox/qdrant_sync_daemon.heartbeat"
+# cycle_s PROUVE : time.sleep(max(5, interval)) dans
+# tools/forge_qdrant_sync_daemon.py.
+cycle_s = 30
+heartbeat_max_s = 90
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+# Terminaison TLS du hub : https://127.0.0.1:8443 -> reverse_proxy 127.0.0.1:8766
+# (cert local sandbox/tls). Tournait depuis le 2026-07-29 HORS supervision, lance
+# par un pid 19640 lui-meme disparu : orphelin de 9 h que rien n'aurait releve, et
+# dont la mort aurait fait disparaitre l'entree HTTPS du hub en silence.
+# Pas de heartbeat (caddy n'en ecrit pas) : la vitalite se lit sur le port 8443.
+name = "NokidoCaddyTLS"
+# Aucun temps CPU mesurable : un terminateur TLS au repos ne consomme rien. Son
+# objectif est donc d'ECOUTER, pas de travailler — declarer `cpu>` ici fabriquerait
+# un manquement permanent sur un service parfaitement sain.
+# Son temoignage est un REFUS : un 400 « Client sent an HTTP request to an HTTPS
+# server » prouve que Caddy est la et parle TLS. Un terminateur absent se tairait.
+intention = "terminaison:tls"
+objectif = "emis<600 | listen"
+wave = 4
+cmd = "${ROOT}/sandbox/caddy.exe"
+args = ["run", "--config", "sandbox/Caddyfile", "--adapter", "caddyfile"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 8443
+essential = false
+env = { PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+# Vectorisation DEPORTEE (cloud bge-m3) — remplace la tache planifiee
+# `Nokido-DeportEmbed`, qui n'a JAMAIS fire : son installation exigeait une console
+# admin jamais ouverte. Mesure 2026-08-03 : 21 runs au total, tous manuels, aucun
+# automatique entre le 31/07 et le 03/08. Un mecanisme correct branche sur un
+# declencheur que personne n'arme est un mecanisme mort.
+#
+# Mode BOUCLE (--watch 3600) et non one-shot : le quota gratuit Workers AI s'epuise
+# en cours de vague (mesure du 2026-08-05 : 6 016 chunks a ~9/s puis HTTP 429, arret
+# propre). Le process reste VIVANT entre deux vagues — un process qui sort serait
+# relance aussitot par le superviseur et repartirait dans le 429 en boucle serree.
+#
+# `capabilities = ["embedding"]` : il consomme du reseau, pas l'iGPU, tant que le
+# provider elu est cloud. Le repli local existe mais passe en DERNIER (_PREF).
+name = "NokidoDeportEmbed"
+# INNERVE le 2026-08-25 par EMISSION DIRECTE. Il travaille par vagues d'une heure :
+# sans battement, un arret se confond avec une pause, et la regulation ne peut pas
+# distinguer un organe qui digere d'un organe qui est mort. Seuil large en
+# consequence (`hb<5400` = une vague et demie).
+intention = "deport:embeddings"
+objectif = "hb<5400 | cpu>0.05"
+heartbeat = "sandbox/reindex_deport.heartbeat"
+# cycle_s PROUVE : _t.sleep(_watch) dans tools/forge_reindex_deport.py.
+cycle_s = 3600
+heartbeat_max_s = 10800
+heartbeat_tier = "slow"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_reindex_deport.py", "--embed-only", "--watch", "3600"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoEmbedTrigger"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoEmbedTrigger
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_embed_auto_trigger.py"]
+cwd = "${ROOT}"
+deps = [8099]   # 2026-06-25 fix: brain_worker :5557 mort (OOM) -> embedder LIVE :8099 ; le code embed_auto_trigger appelle deja embed_batch_fast(:8099). dep 5557 bloquait le start.
+essential = false
+# Vectorisation rouverte 2026-05-24 — HOT_TIER_SQL filtre les externes (cf
+# roadmap_rag_provenance_tiering). Drain résiduel ~3.7k chunks hot puis poll
+# vide à 5s. Réactiver supervisor : nssm restart LaForge-Master.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/embed_auto_trigger.heartbeat"
+
+[[service]]
+# Boucles d'amelioration autopoietiques (autonomous_loops, 2026-07-14) - patterns
+# tick=60s local-only (free_local_llms_only), inclut m2m_inbox_watch (observabilite
+# boucle M2M). Persiste pour survivre au reboot. pid-alive tracking (pas de heartbeat).
+#
+# 2026-07-17 : ce service etait declare DEUX FOIS. supervisor.ts:642-647 indexe `states`
+# par def.name -> le SECOND bloc ecrase le premier EN SILENCE (aucun garde anti-doublon
+# dans le loader). Le bloc mort (cmd=${PYTHON}, sans deps) ne portait plus que cette
+# doc -> reportee ici, sur le bloc EFFECTIF. Ne PAS re-dupliquer : un doublon est avale
+# sans avertissement, et le bloc perdant a l'air vivant.
+name = "NokidoAutonomousLoops"
+wave = 4
+cmd = "${PY314}"
+args = ["app/forge_autonomous_loops.py", "--daemon", "--tick", "60"]
+# Pouls ajoute le 2026-07-28 : ce daemon etait SUPERVISE (lance, sans heartbeat) et
+# SANS PORT — sa mort etait donc totalement invisible. Ecrit apres chaque tick reussi.
+heartbeat = "sandbox/autonomous_loops.heartbeat"
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoLlamaNative"
+wave = 4
+disabled = true   # 2026-06-02 ON-DEMAND : mlock 7.1GB immobilisait la RAM au boot (85% -> tout job lourd OOM le hub, cf incident veille/eco). Reload: POST :8765/supervisor/service/start/NokidoLlamaNative [ROUTE CORRIGEE 2026-08-20 : ce commentaire indiquait /supervisor/start/, qui n'existe pas -> 404 ; la vraie route est /supervisor/service/start/, cf supervisor.ts:1726] OU NokidoLlamaKeeper si RAM <=55%. Router code/speed tombe sur ollama/cloud en attendant.
+cmd = "${LLAMA}"
+args = ["-m", "${MODEL_7B}", "-md", "${DRAFT_1B}", "--host", "127.0.0.1", "--port", "8091",
+        "-ngl", "99", "-ngld", "99", "-c", "32768", "-cd", "32768", "-b", "2048", "-ub", "512",
+        "-ctk", "q8_0", "-ctv", "q8_0", "-fa", "auto", "--cache-prompt", "--cache-reuse", "256",
+        "--context-shift", "--metrics", "--props", "--slots", "--jinja",
+        "--reasoning", "auto", "-a", "qwen,qwen2.5-coder,laforge-coder", "--prio", "1",
+        "--threads", "-1", "-np", "-1", "--draft-max", "16", "--draft-min", "4",
+        "--draft-p-min", "0.65", "--webui-mcp-proxy",
+        "--webui-config-file", "${ROOT}/data/llamacpp_webui_config.json",
+        "--path", "${ROOT}/data/llamacpp_webui_fr",
+        "--override-kv", "general.name=str:Qwen2.5-Coder-7B-Instruct-Q4_K_M"]
+cwd = "${ROOT}"
+port = 8091
+essential = false
+llmPool = true
+
+[[service]]
+# Embedding bge-m3 (Q8 GGUF, pooling CLS) — utilise par le rebuild RAG et les
+# benchmarks. Service supervise -> demarrable par l'agent via :8765.
+name = "NokidoLlamaEmbed"
+# INTERRUPTEUR LEVE le 2026-09-16, sur mesure et sur mandat owner.
+# Le commit 43b769366 du 2026-09-06 s'intitule « pilier local reouvert, borne et
+# regule ». Il a effectivement borne les args ci-dessous (-c 2048, -b 2048,
+# --ubatch-size 512, --parallel 1 : pente RAM divisee par ~6, de 1,8 a 0,21-0,34 Go
+# par millier de chunks), c'est-a-dire qu'il a traite LA CAUSE de l'ecartement du
+# 2026-08-06. Mais son diff sur ce fichier ne touche AUCUNE ligne `disabled` : un
+# seul hunk, @@ -1002,9 +1002,20 @@, qui n'ajoute que des commentaires et des args.
+# La cause etait reparee, l'interrupteur est reste ferme. Pendant dix jours
+# l'historique a donc dit « rouvert » pendant que le service etait eteint --
+# l'existence d'un mecanisme n'est pas son effet reel, y compris quand le
+# mecanisme est un message de commit.
+# COUT MESURE de cet oubli, le 2026-09-16, sur une veille du depot langfuse :
+# :8099 injoignable, cloudflare refuse en « Authentication error », circuit
+# breakers OPEN sur llama8099 / cloudflare / modal -- donc TOUT chunk ingere
+# entrait SANS vecteur, cherchable en BM25 seulement.
+# CAPACITE REPROUVEE avant de lever l'interrupteur, et pas seulement le transport :
+# POST /embedding rend un vecteur de dimension 1024. Un port ouvert n'aurait rien
+# prouve sur le chargement du modele.
+disabled = false
+wave = 4
+cmd = "${LLAMA}"
+# `--metrics` ajoute le 2026-08-05 : sans lui, /metrics rend 501 Not Implemented et
+# le corps ne peut pas savoir COMBIEN de requetes ce serveur traite. Mesure du jour :
+# l'embedder est passe de 2,73 a 6,07 Go et la seule facon d'etablir qu'il TRAVAILLAIT
+# (au lieu de fuir) a ete de compter des sockets en TIME_WAIT — un contournement.
+# llama.cpp expose nativement le compteur ; il suffisait de le demander. Cout : nul.
+# BORNES MESUREES 2026-09-06 (tools/forge_embed_8099_mesure_bornee.py, job_31eeba6ee702) :
+# avec -c 8192 -b 2048 --ubatch-size 2048, un drain de 896 chunks (0,062 s/chunk, soit
+# ~58 000/h) fait passer le RSS de 0,61 a 2,45 Go en 55 s -- pente ~1,8 Go / 1000 chunks --
+# et la RAM machine de 80 a 88 % : la garde a coupe avant le plateau. C'est la meme
+# croissance qui avait mene a 10,92 Go le 2026-08-06 et a l'ecartement du pilier local.
+# Apres bornage (mesure du meme jour, 1 000 chunks) : le RSS demarre a 0,61 Go, atteint
+# 2,32 Go des les premiers lots -- cout FIXE -- puis croit de 0,21 a 0,34 Go pour 1 000
+# chunks selon la fenetre. La pente est divisee par ~6, elle n'est PAS nulle : le plateau
+# n'est pas prouve a cette echelle, et une campagne de 100 000 chunks doit recycler le
+# service par lots plutot que compter sur un plafond.
+# Le contexte et le lot sont donc bornes a ce que le corpus demande REELLEMENT : les
+# chunks en attente font 701 a 800 caracteres (~250 jetons), donc 2048 jetons de
+# contexte suffisent et un lot logique de 2048 couvre 8 textes ; --ubatch 512 abaisse le
+# pic de calcul. Un texte plus long est tronque par llama.cpp au contexte : le drain
+# envoie des chunks, pas des documents. A re-mesurer par le meme outil apres tout
+# changement de ces valeurs.
+args = ["-m", "${ROOT}/data/llm_models/bge-m3-Q8_0.gguf", "--embedding",
+        "--pooling", "cls", "-ngl", "99", "--host", "127.0.0.1", "--port", "8099",
+        "-c", "2048", "-b", "2048", "--ubatch-size", "512", "--parallel", "1", "--metrics"]
+cwd = "${ROOT}"
+port = 8099
+capabilities = ["embedding"]
+essential = false
+
+[[service]]
+# BitNet (Phase 13 2026-05-24) — LLM ternaire 1.58-bit, CPU-only, RAM/2 vs
+# Q4_K_M. Disabled par defaut : decommenter quand un modele bitnet*.gguf
+# est present dans data/llm_models/. Cf docs/bitnet_integration.md.
+# Activation : python tools/forge_bitnet_loader.py doit retourner >=1 modele.
+name = "NokidoLlamaBitnet"
+wave = 4
+disabled = true   # ENABLE quand bitnet*.gguf present + nssm restart LaForge-Master
+cmd = "${LLAMA}"
+args = ["-m", "${ROOT}/data/llm_models/bitnet_b1_58.gguf",
+        "--host", "127.0.0.1", "--port", "8093",
+        "-c", "8192", "-ngl", "0", "-b", "512",
+        "--threads", "-1", "--metrics", "--slots", "--no-mmap",
+        "-a", "bitnet,bitnet-coder"]
+cwd = "${ROOT}"
+port = 8093
+essential = false
+llmPool = true
+
+[[service]]
+# Reranker bge-reranker-v2-m3 (cross-encoder) — etage de precision RAG + benchmarks.
+name = "NokidoLlamaReranker"
+disabled = true
+wave = 4
+cmd = "${LLAMA}"
+args = ["-m", "${ROOT}/data/llm_models/bge-reranker-v2-m3-Q8_0.gguf", "--reranking",
+        "-ngl", "99", "--host", "127.0.0.1", "--port", "8100",
+        "-c", "8192", "-b", "2048", "--ubatch-size", "2048", "--metrics"]
+cwd = "${ROOT}"
+port = 8100
+capabilities = ["reranking"]
+essential = false
+
+[[service]]
+name = "NokidoLlamaRouter"
+disabled = true  # boot-trim RAM : --models-autoload trop lourd au boot -> on-demand
+wave = 4
+cmd = "${LLAMA}"
+args = ["--models-dir", "${ROOT}/data/llm_models", "--models-max", "2", "--models-autoload",
+        "--host", "127.0.0.1", "--port", "8092", "-ngl", "99", "-c", "32768",
+        "-ctk", "q8_0", "-ctv", "q8_0", "-fa", "auto", "--cache-prompt", "--cache-reuse", "256",
+        "--context-shift", "--metrics", "--slots", "--jinja",
+        "--reasoning", "auto", "--prio", "1", "--threads", "-1", "-np", "-1",
+        "--webui-mcp-proxy", "--webui-config-file", "${ROOT}/data/llamacpp_webui_config.json"]
+cwd = "${ROOT}"
+port = 8092
+essential = false
+llmPool = true
+
+[[service]]
+name = "NokidoLMStudio"
+wave = 4
+type = "provider"
+cmd = ""
+args = []
+cwd = "${LMS_DIR}"
+startCmd = ["${LMS_EXE}", "daemon", "up"]
+stopCmd = ["${LMS_EXE}", "daemon", "down"]
+port = 1234
+essential = false
+llmPool = true
+
+# ── VAGUE 5 : Interface & capteurs ─────────────────────────────────────
+[[service]]
+# capabilities (2026-07-26, mandat owner « les organes cles doivent vivre ») :
+#   web_hub/main.ts porte le BUS EVENEMENTIEL inter-organes (nervous_system.ts,
+#   SystemBus/BloodCell) — le systeme nerveux de Nokido, cf CLAUDE.md §10 et
+#   l'annotation du docker-compose. `essential = true` ne gouverne QUE l'ordre de
+#   boot et la quarantaine cote superviseur ; l'eviction, elle, consulte
+#   `capabilities` via forge_service_capabilities.is_critical(). Sans cette ligne
+#   le bus etait essentiel au demarrage mais EVINCIBLE sous pression RAM.
+name = "NokidoDenoWebHub"
+intention = "capability:nervous_system"
+objectif = "emis<600 | listen | conn>0"
+wave = 5
+cmd = "${DENO}"
+args = ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", "--no-check", "web_hub/main.ts"]
+cwd = "${PROXY_DIR}"
+deps = [8766, 8000]
+port = 7401
+essential = true
+capabilities = ["nervous_system"]
+env = { LAFORGE_DENO_WEBHUB_PORT = "7401", LAFORGE_PERSIST_DIR = "${ROOT}/nokido_persist", LAFORGE_PYTHON = "${PYTHON}" }
+
+[[service]]
+name = "NokidoWebHub"
+intention = "interface:web"
+objectif = "emis<600 | cpu>0.05 | listen"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/nokido_web_hub.py", "--host", "127.0.0.1", "--port", "7400"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 7400
+# Contrat de sante APPLICATIVE (2026-09-11). Sans lui, le superviseur ne
+# disposait que de `isPortOpen` : :7400 est reste LISTENING avec /health en
+# TIMEOUT pendant plus de cinq heures, declare `running` tout du long.
+# Chemin MESURE le 2026-08-18 : sur ce service /health rend 200, quand /ping et
+# / rendent 401 — il n'existe aucun endpoint universel, d'ou un chemin par service.
+health_path = "/health"
+essential = false
+neverSleep = true
+runAs = "interactive"   # le portail (env/admin-token/DB owner) rate en SYSTEM ; marche en session user (cf LMStudio/Gemini)
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+# ── Maintainers cognitifs CENTRALISES dans le supervisor (portable cross-OS,
+#    remplace les schtasks Windows non-portables). Le stop/start du launcher les
+#    controle ; daemons headless (zero popup, contrairement aux schtasks). ──
+[[service]]
+name = "NokidoSSoTMaintainer"
+wave = 5
+cmd = "${PYTHON}"
+args = ["app/forge_ssot_maintainer.py", "--daemon", "--interval", "300"]
+# Pouls 2026-07-28 : un SSoT fige doit se voir. Ecrit apres chaque refresh reussi.
+heartbeat = "sandbox/ssot_maintainer.heartbeat"
+# cycle_s PROUVE : sleep direct sur args.interval dans app/forge_ssot_maintainer.py
+# (unite SECONDES etablie par lecture du consommateur, pas supposee).
+cycle_s = 300
+heartbeat_max_s = 900
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+# VEILLE PERMANENTE briques de comm CLI (2026-06-22) — snapshot+diff des configs MCP
+# par-CLI (claude/gemini/agy/codex/cline), du SET d'outils exposes a agy, + cote-hub
+# (agent_identities/_AGENT_LIST/write_paths/rings). runAs=interactive OBLIGATOIRE : doit
+# voir le profil OWNER (~/.gemini, ~/.codex, ~/.claude.json) — invisible en SYSTEM. Ecrit
+# sandbox/comm_watch_status.json que la sentinelle (forge_organ_pulse) LIT (check comm_bricks).
+name = "NokidoCommWatch"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_comm_watch.py", "--daemon", "--interval=900"]
+# Pouls 2026-07-28 : sans port ni heartbeat, sa mort ne se voyait nulle part.
+heartbeat = "sandbox/comm_watch.heartbeat"
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+name = "NokidoParietalFusion"
+disabled = true   # 2026-09-05 mode sauvegarde : 112 Mo/s de balayage permanent + DOUBLONS (3 instances). Cf. NokidoQdrantSync.
+wave = 5
+cmd = "${PYTHON}"
+args = ["app/forge_parietal_fusion.py", "--serve", "300"]
+heartbeat = "sandbox/parietal_fusion.heartbeat"
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoPhenomBuffer"
+wave = 5
+cmd = "${PYTHON}"
+args = ["app/forge_phenomenological_buffer.py", "--daemon", "--interval", "300"]
+heartbeat = "sandbox/phenom_buffer.heartbeat"
+# cycle_s PROUVE : sleep direct sur args.interval dans
+# app/forge_phenomenological_buffer.py.
+cycle_s = 300
+heartbeat_max_s = 900
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+# Validateur gate-consume-log : consomme les intentions 'proposed' du event-log -> gate
+# deterministe -> verdict (raffinement GLM : agents append / validateurs consomment).
+name = "NokidoGateConsumer"
+wave = 5
+cmd = "${PYTHON}"
+args = ["app/forge_gate_consumer.py", "--daemon", "--interval", "30"]
+heartbeat = "sandbox/gate_consumer.heartbeat"
+# cycle_s PROUVE : sleep direct sur args.interval dans app/forge_gate_consumer.py.
+cycle_s = 30
+heartbeat_max_s = 90
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoOpenAIProxy"
+intention = "ingress:openai_compat"
+objectif = "emis<600 | conn>0 | cpu>0.05"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_openai_proxy.py"]
+# Port declare le 2026-07-28 : le proxy ECOUTE sur 7777 (--port, defaut 7777, et il
+# est lance sans argument) mais ne le declarait pas — d'ou son classement SUPERVISE,
+# mort silencieuse possible, alors qu'une sonde suffit. Pour un serveur, le port EST
+# le capteur ; un heartbeat y serait redondant.
+port = 7777
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+# neverSleep (2026-09-25) : c'est une PORTE D'ENTREE. Endormie, elle REFUSE ses clients
+# (WinError 10061) -- rien ne la reveille a l'arrivee d'une requete, et elle n'est pas
+# dans la liste de reveil du gestionnaire de ressources. Mesure : trouvee `sleeping` a
+# RAM 59 % puis 62 % (sous le seuil de reveil 72 %), aucun ordre `sleep` au journal des
+# ordres (decision interne), et opencode -- client gouverne, decision owner du 25/09 --
+# rendait « Cannot connect to API ». Meme motif et meme remede que NokidoCTFBrowserMCP
+# et NokidoWebHub.
+neverSleep = true
+env = { PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+# Passerelle MCP exposee a ChatGPT web. Ecrite dans la nuit du 2026-09-14 (commits
+# caf1bc14f -> 8e9d11431) et JAMAIS declaree ici : lancee a la main, elle a disparu
+# au premier redemarrage de la stack, le 2026-09-14 au soir. Un service qu'on veut
+# voir revenir se DECLARE -- le symetrique de la regle deja consignee (couper
+# durablement exige `disabled`, un `stop` seul ne tient pas).
+#
+# CHEMIN D'ACCES : SORTANT. Le `tunnel-client` d'OpenAI long-polle en HTTPS et
+# relaie vers ce service ; AUCUN port entrant n'est ouvert. Le bridge n'ecoute
+# donc que le loopback, et c'est voulu.
+name = "NokidoGithubBridgeMCP"
+intention = "ingress:mcp_chatgpt"
+objectif = "port 8791 ouvert | registre OAuth persiste sur disque"
+wave = 5
+cmd = "${PYTHON}"
+# LE LANCEUR, pas le module : lui seul lit le coffre et pose les secrets dans
+# l'environnement du serveur (appariement OAuth + jeton GitHub). Le module lance
+# en direct demarre parfaitement... et n'a aucun jeton pour appeler GitHub.
+args = ["tools/forge_bridge_launch.py", "--port", "8791"]
+port = 8791
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+# DEFAUT MESURE le 2026-09-14, et il a coute la soiree. Le pont a tourne sous
+# `LaForgeSbxOffline` (egress BLOQUE) : la chaine entiere fonctionnait -- tunnel,
+# OAuth, consentement, habilitation validee, `repo_info` REELLEMENT execute -- et
+# l'appel sortant vers api.github.com mourait en `URLError`. Cote ChatGPT le
+# verdict est `ok:false, error:"URLError"`, qui ne nomme ni le compte ni l'egress.
+#
+# `sandbox-online` est le bon compte pour DEUX raisons, pas une : il autorise la
+# sortie, et il DE-PRIVILEGIE. Sans `runAs`, un service lance par le superviseur
+# tourne en SYSTEM -- inacceptable pour une porte exposee a ChatGPT web, qui est
+# par construction une entree non fiable.
+runAs = "sandbox-online"
+# NOKIDO_BRIDGE_OAUTH_CLIENTS est EXIGEE, pas optionnelle. Sans elle le registre
+# des clients inscrits en DCR vit en MEMOIRE : au redemarrage le serveur les
+# oublie, l'appelant continue de presenter un identifiant que plus personne ne
+# connait, et recoit « client inconnu ». C'est exactement la panne du 2026-09-14,
+# annoncee mot pour mot dans la docstring de `forge_bridge_oauth.fichier_des_clients`.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", NOKIDO_BRIDGE_OAUTH_CLIENTS = "${ROOT}/sandbox/bridge_oauth_clients.json" }
+
+[[service]]
+# Connecteur MCP des PAIRS cloud (claude.ai, ChatGPT) -- go owner du 2026-09-28.
+# Lecture en liste blanche + collaboration en QUARANTAINE (agent_messages, statut
+# `quarantaine`, approbation owner par tools/forge_pair_quarantaine.py). Jamais le /mcp du
+# hub. Ecoute en LOOPBACK (8793) ; l'entree publique HTTPS est un tunnel SORTANT (Tailscale
+# Funnel) : aucun port entrant. `sandbox-offline` : le connecteur n'a besoin d'aucune sortie
+# reseau, et sans runAs il tournerait en SYSTEM -- inacceptable pour une porte exposee.
+# DESACTIVE par defaut : on l'active quand le tunnel et le code d'appariement choisi par
+# l'owner (NOKIDO_PAIR_OAUTH_APPARIEMENT, au coffre) existent. Secrets lus au coffre par le
+# lanceur, jamais ici (fichier versionne).
+name = "NokidoPairMCP"
+intention = "ingress:mcp_pairs_cloud"
+objectif = "port 8793 ouvert | 401 sans jeton | depots en quarantaine"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_bridge_launch.py", "--passerelle", "pair", "--port", "8793"]
+port = 8793
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+runAs = "sandbox-offline"
+# ACTIVE le 2026-09-28 sur go explicite de l'owner (exposition publique via Funnel).
+disabled = false
+# URL : Tailscale Funnel pose par l'owner le 2026-09-28 (`tailscale funnel --bg 8793`, 443 -> 127.0.0.1:8793).
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", NOKIDO_PAIR_PUBLIC_URL = "https://desktop-xxxx.tailf7242.ts.net" }
+
+[[service]]
+# Relais SORTANT vers le plan de controle OpenAI. Il long-polle en HTTPS et relaie
+# les appels MCP de ChatGPT web vers le bridge local ci-dessus (:8791) : AUCUN port
+# entrant n'est ouvert, c'est la propriete qui rend ce montage acceptable.
+#
+# SORTI DE C:\tmp LE 2026-09-14, sur demande owner. Il y vivait depuis sa mise en
+# place la nuit du 14/09, avec la TOTALITE de son etat (binaires, profil, home). Un
+# executable hors depot echappe a tous les gardes a la fois -- ni git, ni CI, ni
+# git-gate, ni gate d'egress, et `trusted_script` ne s'y applique pas non plus
+# puisqu'il exige un fichier suivi par git. Et surtout : rien ne le relancait, donc
+# il a disparu au premier redemarrage de la stack, emportant l'acces de ChatGPT.
+#
+# La cle du plan de controle n'est JAMAIS ecrite ici, et n'a pas non plus a vivre
+# dans l'environnement de la machine. Ce bloc `env` est STATIQUE et VERSIONNE : y
+# poser un secret le publierait. Le service passe donc par un lanceur qui lit le
+# COFFRE (DPAPI) et pose la valeur dans l'environnement du seul sous-processus --
+# patron deja prouve pour le jeton GitHub. Une cmdline se lit, un env non.
+# Sans cle, le lanceur REFUSE de demarrer en le disant : un relais sans identite
+# echouerait cote plan de controle plus tard, sans rapport visible avec la cause.
+name = "NokidoOpenAITunnel"
+intention = "egress:tunnel_chatgpt"
+objectif = "health 8792 repond | canal MCP relaye vers 8791"
+wave = 6
+cmd = "${PYTHON}"
+args = ["tools/forge_tunnel_client_launch.py", "--port", "8792"]
+# Pour un relais, le port de sante EST le capteur : `/healthz` et `/readyz` sont
+# servis par le daemon lui-meme, un heartbeat y serait redondant.
+port = 8792
+cwd = "${ROOT}"
+deps = [8791]
+essential = false
+# HOME/USERPROFILE pointent l'etat du relais (sorti de C:\tmp le 2026-09-14) ;
+# le lanceur les transmet tels quels au binaire tiers.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", HOME = "${NOKIDO_BIN}/tunnel-client/home", USERPROFILE = "${NOKIDO_BIN}/tunnel-client/home" }
+
+[[service]]
+# Ingress Anthropic Messages API (/v1/messages :7776) — Claude Code via
+# ANTHROPIC_BASE_URL. Adaptateur format mince sur app/forge_llm_format_bridge ;
+# switchboard local/cloud = hub ask(provider=auto). Cf docs/biblio_cli_unification_2026-06-10.md.
+name = "NokidoAnthropicIngress"
+# CONTRAT (audit 2026-08-25). `intention` dit POURQUOI ce service tourne, `objectif`
+# dit quelle SORTIE MESURABLE prouve qu'il tient son role. Les seuils ci-dessous ne
+# sont pas choisis : ils viennent de ce que l'audit a MESURE sur ce service (3 conn
+# etablies, cpu 0,2 %). Grammaire : hb<N | cpu>P | conn>N | listen | actes>N | aucun.
+# INNERVE le 2026-08-25 : `emis<600` en tete, donc la preuve AFFERENTE prime sur la
+# palpation. Les termes suivants restent en repli si le nerf ne bat pas.
+intention = "ingress:anthropic"
+objectif = "emis<600 | conn>0 | cpu>0.05"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_anthropic_ingress.py"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 7776
+essential = false
+env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+# Ingress Gemini generateContent (:7778) — Gemini CLI via GOOGLE_GEMINI_BASE_URL.
+name = "NokidoGeminiIngress"
+intention = "ingress:gemini"
+objectif = "emis<600 | conn>0 | cpu>0.05"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_gemini_ingress.py"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 7778
+essential = false
+env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+[[service]]
+name = "NokidoWebEgress"
+intention = "egress:web"
+objectif = "emis<600 | conn>0 | cpu>0.05"
+wave = 5
+# Gateway d'egress web firewallé (hard hijack) : POST /fetch {url} -> fetch +
+# trafilatura markdown + firewall injection indirecte + seuil auto-RAG. Chokepoint
+# pour clients hôte non-MCP (aichat/llm/curl). ${PY314} = env du hub (trafilatura
+# /markdownify installés là). Bind 127.0.0.1 + garde SSRF.
+cmd = "${PY314}"
+args = ["tools/forge_web_egress.py"]
+cwd = "${ROOT}"
+port = 7779
+essential = false
+env = { PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+name = "NokidoRSSWatcher"
+wave = 5
+cmd = "${PY314}"
+args = ["app/forge_rss_watcher.py", "--daemon"]
+# Pouls 2026-07-28 : rss_watcher_state.json est un fichier d'ETAT, pas un pouls — le
+# capteur de sante n'y trouvait pas de champ `ts` et le declarait MORT a tort.
+heartbeat = "sandbox/rss_watcher.heartbeat"
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+runAs = "sandbox-online"   # test runAs — RSS = input non-fiable internet
+# Jeton court injecte par le lanceur (2026-09-28) : identite MESUREE au journal authz
+# (SERVICES, via /api/login) ; le lanceur runAs obtient son jeton court (TPM d'abord) et le
+# service le renouvelle par echange RFC 8693 -- plus de secret statique lu par ce compte.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NOKIDO_IDENTITE = "SERVICES" }
+
+[[service]]
+name = "NokidoCapture"
+wave = 5
+cmd = "${PYTHON}"
+args = ["-u", "-m", "cli_tail_capture", "--watch", "--interval", "15", "-v"]
+cwd = "${ROOT}/tools"
+deps = [8766]
+essential = false
+env = { PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+name = "NokidoNetcfgUI"
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NETCFG_UI}", "--host", "127.0.0.1", "--port", "7500"]
+cwd = "%NOKIDO_WORKSPACE%/netcfg-agent-web"
+deps = [8766]
+port = 7500
+essential = false
+# neverSleep (2026-09-25) : PORTE D'ENTREE de la tuile « Network Config / Audit » (lien
+# DIRECT vers :7500, aucun reveil a l'acces). Mesure : 102 ordres RESOURCE_MANAGER au journal
+# (sandbox/supervisor_ordres.jsonl), sleep/wake en alternance toutes les ~5 min, et port FERME
+# malgre les `wake` repetes (REQUESTED != ACHIEVED) -- owner : « ça s'ouvre une fois, puis la
+# tuile est grisée et impossible de relancer ». Meme remede que NokidoOpenAIProxy.
+neverSleep = true
+env = { PYTHONIOENCODING = "utf-8" }
+
+# ── VAGUE 6 : services migrés depuis NSSM legacy (migration #3, 2026-05-20) ──
+# Anciens services NSSM per-service intégrés au registre déclaratif.
+# /!\ Leur entrée NSSM legacy DOIT être désactivée (sc config <svc> start= disabled)
+#     AVANT le prochain restart du superviseur, sinon double instance = conflit
+#     de port. Cmd/args/port/env dérivés du registre NSSM réel.
+
+[[service]]
+name = "NokidoLlamaPython"
+disabled = true  # boot-trim RAM : 7B sur CPU (n_gpu_layers=0) ~5-6GB -> on-demand
+wave = 4
+cmd = "${PYTHON}"
+args = ["-m", "llama_cpp.server", "--model", "${MODEL_7B}",
+        "--host", "127.0.0.1", "--port", "8090", "--n_ctx", "4096", "--n_gpu_layers", "0"]
+cwd = "${ROOT}"
+port = 8090
+essential = false
+llmPool = true
+
+[[service]]
+name = "NokidoRecon"
+wave = 4
+disabled = true  # boot-trim 2026-06-02 : recon-only, idle au boot + spawn msf_gateway.py x2 (recon_silo) -> on-demand. Reduit pression boot + resout le dup msf_gateway.
+cmd = "${PYTHON}"
+args = ["recon_silo/start_recon.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+name = "NokidoTaskExecutor"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_task_executor.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/task_executor.heartbeat"
+
+# Executeur DEDIE aux taches de code (WORKER_CODE). runAs=interactive OBLIGATOIRE,
+# meme motif que NokidoHarnessWorker : le binaire agy ET son login vivent dans le
+# profil owner, INVISIBLES en SYSTEM (mesure 2026-07-31 : « Acces refuse » sur
+# AppData/Local/agy depuis le compte de service — refuse, pas absent).
+#
+# POURQUOI UNE INSTANCE SEPAREE plutot que d'elever NokidoTaskExecutor : celui-ci
+# traite TOUTES les taches, y compris des entrees non fiables ; lui donner la
+# session owner elargirait la surface pour un seul chemin qui en a besoin. Ici le
+# privilege est borne au filtre --agent WORKER_CODE. Moindre privilege.
+#
+# CE QUE CA REPARE : sans l'OAuth agy, l'executeur ne pouvait que RELAYER vers
+# l'auto-repondeur, qui accuse reception sans executer — la tache « rejouer les 7
+# veilles » a ete close en 20 s sans qu'aucune veille ne bouge. Avec ce service,
+# `_peut_lancer_agy()` mesure la capacite et route vers agy en mode AGENT, qui
+# EXECUTE. Les taches WORKER_CODE sont RESERVEES a cette instance (l'executeur
+# general les exclut) : si elle dort, elles ATTENDENT visiblement au lieu d'etre
+# faussement completees.
+#
+# Requiert user logge (session console), comme les autres services interactifs.
+# disabled=false : c'est le seul chemin d'EXECUTION autonome du code.
+[[service]]
+name = "NokidoTaskExecutorAgy"
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_task_executor.py", "--agent", "WORKER_CODE"]
+cwd = "${ROOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+# Jeton court injecte + projete par le lanceur (2026-09-28) : identite que le code presente
+# deja (X-Agent-Name TASK_EXECUTOR, ring 2) -- aucun privilege nouveau ; jeton relu a chaque
+# appel (`_hub_call`).
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_worker_code.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorAntigravity"
+disabled = false
+wave = 5
+# CHEMINS ABSOLUS Nokido (2026-08-13) : ${ROOT} resolvait vers laforge-cowork,
+# une COPIE divergente du fichier sans le routage ANTIGRAVITY->vrai agy -> les
+# taches retombaient sur groq. On epingle le repo Nokido explicitement.
+# PYTHONDONTWRITEBYTECODE=1 : evite qu'un .pyc perime masque une edition du .py.
+cmd = "%USERPROFILE%/miniforge3/python.exe"
+args = ["%NOKIDO_ROOT%/tools/forge_task_executor.py", "--agent", "ANTIGRAVITY"]
+cwd = "%NOKIDO_ROOT%"
+runAs = "interactive"
+deps = [8766]
+essential = false
+# Jeton court injecte + projete par le lanceur (2026-09-28) : meme identite TASK_EXECUTOR.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_antigravity.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoChainExecutor"
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_chain_executor.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+heartbeat = "sandbox/chain_executor.heartbeat"
+heartbeat_tier = "fast"   # ticker concurrent 20s ; superviseur restart si fige (chains stuck = invisible avant)
+# Boucle autonome veille (forge-veille-approfondie) : start_loop() -> execute_pending()
+# en boucle. SANS ce service, le ChainExecutor ne tourne pas -> les chains watch
+# restent pending (gap diagnostiqué 2026-06-03 via /debug/stacks). __main__ = start_loop().
+
+[[service]]
+name = "NokidoMemoryConsolidator"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoMemoryConsolidator
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_memory_consolidator.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/memory_consolidator.heartbeat"
+heartbeat_tier = "slow"   # cycle 12h — pas besoin polling agressif
+
+[[service]]
+name = "NokidoOfflineTrainer"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoOfflineTrainer
+wave = 4
+# Acte 5 partial flip canary 2026-05-29 : PYTHON -> PY314T
+# Rationale : multi-thread bench prouve 2.5x sur AMI workload @ 4 threads no-GIL.
+# AMI JEPA batch training = candidat ideal (parallel CPU, low risk -- cycle 6h idle).
+# Rollback : tools/forge_py314t_flip_canary.py --rollback
+cmd = "${PY314T}"
+args = ["tools/forge_offline_trainer.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHON_GIL = "0" }
+heartbeat = "sandbox/offline_trainer.heartbeat"
+heartbeat_tier = "slow"   # cycle 6h
+
+[[service]]
+name = "NokidoHandoffWorker"
+disabled = true  # on-demand : wake via tools/forge_supervisor_ctl.py ensure NokidoHandoffWorker
+wave = 4
+# Deuxieme flip partiel py314t, 2026-08-30 — et le seul qui soit MESURE.
+# Rationale : sur les 9 candidats de forge_py314t_readiness, forge_handoff est le
+# seul a survivre aux trois conditions (code qui threade reellement, module
+# importable sous py314t, aucune dependance lourde absente de cet env). Bench du
+# jour : x4,53 a 8 threads en free-threaded sur charge CPU-Python, quand le MEME
+# code sous GIL regresse a x0,92. Le gain etait inatteignable jusqu'ici parce que
+# forge_handoff n'etait lance par AUCUN service : importe par un seul module, il
+# tournait dans le processus du hub, donc avec GIL. Ce worker est la frontiere de
+# processus qui manquait.
+# PAS de PYTHON_GIL=0 ici, contrairement au canary voisin : le build py314t a deja
+# le GIL desactive nativement, et forcer la variable ferait tourner sans verrou une
+# extension qui le reclame (corruption possible en milieu de job, cf RULES_SHARED).
+# Le worker DECLARE au demarrage s'il tourne sans GIL, plutot que de le supposer.
+# Rollback : passer cmd sur "${PY314}" — le worker fonctionne, sans le gain.
+cmd = "${PY314T}"
+args = ["tools/forge_handoff_worker.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/handoff_worker.heartbeat"
+heartbeat_tier = "fast"
+
+[[service]]
+# Skill curator (Phase 6) — execution_traces -> curated_skills RAG (extract/grade/
+# prune/consolidate). Cycle 6h. Câblé services.toml 2026-06-01 (était TODO).
+name = "NokidoSkillCurator"
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_skill_curator.py", "--daemon", "--interval", "21600"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/skill_curator.heartbeat"
+# cycle_s PROUVE : --interval 21600 aux args, consomme par une attente fractionnee
+# a la seconde dans app/forge_skill_curator.py.
+cycle_s = 21600
+heartbeat_max_s = 64800
+heartbeat_tier = "slow"   # cycle 6h
+
+[[service]]
+name = "NokidoTraceSidecar"
+wave = 3
+# Pouls 2026-07-28 : ce daemon suit un log en tail, sans port. Il ne lisait que le
+# heartbeat de l'inspector, sans ecrire le sien — sa mort etait donc silencieuse,
+# et c'est precisement lui dont l'arret 6,6 j avait affame le trainer en mai.
+heartbeat = "sandbox/trace_sidecar.heartbeat"
+heartbeat_tier = "slow"
+# AMI trace writer : tail logs/mcp_audit.log -> record_trace() (state, action, state').
+# Sans lui execution_traces.db gele et NokidoOfflineTrainer s'affame (incident
+# 2026-05-30 : 6.6j sans nouvelle trace, trainer skip en boucle). Daemon bloquant
+# (_tail_loop), state-refresh thread demarre a l'import. Non supervise jusqu'ici.
+cmd = "${PYTHON}"
+args = ["tools/forge_trace_sidecar.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+# Collecteur traces riches 1024d (cognition unification c-phase3) : tick 30s,
+# get_current_state_text_rich -> traces_rich (texte, dim=0 ; embeds differes via
+# --reencode :8099). Alimente le retrain value/world @1024d. Single-instance guard
+# (cmdline) + heartbeat. CENTRALISE dans le superviseur (remplace le run_job manuel).
+name = "NokidoTraceCollectorRich"
+wave = 4
+cmd = "${PY314}"
+args = ["tools/forge_trace_collector_rich.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/trace_collector_rich.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# Cowork P1 (collegue IA souverain, docs/cowork_internalization_design.md) : daemon traitant
+# les CoworkProject 'idle' (boucle doc reversible end-to-end). DB DEDIEE RAG/cowork.db + artefacts
+# fichiers + resume leger mailbox = 0 pression mono-writer hub (parade R3). P1 = reversible only
+# (irreversible -> gate _queue_for_approval = P2). Single-instance guard + heartbeat.
+name = "NokidoCowork"
+wave = 4
+cmd = "${PY314}"
+args = ["app/forge_cowork.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/cowork_daemon.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoLogRetention"
+wave = 4
+# Rétention tiers des logs : drop embeddings tièdes (7-30j), purge froids (>30j),
+# purge audit.db, prune redaction_vault, VACUUM. Borne execution_traces.db
+# (mesuré 2026-05-30 : 62.8MB -> 11.9MB au 1er run). Daemon 1x/jour.
+cmd = "${PYTHON}"
+args = ["tools/forge_log_retention.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/log_retention.heartbeat"
+# cycle_s PROUVE : INTERVAL_S = 86400 dans tools/forge_log_retention.py.
+cycle_s = 86400
+heartbeat_max_s = 259200
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoNightTrainer"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoNightTrainer
+wave = 4
+cmd = "${PYTHON}"
+args = ["-X", "utf8", "tools/forge_night_trainer.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+[[service]]
+name = "NokidoSelfPatcher"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoSelfPatcher
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_self_patcher.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/self_patcher.heartbeat"
+heartbeat_tier = "slow"   # cycle 1h
+
+[[service]]
+name = "NokidoGraphExplorer"
+# ACTIVE le 2026-09-18 sur demande owner : « les declarer au boot, comme les autres
+# services — ils sont la au demarrage, sans qu'aucune page ne declenche quoi que ce soit ».
+# Contexte : le proxy /graph/ demarrait ce service au CHARGEMENT de la page, ce que la
+# consigne « rien ne doit plus se lancer au clic » interdit. Le reveil a ete retire du
+# proxy ; la disponibilite passe donc par la DECLARATION, pas par un effet de bord.
+#
+# COUT MESURE avant activation (tasklist, pid 21840) : 423 592 Ko, soit 0,41 Go.
+# C'est l'ordre de grandeur que le mode sauvegarde du 2026-09-05 avait coupe. L'autre
+# explorateur, `NokidoGraph` (:7474, app/forge_graph_explorer.py), RESTE disabled : un
+# seul des deux est cable sur /graph/, en garder deux paierait deux fois la meme RAM.
+#
+# `${PY314}` et non `${PYTHON}` : MESURE du 2026-09-18 sur le pidfile du lanceur, qui
+# lance ce script avec laforge_py314. La declaration disait `${PYTHON}` (miniforge de
+# base) — un interpreteur avec lequel ce service n'a jamais ete vu tourner. On aligne la
+# declaration sur ce qui MARCHE, pas l'inverse.
+#
+# Pas de `heartbeat` : ce script n'en emet aucun. En declarer un fabriquerait un signal
+# que personne n'ecrit. Le service est donc SUPERVISE et non REGULE — sa mort serait
+# silencieuse. Dette assumee et nommee, a lever en ajoutant l'emetteur cote script.
+disabled = false
+wave = 5
+cmd = "${PY314}"
+args = ["tools/nokido_graph_server.py"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 7420
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_GRAPH_PORT = "7420" }
+# POULS declare APRES avoir prouve son emission (2026-09-18, pid 23400) :
+#   {"ts": "...", "pid": 23400, "sonde": "http://127.0.0.1:7420/", "statut": 200}
+# L'ordre compte : declarer un heartbeat qu'aucun emetteur n'ecrit ferait lire une mort
+# permanente, donc un respawn en boucle. L'emetteur d'abord, le recepteur ensuite.
+# Le service passe ainsi de SUPERVISE (mort silencieuse) a REGULE.
+heartbeat = "sandbox/graph_server.heartbeat"
+# cycle_s = intervalle de sonde de `demarrer_pouls_service_http` (60 s).
+# heartbeat_max_s est DERIVE (max(90, 3 x cycle_s)) : ne jamais le modifier seul.
+cycle_s = 60
+heartbeat_max_s = 180
+
+[[service]]
+name = "NokidoTuiBridge"
+# DECLARE le 2026-09-18, meme demande owner. Ce pont n'existait dans AUCUN service :
+# il ne vivait que par le reveil du proxy, c'est-a-dire par l'ouverture d'une page.
+# Retirer ce reveil sans le declarer ici aurait rendu la TUI injoignable apres chaque
+# redemarrage — « rien ne se lance au clic » ne doit pas vouloir dire « rien ne tourne ».
+#
+# `${PYTHON}` et non `${PY314}` : MESURE du 2026-09-18. `textual_serve` est ABSENT de
+# laforge_py314 et present dans miniforge de base, et c'est bien avec ce dernier que le
+# lanceur demarre le pont (releve sur son pidfile, pid 3384). Un nom d'environnement ne
+# dit pas ce qu'il contient : seule l'absence du module tranche.
+#
+# COUT MESURE : 52 104 Ko, soit 0,05 Go — negligeable devant l'explorateur de graphe.
+# Pas de `heartbeat` : le script n'en emet pas (meme dette nommee que ci-dessus).
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/nokido_tui_bridge.py"]
+cwd = "${ROOT}"
+deps = [8766]
+port = 7440
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_TUI_PORT = "7440" }
+# POULS declare APRES avoir prouve son emission (2026-09-18, pid 7180) :
+#   {"ts": "...", "pid": 7180, "sonde": "http://127.0.0.1:7440/", "statut": 200}
+heartbeat = "sandbox/tui_bridge.heartbeat"
+cycle_s = 60
+heartbeat_max_s = 180
+
+[[service]]
+# DISABLED 2026-06-02 : child CIRCULAIRE — il surveille LaForge-Master via son
+# SERVICE_MAP, donc si le superviseur tombe le watchdog tombe avec = plus de
+# filet (c'est ce qui a laisse le hub coma 6 min sans auto-recovery). Remplace
+# par le service SCM standalone NSSM "NokidoWatchdog" (LocalSystem, AppExit=
+# Restart, independant du superviseur). Cf incident coma 2026-06-02.
+name = "NokidoWatchdog"
+wave = 5
+disabled = true
+cmd = "${PYTHON}"
+args = ["app/forge_service_watchdog.py", "--interval", "30"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
+
+# Migre depuis NSSM direct 2026-05-24 (RCA BSOD 0x119 :
+# NokidoQuotaAlertDaemon NSSM AppParameters non quote a boucle 20min, sature
+# driver Radeon -> BSOD). Sous supervisor.ts = quarantine cap + GPU gating
+# actifs. NSSM-direct entry doit etre desinstalle apres validation.
+[[service]]
+name = "NokidoQuotaAlertDaemon"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_quota_alert_daemon.py"]
+# Pouls 2026-07-28 : sans port ni heartbeat, la surveillance des quotas pouvait
+# s'arreter sans que personne ne l'apprenne. Ecrit apres chaque controle reussi.
+heartbeat = "sandbox/quota_alert_daemon.heartbeat"
+heartbeat_tier = "slow"
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+# Vision : tout container Docker doit être géré par supervisor.ts via un
+# wrapper Python (ségrégation organes). Pattern : forge_<svc>_keeper.py
+# qui probe daemon, ensure container running, heartbeat sandbox/, SIGTERM
+# = docker stop. Réutilisable pour clawhub/ollama-cloud/exegol futurs.
+
+[[service]]
+name = "NokidoSearxng"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoSearxng
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_searxng_keeper.py"]
+cwd = "${ROOT}"
+port = 8080
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/searxng_keeper.heartbeat"
+
+[[service]]
+name = "NokidoWatchAgent"
+disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoWatchAgent
+wave = 6
+cmd = "${PYTHON}"
+args = ["tools/forge_watch_agent_worker.py"]
+cwd = "${ROOT}"
+deps = [8766, 8080]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", LAFORGE_SEARXNG_URL = "http://127.0.0.1:8080" }
+heartbeat = "sandbox/watch_agent_worker.heartbeat"
+
+# Verrou egress git souverain (WinDivert). DISABLED par defaut : enforce 24/7
+# bloque TOUT push non-gate, Y COMPRIS les push autonomes de Nokido
+# (forge_session_anchor, evolution) tant qu'ils ne passent pas par
+# forge_git_egress.push (gate-as-executor). Activer SCIEMMENT : disabled=false
+# + reload supervisor. Python = BASE miniforge (pydivert 2.1.0 y est, pas dans
+# l'env runtime). Necessite admin (driver) : OK via supervisor SYSTEM.
+[[service]]
+name = "NokidoEgressLock"
+disabled = true
+wave = 4
+cmd = "%USERPROFILE%/miniforge3/python.exe"
+args = ["tools/forge_git_egress_lock.py", "--enforce"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+# Proxy CONNECT git (forge_git_proxy) : interception host-allowlist + audit de
+# TOUTES les requetes git. DISABLED par defaut. Pur stdlib -> ${PYTHON} OK.
+# Activer : disabled=false + reload supervisor + git config --local
+# http(s).proxy http://127.0.0.1:7780. observe (defaut) ; ajouter "--enforce"
+# aux args pour deny les hosts hors allowlist.
+[[service]]
+name = "NokidoGitProxy"
+disabled = true
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_git_proxy.py"]
+cwd = "${ROOT}"
+port = 7780
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+
+# ACP remote transport (WebSocket) — expose le hub comme agent ACP sur
+# ws://127.0.0.1:7782/acp (tools/forge_acp_server.py --ws). Transport remote ACP
+# = WIP dans le spec -> disabled/on-demand (wake: tools/forge_supervisor_ctl.py
+# ensure NokidoAcpWs, après reload superviseur). Brain via ACP_BRAIN (echo défaut
+# | hub = forge_agent_proxy.ask gouverné | stream = mot-par-mot). 8770 est pris par
+# NokidoExegolMCP -> ACP sur 7782.
+[[service]]
+name = "NokidoAcpWs"
+disabled = true
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_acp_server.py", "--ws"]
+cwd = "${ROOT}"
+port = 7782
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", ACP_WS_PORT = "7782" }
+
+# Transport A2A (Agent2Agent) — JSON-RPC sur http://127.0.0.1:7783/a2a, carte de
+# decouverte sur /.well-known/agent-card.json. Tier 1 : message/send, tasks/get,
+# tasks/cancel. `streaming` reste false tant que message/stream n'existe pas :
+# ce qui n'est pas implemente n'est pas annonce.
+# Declare ICI parce qu'un transport non declare reste implemente MAIS hors du
+# cycle operationnel — c'est exactement l'etat dans lequel ACP a dormi jusqu'au
+# 2026-09-04. `disabled = true` : on-demand comme ACP, reveil par
+# `nokido_ensure_service NokidoA2A`.
+# Securite : jeton du coffre exige (FORGE_A2A_TOKEN puis FORGE_MCP_TOKEN), refus
+# 401 + WWW-Authenticate, FAIL-CLOSED si le coffre est illisible. Seule la carte
+# publique est ouverte — c'est sa fonction, et elle ne porte que du prouve.
+[[service]]
+name = "NokidoA2A"
+disabled = true
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_a2a_server.py"]
+cwd = "${ROOT}"
+port = 7783
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", A2A_PORT = "7783" }
+
+# Fleet worker qui pilote les VRAIS agents CLI (codex/claude/gemini) via le harness
+# (forge_cli_harness). runAs=interactive OBLIGATOIRE : les binaires agents + leur login
+# vivent dans le profil owner, INVISIBLES en SYSTEM/LaForgeTrusted (comme LMStudio/Gemini).
+# Boucle sur sandbox/harness_jobs/*.json -> drive -> <id>.result.json. Activation = reload
+# superviseur coordonné. Idle tant qu'aucun job. Requiert user loggé (session console).
+[[service]]
+name = "NokidoHarnessWorker"
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_harness_worker.py", "--watch", "3"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/harness_worker.heartbeat"
+# cycle_s PROUVE : sleep direct sur args.watch dans tools/forge_harness_worker.py.
+# Cycle tres court : le seuil retombe au PLANCHER, il ne descend pas en dessous.
+cycle_s = 3
+heartbeat_max_s = 90
+heartbeat_tier = "slow"
+
+[[service]]
+# Runner GitHub Actions self-hosted — mis sous supervision le 2026-07-25 (go owner).
+#
+# POURQUOI : il n'etait PAS un service. Configure en mode console (aucun `svc.cmd` a la
+# racine, `bin/` ne contient que les templates Linux/macOS), il tournait via `run.cmd`
+# dans une fenetre : il ne survivait ni a sa fermeture, ni a un reboot, ni a une
+# coupure reseau. Mesure du jour : `SocketException (995)` pendant que trois files de
+# crawl saturaient reseau et RAM, runner `offline`, et DEUX runs CI en
+# `startup_failure`/`cancelled` -- job reste `queued` sans une seule etape, alors que
+# le code n'y etait pour rien. Un CI dont l'executant n'a aucun mecanisme de reprise
+# est un angle mort : il echoue en silence et on croit lire un echec de code.
+#
+# Le superviseur apporte exactement ce qui manquait : respawn-on-death + demarrage avec
+# la stack. Pas besoin de droits SCM (refuses aux comptes hub) ni de reconfigurer le
+# runner (ses `.credentials` restent valides).
+#
+# DEUX PIEGES EVITES ICI, tous deux deja payes :
+#   - `cmd /c` est OBLIGATOIRE pour lancer un .cmd. Sans le `/c`, le service demarre et
+#     ne fait RIEN (cf. LaForgeWatchdog « castre », gotcha 2026-07-21).
+#   - `runAs = "interactive"` : les jobs CI ont besoin du profil OWNER (config git,
+#     miniforge, credentials). En SYSTEM ils divergeraient du contexte de test reel,
+#     et le runner ecrirait son `_work` avec les mauvaises ACL.
+#   - `cmd` doit pointer cmd.exe en BACKSLASHES. Lance en slashes, cmd.exe
+#     re-analyse son PROPRE chemin et prend `/Windows/System32/cmd.exe` pour
+#     des SWITCHES -> « La syntaxe de la commande n'est pas correcte »,
+#     exit 1 en 0s, a CHAQUE spawn. Matrice mesuree le 2026-07-27 (t3.cmd) :
+#       exe slash    + arg slash     -> ECHEC
+#       exe slash    + arg backslash -> ECHEC
+#       exe backslash+ arg slash     -> OK
+#       exe backslash+ arg backslash -> OK
+#     => c'est l'EXECUTABLE qui compte, l'argument est indifferent. Les autres
+#     services gardent des slashes sans probleme : seul un interpreteur qui
+#     re-parse sa ligne de commande (cmd.exe) est concerne, pas python.exe.
+#     Consequence mesuree : ce service n'avait JAMAIS demarre depuis sa mise
+#     sous supervision le 25/07 ; une tache planifiee SYSTEM \LaForge-Runner
+#     compensait en session 0, ou git perd le profil owner. Tache desactivee
+#     le 27/07.
+name = "NokidoCIRunner"
+# `aucun` est un verdict DECLARE, pas un oubli : ce service est un LANCEUR
+# (runAs=interactive), le registre note le pid du lanceur et c'est son ENFANT qui
+# travaille. Aucune mesure prise sur le pid declare ne dit quoi que ce soit de son
+# activite reelle — mieux vaut le dire que produire un faux manquement.
+intention = "launcher:ci"
+objectif = "aucun"
+wave = 5
+cmd = "C:\\Windows\\System32\\cmd.exe"
+args = ["/c", "C:\\laforge-runner\\run.cmd"]
+cwd = "C:/laforge-runner"
+runAs = "interactive"
+essential = false
+# neverSleep (2026-09-27) : la rafale RAM (supervisor.ts, memPct > RAM_SLEEP_PCT) endormait
+# le runner EN PLEIN JOB. Journal du superviseur, deux fois le meme jour, les deux pendant
+# `pytest-pur` : « 20:01:41 Sleeping NokidoCIRunner » (run 36337595514) et « 20:47:04 RAM
+# 97.0% > 88% ... Sleeping NokidoCIRunner (uptime 1765s) » (run 36340236121). Listener et
+# Worker se taisent a la meme seconde, GitHub voit le runner `offline`, le job depasse sa
+# borne et sort `cancelled` : 20 min de suite perdues et un verdict ILLISIBLE, pris pour une
+# CI rouge alors que le code n'y etait pour rien. Endormir le runner ne libere rien d'utile
+# au repos (Listener seul) et detruit la mesure en charge. Meme regle que le keeper :
+# neverSleep n'exempte QUE de la rafale ; l'eviction CIBLEE (POST /supervisor/sleep/<nom>)
+# reste possible. NR : tests/nr/test_runner_ci_pas_endormi_nr.py.
+neverSleep = true
+env = { PYTHONIOENCODING = "utf-8" }
+
+
+
+[[service]]
+# NokidoPyExec (Phase B, 2026-07-28) — serveur Pyodide AUTONOME : execute le Python
+# genere par le CLI EN WASM (sandbox Pyodide, zero trace disque hote). Prouve e2e
+# (print + 6*7=42, dist locale components/pyodide_dist). disabled = true = ON-DEMAND
+# (RAM P1) : reveille via tools/forge_supervisor_ctl.py ensure NokidoPyExec. Autonome
+# PAR CHOIX : port dedie :7402, JAMAIS greffe dans le nerf web_hub :7401 (tombe seul).
+name = "NokidoPyExec"
+disabled = true
+wave = 5
+cmd = "${DENO}"
+args = ["run", "-A", "--unstable-detect-cjs", "proxy_deno/organs/pyexec_server.ts"]
+cwd = "${ROOT}"
+port = 7402
+essential = false
+env = { LAFORGE_PYEXEC_PORT = "7402", LAFORGE_PYEXEC_HB = "sandbox/pyexec_server.heartbeat" }
+heartbeat = "sandbox/pyexec_server.heartbeat"
+heartbeat_tier = "slow"
+
+
+
+[[service]]
+# SURVEILLANT DE CRASH (declare le 2026-09-20) — il EXISTAIT depuis toujours dans
+# tools/, et n'etait declare NULLE PART. Sa docstring disait « Restart via NSSM
+# LaForge-ServiceCrashWatcher », c'est-a-dire hors du superviseur : il est mort le
+# 2026-08-11 et personne ne pouvait le relever. « Un service non declare ne revient
+# JAMAIS » (mesure du 2026-09-14) — 40 jours de silence le confirment.
+#
+# CE QUE SON ABSENCE A COUTE, mesure le 2026-09-20 : les deux drains de taches
+# NokidoTaskExecutorAntigravity et NokidoTaskExecutorAgy sont morts SILENCIEUSEMENT
+# (aucune trace dans leur journal), la file s'est arretee, et rien n'a reagi pendant
+# 55 minutes. Son role est precisement de voir ces morts-la : il lit les evenements
+# 7031 et 7034 du Service Control Manager et persiste un critical_event que
+# forge_coagulation consomme deja.
+#
+# ⚠️ RISQUE NOMME PLUTOT QUE MASQUE : il interroge le journal d'evenements Windows
+# via `wevtutil`. Si le compte du superviseur n'y a pas acces, il mourra au
+# demarrage — et c'est ACCEPTABLE : son pouls le dira au tour suivant, ce qui vaut
+# infiniment mieux qu'un surveillant absent dont l'absence, elle, ne dit rien.
+# `essential = false` : son echec ne doit pas empecher le reste de demarrer.
+name = "NokidoServiceCrashWatcher"
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_service_crash_watcher.py"]
+cwd = "${ROOT}"
+essential = false
+env = { PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/service_crash_watcher.heartbeat"
+heartbeat_tier = "slow"

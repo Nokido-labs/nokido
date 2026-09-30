@@ -1,0 +1,56 @@
+{
+ "verite_id": "retrieval_verite_terrain_v1",
+ "jeu_id": "retrieval_v1",
+ "jeu_fichier": "tests/baselines/retrieval_queries_v1.json",
+ "cree_le": "2026-09-27",
+ "_lisez_moi": [
+  "Verite terrain du jeu retrieval_v1, qui la renvoie explicitement a un autre artefact et ne s'edite",
+  "jamais : les requetes restent celles du 01/09, seules les reponses attendues s'ajoutent ici.",
+  "Seule la categorie A est etiquetee : son critere est OBJECTIF (le texte du morceau contient",
+  "l'identifiant exact), donc reproductible sans jugement. B, C, D et E demandent de juger un SENS :",
+  "elles restent NON ETIQUETEES jusqu'a un jugement owner. Une etiquette inventee serait pire que pas d'etiquette.",
+  "Evolution : un NOUVEAU fichier (v2), jamais par edition, comme le jeu de requetes."
+ ],
+ "biais_declares": [
+  "Le critere de contenance FAVORISE le bras lexical (BM25/FTS5) : un morceau qui contient le terme exact est",
+  "par construction celui que le lexical trouve. Un gain du dense ou du rerank sur A ne se lira donc pas ici ;",
+  "sur A, ce banc mesure surtout qu'une fusion ne DEGRADE pas le lexical.",
+  "Contenance n'est pas utilite : une ligne de journal qui cite le terme compte comme pertinente.",
+  "Auto-reference : ce fichier, le jeu de requetes et les fiches qui les citent contiennent TOUS les termes.",
+  "Une fois ingeres en RAG ils seraient pertinents par construction : leurs sources sont exclues du jugement."
+ ],
+ "critere_A": {
+  "regle": "pertinent si le texte du morceau contient CHAQUE terme de `tous`",
+  "casse": "insensible pour les phrases en langage courant (`casse_insensible: true`), sensible pour les identifiants",
+  "prefixe": "le prefixe de sujet ecrit a l'ingestion (« [url] <sujet> ») est retire avant le test : piege du temoin hors sujet, 26/09",
+  "metriques_suggerees": "precision@k et rang du premier pertinent ; le rappel exige de compter tous les morceaux pertinents du corpus, a mesurer au moment du banc"
+ },
+ "sources_exclues_du_jugement": [
+  "tests/baselines/",
+  "docs/veilles/fiche_hybride_2026-09-23.md",
+  "tools/forge_retrieval_baseline.py"
+ ],
+ "etiquettes": {
+  "A01": {"tous": ["rag_chunks_fts"]},
+  "A02": {"tous": ["forge_tier_guard"]},
+  "A03": {"tous": ["NokidoLlamaEmbed", "8099"]},
+  "A04": {"tous": ["database is locked"], "casse_insensible": true},
+  "A05": {"tous": ["WORKSPACE_GUARD", "subprocess"]},
+  "A06": {"tous": ["forge_embed_router"]},
+  "A07": {"tous": ["GIT_TERMINAL_PROMPT"]},
+  "A08": {"tous": ["recursive_triggers"]},
+  "A09": {"tous": ["safe.directory", "dubious ownership"], "casse_insensible": true},
+  "A10": {"tous": ["8766"]},
+  "A11": {"tous": ["INSERT OR REPLACE INTO rag_chunks"], "casse_insensible": true},
+  "A12": {"tous": ["embed.wanted"]},
+  "A13": {"tous": ["forge_pillar_arbiter"]},
+  "A14": {"tous": ["PURE_TESTS"]},
+  "A15": {"tous": ["Py_GIL_DISABLED"]}
+ },
+ "non_etiquetees": {
+  "statut": "NON ETIQUETE -- jugement owner requis",
+  "categories": ["B", "C", "D", "E"],
+  "nombre": 45,
+  "forme_proposee": "pour chaque requete, 1 a 3 sources jugees pertinentes (source exacte de rag_chunks), jamais un texte attendu"
+ }
+}

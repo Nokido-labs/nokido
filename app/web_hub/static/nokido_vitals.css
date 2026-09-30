@@ -1,0 +1,148 @@
+/* Nokido Design System — COUCHE VITALE (interface_nokido_synthese P1/P2).
+   Esthetique z.ai-derivee (cartes verre, meters, dots pulsants) MAPPEE sur les
+   tokens SOUVERAINS (violet + provenance) — cf memory zai-ds-extraction-2026-07-01.
+   Le fond ambiant (qualia) et les tokens dynamiques /api/vitals/sse sont PRESERVES.
+   Rendu par nokido_vitals.js. Degrade proprement si laforge-ds/tokens absent. */
+:root {
+  --forge-surprise: 0;
+  --forge-arousal: 0.3;
+  --forge-frustration: 0;
+  --forge-tempo: 1;
+  --forge-salience: 0;
+  --forge-bg: var(--bg-0, #0C0A13);
+  --forge-text: var(--text, #EDEBF4);
+  --forge-accent: var(--accent, #774AFF);
+}
+
+/* Fond ambiant : LE qualia visuel (PRESERVE) — froid (calme) -> chaud
+   (surprise/frustration). Teinte de base = violet souverain (258deg). */
+body {
+  background-color: hsl(
+    calc(258 - var(--forge-surprise) * 150 - var(--forge-frustration) * 48),
+    calc(20% + var(--forge-arousal) * 22%),
+    calc(6% - var(--forge-surprise) * 2%)
+  );
+  color: var(--forge-text);
+  transition: background-color 1.2s ease;
+}
+
+/* Grille de cartes fluides. */
+/* Barre de controle du flux vital — collante, pour rester atteignable quand on
+   defile les 14 panneaux (le contrat UI ne voit QUE le viewport : un controle
+   sous la ligne de flottaison se rapporte comme absent). */
+.lf-controls {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+  padding: .5rem .75rem; margin: 0 0 .75rem;
+  background: rgba(12, 14, 20, .92);
+  border: 1px solid rgba(255, 255, 255, .12); border-radius: .5rem;
+  backdrop-filter: blur(6px);
+}
+.lf-controls input[type="search"] {
+  flex: 1 1 16rem; min-width: 10rem;
+  padding: .35rem .6rem; border-radius: .35rem;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .06); color: inherit; font: inherit;
+}
+.lf-controls button {
+  padding: .35rem .7rem; border-radius: .35rem; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .18);
+  background: rgba(255, 255, 255, .08); color: inherit; font: inherit;
+}
+.lf-controls button:hover { background: rgba(255, 255, 255, .16); }
+.lf-controls button[aria-pressed="true"] {
+  background: rgba(255, 180, 60, .22); border-color: rgba(255, 180, 60, .5);
+}
+.lf-etat { opacity: .75; font-size: .85em; }
+
+.lf-vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-6, 12px);
+  padding: var(--space-6, 12px);
+}
+
+/* Carte verre (z.ai rounded-xl + border + shadow + backdrop-blur) sur tokens souverains. */
+.lf-panel {
+  position: relative;
+  display: flex; flex-direction: column; gap: var(--space-6, 12px);
+  background: color-mix(in srgb, var(--surface-card, #1C1928) 78%, transparent);
+  border: 1px solid var(--border, #332F44);
+  border-radius: var(--radius-lg, 14px);
+  padding: var(--space-8, 16px);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.3));
+  backdrop-filter: blur(12px);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.lf-panel:hover {
+  border-color: color-mix(in srgb, var(--accent, #774AFF) 40%, var(--border, #332F44));
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.4));
+}
+
+/* Filet d'accent haut = provenance locale (souverain : montrer OU vit le calcul). */
+.lf-panel::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+  border-radius: var(--radius-lg, 14px) var(--radius-lg, 14px) 0 0;
+  background: linear-gradient(90deg, var(--prov-local, #4AC28B), transparent 70%);
+  opacity: .55;
+}
+
+/* En-tete : titre + point de vie pulsant (z.ai bg-emerald-400 animate-pulse). */
+.lf-panel-title {
+  display: flex; align-items: center; gap: var(--space-4, 8px);
+  font-size: .78rem; line-height: 1.3; font-weight: 600;
+  color: var(--text-secondary, #B2AEC4); margin: 0; letter-spacing: .01em;
+}
+.lf-panel-title::before {
+  content: ""; flex: 0 0 auto; width: 6px; height: 6px; border-radius: 999px;
+  background: var(--ok, #4AC28B);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok, #4AC28B) 22%, transparent);
+  animation: lf-pulse 2s cubic-bezier(.4, 0, .6, 1) infinite;
+}
+@keyframes lf-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+.lf-panel-err { color: var(--err, #F24F4F); font-size: .7rem; }
+.lf-panel-err:empty { display: none; }
+
+/* Lignes -> tuiles legeres (z.ai rounded-lg border p-3, hover transition). */
+.lf-rows { display: flex; flex-direction: column; gap: var(--space-2, 4px); }
+.lf-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-4, 8px); font-size: .74rem;
+  padding: var(--space-3, 6px) var(--space-4, 8px);
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid transparent;
+  transition: background .15s ease, border-color .15s ease;
+}
+.lf-row:hover {
+  background: color-mix(in srgb, var(--bg-3, #252233) 55%, transparent);
+  border-color: var(--border-subtle, #262338);
+}
+.lf-k { color: var(--dim, #6E6A82); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-v {
+  font-family: var(--font-mono, ui-monospace, "Cascadia Code", monospace);
+  color: var(--text, #EDEBF4); text-align: right; font-variant-numeric: tabular-nums;
+}
+
+/* Meter (barre progression z.ai h-2 rounded-full) — injecte par nokido_vitals.js. */
+.lf-meter {
+  flex: 0 1 110px; height: 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #774AFF) 16%, transparent);
+  overflow: hidden;
+}
+.lf-meter-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--accent, #774AFF);
+  transition: width .5s cubic-bezier(.4, 0, .2, 1);
+}
+.lf-meter-fill.ok   { background: var(--ok, #4AC28B); }
+.lf-meter-fill.warn { background: var(--warn, #FFC22D); }
+.lf-meter-fill.err  { background: var(--err, #F24F4F); }
+
+/* Badge (z.ai rounded-md border px-2 py-0.5). */
+.lf-badge {
+  display: inline-flex; align-items: center; gap: var(--space-2, 4px);
+  padding: 1px var(--space-4, 8px); font-size: .68rem; font-weight: 500;
+  border-radius: var(--radius-pill, 999px);
+  border: 1px solid var(--border, #332F44); color: var(--text-secondary, #B2AEC4);
+}

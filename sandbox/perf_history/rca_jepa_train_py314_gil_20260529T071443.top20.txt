@@ -1,0 +1,28 @@
+# JEPA train_step cProfile -- py314_gil
+# Python : 3.14.4
+# numpy  : 2.4.4
+# Steps  : 200
+
+         28601 function calls in 0.321 seconds
+
+   Ordered by: internal time
+   List reduced from 27 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.278    0.001    0.321    0.002 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:370(train_step)
+      200    0.008    0.000    0.013    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:358(target_encode)
+      200    0.008    0.000    0.020    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:354(context_encode)
+      800    0.007    0.000    0.010    0.000 %USERPROFILE%\miniforge3\envs\laforge_py314\Lib\site-packages\numpy\_core\_methods.py:148(_var)
+     2400    0.004    0.000    0.004    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+     1600    0.003    0.000    0.004    0.000 %USERPROFILE%\miniforge3\envs\laforge_py314\Lib\site-packages\numpy\_core\_methods.py:73(_count_reduce_items)
+      800    0.003    0.000    0.009    0.000 %USERPROFILE%\miniforge3\envs\laforge_py314\Lib\site-packages\numpy\_core\_methods.py:115(_mean)
+      800    0.002    0.000    0.023    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:345(_ln)
+      600    0.001    0.000    0.004    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:349(_norm)
+      800    0.001    0.000    0.011    0.000 %USERPROFILE%\miniforge3\envs\laforge_py314\Lib\site-packages\numpy\_core\_methods.py:217(_std)
+      600    0.001    0.000    0.003    0.000 %USERPROFILE%\miniforge3\envs\laforge_py314\Lib\site-packages\numpy\linalg\_linalg.py:2598(norm)
+      600    0.001    0.000    0.001    0.000 {method 'dot' of 'numpy.ndarray' objects}
+      800    0.001    0.000    0.009    0.000 {method 'mean' of 'numpy.ndarray' objects}
+     4400    0.001    0.000    0.001    0.000 {built-in method builtins.issubclass}
+      800    0.001    0.000    0.012    0.000 {method 'std' of 'numpy.ndarray' objects}
+
+

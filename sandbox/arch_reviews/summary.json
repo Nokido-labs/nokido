@@ -1,0 +1,17 @@
+[
+  {
+    "name": "qwen3-8b",
+    "model": "qwen3:8b",
+    "ok": true,
+    "elapsed_s": 246.8,
+    "tokens_in": 3597,
+    "tokens_out": 1021,
+    "out_path": "sandbox\\arch_reviews\\review_qwen3-8b.md"
+  },
+  {
+    "name": "gemma4-e4b",
+    "model": "gemma4:e4b-it-q4_K_M",
+    "ok": false,
+    "error": "TimeoutError('timed out')"
+  }
+]

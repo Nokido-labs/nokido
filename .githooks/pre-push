@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+# Nokido gate — pre-push = FILTRE CENTRAL avant push (egress : secrets / manifest /
+# entropy / host-leak, profils public par remote GitHub+Codeberg, scrub membrane).
+# Shim mince -> app/forge_git_egress.py (source unique de vérité, déjà testée 4/4).
+# git fournit argv=[name, url] + stdin '<lref> <lsha> <rref> <rsha>'. Exit 1 = BLOQUE le push.
+import os
+import subprocess
+import sys
+
+root = subprocess.run(
+    ["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, encoding="utf-8",
+).stdout.strip()
+env = dict(os.environ)
+env["PYTHONPATH"] = os.pathsep.join(
+    [os.path.join(root, "app"), os.path.join(root, "tools"), env.get("PYTHONPATH", "")]
+)
+# 2026-09-26 (owner) : les CLIQUETS de la CI (golden-rules, duplication) sont joues AVANT l'egress, sur le SHA
+# POUSSE (tools/forge_prepush_cliquets.py : OK / ROMPU bloque / NON_MESURE avertit). git ne fournit stdin
+# qu'UNE fois : on le lit, on le passe aux cliquets, puis on le REPOSE en entree standard (os.dup2) pour que
+# l'egress le lise exactement comme avant.
+data = sys.stdin.read()
+prepush = os.path.join(root, "tools", "forge_prepush_cliquets.py")
+if os.path.exists(prepush):
+    rc_cliquets = subprocess.run([sys.executable, prepush], cwd=root, env=env, input=data,
+                                 text=True).returncode
+    if rc_cliquets != 0:
+        sys.exit(rc_cliquets)
+import tempfile  # noqa: E402
+
+_entree = tempfile.TemporaryFile()
+_entree.write(data.encode("utf-8"))
+_entree.flush()
+_entree.seek(0)
+os.dup2(_entree.fileno(), 0)
+egress = os.path.join(root, "app", "forge_git_egress.py")
+if not egress or not os.path.exists(egress):
+    sys.exit(0)  # gate absent = ne pas bloquer (mais signaler dans les logs egress)
+# argv + stdin transmis tels quels à forge_git_egress.main() (stdin hérité).
+sys.exit(subprocess.run(
+    ["%USERPROFILE%/miniforge3/python.exe", egress, *sys.argv[1:]], cwd=root, env=env
+).returncode)

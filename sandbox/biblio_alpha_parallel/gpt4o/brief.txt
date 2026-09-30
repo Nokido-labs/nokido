@@ -1,0 +1,99 @@
+Tu es DBA SQLite senior. Mission : ecrire le schema SQL et le script d application.
+
+CONTEXTE : Nokido Bibliography Worker, Sprint Alpha. SQLite WAL mode actif.
+
+CONTRAT D INTERFACE STRICT :
+
+Tables a creer (3) : ideas, biblio_raw, bibliography
+Index a creer (5) : status, idea_id, doi, promoted_from, parent_idea
+Hash : MD5 hex 32 chars (pas SHA-256 en alpha)
+State machine : 8 transitions (unverified | queued | searching | reviewed | promoted | rejected)
+
+LIVRABLES (2 fichiers) :
+
+=== FICHIER 1 : migrations/004_biblio_alpha.sql ===
+
+CREATE TABLE IF NOT EXISTS ideas (
+    id              TEXT PRIMARY KEY,
+    text            TEXT NOT NULL,
+    parent_idea_id  TEXT REFERENCES ideas(id) ON DELETE SET NULL,
+    superseded_by   TEXT REFERENCES ideas(id) ON DELETE SET NULL,
+    created_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS biblio_raw (
+    id              TEXT PRIMARY KEY,
+    type            TEXT CHECK(type IN ('book','paper','url','concept')),
+    title           TEXT NOT NULL CHECK(length(title) >= 5),
+    authors         TEXT,
+    year            INTEGER CHECK(year IS NULL OR (year >= 1800 AND year <= 2030)),
+    doi             TEXT,
+    url             TEXT,
+    pdf_url         TEXT,
+    description     TEXT,
+    triggered_by_idea_id  TEXT REFERENCES ideas(id) ON DELETE SET NULL,
+    source_kind     TEXT CHECK(source_kind IN ('human_paste','agent_extract','agent_research')),
+    payload_hash    TEXT NOT NULL UNIQUE,
+    parent_hash     TEXT,
+    status          TEXT DEFAULT 'unverified'
+                    CHECK(status IN ('unverified','queued','searching','reviewed','promoted','rejected')),
+    rejection_reason TEXT,
+    search_results_json TEXT,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS bibliography (
+    id              TEXT PRIMARY KEY,
+    promoted_from_raw_id TEXT NOT NULL REFERENCES biblio_raw(id),
+    title           TEXT NOT NULL,
+    authors         TEXT,
+    year            INTEGER,
+    doi             TEXT,
+    url             TEXT,
+    pdf_url         TEXT,
+    description     TEXT,
+    promoted_at     TEXT DEFAULT (datetime('now')),
+    promoted_by     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_biblio_raw_status ON biblio_raw(status);
+CREATE INDEX IF NOT EXISTS idx_biblio_raw_idea ON biblio_raw(triggered_by_idea_id);
+CREATE INDEX IF NOT EXISTS idx_biblio_raw_doi ON biblio_raw(doi);
+CREATE INDEX IF NOT EXISTS idx_biblio_promoted_from ON bibliography(promoted_from_raw_id);
+CREATE INDEX IF NOT EXISTS idx_ideas_parent ON ideas(parent_idea_id);
+
+=== FICHIER 2 : tools/apply_migration.py ===
+
+Script Python idempotent qui :
+1. Cherche le fichier .sql passe en argv[1] (defaut: migrations/004_biblio_alpha.sql)
+2. Ouvre la DB SQLite (path passe en argv[2], defaut: RAG/embeddings.db)
+3. Verifie WAL mode actif (PRAGMA journal_mode), l active si necessaire
+4. Cree une table `_migrations` si absente : (filename, applied_at)
+5. Si le fichier .sql est deja dans _migrations, skip et exit 0
+6. Sinon : execute le SQL, INSERT dans _migrations, commit, log "OK applied X"
+7. Sur erreur : ROLLBACK, log "FAIL ...", exit 1
+8. AST OK obligatoire (py_compile -> 0 erreur)
+
+Imports utilises :
+import sqlite3, sys, os
+from pathlib import Path
+from datetime import datetime
+
+CONTRAINTES :
+- Aucune dependance externe (stdlib only)
+- Idempotent (re-execution safe)
+- Logs structures : [INFO]/[ERROR] + filename + duration ms
+
+OUTPUT FORMAT :
+Tu retournes UNIQUEMENT le contenu des 2 fichiers, dans des blocs delimites :
+
+```sql
+-- migrations/004_biblio_alpha.sql contents here
+```
+
+```python
+# tools/apply_migration.py contents here
+```
+
+Pas de prose, pas d explication. Juste les 2 blocs.

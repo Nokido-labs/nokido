@@ -1,0 +1,45 @@
+# Pre-commit hooks pour Nokido
+# Installation: pip install pre-commit && pre-commit install
+#
+# Bloque les futurs commits contenant des secrets (tokens API, clés privées).
+# Voir SECURITY_AUDIT.md pour le contexte.
+
+repos:
+  # Detection de secrets (tokens API, AWS keys, private keys, etc.)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: "🔒 gitleaks (detect leaked secrets)"
+
+  # Hooks generiques utiles
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ['--unsafe']  # autorise les tags Forgejo Actions
+      - id: check-added-large-files
+        args: ['--maxkb=5000']  # 5 MB max par fichier
+      - id: detect-private-key
+
+  # Lint Python (Ruff - tres rapide)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: ['--fix', '--exit-non-zero-on-fix']
+      - id: ruff-format
+
+  # Garde-fou licence AGPLv3 des dependances (bloque SSPL/BSL/proprietaire/CC-NC/GPLv2-only).
+  # Declenche seulement quand requirements*.txt ou pyproject.toml changent (pas chaque commit).
+  - repo: local
+    hooks:
+      - id: license-guard
+        name: "⚖️ AGPLv3 license guard (deps)"
+        entry: python tools/forge_license_guard.py
+        language: system
+        files: '(requirements.*\.txt|pyproject\.toml)$'
+        pass_filenames: false

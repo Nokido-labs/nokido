@@ -1,0 +1,37 @@
+Tu es architecte Nokido MCP. Cadre un plan d'execution Phase 4 que l'utilisateur reprendra avec toi.
+
+CONTEXTE :
+Nokido sert 14 outils via MCP stdio bridge + HTTP /mcp. Les retours d'outils sont agnostiques cote Claude Desktop = chaque appel le client re-devine les automatismes/enchainements/timings. Pertes tokens + latence.
+
+OBJECTIF : Nokido devient AUTO-DOCUMENTANT et "intelligent" sur ses propres capacites. Le retour MCP doit porter la nomenclature semantique pour que Claude sache QUOI enchainer sans relire la doc.
+
+PLOMBERIE STDIO IDENTIFIEE (2 docs source) :
+1. Streaming : forcer sys.stdout.flush() apres chaque chunk, lancer bridge avec python -u
+2. Micro-batching JSON-RPC : accumuler 50ms ou 20 chars avant d'envoyer un payload
+3. Buffering 4-8KB par defaut bloque tokens individuels
+4. Async event loop : validation tools schemas synchrone bloque le stream
+5. Prefill couteux si schemas tools re-injectes chaque tour
+
+ETAT FACTUEL :
+- forge_python_runner pool 3 workers warm MAIS multiline -> _run_isolated subprocess fresh = 95% calls dev
+- forge_agent_proxy.ask() : 0 injection inputSchema vers LLM tiers (pas de faille active)
+- mcp_stdio_bridge.py : NameError L348 _bridge_log contourne, _fallback_stdio() regresse commit 0e038b5
+- _readerthread crash UnicodeDecodeError 0x90 = netstat CP850 dans nokido_hub.py L1561-1570 + PYTHONUTF8=1 -> 161 tracebacks/h
+- EventBus topics tool.{name}.start/end avec corr_id en place
+- Hub capabilities : tools.listChanged uniquement (pas logging, pas completions)
+
+LIVRABLE (max 600 mots) - 4 sections :
+
+1. AUTO-DOCUMENTATION TOOLS
+Comment chaque tools/call retourne dans content : (a) resultat metier (b) next-steps suggerees outils enchainables (c) automatismes lies (d) timings p50/p95. Format compat spec MCP 2025-11-25.
+
+2. STREAMING STDIO
+Patch precis mcp_stdio_bridge.py : flag -u, micro-batching 50ms/20chars, flush apres write. Bloc code minimal 15 lignes max.
+
+3. ECONOMIE TOKENS
+Schemas tools NON re-injectes chaque tour ? Prompt caching provider ou cache hub des resultats stables ?
+
+4. ORDRE EXECUTION
+Suite P0-P3 avec effort en heures. Dependances bloquantes.
+
+PAS DE BLABLA. PAS DE DISCLAIMER. CODE OU SPEC. Actionnable.

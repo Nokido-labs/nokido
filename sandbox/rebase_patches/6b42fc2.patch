@@ -1,0 +1,484 @@
+From 6b42fc23a449dabaed246b0e94d2b117d61d9419 Mon Sep 17 00:00:00 2001
+From: user <naarobb@gmail.com>
+Date: Sat, 25 Apr 2026 14:05:01 +0200
+Subject: [PATCH] fix(web_hub): ajoute forge_feed.html oublie dans 0b27e3e
+
+Le commit 0b27e3e ajoutait l'endpoint /forge/feed qui rend ce HTML
+mais le fichier n'avait pas ete git add. Resultat: l'endpoint
+plantait avec HTTPException 500 'forge_feed.html introuvable'.
+
+Le HTML (12.5 KB) est un dashboard live des events EventBus avec
+polling 2s, filtres par topic/agent/corr_id, et colorisation par
+prefix (tool/rpc/silo/skill/debate/agent/system).
+---
+ app/web_hub/forge_feed.html | 458 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 458 insertions(+)
+ create mode 100644 app/web_hub/forge_feed.html
+
+diff --git a/app/web_hub/forge_feed.html b/app/web_hub/forge_feed.html
+new file mode 100644
+index 0000000..92ce212
+--- /dev/null
++++ b/app/web_hub/forge_feed.html
+@@ -0,0 +1,458 @@
++<!DOCTYPE html>
++<html lang="fr">
++<head>
++<meta charset="UTF-8">
++<meta name="viewport" content="width=device-width, initial-scale=1.0">
++<title>Nokido Event Feed</title>
++<style>
++* { box-sizing: border-box; }
++body {
++  margin: 0;
++  font-family: 'Consolas', 'Monaco', 'Menlo', monospace;
++  background: #0d1117;
++  color: #c9d1d9;
++  font-size: 13px;
++}
++
++header {
++  background: #161b22;
++  border-bottom: 1px solid #30363d;
++  padding: 12px 20px;
++  display: flex;
++  align-items: center;
++  gap: 20px;
++  position: sticky;
++  top: 0;
++  z-index: 100;
++}
++
++header h1 {
++  margin: 0;
++  font-size: 18px;
++  color: #58a6ff;
++  font-weight: 600;
++}
++
++header .stats {
++  display: flex;
++  gap: 15px;
++  font-size: 12px;
++  color: #8b949e;
++}
++
++header .stats span b {
++  color: #c9d1d9;
++  font-weight: 600;
++}
++
++.filters {
++  padding: 10px 20px;
++  background: #161b22;
++  border-bottom: 1px solid #30363d;
++  display: flex;
++  gap: 10px;
++  flex-wrap: wrap;
++  align-items: center;
++}
++
++.filters label {
++  color: #8b949e;
++  font-size: 12px;
++}
++
++.filters input, .filters select {
++  background: #0d1117;
++  border: 1px solid #30363d;
++  color: #c9d1d9;
++  padding: 6px 10px;
++  border-radius: 4px;
++  font-family: inherit;
++  font-size: 12px;
++}
++
++.filters input:focus, .filters select:focus {
++  outline: none;
++  border-color: #58a6ff;
++}
++
++button.filter-btn {
++  background: #21262d;
++  border: 1px solid #30363d;
++  color: #c9d1d9;
++  padding: 6px 12px;
++  border-radius: 4px;
++  cursor: pointer;
++  font-family: inherit;
++  font-size: 12px;
++}
++
++button.filter-btn:hover { background: #30363d; }
++button.filter-btn.active { background: #1f6feb; border-color: #1f6feb; }
++
++#events-container {
++  padding: 10px 20px;
++  max-width: 1600px;
++  margin: 0 auto;
++}
++
++.event {
++  padding: 8px 12px;
++  margin-bottom: 2px;
++  border-left: 3px solid #30363d;
++  background: #161b22;
++  border-radius: 0 4px 4px 0;
++  font-size: 12px;
++  display: grid;
++  grid-template-columns: 110px 150px 150px 1fr;
++  gap: 12px;
++  align-items: start;
++}
++
++.event:hover { background: #1c2128; }
++
++/* Color by topic prefix */
++.event.topic-tool     { border-left-color: #f85149; }
++.event.topic-rpc      { border-left-color: #58a6ff; }
++.event.topic-silo     { border-left-color: #56d364; }
++.event.topic-skill    { border-left-color: #d29922; }
++.event.topic-debate   { border-left-color: #a371f7; }
++.event.topic-system   { border-left-color: #8b949e; }
++.event.topic-agent    { border-left-color: #ff8c42; }
++.event.topic-user     { border-left-color: #e5c07b; }
++
++.event .ts {
++  color: #6e7681;
++  font-size: 11px;
++  white-space: nowrap;
++}
++
++.event .topic {
++  font-weight: 600;
++  color: #c9d1d9;
++}
++
++.event .topic-prefix-tool   { color: #f85149; }
++.event .topic-prefix-rpc    { color: #58a6ff; }
++.event .topic-prefix-silo   { color: #56d364; }
++.event .topic-prefix-skill  { color: #d29922; }
++.event .topic-prefix-debate { color: #a371f7; }
++.event .topic-prefix-system { color: #8b949e; }
++.event .topic-prefix-agent  { color: #ff8c42; }
++.event .topic-prefix-user   { color: #e5c07b; }
++
++.event .agent {
++  color: #8b949e;
++  font-size: 11px;
++  font-family: inherit;
++}
++
++.event .data {
++  color: #adbac7;
++  overflow-wrap: anywhere;
++  font-family: inherit;
++  font-size: 11px;
++  line-height: 1.4;
++}
++
++.event.error {
++  background: #30161b;
++  border-left-color: #f85149 !important;
++}
++
++.event.error .data { color: #ff8088; }
++
++.event .corr-id {
++  color: #6e7681;
++  font-size: 10px;
++  cursor: pointer;
++  text-decoration: none;
++}
++
++.event .corr-id:hover { color: #58a6ff; text-decoration: underline; }
++
++.event .corr-id.highlighted {
++  background: #1f6feb33;
++  padding: 2px 4px;
++  border-radius: 2px;
++}
++
++.empty {
++  text-align: center;
++  padding: 40px;
++  color: #6e7681;
++}
++
++.error-banner {
++  background: #491a1f;
++  color: #ff8088;
++  padding: 10px 20px;
++  text-align: center;
++  display: none;
++}
++
++.error-banner.show { display: block; }
++
++.status-dot {
++  display: inline-block;
++  width: 8px;
++  height: 8px;
++  border-radius: 50%;
++  background: #56d364;
++  margin-right: 6px;
++  animation: pulse 2s infinite;
++}
++
++@keyframes pulse {
++  0%, 100% { opacity: 1; }
++  50% { opacity: 0.5; }
++}
++
++.status-dot.paused { background: #d29922; animation: none; }
++.status-dot.error  { background: #f85149; animation: none; }
++
++/* Legend */
++.legend {
++  padding: 8px 20px;
++  background: #0d1117;
++  font-size: 11px;
++  color: #6e7681;
++  display: flex;
++  gap: 15px;
++  flex-wrap: wrap;
++}
++
++.legend-item {
++  display: inline-flex;
++  align-items: center;
++  gap: 4px;
++}
++
++.legend-dot {
++  width: 12px;
++  height: 3px;
++  display: inline-block;
++}
++</style>
++</head>
++<body>
++
++<header>
++  <h1>Nokido Event Feed</h1>
++  <div class="stats">
++    <span><span class="status-dot" id="status-dot"></span><b id="status-text">Live</b></span>
++    <span>Events: <b id="count-total">0</b></span>
++    <span>Filtered: <b id="count-filtered">0</b></span>
++    <span>Interval: <b id="interval-text">2s</b></span>
++  </div>
++</header>
++
++<div class="error-banner" id="error-banner"></div>
++
++<div class="filters">
++  <label>Topic:</label>
++  <input type="text" id="filter-topic" placeholder="ex: rpc.** ou silo.* ou tool.ask_claude.*" style="width: 250px;">
++  
++  <label>Agent:</label>
++  <input type="text" id="filter-agent" placeholder="ex: RPC_PROXY, CLAUDE" style="width: 150px;">
++  
++  <label>Corr-ID:</label>
++  <input type="text" id="filter-corr" placeholder="filtrer thread" style="width: 180px;">
++  
++  <button class="filter-btn" data-preset="all">All</button>
++  <button class="filter-btn" data-preset="tool.**">Tool calls</button>
++  <button class="filter-btn" data-preset="rpc.**">RPC</button>
++  <button class="filter-btn" data-preset="silo.**">Silos</button>
++  <button class="filter-btn" data-preset="debate.**">Debates</button>
++  <button class="filter-btn" data-preset="errors">Errors only</button>
++  
++  <button class="filter-btn" id="btn-pause">⏸ Pause</button>
++  <button class="filter-btn" id="btn-clear">🗑 Clear</button>
++</div>
++
++<div class="legend">
++  <span class="legend-item"><span class="legend-dot" style="background:#f85149"></span>tool.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#58a6ff"></span>rpc.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#56d364"></span>silo.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#d29922"></span>skill.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#a371f7"></span>debate.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#ff8c42"></span>agent.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#e5c07b"></span>user.*</span>
++  <span class="legend-item"><span class="legend-dot" style="background:#8b949e"></span>system.*</span>
++</div>
++
++<div id="events-container">
++  <div class="empty">Chargement des events…</div>
++</div>
++
++<script>
++const POLL_INTERVAL = 2000;
++const MAX_EVENTS = 200;
++let allEvents = [];
++let paused = false;
++let pollTimer = null;
++let highlightedCorr = null;
++
++const $ = id => document.getElementById(id);
++
++function topicPrefix(topic) {
++  return (topic || '').split('.')[0] || 'system';
++}
++
++function topicMatches(topic, pattern) {
++  if (!pattern) return true;
++  // Support wildcards * and **
++  const re = new RegExp('^' +
++    pattern
++      .split('.')
++      .map(s => s === '**' ? '.*' : s === '*' ? '[^.]+' : s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
++      .join('\\.') +
++    '$'
++  );
++  return re.test(topic);
++}
++
++function formatTime(ts) {
++  // Accept ISO 8601 or epoch
++  if (typeof ts === 'number') ts = ts * 1000;
++  const d = new Date(ts);
++  return d.toTimeString().slice(0, 8);
++}
++
++function formatData(data, kind) {
++  if (typeof data !== 'object' || data === null) return String(data);
++  const entries = Object.entries(data).slice(0, 6);
++  return entries.map(([k, v]) => {
++    let val = typeof v === 'object' ? JSON.stringify(v).slice(0, 100) : String(v).slice(0, 150);
++    return `<b>${k}</b>=${val}`;
++  }).join(' · ');
++}
++
++function renderEvent(evt) {
++  const prefix = topicPrefix(evt.topic);
++  const isError = evt.kind === 'error' || (evt.data && evt.data.error);
++  const corrId = evt.corr_id || '';
++  const highlighted = corrId && corrId === highlightedCorr ? 'highlighted' : '';
++  
++  return `
++    <div class="event topic-${prefix} ${isError ? 'error' : ''}">
++      <span class="ts">${formatTime(evt.ts)}</span>
++      <span class="topic">
++        <span class="topic-prefix-${prefix}">${evt.topic.split('.')[0]}.</span>${evt.topic.split('.').slice(1).join('.')}
++      </span>
++      <span class="agent">
++        ${evt.agent || '?'}
++        ${corrId ? `<br><a class="corr-id ${highlighted}" data-corr="${corrId}">${corrId.slice(0, 16)}…</a>` : ''}
++      </span>
++      <span class="data">${formatData(evt.data, evt.kind)}</span>
++    </div>
++  `;
++}
++
++function applyFilters(events) {
++  const topicFilter = $('filter-topic').value.trim();
++  const agentFilter = $('filter-agent').value.trim().toLowerCase();
++  const corrFilter = $('filter-corr').value.trim();
++  
++  return events.filter(evt => {
++    if (topicFilter === 'errors') {
++      if (evt.kind !== 'error' && !(evt.data && evt.data.error)) return false;
++    } else if (topicFilter) {
++      if (!topicMatches(evt.topic, topicFilter)) return false;
++    }
++    if (agentFilter && !(evt.agent || '').toLowerCase().includes(agentFilter)) return false;
++    if (corrFilter && !(evt.corr_id || '').includes(corrFilter)) return false;
++    return true;
++  });
++}
++
++function render() {
++  const filtered = applyFilters(allEvents);
++  $('count-total').textContent = allEvents.length;
++  $('count-filtered').textContent = filtered.length;
++  
++  const container = $('events-container');
++  if (filtered.length === 0) {
++    container.innerHTML = '<div class="empty">Aucun event ne correspond aux filtres.</div>';
++    return;
++  }
++  
++  // Les plus recents en haut
++  container.innerHTML = filtered.slice(0, MAX_EVENTS).reverse().map(renderEvent).join('');
++  
++  // Bind click corr-id for highlighting
++  document.querySelectorAll('.corr-id').forEach(el => {
++    el.addEventListener('click', e => {
++      e.preventDefault();
++      const corr = el.dataset.corr;
++      highlightedCorr = highlightedCorr === corr ? null : corr;
++      render();
++    });
++  });
++}
++
++async function poll() {
++  if (paused) return;
++  try {
++    const resp = await fetch('/api/events/history?limit=200&topics=*');
++    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
++    const events = await resp.json();
++    if (Array.isArray(events)) {
++      allEvents = events;
++      render();
++      $('error-banner').classList.remove('show');
++      $('status-dot').classList.remove('error');
++      $('status-text').textContent = paused ? 'Paused' : 'Live';
++    }
++  } catch (err) {
++    $('error-banner').textContent = `Erreur poll: ${err.message}`;
++    $('error-banner').classList.add('show');
++    $('status-dot').classList.add('error');
++    $('status-text').textContent = 'Error';
++  }
++}
++
++function setupFilters() {
++  // Search inputs debounced
++  ['filter-topic', 'filter-agent', 'filter-corr'].forEach(id => {
++    $(id).addEventListener('input', render);
++  });
++  
++  // Presets
++  document.querySelectorAll('.filter-btn[data-preset]').forEach(btn => {
++    btn.addEventListener('click', () => {
++      document.querySelectorAll('.filter-btn[data-preset]').forEach(b => b.classList.remove('active'));
++      btn.classList.add('active');
++      const preset = btn.dataset.preset;
++      if (preset === 'all') {
++        $('filter-topic').value = '';
++      } else if (preset === 'errors') {
++        $('filter-topic').value = 'errors';
++      } else {
++        $('filter-topic').value = preset;
++      }
++      render();
++    });
++  });
++  
++  // Pause
++  $('btn-pause').addEventListener('click', () => {
++    paused = !paused;
++    $('btn-pause').textContent = paused ? '▶ Resume' : '⏸ Pause';
++    $('status-dot').classList.toggle('paused', paused);
++    $('status-text').textContent = paused ? 'Paused' : 'Live';
++  });
++  
++  // Clear
++  $('btn-clear').addEventListener('click', () => {
++    allEvents = [];
++    render();
++  });
++}
++
++setupFilters();
++poll();
++pollTimer = setInterval(poll, POLL_INTERVAL);
++</script>
++
++</body>
++</html>
+-- 
+2.53.0.windows.1
+

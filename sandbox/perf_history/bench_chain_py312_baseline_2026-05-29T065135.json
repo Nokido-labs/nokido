@@ -1,0 +1,39 @@
+{
+  "runtime": {
+    "ts": "2026-05-29T06:51:35.063703+00:00",
+    "python_version": "3.12.12",
+    "executable": "%USERPROFILE%\\miniforge3\\python.exe",
+    "env_alias": "PYTHON",
+    "free_threaded": false,
+    "platform": "win32"
+  },
+  "label": "py312_baseline",
+  "config": {
+    "runs": 1000
+  },
+  "phases": {
+    "build_payload": {
+      "p50_ms": 0.0005,
+      "p95_ms": 0.0006,
+      "p99_ms": 0.0007,
+      "mean_ms": 0.0005,
+      "stdev_ms": 0.0002
+    },
+    "validate_serialize": {
+      "p50_ms": 0.0091,
+      "p95_ms": 0.0096,
+      "p99_ms": 0.012,
+      "mean_ms": 0.0091,
+      "stdev_ms": 0.0008
+    },
+    "parse_response": {
+      "p50_ms": 0.0038,
+      "p95_ms": 0.004,
+      "p99_ms": 0.0051,
+      "mean_ms": 0.0038,
+      "stdev_ms": 0.0006
+    }
+  },
+  "total_duration_s": 0.01,
+  "cycles_per_s": 68915.1
+}

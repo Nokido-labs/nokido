@@ -1,0 +1,181 @@
+{
+  "ts": "2026-05-29T07:19:54.209204+00:00",
+  "envs": [
+    "py312",
+    "py314",
+    "py314t"
+  ],
+  "candidates": {
+    "forge_handoff": {
+      "module": "forge_handoff",
+      "tier": "parallel_dispatch",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "multi-agent LLM dispatch -- N-thread eval = real free-threading gain"
+    },
+    "forge_world_model_ami": {
+      "module": "forge_world_model",
+      "tier": "ami_batch",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "AMI offline trainer JEPA batch -- 2.5x @ 4 threads measured"
+    },
+    "forge_chain_executor": {
+      "module": "forge_chain_executor",
+      "tier": "pipeline",
+      "parallel_workload": false,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": false,
+      "rationale": "single-thread pipeline -- py314 GIL preferred (+8.2% bench)"
+    },
+    "forge_frugal_cascade": {
+      "module": "forge_frugal_cascade",
+      "tier": "pipeline",
+      "parallel_workload": false,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": false,
+      "rationale": "cascade local->cloud serial -- py314 GIL fine"
+    },
+    "forge_lats_general": {
+      "module": "forge_lats_general",
+      "tier": "parallel_search",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "MCTS rollouts parallel candidates -- py314t candidate"
+    },
+    "forge_tem_factorize": {
+      "module": "forge_tem_factorize",
+      "tier": "math",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "numpy ops batch -- py314t scales via no-GIL numpy thread-pool"
+    },
+    "forge_semantic_pressure": {
+      "module": "forge_semantic_pressure",
+      "tier": "math",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "cluster centroid + pressure compute batch -- py314t candidate"
+    },
+    "forge_curiosity_driver": {
+      "module": "forge_curiosity_driver",
+      "tier": "compute",
+      "parallel_workload": false,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": false,
+      "rationale": "single-pass zstd compression heuristic -- py314 fine"
+    },
+    "forge_bge_m3_shared": {
+      "module": "forge_bge_m3_shared",
+      "tier": "embed",
+      "parallel_workload": true,
+      "per_env_import": {
+        "py312": {
+          "ok": true
+        },
+        "py314": {
+          "ok": true
+        },
+        "py314t": {
+          "ok": true
+        }
+      },
+      "py314t_ready": true,
+      "py314t_recommended": true,
+      "rationale": "in-process ONNX shared session multi-thread -- requires cp314t onnxruntime"
+    }
+  }
+}

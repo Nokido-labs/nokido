@@ -1,0 +1,46 @@
+{
+  "master_dev": {
+    "agent_id": "TEST_GEMINI",
+    "acquired_at": 1776355933.3548603,
+    "last_beat": 1776355933.3548603,
+    "ttl": 1800
+  },
+  "history": [
+    {
+      "ts": "2026-04-16T15:30:00",
+      "event": "INIT",
+      "agent": "system",
+      "detail": "Fichier cree par fix MCP authority_status (was missing)"
+    },
+    {
+      "ts": "2026-04-16T17:46:12",
+      "event": "ACQUIRED",
+      "agent": "AUDIT",
+      "detail": "TTL=1800s"
+    },
+    {
+      "ts": "2026-04-16T17:46:13",
+      "event": "RELEASED",
+      "agent": "AUDIT",
+      "detail": "liberation volontaire"
+    },
+    {
+      "ts": "2026-04-16T17:46:14",
+      "event": "PREEMPTED",
+      "agent": "A2",
+      "detail": "old=none reason=transfert humain"
+    },
+    {
+      "ts": "2026-04-16T17:52:23",
+      "event": "PREEMPTED",
+      "agent": "AUDIT2",
+      "detail": "old=A2 reason=transfert humain"
+    },
+    {
+      "ts": "2026-04-16T18:12:13",
+      "event": "PREEMPTED",
+      "agent": "TEST_GEMINI",
+      "detail": "old=AUDIT2 reason=transfert humain"
+    }
+  ]
+}

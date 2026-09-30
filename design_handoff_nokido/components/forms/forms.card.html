@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { TextInput, Select } = window.NokidoDesignSystem_bdc2ac;
+const Ico = ({n}) => <i data-lucide={n} style={{width:16,height:16}}></i>;
+function Demo(){
+  const [msg,setMsg]=React.useState("");
+  const [prov,setProv]=React.useState("Ollama (local)");
+  return (
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"16px"}}>
+      <TextInput label="Recherche" placeholder="Filtrer par topic…" icon={<Ico n="search"/>} value={msg} onChange={e=>setMsg(e.target.value)}/>
+      <Select label="Fournisseur" value={prov} onChange={e=>setProv(e.target.value)}
+        options={["Ollama (local)","Groq","Gemini","Mistral"]}/>
+      <div style={{gridColumn:"1 / -1"}}>
+        <TextInput label="Message à Nokido" multiline rows={3} placeholder="Reste sur ta machine sauf autorisation…" hint="Intention captée en local" value="" onChange={()=>{}}/>
+      </div>
+      <TextInput label="Champ invalide" invalid hint="Valeur requise" value="" onChange={()=>{}}/>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+setTimeout(()=>window.lucide&&lucide.createIcons(),50);
+</script>
+</body></html>

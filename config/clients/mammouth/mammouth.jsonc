@@ -1,0 +1,67 @@
+// Nokido — configuration GOUVERNÉE du client mammouth (mammouth-ai/code).
+//
+// INSTALLATION : pointer OPENCODE_CONFIG_DIR sur CE dossier (voir README.md).
+//   setx OPENCODE_CONFIG_DIR "%NOKIDO_WORKSPACE%\LaForge\config\clients\mammouth"
+// La configuration vit ainsi DANS le dépôt — versionnée, relue, vue par la CI — au lieu
+// de dormir dans ~/.config/mammouth/ où personne ne la revoit.
+//
+// AUCUN SECRET ICI, et il ne faut jamais en ajouter : `{env:VAR}` est substitué avant
+// le parsing, y compris dans les en-têtes HTTP. Un Bearer en clair serait refusé par le
+// gate egress — à raison.
+//
+// FORMAT — mammouth est un FORK d'OPENCODE (son package.json porte `name: "opencode"`),
+// et son schéma vient de @opencode-ai/core. ATTENTION, c'est l'INVERSE de vibe :
+//   ici  `mcp` est un Schema.Record KEYÉ PAR NOM   -> {"laforge": {...}}
+//   chez vibe, `mcp_servers` est un TABLEAU         -> [[mcp_servers]]
+// Copier l'une sur l'autre casse le démarrage. Vérifié dans le schéma, pas supposé.
+{
+  // ── Outils natifs : REFUSÉS ────────────────────────────────────────────────
+  // Doctrine RULES_SHARED : un client dont l'exécution native n'est pas interceptable
+  // est « réputé non gouverné, ne lui confier aucune action système ». mammouth SAIT se
+  // couper (ask | allow | deny, avec règles par pattern), donc on emploie le mécanisme
+  // plutôt que de s'en remettre à la discipline.
+  //
+  // Tout ce qui EXÉCUTE ou ÉCRIT repasse par le hub :
+  //   exécution → `run`           (videur + firewall sémantique + exec_tier)
+  //   écriture  → `governed_edit` (AST + scan secret + claim tree_lock anti-clobber)
+  //
+  // Il n'existe pas de clé `write` distincte : `edit` couvre l'écriture de fichiers.
+  "permission": {
+    "bash": "deny",
+    "edit": "deny",
+    // Sortir du dépôt est une décision, pas un réflexe : le compte sandbox ne voit
+    // déjà pas le profil owner, autant que le client demande explicitement.
+    "external_directory": "deny",
+
+    // Lecture : sans effet de bord, donc autorisée. Mais le chemin ÉCONOME reste le
+    // hub (`read`, `read_function_body`, `rag`), qui sert une FENÊTRE au lieu de
+    // rapatrier un fichier entier — chaque tour re-facture tout l'historique.
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+
+    // Sortie réseau : on demande. La souveraineté passe par le crawl du hub (SearXNG),
+    // pas par un fetch direct.
+    "webfetch": "ask",
+    "websearch": "ask"
+  },
+
+  // ── Hub souverain : SEUL chemin d'action ──────────────────────────────────
+  // Transport `remote` (HTTP), comme Antigravity, Codex, ZCode et vibe.
+  // Le token n'est PAS écrit ici : `{env:FORGE_MCP_TOKEN}` est substitué au chargement.
+  // `X-Agent-Name` donne à mammouth son identité propre côté hub — ring, write_paths et
+  // claims tree_locks à son nom. Sans lui, il serait traité en agent par défaut.
+  // Voir config/agent_identities.json → MAMMOUTH.
+  "mcp": {
+    "laforge": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8766/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:FORGE_TOKEN_MAMMOUTH}",
+        "X-Agent-Name": "MAMMOUTH"
+      }
+    }
+  }
+}

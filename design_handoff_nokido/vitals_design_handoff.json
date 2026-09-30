@@ -1,0 +1,30 @@
+{
+  "component": "VitalPanel",
+  "framework": "HTMX+Alpine+Tailwind (Nokido Design System, classes lf-*)",
+  "layout": "lf-vitals-grid (responsive auto-fill minmax(260px))",
+  "dynamic_tokens": [
+    "--forge-surprise",
+    "--forge-arousal",
+    "--forge-frustration",
+    "--forge-tempo",
+    "--forge-salience"
+  ],
+  "sse": "/api/vitals/sse",
+  "assets": {
+    "css": "/static/nokido_vitals.css",
+    "js": "/static/nokido_vitals.js"
+  },
+  "signals": [
+    {"signal": "subjective_tempo", "poll_url": "/api/vital/subjective_tempo", "title": "Temporalite subjective : tempo ressenti (flow=file, vigilance=dilate).", "fields": ["tempo", "label", "arousal", "engagement", "fatigue", "circadian_mult", "reasons"]},
+    {"signal": "affective_state", "poll_url": "/api/vital/affective_state", "title": "Etat affectif 6D ambiant (valence/arousal/dominance/urgency/warmth/frustration).", "fields": ["affect", "digest"]},
+    {"signal": "phenomenal_flow", "poll_url": "/api/vital/phenomenal_flow", "title": "Flux introspectif (qualia fonctionnel) : 3 derniers instants vecus, 1ere personne", "fields": ["recent"]},
+    {"signal": "parietal_percept", "poll_url": "/api/vital/parietal_percept", "title": "Espace de travail global : percept multimodal unifie (salience + focus).", "fields": ["salience", "priority", "tag", "focus"]},
+    {"signal": "narrative_self", "poll_url": "/api/vital/narrative_self", "title": "Conscience narrative : taille + tete du 'roman de soi' persiste.", "fields": ["chars", "head"]},
+    {"signal": "homeostasis_threshold", "poll_url": "/api/vital/homeostasis_threshold", "title": "Regulation : seuil dynamique d'homeostasie (lit CPU + hormones).", "fields": ["threshold", "endocrine_factor"]},
+    {"signal": "active_hormones", "poll_url": "/api/vital/active_hormones", "title": "Endocrine : hormones actives (signal lent), niveaux decayes.", "fields": ["hormones"]},
+    {"signal": "mood_state", "poll_url": "/api/vital/mood_state", "title": "Humeur globale diffuse (energie/curiosite/fatigue/stress).", "fields": ["summary"]},
+    {"signal": "snn_substrate", "poll_url": "/api/vital/snn_substrate", "title": "Substrat spiking : backend (snntorch/pur-torch) dispo.", "fields": ["torch", "snntorch", "torch_err"]},
+    {"signal": "dim_policy", "poll_url": "/api/vital/dim_policy", "title": "Politique dimensionnelle HYBRIDE par-organe (reflex 384 / rag 1024 / fusion 4096)", "fields": ["dims", "compress_on_wire", "rule"]},
+    {"signal": "edge_fleet", "poll_url": "/api/vital/edge_fleet", "title": "Flotte edge : noeuds enregistres + gain transmission world-vector compresse.", "fields": ["edges", "names", "wv_transport"]}
+  ]
+}

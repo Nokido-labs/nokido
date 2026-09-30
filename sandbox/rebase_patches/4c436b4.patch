@@ -1,0 +1,303 @@
+From 4c436b4d1a5f055a1cb498ad3f84a88e28d731b8 Mon Sep 17 00:00:00 2001
+From: user <naarobb@gmail.com>
+Date: Sat, 25 Apr 2026 14:35:42 +0200
+Subject: [PATCH] docs(contributing): convention commits multi-agent
+ (Author-Agent/Channel/Model)
+
+Pose la convention de signature des commits Nokido pour tracer
+precisement qui (humain ou LLM) a ecrit quoi, par quel canal
+(stdio, web, cli, ide, sse, http, chat), avec quel modele, et
+dans quelle session de conversation.
+
+Format = Conventional Commits + trailers RFC-2822 dans le footer :
+  Author-Agent: HUMAN|CLAUDE|GEMINI|CLINE|MIXED
+  Author-Channel: stdio|web|cli|ide|sse|http|chat
+  Author-Model: <id-modele-exact>
+  Author-Session: YYYY-MM-DD-<slug>
+  Co-Authored-By: <Nom> <email-routable>
+  Reviewed-By: <agent-ou-humain>
+  Refs: <commits-lies>
+
+Emails routables via plus-tags Gmail vers signorellit4@gmail.com :
+  - signorellit4+nokido.claude@gmail.com
+  - signorellit4+nokido.gemini@gmail.com
+  - signorellit4+nokido.cline@gmail.com
+
+Hook commit-msg de validation a installer dans une session
+ulterieure. Pour l'instant, auto-discipline et relecture humaine.
+
+Convention applicable a partir du 2026-04-25. Les commits
+anterieurs sont preserves tels quels.
+
+Author-Agent: MIXED
+Author-Channel: stdio
+Author-Model: claude-opus-4.7
+Author-Session: 2026-04-25-audit-gemini
+Co-Authored-By: Claude (Anthropic) <signorellit4+nokido.claude@gmail.com>
+Reviewed-By: HUMAN
+---
+ docs/CONTRIBUTING.md | 252 +++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 252 insertions(+)
+ create mode 100644 docs/CONTRIBUTING.md
+
+diff --git a/docs/CONTRIBUTING.md b/docs/CONTRIBUTING.md
+new file mode 100644
+index 0000000..44a596d
+--- /dev/null
++++ b/docs/CONTRIBUTING.md
+@@ -0,0 +1,252 @@
++# Nokido — Convention de Commits
++
++Ce document définit la convention de signature et de traçabilité des commits sur le repo Nokido. Tout commit créé après le **2026-04-25** doit la respecter. Les commits antérieurs sont conservés tels quels (historique).
++
++Nokido est un projet multi-agent : du code y est produit par des humains et par des LLM (Claude, Gemini, Cline, etc.) via différents canaux (Claude Desktop MCP, Gemini CLI, VSCode, web chat, etc.). La convention ici sert à **savoir précisément qui a écrit quoi, quand, comment, et par quel canal** — pour pouvoir auditer, retrouver une session, ou contacter l'auteur en cas de bug ou de faille.
++
++---
++
++## 1. Subject (ligne 1)
++
++Format **Conventional Commits** :
++
++```
++<type>(<scope>): <description courte impérative, < 72 chars>
++```
++
++| `<type>` | Usage |
++|---|---|
++| `feat` | Nouvelle fonctionnalité visible utilisateur ou autre composant |
++| `fix` | Correction d'un bug |
++| `refactor` | Restructuration sans changement de comportement |
++| `perf` | Optimisation perf sans changement de comportement |
++| `test` | Ajout/modification de tests |
++| `docs` | Documentation seulement |
++| `chore` | Tâches de maintenance (config, deps, etc.) |
++| `build` | Système de build, packaging |
++| `ci` | Configuration CI/CD |
++| `style` | Formatage, indentation (jamais de logique) |
++| `revert` | Revert d'un commit antérieur |
++
++Exemples valides :
++```
++fix(mcp): retire _stdin_watchdog qui consommait stdin
++feat(agent_proxy): +3 providers Cohere/Perplexity/Tavily
++refactor(collab_modes): extraction phase 1/3
++```
++
++---
++
++## 2. Body (lignes suivantes)
++
++Texte libre expliquant **pourquoi** ce changement et **comment** il fonctionne. Une ligne vide entre subject et body. Wrapper à ~72 chars.
++
++Si pertinent, mentionner les commits référencés (`Refs:`), les bugs corrigés (`Fixes:`), ou les commits dépréciés (`Reverts:`).
++
++---
++
++## 3. Trailers de traçabilité (footer obligatoire)
++
++À la fin du body, après une ligne vide, ajouter le bloc de trailers RFC-2822 suivant :
++
++```
++Author-Agent: <CLAUDE|GEMINI|CLINE|HUMAN|MIXED>
++Author-Channel: <stdio|web|cli|ide|sse|http|chat>
++Author-Model: <identifiant-modèle-exact>
++Author-Session: <identifiant-session-court>
++Co-Authored-By: <Nom> <email>
++Reviewed-By: <agent-ou-humain>
++Refs: <commits-ou-issues-liés>
++```
++
++### 3.1 `Author-Agent` (obligatoire)
++
++Quel rôle dans la pile a produit le code :
++
++| Valeur | Signification |
++|---|---|
++| `HUMAN` | Code écrit directement par user (ou autre humain) |
++| `CLAUDE` | Code proposé/écrit par Claude (Anthropic) |
++| `GEMINI` | Code proposé/écrit par Gemini (Google) |
++| `CLINE` | Code proposé par Cline (extension VSCode autonome) |
++| `MIXED` | Plusieurs agents ont contribué — détailler via plusieurs `Co-Authored-By` |
++
++**Règle** : indiquer l'agent qui a écrit le code, pas celui qui a appliqué le commit. Si Claude a diagnostiqué et écrit le patch puis l'a fait copier-coller à l'humain, c'est `CLAUDE`. Si Gemini a écrit du code mais Claude l'a relu et corrigé un bug, c'est `MIXED` avec deux `Co-Authored-By`.
++
++### 3.2 `Author-Channel` (obligatoire)
++
++Par quel canal le code a transité jusqu'au commit :
++
++| Valeur | Signification |
++|---|---|
++| `stdio` | Claude Desktop via MCP STDIO (Nokido connecté en local) |
++| `web` | Chat claude.ai ou gemini.google.com sans MCP |
++| `cli` | Outil CLI (Gemini CLI, Claude Code, etc.) |
++| `ide` | Extension IDE (VSCode Copilot, Cursor, etc.) |
++| `sse` | EventBus stream (futur) |
++| `http` | Appel API direct vers le hub Nokido |
++| `chat` | Conversation orale ou messagerie (Discord, etc.) |
++
++**Pourquoi c'est utile** : `git log --grep="Author-Channel: stdio"` te sort tous les commits passés via Claude Desktop avec MCP, ce qui est important si on suspecte une régression liée à un canal spécifique.
++
++### 3.3 `Author-Model` (obligatoire si non-HUMAN)
++
++Identifiant exact du modèle. Permet de retrouver dans 6 mois si une régression vient d'un modèle particulier.
++
++Exemples :
++- `claude-opus-4.7`
++- `claude-sonnet-4.6`
++- `gemini-2.5-pro`
++- `gemini-2.5-flash`
++- `gpt-4o-2024-11-20`
++- `qwen2.5-coder:32b` (Ollama)
++
++Pour `HUMAN`, omettre ce trailer.
++
++### 3.4 `Author-Session` (recommandé)
++
++Identifiant court de la session de conversation, par convention `YYYY-MM-DD-<slug-court>`. Permet de regrouper les commits d'une même session de travail.
++
++Exemples :
++- `2026-04-25-laforge-mcp-debug`
++- `2026-04-25-audit-gemini`
++- `2026-04-24-night-refacto`
++
++### 3.5 `Co-Authored-By` (obligatoire si non-HUMAN)
++
++Format **standard GitHub** : `Co-Authored-By: <Nom complet> <email>`. Reconnu par GitHub/GitLab et affiché avec avatar fantôme.
++
++Emails routables Nokido (à confirmer par user avant de figer) :
++- `Claude (Anthropic) <signorellit4+nokido.claude@gmail.com>`
++- `Gemini (Google) <signorellit4+nokido.gemini@gmail.com>`
++- `Cline (LLM-agnostic) <signorellit4+nokido.cline@gmail.com>`
++
++### 3.6 `Reviewed-By` (optionnel)
++
++Si un autre agent ou humain a relu/validé avant le commit. Format libre :
++- `Reviewed-By: HUMAN`
++- `Reviewed-By: CLAUDE (claude-opus-4.7)`
++
++### 3.7 `Refs` (optionnel)
++
++Liste de hashes de commit ou IDs d'issues liés.
++
++---
++
++## 4. Exemples complets
++
++### 4.1 Commit purement humain
++
++```
++fix(kv): remove non-openrouter prefixes causing 400 spam
++
++Author-Agent: HUMAN
++Author-Channel: ide
++Author-Session: 2026-04-25-morning-cleanup
++```
++
++(Pour `HUMAN`, pas besoin de `Author-Model` ni `Co-Authored-By`.)
++
++### 4.2 Commit Claude pur (diagnostic + patch)
++
++```
++fix(mcp): retire _stdin_watchdog qui consommait stdin et bloquait le handshake initialize
++
++Le thread _stdin_watchdog faisait sys.stdin.read() en parallele de
++stdio_server() et volait tous les bytes JSON-RPC. Resultat: Claude
++Desktop timeout sur initialize au bout de 60s.
++
++stdio_server() du SDK MCP gere deja la fermeture sur EOF, le
++watchdog n'avait aucun role utile.
++
++Author-Agent: CLAUDE
++Author-Channel: web
++Author-Model: claude-opus-4.7
++Author-Session: 2026-04-25-laforge-mcp-debug
++Co-Authored-By: Claude (Anthropic) <signorellit4+nokido.claude@gmail.com>
++Reviewed-By: HUMAN
++```
++
++### 4.3 Commit Gemini pur
++
++```
++fix(registry): subprocess.run avec stdin=DEVNULL pour le tool 'python'
++
++Sans stdin=DEVNULL, le subprocess herite du stdin du process parent.
++Sur Windows + MCP STDIO, ca cause un deadlock de 30s avant timeout.
++
++Refs: 1282191
++
++Author-Agent: GEMINI
++Author-Channel: cli
++Author-Model: gemini-2.5-pro
++Author-Session: 2026-04-25-poll-rapport
++Co-Authored-By: Gemini (Google) <signorellit4+nokido.gemini@gmail.com>
++```
++
++### 4.4 Commit MIXED (deux agents)
++
++```
++feat(agent_proxy): +3 providers Cohere/Perplexity/Tavily (10->13)
++
++Ajoute trois nouveaux providers au registry forge_agent_proxy.
++Tous suivent la signature Provider.ask().
++
++Fix: search_depth='basic' au lieu de 'smart' (valeur invalide cote
++API Tavily, aurait declenche une 4xx au premier appel).
++
++Refs: c23a6d9
++
++Author-Agent: MIXED
++Author-Channel: cli
++Author-Session: 2026-04-25-3-providers
++Co-Authored-By: Gemini (Google) <signorellit4+nokido.gemini@gmail.com>
++Co-Authored-By: Claude (Anthropic) <signorellit4+nokido.claude@gmail.com>
++Reviewed-By: HUMAN
++```
++
++(Gemini a écrit les 3 providers la nuit, Claude a spotté le bug Tavily `'smart'` le matin, user a committé.)
++
++---
++
++## 5. Comment grepper l'historique
++
++```bash
++# Tous les commits écrits par Claude
++git log --grep="Author-Agent: CLAUDE"
++
++# Tous les commits passés par MCP stdio
++git log --grep="Author-Channel: stdio"
++
++# Une session entière
++git log --grep="Author-Session: 2026-04-25-laforge-mcp-debug"
++
++# Tous les commits Gemini-2.5-pro
++git log --grep="Author-Model: gemini-2.5-pro"
++
++# Audit forensique : qui a touché un fichier critique ?
++git log --grep="Author-Agent" -- app/forge_mcp_registry.py
++```
++
++---
++
++## 6. Hook de validation (à venir)
++
++Un hook `commit-msg` validera la présence des trailers obligatoires (`Author-Agent`, `Author-Channel`). Tant qu'il n'est pas installé, la convention repose sur l'auto-discipline et la relecture humaine.
++
++---
++
++## 7. Compatibilité GitHub
++
++Les trailers `Co-Authored-By` sont automatiquement reconnus par GitHub :
++- Affichage de l'avatar fantôme à côté de l'auteur principal
++- Comptabilité des contributions sur le profil de l'email
++- Recherche `is:commit author:<email>` fonctionne
++
++Les autres trailers (`Author-Agent` etc.) sont **invisibles dans l'UI GitHub** mais **présents dans la commande `git log`** et **greppables**. C'est exactement ce qu'on veut : visible pour l'audit local, transparent pour les visiteurs externes.
++
++---
++
++## 8. Date de mise en application
++
++**À partir du 2026-04-25**. Les commits antérieurs (avant `1282191` exclusif) sont préservés tels quels — leur historique factuel reste intact, l'historique sémantique est documenté ailleurs (notes Notion, transcripts de chat).
+-- 
+2.53.0.windows.1
+

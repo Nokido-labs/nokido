@@ -1,0 +1,12 @@
+# OPENCODE_CONFIG_DIR pointe ici : opencode y ÉCRIT ce qu'il veut (package.json et
+# node_modules de ses plugins, caches). On ne sait pas d'avance quoi — donc ALLOWLIST,
+# pas denylist, comme pour mammouth. Un secret ne doit pas dépendre de notre capacité à
+# deviner un nom de fichier.
+*
+!.gitignore
+!opencode.jsonc
+!README.md
+
+# Pour versionner un ajout (profil d'agent, commande), l'autoriser NOMMÉMENT ci-dessus.
+# Pour un sous-dossier : `!dossier/` puis `!dossier/*` — git n'entre pas dans un dossier
+# ignoré, une exception à l'intérieur ne serait jamais évaluée.

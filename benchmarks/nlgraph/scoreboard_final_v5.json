@@ -1,0 +1,71 @@
+{
+  "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+  "difficulty": "easy",
+  "version": "v5_hints",
+  "timestamp": "2026-04-15",
+  "improvements": {
+    "task_hints": [
+      "bipartite",
+      "max_flow",
+      "gnn_simulate",
+      "topological_sort"
+    ],
+    "num_predict": "512 -> 1024",
+    "system_prompt": "End with: Final answer: YOUR_ANSWER",
+    "extraction": "Priority Final answer regex + ** pattern"
+  },
+  "overall_accuracy": 53.8,
+  "total_cases": 80,
+  "by_task": {
+    "connectivity": {
+      "correct": 10,
+      "total": 10,
+      "pct": 100,
+      "grade": "STRONG"
+    },
+    "hamilton": {
+      "correct": 8,
+      "total": 10,
+      "pct": 80,
+      "grade": "STRONG"
+    },
+    "bipartite": {
+      "correct": 7,
+      "total": 10,
+      "pct": 70,
+      "grade": "STRONG",
+      "improvement": "0% -> 70%"
+    },
+    "topological_sort": {
+      "correct": 7,
+      "total": 10,
+      "pct": 70,
+      "grade": "STRONG"
+    },
+    "cycle": {
+      "correct": 5,
+      "total": 10,
+      "pct": 50,
+      "grade": "MEDIUM"
+    },
+    "shortest_path": {
+      "correct": 5,
+      "total": 10,
+      "pct": 50,
+      "grade": "MEDIUM"
+    },
+    "gnn_simulate": {
+      "correct": 1,
+      "total": 10,
+      "pct": 10,
+      "grade": "WEAK"
+    },
+    "max_flow": {
+      "correct": 0,
+      "total": 10,
+      "pct": 0,
+      "grade": "WEAK"
+    }
+  },
+  "analysis": "Le modele 7b excelle en classification (YES/NO) mais echoue sur les calculs numeriques. max_flow et gnn requierent un modele plus gros ou un pipeline verify-and-retry."
+}

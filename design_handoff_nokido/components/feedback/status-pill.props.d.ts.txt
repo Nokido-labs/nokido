@@ -1,0 +1,17 @@
+import * as React from "react";
+
+/**
+ * Pastille de statut mono avec point coloré — reprend `.laforge-status` du hub.
+ * `pulse` anime le point pour les services vivants.
+ *
+ * @startingPoint section="Feedback" subtitle="Pastille de statut up/down/warn/info" viewport="700x100"
+ */
+export interface StatusPillProps {
+  children?: React.ReactNode;
+  status?: "up" | "down" | "warn" | "info" | "idle";
+  /** Point pulsant (service live) */
+  pulse?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function StatusPill(props: StatusPillProps): JSX.Element;

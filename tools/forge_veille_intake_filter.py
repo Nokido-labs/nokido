@@ -1,0 +1,368 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""tools/forge_veille_intake_filter.py — refuser le contenu GENERE a l'entree.
+
+CONSTAT (docs/veille_constat_echec_2026-08-31.md, point 3). L'ingestion par clone
+n'a pas de limite de volume — decision owner du 30/08, et elle tient. Mais elle
+portait sur les CAPS, pas sur la NATURE de ce qu'on avale. Mesure : les six plus
+gros `source` de toute la veille sont des `.vcd` (formes d'onde) et des
+`FILTER_DRAM_TRACE.csv` (traces de simulation), entre 4 000 et 8 200 chunks
+chacun. `scalesim` = 80 137 chunks, `tinytinytpu` = 27 077. Ce n'est pas de la
+connaissance, c'est de la sortie de machine.
+
+La liste noire d'EXTENSIONS de `forge_veille_clone_ingest` ne peut pas les
+attraper : un `.csv` et un `.vcd` sont du texte, et un `.csv` peut tout aussi bien
+etre un jeu de donnees precieux. Le critere n'est donc pas l'extension mais la
+PROVENANCE (repertoire de build/simulation), le NOM (lockfile, artefact d'outil),
+et en dernier ressort la FORME du contenu (des lignes toutes identiques en
+structure = une table produite par un programme, pas un texte ecrit).
+
+⚠️ Ce module ne supprime RIEN (consigne owner : « rien n'est supprime en base »).
+Il refuse a l'ENTREE, et son mode `--replay` mesure ce qu'il AURAIT refuse sur le
+corpus deja ingere — pour que son effet soit connu AVANT d'etre cable, au lieu
+d'etre un garde dont personne ne sait s'il mord.
+
+Usage :
+  run action=run_job script=tools/forge_veille_intake_filter.py   # rejeu + rapport
+
+API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) :
+- `est_autolance` — (refuse, motif) — config ou script d'auto-lancement d'agent/IDE.
+- `est_hors_substance` — (refuse, motif) — ce qui n'est pas substance pour Nokido. Motif toujours dit.
+- `marqueurs_ver` — Noms des signatures du ver presentes dans `texte` ([] si aucune).
+- `resume_hors_substance` — Resume deterministe (<= RESUME_MAX) de ce qu'un fichier ecarte PORTE.
+"""
+from __future__ import annotations
+
+__FORGE_COLOR__ = "digestif/tri-ingestion"
+
+import re
+import sqlite3
+import sys
+from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DB = ROOT / "RAG" / "embeddings.db"
+OUT = ROOT / "sandbox" / "veille_intake_filter_replay.md"
+
+# 1. REPERTOIRES de production machine. Un fichier qui en sort est un artefact,
+#    quel que soit son nom. `test/` n'y est PAS : les tests sont du code ecrit,
+#    ils portent souvent la meilleure documentation d'un projet (lecon codex).
+# TROIS REGLES RETIREES apres mesure, chacune refusait de la SUBSTANCE :
+#   - `__snapshots__` / `snapshots` : le snapshot de `prompts.test.ts` de
+#     gemini_cli (981 chunks) EST le prompt systeme de l'agent — le contenu le
+#     plus precieux du depot (lecon codex du 30/08 : la substance d'un depot
+#     d'agent est dans ses prompts, permissions et politiques).
+#   - `vendor` : `codex-rs/vendor/bubblewrap/bubblewrap.c` est le bac a sable de
+#     codex. Du code tiers VENDORE reste du code source.
+#   - `gen` : trop court et ambigu (un module nomme `gen/` est du code).
+# Un garde qui crie a faux se fait desarmer : mieux vaut refuser moins et juste.
+_DIRS_GENERES = {
+    "sim_build", "waves", "obj_dir", "build", "dist", "out", "output",
+    "target", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+    "coverage", "htmlcov", "golden_trace",
+    "generated", "autogen", ".next", ".nuxt",
+}
+# Repertoire dont le NOM COMMENCE par un de ces prefixes (golden_trace_user_ws...)
+_DIRS_PREFIXES = ("golden_trace", "sim_build", "obj_dir")
+
+# 2. NOMS de fichiers produits par un outil. Un lockfile est une photographie
+#    d'un solveur de dependances : il change a chaque resolution, ne s'ecrit pas
+#    a la main, et n'apprend rien sur l'intention du projet.
+_FICHIERS_GENERES = {
+    "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "cargo.lock",
+    "poetry.lock", "uv.lock", "gemfile.lock", "composer.lock",
+    "module.bazel.lock", "flake.lock", "pdm.lock", "bun.lockb",
+    "notices.txt", "third_party_notices.txt",
+}
+
+# 3. MOTIFS de nom : artefacts d'outils identifiables sans ouvrir le fichier.
+_MOTIFS_GENERES = (
+    re.compile(r"_(DRAM|SRAM)_TRACE\.csv$", re.I),   # traces SCALE-Sim
+    re.compile(r"^V[A-Za-z0-9_]+__.*\.(cpp|h)$"),     # sortie Verilator
+    re.compile(r"^V[A-Za-z0-9_]+_?Syms\.(cpp|h)$"),
+    re.compile(r"\.(vcd|fst|ghw|edif|bit|bin\.log)$", re.I),  # formes d'onde, netlists
+    re.compile(r"_yosys\.v$", re.I),
+    re.compile(r"\.(log|out|err)$", re.I),
+    re.compile(r"\.(min|bundle)\.(js|css)$", re.I),
+    re.compile(r"\.pb\.(go|py|cc)$", re.I),           # protobuf genere
+    re.compile(r"_pb2(_grpc)?\.py$"),
+    re.compile(r"\.g\.(dart|cs)$", re.I),
+)
+
+# 4. Marqueurs ECRITS PAR LE GENERATEUR, en tete de fichier. Le plus fiable des
+#    quatre — c'est le producteur lui-meme qui le declare.
+_MARQUEURS = (
+    "do not edit", "ne pas editer", "@generated", "autogenerated",
+    "automatically generated", "generated by", "this file is generated",
+)
+_TETE = 400  # caracteres inspectes pour trouver un marqueur
+
+# VERSION DU FILTRE. A monter des qu'une regle change (ajout, retrait, motif).
+# Elle est inscrite au manifeste de chaque dump : un dump produit sous d'anciennes
+# regles devient ainsi PERIME de facon detectable, au lieu de passer pour a jour.
+# "2" (2026-09-23) : refus des vecteurs d'auto-lancement (`est_autolance`). Un dump
+# produit en "1" a pu retenir un dropper `.claude/*.mjs` : il devient PERIME et se
+# re-clone, au lieu d'etre ingere tel quel.
+# "3" (2026-09-23, owner points 1-4) : refus de ce qui n'est pas SUBSTANCE
+# (`est_hors_substance`) — tests, traductions, vendor, sorties de machine, donnees
+# au-dela de SEUIL_DONNEES_OCTETS. Un dump "2" retient tout cela : il est PERIME.
+FILTRE_VERSION = "3"
+
+
+def est_genere(chemin: str, tete: str = "") -> tuple[bool, str]:
+    """(refuse, motif). Le motif est TOUJOURS rendu : un refus sans raison dite
+    est indistinguable d'une perte silencieuse."""
+    p = chemin.replace("\\", "/")
+    segments = [s.lower() for s in p.split("/")]
+    nom = segments[-1] if segments else ""
+
+    for s in segments[:-1]:
+        if s in _DIRS_GENERES:
+            return True, "repertoire genere: %s" % s
+        if s.startswith(_DIRS_PREFIXES):
+            return True, "repertoire genere (prefixe): %s" % s
+    if nom in _FICHIERS_GENERES:
+        return True, "fichier d'outil: %s" % nom
+    for rx in _MOTIFS_GENERES:
+        if rx.search(nom):
+            return True, "motif d'artefact: %s" % rx.pattern
+    if tete:
+        bas = tete[:_TETE].lower()
+        for m in _MARQUEURS:
+            if m in bas:
+                return True, "marqueur du generateur: %s" % m
+    return False, ""
+
+
+# ── Vecteurs d'AUTO-LANCEMENT (incident 2026-09-23) ────────────────────────
+# `tribixbite/awesome`, au registre de veille, portait le ver Shai-Hulud
+# (Defender : Trojan:NPM/MiniShaiHrd.ZA!MTB) : `.claude/settings.json` lancait
+# `node .claude/setup.mjs` a l'ouverture d'une session d'agent, `.vscode/tasks.json`
+# faisait de meme a l'ouverture du dossier. `est_genere` ne refusait que le
+# GENERE : les deux droppers sont entres dans le dump, a une etape du RAG.
+#
+# Refus par NATURE, comme le genere : un script qui s'auto-lance n'est pas une
+# connaissance. On refuse ce qui SE LANCE, jamais la doc — les skills
+# `.claude/**/*.md` restent ingerees.
+_DIRS_AGENT_IDE = {".claude", ".cursor", ".vscode", ".husky", ".devcontainer",
+                   ".windsurf", ".gemini", ".codex"}
+_EXT_AUTOLANCE = {".js", ".mjs", ".cjs", ".ts", ".sh", ".ps1", ".py", ".bat",
+                  ".cmd", ".json"}
+_MARQUEURS_VER = (
+    ("lanceur cache d'agent/IDE",
+     re.compile(r"node\s+\.(claude|vscode|cursor|husky|gemini)[/\\][\w./-]+\.[cm]?js", re.I)),
+    ("tache VS Code a l'ouverture du dossier",
+     re.compile(r'"runOn"\s*:\s*"folderOpen"')),
+    ("charge Shai-Hulud connue",
+     re.compile(r"setup_bun\.js|bun_environment\.js|shai-?hulud", re.I)),
+)
+
+
+# ── SUBSTANCE (decision owner 2026-09-23, points 1-4) ─────────────────────
+# Mesure sur 212 dumps / 6,08 Go : donnees-config 28,9 %, tests 13,4 %,
+# traductions 2,1 %, vendor 1,6 %. teamchong/pxpipe (1 Go) etait fait de
+# RESULTATS d'evaluation ranges en .md ; nyu_llm_ctf de transcriptions .traj.
+# V: a ete sature deux fois dans la nuit. REVIENT sur la decision du 30/08
+# (« pas de limite, l'aval raffinera ») : c'est l'owner qui la revoit, et le
+# refus reste NOMME (manifeste) pour qu'un rattrapage soit possible.
+SEUIL_DONNEES_OCTETS = 50_000
+_DIRS_TESTS = {"test", "tests", "testing", "__tests__", "spec", "specs", "e2e",
+               "fixtures", "testdata", "test_data"}
+_DIRS_TRADUCTIONS = {"locale", "locales", "i18n", "l10n", "translations"}
+_DIRS_VENDOR = {"vendor", "vendored", "third_party", "thirdparty", "third-party"}
+_DIRS_SORTIES = {"results", "outputs", "output", "transcripts", "runs", "logs",
+                 "snapshots", "__snapshots__", "artifacts"}
+_RE_FICHIER_TEST = re.compile(r"(^test_|_test\.|\.test\.|\.spec\.|_spec\.)")
+_EXT_SORTIES = (".traj", ".log")
+_EXT_DONNEES = (".json", ".jsonl", ".ndjson", ".csv", ".tsv", ".xml", ".yaml",
+                ".yml", ".parquet", ".sql")
+
+
+def est_hors_substance(chemin: str, taille: int) -> tuple[bool, str]:
+    """(refuse, motif) — ce qui n'est pas substance pour Nokido. Motif toujours dit."""
+    segments = [s.lower() for s in chemin.replace("\\", "/").split("/")]
+    nom, dossiers = segments[-1], segments[:-1]
+    for ensemble, motif in ((_DIRS_TESTS, "tests"), (_DIRS_TRADUCTIONS, "traductions"),
+                            (_DIRS_VENDOR, "vendor"), (_DIRS_SORTIES, "sortie de machine")):
+        d = next((s for s in dossiers if s in ensemble or
+                  (ensemble is _DIRS_SORTIES and s.startswith("results"))), None)
+        if d:
+            return True, "%s: %s/" % (motif, d)
+    if _RE_FICHIER_TEST.search(nom):
+        return True, "tests: %s" % nom
+    if nom.endswith(_EXT_SORTIES):
+        return True, "sortie de machine: %s" % nom
+    if nom.endswith(_EXT_DONNEES) and taille > SEUIL_DONNEES_OCTETS:
+        return True, "donnees %d o > %d" % (taille, SEUIL_DONNEES_OCTETS)
+    return False, ""
+
+
+# ── RESUME de ce qui est ecarte : garder la MOELLE (owner 2026-09-23) ─────
+# « Ne perds pas la substantifique moelle avec tes regles, il faut en tirer de
+# l'intelligence. » Un fichier hors substance n'est pas jete : il laisse un
+# RESUME deterministe (0 LLM) de RESUME_MAX caracteres au plus — le CONTRAT
+# d'un test, le SCHEMA d'une donnee, le BILAN d'une sortie, l'IDENTITE d'un vendor.
+RESUME_MAX = 2000
+_RE_CAS_TEST = re.compile(
+    r"^\s*(?:async\s+)?(?:def\s+(test\w*)|class\s+(Test\w*)|fn\s+(test\w*)|func\s+(Test\w*))"
+    r"|\b(?:it|test|describe|context)\s*\(\s*[\"'`]([^\"'`]{3,160})")
+
+
+def _tete_queue(texte: str, tete: int, queue: int) -> str:
+    lignes = texte.splitlines()
+    if len(lignes) <= tete + queue:
+        return "\n".join(lignes)
+    return "\n".join(lignes[:tete] + ["[... %d lignes ...]" % (len(lignes) - tete - queue)]
+                     + lignes[-queue:])
+
+
+def resume_hors_substance(chemin: str, texte: str, motif: str) -> str:
+    """Resume deterministe (<= RESUME_MAX) de ce qu'un fichier ecarte PORTE."""
+    nom = chemin.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    lignes = texte.splitlines()
+    if motif.startswith("tests"):
+        cas, prec = [], ""
+        for ligne in lignes:
+            trouves = list(_RE_CAS_TEST.finditer(ligne))   # JS : describe(...it(...)) sur 1 ligne
+            for m in trouves:
+                cas.append(next(g for g in m.groups() if g))
+            if not trouves and prec and cas and ligne.strip().startswith(('"""', "'''", "#", "//")):
+                cas[-1] += " — " + ligne.strip().strip("\"'#/ ")[:120]
+            prec = "x" if trouves else ""
+        corps = "cas de test (%d) :\n- " % len(cas) + "\n- ".join(cas)
+    elif motif.startswith("donnees"):
+        if nom.endswith((".csv", ".tsv")):
+            corps = "en-tete : %s\nlignes : %d" % (lignes[0] if lignes else "", max(0, len(lignes) - 1))
+        elif nom.endswith((".json", ".jsonl", ".ndjson")):
+            cles = list(dict.fromkeys(re.findall(r'"([A-Za-z_][\w.-]{0,60})"\s*:', texte[:200_000])))
+            corps = "cles (%d) : %s\ntaille : %d caracteres" % (len(cles), ", ".join(cles[:120]), len(texte))
+        else:
+            corps = _tete_queue(texte, 40, 0)
+    elif motif.startswith("traductions"):
+        corps = "traduction presente (%d lignes)" % len(lignes)
+    elif motif.startswith("vendor"):
+        corps = _tete_queue(texte, 15, 0)
+    else:                                   # sortie de machine
+        corps = _tete_queue(texte, 30, 10)
+    entete = "[RESUME hors substance — %s ; contenu integral NON ingere]\n" % motif
+    return (entete + corps)[:RESUME_MAX]
+
+
+def marqueurs_ver(texte: str) -> list:
+    """Noms des signatures du ver presentes dans `texte` ([] si aucune).
+
+    Sur le TEXTE ENTIER, pas sur la tete : un dump concatene porte le dropper au
+    milieu (ligne 119 341 sur 119 5xx dans le cas mesure)."""
+    return [nom for nom, rx in _MARQUEURS_VER if rx.search(texte or "")]
+
+
+def est_autolance(chemin: str, contenu: str = "") -> tuple[bool, str]:
+    """(refuse, motif) — config ou script d'auto-lancement d'agent/IDE, ou
+    fichier portant un marqueur du ver. Le motif est TOUJOURS dit."""
+    p = chemin.replace("\\", "/")
+    segments = [s.lower() for s in p.split("/")]
+    nom = segments[-1] if segments else ""
+    ext = ("." + nom.rsplit(".", 1)[-1]) if "." in nom else ""
+    dossier = next((s for s in segments[:-1] if s in _DIRS_AGENT_IDE), None)
+    if dossier and ext in _EXT_AUTOLANCE:
+        return True, "auto-lancement %s: %s" % (dossier, nom)
+    if contenu:
+        trouves = marqueurs_ver(contenu)
+        if trouves:
+            return True, "marqueur du ver: %s" % ", ".join(trouves)
+    return False, ""
+
+
+def _rejeu(conn) -> tuple[dict, dict, int]:
+    """Ce que le filtre AURAIT refuse sur le corpus deja ingere.
+
+    On mesure par DEPOT, parce qu'un taux global masquerait le cas decisif : un
+    seul depot ou 99 % du volume est du bruit, noye dans douze depots sains.
+    """
+    par_depot: dict = defaultdict(lambda: {"garde": 0, "refuse": 0})
+    motifs: dict = defaultdict(int)
+    # Les plus gros refus, NOMMES. Un taux global ne dit pas si on jette du bruit
+    # ou la piece maitresse d'un depot ; seule la liste permet de le voir.
+    gros: list = []
+    lus = 0
+    cur = conn.execute(
+        "SELECT source, COUNT(*) FROM rag_chunks WHERE domain = 'sdk_gitingest' "
+        "GROUP BY source")
+    for source, n in cur:
+        lus += n
+        depot = (source or "").split("/")[0] or "(inconnu)"
+        refuse, motif = est_genere(source or "")
+        par_depot[depot]["refuse" if refuse else "garde"] += n
+        if refuse:
+            motifs[motif.split(":")[0]] += n
+            gros.append((n, source, motif))
+    gros.sort(key=lambda x: -x[0])
+    return par_depot, motifs, lus, gros[:25]
+
+
+def main() -> int:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # muet-ok : sortie non reconfigurable, sans effet ici
+        pass
+    if not DB.exists():
+        print("ERR base introuvable:", DB)
+        return 2
+    conn = sqlite3.connect("file:%s?mode=ro" % DB, uri=True)
+    par_depot, motifs, lus, gros = _rejeu(conn)
+    conn.close()
+
+    tot_ref = sum(d["refuse"] for d in par_depot.values())
+    tot_gar = sum(d["garde"] for d in par_depot.values())
+
+    lignes = ["# Filtre d'entree — ce qu'il AURAIT refuse sur la veille par clone", "",
+              "Genere le %s par tools/forge_veille_intake_filter.py."
+              % datetime.now(timezone.utc).isoformat(timespec="seconds"), "",
+              "Rejeu SUR CHEMIN uniquement (le marqueur en tete de fichier n'est",
+              "verifiable qu'a l'ingestion, il refusera donc DAVANTAGE en reel).",
+              "Aucune suppression : le corpus existant n'est pas touche.", "",
+              "- chunks examines : **%d**" % lus,
+              "- refuses : **%d** (%.1f %%)" % (tot_ref, 100.0 * tot_ref / max(lus, 1)),
+              "- gardes : **%d**" % tot_gar, "",
+              "## Par depot", "",
+              "| depot | garde | refuse | %% refuse |", "|---|---|---|---|"]
+    for depot, d in sorted(par_depot.items(), key=lambda x: -x[1]["refuse"]):
+        tot = d["garde"] + d["refuse"]
+        lignes.append("| %s | %d | %d | %.1f %% |"
+                      % (depot, d["garde"], d["refuse"], 100.0 * d["refuse"] / max(tot, 1)))
+    lignes += ["", "## Par motif de refus", "",
+               "| motif | chunks |", "|---|---|"]
+    for m, n in sorted(motifs.items(), key=lambda x: -x[1]):
+        lignes.append("| %s | %d |" % (m, n))
+    lignes += ["", "## Les 25 plus gros refus — a relire un par un", "",
+               "Un faux positif ici coute plus cher qu'un faux negatif : ce qui",
+               "n'entre pas ne pourra jamais etre raffine.", "",
+               "| chunks | source | motif |", "|---|---|---|"]
+    for n, src, mot in gros:
+        lignes.append("| %d | %s | %s |" % (n, src, mot))
+
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    OUT.write_text("\n".join(lignes), encoding="utf-8")
+
+    print("=== FILTRE D'ENTREE — REJEU ===")
+    print("examines %d | refuses %d (%.1f %%) | gardes %d"
+          % (lus, tot_ref, 100.0 * tot_ref / max(lus, 1), tot_gar))
+    print("\n-- par depot --")
+    for depot, d in sorted(par_depot.items(), key=lambda x: -x[1]["refuse"])[:14]:
+        tot = d["garde"] + d["refuse"]
+        print("  %-22s garde %7d  refuse %7d  (%.1f %%)"
+              % (depot, d["garde"], d["refuse"], 100.0 * d["refuse"] / max(tot, 1)))
+    print("\n-- par motif --")
+    for m, n in sorted(motifs.items(), key=lambda x: -x[1]):
+        print("  %-32s %7d" % (m, n))
+    print("\n-- 25 plus gros refus (relire : un faux positif est irreversible) --")
+    for n, src, mot in gros:
+        print("  %7d  %-62s %s" % (n, src[:62], mot[:34]))
+    print("\nrapport:", OUT)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

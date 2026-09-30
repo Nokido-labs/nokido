@@ -1,0 +1,77 @@
+/* ============================================================================
+   Nokido — Thèmes : sombre (défaut), clair, et « auto » (suit le poste)
+   - Sombre = :root (défini dans colors.css)
+   - Clair  = [data-theme="light"]
+   - Auto   = [data-theme="auto"] + @media (prefers-color-scheme) → suit l'OS
+   Le hub applique data-theme sur <html> (voir nokido.js : theme.set/restore).
+   ============================================================================ */
+
+/* -------- Thème clair -------- */
+[data-theme="light"] {
+  --bg-0: #F4F2FA;   /* body */
+  --bg-1: #FBFAFE;   /* panneaux, sidebar, topbar */
+  --bg-2: #FFFFFF;   /* cartes */
+  --bg-3: #F0ECF8;   /* survol */
+  --bg-4: #E7E1F3;   /* actif */
+
+  --border:        #DDD7EC;
+  --border-subtle: #EAE6F4;
+
+  --text-primary:   #181527;
+  --text-secondary: #4C4860;
+  --text-dim:       #7A7690;
+  --text-disabled:  #ABA7BD;
+
+  --purple-dim: #5E36D6;   /* hover plus foncé en clair */
+
+  /* Teintes de badge légèrement plus soutenues sur fond clair */
+  --tint-purple: rgba(119, 74, 255, 0.12);
+  --tint-blue:   rgba(59, 178, 208, 0.14);
+  --tint-cyan:   rgba(45, 212, 191, 0.14);
+  --tint-green:  rgba(74, 194, 139, 0.14);
+  --tint-yellow: rgba(255, 194, 45, 0.18);
+  --tint-orange: rgba(255, 145, 66, 0.14);
+  --tint-red:    rgba(242, 79, 79, 0.12);
+  --tint-pink:   rgba(236, 72, 153, 0.12);
+
+  --prov-local-tint:  rgba(74, 194, 139, 0.16);
+  --prov-remote-tint: rgba(119, 74, 255, 0.12);
+  --prov-hybrid-tint: rgba(45, 212, 191, 0.16);
+
+  /* Ombres plus douces sur fond clair */
+  --shadow-sm:   0 1px 2px rgba(24, 21, 39, 0.06);
+  --shadow-md:   0 4px 12px rgba(24, 21, 39, 0.08);
+  --shadow-lg:   0 8px 32px rgba(24, 21, 39, 0.12);
+  --shadow-glow: 0 0 24px rgba(119, 74, 255, 0.18);
+}
+
+/* -------- Thème auto : suit le poste (prefers-color-scheme) --------
+   Par défaut (OS sombre) auto = sombre (hérité de :root).
+   Si l'OS est en clair, auto bascule sur la palette claire. */
+@media (prefers-color-scheme: light) {
+  [data-theme="auto"] {
+    --bg-0: #F4F2FA;
+    --bg-1: #FBFAFE;
+    --bg-2: #FFFFFF;
+    --bg-3: #F0ECF8;
+    --bg-4: #E7E1F3;
+
+    --border:        #DDD7EC;
+    --border-subtle: #EAE6F4;
+
+    --text-primary:   #181527;
+    --text-secondary: #4C4860;
+    --text-dim:       #7A7690;
+    --text-disabled:  #ABA7BD;
+
+    --purple-dim: #5E36D6;
+
+    --tint-purple: rgba(119, 74, 255, 0.12);
+    --tint-yellow: rgba(255, 194, 45, 0.18);
+
+    --shadow-sm:   0 1px 2px rgba(24, 21, 39, 0.06);
+    --shadow-md:   0 4px 12px rgba(24, 21, 39, 0.08);
+    --shadow-lg:   0 8px 32px rgba(24, 21, 39, 0.12);
+    --shadow-glow: 0 0 24px rgba(119, 74, 255, 0.18);
+  }
+}

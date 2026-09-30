@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  html, body { margin: 0; }
+  body { padding: 18px; background: var(--bg-0); transition: background var(--motion-base); }
+  .modes { display: flex; gap: 6px; margin-bottom: 14px; }
+  .mode { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px;
+    padding: 5px 12px; border-radius: var(--radius-pill); border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary); cursor: pointer; transition: all var(--motion-fast); }
+  .mode[aria-pressed="true"] { background: var(--tint-purple); color: var(--purple); border-color: var(--purple); }
+  .row { display: flex; gap: 10px; }
+  .sw { flex: 1; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); padding: 12px; height: 92px;
+    display: flex; flex-direction: column; justify-content: flex-end; transition: background var(--motion-base); }
+  .name { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
+  .hex { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+</style></head>
+<body id="stage">
+  <div class="modes">
+    <button class="mode" data-mode="dark"  aria-pressed="true"><i data-lucide="moon" style="width:13px;height:13px"></i>Sombre</button>
+    <button class="mode" data-mode="light" aria-pressed="false"><i data-lucide="sun" style="width:13px;height:13px"></i>Clair</button>
+    <button class="mode" data-mode="auto"  aria-pressed="false"><i data-lucide="monitor" style="width:13px;height:13px"></i>Auto · poste</button>
+  </div>
+  <div class="row">
+    <div class="sw" style="background:var(--bg-0)"><span class="name">bg-0</span><span class="hex">body</span></div>
+    <div class="sw" style="background:var(--bg-1)"><span class="name">bg-1</span><span class="hex">panneaux</span></div>
+    <div class="sw" style="background:var(--bg-2)"><span class="name">bg-2</span><span class="hex">cartes</span></div>
+    <div class="sw" style="background:var(--bg-3)"><span class="name">bg-3</span><span class="hex">survol</span></div>
+    <div class="sw" style="background:var(--bg-4)"><span class="name">bg-4</span><span class="hex">actif</span></div>
+  </div>
+  <script src="/static/lucide.min.js"></script>
+  <script>
+    lucide.createIcons();
+    const stage = document.documentElement;
+    document.querySelectorAll('.mode').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode').forEach(b => b.setAttribute('aria-pressed', b === btn));
+        stage.setAttribute('data-theme', btn.dataset.mode);
+      });
+    });
+  </script>
+</body></html>

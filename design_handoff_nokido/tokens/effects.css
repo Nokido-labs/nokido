@@ -1,0 +1,59 @@
+/* ============================================================================
+   Nokido — Ombres, halos & mouvement
+   Le mouvement porte du sens (origine du calcul, promotion, avancée d'une
+   roadmap) — jamais décoratif gratuit. Respecter prefers-reduced-motion.
+   ============================================================================ */
+
+:root {
+  /* -- Ombres --------------------------------------------------------------- */
+  --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg:   0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* Halo violet — survol de carte interactive, focus accent */
+  --shadow-glow: 0 0 24px rgba(119, 74, 255, 0.15);
+
+  /* Anneau de focus (clavier) — accessibilité */
+  --focus-ring: 0 0 0 3px rgba(119, 74, 255, 0.35);
+
+  /* -- Durées & courbes ----------------------------------------------------- */
+  --motion-fast:   120ms;  /* @kind other */ /* hover boutons, teintes */
+  --motion-base:   150ms;  /* @kind other */ /* cartes, transitions d'état */
+  --motion-slow:   220ms;  /* @kind other */ /* toasts, panneaux, sidebar mobile */
+  --ease-out:      cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out:   cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+
+  /* Cadence des indicateurs vivants (pulse) */
+  --pulse-period: 2s; /* @kind other */
+}
+
+/* -- Keyframes partagées ---------------------------------------------------- */
+@keyframes laforge-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+@keyframes laforge-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes laforge-fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Promotion d'un anneau d'intégrité (brouillon → vérifié → or) */
+@keyframes laforge-promote {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 194, 45, 0.0); }
+  40%  { box-shadow: 0 0 0 4px rgba(255, 194, 45, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 194, 45, 0.0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .laforge-pulse,
+  *[class*="nokido-"] {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

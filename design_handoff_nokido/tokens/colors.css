@@ -1,0 +1,125 @@
+/* ============================================================================
+   Nokido — Couleurs
+   Source de vérité : app/web_hub/static/nokido.css (palette « netcfg-agent »)
+   Thème sombre souverain. Une seule teinte d'accent (violet) + famille d'accents
+   sémantiques. Identité par domaine (sections) en bas de fichier.
+   ============================================================================ */
+
+:root {
+  /* -- Fonds : 5 strates, bg-0 = body / bg-4 = surface active --------------- */
+  --bg-0: #0C0A13;   /* body, fond absolu */
+  --bg-1: #14121C;   /* panneaux, sidebar, topbar */
+  --bg-2: #1C1928;   /* cartes */
+  --bg-3: #252233;   /* carte survolée, puces */
+  --bg-4: #2E2A3D;   /* surface active / pressée */
+
+  /* -- Bordures ------------------------------------------------------------- */
+  --border:        #332F44;  /* bordure standard sur fond clair (bg-2+) */
+  --border-subtle: #262338;  /* séparateurs discrets, panneaux */
+
+  /* -- Texte ---------------------------------------------------------------- */
+  --text-primary:   #EDEBF4;  /* titres, corps fort */
+  --text-secondary: #B2AEC4;  /* corps secondaire */
+  --text-dim:       #6E6A82;  /* méta, légendes, mono */
+  --text-disabled:  #4A4759;  /* désactivé */
+
+  /* -- Accent principal (violet souverain) ---------------------------------- */
+  --purple:     #774AFF;
+  --purple-dim: #4B2E9E;   /* hover/pressé du violet */
+
+  /* -- Famille d'accents sémantiques ---------------------------------------- */
+  --blue:   #3BB2D0;
+  --cyan:   #2DD4BF;
+  --green:  #4AC28B;
+  --yellow: #FFC22D;
+  --orange: #FF9142;
+  --red:    #F24F4F;
+  --pink:   #EC4899;
+
+  /* -- Sévérité (héritée des niveaux de drift netcfg) ----------------------- */
+  --sev-aligned: #4AC28B;
+  --sev-light:   #FFC22D;
+  --sev-medium:  #FF9142;
+  --sev-heavy:   #F24F4F;
+  --sev-unknown: #6E6A82;
+
+  /* -- Couleurs de graphes (cyclables) -------------------------------------- */
+  --chart-1: #774AFF;
+  --chart-2: #3BB2D0;
+  --chart-3: #4AC28B;
+  --chart-4: #FFC22D;
+  --chart-5: #FF9142;
+  --chart-6: #EC4899;
+  --chart-7: #2DD4BF;
+
+  /* =========================================================================
+     ALIAS SÉMANTIQUES — préférer ceux-ci dans les composants
+     ========================================================================= */
+  --bg:      var(--bg-0);
+  --surface: var(--bg-1);
+  --surface-card: var(--bg-2);
+  --surface-raised: var(--bg-3);
+  --surface-active: var(--bg-4);
+  --accent:  var(--purple);
+  --text:    var(--text-primary);
+  --dim:     var(--text-dim);
+  --ok:      var(--green);
+  --warn:    var(--yellow);
+  --err:     var(--red);
+  --info:    var(--blue);
+
+  /* Teintes douces (fonds de badge / halo) — 12 % d'opacité */
+  --tint-purple: rgba(119, 74, 255, 0.16);
+  --tint-blue:   rgba(59, 178, 208, 0.16);
+  --tint-cyan:   rgba(45, 212, 191, 0.16);
+  --tint-green:  rgba(74, 194, 139, 0.16);
+  --tint-yellow: rgba(255, 194, 45, 0.16);
+  --tint-orange: rgba(255, 145, 66, 0.16);
+  --tint-red:    rgba(242, 79, 79, 0.16);
+  --tint-pink:   rgba(236, 72, 153, 0.16);
+
+  /* =========================================================================
+     PROVENANCE — local (souverain) vs distant (cloud)
+     L'élément de design le plus important : montrer OÙ vit le calcul.
+     Local = vert/chaud, ancré. Distant = violet/froid, signalé, réversible.
+     ========================================================================= */
+  --prov-local:        #4AC28B;
+  --prov-local-tint:   rgba(74, 194, 139, 0.14);
+  --prov-local-glow:   0 0 0 1px rgba(74, 194, 139, 0.35), 0 0 18px rgba(74, 194, 139, 0.12);
+
+  --prov-remote:       #774AFF;
+  --prov-remote-tint:  rgba(119, 74, 255, 0.14);
+  --prov-remote-glow:  0 0 0 1px rgba(119, 74, 255, 0.40), 0 0 18px rgba(119, 74, 255, 0.14);
+
+  --prov-hybrid:       #2DD4BF;   /* partiellement local */
+  --prov-hybrid-tint:  rgba(45, 212, 191, 0.14);
+
+  /* =========================================================================
+     ANNEAUX D'INTÉGRITÉ — brouillon → vérifié → or
+     Statut de fiabilité d'une donnée / étape / réponse.
+     ========================================================================= */
+  --ring-draft:    #6E6A82;   /* brouillon, non vérifié */
+  --ring-verified: #3BB2D0;   /* vérifié */
+  --ring-gold:     #FFC22D;   /* or — promu, certifié */
+
+  /* =========================================================================
+     IDENTITÉ PAR DOMAINE — chaque section a sa teinte d'accent
+     mais hérite de la même structure. Cohérence globale, reconnaissance immédiate.
+     ========================================================================= */
+  --domain-transport: #3BB2D0;  /* bleu — temps réel, mobilité */
+  --domain-sante:     #4AC28B;  /* vert — confidentialité max, local forcé */
+  --domain-finance:   #FFC22D;  /* ambre — traçabilité, neutralité */
+  --domain-loisir:    #EC4899;  /* rose — découverte, sérendipité */
+  --domain-achat:     #FF9142;  /* orange — comparatif, neutralité */
+  --domain-creation:  #774AFF;  /* violet — atelier génératif */
+  --domain-jeux:      #2DD4BF;  /* cyan — immersif, faible latence */
+  --domain-dev:       #B2AEC4;  /* gris froid — terminal, logs */
+  --domain-domotique: #4AC28B;  /* vert — local-first absolu, maison vivante */
+
+  /* Exemples — liste NON figée : ajouter un --domain-xxx suffit à créer une section.
+     La carte hérite automatiquement de la même grammaire (filet d'accent + tuile). */
+  --domain-travail:   #3BB2D0;  /* bleu — productivité, focus */
+  --domain-energie:   #FFC22D;  /* ambre — conso, sobriété */
+  --domain-famille:   #EC4899;  /* rose — partage, agenda commun */
+  --domain-voyage:    #FF9142;  /* orange — itinéraires, découverte */
+}

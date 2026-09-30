@@ -1,0 +1,49 @@
+Tu es architecte Nokido MCP senior. Reprise cadrage Phase 4 apres 2 livrables.
+
+ETAT MIS A JOUR :
+
+Livre A : tools/nssm_switch_to_user.ps1
+- Bascule service LaForgeMCP de LocalSystem -> .\user
+- Grant SeServiceLogonRight via secedit, backup auto
+- Test post-bascule : ask provider=gemini_cli depuis hub
+- Pre-requis : gemini interactif login OAuth avant bascule
+- Effet : abo Gemini Ultra naarobb@gmail.com visible cote hub
+
+Livre B : app/forge_quota_tracker.py + patch forge_mcp_registry.py
+- API : get_quota(provider, fetch_live), get_all_quotas, record_response_headers, record_429
+- Source 1 : openrouter /v1/key live
+- Source 2 : ~/.gemini/google_accounts.json + recent error reports
+- Source 3 : cache memoire X-RateLimit-* headers
+- Source 4 : agregation token_usage (42 rows), provider_scores (9 rows)
+- Expose en MCP : tool hub action quota_status
+- args.fetch_live=True / args.provider=X / args.format=json
+- TESTE : OpenRouter $0.084/j $0.18/m, expire juin 2026
+- TESTE : Gemini detecte oauth_creds_present:false + 3 erreurs quota
+
+LIVRABLE ATTENDU (max 800 mots) - Phase 4 raffinee :
+
+1. AUTO-DOCUMENTATION TOOLS (avec quota_tracker)
+Format enrichi du content retourne par chaque appel d'outil MCP :
+  business_result, next_steps_suggestions, automation_hints,
+  performance_metrics (p50/p95), quota_health (NOUVEAU)
+Question : comment injecter quota_health sans casser la spec 2025-11-25 ?
+Champ _meta libre dans content[] ou champ structurel quota au niveau result ?
+
+2. STREAMING STDIO
+Le patch micro-batching tient. Question : faut-il que le bridge interroge
+forge_quota_tracker AVANT chaque appel et bloque si quota critique ?
+Ou laisser le client decider ?
+
+3. ECONOMIE TOKENS
+Comment exposer quota_health dans la liste des tools pour que Claude voit
+l'etat sans appeler hub.quota_status ? Champ _meta.quota_health par Tool ?
+
+4. ORDRE EXECUTION re-cadre
+- P0 (livre, prêt deploiement) : NSSM switch + forge_quota_tracker
+- P1 : streaming stdio bridge
+- P2 : auto-documentation hook + quota_health injection
+- P3 : cache schemas tools + listChanged
+- P4 : SEP-1686 tasks
+
+Donne ton plan en COMMANDES exactes (effort heures par sous-tache).
+Pas blabla. CODE / SPEC / commandes / SQL DDL.

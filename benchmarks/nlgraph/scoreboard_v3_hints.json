@@ -1,0 +1,49 @@
+{
+  "model": "qwen2.5-coder:7b-instruct-q4_K_M",
+  "difficulty": "easy",
+  "version": "v3_with_hints",
+  "timestamp": "2026-04-15",
+  "overall_accuracy": 0.636,
+  "by_task": {
+    "connectivity": {
+      "correct": 8,
+      "total": 10,
+      "accuracy": 0.8
+    },
+    "cycle": {
+      "correct": 2,
+      "total": 3,
+      "accuracy": 0.667
+    },
+    "shortest_path": {
+      "correct": 0,
+      "total": 3,
+      "accuracy": 0.0
+    },
+    "bipartite": {
+      "correct": 5,
+      "total": 5,
+      "accuracy": 1.0
+    },
+    "topological_sort": {
+      "correct": 3,
+      "total": 3,
+      "accuracy": 1.0
+    },
+    "max_flow": {
+      "correct": 0,
+      "total": 3,
+      "accuracy": 0.0
+    },
+    "gnn_simulate": {
+      "correct": 0,
+      "total": 3,
+      "accuracy": 0.0
+    },
+    "hamilton": {
+      "correct": 3,
+      "total": 3,
+      "accuracy": 1.0
+    }
+  }
+}

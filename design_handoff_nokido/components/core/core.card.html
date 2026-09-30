@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}#root{display:flex;flex-direction:column;gap:18px;}.lf-i{width:16px;height:16px;}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { Button, Card } = window.NokidoDesignSystem_bdc2ac;
+const Ico = ({n,s=16}) => <i data-lucide={n} style={{width:s,height:s}}></i>;
+function Demo(){
+  return (
+    <>
+      <div style={{display:"flex",gap:"10px",flexWrap:"wrap",alignItems:"center"}}>
+        <Button variant="primary">Primary</Button>
+        <Button variant="ghost">Ghost</Button>
+        <Button variant="danger" icon={<Ico n="trash-2"/>}>Révoquer</Button>
+        <Button variant="success" icon={<Ico n="check"/>}>Promu</Button>
+        <Button variant="primary" disabled>Désactivé</Button>
+      </div>
+      <div style={{display:"flex",gap:"10px",alignItems:"center"}}>
+        <Button variant="primary" size="sm">Small</Button>
+        <Button variant="primary" size="md">Medium</Button>
+        <Button variant="primary" size="lg">Large</Button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+        <Card icon={<Ico n="route" s={22}/>} iconColor="blue" title="Transport"
+              subtitle="Trajets, mobilité, logistique perso" interactive footer="/transport/ → temps réel"/>
+        <Card icon={<Ico n="heart-pulse" s={22}/>} iconColor="green" title="Santé"
+              subtitle="Local forcé — confidentialité maximale" interactive footer="/sante/ → local"/>
+      </div>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+setTimeout(()=>window.lucide&&lucide.createIcons(),50);
+</script>
+</body></html>

@@ -1,0 +1,14 @@
+{
+ "version": 1,
+ "ts": "20260822_035308",
+ "regle": "task_id ici = auto-test NON FIABLE : jamais conclure vert sur auto-test seul (forcer reparation/escalade ou INDECIDABLE)",
+ "source": "RAG/humaneval/autotest_qualif_v2_20260822_035308.json (5 runs self-repair)",
+ "quarantine": [
+  "HumanEval/75",
+  "HumanEval/76"
+ ],
+ "watch": [],
+ "memoire_owner": {
+  "HumanEval/101": "faux-vert observe 21/08 (memoire owner), signature absente des 5 runs scannes — innocente par la mesure du 22/08 (5/5 pass, reparation mord)"
+ }
+}

@@ -1,0 +1,28 @@
+import * as React from "react";
+
+/**
+ * Ring-O-Meter — le modèle d'intégrité à 11 anneaux de Nokido (Ring 0 « Lois
+ * absolues » au centre → Ring 10 « Corrections de Cap » à l'extérieur). Dégradé
+ * sémantique vert (souverain/core) → violet (système/externe). Chaque anneau a
+ * un état (ok / alert / block / inactive) ; cliquable avec légende.
+ * Repris de forge_desktop/widgets/ring_o_meter.py.
+ *
+ * @startingPoint section="Rings" subtitle="Dial des 11 rings d'intégrité, cliquable" viewport="700x340"
+ */
+export interface RingMeterProps {
+  /** État par ring : { 0: "ok"|"alert"|"block"|"inactive", … } */
+  states?: Record<number, "ok" | "alert" | "block" | "inactive">;
+  /** Ring sélectionné (mis en évidence) */
+  selected?: number | null;
+  /** Callback de sélection d'un ring */
+  onSelect?: (ring: number) => void;
+  /** Diamètre du dial en px */
+  size?: number;
+  /** Affiche la légende (Ring 0…10 + description) */
+  showLegend?: boolean;
+  /** Anime les anneaux en alerte */
+  pulse?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function RingMeter(props: RingMeterProps): JSX.Element;

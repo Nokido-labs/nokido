@@ -1,0 +1,84 @@
+# Nokido — règles Semgrep d'architecture (invariants "Golden Rules").
+# Lint structurel qui attrape les violations récurrentes AVANT commit/CI, là où
+# le hook AST Python (post-hoc, syntaxe seule) ne voit pas la sémantique.
+# Lancer : tools/forge_archi_lint.py  (ou semgrep --config .semgrep/nokido_golden_rules.yml app tools)
+# Roadmap observabilité chantier #4.
+rules:
+  # ── Invariant DB realpath (cause du bug veille-morte 5j) ────────────────────
+  - id: laforge-embeddings-db-literal-path
+    languages: [python]
+    severity: ERROR
+    message: >
+      Connexion à embeddings.db via chemin littéral : contourne
+      forge_db_path.db_path() (realpath C:->V:). Le symlink C: est read-only hors
+      service -> "readonly database" SILENCIEUX. Utiliser db_path().
+    patterns:
+      - pattern: sqlite3.connect($PATH, ...)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?i).*embeddings\.db.*
+
+  # ── Golden Rule #3 : INSERT rag_chunks sans id explicite ───────────────────
+  - id: laforge-insert-rag-chunks-no-id
+    languages: [python]
+    severity: ERROR
+    message: >
+      INSERT INTO rag_chunks sans colonne `id` explicite (TEXT PRIMARY KEY).
+      Golden Rule #3 — id déterministe sha256(source+text)[:16] obligatoire.
+    pattern-regex: (?i)INSERT\s+INTO\s+rag_chunks\s*\((?![^)]*\bid\b)
+
+  # ── Golden Rule #1 : pas de SQL LIKE primitif sur le RAG ───────────────────
+  - id: laforge-raw-sql-like-on-rag
+    languages: [python]
+    severity: WARNING
+    message: >
+      SQL LIKE brut sur une table rag_* : Golden Rule #1 — utiliser rag_fts
+      (FTS5/BM25) ou RAGEngine.search, pas LIKE primitif.
+    pattern-regex: (?i)FROM\s+rag_\w+\b[^;]{0,200}\bLIKE\b
+
+  # ── Section 11 : jamais `python` brut (toolchain split) ────────────────────
+  - id: laforge-bare-python-subprocess
+    languages: [python]
+    severity: WARNING
+    message: >
+      subprocess avec `python`/`python3` brut : résout un interpréteur ambigu
+      (user-site cassé). Utiliser forge_python_bin.LAFORGE_PYTHON.
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.run(["python", ...], ...)
+          - pattern: subprocess.run(["python3", ...], ...)
+          - pattern: subprocess.Popen(["python", ...], ...)
+          - pattern: subprocess.Popen(["python3", ...], ...)
+          - pattern: subprocess.check_output(["python", ...], ...)
+
+  # ── Pas d'API Anthropic directe (pay-per-token) ────────────────────────────
+  - id: laforge-no-anthropic-api-direct
+    languages: [python]
+    severity: ERROR
+    message: >
+      API Anthropic directe interdite (pay-per-token). Privilégier claude_cli /
+      claude_agent_sdk via le hub. cf feedback_no_anthropic_api_direct.
+    patterns:
+      - pattern-either:
+          - pattern: import anthropic
+          - pattern: from anthropic import ...
+          - pattern: anthropic.Anthropic(...)
+
+  # ── Golden Rule #4 (best-effort) : provider cloud sans firewall ────────────
+  # Heuristique : lecture directe d'une clé cloud depuis l'env (devrait passer
+  # par forge_machine_vault). Une vraie règle taint (send sans pre_flight) exige
+  # semgrep-pro ; ceci est le proxy syntaxique low-cost.
+  - id: laforge-cloud-secret-from-env
+    languages: [python]
+    severity: INFO
+    message: >
+      Clé/secret cloud lu directement depuis os.environ : préférer
+      forge_machine_vault (coffre DPAPI machine-wide). Golden Rule #4 / souveraineté.
+    patterns:
+      - pattern-either:
+          - pattern: os.environ[$K]
+          - pattern: os.environ.get($K)
+          - pattern: os.getenv($K)
+      - metavariable-regex:
+          metavariable: $K
+          regex: (?i).*(API_KEY|_SECRET|SECRET_KEY|_TOKEN|PASSWORD).*

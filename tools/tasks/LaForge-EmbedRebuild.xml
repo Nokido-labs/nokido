@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Nokido — rebuild des embeddings RAG restants puis arret auto. Job GPU local (llama-server), execute en contexte interactif user. Tache on-demand (aucun trigger) : declenchee par schtasks /run.</Description>
+    <URI>\LaForge-EmbedRebuild</URI>
+  </RegistrationInfo>
+  <Triggers />
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-21-XXXX</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT6H</ExecutionTimeLimit>
+    <Priority>7</Priority>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%NOKIDO_WORKSPACE%\LaForge\tools\embed_rebuild_job.bat</Command>
+    </Exec>
+  </Actions>
+</Task>

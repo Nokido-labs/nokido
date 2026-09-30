@@ -1,0 +1,100 @@
+{
+  "_note": "Cablage hooks attendu. Regenerer SCIEMMENT via hook_integrity_check.py --capture, jamais en automatique.",
+  "cablage": [
+    {
+      "event": "PostToolUse",
+      "script": "hook_posttool_validate.py",
+      "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "hook_posttool_validate.py",
+      "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
+    },
+    {
+      "event": "PreCompact",
+      "script": "claude_precompact.py",
+      "matcher": "*"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "bash_guard.py",
+      "matcher": "Bash"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "bash_guard.py",
+      "matcher": "PowerShell"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "forge_tool_gate.py",
+      "matcher": "Read|Grep|Glob|WebSearch|WebFetch|Task|Agent|Write|Edit"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_bash_compact.py",
+      "matcher": "Bash"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_capability_gate.py",
+      "matcher": "mcp__laforge-sovereign-hub__run|Bash"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_pretool_guard.py",
+      "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_recon_first.py",
+      "matcher": "mcp__laforge-sovereign-hub__.*"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_search_guard.py",
+      "matcher": "Read|Grep|Glob"
+    },
+    {
+      "event": "SessionStart",
+      "script": "claude_session_start.py",
+      "matcher": "*"
+    },
+    {
+      "event": "SessionStart",
+      "script": "forge_directive_audit.py",
+      "matcher": "*"
+    },
+    {
+      "event": "SessionStart",
+      "script": "forge_memory_compactor.py",
+      "matcher": "*"
+    },
+    {
+      "event": "SessionStart",
+      "script": "hook_integrity_check.py",
+      "matcher": "*"
+    },
+    {
+      "event": "Stop",
+      "script": "claude_session_stop.py",
+      "matcher": "*"
+    },
+    {
+      "event": "Stop",
+      "script": "forge_ci_stop_hook.py",
+      "matcher": "*"
+    },
+    {
+      "event": "Stop",
+      "script": "session_anchor.py",
+      "matcher": ""
+    },
+    {
+      "event": "UserPromptSubmit",
+      "script": "claude_inbox_tick.py",
+      "matcher": "*"
+    }
+  ]
+}

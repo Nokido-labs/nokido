@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏠 Maison — Flotte Edge · Nokido</title>
+  <link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+  <meta name="description" content="Dashboard de monitoring de la flotte Edge Nokido — appareils connectés, heartbeat, ADB, métriques temps réel.">
+  <style>
+    /* Webfonts vendorees localement (0 egress) — cf tools/forge_font_vendor.py */
+    @font-face { font-family:'Inter'; font-style:normal; font-weight:400; font-display:swap; src:url(/static/fonts/inter-400.woff2) format('woff2'); }
+    @font-face { font-family:'Inter'; font-style:normal; font-weight:500; font-display:swap; src:url(/static/fonts/inter-500.woff2) format('woff2'); }
+    @font-face { font-family:'Inter'; font-style:normal; font-weight:600; font-display:swap; src:url(/static/fonts/inter-600.woff2) format('woff2'); }
+    @font-face { font-family:'Inter'; font-style:normal; font-weight:700; font-display:swap; src:url(/static/fonts/inter-700.woff2) format('woff2'); }
+  </style>
+  <style>
+    /* ── Design Tokens ─────────────────────────────── */
+    :root {
+      --bg:        #0f0f1a;
+      --surface:   #1a1a2e;
+      --surface-2: #22223a;
+      --text:      #e2e8f0;
+      --text-dim:  #8b8fa3;
+      --green:     #22c55e;
+      --yellow:    #fbbf24;
+      --red:       #ef4444;
+      --violet:    #774AFF;
+      --violet-dim: rgba(119,74,255,0.15);
+      --border:    rgba(255,255,255,0.06);
+      --border-focus: rgba(119,74,255,0.4);
+      --radius:    8px;
+      --radius-lg: 12px;
+      --shadow:    0 2px 12px rgba(0,0,0,0.35);
+      --mono:      'Consolas', 'Monaco', 'Courier New', monospace;
+      --font:      'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --sidebar-w: 380px;
+    }
+
+    /* ── Reset & Base ──────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 13px; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    ::selection { background: var(--violet); color: #fff; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+    /* ── Layout ────────────────────────────────────── */
+    .app { display: flex; flex-direction: column; min-height: 100vh; }
+    .main-area {
+      display: flex;
+      flex: 1;
+      transition: margin-right 0.3s ease;
+    }
+    .main-area.sidebar-open { margin-right: var(--sidebar-w); }
+    .content { flex: 1; padding: 20px 28px 40px; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+    /* ── Header ─────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 28px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .header-left { display: flex; align-items: center; gap: 14px; }
+    .header-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      background: linear-gradient(135deg, var(--violet), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.2px;
+    }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .pulse-dot {
+      width: 8px; height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+      box-shadow: 0 0 6px rgba(34,197,94,0.5);
+    }
+    .pulse-dot.offline { background: var(--red); box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: 0.5; transform: scale(0.85); }
+    }
+    .refresh-label { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+
+    /* ── Stats Bar ──────────────────────────────────── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .stat-chip {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 14px;
+      text-align: center;
+      transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+    }
+    .stat-chip:hover {
+      border-color: var(--border-focus);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow);
+    }
+    .stat-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .stat-value {
+      font-size: 22px;
+      font-weight: 700;
+      font-family: var(--mono);
+      line-height: 1;
+    }
+    .stat-value.green  { color: var(--green); }
+    .stat-value.red    { color: var(--red); }
+    .stat-value.yellow { color: var(--yellow); }
+    .stat-value.violet { color: var(--violet); }
+    .stat-unit {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-left: 2px;
+      font-weight: 400;
+    }
+
+    /* ── Section Title ──────────────────────────────── */
+    .section-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── Table ──────────────────────────────────────── */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead th {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-dim);
+      padding: 10px 14px;
+      text-align: left;
+      background: var(--surface-2);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: rgba(119,74,255,0.05); }
+    tbody tr.selected { background: var(--violet-dim); }
+    tbody td {
+      padding: 10px 14px;
+      white-space: nowrap;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+    td.name-cell {
+      font-family: var(--font);
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text);
+    }
+    td.type-cell { font-size: 16px; text-align: center; }
+
+    /* ── Badge ──────────────────────────────────────── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: var(--font);
+      letter-spacing: 0.3px;
+    }
+    .badge-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+    .badge.online  { background: rgba(34,197,94,0.12); color: var(--green); }
+    .badge.online  .badge-dot { background: var(--green); }
+    .badge.offline { background: rgba(239,68,68,0.12); color: var(--red); }
+    .badge.offline .badge-dot { background: var(--red); }
+    .badge.warning { background: rgba(251,191,36,0.12); color: var(--yellow); }
+    .badge.warning .badge-dot { background: var(--yellow); }
+
+    /* ── Battery bar ────────────────────────────────── */
+    .battery-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 90px;
+    }
+    .battery-bar {
+      flex: 1;
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .battery-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.6s ease, background 0.3s;
+    }
+    .battery-text {
+      font-size: 10px;
+      min-width: 30px;
+      text-align: right;
+      color: var(--text-dim);
+    }
+
+    /* ── Metric highlight ───────────────────────────── */
+    .metric-val { font-weight: 600; }
+    .metric-val.high { color: var(--red); }
+    .metric-val.medium { color: var(--yellow); }
+    .metric-val.ok { color: var(--green); }
+    .metric-val.dim { color: var(--text-dim); }
+
+    /* ── Empty State ────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+    }
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+    .empty-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+    .empty-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      max-width: 380px;
+      margin: 0 auto 20px;
+      line-height: 1.6;
+    }
+    .empty-cmd {
+      display: inline-block;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--violet);
+    }
+
+    /* ── Sidebar ────────────────────────────────────── */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: var(--sidebar-w);
+      height: 100vh;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+    }
+    .sidebar.open { transform: translateX(0); }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sidebar-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .sidebar-close {
+      width: 28px; height: 28px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .sidebar-close:hover { border-color: var(--red); color: var(--red); }
+
+    .sidebar-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    /* ── Sidebar metrics grid ───────────────────────── */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .detail-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+    .detail-card-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-dim);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .detail-card-value {
+      font-size: 18px;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    /* ── ADB Buttons ────────────────────────────────── */
+    .adb-actions {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .btn-adb {
+      flex: 1;
+      padding: 8px 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+    }
+    .btn-adb:hover {
+      border-color: var(--violet);
+      background: var(--violet-dim);
+    }
+    .btn-adb:active { transform: scale(0.97); }
+
+    /* ── Mini Terminal ───────────────────────────────── */
+    .terminal-section { margin-top: 8px; }
+    .terminal-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-dim);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .terminal {
+      background: #0a0a14;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .terminal-output {
+      height: 180px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.6;
+      color: var(--green);
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .terminal-input-wrap {
+      display: flex;
+      border-top: 1px solid var(--border);
+    }
+    .terminal-prompt {
+      padding: 8px 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--violet);
+      background: rgba(119,74,255,0.06);
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .terminal-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      padding: 8px 10px 8px 0;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text);
+    }
+    .terminal-input::placeholder { color: rgba(139,143,163,0.4); }
+
+    /* ── Responsive ─────────────────────────────────── */
+    @media (max-width: 1100px) {
+      .stats-bar { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 768px) {
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
+      .header { flex-direction: column; gap: 6px; align-items: flex-start; }
+      .sidebar { width: 100%; }
+      :root { --sidebar-w: 100%; }
+    }
+
+    /* ── Animations ─────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.35s ease forwards; }
+    .shimmer {
+      background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- ═══ HEADER ═══ -->
+    <header class="header" id="header">
+      <div class="header-left">
+        <span class="header-title">🏠 Maison — Flotte Edge</span>
+        <span class="header-sub">Appareils connectés · Heartbeat · ADB · Monitoring</span>
+      </div>
+      <div class="header-right">
+        <button id="scan-adb" title="Scanner les appareils ADB connectes" style="background:var(--violet);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-family:var(--font);cursor:pointer;font-weight:600;margin-right:6px;">&#8635; Scan ADB</button>
+        <div class="pulse-dot" id="pulse-dot" title="Connexion API"></div>
+        <span class="refresh-label" id="last-refresh">--:--:--</span>
+      </div>
+    </header>
+
+    <div class="main-area" id="main-area">
+      <div class="content">
+        <!-- ═══ STATS BAR ═══ -->
+        <div class="stats-bar" id="stats-bar">
+          <div class="stat-chip">
+            <div class="stat-label">Total Devices</div>
+            <div class="stat-value violet" id="stat-total">—</div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-label">En ligne</div>
+            <div class="stat-value green" id="stat-online">—</div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-label">Hors ligne</div>
+            <div class="stat-value red" id="stat-offline">—</div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-label">Batterie moy.</div>
+            <div class="stat-value" id="stat-battery">—<span class="stat-unit">%</span></div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-label">CPU moy.</div>
+            <div class="stat-value" id="stat-cpu">—<span class="stat-unit">%</span></div>
+          </div>
+          <div class="stat-chip">
+            <div class="stat-label">RAM moy.</div>
+            <div class="stat-value" id="stat-ram">—<span class="stat-unit">%</span></div>
+          </div>
+        </div>
+
+        <!-- ═══ TABLE ═══ -->
+        <div class="section-title">Appareils détectés</div>
+        <div class="table-wrap" id="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Type</th>
+                <th>OS</th>
+                <th>Statut</th>
+                <th>Batterie</th>
+                <th>CPU</th>
+                <th>RAM</th>
+                <th>Temp</th>
+                <th>Vu il y a</th>
+              </tr>
+            </thead>
+            <tbody id="device-tbody">
+              <!-- Rows injected by JS -->
+            </tbody>
+          </table>
+          <!-- Empty state -->
+          <div class="empty-state" id="empty-state" style="display:none;">
+            <div class="empty-icon">📡</div>
+            <div class="empty-title">Aucun appareil détecté</div>
+            <div class="empty-desc">
+              Connectez un appareil via ADB ou vérifiez que le service Edge est actif.
+              Le dashboard se rafraîchit automatiquement toutes les 10 secondes.
+            </div>
+            <div class="empty-cmd">adb devices &amp;&amp; nokido edge scan</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SIDEBAR DETAIL ═══ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title" id="sidebar-device-name">—</span>
+        <button class="sidebar-close" id="sidebar-close" title="Fermer">✕</button>
+      </div>
+      <div class="sidebar-body">
+        <!-- Metrics -->
+        <div class="detail-grid" id="detail-grid">
+          <div class="detail-card">
+            <div class="detail-card-label">Batterie</div>
+            <div class="detail-card-value green" id="detail-battery">—</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-card-label">CPU</div>
+            <div class="detail-card-value" id="detail-cpu">—</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-card-label">RAM</div>
+            <div class="detail-card-value" id="detail-ram">—</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-card-label">Température</div>
+            <div class="detail-card-value" id="detail-temp">—</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-card-label">OS</div>
+            <div class="detail-card-value" id="detail-os" style="font-size:13px;">—</div>
+          </div>
+          <div class="detail-card">
+            <div class="detail-card-label">Dernier ping</div>
+            <div class="detail-card-value dim" id="detail-lastseen" style="font-size:13px;">—</div>
+          </div>
+        </div>
+
+        <!-- ADB Actions -->
+        <div class="section-title" style="margin-top:4px;">Actions ADB</div>
+        <div class="adb-actions">
+          <button class="btn-adb" id="btn-adb-shell" data-cmd="getprop ro.product.model">🖥 Shell</button>
+          <button class="btn-adb" id="btn-adb-screenshot" data-cmd="dumpsys battery">📸 Screenshot</button>
+          <button class="btn-adb" id="btn-adb-status" data-cmd="uptime">📊 Status</button>
+        </div>
+
+        <!-- Mini Terminal -->
+        <div class="terminal-section">
+          <div class="terminal-label">Terminal ADB</div>
+          <div class="terminal">
+            <div class="terminal-output" id="terminal-output">Prêt. Sélectionnez un appareil.\n</div>
+            <div class="terminal-input-wrap">
+              <span class="terminal-prompt">$</span>
+              <input class="terminal-input" id="terminal-input" type="text" placeholder="Commande ADB…" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    /* ═══════════════════════════════════════════════════
+       Nokido Edge — Maison Dashboard · Vanilla JS
+       ═══════════════════════════════════════════════════ */
+
+    const API = {
+      fleet:  '/api/edge/fleet',
+      stats:  '/api/edge/stats',
+      scan:   '/api/edge/scan',
+      adb:    '/api/edge/adb',
+      control: '/api/edge/adb/control'
+    };
+
+    const REFRESH_MS = 10_000;
+    let selectedDevice = null;
+    let refreshTimer = null;
+    let apiOk = false;
+
+    // ── DOM refs ────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const tbody       = $('device-tbody');
+    const emptyState  = $('empty-state');
+    const sidebar     = $('sidebar');
+    const mainArea    = $('main-area');
+    const pulseDot    = $('pulse-dot');
+    const lastRefresh = $('last-refresh');
+    const termOutput  = $('terminal-output');
+    const termInput   = $('terminal-input');
+
+    // ── Helpers ─────────────────────────────────────
+    function timeAgo(isoOrSec) {
+      if (isoOrSec == null) return '—';
+      let sec;
+      if (typeof isoOrSec === 'number') {
+        sec = isoOrSec;
+      } else {
+        sec = Math.floor((Date.now() - new Date(isoOrSec).getTime()) / 1000);
+      }
+      if (sec < 0) sec = 0;
+      if (sec < 60)   return sec + 's';
+      if (sec < 3600)  return Math.floor(sec / 60) + 'min';
+      if (sec < 86400) return Math.floor(sec / 3600) + 'h';
+      return Math.floor(sec / 86400) + 'j';
+    }
+
+    function batteryColor(pct) {
+      if (pct == null) return 'var(--text-dim)';
+      if (pct > 50) return 'var(--green)';
+      if (pct > 20) return 'var(--yellow)';
+      return 'var(--red)';
+    }
+
+    function metricClass(val, warnThresh, highThresh) {
+      if (val == null) return 'dim';
+      if (val >= highThresh) return 'high';
+      if (val >= warnThresh) return 'medium';
+      return 'ok';
+    }
+
+    function statusBadge(status) {
+      const s = (status || '').toLowerCase();
+      if (s === 'online' || s === 'connected' || s === 'en ligne')
+        return '<span class="badge online"><span class="badge-dot"></span>En ligne</span>';
+      if (s === 'warning' || s === 'warn' || s === 'unstable')
+        return '<span class="badge warning"><span class="badge-dot"></span>Instable</span>';
+      return '<span class="badge offline"><span class="badge-dot"></span>Hors ligne</span>';
+    }
+
+    function deviceEmoji(type) {
+      const map = {
+        phone: '📱', tablet: '📱', tv: '📺', watch: '⌚',
+        speaker: '🔊', camera: '📷', sensor: '🌡️', gateway: '🌐',
+        laptop: '💻', desktop: '🖥️', raspberry: '🍓', jetson: '🤖',
+        server: '🖧'
+      };
+      return map[(type || '').toLowerCase()] || '📦';
+    }
+
+    function now() {
+      return new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // ── API fetch wrapper ───────────────────────────
+    async function apiFetch(url, opts) {
+      try {
+        const r = await fetch(url, opts);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        setApiStatus(true);
+        return await r.json();
+      } catch (e) {
+        setApiStatus(false);
+        console.warn(`[Nokido] ${url}:`, e.message);
+        return null;
+      }
+    }
+
+    function setApiStatus(ok) {
+      apiOk = ok;
+      pulseDot.classList.toggle('offline', !ok);
+      pulseDot.title = ok ? 'API connectée' : 'API injoignable';
+    }
+
+    // ── Render stats ────────────────────────────────
+    function renderStats(data) {
+      if (!data) return;
+      $('stat-total').textContent   = data.total ?? '—';
+      $('stat-online').textContent  = data.online ?? '—';
+      $('stat-offline').textContent = data.offline ?? '—';
+
+      const batt = data.avg_battery;
+      const cpu  = data.avg_cpu;
+      const ram  = data.avg_ram;
+
+      $('stat-battery').innerHTML = batt != null
+        ? `${Math.round(batt)}<span class="stat-unit">%</span>` : '—';
+      $('stat-cpu').innerHTML = cpu != null
+        ? `${Math.round(cpu)}<span class="stat-unit">%</span>` : '—';
+      $('stat-ram').innerHTML = ram != null
+        ? `${Math.round(ram)}<span class="stat-unit">%</span>` : '—';
+
+      // Color coding
+      $('stat-battery').className = 'stat-value ' +
+        (batt == null ? '' : batt > 50 ? 'green' : batt > 20 ? 'yellow' : 'red');
+      $('stat-cpu').className = 'stat-value ' +
+        (cpu == null ? '' : cpu < 60 ? 'green' : cpu < 85 ? 'yellow' : 'red');
+      $('stat-ram').className = 'stat-value ' +
+        (ram == null ? '' : ram < 60 ? 'green' : ram < 85 ? 'yellow' : 'red');
+    }
+
+    // ── Render fleet table ──────────────────────────
+    function renderFleet(devices) {
+      if (!devices || !devices.length) {
+        tbody.innerHTML = '';
+        emptyState.style.display = 'block';
+        return;
+      }
+      emptyState.style.display = 'none';
+
+      tbody.innerHTML = devices.map(d => {
+        const batt = d.battery;
+        const battCol = batteryColor(batt);
+        const cpuCls = metricClass(d.cpu, 60, 85);
+        const ramCls = metricClass(d.ram, 60, 85);
+        const tempCls = metricClass(d.temp, 40, 55);
+        const isSelected = selectedDevice && selectedDevice.id === d.id;
+
+        return `<tr data-id="${d.id}" class="${isSelected ? 'selected' : ''} fade-in">
+          <td class="name-cell">${escHtml(d.name || d.id)}</td>
+          <td class="type-cell" title="${escHtml(d.type || '')}">${deviceEmoji(d.type)}</td>
+          <td>${escHtml(d.os || '—')}</td>
+          <td>${statusBadge(d.status)}</td>
+          <td>
+            <div class="battery-bar-wrap">
+              <div class="battery-bar">
+                <div class="battery-fill" style="width:${batt ?? 0}%;background:${battCol}"></div>
+              </div>
+              <span class="battery-text">${batt != null ? batt + '%' : '—'}</span>
+            </div>
+          </td>
+          <td><span class="metric-val ${cpuCls}">${d.cpu != null ? d.cpu + '%' : '—'}</span></td>
+          <td><span class="metric-val ${ramCls}">${d.ram != null ? d.ram + '%' : '—'}</span></td>
+          <td><span class="metric-val ${tempCls}">${d.temp != null ? d.temp + '°' : '—'}</span></td>
+          <td style="color:var(--text-dim)">${timeAgo(d.last_seen)}</td>
+        </tr>`;
+      }).join('');
+
+      // Bind row click
+      tbody.querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const id = tr.dataset.id;
+          const dev = devices.find(dd => dd.id === id);
+          if (dev) openSidebar(dev);
+        });
+      });
+    }
+
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // ── Sidebar ─────────────────────────────────────
+    function openSidebar(dev) {
+      selectedDevice = dev;
+      sidebar.classList.add('open');
+      mainArea.classList.add('sidebar-open');
+
+      $('sidebar-device-name').textContent = `${deviceEmoji(dev.type)} ${dev.name || dev.id}`;
+      $('detail-battery').textContent = dev.battery != null ? dev.battery + '%' : '—';
+      $('detail-battery').style.color = batteryColor(dev.battery);
+      $('detail-cpu').textContent = dev.cpu != null ? dev.cpu + '%' : '—';
+      $('detail-cpu').className = 'detail-card-value ' + metricClass(dev.cpu, 60, 85);
+      $('detail-ram').textContent = dev.ram != null ? dev.ram + '%' : '—';
+      $('detail-ram').className = 'detail-card-value ' + metricClass(dev.ram, 60, 85);
+      $('detail-temp').textContent = dev.temp != null ? dev.temp + '°C' : '—';
+      $('detail-temp').className = 'detail-card-value ' + metricClass(dev.temp, 40, 55);
+      $('detail-os').textContent = dev.os || '—';
+      $('detail-lastseen').textContent = timeAgo(dev.last_seen);
+
+      // Highlight row
+      tbody.querySelectorAll('tr').forEach(tr => tr.classList.remove('selected'));
+      const row = tbody.querySelector(`tr[data-id="${dev.id}"]`);
+      if (row) row.classList.add('selected');
+
+      termOutput.textContent = `Connecté à ${dev.name || dev.id}\n`;
+      termInput.value = '';
+      termInput.focus();
+    }
+
+    function closeSidebar() {
+      selectedDevice = null;
+      sidebar.classList.remove('open');
+      mainArea.classList.remove('sidebar-open');
+      tbody.querySelectorAll('tr').forEach(tr => tr.classList.remove('selected'));
+    }
+
+    $('sidebar-close').addEventListener('click', closeSidebar);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeSidebar();
+    });
+
+    // ── ADB actions (controle gouverne : destructif => confirm) ──────
+    async function sendAdb(command, deviceId, confirmed) {
+      appendTerm(`$ adb ${command}`, 'var(--violet)');
+      const data = await apiFetch(API.control, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd: command, confirm: !!confirmed })
+      });
+      if (!data) {
+        appendTerm('Erreur : service ADB injoignable.', 'var(--red)');
+        return;
+      }
+      if (data.needs_confirm) {
+        appendTerm('⚠ ' + (data.warning || 'commande destructive'), 'var(--yellow)');
+        if (window.confirm((data.warning || 'Commande destructive.') + '\n\nExecuter quand meme ?')) {
+          return sendAdb(command, deviceId, true);
+        }
+        appendTerm('Annule.', 'var(--text-dim)');
+        return;
+      }
+      if (data.ok) {
+        appendTerm(data.output || '(ok)', 'var(--green)');
+      } else {
+        appendTerm(data.error || JSON.stringify(data), 'var(--red)');
+      }
+    }
+
+    document.querySelectorAll('.btn-adb').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!selectedDevice) return;
+        sendAdb(btn.dataset.cmd, selectedDevice.id);
+      });
+    });
+
+    // ── Terminal input ───────────────────────────────
+    termInput.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const cmd = termInput.value.trim();
+      if (!cmd || !selectedDevice) return;
+      termInput.value = '';
+      sendAdb(cmd, selectedDevice.id);
+    });
+
+    function appendTerm(text, color) {
+      const line = document.createElement('div');
+      line.style.color = color || 'var(--green)';
+      line.textContent = text;
+      termOutput.appendChild(line);
+      termOutput.scrollTop = termOutput.scrollHeight;
+    }
+
+    // ── Data loop ───────────────────────────────────
+    let fleetCache = [];
+
+    async function refresh() {
+      const [stats, fleet] = await Promise.all([
+        apiFetch(API.stats),
+        apiFetch(API.fleet)
+      ]);
+
+      renderStats(stats);
+
+      if (fleet) {
+        fleetCache = Array.isArray(fleet) ? fleet : (fleet.devices || []);
+        renderFleet(fleetCache);
+
+        // Update sidebar if open
+        if (selectedDevice) {
+          const updated = fleetCache.find(d => d.id === selectedDevice.id);
+          if (updated) openSidebar(updated);
+        }
+      }
+
+      lastRefresh.textContent = now();
+    }
+
+    // ── Scan ADB (enregistre les devices Android connectes comme edges reels) ──
+    async function scanAdb() {
+      const btn = $('scan-adb');
+      if (btn) { btn.disabled = true; btn.textContent = '⟳ Scan…'; }
+      try {
+        await apiFetch(API.scan, { method: 'POST' });
+      } catch (e) { /* apiFetch logue deja */ }
+      if (btn) { btn.disabled = false; btn.textContent = '⟳ Scan ADB'; }
+      await refresh();
+    }
+    const _scanBtn = $('scan-adb');
+    if (_scanBtn) _scanBtn.addEventListener('click', scanAdb);
+
+    // Initial load + loop
+    refresh();
+    refreshTimer = setInterval(refresh, REFRESH_MS);
+
+    // Cleanup
+    window.addEventListener('beforeunload', () => clearInterval(refreshTimer));
+  </script>
+</body>
+</html>

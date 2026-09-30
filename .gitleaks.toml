@@ -1,0 +1,47 @@
+# Gitleaks — config Nokido.
+# Étend le ruleset par défaut (milliers de regex) et ajoute une allowlist
+# pour les fichiers template/exemple qui ne contiennent QUE des secrets factices.
+
+[extend]
+useDefault = true
+
+# Allowlist principale — fichiers template/exemple (secrets factices)
+[[allowlists]]
+description = "Fichiers template/exemple — secrets factices, pas de vrai secret"
+paths = [
+  '''(^|/)sample\.env$''',
+  '''.*\.env\.example$''',
+  '''(^|/)LaForge\.env\.example$''',
+  '''(^|/)docs/.*\.md$''',
+]
+
+# Placeholders explicites — si une valeur ressemble à ça, ce n'est pas un secret
+[[allowlists]]
+description = "Placeholders / valeurs factices"
+regexes = [
+  '''(?i)(your[_-]?(api[_-]?)?key|changeme|xxx+|placeholder|example|dummy|fake[_-]?token)''',
+]
+
+# Vendored minified libs (vis-network, etc.) — false positives sur high-entropy
+# strings dans le code minifié. Pas de vrai secret.
+[[allowlists]]
+description = "Vendored minified JS/CSS — false positives entropie"
+paths = [
+  '''.*\.min\.js$''',
+  '''.*\.min\.css$''',
+  '''(^|/)app/web_hub/static/.*''',
+]
+
+# Seeds JSONL : data versionnable pour bootstrap fresh-clone. Depuis l'audit
+# pré-public 2026-05-26, token_hash dans seed/forge_entities.jsonl est TOUJOURS
+# vide ("") ; les valeurs réelles sont resolves au boot depuis vault DPAPI
+# (voir tools/forge_vault_seed_agent_tokens.py + app/forge_secrets.py).
+# Cette allowlist reste pour fail-safe contre régression future.
+[[allowlists]]
+description = "Seeds JSONL — token_hash vides (vault-backed runtime)"
+paths = [
+  '''(^|/)seed/.*\.jsonl$''',
+]
+regexes = [
+  '''"token_hash"\s*:\s*""''',
+]

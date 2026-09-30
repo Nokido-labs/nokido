@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Nokido Link Gopher</title>
+  <link rel="stylesheet" href="css/linkgopher.css">
+</head>
+<body>
+
+<!-- Top bar : title + filter row -->
+<header class="topbar">
+  <div class="title">
+    <span class="dot" id="hub-dot" title="Hub status"></span>
+    <span class="brand">Nokido</span>
+    <span class="sep">/</span>
+    <span class="sub">Link Gopher</span>
+  </div>
+  <div class="filter-row">
+    <input id="f-text" class="inp" placeholder="🔍 filtre URL/titre">
+    <select id="f-domain" class="inp"><option value="">tous domaines</option></select>
+    <label class="chk"><input type="checkbox" id="f-https" checked> http(s)</label>
+    <label class="chk"><input type="checkbox" id="f-dedup" checked> dédupliquer</label>
+  </div>
+</header>
+
+<!-- Tabs nav -->
+<nav class="tabs-nav">
+  <button class="tab-btn active" data-tab="page">Liens page</button>
+  <button class="tab-btn" data-tab="tabs">Onglets</button>
+  <button class="tab-btn" data-tab="history">Historique</button>
+  <button class="tab-btn" data-tab="rag">Recherche RAG</button>
+</nav>
+
+<!-- Tab : Liens page -->
+<section class="tab-content active" id="tab-page">
+  <div class="sub-bar">
+    <span class="lf-status" id="page-status">Extraction…</span>
+    <span class="counter" id="page-count">0/0</span>
+  </div>
+  <div class="item-list" id="page-list"></div>
+</section>
+
+<!-- Tab : Onglets -->
+<section class="tab-content" id="tab-tabs">
+  <div class="sub-bar">
+    <span class="lf-status" id="tabs-status">Chargement…</span>
+    <span class="counter" id="tabs-count">0/0</span>
+  </div>
+  <div class="item-list" id="tabs-list"></div>
+</section>
+
+<!-- Tab : Historique -->
+<section class="tab-content" id="tab-history">
+  <div class="sub-bar">
+    <input class="inp grow" id="hist-search" placeholder="🔍 rechercher (90 derniers jours)…">
+    <span class="lf-status" id="hist-status">Tapez pour chercher</span>
+    <span class="counter" id="hist-count">0/0</span>
+  </div>
+  <div class="item-list" id="hist-list"></div>
+</section>
+
+<!-- Tab : Recherche RAG -->
+<section class="tab-content" id="tab-rag">
+  <div class="sub-bar">
+    <input class="inp grow" id="rag-q" placeholder="🧠 query RAG (Enter)…">
+    <button class="btn sec" id="rag-go">Search</button>
+    <span class="lf-status" id="rag-status">Prêt</span>
+    <span class="counter" id="rag-count">0/0</span>
+  </div>
+  <div class="item-list" id="rag-list"></div>
+</section>
+
+<!-- Action toolbar (always visible) -->
+<div class="action-bar">
+  <div class="sel-tools">
+    <a class="lk" id="sel-all">Tout cocher</a>
+    <span class="sep">·</span>
+    <a class="lk" id="sel-none">Tout décocher</a>
+    <span class="counter" id="sel-count">0 sélectionnés</span>
+  </div>
+  <div class="actions">
+    <button class="btn" id="act-send" title="POST /ingest/bulk">📤 Envoyer sélection</button>
+    <button class="btn" id="act-qualify" title="POST /ingest/qualify (par URL)">🧪 Qualifier sélection</button>
+    <button class="btn sec" id="act-md" title="Markdown bullet list">📋 Copier en Markdown</button>
+  </div>
+</div>
+
+<!-- Status footer -->
+<footer class="footer">
+  <span id="hub-text" class="lf-status">Hub …</span>
+  <span class="sep">·</span>
+  <span id="tok-text" class="lf-status">🔑 …</span>
+  <span class="sep">·</span>
+  <a class="lk" id="open-options">⚙ Options</a>
+  <span class="grow"></span>
+  <span id="foot-info" class="muted">LF1.B.H.1.5.ING</span>
+</footer>
+
+<!-- Tag panel (for manual tag flow) -->
+<div id="tag-panel" hidden>
+  <div id="tag-active"></div>
+  <div class="tag-row">
+    <span class="tag-lbl">🏷️</span>
+    <div id="tag-chips"></div>
+    <input class="inp small" id="tag-custom" placeholder="+ tag (Enter)">
+    <select class="inp small" id="tag-domain">
+      <option value="">domaine RAG…</option>
+      <option>ia</option><option>code</option><option>security</option>
+      <option>network</option><option>devops</option><option>system</option>
+      <option>bibliography</option><option>neuromorphic</option>
+      <option>research</option><option>web</option><option>general</option>
+      <option>exploit</option><option>collab</option>
+    </select>
+    <input class="inp grow" id="tag-note" placeholder="Note…">
+    <button class="btn" id="tag-ok">🚀 Envoyer avec tags</button>
+    <button class="btn sec" id="tag-cancel">✕</button>
+  </div>
+  <div id="tag-result"></div>
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

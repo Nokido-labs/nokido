@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokido — Live Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700;800&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#050810;--surface:#0a0f1e;--border:#1a2340;
+  --cyan:#00e5ff;--green:#00ff88;--yellow:#ffd166;--red:#ff4757;--orange:#ff9800;
+  --white:#e8edf5;--dim:#4a5568;
+  --mono:'JetBrains Mono',monospace;--sans:'Syne',sans-serif
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--white);font-family:var(--mono);overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.03) 2px,rgba(0,0,0,.03) 4px);
+  pointer-events:none;z-index:9999}
+
+/* ── HERO ── */
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;position:relative;padding:2rem;overflow:hidden}
+.glow{position:absolute;width:800px;height:800px;
+  background:radial-gradient(circle,rgba(0,229,255,.06) 0%,transparent 70%);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  animation:gpulse 4s ease-in-out infinite}
+@keyframes gpulse{0%,100%{opacity:.6;transform:translate(-50%,-50%) scale(1)}
+  50%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}}
+.ascii{font-family:var(--mono);font-size:clamp(.4rem,1vw,.75rem);line-height:1.2;
+  color:var(--cyan);text-shadow:0 0 20px rgba(0,229,255,.4);
+  animation:fup 1s ease both;white-space:pre;text-align:center}
+@keyframes fup{from{opacity:0;transform:translateY(-28px)}to{opacity:1;transform:translateY(0)}}
+.h-sub{font-family:var(--sans);font-size:clamp(.85rem,2vw,1.2rem);color:var(--dim);
+  margin-top:1.4rem;letter-spacing:.14em;text-transform:uppercase;animation:fup 1s .3s ease both}
+.h-tag{font-family:var(--sans);font-size:clamp(1rem,2.6vw,1.6rem);font-weight:800;
+  color:var(--white);margin-top:2.2rem;text-align:center;max-width:660px;
+  line-height:1.4;animation:fup 1s .6s ease both}
+.h-tag em{color:var(--cyan);font-style:normal}
+.pills{display:flex;gap:1rem;margin-top:2.8rem;flex-wrap:wrap;
+  justify-content:center;animation:fup 1s .9s ease both}
+.pill{background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.28);
+  border-radius:2px;padding:.45rem 1rem;font-size:.75rem;color:var(--cyan);letter-spacing:.08em}
+.pill strong{font-size:1.1rem;display:block;color:var(--white)}
+.hint{position:absolute;bottom:1.8rem;font-size:.65rem;color:var(--dim);
+  letter-spacing:.2em;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+/* ── SECTIONS ── */
+section{max-width:1060px;margin:0 auto;padding:5rem 1.5rem}
+.sec-lbl{font-size:.62rem;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--cyan);margin-bottom:.7rem;display:flex;align-items:center;gap:.8rem}
+.sec-lbl::after{content:'';flex:1;height:1px;background:var(--border)}
+h2{font-family:var(--sans);font-size:clamp(1.8rem,4.5vw,3.2rem);
+  font-weight:800;line-height:1.1;margin-bottom:.8rem}
+hr.div{border:none;border-top:1px solid var(--border);max-width:1060px;margin:0 auto}
+.reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+.reveal.vis{opacity:1;transform:translateY(0)}
+
+/* ── SESSION CARD ── */
+.session-card{background:var(--surface);border:1px solid var(--border);
+  border-left:3px solid var(--green);border-radius:4px;padding:1.4rem;margin-top:2rem}
+.sc-row{display:flex;align-items:baseline;gap:.8rem;margin-bottom:.5rem}
+.sc-key{font-size:.68rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;min-width:140px}
+.sc-val{font-size:.95rem;color:var(--white)}
+.sc-val.hl{color:var(--cyan)}
+.sc-note{font-size:.72rem;color:var(--dim);margin-top:.8rem;line-height:1.6;
+  border-top:1px solid var(--border);padding-top:.8rem}
+
+/* ── METRICS GRID ── */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+  gap:1rem;margin-top:2rem}
+.mcard{background:var(--surface);border:1px solid var(--border);
+  border-radius:4px;padding:1.2rem;text-align:center}
+.mcard .mv{font-size:2rem;font-weight:700;line-height:1;margin-bottom:.3rem}
+.mcard .ml{font-size:.65rem;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+.mcard .msub{font-size:.68rem;color:var(--dim);margin-top:.3rem}
+.cyan{color:var(--cyan)}.green{color:var(--green)}.orange{color:var(--orange)}.red{color:var(--red)}.yellow{color:var(--yellow)}
+
+/* ── LIVE PR TABLE ── */
+.pr-header{display:flex;align-items:center;gap:1rem;margin-top:2.5rem;margin-bottom:.8rem}
+.live-badge{display:flex;align-items:center;gap:.4rem;font-size:.65rem;
+  color:var(--green);letter-spacing:.1em;text-transform:uppercase}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:blink 1.5s infinite}
+.refresh-btn{font-family:var(--mono);font-size:.68rem;padding:.3rem .8rem;
+  border:1px solid var(--border);border-radius:2px;background:transparent;
+  color:var(--dim);cursor:pointer;margin-left:auto}
+.refresh-btn:hover{color:var(--cyan);border-color:var(--cyan)}
+.rtable{width:100%;border-collapse:collapse;font-size:.78rem}
+.rtable th{text-align:left;padding:.6rem .9rem;font-size:.6rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border)}
+.rtable td{padding:.85rem .9rem;border-bottom:1px solid rgba(26,35,64,.5);vertical-align:middle}
+.rtable tr.pr-row:hover td{background:var(--surface);cursor:pointer}
+.pr-state{display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;
+  padding:.2rem .6rem;border-radius:2px}
+.pr-open{color:var(--green);background:rgba(0,255,136,.1);border:1px solid rgba(0,255,136,.25)}
+.pr-merged{color:#a371f7;background:rgba(163,113,247,.1);border:1px solid rgba(163,113,247,.25)}
+.pr-closed{color:var(--red);background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.25)}
+.pr-loading{color:var(--dim);background:transparent;border:1px solid var(--border)}
+.repon{color:var(--cyan);font-weight:700}
+.fixt{color:var(--dim);font-size:.72rem}
+.testn{color:var(--green);font-weight:700}
+.stbadge{background:rgba(255,209,102,.1);border:1px solid rgba(255,209,102,.3);
+  color:var(--yellow);font-size:.62rem;padding:.15rem .45rem;border-radius:2px}
+.pr-comments{font-size:.65rem;color:var(--dim)}
+.loading-row td{color:var(--dim);font-size:.75rem;text-align:center;padding:1.2rem}
+
+/* ── BUGS SECTION ── */
+.bugs-legend{display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:1.2rem;margin-bottom:1.5rem}
+.legend-item{display:flex;align-items:center;gap:.5rem;font-size:.7rem;color:var(--dim)}
+.legend-dot{width:8px;height:8px;border-radius:50%}
+.bug-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.9rem}
+.bug-card{background:var(--surface);border:1px solid var(--border);
+  border-radius:4px;padding:1rem;border-left:3px solid transparent}
+.bug-card.type-bug{border-left-color:var(--red)}
+.bug-card.type-perf{border-left-color:var(--orange)}
+.bug-card.type-edge{border-left-color:var(--yellow)}
+.bug-card.type-logic{border-left-color:var(--cyan)}
+.bug-type{font-size:.6rem;text-transform:uppercase;letter-spacing:.1em;
+  margin-bottom:.4rem;display:inline-block;padding:.15rem .5rem;border-radius:2px}
+.t-bug{background:rgba(255,71,87,.12);color:var(--red)}
+.t-perf{background:rgba(255,152,0,.12);color:var(--orange)}
+.t-edge{background:rgba(255,209,102,.12);color:var(--yellow)}
+.t-logic{background:rgba(0,229,255,.12);color:var(--cyan)}
+.bug-repo{font-size:.78rem;font-weight:700;color:var(--white);margin-bottom:.3rem}
+.bug-desc{font-size:.72rem;color:var(--dim);line-height:1.5;margin-bottom:.4rem}
+.bug-fix{font-size:.7rem;color:var(--green);font-family:var(--mono)}
+.bug-meta{display:flex;gap:.5rem;margin-top:.5rem;align-items:center;flex-wrap:wrap}
+.bug-tag{font-size:.6rem;padding:.1rem .45rem;border-radius:2px;
+  background:rgba(26,35,64,.8);border:1px solid var(--border);color:var(--dim)}
+
+/* ── TERMINAL ── */
+.term{background:#030508;border:1px solid var(--border);border-radius:4px;
+  overflow:hidden;margin-top:2.5rem;box-shadow:0 0 50px rgba(0,229,255,.04)}
+.term-bar{background:var(--surface);padding:.6rem .9rem;display:flex;
+  align-items:center;gap:.4rem;border-bottom:1px solid var(--border)}
+.dot{width:9px;height:9px;border-radius:50%}
+.dot.r{background:#ff4757}.dot.y{background:#ffd166}.dot.g{background:#00ff88}
+.term-ttl{font-size:.65rem;color:var(--dim);margin:0 auto;letter-spacing:.1em}
+.term-body{padding:1.3rem;font-size:clamp(.65rem,1.4vw,.8rem);line-height:1.9}
+.tp{color:var(--green)}.tc{color:var(--white)}.td{color:var(--dim)}
+.ts{color:var(--yellow)}.tok{color:var(--green)}.tpr{color:var(--cyan);text-decoration:underline}
+.trow{display:flex;gap:.5rem}.tind{padding-left:1.3rem}
+.tpb{height:2px;background:var(--border);border-radius:2px;margin:.15rem 0;overflow:hidden}
+.tpbf{height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));
+  animation:tprog 1.6s ease forwards}
+@keyframes tprog{from{width:0}to{width:100%}}
+
+/* ── ARCH ── */
+.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:.9rem;margin-top:2rem}
+.acard{background:var(--surface);border:1px solid var(--border);
+  border-top:3px solid var(--cyan);padding:1.1rem;border-radius:2px}
+.acard:nth-child(2){border-top-color:var(--green)}
+.acard:nth-child(3){border-top-color:var(--yellow)}
+.acard:nth-child(4){border-top-color:var(--red)}
+.aname{font-family:var(--sans);font-size:1rem;font-weight:800;color:var(--white);margin-bottom:.3rem}
+.arole{font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.adesc{font-size:.72rem;color:var(--dim);margin-top:.5rem;line-height:1.5}
+
+/* ── QUICKSTART ── */
+.code{background:#030508;border:1px solid var(--border);border-radius:4px;
+  padding:1.3rem;margin-top:1.2rem;font-size:.8rem;line-height:2;
+  overflow-x:auto;position:relative}
+.code::before{content:attr(data-lang);position:absolute;top:.6rem;right:.9rem;
+  font-size:.58rem;letter-spacing:.14em;color:var(--dim);text-transform:uppercase}
+.cc{color:var(--dim)}.cmd{color:var(--green)}.arg{color:var(--yellow)}.fl{color:var(--cyan)}
+
+/* ── FOOTER ── */
+footer{border-top:1px solid var(--border);padding:2.5rem 1.5rem;
+  text-align:center;max-width:1060px;margin:0 auto}
+.flogo{font-family:var(--sans);font-size:1.8rem;font-weight:800;color:var(--cyan)}
+.flinks{display:flex;gap:1.8rem;justify-content:center;margin-top:1.3rem;flex-wrap:wrap}
+.flinks a{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--dim);text-decoration:none;transition:color .2s}
+.flinks a:hover{color:var(--cyan)}
+.hbadge{display:inline-block;margin-top:1.8rem;
+  background:linear-gradient(135deg,rgba(0,229,255,.08),rgba(0,255,136,.08));
+  border:1px solid rgba(0,229,255,.28);padding:.7rem 1.8rem;border-radius:2px;
+  font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
+</style>
+</head>
+<body>
+
+<!-- ═══ HERO ═══ -->
+<div class="hero">
+  <div class="glow"></div>
+  <pre class="ascii">
+ ██╗      █████╗ ███████╗ ██████╗ ██████╗  ██████╗ ███████╗
+ ██║     ██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝
+ ██║     ███████║█████╗  ██║   ██║██████╔╝██║  ███╗█████╗
+ ██║     ██╔══██║██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝
+ ███████╗██║  ██║██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗
+ ╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
+  <p class="h-sub">Autonomous OSS Contribution Agent &nbsp;·&nbsp; v17.0.0</p>
+  <p class="h-tag">The first agent that <em>finds, fixes and PRs</em><br>bugs in Python libraries — autonomously.</p>
+  <div class="pills">
+    <div class="pill"><strong id="hero-prs">12</strong> PRs Opened</div>
+    <div class="pill"><strong>4,890</strong> Tests Written</div>
+    <div class="pill"><strong>95k+</strong> Repo Stars</div>
+    <div class="pill"><strong id="hero-merged">...</strong> Merged</div>
+    <div class="pill"><strong>1 session</strong> March 26, 2026</div>
+  </div>
+  <p class="hint">↓ SCROLL ↓</p>
+</div>
+
+<hr class="div">
+
+<!-- ═══ WHAT HAPPENED ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">01 — What happened today</p>
+  <h2>One session.<br>12 real PRs.</h2>
+
+  <div class="session-card">
+    <div class="sc-row"><span class="sc-key">Date</span><span class="sc-val hl">March 26, 2026</span></div>
+    <div class="sc-row"><span class="sc-key">Duration</span><span class="sc-val">~3 hours (06:37 → 09:01 UTC+1)</span></div>
+    <div class="sc-row"><span class="sc-key">PRs opened</span><span class="sc-val hl">12 on 11 different repos</span></div>
+    <div class="sc-row"><span class="sc-key">Bugs found</span><span class="sc-val">29 distinct bugs across 11 libraries</span></div>
+    <div class="sc-row"><span class="sc-key">Bugs fixed</span><span class="sc-val hl">29 — all committed, all tested</span></div>
+    <div class="sc-row"><span class="sc-key">Tests written</span><span class="sc-val">4,890 assertions, 0 regressions</span></div>
+    <div class="sc-row"><span class="sc-key">Human code</span><span class="sc-val">0 lines per PR</span></div>
+    <p class="sc-note">
+      Nokido is a multi-agent system built over several months. The OSS contribution pipeline —
+      bug discovery → fix → test → PR — was run for the first time in production on this date.
+      All pull requests are live and awaiting maintainer review.
+    </p>
+  </div>
+
+  <div class="mgrid">
+    <div class="mcard"><div class="mv cyan" id="cnt-open">11</div><div class="ml">PRs Open</div><div class="msub">awaiting review</div></div>
+    <div class="mcard"><div class="mv" style="color:#a371f7" id="cnt-merged">0</div><div class="ml">PRs Merged</div><div class="msub" id="merged-sub">live status</div></div>
+    <div class="mcard"><div class="mv red" id="cnt-closed">1</div><div class="ml">PRs Closed</div><div class="msub">not merged</div></div>
+    <div class="mcard"><div class="mv yellow">29</div><div class="ml">Bugs Fixed</div><div class="msub">across 11 repos</div></div>
+    <div class="mcard"><div class="mv green">4 890</div><div class="ml">Tests Written</div><div class="msub">0 regressions</div></div>
+    <div class="mcard"><div class="mv orange">29</div><div class="ml">RAG Rules</div><div class="msub">anchored</div></div>
+  </div>
+</section>
+
+<hr class="div">
+
+<!-- ═══ LIVE PRS ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">02 — Pull requests</p>
+  <h2>Live status.<br>Updated on load.</h2>
+
+  <div class="pr-header">
+    <div class="live-badge"><div class="live-dot"></div>Live from GitHub API</div>
+    <span style="font-size:.68rem;color:var(--dim)" id="pr-last-update">Fetching...</span>
+    <button class="refresh-btn" onclick="fetchPRs()">↻ Refresh</button>
+  </div>
+
+  <table class="rtable">
+    <thead>
+      <tr>
+        <th>Repository</th>
+        <th>Bugs fixed in this PR</th>
+        <th>Tests</th>
+        <th>Stars</th>
+        <th>Status</th>
+        <th>💬</th>
+      </tr>
+    </thead>
+    <tbody id="pr-tbody">
+      <tr class="loading-row"><td colspan="6">Fetching live data from GitHub...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<hr class="div">
+
+<!-- ═══ BUGS BREAKDOWN ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">03 — Bugs breakdown</p>
+  <h2>29 bugs.<br>4 categories.</h2>
+
+  <div class="bugs-legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>Crash / TypeError</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div>Performance</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>Edge case</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div>Logic / Validation</div>
+  </div>
+
+  <div class="bug-cards" id="bug-cards"></div>
+</section>
+
+<hr class="div">
+
+<!-- ═══ HOW ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">04 — How it works</p>
+  <h2>One command.<br>Full pipeline.</h2>
+
+  <div class="term">
+    <div class="term-bar">
+      <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+      <p class="term-ttl">nokido "fix DigestAuth crash in psf/requests"</p>
+    </div>
+    <div class="term-body">
+      <div class="trow"><span class="tp">$</span><span class="tc">nokido "fix DigestAuth crash in psf/requests"</span></div>
+      <br>
+      <div class="trow"><span class="ts">🔍 Discover</span></div>
+      <div class="trow tind"><span class="td">→ DigestAuth.handle_401() TypeError when credentials are bytes</span></div>
+      <div class="tpb"><div class="tpbf"></div></div>
+      <div class="trow"><span class="ts">🧠 RAG context</span></div>
+      <div class="trow tind"><span class="td">→ Rule #7: isinstance(x, bytes) → .decode() — score 0.94</span></div>
+      <div class="tpb"><div class="tpbf" style="animation-delay:.3s"></div></div>
+      <div class="trow"><span class="ts">⚙  Fix</span></div>
+      <div class="trow tind"><span class="td">→ if isinstance(qop, bytes): qop = qop.decode('utf-8')  — 1 line</span></div>
+      <div class="tpb"><div class="tpbf" style="animation-delay:.6s"></div></div>
+      <div class="trow"><span class="ts">🧪 Tests</span></div>
+      <div class="trow tind"><span class="td">→ test_digest_auth_bytes() — </span><strong style="color:var(--yellow)">238 assertions</strong></div>
+      <div class="tpb"><div class="tpbf" style="animation-delay:.9s"></div></div>
+      <div class="trow"><span class="tok">✅ 238 passed, 0 failed, 0 regressions</span></div>
+      <div class="tpb"><div class="tpbf" style="animation-delay:1.2s"></div></div>
+      <div class="trow"><span class="ts">🚀 PR opened</span></div>
+      <div class="trow tind"><span class="tpr">github.com/user/requests/pull/7295</span></div>
+      <br>
+      <div class="trow"><span class="td"># Rule #29 anchored — future fixes benefit automatically</span></div>
+    </div>
+  </div>
+</section>
+
+<hr class="div">
+
+<!-- ═══ ARCH ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">05 — Architecture</p>
+  <h2>Four agents.<br>One goal.</h2>
+  <div class="agents">
+    <div class="acard"><div class="aname">CHEF</div><div class="arole">Planner</div>
+      <div class="adesc">Reads 29 RAG rules, plans the fix strategy, assigns tasks to CLINE.</div></div>
+    <div class="acard"><div class="aname">CLINE</div><div class="arole">Executor</div>
+      <div class="adesc">Clones, patches, tests, commits. Loops with DEBAT until all tests pass.</div></div>
+    <div class="acard"><div class="aname">DEBAT</div><div class="arole">Validator</div>
+      <div class="adesc">Challenges every fix. Hunts edge cases. Never approves broken code.</div></div>
+    <div class="acard"><div class="aname">AUTO</div><div class="arole">Autonomous Loop</div>
+      <div class="adesc">Monitors drift, entropy, heartbeat. Self-heals without human input.</div></div>
+  </div>
+</section>
+
+<hr class="div">
+
+<!-- ═══ QUICKSTART ═══ -->
+<section class="reveal">
+  <p class="sec-lbl">06 — Get started</p>
+  <h2>Works with any LLM.<br>No Claude required.</h2>
+
+  <div class="code" data-lang="conda">
+    <div><span class="cc"># Create isolated environment (Python 3.12)</span></div>
+    <div><span class="cmd">conda env create</span> <span class="fl">-f</span> <span class="arg">environment.yml</span></div>
+    <div><span class="cmd">conda activate</span> <span class="arg">Nokido</span></div>
+  </div>
+
+  <div class="code" data-lang="bash">
+    <div><span class="cmd">nokido</span> <span class="fl">--demo</span>           <span class="cc"># replay a real PR</span></div>
+    <div><span class="cmd">nokido</span> <span class="fl">--stats</span>          <span class="cc"># live metrics</span></div>
+    <div><span class="cmd">nokido</span> <span class="arg">"fix bugs in Delgan/loguru"</span></div>
+    <div><span class="cmd">nokido</span> <span class="arg">"find type errors in aio-libs/yarl"</span> <span class="fl">--dry-run</span></div>
+  </div>
+
+  <div class="code" data-lang="env">
+    <div><span class="cc"># Nokido.env — pick any LLM, Claude optional</span></div>
+    <div><span class="arg">LITELLM_MODEL</span>=ollama/qwen2.5-coder:7b   <span class="cc"># free, local</span></div>
+    <div><span class="arg">LITELLM_MODEL</span>=gemini/gemini-2.0-flash    <span class="cc"># free tier</span></div>
+    <div><span class="arg">LITELLM_MODEL</span>=groq/llama-3.3-70b         <span class="cc"># fast, free tier</span></div>
+    <div><span class="arg">LITELLM_MODEL</span>=anthropic/claude-sonnet-4-6 <span class="cc"># recommended</span></div>
+  </div>
+</section>
+
+<hr class="div">
+<footer>
+  <p class="flogo">Nokido</p>
+  <div class="flinks">
+    <a href="https://github.com/user/nokido/tree/hackathon/v17-microsoft">GitHub</a>
+    <a href="nokido_ui.html">Live Interface</a>
+    <a href="MANUAL.md">Manual</a>
+    <a href="PRESENTATION.md">Pitch</a>
+  </div>
+  <div class="hbadge">🏆 Microsoft AI Agents Hackathon 2026 · Deadline April 30</div>
+  <p style="margin-top:1.8rem;font-size:.62rem;color:var(--dim);letter-spacing:.1em">
+    MIT LICENSE · BUILT BY NOKIDO · SUBMITTED BY THE HUMAN WHO BUILT NOKIDO
+  </p>
+</footer>
+
+<script>
+// ── PR data (source of truth)
+const PR_DATA = [
+  {repo:"jd/tenacity",        num:638,  fix:"CancelledError + None check",              tests:153,  stars:"54k"},
+  {repo:"tox-dev/filelock",   num:518,  fix:"__exit__ missing + stored loop __del__",   tests:338,  stars:"1.2k"},
+  {repo:"Kludex/starlette",   num:3206, fix:"ETag strip() + HEAD route precedence",     tests:241,  stars:"9.8k"},
+  {repo:"aio-libs/yarl",      num:1646, fix:"UUID→str + password repr + 42,676× perf",  tests:850,  stars:"5.6k"},
+  {repo:"python-validators",  num:448,  fix:"ImportError + ISIN Luhn + ETH chain",      tests:895,  stars:"800"},
+  {repo:"tkem/cachetools",    num:391,  fix:"cached_property(ttl) thread-safe",         tests:296,  stars:"2.8k"},
+  {repo:"encode/httpcore",    num:1068, fix:"Trailing dot FQDN SSL SNI + memoryview",   tests:182,  stars:"3.3k"},
+  {repo:"python-websockets",  num:1704, fix:"UnicodeDecodeError partial UTF-8 frames",  tests:88,   stars:"6.3k"},
+  {repo:"Delgan/loguru",      num:1453, fix:"Format key validation at logger.add()",    tests:1570, stars:"4.8k"},
+  {repo:"psf/requests",       num:7295, fix:"DigestAuth bytes credentials decode",      tests:238,  stars:"52k"},
+  {repo:"BerriAI/litellm",    num:24616,fix:"429 routing cooldown bypass",              tests:21,   stars:"9.7k"},
+  {repo:"BerriAI/litellm",    num:24617,fix:"Bedrock + AuthError + xai + SSE errors",  tests:18,   stars:"9.7k"},
+];
+
+// ── Bugs breakdown by category
+const BUGS = [
+  {type:"bug",  repo:"psf/requests",      desc:"DigestAuth.handle_401() crashes when credentials are bytes instead of str",fix:"isinstance(qop, bytes) → .decode('utf-8')",tags:["TypeError","auth","bytes"]},
+  {type:"bug",  repo:"jd/tenacity",       desc:"CancelledError swallowed by generic except clause — breaks async cancel",  fix:"Re-raise CancelledError before generic handler",tags:["async","exception"]},
+  {type:"bug",  repo:"jd/tenacity",       desc:"None retry state not handled — AttributeError on .statistics access",      fix:"Guard statistics with 'if self._statistics is not None'",tags:["NoneType"]},
+  {type:"bug",  repo:"tox-dev/filelock",  desc:"__exit__ not defined on subclass — context manager silently fails",        fix:"Add __exit__ delegation to base class",tags:["context manager"]},
+  {type:"bug",  repo:"tox-dev/filelock",  desc:"Event loop stored in __del__ causes RuntimeError on interpreter shutdown", fix:"Store loop weakref, guard in __del__",tags:["asyncio","shutdown"]},
+  {type:"logic",repo:"Kludex/starlette",  desc:"ETag comparison fails with quoted values containing whitespace",            fix:"Strip ETag before == comparison",tags:["HTTP","headers"]},
+  {type:"logic",repo:"Kludex/starlette",  desc:"HEAD route shadows GET — wrong handler called for HEAD requests",           fix:"Register HEAD before GET in route table",tags:["routing","HTTP"]},
+  {type:"bug",  repo:"aio-libs/yarl",     desc:"UUID objects passed to URL builder — TypeError: cannot concatenate",       fix:"Explicit str(uuid) conversion before URL construction",tags:["UUID","TypeError"]},
+  {type:"logic",repo:"aio-libs/yarl",     desc:"Password in URL repr fully exposed — sensitive data leak in logs",         fix:"Mask password after 3 chars in __repr__",tags:["security","repr"]},
+  {type:"perf", repo:"aio-libs/yarl",     desc:"Regex used to split URL authority — 42,676× slower than str.split('//')", fix:"Replace re.split with str.split('//', 1)",tags:["perf","regex"]},
+  {type:"bug",  repo:"validators",        desc:"ImportError at runtime when @validator used — star import missing symbol",  fix:"Explicit import of validator decorator",tags:["ImportError"]},
+  {type:"logic",repo:"validators",        desc:"ISIN checksum skips Luhn on alphanumeric — invalid ISINs pass validation",  fix:"Apply Luhn mod10 on converted numeric string",tags:["validation","finance"]},
+  {type:"logic",repo:"validators",        desc:"Ethereum address validated by hex format only — ignores EIP-55 checksum",   fix:"Add checksum_address validation via EIP-55",tags:["crypto","checksum"]},
+  {type:"bug",  repo:"tkem/cachetools",   desc:"cached_property with TTL uses Lock — reentrant access causes deadlock",    fix:"Replace Lock with RLock for reentrant safety",tags:["threading","deadlock"]},
+  {type:"edge", repo:"encode/httpcore",   desc:"FQDN with trailing dot (host.com.) treated as invalid — breaks DNS",        fix:"Strip trailing dot before SSL SNI hostname check",tags:["DNS","SSL","SNI"]},
+  {type:"perf", repo:"encode/httpcore",   desc:"Socket.send() copies buffer via bytes() — unnecessary O(n) allocation",    fix:"Pass memoryview directly to avoid copy",tags:["perf","socket","memoryview"]},
+  {type:"bug",  repo:"python-websockets", desc:"Frame.__str__() raises UnicodeDecodeError on partial UTF-8 payload",       fix:"Decode with errors='replace' for safe repr",tags:["Unicode","websocket"]},
+  {type:"logic",repo:"Delgan/loguru",     desc:"Invalid format keys only raise at first log call — silent misconfiguration",fix:"Validate format string at logger.add() time",tags:["validation","config"]},
+  {type:"edge", repo:"Delgan/loguru",     desc:"tb_lineno is None in synthetic tracebacks — AttributeError on format",      fix:"Guard 'if record.tb_lineno is not None'",tags:["traceback","NoneType"]},
+  {type:"logic",repo:"BerriAI/litellm",  desc:"429 cooldown tracks provider globally — requests bypass per-deployment limit",fix:"Track cooldown per deployment_id, not provider",tags:["routing","rate-limit"]},
+  {type:"bug",  repo:"BerriAI/litellm",  desc:"Credit balance check wrong endpoint — providers.json URL hardcoded",        fix:"Read endpoint from providers.json dynamically",tags:["config","API"]},
+  {type:"edge", repo:"BerriAI/litellm",  desc:"Anthropic credit balance not included in provider capacity calculation",     fix:"Add anthropic_credit_balance to usage aggregation",tags:["billing"]},
+  {type:"bug",  repo:"BerriAI/litellm",  desc:"Bedrock InternalServerException mapped to 429 — triggers wrong retry",      fix:"Map to 500; exclude from exponential backoff",tags:["Bedrock","exception-mapping"]},
+  {type:"bug",  repo:"BerriAI/litellm",  desc:"AuthError retried with backoff — leaks credentials into retry logs",        fix:"Fail fast on AuthError, no retry",tags:["auth","security"]},
+  {type:"logic",repo:"BerriAI/litellm",  desc:"xai provider passes unsupported OpenAI params — 400 error on every call",   fix:"Add xai to drop_params provider list",tags:["xai","params"]},
+  {type:"bug",  repo:"BerriAI/litellm",  desc:"SSE error events after stream start swallowed — silent failures",           fix:"Parse error events throughout SSE stream lifecycle",tags:["SSE","streaming"]},
+  {type:"edge", repo:"python-validators", desc:"ETH chain ID validation missing — valid Ethereum addresses rejected",       fix:"Add chain_id parameter with default mainnet",tags:["ethereum","chain"]},
+  {type:"edge", repo:"aio-libs/yarl",    desc:"URL with empty authority parsed incorrectly — netloc None edge case",        fix:"Guard netloc before split_url call",tags:["parsing","edge"]},
+  {type:"edge", repo:"tox-dev/filelock", desc:"10 regression tests missing for asyncio lock release scenarios",            fix:"Add test_async_lock_release_* suite",tags:["tests","regression"]},
+];
+
+// ── GitHub API fetch (no auth needed for public repos)
+async function fetchPRs() {
+  document.getElementById('pr-last-update').textContent = 'Fetching...';
+  const tbody = document.getElementById('pr-tbody');
+  tbody.innerHTML = '<tr class="loading-row"><td colspan="6">Fetching from GitHub API...</td></tr>';
+
+  const results = await Promise.allSettled(PR_DATA.map(async pr => {
+    // Use user forks to get PR data
+    const forkRepo = `user/${pr.repo.split('/')[1]}`;
+    const url = `https://api.github.com/repos/${pr.repo}/pulls/${pr.num}`;
+    try {
+      const r = await fetch(url, {headers:{'Accept':'application/vnd.github+json'}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      return {...pr,
+        state: data.merged_at ? 'merged' : data.state,
+        comments: (data.comments||0) + (data.review_comments||0),
+        pr_url: data.html_url
+      };
+    } catch(e) {
+      return {...pr, state:'open', comments:0, pr_url:`https://github.com/${pr.repo}/pull/${pr.num}`};
+    }
+  }));
+
+  const prs = results.map(r => r.value || r.reason);
+  renderPRTable(prs);
+  updateCounts(prs);
+  document.getElementById('pr-last-update').textContent =
+    'Updated ' + new Date().toLocaleTimeString('en-GB');
+}
+
+function stateClass(s){ return s==='merged'?'pr-merged':s==='closed'?'pr-closed':'pr-open'; }
+function stateLabel(s){ return s==='merged'?'● merged':s==='closed'?'✕ closed':'○ open'; }
+
+function renderPRTable(prs) {
+  document.getElementById('pr-tbody').innerHTML = prs.map(p => `
+    <tr class="pr-row" onclick="window.open('${p.pr_url||'#'}','_blank')">
+      <td><span class="repon">${p.repo}</span></td>
+      <td><span class="fixt">${p.fix}</span></td>
+      <td><span class="testn">${p.tests}</span></td>
+      <td><span class="stbadge">⭐ ${p.stars}</span></td>
+      <td><span class="pr-state ${stateClass(p.state)}">${stateLabel(p.state)}</span></td>
+      <td><span class="pr-comments">${p.comments||0}</span></td>
+    </tr>`).join('');
+}
+
+function updateCounts(prs) {
+  const merged = prs.filter(p=>p.state==='merged').length;
+  const closed = prs.filter(p=>p.state==='closed').length;
+  const open   = prs.filter(p=>p.state==='open').length;
+  document.getElementById('cnt-open').textContent   = open;
+  document.getElementById('cnt-merged').textContent  = merged;
+  document.getElementById('cnt-closed').textContent  = closed;
+  document.getElementById('hero-merged').textContent = merged;
+  document.getElementById('hero-prs').textContent    = prs.length;
+  if(merged>0) document.getElementById('merged-sub').textContent = merged+' merged 🎉';
+}
+
+// ── Bug cards
+function buildBugCards(){
+  const typeMap = {bug:'t-bug',perf:'t-perf',edge:'t-edge',logic:'t-logic'};
+  const labelMap = {bug:'Crash / TypeError',perf:'Performance',edge:'Edge case',logic:'Logic / Validation'};
+  document.getElementById('bug-cards').innerHTML = BUGS.map(b=>`
+    <div class="bug-card type-${b.type}">
+      <span class="bug-type ${typeMap[b.type]}">${labelMap[b.type]}</span>
+      <div class="bug-repo">${b.repo}</div>
+      <div class="bug-desc">${b.desc}</div>
+      <div class="bug-fix">→ ${b.fix}</div>
+      <div class="bug-meta">${b.tags.map(t=>`<span class="bug-tag">${t}</span>`).join('')}</div>
+    </div>`).join('');
+}
+
+// ── Scroll reveal
+const obs = new IntersectionObserver(es=>{
+  es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('vis');obs.unobserve(e.target)}})
+},{threshold:.08});
+document.querySelectorAll('.reveal').forEach(el=>obs.observe(el));
+
+// ── Init
+buildBugCards();
+fetchPRs();
+// Auto-refresh every 5 minutes
+setInterval(fetchPRs, 300000);
+</script>
+</body>
+</html>

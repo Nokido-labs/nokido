@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Link Gopher → Nokido</title>
+  <style>
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+    h1 { color: #00d4ff; font-size: 1.2em; }
+    textarea { width: 100%; height: 300px; background: #0d0d1a; color: #00ff88;
+               border: 1px solid #333; padding: 10px; font-size: 12px; resize: vertical; }
+    button { background: #00d4ff; color: #000; border: none; padding: 10px 20px;
+             margin: 8px 4px; cursor: pointer; font-weight: bold; border-radius: 4px; }
+    button:hover { background: #00ff88; }
+    button#clear { background: #ff4444; color: #fff; }
+    #status { margin-top: 10px; padding: 10px; border-radius: 4px; display: none; }
+    #status.ok { background: #003300; color: #00ff88; display: block; }
+    #status.err { background: #330000; color: #ff4444; display: block; }
+    #count { color: #888; font-size: 11px; }
+    .tip { color: #666; font-size: 11px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>🔗 Link Gopher → Nokido Bridge</h1>
+  <p class="tip">
+    1. Utilise Link Gopher (Extract All Links) sur n'importe quelle page<br>
+    2. Sélectionne tout (Ctrl+A) dans l'onglet résultats → Copie (Ctrl+C)<br>
+    3. Colle ici (Ctrl+V) → Envoie à Nokido
+  </p>
+
+  <textarea id="urls" placeholder="Colle les URLs ici (une par ligne)..."></textarea>
+  <div id="count"></div>
+
+  <div>
+    <button onclick="sendToNokido()">🚀 Envoyer à Nokido</button>
+    <button onclick="dryRun()">👁 Aperçu (dry-run)</button>
+    <button id="clear" onclick="document.getElementById('urls').value='';updateCount()">🗑 Effacer</button>
+  </div>
+
+  <div id="status"></div>
+
+  <script>
+    const HUB = 'http://127.0.0.1:8766';
+    const TOKEN = ''; // Rempli automatiquement si défini
+
+    document.getElementById('urls').addEventListener('input', updateCount);
+
+    function updateCount() {
+      const urls = parseURLs();
+      document.getElementById('count').textContent = `${urls.length} URL(s) détectée(s)`;
+    }
+
+    function parseURLs() {
+      return document.getElementById('urls').value
+        .split('\n')
+        .map(l => l.trim())
+        .filter(l => l.startsWith('http'));
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = type;
+    }
+
+    async function dryRun() {
+      const urls = parseURLs();
+      if (!urls.length) { setStatus('Aucune URL détectée.', 'err'); return; }
+      setStatus(`Dry-run : ${urls.length} URLs prêtes à envoyer.\n\nExemples :\n${urls.slice(0,5).join('\n')}${urls.length > 5 ? `\n... et ${urls.length - 5} autres` : ''}`, 'ok');
+    }
+
+    async function sendToNokido() {
+      const urls = parseURLs();
+      if (!urls.length) { setStatus('Aucune URL valide détectée.', 'err'); return; }
+
+      setStatus(`Envoi de ${urls.length} URLs...`, 'ok');
+
+      const payload = urls.map(url => ({
+        url: url,
+        title: url,
+        status: 'unverified',
+        source: 'linkgopher_bridge'
+      }));
+
+      try {
+        const headers = {'Content-Type': 'application/json'};
+        if (TOKEN) headers['Authorization'] = `Bearer ${TOKEN}`;
+
+        const r = await fetch(`${HUB}/ingest/bulk`, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(payload)
+        });
+
+        if (r.ok) {
+          const d = await r.json();
+          setStatus(`✓ ${d.inserted || urls.length} URLs insérées dans Nokido (biblio_raw).\nGemini notifié (1 notification bulk).`, 'ok');
+        } else {
+          // Fallback : hub MCP tool call
+          await sendViaMCP(urls);
+        }
+      } catch(e) {
+        // Fallback si /ingest/bulk pas encore implémenté
+        await sendViaMCP(urls);
+      }
+    }
+
+    async function sendViaMCP(urls) {
+      // Fallback : copier le JSON pour paste dans terminal
+      const json = JSON.stringify(urls.map(u => ({url: u, title: u})));
+      navigator.clipboard.writeText(json).then(() => {
+        setStatus(
+          `✓ ${urls.length} URLs copiées en JSON dans le presse-papier.\n\n` +
+          `Lance dans ton terminal :\n` +
+          `python tools/forge_bulk_import.py --clipboard`,
+          'ok'
+        );
+      });
+    }
+  </script>
+</body>
+</html>

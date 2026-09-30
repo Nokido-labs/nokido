@@ -1,0 +1,48 @@
+vendor: huawei_vrp
+netmiko_device_type: huawei
+display_name: "Huawei VRP (S-series, CE-series)"
+
+detection:
+  ssh_banner_match:
+    - "Huawei"
+    - "VRP"
+
+commands:
+  show_running:      "display current-configuration"
+  show_version:      "display version"
+  backup_startup:    "display saved-configuration"
+  enter_config:      "system-view"
+  exit_config:       "return"
+  save_config:       "save"
+  commit_confirm:    "commit confirm-timer {timeout}"
+  commit:            "commit"
+  rollback:          "rollback configuration to previous"
+
+operations:
+  add_vlan:
+    template: |
+      vlan {{ vlan_id }}
+       description {{ description }}
+    params: [vlan_id, description]
+    validate_regex:
+      - "^vlan \\d+$"
+      - "^ description .+$"
+
+  set_access_port:
+    template: |
+      interface {{ interface }}
+       port link-type access
+       port default vlan {{ vlan_id }}
+    params: [interface, vlan_id]
+    validate_regex:
+      - "^interface .+$"
+      - "^ port link-type access$"
+      - "^ port default vlan \\d+$"
+
+destructive_blacklist:
+  - "^reset saved-configuration"
+  - "^delete .+"
+  - "^format cfcard:"
+  - "^undo vlan batch"
+  - "^reboot"
+  - "^shutdown$"

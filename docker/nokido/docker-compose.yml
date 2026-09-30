@@ -1,0 +1,155 @@
+# Nokido — docker-compose modulaire par profiles.
+#
+# Usage:
+#   docker compose --profile core up -d              # hub + ollama, ~1 GB
+#   docker compose --profile full up -d              # + deno_webhub + brain_worker
+#   docker compose --profile dev  up -d              # + adminer (DB browse)
+#   docker compose --profile all  up -d              # tout
+#
+# Variants build (Dockerfile arg) : core | hub | full | all
+#   Pour build d'image plus lourde : `BUILD_VARIANT=full docker compose build laforge-hub`
+
+x-laforge-base: &laforge-base
+  image: nokido:${BUILD_VARIANT:-hub}
+  restart: unless-stopped
+  env_file:
+    - ../../LaForge.env
+  environment:
+    - LAFORGE_ENV=prod
+    - OLLAMA_URL=http://ollama:11434/api/chat
+    - OLLAMA_TAGS_URL=http://ollama:11434/api/tags
+    - OLLAMA_EMBEDDINGS_URL=http://ollama:11434/api/embed
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  # ─── Profile: core, full, all ───────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: laforge-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_KEEP_ALIVE=30s
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    profiles: ["core", "full", "all"]
+
+  laforge-hub:
+    <<: *laforge-base
+    build:
+      context: ../..
+      dockerfile: docker/nokido/Dockerfile
+      args:
+        VARIANT: ${BUILD_VARIANT:-hub}
+    container_name: laforge-hub
+    ports:
+      - "8766:8766"
+    volumes:
+      - rag_data:/app/RAG
+      - logs_data:/app/logs
+      - sandbox_data:/app/sandbox
+      - vault_data:/app/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8766/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    profiles: ["core", "full", "all"]
+
+  # ─── Profile: full, all ─────────────────────────────────────────────────
+  # Bus événementiel Deno (système nerveux)
+  deno-webhub:
+    image: denoland/deno:alpine
+    container_name: laforge-deno-webhub
+    restart: unless-stopped
+    working_dir: /app/proxy_deno
+    command: ["run", "-A", "--unstable-kv", "web_hub/main.ts"]
+    volumes:
+      - ../../proxy_deno:/app/proxy_deno:ro
+    ports:
+      - "7401:7401"
+    environment:
+      - LAFORGE_HUB_URL=http://laforge-hub:8766
+    depends_on:
+      laforge-hub:
+        condition: service_healthy
+    profiles: ["full", "all"]
+
+  # Embedder ONNX NPU/CPU (BGE-M3 1024D) — image Rust séparée
+  # NOTE: nécessite go_services/forge_brain_worker buildé ; pour v1 publique,
+  # tu peux commenter cette section si le binaire Rust n'est pas dans l'image.
+  brain-worker:
+    build:
+      context: ../..
+      dockerfile: docker/brain_worker/Dockerfile
+    container_name: laforge-brain-worker
+    restart: unless-stopped
+    ports:
+      - "5557:5557"
+    volumes:
+      - rag_data:/app/RAG:ro
+      - models_data:/app/models
+    environment:
+      - BRAIN_WORKER_MODEL=BAAI/bge-m3
+      - BRAIN_WORKER_BACKEND=cpu  # ou: directml, vulkan, openvino selon host
+    profiles: ["full", "all"]
+
+  # netcfg-agent (multi-vendor SSH, audit topologie)
+  netcfg-agent:
+    <<: *laforge-base
+    container_name: laforge-netcfg-agent
+    command: ["python", "-m", "netcfg.cli", "serve"]
+    ports:
+      - "7500:7500"  # web UI
+      - "8767:8767"  # MCP
+    volumes:
+      - netcfg_data:/app/netcfg
+    profiles: ["all"]
+
+  # ─── Profile: dev ───────────────────────────────────────────────────────
+  # Adminer pour browse SQLite (RAG/embeddings.db)
+  adminer:
+    image: adminer:latest
+    container_name: laforge-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=laforge-hub
+    profiles: ["dev"]
+
+  # SearXNG pour web_search local
+  searxng:
+    image: searxng/searxng:latest
+    container_name: laforge-searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8888/
+    volumes:
+      - searxng_data:/etc/searxng
+    profiles: ["dev", "all"]
+
+volumes:
+  ollama_data:
+  rag_data:
+  logs_data:
+  sandbox_data:
+  vault_data:
+  models_data:
+  netcfg_data:
+  searxng_data:

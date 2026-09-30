@@ -1,0 +1,69 @@
+{
+  "_doc": "Manifeste du gate egress git souverain (app/forge_git_egress.py). default_profile=private bloque SEULEMENT les secrets (ne casse pas les push dev). Pour vos MIROIRS PUBLICS : ajoutez l'URL (ou une sous-chaine) dans remote_profiles -> 'public' afin d'activer le filtrage strict (scrub host/IP/path + chemins interdits). Bypass ponctuel : git push --no-verify.",
+  "default_profile": "private",
+  "_doc_remote_profiles": "Premier match gagne sur une sous-chaine de l'URL du remote : 'Nokido-labs/nokido-dist' DOIT preceder 'Nokido-labs/nokido.git', car 'Nokido-labs/nokido' est une sous-chaine de 'Nokido-labs/nokido-dist'. ATTENTION : le profil 'public' regle le FILTRAGE egress (scrub + chemins interdits + cap 5 Mo), il ne change JAMAIS la visibilite GitHub du depot -- nokido-dist reste PRIVE tant que l'owner n'a pas donne un go explicite.",
+  "remote_profiles": {
+    "Nokido-labs/nokido-dist": "public",
+    "Nokido-labs/nokido.git": "private"
+  },
+  "proxy_allow_hosts": ["github.com", "codeberg.org", "gitlab.com", "ssh.github.com", "objects.githubusercontent.com"],
+  "profiles": {
+    "private": {
+      "secret_scan": true,
+      "scrub": false,
+      "max_file_bytes": 0,
+      "blocked_paths": [],
+      "secret_allow": [
+        {"path": "app/stress_test_firewall.py", "label": "slack"},
+        {"path": "config/fleet.toml", "label": "generic_secret"},
+        {"path": "tests/nr/test_hub_nr.py", "label": "generic_secret"},
+        {"path": "tests/test_functions.py", "label": "generic_secret"}
+      ]
+    },
+    "public": {
+      "secret_scan": true,
+      "scrub": true,
+      "max_file_bytes": 5000000,
+      "_doc_blocked_paths": "Owner 2026-09-30 : « je veux un Nokido pleinement fonctionnel, pas bride ; rien ne justifie les decisions de propriete intellectuelle pour le moment ». La liste precedente (classements PROVISOIRES du 2026-09-15 : IP_HOLD, telemetrie .agents, seed, config env-specifique, docs internes) retirait 431 fichiers dont des pieces NECESSAIRES au fonctionnement (services.toml, deploy, taches planifiees, calibration d'embedding, census). Ne restent bloques que des motifs de SECURITE ou de VIE PRIVEE, jamais de propriete intellectuelle : (1) SECRETS et cles ; (2) outillage OFFENSIF CH88 (decision owner 2026-09-15) ; (3) failles de Nokido non corrigees (registre d'audit securite, audit du coffre) ; (4) VIE PRIVEE : liste privee d'identites, sorties Cython dont les CHEMINS portent le compte de l'owner ; (5) ETAT VOLATIL de sandbox (pid, ngrok, fantomes) et pickles (execution de code au chargement, contenu non inspectable) ; (6) le workflow CI self-hosted (sur un depot public, une PR executerait du code sur le poste de l'owner) ; (7) TAILLE : demo_feed_real.gif (11,8 Mo) depasse le cap du profil, le .webm couvre la meme demo ; (8) seed/commit_intel.jsonl porte l'identite civile des auteurs de commits (donnees generees) : bloque tant que son producteur ne le regenere pas pseudonymise -- forge_db_bootstrap tolere son absence. Les rapports de vulnerabilite de TIERS restent en export-ignore (.gitattributes). Les chemins machine restants sont GENERISES par le promoteur ; l'identite civile hors documents juridiques y est REFUSEE ; un scan de secrets fail-closed y tourne sur tout le dist.",
+      "blocked_paths": [
+        "tools/ch88_*.py",
+        "tools/schtasks/LaForge-CH88*.xml",
+        "tests/nr/test_appui_ch88_*.py",
+        "docs/AUDIT_SECURITE_REGISTRE.md",
+        "docs/AUDIT_VAULT_*.md",
+        "app/build_cython/**",
+        "config/identites_privees.txt",
+        ".github/workflows/ci-selfhosted.yml",
+        "sandbox/.ngrok_*",
+        "sandbox/.pids",
+        "sandbox/.srv_pid",
+        "sandbox/pids/**",
+        "sandbox/_phantoms_backup/**",
+        "sandbox/*.pkl",
+        "docs/launch/media/demo_feed_real.gif",
+        "seed/commit_intel.jsonl",
+        "docs/ip/**",
+        "**/*.prof",
+        "**/secrets/**",
+        "sandbox/secrets/**",
+        "**/.env",
+        "**/.env.*",
+        "**/*.pem",
+        "**/*.key",
+        "**/*.p12",
+        "**/*.pfx",
+        "**/vault*.db",
+        "RAG_plain_bak/**",
+        "**/LaForge.env"
+      ],
+      "secret_allow": [
+        {"path": "app/stress_test_firewall.py", "label": "slack"},
+        {"path": "config/fleet.toml", "label": "generic_secret"},
+        {"path": "tests/nr/test_hub_nr.py", "label": "generic_secret"},
+        {"path": "tests/test_functions.py", "label": "generic_secret"}
+      ],
+      "_doc_ip_clearance": "IP_CLEARANCE (owner 2026-09-30) : docs/ip/** est en HOLD par defaut -- publier un candidat brevet detruit sa nouveaute, definitivement. Un document ne part que LIBERE NOMMEMENT ici : chemin exact (pas de motif) -> statut publiable justifie (public / deja divulgue / necessaire au fonctionnement). Le code et la calibration d'embedding restent publics. Registre vide = rien n'est libere.",
+      "ip_clearance": {}
+    }
+  }
+}

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="laforge-bearer" content="__LAFORGE_BEARER__">
+<title>Nokido — Swarm multi-LLM (live)</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  /* Convergence DS : --bg/--border/--text fournis par nokido.css ; alias page remappes. */
+  :root { --card:var(--surface); --muted:var(--text-dim); }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:linear-gradient(135deg,#0a0e27,#1a1f3a);
+         color:var(--text); font-family:-apple-system,"Segoe UI",monospace; }
+  header { padding:14px 24px; background:rgba(0,0,0,.4); border-bottom:1px solid var(--border);
+           display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:1.1rem; color:#d2a8ff; }
+  .conn { font-size:.72rem; padding:2px 8px; border-radius:10px; background:#21262d; color:var(--muted); }
+  .conn.on { background:#238636; color:#fff; }
+  .bar-top { padding:10px 24px; background:rgba(255,255,255,.03); border-bottom:1px solid var(--border);
+             display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #task { flex:1; min-width:280px; padding:7px 10px; border-radius:6px; border:1px solid var(--border);
+          background:#0d1117; color:#e6edf3; font-size:.82rem; }
+  button { padding:7px 16px; border-radius:6px; border:1px solid #2ea043; background:#238636; color:#fff;
+           font-weight:600; cursor:pointer; font-size:.82rem; }
+  button:disabled { background:#21262d; border-color:var(--border); color:var(--muted); cursor:not-allowed; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; padding:12px; }
+  .panel { background:var(--card); border:1px solid var(--border); border-left:3px solid var(--muted);
+           border-radius:8px; padding:10px; display:flex; flex-direction:column; min-height:200px; }
+  .role { font-size:.85rem; font-weight:700; }
+  .meta { font-size:.62rem; color:var(--muted); margin:2px 0 6px; }
+  .status { font-size:.66rem; padding:2px 6px; border-radius:3px; align-self:flex-start; margin-bottom:6px;
+            background:rgba(255,255,255,.05); color:var(--muted); }
+  .status.live { background:#1f6feb; color:#fff; animation:pulse 1.2s infinite; }
+  .status.done { background:#238636; color:#fff; }
+  .status.err  { background:#da3633; color:#fff; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .body { flex-grow:1; font-size:.7rem; line-height:1.45; white-space:pre-wrap; word-wrap:break-word;
+          overflow:auto; max-height:260px; color:#e6edf3; }
+  .log { padding:8px 24px 24px; }
+  .log h3 { font-size:.75rem; color:var(--muted); margin:8px 0; text-transform:uppercase; letter-spacing:1px; }
+  .ev { font-size:.68rem; color:var(--muted); padding:2px 0; border-bottom:1px solid rgba(255,255,255,.04); }
+  .ev b { color:#79c0ff; } .ev .tr { color:#ffa657; }
+  footer { padding:10px 24px; text-align:center; color:var(--muted); font-size:.7rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nokido — Swarm multi-LLM <span style="color:var(--muted);font-size:.8rem">· live</span></h1>
+  <span id="conn" class="conn">déconnecté</span>
+</header>
+
+<div class="bar-top">
+  <input id="task" placeholder="Objectif du swarm…"
+         value="Conçois un endpoint FastAPI GET /fib/{n} (fibonacci mémoïsé) : plan, code, tests, revue sécurité.">
+  <button id="run" class="lf-btn lf-btn--primary">Lancer un swarm réel</button>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="log">
+  <h3>Flux d'événements (forge_swarm_bus)</h3>
+  <div id="evlog"></div>
+</div>
+
+<footer>
+  Événements RÉELS poussés par <code>run_swarm</code> / <code>/api/swarm/run</code> (appels <code>ask</code> réels).
+  Aucune simulation. SemanticFirewall pre/post côté serveur · bearers en vault DPAPI.
+</footer>
+
+<script>
+const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content || "";
+const COLORS = ["#d2a8ff","#79c0ff","#7ee787","#ffa657","#f2cc60","#ff7b72","#a5d6ff","#d2a8ff"];
+const grid = document.getElementById("grid");
+const evlog = document.getElementById("evlog");
+const conn = document.getElementById("conn");
+const panels = {};   // agent name -> {root, body, status}
+let colorIdx = 0;
+
+function logEv(html) {
+  const d = document.createElement("div");
+  d.className = "ev";
+  d.innerHTML = html;
+  evlog.prepend(d);
+  while (evlog.children.length > 80) evlog.lastChild.remove();
+}
+
+function panelFor(agent, provider) {
+  if (panels[agent]) return panels[agent];
+  const c = COLORS[colorIdx++ % COLORS.length];
+  const root = document.createElement("div");
+  root.className = "panel";
+  root.style.borderLeftColor = c;
+  root.innerHTML = `<div class="role" style="color:${c}">${agent}</div>
+    <div class="meta">${provider || ""}</div>
+    <div class="status" data-status>en file</div>
+    <div class="body" data-body></div>`;
+  grid.appendChild(root);
+  return (panels[agent] = {
+    root,
+    body: root.querySelector("[data-body]"),
+    status: root.querySelector("[data-status]"),
+    meta: root.querySelector(".meta"),
+  });
+}
+function setStatus(p, label, cls) { p.status.textContent = label; p.status.className = "status " + (cls || ""); }
+
+function handle(ev) {
+  const d = ev.data || {};
+  switch (ev.kind) {
+    case "connected": conn.textContent = "connecté"; conn.className = "conn on"; break;
+    case "swarm_start": {
+      // reset pour un nouveau run
+      grid.innerHTML = ""; for (const k in panels) delete panels[k]; colorIdx = 0;
+      const members = (d.agents && d.agents.length) ? d.agents
+                    : (d.tasks || []).map(t => t.task_id || t.op).filter(Boolean);
+      const goal = d.task || d.intent || "";
+      logEv(`<b>swarm_start</b> — ${members.join(", ")} · « ${goal} »`);
+      members.forEach(a => panelFor(a, ""));
+      break;
+    }
+    case "agent_start": {
+      // chat-swarm => d.agent ; code-edit swarm => d.task_id/op/targets
+      const who = d.agent || d.task_id || d.member || d.name || "tâche";
+      const sub = d.provider || d.op || (d.targets || []).join(", ");
+      const p = panelFor(who, sub);
+      if (sub) p.meta.textContent = sub + (d.round != null ? " · round " + d.round : "");
+      setStatus(p, "live", "live"); p.body.textContent = "";
+      logEv(`<b>${who}</b> démarre <span style="color:var(--muted)">(${sub || "?"})</span>`);
+      break;
+    }
+    case "agent_reply": {
+      const who = d.agent || d.task_id || d.member || d.name || "tâche";
+      const sub = d.provider || d.op || (d.targets || []).join(", ");
+      const p = panelFor(who, sub);
+      p.body.textContent = d.text || d.result || d.summary || d.diff
+                         || (d.chars != null ? `(${d.chars} chars)` : "(aucune sortie)");
+      setStatus(p, d.error ? "err" : "ok", d.error ? "err" : "done");
+      const n = d.chars != null ? d.chars + " chars" : (d.op || "ok");
+      logEv(`<b>${who}</b> répond — ${n}${d.error?' <span style="color:#da3633">ERR</span>':''}`);
+      break;
+    }
+    case "transfer":
+      logEv(`<span class="tr">↪ transfer</span> ${d.from} → ${d.to} <span style="color:var(--muted)">(${d.kind||""})</span>`);
+      if (panels[d.from]) setStatus(panels[d.from], "→ " + d.to, "done");
+      break;
+    case "final":
+      logEv(`<b>final</b> — ${d.mode||""} ${d.agent||""} · ${d.rounds!=null?d.rounds+" rounds":""} ${d.ok!=null?d.ok+" ok":""}`);
+      break;
+    default:
+      logEv(`<span style="color:var(--muted)">${ev.kind}</span> ${JSON.stringify(d).slice(0,120)}`);
+  }
+}
+
+// ── SSE live ──────────────────────────────────────────────────────────────
+function connect() {
+  const es = new EventSource("/api/swarm/stream");
+  es.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch (_) {} };
+  es.onerror = () => { conn.textContent = "reconnexion…"; conn.className = "conn"; };
+}
+connect();
+
+// ── Trigger réel ──────────────────────────────────────────────────────────
+const btn = document.getElementById("run");
+btn.addEventListener("click", async () => {
+  btn.disabled = true; btn.textContent = "swarm en cours…";
+  try {
+    const res = await fetch("/api/swarm/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 ...(TOK ? {"Authorization":"Bearer "+TOK} : {}) },
+      body: JSON.stringify({ task: document.getElementById("task").value }),
+    });
+    const j = await res.json();
+    if (!j.ok) logEv(`<span style="color:#da3633">run refusé: ${j.error||"?"}</span>`);
+  } catch (e) {
+    logEv(`<span style="color:#da3633">run erreur: ${e.message||e}</span>`);
+  } finally {
+    btn.disabled = false; btn.textContent = "Lancer un swarm réel";
+  }
+});
+</script>
+
+</body>
+</html>

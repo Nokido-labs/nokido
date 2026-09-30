@@ -1,0 +1,16 @@
+# NokidoEndpoint.pssc
+# PowerShell Session Configuration pour JEA Nokido
+
+@{
+    SchemaVersion            = '2.0.0.0'
+    GUID                     = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+    Author                   = 'Nokido'
+    Description              = 'Endpoint JEA restreint pour agents Nokido'
+    SessionType              = 'RestrictedRemoteServer'
+    TranscriptDirectory      = '%NOKIDO_WORKSPACE%\LaForge\logs\jea_transcripts'
+    RunAsVirtualAccount      = $true
+    RoleDefinitions          = @{
+        'BUILTIN\Users' = @{ RoleCapabilities = 'Nokido_SysAdmin' }
+    }
+    LanguageMode             = 'ConstrainedLanguage'
+}

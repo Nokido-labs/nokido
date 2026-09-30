@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 18px; background: var(--bg-0); display: flex; gap: 28px; align-items: center; }
+  .stack > div { margin-bottom: 4px; }
+  .p  { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+  .s  { color: var(--text-secondary); font-size: 13px; }
+  .d  { color: var(--text-dim); font-size: 12px; font-family: var(--font-mono); }
+  .x  { color: var(--text-disabled); font-size: 12px; }
+  .bx { width: 120px; height: 70px; border-radius: var(--radius-md); background: var(--bg-2); }
+  .b1 { border: 1px solid var(--border); }
+  .b2 { border: 1px solid var(--border-subtle); }
+  .cap { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 5px; }
+</style></head>
+<body>
+  <div class="stack">
+    <div class="p">text-primary — #EDEBF4</div>
+    <div class="s">text-secondary — #B2AEC4</div>
+    <div class="d">text-dim — #6E6A82</div>
+    <div class="x">text-disabled — #4A4759</div>
+  </div>
+  <div>
+    <div class="bx b1"></div><div class="cap">border #332F44</div>
+  </div>
+  <div>
+    <div class="bx b2"></div><div class="cap">border-subtle #262338</div>
+  </div>
+</body></html>

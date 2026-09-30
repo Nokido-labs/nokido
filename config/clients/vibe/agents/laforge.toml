@@ -1,0 +1,45 @@
+# Profil d'agent Nokido pour `vibe` — VERSIONNÉ, parce qu'un profil décide de la
+# SÛRETÉ et peut relâcher les permissions d'outils : c'est de la configuration
+# gouvernée, elle se relit, elle ne dort pas dans un profil local invisible.
+#
+# Chargé depuis $VIBE_HOME/agents/laforge.toml. Le nom du profil est celui du FICHIER
+# (`AgentProfile.from_toml` : `name = path.stem`), d'où l'absence de champ `name`.
+# Activé par `default_agent = "laforge"` dans config.toml, ou `vibe --agent laforge`.
+
+display_name = "LaForge"
+description = "Travail gouverné sur Nokido : rien n'exécute ni n'écrit hors du hub souverain."
+
+# Prompt système, repris de la configuration d'avril et modernisé : `prompts/laforge.md`
+# (versionné par exception dans .gitignore). Il porte le boot protocol `hub action=whoami`
+# — le seul endroit d'où l'on voit les tâches qui dorment sans destinataire.
+system_prompt_id = "laforge"
+
+# safe | neutral | destructive | yolo
+# `neutral` = les appels d'outils demandent approbation. Volontairement NI
+# `accept-edits` NI `yolo` : l'identité VIBE est en ring 3 PROVISOIRE tant que la
+# coupure du natif n'a pas été vérifiée sur la machine, et sur-doter un client non
+# vérifié coûte plus cher que le sous-doter une semaine (cf. `_ring_note` dans
+# config/agent_identities.json). Le mode `yolo` d'un autre client du parc a déjà été
+# consigné comme CRITIQUE dans docs/CLI_ATTACK_SURFACE.md — ne pas rejouer ça ici.
+safety = "neutral"
+agent_type = "agent"
+
+# ── overrides : fusionnés en DEEP_MERGE par-dessus la configuration ──────────
+# CEINTURE ET BRETELLES, volontairement redondant avec config.toml. Celui-ci pose
+# `permission = "never"` ; ici on coupe les mêmes outils par NOM. Les deux mécanismes
+# sont indépendants, et `disabled_tools` d'un profil est UNIONNÉ avec celui de la
+# config (`AgentProfile.apply_to_config`), jamais substitué : un profil ne peut donc
+# pas rouvrir en silence ce que la configuration a fermé.
+#
+# Les variantes `bash_*` sont incluses : couper `bash` en laissant ses satellites
+# ouverts laisserait un chemin de lecture sur des sessions shell.
+disabled_tools = [
+  "bash",
+  "bash_output",
+  "bash_stdin",
+  "bash_sessions",
+  "git_bash",
+  "powershell",
+  "write_file",
+  "edit",
+]

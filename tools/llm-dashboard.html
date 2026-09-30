@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokido — Portail LLM Providers</title>
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+/* Couleurs DERIVEES des tokens Nokido (laforge-tokens.css, importe par nokido.css)
+   au lieu d'etre codees en dur. Mesure 2026-09-18 : cette page n'importait aucune
+   feuille commune et ne portait pas une seule classe du design system sur 33 Ko —
+   elle vivait donc a cote de la palette des tuiles au lieu de la suivre.
+   `--border` et `--purple` ne sont PAS redefinis ici : ils existent deja dans les
+   tokens, et une redefinition `--x: var(--x)` serait circulaire, donc invalide. */
+:root {
+  --bg-main: var(--bg-0);
+  --bg-card: var(--bg-2);
+  --text-main: var(--text-primary);
+  --text-muted: var(--text-secondary);
+  --accent: var(--purple);
+  --accent-hover: var(--purple-dim);
+  --success: var(--green);
+  --warning: var(--yellow);
+  --danger: var(--red);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  /* police heritee de nokido.css (Inter), comme la page des tuiles */
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+  padding: 2rem 1rem;
+}
+.container { max-width: 1400px; margin: 0 auto; }
+header { margin-bottom: 2rem; text-align: center; }
+header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--accent), var(--purple));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+header .subtitle { color: var(--text-muted); margin-top: 0.5rem; font-size: 1rem; }
+.toolbar {
+  display: flex; gap: 1rem; justify-content: center; align-items: center;
+  margin: 1.5rem 0; flex-wrap: wrap;
+}
+.tool-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.75rem;
+}
+.tool-card input {
+  background: transparent; border: 1px solid var(--border); color: var(--text-main);
+  padding: 0.4rem 0.6rem; border-radius: 4px; font-family: monospace; min-width: 200px;
+}
+.tool-card button {
+  background: var(--accent); color: white; border: none; padding: 0.4rem 0.8rem;
+  border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+}
+.tool-card button:hover { background: var(--accent-hover); }
+.section-title {
+  margin-top: 2.5rem; margin-bottom: 1.25rem;
+  font-size: 1.4rem; border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 1.25rem;
+}
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px; padding: 1.25rem;
+  display: flex; flex-direction: column;
+  transition: border-color 0.2s, transform 0.15s;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 0.75rem; gap: 0.5rem;
+}
+.card-title { font-size: 1.1rem; font-weight: 600; }
+.badge {
+  font-size: 0.7rem; padding: 0.2rem 0.55rem;
+  border-radius: 9999px; font-weight: 500;
+  white-space: nowrap;
+}
+.badge.free { background-color: rgba(63, 185, 80, 0.2); color: var(--success); }
+.badge.trial { background-color: rgba(210, 153, 34, 0.2); color: var(--warning); }
+.badge.aggregator { background-color: rgba(188, 140, 255, 0.2); color: var(--purple); }
+.badge.paid { background-color: rgba(248, 81, 73, 0.2); color: var(--danger); }
+.badge.local { background-color: rgba(47, 129, 247, 0.2); color: var(--accent); }
+.badge.oauth { background-color: rgba(47, 129, 247, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+.badge.apikey { background-color: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid var(--border); }
+.badges { display: flex; gap: 0.25rem; flex-wrap: wrap; justify-content: flex-end; }
+.btn-oauth { background-color: rgba(47, 129, 247, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+.btn-oauth:hover { background-color: rgba(47, 129, 247, 0.25); }
+.spec-tag {
+  display: inline-block; font-size: 0.7rem; padding: 0.15rem 0.45rem;
+  border-radius: 4px; background-color: rgba(188, 140, 255, 0.15);
+  color: var(--purple); margin-right: 0.3rem; margin-top: 0.25rem;
+}
+.metric-line {
+  font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem;
+  font-family: monospace;
+}
+.host-bar {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem;
+  font-family: monospace; font-size: 0.85rem; color: var(--text-muted);
+}
+.host-bar strong { color: var(--text-main); }
+.dyn-loading { text-align: center; color: var(--text-muted); padding: 2rem; font-style: italic; }
+.dyn-error { color: var(--danger); padding: 1rem; }
+.card-body { flex-grow: 1; margin-bottom: 1rem; }
+.card-description { color: var(--text-muted); font-size: 0.88rem; }
+.card-meta {
+  font-size: 0.75rem; color: var(--text-muted);
+  margin-top: 0.5rem; font-family: monospace;
+}
+.card-actions { display: flex; gap: 0.5rem; }
+.btn {
+  display: inline-block; padding: 0.45rem 0.8rem; border-radius: 5px;
+  text-decoration: none; font-size: 0.82rem; font-weight: 500;
+  text-align: center; transition: background-color 0.2s; flex: 1;
+}
+.btn-primary { background-color: var(--accent); color: white; }
+.btn-primary:hover { background-color: var(--accent-hover); }
+.btn-secondary {
+  background-color: transparent; border: 1px solid var(--border); color: var(--text-main);
+}
+.btn-secondary:hover { background-color: rgba(255, 255, 255, 0.05); border-color: var(--text-muted); }
+.footer {
+  margin-top: 3rem; padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  text-align: center; color: var(--text-muted); font-size: 0.85rem;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Nokido — Portail Inscriptions LLM Providers</h1>
+  <p class="subtitle">Où s'inscrire, et ce que Nokido sait interroger par clé</p>
+</header>
+
+<!-- Cette page est PUBLIQUE (auth._PUBLIC_PREFIXES) : elle informe, elle n'écrit
+     jamais au coffre. La saisie vit sur /providers, derrière la session. -->
+<div class="host-bar" style="border-left:3px solid var(--purple)">
+  <strong>Saisir une clé au coffre</strong> se fait sur
+  <a href="/providers" style="color:var(--purple)">le poste de commande</a>
+  (session requise) — cette page-ci est publique et n'écrit rien.
+  Inventaire technique des 39 emplacements :
+  <a href="http://127.0.0.1:8766/admin/providers" style="color:var(--purple)">côté hub</a>.
+</div>
+
+<div class="toolbar">
+  <div class="tool-card">
+    <span>Password jetable :</span>
+    <input id="pwd" readonly value="">
+    <button onclick="genPwd(20)">Régen 20c</button>
+    <button onclick="copyPwd()">Copy</button>
+  </div>
+  <div class="tool-card">
+    <span>Email alias jetable :</span>
+    <button onclick="window.open('https://temp-mail.org/', '_blank')">Temp-Mail</button>
+    <button onclick="window.open('https://www.guerrillamail.com/', '_blank')">Guerrilla</button>
+    <button onclick="window.open('https://mail.tm/', '_blank')">Mail.tm</button>
+  </div>
+</div>
+
+<!-- ===================== DYNAMIQUE : recos par hôte + AA ===================== -->
+<h2 class="section-title">🎯 Recommandés pour cet hôte (live)</h2>
+<div id="dyn-host" class="host-bar dyn-loading">Détection des capacités hôte…</div>
+<div id="dyn-recos" class="dyn-loading">Chargement metrics ArtificialAnalysis.ai…</div>
+
+<!-- ===================== AGRÉGATEURS ===================== -->
+<h2 class="section-title">🌐 Agrégateurs multi-modèles</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">OpenRouter</span>
+      <div class="badges">
+        <span class="badge aggregator">Agrégateur</span>
+        <span class="badge apikey">API Key</span>
+        <span class="badge oauth" title="OAuth PKCE supporté pour apps tierces">OAuth</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Hub unifié vers ~300 modèles (Llama, Gemma, Mistral, GLM5, Claude, GPT, etc.). Une seule clé, modèles `:free` gratuits, paid quand besoin.</p>
+      <p class="card-meta">Env var : OPENROUTER_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://openrouter.ai/" target="_blank" class="btn btn-secondary">Accueil</a>
+      <a href="https://openrouter.ai/keys" target="_blank" class="btn btn-primary">+ API Key</a>
+      <a href="https://openrouter.ai/auth" target="_blank" class="btn btn-oauth" title="OAuth PKCE">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Hugging Face</span>
+      <div class="badges">
+        <span class="badge aggregator">Open Source</span>
+        <span class="badge apikey">Token</span>
+        <span class="badge oauth" title="OAuth login compte HF">OAuth</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Inference API + Spaces. Accès des milliers modèles open. Rate-limit free tier.</p>
+      <p class="card-meta">Env var : HUGGINGFACE_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://huggingface.co/" target="_blank" class="btn btn-secondary">Accueil</a>
+      <a href="https://huggingface.co/settings/tokens" target="_blank" class="btn btn-primary">+ Token</a>
+      <a href="https://huggingface.co/login" target="_blank" class="btn btn-oauth" title="OAuth compte HF">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">ArtificialAnalysis</span>
+      <span class="badge aggregator">Metrics</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Pas un provider mais API metrics LLM (pricing/speed/quality 500+ modèles). Free 1000 req/jour. Utilisé par Nokido auto-discover.</p>
+      <p class="card-meta">Env var : ARTIFICIALANALYSIS.AI</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://artificialanalysis.ai/" target="_blank" class="btn btn-secondary">Accueil</a>
+      <a href="https://artificialanalysis.ai/api-reference" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== FREE TIER GÉNÉREUX ===================== -->
+<h2 class="section-title">✅ Free tier généreux (haute priorité Nokido)</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Groq</span>
+      <span class="badge free">Gratuit · LPU rapide</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Inférence ultra-rapide (LPU). Llama 3.3 70B, Mixtral, Gemma. ~1000 req/jour free.</p>
+      <p class="card-meta">Env var : GROQ_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://console.groq.com/" target="_blank" class="btn btn-secondary">Console</a>
+      <a href="https://console.groq.com/keys" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Google AI Studio (Gemini)</span>
+      <div class="badges">
+        <span class="badge free">Free · 1500/jour</span>
+        <span class="badge apikey">API Key</span>
+        <span class="badge oauth" title="OAuth Google account (gcloud, OAuth Playground, Vertex)">OAuth Google</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Gemini 2.5 Flash / Pro. 1M context window. Free tier 15 req/min, 1500/jour. OAuth via gcloud / Vertex AI dispo (entreprise).</p>
+      <p class="card-meta">Env var : GEMINI_API_KEY · OAuth : gcloud auth application-default login</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://aistudio.google.com/" target="_blank" class="btn btn-secondary">AI Studio</a>
+      <a href="https://aistudio.google.com/app/apikey" target="_blank" class="btn btn-primary">+ API Key</a>
+      <a href="https://developers.google.com/oauthplayground/" target="_blank" class="btn btn-oauth" title="OAuth Google Playground">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Cohere</span>
+      <span class="badge trial">Trial dev</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Command R+ / R, RAG-optimisé. Clé Trial gratuite sans CB, rate-limitée.</p>
+      <p class="card-meta">Env var : COHERE_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://dashboard.cohere.com/" target="_blank" class="btn btn-secondary">Dashboard</a>
+      <a href="https://dashboard.cohere.com/api-keys" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">SambaNova Cloud</span>
+      <span class="badge free">Free · RDU</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Llama 3.3 70B / 405B sur Reconfigurable Dataflow Units. Free tier.</p>
+      <p class="card-meta">Env var : cloud.sambanova.ai_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://cloud.sambanova.ai/" target="_blank" class="btn btn-secondary">Cloud</a>
+      <a href="https://cloud.sambanova.ai/apis" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Cerebras Cloud</span>
+      <span class="badge free">Free · Beta</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Inférence ultra-rapide WSE wafer scale. Llama 3.3 70B. Free beta.</p>
+      <p class="card-meta">Env var : CEREBRAS_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://inference.cerebras.ai/" target="_blank" class="btn btn-secondary">Inference</a>
+      <a href="https://cloud.cerebras.ai/platform/" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">NVIDIA NIM</span>
+      <span class="badge free">Free · 1000/mois</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Build avec NIM hostés. Llama, Mistral, Code Llama. 1000 req/mois free pour build.</p>
+      <p class="card-meta">Env var : NVIDIA_NIM_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://build.nvidia.com/" target="_blank" class="btn btn-secondary">Build</a>
+      <a href="https://build.nvidia.com/explore/discover" target="_blank" class="btn btn-primary">Explorer</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">GitHub Models</span>
+      <div class="badges">
+        <span class="badge free">Free · avec Copilot</span>
+        <span class="badge apikey">PAT</span>
+        <span class="badge oauth" title="OAuth GitHub natif (gh auth login)">OAuth GitHub</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">GPT-4o, Claude, Llama, Mistral, Codestral hostés gratuits avec abo Copilot. OAuth GitHub natif via gh CLI.</p>
+      <p class="card-meta">Env var : GITHUB_TOKEN · OAuth : gh auth login</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://github.com/marketplace/models" target="_blank" class="btn btn-secondary">Marketplace</a>
+      <a href="https://github.com/settings/tokens" target="_blank" class="btn btn-primary">+ Token</a>
+      <a href="https://github.com/login/oauth/authorize" target="_blank" class="btn btn-oauth" title="OAuth GitHub">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Mistral La Plateforme</span>
+      <div class="badges">
+        <span class="badge trial">Free tier</span>
+        <span class="badge apikey">API Key</span>
+        <span class="badge oauth" title="OAuth via console Mistral (Google/Microsoft)">OAuth</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Champion européen. Mistral Small/Large, Codestral. Free endpoints + free tier. OAuth via console (login Google/Microsoft).</p>
+      <p class="card-meta">Env var : MISTRAL_API_KEY · OAuth : console login</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://console.mistral.ai/" target="_blank" class="btn btn-secondary">Console</a>
+      <a href="https://console.mistral.ai/api-keys/" target="_blank" class="btn btn-primary">+ API Key</a>
+      <a href="https://auth.mistral.ai/" target="_blank" class="btn btn-oauth" title="OAuth Mistral">OAuth</a>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== SUBSCRIPTION / PAYANT ===================== -->
+<h2 class="section-title">💳 Subscription quota / Pay-as-you-go</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Anthropic Claude</span>
+      <div class="badges">
+        <span class="badge paid">Subscription / API</span>
+        <span class="badge apikey">API Key</span>
+        <span class="badge oauth" title="OAuth Claude Code via subscription Pro/Max">OAuth Claude</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Claude Sonnet/Opus 4.7. Subscription Pro/Max OU API pay-per-token. OAuth via Claude Code utilise les quotas de la subscription (séparé API depuis 15 juin 2026).</p>
+      <p class="card-meta">Env vars : ANTHROPIC_API_KEY (API) | OAuth : claude login (Pro/Max)</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://console.anthropic.com/" target="_blank" class="btn btn-secondary">Console</a>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" class="btn btn-primary">+ API Key</a>
+      <a href="https://claude.ai/login" target="_blank" class="btn btn-oauth" title="OAuth via claude.ai (Pro/Max)">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">OpenAI</span>
+      <div class="badges">
+        <span class="badge paid">Pay-as-you-go</span>
+        <span class="badge apikey">API Key</span>
+        <span class="badge oauth" title="OAuth ChatGPT (Plus/Pro)">OAuth ChatGPT</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <p class="card-description">GPT-5.x, DALL-E. Pas de free tier auto, prépayer ~$5 min. OAuth ChatGPT pour Codex / interface web (Plus/Pro).</p>
+      <p class="card-meta">Env var : OPENAI_API_KEY · OAuth : login chatgpt.com</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://platform.openai.com/" target="_blank" class="btn btn-secondary">Platform</a>
+      <a href="https://platform.openai.com/api-keys" target="_blank" class="btn btn-primary">+ API Key</a>
+      <a href="https://chatgpt.com/auth/login" target="_blank" class="btn btn-oauth" title="OAuth ChatGPT">OAuth</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">xAI Grok</span>
+      <span class="badge paid">Pay-as-you-go</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Grok 3 / 4. API pay-as-you-go, prix élevé pour Grok 3.</p>
+      <p class="card-meta">Env var : XAI_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://x.ai/api" target="_blank" class="btn btn-secondary">API</a>
+      <a href="https://console.x.ai/" target="_blank" class="btn btn-primary">Console</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">DeepSeek</span>
+      <span class="badge paid">Pay · Cheap</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">DeepSeek V3/R1. ~$0.27/1M input, très compétitif. Prépayer.</p>
+      <p class="card-meta">Env var : DEEPSEEK_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://platform.deepseek.com/" target="_blank" class="btn btn-secondary">Platform</a>
+      <a href="https://platform.deepseek.com/api_keys" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Perplexity</span>
+      <span class="badge paid">Search-augmented</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Sonar models avec recherche web intégrée. $5 free trial puis pay.</p>
+      <p class="card-meta">Env var : PERPLEXITY_API_KEY</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://docs.perplexity.ai/" target="_blank" class="btn btn-secondary">Docs</a>
+      <a href="https://www.perplexity.ai/settings/api" target="_blank" class="btn btn-primary">+ API Key</a>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===================== LOCAL ===================== -->
+<h2 class="section-title">🔑 Toutes les inscriptions par clé câblées dans Nokido</h2>
+<p style="opacity:.75;font-size:13px;margin:-6px 0 12px">
+  Cette table est le reflet du catalogue <code>tools/forge_provider_catalogue.py</code> —
+  la <b>source unique</b> de ce que Nokido sait interroger par clé. Les sections ci-dessus
+  mettent en avant quelques fournisseurs ; ici ils sont <b>tous</b> listés, y compris ceux
+  qu'aucune carte ne montrait (mesure du 2026-09-18 : <b>9 manquaient</b>).
+  La variable et l'URL <code>/models</code> sont reprises telles quelles du catalogue ;
+  le lien d'inscription est <b>dérivé du domaine de cet endpoint</b>, il n'est pas inventé.
+  Aucune clé n'est affichée nulle part.
+</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px">
+  <thead><tr style="text-align:left;opacity:.8">
+    <th style="padding:6px 8px">fournisseur</th>
+    <th style="padding:6px 8px">variable de clé</th>
+    <th style="padding:6px 8px">endpoint /models</th>
+    <th style="padding:6px 8px">inscription</th>
+  </tr></thead>
+  <tbody>
+    <tr><td>groq</td><td><code>GROQ_API_KEY</code></td><td><code>api.groq.com</code></td><td><a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com</a></td></tr>
+    <tr><td>xai</td><td><code>XAI_API_KEY</code></td><td><code>api.x.ai</code></td><td><a href="https://console.x.ai/" target="_blank" rel="noopener">console.x.ai</a></td></tr>
+    <tr><td>sambanova</td><td><code>SAMBANOVA_API_KEY</code></td><td><code>api.sambanova.ai</code></td><td><a href="https://cloud.sambanova.ai/" target="_blank" rel="noopener">cloud.sambanova.ai</a></td></tr>
+    <tr><td>openrouter</td><td><code>OPENROUTER_API_KEY</code></td><td><code>openrouter.ai</code></td><td><a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a></td></tr>
+    <tr><td>mistral</td><td><code>MISTRAL_API_KEY</code></td><td><code>api.mistral.ai</code></td><td><a href="https://console.mistral.ai/api-keys/" target="_blank" rel="noopener">console.mistral.ai</a></td></tr>
+    <tr><td>cerebras</td><td><code>CEREBRAS_API_KEY</code></td><td><code>api.cerebras.ai</code></td><td><a href="https://cloud.cerebras.ai/platform/" target="_blank" rel="noopener">cloud.cerebras.ai</a></td></tr>
+    <tr><td>deepseek</td><td><code>DEEPSEEK_API_KEY</code></td><td><code>api.deepseek.com</code></td><td><a href="https://platform.deepseek.com/" target="_blank" rel="noopener">platform.deepseek.com</a></td></tr>
+    <tr><td><b>together</b></td><td><code>TOGETHER_API_KEY</code></td><td><code>api.together.xyz</code></td><td><a href="https://api.together.xyz/" target="_blank" rel="noopener">api.together.xyz</a></td></tr>
+    <tr><td><b>deepinfra</b></td><td><code>DEEPINFRA</code></td><td><code>api.deepinfra.com</code></td><td><a href="https://deepinfra.com/" target="_blank" rel="noopener">deepinfra.com</a></td></tr>
+    <tr><td><b>siliconflow</b></td><td><code>SILICONFLOW</code></td><td><code>api.siliconflow.cn</code></td><td><a href="https://siliconflow.cn/" target="_blank" rel="noopener">siliconflow.cn</a></td></tr>
+    <tr><td>nvidia</td><td><code>NVIDIA_API_KEY</code></td><td><code>integrate.api.nvidia.com</code></td><td><a href="https://build.nvidia.com/" target="_blank" rel="noopener">build.nvidia.com</a></td></tr>
+    <tr><td>nvidia_nim</td><td><code>NVIDIA_NIM_API_KEY</code></td><td><code>integrate.api.nvidia.com</code></td><td><a href="https://build.nvidia.com/" target="_blank" rel="noopener">build.nvidia.com</a></td></tr>
+    <tr><td><b>zai</b></td><td><code>ZAI_API_KEY</code></td><td><code>api.z.ai</code></td><td><a href="https://z.ai/" target="_blank" rel="noopener">z.ai</a></td></tr>
+    <tr><td><b>mammouth</b></td><td><code>MAMMOUTH_API_TOKEN</code></td><td><code>api.mammouth.ai</code></td><td><a href="https://mammouth.ai/" target="_blank" rel="noopener">mammouth.ai</a></td></tr>
+    <tr><td>hf</td><td><code>HF_TOKEN</code></td><td><code>router.huggingface.co</code></td><td><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener">huggingface.co</a></td></tr>
+    <tr><td>cohere</td><td><code>COHERE_API_KEY</code></td><td><code>api.cohere.ai</code></td><td><a href="https://dashboard.cohere.com/api-keys" target="_blank" rel="noopener">dashboard.cohere.com</a></td></tr>
+    <tr><td><b>voyage</b></td><td><code>VOYAGE_API_KEY</code></td><td><code>api.voyageai.com</code></td><td><a href="https://voyageai.com/" target="_blank" rel="noopener">voyageai.com</a></td></tr>
+    <tr><td><b>jina</b></td><td><code>JINA_API_KEY</code></td><td><code>api.jina.ai</code></td><td><a href="https://jina.ai/" target="_blank" rel="noopener">jina.ai</a></td></tr>
+    <tr><td>lmstudio</td><td><code>LMSTUDIO_TOKEN</code></td><td><code>127.0.0.1:1234</code></td><td>local — aucune inscription</td></tr>
+    <tr><td><b>llamacpp</b></td><td><code>FORGE_LLAMA_KEY</code></td><td><code>127.0.0.1:8080</code></td><td>local — aucune inscription</td></tr>
+    <tr><td>ollama</td><td>—</td><td><code>127.0.0.1:11434</code></td><td>local — aucune inscription</td></tr>
+    <tr><td><b>litellm</b></td><td><code>LITELLM_API_KEY</code></td><td><code>127.0.0.1:4000</code></td><td>local — aucune inscription</td></tr>
+  </tbody>
+</table>
+<p style="opacity:.75;font-size:13px;margin:-10px 0 20px">
+  <b>Volontairement hors de cette table</b>, et le catalogue dit pourquoi : Tavily
+  (moteur de recherche, pas de <code>/models</code>), Smithery (registre MCP), Kaggle
+  (jeux de données), Codeberg (forge git), Freebox (domotique), Cloudflare Workers AI
+  (URL dépendante du compte), Perceval et Quandela (calcul quantique), et GitHub Models
+  — <b>backend retiré le 2026-08-18</b> (410 Gone). Une absence nommée n'est pas un oubli.
+</p>
+
+<h2 class="section-title">💻 Local (free unlimited)</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Ollama</span>
+      <span class="badge local">Local · free</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Run LLMs localement. Llama, Qwen, DeepSeek, Mistral. Choisir quantization selon RAM/VRAM.</p>
+      <p class="card-meta">Pas d'API key — installe local + ollama pull</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://ollama.com/download" target="_blank" class="btn btn-secondary">Download</a>
+      <a href="https://ollama.com/library" target="_blank" class="btn btn-primary">Library</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">LM Studio</span>
+      <span class="badge local">Local · GUI</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">GUI pour LLMs locaux, OpenAI-compat API server. Modèles GGUF Hugging Face.</p>
+      <p class="card-meta">Pas d'API key — local server :1234</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://lmstudio.ai/" target="_blank" class="btn btn-primary">Download</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">llama.cpp</span>
+      <span class="badge local">Local · CPU/GPU</span>
+    </div>
+    <div class="card-body">
+      <p class="card-description">Backend C++ haute perf, support GGUF, CPU/Vulkan/CUDA/Metal/DirectML. Base d'Ollama/LM Studio.</p>
+      <p class="card-meta">Pas d'API key — llama-server :8080</p>
+    </div>
+    <div class="card-actions">
+      <a href="https://github.com/ggerganov/llama.cpp" target="_blank" class="btn btn-primary">GitHub</a>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  <p>Nokido — Portail Inscriptions LLM Providers</p>
+  <p>Pour vérifier les capacités locales : <code>LAFORGE_PYTHON app/forge_host_capabilities.py</code></p>
+  <p>Pour découvrir nouveaux free tiers : <code>LAFORGE_PYTHON app/forge_artificialanalysis.py --discover</code></p>
+</div>
+
+</div>
+
+<script>
+function genPwd(len) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%^&*()_-+=";
+  let pwd = "";
+  const a = new Uint32Array(len);
+  crypto.getRandomValues(a);
+  for (let i = 0; i < len; i++) pwd += chars[a[i] % chars.length];
+  document.getElementById('pwd').value = pwd;
+}
+function copyPwd() {
+  const e = document.getElementById('pwd');
+  e.select();
+  navigator.clipboard.writeText(e.value);
+  const btn = event.target;
+  const old = btn.textContent;
+  btn.textContent = "Copié!";
+  setTimeout(() => btn.textContent = old, 1200);
+}
+genPwd(20);
+
+// ===================== DYNAMIC RECOS =====================
+const USE_CASE_ICONS = {
+  code: "💻", reasoning: "🧠", math: "🧮",
+  agent: "🤖", speed: "⚡", synthesis: "📚",
+};
+
+function fmtPricing(p) {
+  if (!p || (!p.price_1m_input_tokens && !p.price_1m_output_tokens)) return "free";
+  const i = p.price_1m_input_tokens || 0, o = p.price_1m_output_tokens || 0;
+  if (i === 0 && o === 0) return "free";
+  return `$${i.toFixed(2)} / $${o.toFixed(2)} per 1M`;
+}
+
+function renderHostBar(host, localCount) {
+  const el = document.getElementById('dyn-host');
+  el.classList.remove('dyn-loading');
+  const igpu = host.is_igpu_only ? " <span style='color:var(--warning)'>(iGPU shared)</span>" : "";
+  el.innerHTML = `
+    <strong>Hôte</strong> ${host.hostname || "?"} · ${host.os || "?"}
+    | <strong>CPU</strong> ${(host.cpu_model||"?").substring(0,40)} (${host.cpu_cores_logical||"?"} threads)
+    | <strong>RAM</strong> ${(host.ram_total_gb||0).toFixed(1)} GB
+    | <strong>GPU</strong> ${host.gpu_name || "—"}${igpu}
+    | <strong>Effective inference RAM</strong> ${(host.effective_inference_ram_gb||0).toFixed(1)} GB
+    | <strong>${localCount}</strong> modèles Ollama runnables localement
+  `;
+}
+
+function renderLocalModelsCard(localModels) {
+  if (!localModels || !localModels.length) return "";
+  const items = localModels.slice(0, 6).map(m =>
+    `<li><code>${m.slug}</code> <span style="color:var(--text-muted)">(${m.params_b}B, ≥${m.ram_gb_min} GB)</span></li>`
+  ).join("");
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">💻 Local (Ollama compatible)</span>
+        <div class="badges">
+          <span class="badge local">Local</span>
+          <span class="badge free">Free unlimited</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="card-description">Modèles détectés runnables sur ton hôte. Pas d'API key, latence locale.</p>
+        <ul style="margin-top:0.5rem;font-size:0.85rem;padding-left:1.2rem">${items}</ul>
+      </div>
+      <div class="card-actions">
+        <a href="https://ollama.com/library" target="_blank" class="btn btn-secondary">Library</a>
+        <a href="https://ollama.com/download" target="_blank" class="btn btn-primary">Download Ollama</a>
+      </div>
+    </div>
+  `;
+}
+
+function renderRecoCard(rec) {
+  const icon = USE_CASE_ICONS[rec.use_case] || "🎯";
+  if (!rec.free_cloud || !rec.free_cloud.length) {
+    return `
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">${icon} ${rec.use_case}</span>
+          <span class="badge trial">No data</span>
+        </div>
+        <div class="card-body">
+          <p class="card-description">${rec.label}</p>
+          <p class="metric-line">Pas de candidat free dans AA pour ce use-case (ou clé API AA absente).</p>
+        </div>
+      </div>
+    `;
+  }
+  const top = rec.free_cloud[0];
+  const others = rec.free_cloud.slice(1).map(c =>
+    `<span class="spec-tag" title="${c.metric_name} = ${(c.metric_value||0).toFixed(1)}">${c.provider}</span>`
+  ).join("");
+  return `
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">${icon} ${rec.use_case}</span>
+        <div class="badges">
+          <span class="badge free">Top free</span>
+        </div>
+      </div>
+      <div class="card-body">
+        <p class="card-description">${rec.label}</p>
+        <p class="metric-line">
+          🏆 <strong>${top.provider}</strong> · ${top.model_aa}<br>
+          ${top.metric_name} = <strong>${(top.metric_value||0).toFixed(1)}</strong> · ${fmtPricing(top.pricing)}
+        </p>
+        ${others ? `<div style="margin-top:0.5rem">Alternatives : ${others}</div>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+async function loadRecos() {
+  try {
+    const r = await fetch('/api/llm-recommendations');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+
+    const localCount = (data.local_runnable || []).length;
+    renderHostBar(data.host || {}, localCount);
+
+    const container = document.getElementById('dyn-recos');
+    container.classList.remove('dyn-loading');
+    if (!data.aa_available) {
+      container.innerHTML = `<div class="dyn-error">⚠️ ArtificialAnalysis.ai indisponible (clé absente ou module non chargé). Recommandations cloud désactivées — seul le local est listé.</div>`;
+    }
+    const cards = [];
+    cards.push(renderLocalModelsCard(data.local_runnable));
+    for (const rec of (data.recommendations || [])) {
+      cards.push(renderRecoCard(rec));
+    }
+    container.classList.add('grid');
+    container.innerHTML = cards.join("");
+  } catch (e) {
+    document.getElementById('dyn-host').innerHTML = `<span style="color:var(--danger)">❌ Erreur : ${e.message}</span>`;
+    document.getElementById('dyn-recos').innerHTML = `<div class="dyn-error">Échec fetch /api/llm-recommendations — service web_hub UP ?</div>`;
+  }
+}
+
+loadRecos();
+</script>
+
+</body>
+</html>

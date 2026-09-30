@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokido OS — Autonomous OSS Agent</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0a;--surface:#111;--card:#161616;--border:#2a2a2a;
+  --green:#4caf50;--blue:#2196f3;--orange:#ff9800;--red:#f44336;
+  --purple:#9c27b0;--cyan:#00bcd4;--dim:#666;--text:#c2c0b6;
+  --mono:'Cascadia Code','Consolas','Courier New',monospace
+}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px}
+.lf-shell{display:grid;grid-template-rows:auto 1fr auto;height:100vh;min-height:600px;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:12px;padding:6px 12px;background:#050505;border-bottom:1px solid var(--border);flex-shrink:0}
+.logo{font-size:13px;font-weight:600;color:var(--green);letter-spacing:.05em}
+.status-pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.topbar-meta{font-size:10px;color:var(--dim);display:flex;gap:10px;flex:1;flex-wrap:wrap}
+.topbar-meta span{white-space:nowrap}
+.mode-badges{display:flex;gap:4px;flex-wrap:nowrap}
+.mode-badge{padding:2px 8px;border-radius:3px;font-size:10px;border:1px solid var(--border);cursor:pointer;white-space:nowrap;background:transparent;color:var(--dim);font-family:var(--mono)}
+.mode-badge.active{border-color:var(--green);color:var(--green)}
+.mode-badge:hover:not(.active){color:var(--text)}
+
+.main-area{display:grid;grid-template-columns:180px 1fr 240px;overflow:hidden;min-height:0}
+
+/* ── LEFT RAIL ── */
+.rail{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.rail-title{padding:8px 10px 6px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border);flex-shrink:0}
+.rail-scroll{flex:1;overflow-y:auto;padding:6px}
+.agent-card{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:7px 8px;margin-bottom:5px;border-left:3px solid var(--dim)}
+.agent-card.llm{border-left-color:#185fa5}
+.agent-card.local{border-left-color:#3b6d11}
+.agent-card.agent{border-left-color:#993c1d}
+.ac-row{display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.ac-icon{font-size:13px;flex-shrink:0}
+.ac-name{font-size:10px;font-weight:600;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ac-state{font-size:9px;padding:1px 5px;border-radius:2px}
+.state-idle{color:var(--green);background:rgba(76,175,80,.12)}
+.state-thinking{color:var(--orange);background:rgba(255,152,0,.12)}
+.state-streaming{color:var(--blue);background:rgba(33,150,243,.12)}
+.state-syncing_rag{color:var(--purple);background:rgba(156,39,176,.12)}
+.ac-bar-wrap{height:3px;background:#1a1a1a;border-radius:2px;overflow:hidden;margin-top:2px}
+.ac-bar{height:100%;border-radius:2px;background:var(--green);transition:width .5s}
+.ac-sub{font-size:9px;color:var(--dim);margin-top:2px}
+
+/* ── CENTER ── */
+.center{display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.tabs{display:flex;background:#050505;border-bottom:1px solid var(--border);flex-shrink:0}
+.tab{padding:7px 14px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;color:var(--dim);border-bottom:2px solid transparent;border-right:1px solid var(--border);background:none;border-top:none;border-left:none;font-family:var(--mono)}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--green);border-bottom-color:var(--green)}
+.pane{display:none;flex:1;overflow-y:auto;padding:12px;flex-direction:column;gap:10px;min-height:0}
+.pane.on{display:flex}
+
+/* ── METRICS ── */
+.mg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;flex-shrink:0}
+.mc{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px 12px;text-align:center}
+.mc .v{font-size:22px;font-weight:600;line-height:1;margin-bottom:3px}
+.mc .l{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+.cyan{color:var(--cyan)}.green{color:var(--green)}.orange{color:var(--orange)}.red{color:var(--red)}
+
+.prog-section{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0}
+.prog-title{font-size:10px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}
+.pb-row{margin-bottom:7px}
+.pb-label{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);margin-bottom:3px}
+.pb{height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden}
+.pb-fill{height:100%;border-radius:2px;background:var(--green);transition:width .6s}
+
+.rt{background:var(--card);border:1px solid var(--border);border-radius:4px;overflow:hidden;flex-shrink:0}
+.rt-head{display:grid;grid-template-columns:1fr 2fr 70px 65px;padding:6px 10px;background:#0d0d0d;border-bottom:1px solid var(--border);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.rt-row{display:grid;grid-template-columns:1fr 2fr 70px 65px;padding:7px 10px;border-bottom:1px solid var(--border);align-items:center;cursor:pointer;text-decoration:none;color:inherit;display:grid}
+.rt-row:last-child{border-bottom:none}
+.rt-row:hover{background:#161616}
+.rr-repo{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.rr-fix{font-size:10px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rr-t{font-size:10px;color:var(--green)}
+.rr-s{font-size:9px;padding:2px 6px;border-radius:2px;text-align:center}
+.s-open{color:var(--green);background:rgba(76,175,80,.12);border:1px solid rgba(76,175,80,.3)}
+.s-closed{color:var(--red);background:rgba(244,67,54,.1);border:1px solid rgba(244,67,54,.3)}
+
+/* ── RUN ── */
+.run-wrap{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0}
+.run-lbl{font-size:9px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+textarea{width:100%;background:#0a0a0a;color:var(--text);border:1px solid var(--border);border-radius:3px;padding:8px;font-family:var(--mono);font-size:12px;resize:none;line-height:1.5}
+textarea:focus{outline:none;border-color:var(--green)}
+.btn-row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.btn{padding:5px 12px;font-family:var(--mono);font-size:11px;border-radius:3px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--text)}
+.btn:hover{background:#1a1a1a;color:var(--text)}
+.btn.primary{border-color:var(--green);color:var(--green)}
+.btn.primary:hover{background:rgba(76,175,80,.1)}
+.btn:active{transform:scale(.97)}
+.log-box{background:#0a0a0a;border:1px solid var(--border);border-radius:4px;padding:10px;font-size:11px;line-height:1.8;min-height:140px;max-height:200px;overflow-y:auto;flex-shrink:0}
+.ll{display:flex;gap:8px}
+.ll-ts{color:var(--dim);flex-shrink:0;min-width:68px}
+.ll-step{flex-shrink:0;min-width:90px}
+.ll-msg{color:var(--text);word-break:break-all}
+.ll.ok .ll-msg{color:var(--green)}.ll.warn .ll-msg{color:var(--orange)}.ll.dim .ll-msg{color:var(--dim)}.ll.info .ll-msg{color:var(--cyan)}
+.quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex-shrink:0}
+.qr{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:8px 10px;cursor:pointer;transition:border-color .15s}
+.qr:hover{border-color:var(--green)}
+.qr .qr-n{font-size:11px;font-weight:600;color:var(--cyan);margin-bottom:2px}
+.qr .qr-d{font-size:9px;color:var(--dim)}
+
+/* ── RAG ── */
+.rag-header{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0}
+.rag-title-row{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.rag-entropy{font-size:16px;font-weight:600}
+.rag-sub{font-size:10px;color:var(--dim)}
+.rag-domain{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.rag-d-name{font-size:10px;color:var(--dim);min-width:72px;text-align:right}
+.rag-d-bar{flex:1;height:8px;background:#1a1a1a;border-radius:2px;overflow:hidden}
+.rag-d-fill{height:100%;border-radius:2px;transition:width .6s}
+.rag-d-count{font-size:10px;color:var(--dim);min-width:38px;text-align:right}
+.rag-search-row{margin-top:10px;display:flex;gap:6px}
+.rag-search-row input{flex:1;background:#0a0a0a;border:1px solid var(--border);border-radius:3px;padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:11px}
+.rag-search-row input:focus{outline:none;border-color:var(--cyan)}
+.rag-results{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px}
+.rag-rule{padding:6px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:flex-start}
+.rag-rule:last-child{border-bottom:none}
+.rag-rn{font-size:10px;color:var(--dim);min-width:24px;flex-shrink:0}
+.rag-rt{font-size:11px;color:var(--text);flex:1}
+.rag-rs{font-size:10px;color:var(--cyan);flex-shrink:0;white-space:nowrap}
+
+/* ── MODES ── */
+.modes-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;flex-shrink:0}
+.mode-card{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:9px 10px;cursor:pointer;transition:border-color .15s}
+.mode-card:hover{border-color:var(--orange)}
+.mode-card.sel{border-color:var(--orange);background:#161208}
+.mc-icon{font-size:14px;margin-bottom:4px}
+.mc-name{font-size:11px;font-weight:600;color:var(--text)}
+.mc-slots{font-size:9px;color:var(--dim);margin-top:2px}
+.slots-config{background:var(--card);border:1px solid var(--border);border-radius:4px;padding:10px;flex-shrink:0}
+.slot-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.slot-lbl{font-size:10px;color:var(--dim);min-width:90px}
+.slot-sel{background:#0a0a0a;border:1px solid var(--border);border-radius:3px;padding:4px 6px;color:var(--text);font-family:var(--mono);font-size:11px;flex:1}
+.slot-sel:focus{outline:none;border-color:var(--green)}
+
+/* ── TERMINAL ── */
+.terminal{background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.term-title{padding:8px 10px 6px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.term-clear{font-size:9px;color:var(--dim);cursor:pointer;padding:2px 6px;border:1px solid var(--border);border-radius:2px;background:none;font-family:var(--mono)}
+.term-clear:hover{color:var(--text)}
+.term-scroll{flex:1;overflow-y:auto;padding:8px;font-size:10px;line-height:1.7}
+.te{display:flex;gap:6px;padding:1px 0}
+.te-ts{color:#333;flex-shrink:0;min-width:55px}
+.te-type{flex-shrink:0;min-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.te-msg{color:var(--text);word-break:break-all;overflow:hidden}
+.te.ok .te-type{color:var(--green)}.te.info .te-type{color:var(--cyan)}
+.te.warn .te-type{color:var(--orange)}.te.err .te-type{color:var(--red)}
+
+/* ── BOTTOM ── */
+.bottombar{background:#050505;border-top:1px solid var(--border);padding:4px 12px;display:flex;align-items:center;gap:12px;font-size:10px;color:var(--dim);flex-shrink:0}
+.bb-item{display:flex;align-items:center;gap:4px}
+.bb-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#2a2a2a;border-radius:2px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:800px){
+  .main-area{grid-template-columns:0 1fr 0}
+  .rail{display:none}
+  .terminal{display:none}
+}
+@media(max-width:500px){
+  .mg{grid-template-columns:repeat(2,1fr)}
+  .rt-head,.rt-row{grid-template-columns:1fr 80px 55px}
+  .rr-fix{display:none}
+  .quick-grid{grid-template-columns:1fr}
+  .modes-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="lf-shell">
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="status-pulse"></div>
+  <span class="logo">⚡ Nokido OS</span>
+  <div class="topbar-meta">
+    <span>v17.0.0</span>
+    <span>hackathon/v17-microsoft</span>
+    <span id="tb-time">--:--:--</span>
+  </div>
+  <div class="mode-badges">
+    <button class="mode-badge active" onclick="setMode(this,'solo')" title="Nokido pilots, Ollama executes">SOLO</button>
+    <button class="mode-badge" onclick="setMode(this,'collab')" title="Claude + CLINE_PLAN + CLINE_ACT">COLLAB</button>
+    <button class="mode-badge" onclick="setMode(this,'council')" title="All agents propose, Nokido votes">COUNCIL</button>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-area">
+
+  <!-- LEFT — Brain Rail (from dashboard_view.py) -->
+  <div class="rail">
+    <div class="rail-title">🧠 Brain Rail</div>
+    <div class="rail-scroll" id="brain-rail"></div>
+  </div>
+
+  <!-- CENTER — Workspace -->
+  <div class="center">
+    <div class="tabs">
+      <button class="tab on" onclick="switchTab('dash')">Dashboard</button>
+      <button class="tab" onclick="switchTab('run')">Run</button>
+      <button class="tab" onclick="switchTab('rag')">RAG</button>
+      <button class="tab" onclick="switchTab('modes')">Agents</button>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="pane-dash" class="pane on">
+      <div class="mg">
+        <div class="mc"><div class="v cyan">12</div><div class="l">PRs opened</div></div>
+        <div class="mc"><div class="v green">4 890</div><div class="l">Tests written</div></div>
+        <div class="mc"><div class="v orange">8 419</div><div class="l">RAG chunks</div></div>
+        <div class="mc"><div class="v red">0</div><div class="l">Regressions</div></div>
+      </div>
+      <div class="prog-section">
+        <div class="prog-title">Session progress</div>
+        <div class="pb-row"><div class="pb-label"><span>PRs</span><span>12 / 20</span></div><div class="pb"><div class="pb-fill" style="width:60%"></div></div></div>
+        <div class="pb-row"><div class="pb-label"><span>Tests</span><span>4 890 / 5 000</span></div><div class="pb"><div class="pb-fill" style="width:97%"></div></div></div>
+        <div class="pb-row"><div class="pb-label"><span>RAG rules</span><span>29 / 50</span></div><div class="pb"><div class="pb-fill" style="width:58%;background:var(--cyan)"></div></div></div>
+        <div class="pb-row"><div class="pb-label"><span>Repos</span><span>11 / 20</span></div><div class="pb"><div class="pb-fill" style="width:55%;background:var(--orange)"></div></div></div>
+      </div>
+      <div class="rt">
+        <div class="rt-head"><span>Repository</span><span>Fix</span><span>Tests</span><span>Status</span></div>
+        <div id="pr-table"></div>
+      </div>
+    </div>
+
+    <!-- RUN -->
+    <div id="pane-run" class="pane">
+      <div class="run-wrap">
+        <div class="run-lbl">Task</div>
+        <textarea id="task-in" rows="2" placeholder="fix bugs in psf/requests"></textarea>
+        <div class="btn-row">
+          <button class="btn primary" onclick="doRun(false)">▶ Run fix</button>
+          <button class="btn" onclick="doRun(true)">◻ Dry run</button>
+          <button class="btn" onclick="clearLog()">✕ Clear</button>
+        </div>
+      </div>
+      <div class="log-box" id="log-out">
+        <div class="ll dim"><span class="ll-ts">—</span><span class="ll-msg">Ready — enter a repo and press Run fix.</span></div>
+      </div>
+      <div class="quick-grid" id="quick-grid"></div>
+    </div>
+
+    <!-- RAG (from rag_view.py) -->
+    <div id="pane-rag" class="pane">
+      <div class="rag-header">
+        <div class="rag-title-row">
+          <span class="rag-entropy green">H = 2.84 bits</span>
+          <span class="rag-sub">8 419 chunks · 12 domains · 95% max entropy</span>
+        </div>
+        <div id="rag-bars"></div>
+        <div class="rag-search-row">
+          <input type="text" id="rag-q" placeholder="search rules — e.g. bytes decode" onkeydown="if(event.key==='Enter')ragSearch()">
+          <button class="btn primary" onclick="ragSearch()">Search</button>
+        </div>
+      </div>
+      <div class="rag-results" id="rag-res">
+        <div style="color:var(--dim);font-size:11px">29 rules anchored from 12 PRs. Type to search.</div>
+      </div>
+    </div>
+
+    <!-- MODES (from interaction_view.py) -->
+    <div id="pane-modes" class="pane">
+      <div class="modes-grid" id="modes-grid"></div>
+      <div class="slots-config" id="slots-cfg" style="display:none"></div>
+      <div class="btn-row" id="modes-btn-row" style="display:none">
+        <button class="btn primary" onclick="launchMode()">▶ Launch interaction</button>
+        <button class="btn" onclick="cancelMode()">✕ Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT — Truth Terminal (from dashboard_view.py TruthTerminalWidget) -->
+  <div class="terminal">
+    <div class="term-title">
+      <span>⚡ Truth Terminal</span>
+      <button class="term-clear" onclick="clearTerminal()">Clear</button>
+    </div>
+    <div class="term-scroll" id="truth-term"></div>
+  </div>
+</div>
+
+<!-- BOTTOM BAR -->
+<div class="bottombar">
+  <div class="bb-item"><div class="bb-dot" style="background:var(--green)"></div><span>MCP connected</span></div>
+  <div class="bb-item"><div class="bb-dot" style="background:var(--cyan)"></div><span>RAG 8 419 chunks</span></div>
+  <div class="bb-item"><div class="bb-dot" style="background:var(--orange)"></div><span id="bb-mode">@mode solo</span></div>
+  <div style="flex:1"></div>
+  <span id="bb-status">idle</span>
+</div>
+
+</div>
+
+<script>
+// ── Data ─────────────────────────────────────────────────────────────────────
+const AGENTS=[
+  {id:"CLAUDE",     icon:"🤖",label:"Claude (Anthropic)",   kind:"llm",   state:"IDLE",vram:0},
+  {id:"CLINE_PLAN", icon:"📋",label:"Cline Planner",         kind:"agent", state:"IDLE",vram:6},
+  {id:"CLINE_ACT",  icon:"⚡",label:"Cline Executor",        kind:"agent", state:"IDLE",vram:6},
+  {id:"qwen",       icon:"🧠",label:"Qwen2.5-Coder (local)", kind:"local", state:"IDLE",vram:45},
+  {id:"gemini",     icon:"✨",label:"Gemini 2.0 Flash",       kind:"llm",   state:"IDLE",vram:0},
+  {id:"llamacpp",   icon:"🦙",label:"LlamaCpp (local)",       kind:"local", state:"IDLE",vram:28},
+];
+
+const PRS=[
+  {repo:"jd/tenacity",        fix:"CancelledError + None check",       tests:153, stars:"54k", state:"open", url:"https://github.com/jd/tenacity/pull/638"},
+  {repo:"tox-dev/filelock",   fix:"__exit__ + stored loop __del__",    tests:338, stars:"1.2k",state:"open", url:"https://github.com/tox-dev/filelock/pull/518"},
+  {repo:"Kludex/starlette",   fix:"ETag strip() + HEAD route",         tests:241, stars:"9.8k",state:"open", url:"https://github.com/Kludex/starlette/pull/3206"},
+  {repo:"aio-libs/yarl",      fix:"UUID→str + password repr",          tests:850, stars:"5.6k",state:"open", url:"https://github.com/aio-libs/yarl/pull/1646"},
+  {repo:"validators",         fix:"ImportError + ISIN Luhn + ETH",     tests:895, stars:"800", state:"open", url:"https://github.com/python-validators/validators/pull/448"},
+  {repo:"tkem/cachetools",    fix:"cached_property thread-safe",       tests:296, stars:"2.8k",state:"open", url:"https://github.com/tkem/cachetools/pull/391"},
+  {repo:"encode/httpcore",    fix:"FQDN + memoryview 42k×",            tests:182, stars:"3.3k",state:"open", url:"https://github.com/encode/httpcore/pull/1068"},
+  {repo:"python-websockets",  fix:"UnicodeDecodeError partial UTF-8",  tests:88,  stars:"6.3k",state:"open", url:"https://github.com/python-websockets/websockets/pull/1704"},
+  {repo:"Delgan/loguru",      fix:"Format key validation",             tests:1570,stars:"4.8k",state:"open", url:"https://github.com/Delgan/loguru/pull/1453"},
+  {repo:"psf/requests",       fix:"DigestAuth bytes credentials",      tests:238, stars:"52k", state:"closed",url:"https://github.com/psf/requests/pull/7295"},
+  {repo:"BerriAI/litellm",    fix:"429 routing cooldown bypass",       tests:21,  stars:"9.7k",state:"open", url:"https://github.com/BerriAI/litellm/pull/24616"},
+  {repo:"BerriAI/litellm",    fix:"Bedrock + AuthError + xai + SSE",  tests:18,  stars:"9.7k",state:"open", url:"https://github.com/BerriAI/litellm/pull/24617"},
+];
+
+const RAG_DOMAINS=[
+  {d:"code",       n:2729,col:"#4caf50"},{d:"general",   n:1704,col:"#888"},
+  {d:"forge_core", n:1577,col:"#2196f3"},{d:"systeme",   n:1039,col:"#ff9800"},
+  {d:"securite",   n:411, col:"#f44336"},{d:"reseau",    n:231, col:"#9c27b0"},
+  {d:"rag",        n:181, col:"#00bcd4"},{d:"handler",   n:153, col:"#e91e63"},
+  {d:"llm",        n:75,  col:"#ff5722"},{d:"ia",        n:63,  col:"#4fc3f7"},
+];
+
+const RAG_RULES=[
+  {n:1, rule:"isinstance(x, bytes) → .decode() before any string op",             src:"requests #7295"},
+  {n:2, rule:"CancelledError must propagate — never caught by bare except",        src:"tenacity #638"},
+  {n:3, rule:"Context managers need __exit__ even if __enter__ is inherited",      src:"filelock #518"},
+  {n:4, rule:"ETag headers must be strip()ed before comparison",                   src:"starlette #3206"},
+  {n:5, rule:"HEAD routes must precede GET to avoid route shadowing",              src:"starlette #3206"},
+  {n:6, rule:"UUID must be converted to str() before string concatenation",        src:"yarl #1646"},
+  {n:7, rule:"Password repr should mask after first 3 chars",                      src:"yarl #1646"},
+  {n:8, rule:"Splitting URL at // is 42,676× faster than regex for simple cases",  src:"yarl #1646"},
+  {n:9, rule:"@validator decorator requires explicit import — no star imports",    src:"validators #448"},
+  {n:10,rule:"ISIN validation requires Luhn checksum on alphanumeric mapping",     src:"validators #448"},
+  {n:11,rule:"cached_property with TTL needs RLock not Lock — reentrant access",   src:"cachetools #391"},
+  {n:12,rule:"FQDN trailing dot (e.g. example.com.) breaks SSL SNI matching",      src:"httpcore #1068"},
+  {n:13,rule:"memoryview enables zero-copy in socket.send() for bulk transfers",   src:"httpcore #1068"},
+  {n:14,rule:"Frame.data decode with errors='replace' for partial UTF-8 frames",  src:"websockets #1704"},
+  {n:15,rule:"Format key validation must happen at logger.add(), not first log",   src:"loguru #1453"},
+  {n:16,rule:"tb_lineno can be None in synthetic tracebacks — always guard it",    src:"loguru #1453"},
+  {n:17,rule:"429 cooldown must check provider headers, not only global backoff",  src:"litellm #24616"},
+  {n:18,rule:"Bedrock InternalServerException maps to 500, not 429",              src:"litellm #24617"},
+  {n:19,rule:"AuthError must never trigger exponential retry — fail fast",         src:"litellm #24617"},
+  {n:20,rule:"xai provider requires drop_params=True for unsupported params",     src:"litellm #24617"},
+  {n:21,rule:"SSE error events must be parsed even after a successful stream start",src:"litellm #24617"},
+  {n:22,rule:"git clone --depth 1 --single-branch saves 80% clone time",          src:"Nokido core"},
+  {n:23,rule:"tree-sitter AST validation before any commit — no broken syntax",   src:"Nokido core"},
+  {n:24,rule:"Test files must mirror source path exactly for pytest discovery",    src:"Nokido core"},
+  {n:25,rule:"Always write a regression test reproducing the bug before fixing",   src:"Nokido core"},
+  {n:26,rule:"SQLite WAL mode enables concurrent reads for multi-agent state",     src:"Nokido core"},
+  {n:27,rule:"FAISS + BM25 hybrid retrieval outperforms either alone for code",   src:"Nokido core"},
+  {n:28,rule:"Minimal diffs have higher merge probability",                         src:"Nokido core"},
+  {n:29,rule:"Anchor each fix rule in RAG so the next fix benefits from it",       src:"Nokido core"},
+];
+
+const MODES={
+  solo:    {label:"Solo",       icon:"🤖",desc:"Nokido pilots alone — Ollama executes. Command: @mode autonome",     sl:["Nokido (main)"]},
+  collab:  {label:"Collab",     icon:"🤝",desc:"Claude plans + CLINE_PLAN + CLINE_ACT execute. @mode collaboration",  sl:["CLAUDE","CLINE_PLAN","CLINE_ACT"]},
+  council: {label:"Council",    icon:"⚖", desc:"All agents propose, Nokido votes the best answer. @mode comite",    sl:["CLAUDE","qwen","gemini"]},
+  ping:    {label:"Ping-Pong",  icon:"🏓",desc:"Two LLMs enrich each other in alternation",                          sl:["Agent A","Agent B"]},
+  debate:  {label:"Debate",     icon:"💬",desc:"Thesis → Antithesis → Refutation → Synthesis",                       sl:["CLAUDE","qwen"]},
+  rag:     {label:"RAG Collab", icon:"📚",desc:"Generator produces, Validator reviews via RAG knowledge base",       sl:["Generator","Validator"]},
+};
+
+const QUICK=[
+  {repo:"jd/tenacity",        desc:"exception handling, retry logic"},
+  {repo:"encode/httpcore",    desc:"SSL SNI, connection pooling"},
+  {repo:"Delgan/loguru",      desc:"format validation, guards"},
+  {repo:"BerriAI/litellm",   desc:"routing, error mapping"},
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let logTimer=null, logStep=0, selectedMode=null;
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function updateClock(){
+  document.getElementById('tb-time').textContent=new Date().toLocaleTimeString('en-GB');
+}
+setInterval(updateClock,1000);
+updateClock();
+
+// ── Brain Rail ────────────────────────────────────────────────────────────────
+function buildBrainRail(){
+  document.getElementById('brain-rail').innerHTML=AGENTS.map(a=>`
+    <div class="agent-card ${a.kind}" id="ac-${a.id}">
+      <div class="ac-row">
+        <span class="ac-icon">${a.icon}</span>
+        <span class="ac-name">${a.label}</span>
+        <span class="ac-state state-${a.state.toLowerCase()}" id="st-${a.id}">${a.state}</span>
+      </div>
+      ${a.vram>0
+        ?`<div class="ac-bar-wrap"><div class="ac-bar" style="width:${a.vram}%"></div></div>
+          <div class="ac-sub" id="sub-${a.id}">VRAM ${a.vram}%</div>`
+        :`<div class="ac-sub" id="sub-${a.id}">remote API</div>`
+      }
+    </div>`).join('');
+}
+
+function setAgentState(id,state){
+  const a=AGENTS.find(x=>x.id===id);
+  if(a) a.state=state;
+  const el=document.getElementById('st-'+id);
+  if(el){el.textContent=state;el.className='ac-state state-'+state.toLowerCase();}
+}
+
+// ── PR Table ──────────────────────────────────────────────────────────────────
+function buildPRTable(){
+  document.getElementById('pr-table').innerHTML=PRS.map(p=>`
+    <a class="rt-row" href="${p.url}" target="_blank" rel="noopener">
+      <span class="rr-repo">${p.repo}</span>
+      <span class="rr-fix">${p.fix}</span>
+      <span class="rr-t">${p.tests}</span>
+      <span class="rr-s s-${p.state}">${p.state}</span>
+    </a>`).join('');
+}
+
+// ── RAG ───────────────────────────────────────────────────────────────────────
+function buildRagBars(){
+  const max=RAG_DOMAINS[0].n;
+  document.getElementById('rag-bars').innerHTML=RAG_DOMAINS.map(d=>`
+    <div class="rag-domain">
+      <span class="rag-d-name">${d.d}</span>
+      <div class="rag-d-bar"><div class="rag-d-fill" style="width:${Math.round(d.n/max*100)}%;background:${d.col}"></div></div>
+      <span class="rag-d-count">${d.n}</span>
+    </div>`).join('');
+}
+
+function ragSearch(){
+  const q=document.getElementById('rag-q').value.toLowerCase().trim();
+  const el=document.getElementById('rag-res');
+  if(!q){el.innerHTML='<div style="color:var(--dim);font-size:11px">29 rules anchored. Type to search.</div>';return;}
+  const hits=RAG_RULES.filter(r=>r.rule.toLowerCase().includes(q)||r.src.toLowerCase().includes(q));
+  el.innerHTML=hits.length
+    ?hits.map(r=>`<div class="rag-rule"><span class="rag-rn">#${r.n}</span><span class="rag-rt">${r.rule}</span><span class="rag-rs">${r.src}</span></div>`).join('')
+    :`<div style="color:var(--dim);font-size:11px">No match for "${q}"</div>`;
+}
+
+// ── Modes ─────────────────────────────────────────────────────────────────────
+function buildModes(){
+  document.getElementById('modes-grid').innerHTML=Object.entries(MODES).map(([k,m])=>`
+    <div class="mode-card" id="mc-${k}" onclick="selectMode('${k}')">
+      <div class="mc-icon">${m.icon}</div>
+      <div class="mc-name">${m.label}</div>
+      <div class="mc-slots">${m.sl.length} slots</div>
+    </div>`).join('');
+}
+
+function selectMode(k){
+  document.querySelectorAll('.mode-card').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('mc-'+k).classList.add('sel');
+  selectedMode=k;
+  const m=MODES[k];
+  const cfg=document.getElementById('slots-cfg');
+  cfg.innerHTML='<div style="font-size:10px;font-weight:600;color:var(--cyan);margin-bottom:3px">'+m.label+'</div>'+'<div style="font-size:9px;color:var(--dim);margin-bottom:8px">'+m.desc+'</div>'+
+    m.sl.map((s,i)=>`
+      <div class="slot-row">
+        <span class="slot-lbl">${s}</span>
+        <select class="slot-sel" id="slot-${i}">
+          ${AGENTS.map(a=>`<option value="${a.id}">${a.label}</option>`).join('')}
+        </select>
+      </div>`).join('');
+  cfg.style.display='block';
+  document.getElementById('modes-btn-row').style.display='flex';
+}
+
+function cancelMode(){
+  document.querySelectorAll('.mode-card').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('slots-cfg').style.display='none';
+  document.getElementById('modes-btn-row').style.display='none';
+  selectedMode=null;
+}
+
+function launchMode(){
+  if(!selectedMode) return;
+  const m=MODES[selectedMode];
+  const agents=m.sl.map((_,i)=>document.getElementById('slot-'+i).value);
+  termLog('launch_mode',selectedMode+' → '+agents.join(', '),'info');
+  agents.forEach(a=>setAgentState(a,'THINKING'));
+  setTimeout(()=>{agents.forEach(a=>setAgentState(a,'IDLE'));},4000);
+  cancelMode();
+  switchTab('run');
+}
+
+// ── Quick targets ─────────────────────────────────────────────────────────────
+function buildQuick(){
+  document.getElementById('quick-grid').innerHTML=QUICK.map(q=>`
+    <div class="qr" onclick="setTask('fix bugs in ${q.repo}')">
+      <div class="qr-n">${q.repo}</div>
+      <div class="qr-d">${q.desc}</div>
+    </div>`).join('');
+}
+
+function setTask(t){document.getElementById('task-in').value=t;switchTab('run');}
+
+// ── Run ───────────────────────────────────────────────────────────────────────
+const LOG_STEPS=[
+  ["info","🔍 Analyzing",   "Loading RAG context — 29 rules matched"],
+  ["info","📦 Cloning",     "git clone --depth 1 --single-branch"],
+  ["info","🔬 Scanning",    "tree-sitter AST — 847 nodes analyzed"],
+  ["info","💡 Bug found",   "Score 0.94 — candidate confirmed"],
+  ["info","⚙  Fixing",      "Patch generated — 3 lines changed"],
+  ["info","🧪 Testing",     "Writing test suite..."],
+  ["ok",  "✅ Tests pass",  "All assertions passed — 0 regressions"],
+  ["ok",  "🚀 PR opened",   "Pull request submitted successfully"],
+];
+
+function addLog(cls,step,msg){
+  const b=document.getElementById('log-out');
+  const d=document.createElement('div');d.className='ll '+cls;
+  d.innerHTML=`<span class="ll-ts">${new Date().toLocaleTimeString('en-GB')}</span><span class="ll-step">${step}</span><span class="ll-msg">${msg}</span>`;
+  b.appendChild(d);b.scrollTop=b.scrollHeight;
+}
+
+function clearLog(){
+  document.getElementById('log-out').innerHTML='<div class="ll dim"><span class="ll-ts">—</span><span class="ll-msg">Log cleared.</span></div>';
+  logStep=0;if(logTimer){clearTimeout(logTimer);logTimer=null;}
+}
+
+function doRun(dry){
+  const task=document.getElementById('task-in').value.trim();
+  if(!task) return;
+  clearLog();
+  addLog('info','▶ Start',(dry?'[dry-run] ':'')+task);
+  setAgentState('CLAUDE','THINKING');
+  setAgentState('laforge','STREAMING');
+  document.getElementById('bb-status').textContent='running...';
+  termLog('tool_call','nokido_fix → '+task,'info');
+  logStep=0;
+  (function next(){
+    if(logStep>=LOG_STEPS.length){
+      addLog(dry?'warn':'ok','✓ Done',dry?'Dry run complete — no PR created.':'PR opened. Rule anchored in RAG.');
+      setAgentState('CLAUDE','IDLE');setAgentState('laforge','IDLE');
+      document.getElementById('bb-status').textContent='idle';
+      termLog('ok','task_done','ok');return;
+    }
+    const[cls,step,msg]=LOG_STEPS[logStep++];
+    addLog(cls,step,msg);termLog('tool_call',step.replace(/[^\w ]/g,'').trim(),'info');
+    logTimer=setTimeout(next,600+Math.random()*300);
+  })();
+}
+
+// ── Terminal ──────────────────────────────────────────────────────────────────
+function termLog(type,msg,cls){
+  const t=document.getElementById('truth-term');
+  const d=document.createElement('div');d.className='te '+(cls||'');
+  d.innerHTML=`<span class="te-ts">${new Date().toISOString().slice(11,19)}</span><span class="te-type">${type}</span><span class="te-msg">${msg}</span>`;
+  t.appendChild(d);t.scrollTop=t.scrollHeight;
+}
+function clearTerminal(){document.getElementById('truth-term').innerHTML='';}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function switchTab(id){
+  const tabs=['dash','run','rag','modes'];
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('on',tabs[i]===id));
+  document.querySelectorAll('.pane').forEach(p=>p.classList.remove('on'));
+  document.getElementById('pane-'+id).classList.add('on');
+}
+
+// ── Mode badge ────────────────────────────────────────────────────────────────
+function setMode(el,m){
+  document.querySelectorAll('.mode-badge').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('bb-mode').textContent='@mode '+m;
+  termLog('set_mode','→ '+m,'info');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildBrainRail();
+buildPRTable();
+buildRagBars();
+buildModes();
+buildQuick();
+
+// Initial terminal events
+[
+  ['ok',   'server_start', 'Nokido MCP v17 — stdio mode'],
+  ['info', 'rag_load',     '8 419 chunks loaded — FAISS+BM25'],
+  ['info', 'agent_reg',    '5 agents registered'],
+  ['ok',   'mcp_ready',    'MCP server listening'],
+  ['info', 'atlas_get',    '290 files indexed'],
+].forEach(([c,t,m])=>termLog(t,m,c));
+</script>
+</body>
+</html>

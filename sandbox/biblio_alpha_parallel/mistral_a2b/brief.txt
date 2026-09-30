@@ -1,0 +1,45 @@
+Tu es expert pydantic v2. Mission : ecrire un schema pydantic strict pour une entry biblio.
+
+CONTRAT EXACT :
+
+Une "entry" biblio est un dict avec ces champs :
+
+| field                 | type                            | required | validation                                          |
+|-----------------------|---------------------------------|----------|-----------------------------------------------------|
+| type                  | Literal['book','paper','url','concept'] | YES |  enum strict                                  |
+| title                 | str                             | YES      | length >= 5                                         |
+| authors               | list[str] | None                | NO       | si present, list non vide                           |
+| year                  | int | None                      | NO       | si present, in [1800, 2030]                         |
+| doi                   | str | None                      | NO       | si present, optionnel (validation regex EN AVAL)    |
+| url                   | str | None                      | NO       | si present, doit commencer par https://             |
+| pdf_url               | str | None                      | NO       | si present, doit commencer par https://             |
+| description           | str | None                      | NO       | si present, length <= 1000 chars                    |
+| triggered_by_idea_id  | str                             | YES      | length >= 1                                         |
+| source_kind           | Literal['human_paste','agent_extract','agent_research'] | YES | enum |
+
+LIVRABLE : `app/forge_biblio_schema.py`
+
+Module avec :
+1. classe `EntrySchema(BaseModel)` pydantic v2
+2. fonction `validate_entry(d: dict) -> tuple[bool, str]` qui :
+   - tente EntrySchema(**d)
+   - si OK retourne (True, '')
+   - si ValidationError retourne (False, str_error_courte)
+3. fonction `to_dict(entry: EntrySchema) -> dict` pour serialiser pour SQL
+
+CONTRAINTES :
+- pydantic v2 (BaseModel, ConfigDict, Field, field_validator)
+- Type hints partout
+- Pas de fonction de hash, pas de regex DOI complexe (sera fait par sanitizer en aval)
+- Module autonome, pas d'import externe au projet
+
+OUTPUT : UN SEUL bloc python (pas 2). Format :
+
+```python
+# app/forge_biblio_schema.py
+... contents ...
+```
+
+Tests obligatoires inclus dans le meme fichier en bas (sous if __name__ == '__main__'):
+- 3 cas valides
+- 5 cas invalides (manque title, type invalide, year hors plage, url sans https, description > 1000c)

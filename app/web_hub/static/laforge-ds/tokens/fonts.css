@@ -1,0 +1,61 @@
+/* ============================================================================
+   Nokido — Webfonts
+   Inter (UI) + JetBrains Mono (mono). Vendorés en local (/static/fonts, 0 egress ;
+   re-vendorer via tools/forge_font_vendor.py).
+   NOTE : aucun binaire de police n'était fourni dans le dépôt Nokido — ces
+   @font-face pointent vers les woff2 officiels Google Fonts. Pour un usage
+   100 % hors-ligne / souverain, remplacer les URLs par des fichiers locaux.
+   ============================================================================ */
+
+/* -------- Inter -------- */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/static/fonts/inter-400.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/static/fonts/inter-500.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/static/fonts/inter-600.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/static/fonts/inter-700.woff2) format('woff2');
+}
+
+/* -------- JetBrains Mono -------- */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-400.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-500.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-700.woff2) format('woff2');
+}

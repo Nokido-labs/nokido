@@ -1,0 +1,22 @@
+# Nokido — .geminiignore
+# Gemini CLI respecte ce fichier en priorité sur .gitignore
+# On autorise les répertoires critiques pour que Gemini ait le même accès que Claude
+
+# Garder les exclusions légitimes
+__pycache__/
+*.py[cod]
+*.pyo
+.venv*/
+.conda/
+dist/
+build/
+*.egg-info/
+node_modules/
+.bridge_tmp/
+.run_tmp/
+sandbox/*.log
+
+# NE PAS exclure (override .gitignore) :
+# RAG/ → autorisé (Gemini doit pouvoir lire quota_state.json, embeddings.db)
+# logs/ → autorisé (Gemini doit pouvoir lire les logs)
+# Nokido.env → autorisé (Gemini doit lire les tokens)

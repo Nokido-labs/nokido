@@ -1,0 +1,100 @@
+# .dockerignore — exclut tout ce qui ne doit PAS entrer dans l'image.
+# Le Dockerfile fait `COPY . .` : sans ce filtre, l'image embarquerait
+# .git/, la DB RAG (Go), Nokido.env (secrets), le scratch, les caches.
+# Contenu utile gardé : app/ + tools/ + requirements*.txt + docs/ + configs.
+
+# ── VCS ──────────────────────────────────────────────────────────────
+.git/
+.github/
+.gitignore
+.gitattributes
+.geminiignore
+
+# ── Secrets — JAMAIS dans l'image (compose monte Nokido.env via env_file)
+*.env
+!sample.env
+!Nokido.env.example
+.mcp.json
+*.key
+*.pem
+*.p12
+*.pfx
+*_secrets*
+*_credentials*
+.secrets
+.secrets.baseline
+Nokido.env.secrets
+
+# ── DB & RAG runtime (volumes Docker, pas dans l'image) ──────────────
+RAG/
+*.db
+*.db-wal
+*.db-shm
+*.jsonl
+embeddings.db
+hub.db
+.forge_brain.db
+
+# ── Scratch / runtime ────────────────────────────────────────────────
+sandbox/
+logs/
+data/
+data_nr/
+exports/
+backups/
+workspace/
+nokido_persist/
+transcripts_nokido/
+shadow_mutation/
+_archive/
+app/_attic/
+
+# ── Modèles (téléchargés au runtime) ─────────────────────────────────
+models/
+app/models/
+
+# ── Caches ───────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.lint_cache/
+.cache/
+.pytest_cache/
+
+# ── Builds ───────────────────────────────────────────────────────────
+dist/
+build/
+dist_laforge/
+dist_test/
+*.egg-info/
+*.egg
+go_services/*/target/
+rust_ext/*/target/
+*.exe
+*.pdb
+*.wasm
+
+# ── Apps standalone (versionnées séparément) ─────────────────────────
+forge_desktop/
+spin_md_query/
+skills/
+
+# ── Envs ─────────────────────────────────────────────────────────────
+.venv*/
+.conda/
+node_modules/
+
+# ── IDE / OS / Claude ────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.claude/
+
+# ── Docs lourdes ─────────────────────────────────────────────────────
+docs/gitingest_*/
+docs/gitingest_*.txt
+*.pdf

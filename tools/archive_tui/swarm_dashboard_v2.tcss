@@ -1,0 +1,66 @@
+Screen {
+    layout: horizontal;
+    background: #0a050f;
+}
+
+#left_panel {
+    width: 25%;
+    height: 100%;
+    border-right: solid #3a1a5c;
+    background: #140a1e;
+}
+
+#main_panel {
+    width: 50%;
+    height: 100%;
+}
+
+#right_panel {
+    width: 25%;
+    height: 100%;
+    border-left: solid #3a1a5c;
+    background: #140a1e;
+}
+
+.panel_title {
+    background: #3a1a5c;
+    color: #e8d5f5;
+    text-align: center;
+    text-style: bold;
+    padding: 1;
+}
+
+Tree {
+    background: #140a1e;
+    color: #e8d5f5;
+    padding: 1;
+    height: auto;
+    border-bottom: dashed #3a1a5c;
+}
+
+#heartbeat {
+    color: #ff6b35;
+    text-align: center;
+    text-style: bold;
+    padding: 1;
+    border-bottom: solid #3a1a5c;
+}
+
+#event_bus_log {
+    height: 1fr;
+    margin: 1;
+    border: solid #c084fc;
+}
+
+/* Pseudo-Terminal styling */
+.terminal_output {
+    height: 1fr;
+    border: solid #00ff00;
+    background: #000000;
+}
+
+.terminal_input {
+    dock: bottom;
+    margin-top: 1;
+    border: solid #00ff00;
+}

@@ -1,0 +1,71 @@
+{
+  "releve": "AVANT fermeture de la PR #7",
+  "pris_le": "2026-09-09T15:0x local (mesures gh ci-dessous horodatees en UTC)",
+  "motif": "La PR #7 est periemee et dangereuse : elle propose litellm 1.81.10 -> 1.84.0 alors que le depot est en 1.96.0 depuis le 2026-09-06T22:43Z, et que 1.84.x exige Python <3.14 quand l'env tourne en 3.14.4 (borne inscrite dans forge_deps_reconcilier.INCOMPATIBLES_PYTHON). Elle touche aussi requirements-ml.txt, modifie le 2026-09-09. On la ferme comme operation de MAINTENANCE. On ne PRESUME PAS qu'elle declenche un rescan : version updates, security alerts et dependency graph sont trois mecanismes distincts.",
+  "depot": {
+    "branche_defaut": "alpha",
+    "tip": "2c38812ca17b958497a427b8f3298ef5f368db1a",
+    "tip_date": "2026-09-09T12:27:59Z"
+  },
+  "alertes_ouvertes": {
+    "total": 100,
+    "critical": 2,
+    "high": 41,
+    "medium": 46,
+    "low": 11,
+    "plus_ancienne_maj": "2026-09-06T12:27:41Z",
+    "plus_recente_maj": "2026-09-06T12:27:53Z",
+    "plus_recente_creation": "2026-09-06T12:27:53Z",
+    "remarque": "les 100 alertes sont nees dans une fenetre de 12 s le 2026-09-06 et AUCUNE n'a bouge depuis : un scan initial unique, puis silence"
+  },
+  "pr_dependabot_ouvertes": [
+    {
+      "n": 7,
+      "cree": "2026-09-06T12:30:19Z",
+      "maj": "2026-09-06T12:30:20Z",
+      "titre": "chore(deps): bump the pip group across 1 directory with 12 updates"
+    }
+  ],
+  "sbom": {
+    "total": 444,
+    "cargo": 280,
+    "pypi": 150,
+    "githubactions": 13,
+    "github": 1,
+    "golang": 0,
+    "docker": 0,
+    "remarque": "golang 0 est LEGITIME : go.mod n'a aucun require. docker 0 est NORMAL : un Dockerfile n'entre pas dans le dependency graph. Ni registries: ni npm ne sont en cause -- verifie, pas suppose."
+  },
+  "a_observer_apres": [
+    "nouvelle PR Dependabot ?",
+    "updated_at des alertes modifie ?",
+    "nombre d'alertes ouvertes modifie ?",
+    "nouveau scan visible ?"
+  ],
+  "ERRATUM_2026-09-09": {
+    "quoi": "les chiffres d alertes de ce releve sont FAUX : mesures avec per_page=100 et SANS --paginate, ils comptaient une PAGE et non le stock. L API ne dit pas qu il y a une suite : la borne ne disait pas combien.",
+    "annonce_a_tort": {
+      "total": 100,
+      "critical": 2,
+      "high": 41,
+      "medium": 46,
+      "low": 11
+    },
+    "reel_mesure_avec_paginate": {
+      "total": 233,
+      "critical": 8,
+      "high": 92,
+      "medium": 108,
+      "low": 25,
+      "pages": [
+        100,
+        100,
+        33
+      ]
+    },
+    "consequence_1": "j ai affirme que le « GitHub found 221 vulnerabilities » du message de push etait un total HISTORIQUE et que le vrai chiffre etait 100. C etait FAUX : 221 etait proche du reel, ma mesure etait tronquee.",
+    "consequence_2": "le critere de sortie du palier 0 est plus loin qu annonce : 8 critiques et 92 hautes a traiter, pas 2 et 41.",
+    "consequence_3": "le verdict « 100 -> 100, rien n a bouge » etait doublement trompeur : le total etait un plafond, ET la composition par severite avait change.",
+    "regle": "toute lecture d une API paginee passe par --paginate, ou DIT explicitement qu elle ne lit qu une page. Meme famille que « une borne doit dire COMBIEN, pas seulement TROP »."
+  }
+}

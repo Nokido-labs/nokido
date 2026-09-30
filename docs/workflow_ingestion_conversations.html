@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Workflow — ingestion des conversations</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#0C0A13;--paper-2:#1C1928;--ink:#EDEBF4;--muted:#B2AEC4;--soft:#6E6A82;
+        --rule:#262338;--accent:#774AFF;--warn:#FFC22D;--orange:#FF9142;--bad:#F24F4F;--link:#3BB2D0;
+        --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+        --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:64ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:900px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}.card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · workflow 10/n · 2026-08-12</p>
+  <h1>Ingestion des conversations</h1>
+  <p class="sub">Les sessions passées sont la seule mémoire de ce qui a été <b>demandé</b> —
+     le code ne garde que ce qui a été fait. Ce pipeline les transforme en chunks
+     interrogeables. Il est resté partiellement aveugle pendant des mois sans que rien
+     ne le signale.</p>
+
+  <figure>
+  <svg viewBox="0 0 952 546" role="img" aria-labelledby="wi-t wi-d">
+    <title id="wi-t">Pipeline d'ingestion des conversations</title>
+    <desc id="wi-d">Cinq sources déclarées passent par découverte, parsing par rôle,
+      découpage, caviardage DLP puis insertion à identifiant déterministe, avant
+      synchronisation dans l'index plein texte.</desc>
+    <defs>
+      <pattern id="wi-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+        <circle cx="11" cy="11" r="0.8" fill="rgba(237,235,244,0.10)"/></pattern>
+      <marker id="wi-ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#B2AEC4"/></marker>
+    </defs>
+    <rect width="952" height="546" fill="#0C0A13"/>
+    <rect width="952" height="546" fill="url(#wi-dots)" opacity="0.55"/>
+
+    <text x="24" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">SOURCES DÉCLARÉES · registre SOURCES</text>
+
+    <rect x="24" y="42" width="196" height="40" rx="4" fill="#1C1928" stroke="#774AFF"/>
+    <text x="36" y="60" font-size="11" font-weight="600" fill="#EDEBF4">claude · Script python IA</text>
+    <text x="36" y="75" font-family="JetBrains Mono" font-size="9" fill="#774AFF">54 sessions · 07-14 → 08-12</text>
+
+    <rect x="24" y="90" width="196" height="40" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="36" y="108" font-size="11" font-weight="600" fill="#EDEBF4">claude · ...-LaForge (legacy)</text>
+    <text x="36" y="123" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">2 sessions · 06-08 → 07-19</text>
+
+    <rect x="24" y="138" width="196" height="40" rx="4" fill="#1C1928" stroke="#774AFF"/>
+    <text x="36" y="156" font-size="11" font-weight="600" fill="#EDEBF4">agy</text>
+    <text x="36" y="171" font-family="JetBrains Mono" font-size="9" fill="#774AFF">151 sessions · 06-18 → 08-12</text>
+
+    <rect x="24" y="186" width="196" height="40" rx="4" fill="rgba(242,79,79,0.06)" stroke="#F24F4F" stroke-dasharray="4 3"/>
+    <text x="36" y="204" font-size="11" font-weight="600" fill="#F24F4F">gemini_cli</text>
+    <text x="36" y="219" font-family="JetBrains Mono" font-size="9" fill="#B2AEC4">0 session — CLI mort, remplacé</text>
+
+    <rect x="24" y="234" width="196" height="34" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="36" y="255" font-size="11" fill="#6E6A82">claude · racine — 0 session</text>
+
+    <!-- chaine -->
+    <line x1="220" y1="152" x2="256" y2="152" stroke="#B2AEC4" stroke-width="1" marker-end="url(#wi-ar)"/>
+
+    <rect x="258" y="126" width="128" height="52" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="322" y="148" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">découverte</text>
+    <text x="322" y="164" text-anchor="middle" font-size="10" fill="#B2AEC4">.jsonl sur disque</text>
+    <line x1="386" y1="152" x2="418" y2="152" stroke="#B2AEC4" stroke-width="1" marker-end="url(#wi-ar)"/>
+
+    <rect x="420" y="126" width="128" height="52" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="484" y="144" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">parse par rôle</text>
+    <text x="484" y="159" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#B2AEC4">[user] · [human]</text>
+    <text x="484" y="171" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#B2AEC4">[USER_EXPLICIT] · ## [user]</text>
+    <line x1="548" y1="152" x2="580" y2="152" stroke="#B2AEC4" stroke-width="1" marker-end="url(#wi-ar)"/>
+
+    <rect x="582" y="126" width="120" height="52" rx="4" fill="rgba(255,194,45,0.07)" stroke="#FFC22D"/>
+    <text x="642" y="148" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">caviardage DLP</text>
+    <text x="642" y="164" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#FFC22D">_caviarde()</text>
+    <line x1="702" y1="152" x2="734" y2="152" stroke="#B2AEC4" stroke-width="1" marker-end="url(#wi-ar)"/>
+
+    <rect x="736" y="126" width="120" height="52" rx="4" fill="#1C1928" stroke="#3BB2D0"/>
+    <text x="796" y="144" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">INSERT</text>
+    <text x="796" y="160" text-anchor="middle" font-size="10" fill="#3BB2D0">id déterministe</text>
+    <text x="796" y="172" text-anchor="middle" font-family="JetBrains Mono" font-size="8" fill="#6E6A82">sha256(source+text)</text>
+
+    <text x="642" y="200" text-anchor="middle" font-size="10" fill="#FFC22D">le caviardage précède l'insertion —</text>
+    <text x="642" y="213" text-anchor="middle" font-size="10" fill="#FFC22D">un secret entré en base est un secret diffusé</text>
+
+    <!-- resultat -->
+    <line x1="24" y1="248" x2="928" y2="248" stroke="rgba(237,235,244,0.12)" stroke-width="0.8"/>
+    <text x="24" y="272" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">EN BASE — CHUNKS PAR FAMILLE</text>
+
+    <rect x="24" y="286" width="404" height="20" rx="3" fill="#774AFF" opacity="0.85"/>
+    <text x="438" y="301" font-size="11" fill="#EDEBF4">conv_claude — <tspan font-family="JetBrains Mono" font-weight="700">17 919</tspan></text>
+    <rect x="24" y="312" width="239" height="20" rx="3" fill="#774AFF" opacity="0.62"/>
+    <text x="273" y="327" font-size="11" fill="#EDEBF4">agy — <tspan font-family="JetBrains Mono" font-weight="700">10 612</tspan></text>
+    <rect x="24" y="338" width="186" height="20" rx="3" fill="#774AFF" opacity="0.45"/>
+    <text x="220" y="353" font-size="11" fill="#EDEBF4">conv_claude_desktop — <tspan font-family="JetBrains Mono" font-weight="700">8 239</tspan></text>
+    <rect x="24" y="364" width="17" height="20" rx="3" fill="#3BB2D0" opacity="0.7"/>
+    <text x="51" y="379" font-size="11" fill="#B2AEC4">conv_gemini_web — <tspan font-family="JetBrains Mono">744</tspan></text>
+    <rect x="24" y="390" width="6" height="20" rx="3" fill="#3BB2D0" opacity="0.5"/>
+    <text x="40" y="405" font-size="11" fill="#B2AEC4">conv_gemini — <tspan font-family="JetBrains Mono">157</tspan></text>
+
+    <line x1="24" y1="428" x2="928" y2="428" stroke="rgba(237,235,244,0.16)" stroke-width="0.8"/>
+    <text x="24" y="450" font-size="11" fill="#B2AEC4">Réveil nocturne : tâche <tspan font-family="JetBrains Mono" fill="#EDEBF4">Nokido-ConvIndex</tspan> à 03:00.</text>
+    <text x="24" y="468" font-size="11" fill="#B2AEC4">Elle était <tspan fill="#F24F4F">morte</tspan> — enregistrée sous un compte sandbox, <tspan font-family="JetBrains Mono">LastTaskResult 267011</tspan> — donc muette.</text>
+    <text x="24" y="486" font-size="11" fill="#B2AEC4">Ré-enregistrée sous le compte owner en S4U : <tspan font-family="JetBrains Mono" fill="#EDEBF4">LastTaskResult 0</tspan>.</text>
+    <text x="24" y="512" font-size="11" fill="#6E6A82">Le comptage de couverture se fonde sur le <tspan font-family="JetBrains Mono">mtime</tspan> du fichier, pas sur la date de la conversation :</text>
+    <text x="24" y="528" font-size="11" fill="#6E6A82">c'est une borne INFÉRIEURE, et le module le déclare lui-même dans sa sortie.</text>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#F24F4F"></span>Le trou, mesuré</h3>
+      <ul>
+        <li>Avant le 12/08 : <b>22 sessions Claude sur 57</b> ingérées, <b>AGY à zéro</b>.</li>
+        <li>Après : <b>56</b> Claude, <b>151</b> AGY.</li>
+        <li>Personne ne pouvait le savoir : le plafond <code>limit_sessions=20</code> était journalisé à chaque run et jamais lu.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>DLP avant insertion</h3>
+      <ul>
+        <li><b>86</b> identifiants trouvés et caviardés dans le corpus déjà en base.</li>
+        <li><b>16 533</b> identifiants de chunk réparés (<code>--repair-ids</code>).</li>
+        <li>Piège vécu : l'auditeur lui-même fuyait les secrets par ses propres logs.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>Pourquoi ça compte</h3>
+      <ul>
+        <li>L'axe <b>intentions</b> de la passe anti-régression lit ce corpus — sans lui, aucune demande passée n'est retrouvable.</li>
+        <li>Un rôle non reconnu = source entière invisible : <code>[USER_EXPLICIT]</code> a rendu 150 sessions AGY muettes.</li>
+        <li><code>session_id</code> reste rempli <b>0 fois sur 62 962</b> : aucune trajectoire n'est reconstituable.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Sources : app/forge_conv_indexer.py (registre SOURCES, --coverage exécuté ce jour) ·
+    comptages par famille issus d'une agrégation SQL sur rag_chunks · app/forge_conv_sanitizer.py.
+    Les nombres de sessions viennent de --coverage, pas du COUNT DISTINCT SQL, qui compte des chunks.</footer>
+</div>
+</body>
+</html>

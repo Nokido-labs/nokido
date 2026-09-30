@@ -1,0 +1,106 @@
+{
+  "§PING": {
+    "bytes_utf8": "C2A7504e4e47",
+    "token_count_estimate": 1,
+    "latency_target_ms": 10,
+    "ring_minimum": 0,
+    "emoji_equivalent": "📣",
+    "use_case": "Test de connexion"
+  },
+  "§STATUS": {
+    "bytes_utf8": "C2A750535441545553",
+    "token_count_estimate": 2,
+    "latency_target_ms": 50,
+    "ring_minimum": 1,
+    "emoji_equivalent": "📊",
+    "use_case": "Etat du système"
+  },
+  "§FAST": {
+    "bytes_utf8": "C2A75046415354",
+    "token_count_estimate": 1,
+    "latency_target_ms": 5,
+    "ring_minimum": 2,
+    "emoji_equivalent": "⚡",
+    "use_case": "Exécution rapide prioritaire"
+  },
+  "§ROUTE": {
+    "bytes_utf8": "C2A75052554f5445",
+    "token_count_estimate": 3,
+    "latency_target_ms": 100,
+    "ring_minimum": 1,
+    "emoji_equivalent": "🗺",
+    "use_case": "Gestion de routage inter-agents"
+  },
+  "§EXEC": {
+    "bytes_utf8": "C2A75045584543",
+    "token_count_estimate": 2,
+    "latency_target_ms": 20,
+    "ring_minimum": 0,
+    "emoji_equivalent": "💻",
+    "use_case": "Exécution code ring-0"
+  },
+  "§COST": {
+    "bytes_utf8": "C2A7504f5354",
+    "token_count_estimate": 1,
+    "latency_target_ms": 15,
+    "ring_minimum": 1,
+    "emoji_equivalent": "💸",
+    "use_case": "Estimation coût LLM"
+  },
+  "§STREAM": {
+    "bytes_utf8": "C2A75053545245414d",
+    "token_count_estimate": 4,
+    "latency_target_ms": 200,
+    "ring_minimum": 2,
+    "emoji_equivalent": "📹",
+    "use_case": "Flux SSE long-poll"
+  },
+  "§RESET": {
+    "bytes_utf8": "C2A75052455345",
+    "token_count_estimate": 1,
+    "latency_target_ms": 10,
+    "ring_minimum": 0,
+    "emoji_equivalent": "🔄",
+    "use_case": "Réinitialisation contexte agent"
+  },
+  "§SECURE": {
+    "bytes_utf8": "C2A750534543555245",
+    "token_count_estimate": 1,
+    "latency_target_ms": 5,
+    "ring_minimum": 0,
+    "emoji_equivalent": "🔒",
+    "use_case": "Escalade mode sécurité renforcée"
+  },
+  "§UPDATE": {
+    "bytes_utf8": "C2A75055504441544",
+    "token_count_estimate": 2,
+    "latency_target_ms": 50,
+    "ring_minimum": 1,
+    "emoji_equivalent": "📈",
+    "use_case": "Mise à jour config/state agent"
+  },
+  "§MONITOR": {
+    "bytes_utf8": "C2A7504d4f4e49544f52",
+    "token_count_estimate": 3,
+    "latency_target_ms": 100,
+    "ring_minimum": 1,
+    "emoji_equivalent": "🔭",
+    "use_case": "Surveillance heartbeat daemons"
+  },
+  "§BACKUP": {
+    "bytes_utf8": "C2A7504241434b5550",
+    "token_count_estimate": 1,
+    "latency_target_ms": 20,
+    "ring_minimum": 0,
+    "emoji_equivalent": "💾",
+    "use_case": "Snapshot RAG/embeddings.db"
+  },
+  "§ANALYZE": {
+    "bytes_utf8": "C2A750414e414c595a45",
+    "token_count_estimate": 4,
+    "latency_target_ms": 200,
+    "ring_minimum": 2,
+    "emoji_equivalent": "🔬",
+    "use_case": "Analyse sémantique RAG offline"
+  }
+}

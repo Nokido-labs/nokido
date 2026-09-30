@@ -1,0 +1,71 @@
+graph TD
+    subgraph NSSM["🖥️ Windows NSSM — LaForge-Master (PID supervisor)"]
+        MASTER["LaForge-Master<br/>proxy_deno/core/supervisor.ts<br/>:8765 control API"]
+    end
+
+    subgraph TIER0["⚙️ Tier 0 — Noyau (no deps)"]
+        HUB["🧠 LaForgeMCP<br/>nokido_hub.py :8766<br/>13 tools MCP HTTP"]
+        OLLAMA["🦙 NokidoOllama<br/>ollama.exe :11434<br/>12 modèles"]
+        LLAMA_N["⚡ NokidoLlamaNative<br/>llama-server :8091<br/>Qwen2.5-7B + draft 1.5B"]
+        LLAMA_R["🔀 NokidoLlamaRouter<br/>llama-server :8092<br/>multi-model LRU"]
+        NETCFG["🌐 NokidoNetcfgMCP<br/>netcfg-agent-mcp.exe :8767<br/>9 tools netcfg"]
+    end
+
+    subgraph TIER1["🔗 Tier 1 — Dépend hub :8766"]
+        DENO_PROXY["🕸️ NokidoDenoProxy<br/>proxy_deno/main.ts :8000<br/>nervous system"]
+        DENO_WH["🌍 NokidoDenoWebHub<br/>web_hub/main.ts :7401<br/>WASM native + anatomy"]
+        DENO_HUB["🔌 NokidoDenoHubMCP<br/>hub_mcp/main.ts :8769<br/>Deno MCP hub"]
+        WEBHUB["📡 NokidoWebHub<br/>nokido_web_hub.py :7400<br/>Python webhub"]
+        OPENAI["🤖 NokidoOpenAIProxy<br/>forge_openai_proxy.py"]
+    end
+
+    subgraph TIER1B["🧬 Tier 1 — Daemons autonomes"]
+        GEMINI["💎 NokidoGeminiDaemon<br/>gemini_poll_daemon.py<br/>polling actif 30s"]
+        GRAPH["🕸️ NokidoGraph<br/>forge_graph_explorer.py"]
+        HEBBIAN["🔬 NokidoHebbian<br/>forge_hebbian_linker.py"]
+        HOMEO["⚖️ NokidoHomeostasis<br/>forge_homeostasis_orchestrator.py"]
+        AUTOLOOP["🔄 NokidoAutonomousLoops<br/>forge_autonomous_loops.py<br/>tick 60s"]
+        RSS["📰 NokidoRSSWatcher<br/>forge_rss_watcher.py"]
+        CAPTURE["🎯 NokidoCapture<br/>cli_tail_capture --watch"]
+    end
+
+    subgraph WASM["🔷 WASM Sandbox"]
+        DENO_WASM["Deno native WebAssembly<br/>:7401/api/wasm/run<br/>µs startup, 4MB max"]
+        WASM_PY["wasmtime-py fallback<br/>forge_wasm_cervelet.py<br/>WASI sandbox"]
+        CERVELET["🧠 Cervelet Docker<br/>wasmedge :55555<br/>nomic-embed-text"]
+    end
+
+    subgraph RAG["💾 Mémoire / RAG"]
+        BRAIN["🔮 brain_worker :5557 ZMQ<br/>BGE-M3 NPU DML FP16<br/>24 chunks/s"]
+        DB["📚 RAG/embeddings.db<br/>14946+ chunks FTS5"]
+        FAISS["🔍 FAISS IndexFlatIP<br/>+ BM25 RRF fusion"]
+    end
+
+    subgraph SECURITY["🛡️ Immunité"]
+        FW["SemanticFirewall<br/>4 couches DLP+injection<br/>+ring_check+canary"]
+        MEMBRANE["SovereignMembrane<br/>HMAC aliases<br/>membrane.db"]
+    end
+
+    MASTER -->|"spawn + watch"| TIER0
+    MASTER -->|"spawn after :8766 UP"| TIER1
+    MASTER -->|"spawn after :8766 UP"| TIER1B
+    HUB --> DENO_PROXY
+    HUB --> DENO_WH
+    HUB --> DENO_HUB
+    HUB --> GEMINI
+    DENO_WH --> DENO_WASM
+    DENO_WASM -.->|"fallback"| WASM_PY
+    WASM_PY -.->|"embed fallback"| CERVELET
+    HUB --> BRAIN
+    BRAIN --> DB
+    DB --> FAISS
+    HUB --> FW
+    FW --> MEMBRANE
+
+    style MASTER fill:#1a1a2e,color:#e0e0ff,stroke:#7070ff
+    style TIER0 fill:#0d2137,color:#cce5ff
+    style TIER1 fill:#0d3728,color:#ccffe5
+    style TIER1B fill:#2d1a0d,color:#ffe5cc
+    style WASM fill:#1a0d2d,color:#e5ccff
+    style RAG fill:#1a2d0d,color:#e5ffcc
+    style SECURITY fill:#2d0d0d,color:#ffcccc

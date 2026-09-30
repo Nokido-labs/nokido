@@ -1,0 +1,87 @@
+// nokido-signal — contrat du premier « cervelet » WASM de Nokido.
+//
+// POURQUOI CE CONTRAT (2026-09-07). Trois remontees M2M `ERR_TEST_FAIL` en un jour,
+// trois causes differentes, ZERO test en echec : un gate `capacites` rouge, un
+// `ui-acceptance` jamais mesure, une etape interrompue sans conclusion. Et un
+// executeur rendant `FAILURE / timeout waiting for response` sur deux travaux
+// REELLEMENT accomplis. Chaque fois, l'etiquette decrivait le TRANSPORT et se
+// lisait comme un FAIT.
+//
+// CE QUE CE COMPOSANT FAIT, ET SURTOUT CE QU'IL NE FAIT PAS. Il NORMALISE une
+// observation en categorie de signal. Il ne conclut RIEN sur la conformite. La
+// chaine reste :
+//
+//     report  ->  classification  ->  evidence lookup  ->  verification  ->  verdict
+//
+// Le mot « verdict » est RESERVE a la sortie du verificateur. Un premier jet
+// nommait le type de retour `verdict-partiel` : refuse en revue, parce qu'un nom
+// suffit a recreer l'ambiguite que le type venait de fermer — meme motif que
+// `audit_rfc_compliance`, qui fait lire une conformite la ou il mesure une ingestion.
+//
+// LE CHOIX DE CONCEPTION QUI COMPTE EST UNE ABSENCE. `observation` ne porte PAS
+// l'`intent` du message. Le defaut mesure `"ERR_TEST_FAIL" -> test-failure` devient
+// donc STRUCTURELLEMENT INEXPRIMABLE : le classifieur ne recoit jamais l'etiquette,
+// il ne peut pas la lire et conclure. La propriete « intent seul != verdict » passe
+// du rang de regle a celui de type.
+//
+// LIMITE HONNETE. Ce contrat empeche le repli silencieux AU NIVEAU DE L'INTERFACE ;
+// il n'empeche pas une implementation de se tromper a l'interieur. La protection
+// reelle est : WIT + corpus normatif + NR + tests de monotonie + differentiel.
+// Le WIT fixe la FORME de verite admissible, pas sa justesse.
+
+package nokido:signal@0.1.0;
+
+interface classify {
+    /// L'observation REELLEMENT fournie au classifieur.
+    ///
+    /// `none` (rien n'a ete observe) et `some("")` (on a observe, et c'etait vide)
+    /// sont DEUX etats distincts. Les deux rendent `unknown`, mais avec une `raison`
+    /// differente : la provenance doit survivre au passage par M2M puis A2A.
+    record observation {
+        texte: option<string>,
+    }
+
+    /// Ce que le classifieur a pu ETABLIR.
+    ///
+    /// `unknown` EN FAIT PARTIE : « je ne peux pas conclure » est un RESULTAT valide,
+    /// pas une panne. Quatre classes utiles seulement, chacune adossee a une
+    /// observation reelle du 2026-09-07 ; on n'en ajoute pas « au cas ou ».
+    enum classification {
+        transport-timeout,
+        ci-failure-claim,
+        test-failure,
+        interrupted,
+        not-run,
+        unknown,
+    }
+
+    /// Pourquoi le classifieur n'a pas pu S'EXECUTER. Jamais un verdict metier.
+    ///
+    /// La distinction avec `unknown` est le coeur du contrat :
+    ///   ok(unknown) = le composant a fonctionne, les donnees ne permettent pas de conclure
+    ///   err(...)    = le composant n'a pas pu honorer son propre contrat
+    variant classification-error {
+        invalid-input(string),
+        contract-violation(string),
+        unavailable(string),
+    }
+
+    /// Resultat de CLASSIFICATION. Pas un verdict de conformite.
+    record classification-result {
+        classe: classification,
+        /// OBLIGATOIRE, y compris sur `unknown` : il NOMME ce qu'on n'a pas pu voir.
+        /// Un echec qui ne dit pas son motif se re-instruit a chaque fois.
+        raison: string,
+        /// Ce sur quoi le classifieur s'est appuye pour trancher.
+        indices: list<string>,
+    }
+
+    classify: func(obs: observation) -> result<classification-result, classification-error>;
+}
+
+/// AUCUN import : ni reseau, ni systeme de fichiers, ni horloge, ni coffre.
+/// Pas d'horloge donc pas de non-determinisme ; rien a exfiltrer ; et le meme
+/// binaire rend le meme resultat sur Nokido-Windows comme sur un noeud edge.
+world signal-classifier {
+    export classify;
+}

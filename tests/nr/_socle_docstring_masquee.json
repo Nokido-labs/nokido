@@ -1,0 +1,9 @@
+{
+ "motif": "Modules dont la docstring reste masquee par un `from __future__` place avant elle, LAISSES A L'OWNER : modules-juges que l'outil refuse d'editer sans ring 0 (enforce_separation). Cette liste ne doit que DECROITRE ; tout autre module masque fait rougir test_docstring_masquee_nr.",
+ "mesure": "2026-09-29, apres forge_docstring_masquee --appliquer (owner) : 164 corriges + 12 (trusted_script) + 5 (a la main), 3 restants",
+ "modules": [
+  "app/forge_agents.py",
+  "app/forge_agents_reasoning.py",
+  "app/forge_meta_evolution.py"
+ ]
+}

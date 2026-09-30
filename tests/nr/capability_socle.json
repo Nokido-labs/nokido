@@ -1,0 +1,2935 @@
+{
+ "capacites": {
+  "agy_config|action,explanation,key": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "key"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:job_id,task_id",
+   "last_ts_au_gel": "2026-09-24T14:00:33.770",
+   "tier": "opportuniste",
+   "tool": "agy_config"
+  },
+  "ask|explanation,max_tokens,message,provider": {
+   "arg_keys": [
+    "explanation",
+    "max_tokens",
+    "message",
+    "provider"
+   ],
+   "calls_au_gel": 19,
+   "derive": true,
+   "forme": "obj:display_name,latency_ms,model,ok,provider,text,thread_id",
+   "last_ts_au_gel": "2026-09-14T18:06:56.886",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "ask|explanation,max_tokens,message,provider,rag_context": {
+   "arg_keys": [
+    "explanation",
+    "max_tokens",
+    "message",
+    "provider",
+    "rag_context"
+   ],
+   "calls_au_gel": 2,
+   "derive": true,
+   "forme": "obj:display_name,latency_ms,model,ok,provider,text,thread_id",
+   "last_ts_au_gel": "2026-09-24T21:42:27.309",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "ask|max_tokens,message,provider": {
+   "arg_keys": [
+    "max_tokens",
+    "message",
+    "provider"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:error,frame_id,from_agent,job_id,latency_ms,model,ok,provider",
+   "last_ts_au_gel": "2026-09-20T15:15:23.613",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "ask|max_tokens,message,provider,rag_context": {
+   "arg_keys": [
+    "max_tokens",
+    "message",
+    "provider",
+    "rag_context"
+   ],
+   "calls_au_gel": 3,
+   "derive": true,
+   "forme": "obj:display_name,job_id,latency_ms,model,ok,provider,task_id,text",
+   "last_ts_au_gel": "2026-09-16T01:06:14.527",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "ask|message,provider": {
+   "arg_keys": [
+    "message",
+    "provider"
+   ],
+   "calls_au_gel": 75,
+   "derive": true,
+   "forme": "obj:ok,text,thread_id",
+   "last_ts_au_gel": "2026-09-25T00:18:10.722",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "ask|prompt,provider": {
+   "arg_keys": [
+    "prompt",
+    "provider"
+   ],
+   "calls_au_gel": 10,
+   "derive": true,
+   "forme": "obj:error,latency_ms,model,ok,provider,text,thread_id",
+   "last_ts_au_gel": "2026-09-20T22:03:59.555",
+   "tier": "opportuniste",
+   "tool": "ask"
+  },
+  "biblio|action,explanation,limit": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "limit"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:entries,n,ok",
+   "last_ts_au_gel": "2026-09-07T17:30:12.533",
+   "tier": "opportuniste",
+   "tool": "biblio"
+  },
+  "blackboard_propose_fact|category,confidence,explanation,fact,key,zone_name": {
+   "arg_keys": [
+    "category",
+    "confidence",
+    "explanation",
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:key,ok,trust,zone",
+   "last_ts_au_gel": "2026-09-06T13:37:56.877",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,confidence,fact,key,zone_name": {
+   "arg_keys": [
+    "category",
+    "confidence",
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:job_id,key,ok,task_id,trust,zone",
+   "last_ts_au_gel": "2026-09-20T18:05:01.810",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,explanation,fact": {
+   "arg_keys": [
+    "category",
+    "explanation",
+    "fact"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-17T07:44:47.920",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,explanation,fact,key,trust,zone_name": {
+   "arg_keys": [
+    "category",
+    "explanation",
+    "fact",
+    "key",
+    "trust",
+    "zone_name"
+   ],
+   "calls_au_gel": 123,
+   "derive": true,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-25T12:39:08.827",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,explanation,fact,key,zone_name": {
+   "arg_keys": [
+    "category",
+    "explanation",
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 17,
+   "derive": false,
+   "forme": "obj:key,ok,trust,zone",
+   "last_ts_au_gel": "2026-09-25T10:48:13.938",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,explanation,fact,zone_name": {
+   "arg_keys": [
+    "category",
+    "explanation",
+    "fact",
+    "zone_name"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-08-28T12:21:28.481",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,fact,key,trust,zone_name": {
+   "arg_keys": [
+    "category",
+    "fact",
+    "key",
+    "trust",
+    "zone_name"
+   ],
+   "calls_au_gel": 128,
+   "derive": true,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-25T15:31:06.996",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|category,fact,key,zone_name": {
+   "arg_keys": [
+    "category",
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 48,
+   "derive": true,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-23T19:06:55.725",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|explanation,fact,key,trust,zone_name": {
+   "arg_keys": [
+    "explanation",
+    "fact",
+    "key",
+    "trust",
+    "zone_name"
+   ],
+   "calls_au_gel": 9,
+   "derive": false,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-03T22:51:15.203",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|explanation,fact,key,zone_name": {
+   "arg_keys": [
+    "explanation",
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 7,
+   "derive": true,
+   "forme": "obj:key,ok,trust,zone",
+   "last_ts_au_gel": "2026-09-12T19:37:23.237",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|fact": {
+   "arg_keys": [
+    "fact"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:key,ok,text,trust,zone",
+   "last_ts_au_gel": "2026-09-17T08:37:52.657",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_propose_fact|fact,key,zone_name": {
+   "arg_keys": [
+    "fact",
+    "key",
+    "zone_name"
+   ],
+   "calls_au_gel": 116,
+   "derive": true,
+   "forme": "obj:job_id,key,ok,task_id,trust,zone",
+   "last_ts_au_gel": "2026-09-23T01:46:25.676",
+   "tier": "opportuniste",
+   "tool": "blackboard_propose_fact"
+  },
+  "blackboard_read_zone|category,zone_name": {
+   "arg_keys": [
+    "category",
+    "zone_name"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:count,facts,zone",
+   "last_ts_au_gel": "2026-09-19T01:33:54.913",
+   "tier": "opportuniste",
+   "tool": "blackboard_read_zone"
+  },
+  "blackboard_read_zone|explanation,filter,zone_name": {
+   "arg_keys": [
+    "explanation",
+    "filter",
+    "zone_name"
+   ],
+   "calls_au_gel": 55,
+   "derive": false,
+   "forme": "obj:count,facts,zone",
+   "last_ts_au_gel": "2026-09-25T15:27:27.634",
+   "tier": "opportuniste",
+   "tool": "blackboard_read_zone"
+  },
+  "blackboard_read_zone|explanation,zone_name": {
+   "arg_keys": [
+    "explanation",
+    "zone_name"
+   ],
+   "calls_au_gel": 19,
+   "derive": false,
+   "forme": "obj:count,facts,zone",
+   "last_ts_au_gel": "2026-09-25T10:22:20.278",
+   "tier": "opportuniste",
+   "tool": "blackboard_read_zone"
+  },
+  "blackboard_read_zone|keys,zone_name": {
+   "arg_keys": [
+    "keys",
+    "zone_name"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:count,facts,zone",
+   "last_ts_au_gel": "2026-09-17T08:37:56.538",
+   "tier": "opportuniste",
+   "tool": "blackboard_read_zone"
+  },
+  "blackboard_read_zone|zone_name": {
+   "arg_keys": [
+    "zone_name"
+   ],
+   "calls_au_gel": 31,
+   "derive": false,
+   "forme": "obj:count,facts,zone",
+   "last_ts_au_gel": "2026-09-25T14:05:20.723",
+   "tier": "opportuniste",
+   "tool": "blackboard_read_zone"
+  },
+  "crawl|explanation,timeout,url": {
+   "arg_keys": [
+    "explanation",
+    "timeout",
+    "url"
+   ],
+   "calls_au_gel": 6,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-12T20:21:09.329",
+   "tier": "opportuniste",
+   "tool": "crawl"
+  },
+  "crawl|explanation,url": {
+   "arg_keys": [
+    "explanation",
+    "url"
+   ],
+   "calls_au_gel": 2,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-09T15:10:53.347",
+   "tier": "opportuniste",
+   "tool": "crawl"
+  },
+  "docker_action|argv,explanation": {
+   "arg_keys": [
+    "argv",
+    "explanation"
+   ],
+   "calls_au_gel": 8,
+   "derive": true,
+   "forme": "obj:decision,ok,rc,reason,stdout",
+   "last_ts_au_gel": "2026-09-14T00:30:44.970",
+   "tier": "opportuniste",
+   "tool": "docker_action"
+  },
+  "docker_action|argv,explanation,timeout": {
+   "arg_keys": [
+    "argv",
+    "explanation",
+    "timeout"
+   ],
+   "calls_au_gel": 11,
+   "derive": false,
+   "forme": "obj:decision,ok,rc,reason,stdout,text",
+   "last_ts_au_gel": "2026-09-06T18:06:43.990",
+   "tier": "opportuniste",
+   "tool": "docker_action"
+  },
+  "event|action,data,kind,topic": {
+   "arg_keys": [
+    "action",
+    "data",
+    "kind",
+    "topic"
+   ],
+   "calls_au_gel": 5808,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:29:20.577",
+   "tier": "opportuniste",
+   "tool": "event"
+  },
+  "event|action,limit": {
+   "arg_keys": [
+    "action",
+    "limit"
+   ],
+   "calls_au_gel": 2,
+   "derive": true,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-20T20:58:27.884",
+   "tier": "opportuniste",
+   "tool": "event"
+  },
+  "forge_deep_explore|breadth,explanation,globs,intent": {
+   "arg_keys": [
+    "breadth",
+    "explanation",
+    "globs",
+    "intent"
+   ],
+   "calls_au_gel": 8,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-12T20:17:11.765",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,explanation,globs,intent,target": {
+   "arg_keys": [
+    "breadth",
+    "explanation",
+    "globs",
+    "intent",
+    "target"
+   ],
+   "calls_au_gel": 49,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T12:11:00.433",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,explanation,intent": {
+   "arg_keys": [
+    "breadth",
+    "explanation",
+    "intent"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-12T20:21:46.005",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,explanation,intent,target": {
+   "arg_keys": [
+    "breadth",
+    "explanation",
+    "intent",
+    "target"
+   ],
+   "calls_au_gel": 20,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T16:15:07.477",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,globs,intent": {
+   "arg_keys": [
+    "breadth",
+    "globs",
+    "intent"
+   ],
+   "calls_au_gel": 7,
+   "derive": true,
+   "forme": "obj:job_id,task_id",
+   "last_ts_au_gel": "2026-09-23T13:37:16.721",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,globs,intent,target": {
+   "arg_keys": [
+    "breadth",
+    "globs",
+    "intent",
+    "target"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-22T22:46:12.052",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,intent": {
+   "arg_keys": [
+    "breadth",
+    "intent"
+   ],
+   "calls_au_gel": 5,
+   "derive": true,
+   "forme": "obj:job_id,task_id",
+   "last_ts_au_gel": "2026-09-22T22:45:59.472",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|breadth,intent,target": {
+   "arg_keys": [
+    "breadth",
+    "intent",
+    "target"
+   ],
+   "calls_au_gel": 11,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-17T19:54:59.190",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|explanation,globs,intent,target": {
+   "arg_keys": [
+    "explanation",
+    "globs",
+    "intent",
+    "target"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-08-29T19:22:30.847",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_deep_explore|intent": {
+   "arg_keys": [
+    "intent"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-12T21:37:52.697",
+   "tier": "opportuniste",
+   "tool": "forge_deep_explore"
+  },
+  "forge_list_dynamic_tools|explanation": {
+   "arg_keys": [
+    "explanation"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-12T23:42:35.231",
+   "tier": "opportuniste",
+   "tool": "forge_list_dynamic_tools"
+  },
+  "forge_stats|": {
+   "arg_keys": [],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:loop_sentinel,plan_cache,resources,text",
+   "last_ts_au_gel": "2026-09-20T02:25:50.313",
+   "tier": "opportuniste",
+   "tool": "forge_stats"
+  },
+  "get_file_skeleton|explanation,file_path": {
+   "arg_keys": [
+    "explanation",
+    "file_path"
+   ],
+   "calls_au_gel": 83,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T18:43:55.604",
+   "tier": "opportuniste",
+   "tool": "get_file_skeleton"
+  },
+  "get_file_skeleton|explanation,path": {
+   "arg_keys": [
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-07T21:31:17.378",
+   "tier": "opportuniste",
+   "tool": "get_file_skeleton"
+  },
+  "get_file_skeleton|file_path": {
+   "arg_keys": [
+    "file_path"
+   ],
+   "calls_au_gel": 95,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T15:28:43.351",
+   "tier": "opportuniste",
+   "tool": "get_file_skeleton"
+  },
+  "get_file_skeleton|path": {
+   "arg_keys": [
+    "path"
+   ],
+   "calls_au_gel": 56,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T13:57:33.383",
+   "tier": "opportuniste",
+   "tool": "get_file_skeleton"
+  },
+  "get_mode|": {
+   "arg_keys": [],
+   "calls_au_gel": 2208,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-07T03:27:23.214",
+   "tier": "opportuniste",
+   "tool": "get_mode"
+  },
+  "github|repo,sub": {
+   "arg_keys": [
+    "repo",
+    "sub"
+   ],
+   "calls_au_gel": 7,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-13T23:45:17.308",
+   "tier": "opportuniste",
+   "tool": "github"
+  },
+  "governed_edit|allow_critical,blocks": {
+   "arg_keys": [
+    "allow_critical",
+    "blocks"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-04T08:27:30.540",
+   "tier": "opportuniste",
+   "tool": "governed_edit"
+  },
+  "governed_edit|allow_critical,blocks,explanation,path": {
+   "arg_keys": [
+    "allow_critical",
+    "blocks",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 70,
+   "derive": false,
+   "forme": "obj:bytes,capacites_prouvees_touchees,note,ok,path,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T01:10:24.951",
+   "tier": "opportuniste",
+   "tool": "governed_edit"
+  },
+  "governed_edit|allow_critical,blocks,path": {
+   "arg_keys": [
+    "allow_critical",
+    "blocks",
+    "path"
+   ],
+   "calls_au_gel": 95,
+   "derive": true,
+   "forme": "obj:bytes,job_id,note,ok,path,task_id,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T01:09:28.363",
+   "tier": "opportuniste",
+   "tool": "governed_edit"
+  },
+  "governed_edit|blocks,explanation,path": {
+   "arg_keys": [
+    "blocks",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 2003,
+   "derive": true,
+   "forme": "obj:avertissement_reflexe,bytes,note,ok,path,text,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T16:20:42.430",
+   "tier": "garanti",
+   "tool": "governed_edit"
+  },
+  "governed_edit|blocks,path": {
+   "arg_keys": [
+    "blocks",
+    "path"
+   ],
+   "calls_au_gel": 2637,
+   "derive": true,
+   "forme": "obj:avertissement_reflexe,bytes,note,ok,path,text,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T16:27:56.867",
+   "tier": "garanti",
+   "tool": "governed_edit"
+  },
+  "governed_edit|content": {
+   "arg_keys": [
+    "content"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:avertissement_reflexe,bytes,frame_id,from_agent,job_id,note,ok,path",
+   "last_ts_au_gel": "2026-09-04T08:27:08.288",
+   "tier": "opportuniste",
+   "tool": "governed_edit"
+  },
+  "governed_edit|content,explanation,path": {
+   "arg_keys": [
+    "content",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 445,
+   "derive": true,
+   "forme": "obj:avertissement_reflexe,bytes,note,ok,path,text,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T15:10:34.678",
+   "tier": "garanti",
+   "tool": "governed_edit"
+  },
+  "governed_edit|content,path": {
+   "arg_keys": [
+    "content",
+    "path"
+   ],
+   "calls_au_gel": 707,
+   "derive": true,
+   "forme": "obj:avertissement_reflexe,bytes,note,ok,path,text,verified,warnings",
+   "last_ts_au_gel": "2026-09-25T15:57:34.419",
+   "tier": "garanti",
+   "tool": "governed_edit"
+  },
+  "hub|action": {
+   "arg_keys": [
+    "action"
+   ],
+   "calls_au_gel": 2822,
+   "derive": false,
+   "forme": "obj:configured",
+   "last_ts_au_gel": "2026-09-25T16:28:02.060",
+   "tier": "garanti",
+   "tool": "hub"
+  },
+  "hub|action,apply,quality": {
+   "arg_keys": [
+    "action",
+    "apply",
+    "quality"
+   ],
+   "calls_au_gel": 58,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T15:01:35.872",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,explanation": {
+   "arg_keys": [
+    "action",
+    "explanation"
+   ],
+   "calls_au_gel": 21,
+   "derive": true,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-24T11:23:49.466",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,explanation,limit": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "limit"
+   ],
+   "calls_au_gel": 11,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-16T01:47:27.403",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,explanation,message": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "message"
+   ],
+   "calls_au_gel": 11,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-08-27T23:06:42.454",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,explanation,message,to": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "message",
+    "to"
+   ],
+   "calls_au_gel": 30,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-22T23:54:21.199",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,flash,flash_lite,preview_pro,pro": {
+   "arg_keys": [
+    "action",
+    "flash",
+    "flash_lite",
+    "preview_pro",
+    "pro"
+   ],
+   "calls_au_gel": 7,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-24T15:01:43.193",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "hub|action,message": {
+   "arg_keys": [
+    "action",
+    "message"
+   ],
+   "calls_au_gel": 9314,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:07:07.424",
+   "tier": "garanti",
+   "tool": "hub"
+  },
+  "hub|action,message,to": {
+   "arg_keys": [
+    "action",
+    "message",
+    "to"
+   ],
+   "calls_au_gel": 123,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T00:24:45.644",
+   "tier": "garanti",
+   "tool": "hub"
+  },
+  "hub|action,message,to,topic": {
+   "arg_keys": [
+    "action",
+    "message",
+    "to",
+    "topic"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-23T17:03:29.284",
+   "tier": "opportuniste",
+   "tool": "hub"
+  },
+  "introspect|budget_tokens,explanation,query": {
+   "arg_keys": [
+    "budget_tokens",
+    "explanation",
+    "query"
+   ],
+   "calls_au_gel": 129,
+   "derive": true,
+   "forme": "obj:modules_trouves,procedures_connues,question,symboles_trouves,voisinage_structurel",
+   "last_ts_au_gel": "2026-09-25T16:16:35.361",
+   "tier": "opportuniste",
+   "tool": "introspect"
+  },
+  "introspect|budget_tokens,query": {
+   "arg_keys": [
+    "budget_tokens",
+    "query"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:modules_trouves,procedures_connues,question,symboles_trouves,voisinage_structurel",
+   "last_ts_au_gel": "2026-09-01T01:12:17.814",
+   "tier": "opportuniste",
+   "tool": "introspect"
+  },
+  "introspect|query": {
+   "arg_keys": [
+    "query"
+   ],
+   "calls_au_gel": 29,
+   "derive": false,
+   "forme": "obj:modules_trouves,procedures_connues,question,symboles_trouves,voisinage_structurel",
+   "last_ts_au_gel": "2026-09-25T14:05:28.015",
+   "tier": "opportuniste",
+   "tool": "introspect"
+  },
+  "introspect|question": {
+   "arg_keys": [
+    "question"
+   ],
+   "calls_au_gel": 97,
+   "derive": false,
+   "forme": "obj:question,symboles_trouves",
+   "last_ts_au_gel": "2026-09-24T22:29:21.113",
+   "tier": "opportuniste",
+   "tool": "introspect"
+  },
+  "nokido_ensure_service|desired_state,explanation,service": {
+   "arg_keys": [
+    "desired_state",
+    "explanation",
+    "service"
+   ],
+   "calls_au_gel": 159,
+   "derive": true,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-25T15:43:29.380",
+   "tier": "opportuniste",
+   "tool": "nokido_ensure_service"
+  },
+  "nokido_ensure_service|desired_state,service": {
+   "arg_keys": [
+    "desired_state",
+    "service"
+   ],
+   "calls_au_gel": 39,
+   "derive": true,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-22T14:59:39.500",
+   "tier": "opportuniste",
+   "tool": "nokido_ensure_service"
+  },
+  "notify|message,to": {
+   "arg_keys": [
+    "message",
+    "to"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-13T16:11:01.870",
+   "tier": "opportuniste",
+   "tool": "notify"
+  },
+  "oracle_python_repl|code": {
+   "arg_keys": [
+    "code"
+   ],
+   "calls_au_gel": 29,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-20T03:51:30.528",
+   "tier": "opportuniste",
+   "tool": "oracle_python_repl"
+  },
+  "oracle_python_repl|code,explanation": {
+   "arg_keys": [
+    "code",
+    "explanation"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-07T03:34:38.176",
+   "tier": "opportuniste",
+   "tool": "oracle_python_repl"
+  },
+  "oracle_python_repl|code,explanation,timeout": {
+   "arg_keys": [
+    "code",
+    "explanation",
+    "timeout"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-07T20:02:40.473",
+   "tier": "opportuniste",
+   "tool": "oracle_python_repl"
+  },
+  "poll|ack": {
+   "arg_keys": [
+    "ack"
+   ],
+   "calls_au_gel": 54963,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:29:22.170",
+   "tier": "opportuniste",
+   "tool": "poll"
+  },
+  "query|action,db": {
+   "arg_keys": [
+    "action",
+    "db"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:error",
+   "last_ts_au_gel": "2026-09-01T21:03:33.550",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|action,explanation,sql": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "sql"
+   ],
+   "calls_au_gel": 9,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-20T15:12:34.083",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|action,explanation,table": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "table"
+   ],
+   "calls_au_gel": 16,
+   "derive": false,
+   "forme": "obj:columns,db,note,rows_max_rowid,table",
+   "last_ts_au_gel": "2026-09-23T01:08:15.251",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|action,table": {
+   "arg_keys": [
+    "action",
+    "table"
+   ],
+   "calls_au_gel": 4,
+   "derive": true,
+   "forme": "obj:columns,db,rows,table",
+   "last_ts_au_gel": "2026-09-24T16:40:26.226",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|db,explanation,sql": {
+   "arg_keys": [
+    "db",
+    "explanation",
+    "sql"
+   ],
+   "calls_au_gel": 10,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-01T21:01:48.134",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|db,sql": {
+   "arg_keys": [
+    "db",
+    "sql"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-01T21:03:34.642",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|domain,query": {
+   "arg_keys": [
+    "domain",
+    "query"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-24T12:38:30.576",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "query|explanation,sql": {
+   "arg_keys": [
+    "explanation",
+    "sql"
+   ],
+   "calls_au_gel": 174,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T00:55:27.182",
+   "tier": "garanti",
+   "tool": "query"
+  },
+  "query|sql": {
+   "arg_keys": [
+    "sql"
+   ],
+   "calls_au_gel": 86,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-23T16:32:25.485",
+   "tier": "opportuniste",
+   "tool": "query"
+  },
+  "rag|action,author,domain,role,source,summary,text": {
+   "arg_keys": [
+    "action",
+    "author",
+    "domain",
+    "role",
+    "source",
+    "summary",
+    "text"
+   ],
+   "calls_au_gel": 60,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:28:01.767",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,author,domain,role,source,text": {
+   "arg_keys": [
+    "action",
+    "author",
+    "domain",
+    "role",
+    "source",
+    "text"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-19T06:20:24.755",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,explanation,limit,query": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "limit",
+    "query"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-12T00:18:06.662",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,explanation,limit,topic": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "limit",
+    "topic"
+   ],
+   "calls_au_gel": 67,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T11:19:04.211",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,explanation,query": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "query"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-08-29T01:04:40.347",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,limit,query": {
+   "arg_keys": [
+    "action",
+    "limit",
+    "query"
+   ],
+   "calls_au_gel": 20,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-21T03:18:29.682",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,limit,topic": {
+   "arg_keys": [
+    "action",
+    "limit",
+    "topic"
+   ],
+   "calls_au_gel": 6,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T11:37:09.486",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,query,top_k": {
+   "arg_keys": [
+    "action",
+    "query",
+    "top_k"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-20T17:36:22.517",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,result,task_id": {
+   "arg_keys": [
+    "action",
+    "result",
+    "task_id"
+   ],
+   "calls_au_gel": 10036,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:28:45.153",
+   "tier": "garanti",
+   "tool": "rag"
+  },
+  "rag|action,source,text": {
+   "arg_keys": [
+    "action",
+    "source",
+    "text"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-23T16:38:19.832",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|action,text": {
+   "arg_keys": [
+    "action",
+    "text"
+   ],
+   "calls_au_gel": 1411,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T16:29:08.418",
+   "tier": "garanti",
+   "tool": "rag"
+  },
+  "rag|action,topic": {
+   "arg_keys": [
+    "action",
+    "topic"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:constat,intent,mode,pointer_ref,scope",
+   "last_ts_au_gel": "2026-09-17T07:57:47.869",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|domain,query,top_k": {
+   "arg_keys": [
+    "domain",
+    "query",
+    "top_k"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-24T12:38:13.495",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|query": {
+   "arg_keys": [
+    "query"
+   ],
+   "calls_au_gel": 9,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-24T13:05:02.476",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "rag|query,top_k": {
+   "arg_keys": [
+    "query",
+    "top_k"
+   ],
+   "calls_au_gel": 8,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-24T12:48:44.312",
+   "tier": "opportuniste",
+   "tool": "rag"
+  },
+  "read_function_body|explanation,file_path,function_name": {
+   "arg_keys": [
+    "explanation",
+    "file_path",
+    "function_name"
+   ],
+   "calls_au_gel": 341,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T13:03:01.156",
+   "tier": "opportuniste",
+   "tool": "read_function_body"
+  },
+  "read_function_body|file_path,function_name": {
+   "arg_keys": [
+    "file_path",
+    "function_name"
+   ],
+   "calls_au_gel": 555,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T16:25:19.673",
+   "tier": "opportuniste",
+   "tool": "read_function_body"
+  },
+  "read|action,explanation,lines,path": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lines",
+    "path"
+   ],
+   "calls_au_gel": 53,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T16:10:54.528",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,explanation,lines,path,pattern": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lines",
+    "path",
+    "pattern"
+   ],
+   "calls_au_gel": 16,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T16:10:01.357",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,explanation,lines,pattern": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lines",
+    "pattern"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "texte:moyen",
+   "last_ts_au_gel": "2026-09-25T01:28:17.850",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,explanation,path": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 82,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T20:23:24.670",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,explanation,path,pattern": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path",
+    "pattern"
+   ],
+   "calls_au_gel": 31,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T16:08:50.565",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,id": {
+   "arg_keys": [
+    "action",
+    "id"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T13:24:47.039",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,id,lines": {
+   "arg_keys": [
+    "action",
+    "id",
+    "lines"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T13:00:48.670",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|action,path": {
+   "arg_keys": [
+    "action",
+    "path"
+   ],
+   "calls_au_gel": 13,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-20T23:22:51.752",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|explanation,lines,path": {
+   "arg_keys": [
+    "explanation",
+    "lines",
+    "path"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-20T15:26:34.761",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|explanation,path": {
+   "arg_keys": [
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 11,
+   "derive": true,
+   "forme": "obj:cascade,essais,limite",
+   "last_ts_au_gel": "2026-09-07T21:21:27.953",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|lines,path": {
+   "arg_keys": [
+    "lines",
+    "path"
+   ],
+   "calls_au_gel": 74,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T13:27:23.648",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "read|path": {
+   "arg_keys": [
+    "path"
+   ],
+   "calls_au_gel": 76,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-24T13:06:37.688",
+   "tier": "opportuniste",
+   "tool": "read"
+  },
+  "research_agent|domain,explanation,max_rounds,max_urls,objective": {
+   "arg_keys": [
+    "domain",
+    "explanation",
+    "max_rounds",
+    "max_urls",
+    "objective"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-07T17:34:35.765",
+   "tier": "opportuniste",
+   "tool": "research_agent"
+  },
+  "run|action": {
+   "arg_keys": [
+    "action"
+   ],
+   "calls_au_gel": 564,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T15:56:09.940",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,args,explanation,path": {
+   "arg_keys": [
+    "action",
+    "args",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 20,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-01T01:03:31.642",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,args,online,script": {
+   "arg_keys": [
+    "action",
+    "args",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-08-27T00:13:52.546",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,args,path,timeout": {
+   "arg_keys": [
+    "action",
+    "args",
+    "path",
+    "timeout"
+   ],
+   "calls_au_gel": 34,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T15:14:59.655",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code": {
+   "arg_keys": [
+    "action",
+    "code"
+   ],
+   "calls_au_gel": 5629,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T15:45:42.388",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,description,explanation,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "description",
+    "explanation",
+    "timeout"
+   ],
+   "calls_au_gel": 54,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-17T04:38:51.895",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,description,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "description",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-17T02:52:25.069",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,explanation": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation"
+   ],
+   "calls_au_gel": 3962,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T12:55:34.922",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,explanation,network": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "network"
+   ],
+   "calls_au_gel": 107,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-23T01:42:50.052",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,explanation,network,sandbox,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "network",
+    "sandbox",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": true,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-13T23:47:40.187",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,explanation,network,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "network",
+    "timeout"
+   ],
+   "calls_au_gel": 74,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T15:42:56.250",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,explanation,sandbox": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "sandbox"
+   ],
+   "calls_au_gel": 148,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-12T22:21:06.163",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,explanation,sandbox,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "sandbox",
+    "timeout"
+   ],
+   "calls_au_gel": 445,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-13T22:36:54.755",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,explanation,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "explanation",
+    "timeout"
+   ],
+   "calls_au_gel": 3632,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T16:29:14.992",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,network": {
+   "arg_keys": [
+    "action",
+    "code",
+    "network"
+   ],
+   "calls_au_gel": 118,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-18T18:16:05.603",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,network,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "network",
+    "timeout"
+   ],
+   "calls_au_gel": 21,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-14T01:21:49.773",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,privileged": {
+   "arg_keys": [
+    "action",
+    "code",
+    "privileged"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-19T14:36:42.823",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,code,sandbox": {
+   "arg_keys": [
+    "action",
+    "code",
+    "sandbox"
+   ],
+   "calls_au_gel": 239,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-12T22:40:43.670",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,sandbox,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "sandbox",
+    "timeout"
+   ],
+   "calls_au_gel": 114,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-12T19:23:31.341",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,code,timeout": {
+   "arg_keys": [
+    "action",
+    "code",
+    "timeout"
+   ],
+   "calls_au_gel": 1725,
+   "derive": true,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-25T15:41:57.028",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,command": {
+   "arg_keys": [
+    "action",
+    "command"
+   ],
+   "calls_au_gel": 3,
+   "derive": true,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-17T08:30:50.593",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,commands": {
+   "arg_keys": [
+    "action",
+    "commands"
+   ],
+   "calls_au_gel": 149,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T16:26:55.167",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,commands,explanation": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation"
+   ],
+   "calls_au_gel": 704,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T01:27:45.304",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,commands,explanation,network": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation",
+    "network"
+   ],
+   "calls_au_gel": 20,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-11T14:16:45.602",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,commands,explanation,network,timeout": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation",
+    "network",
+    "timeout"
+   ],
+   "calls_au_gel": 15,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-20T15:32:58.220",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,commands,explanation,sandbox": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation",
+    "sandbox"
+   ],
+   "calls_au_gel": 35,
+   "derive": true,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-25T13:47:40.016",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,commands,explanation,sandbox,timeout": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation",
+    "sandbox",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-01T12:51:20.501",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,commands,explanation,timeout": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "explanation",
+    "timeout"
+   ],
+   "calls_au_gel": 570,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T16:24:54.633",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,commands,timeout": {
+   "arg_keys": [
+    "action",
+    "commands",
+    "timeout"
+   ],
+   "calls_au_gel": 194,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-24T19:28:34.885",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation": {
+   "arg_keys": [
+    "action",
+    "explanation"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "texte:court",
+   "last_ts_au_gel": "2026-09-25T12:05:21.623",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,job_id": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "job_id"
+   ],
+   "calls_au_gel": 398,
+   "derive": true,
+   "forme": "obj:job_id,log_tail,ok,pid,progress,rc,started,status",
+   "last_ts_au_gel": "2026-09-25T16:28:58.380",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation,job_id,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "job_id",
+    "timeout"
+   ],
+   "calls_au_gel": 8,
+   "derive": true,
+   "forme": "obj:job_id,log_tail,ok,pid,rc,started,status",
+   "last_ts_au_gel": "2026-09-03T19:58:16.940",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,online,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "online",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-08-28T16:20:33.535",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,online,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 17,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-10T01:30:12.643",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-10T02:32:07.973",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,online,script,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "online",
+    "script",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-03T16:27:53.076",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 3,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-13T17:48:51.325",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,rss_cap_mb,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "rss_cap_mb",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-09T15:52:34.513",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "script"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-02T01:51:51.671",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-10T12:07:16.618",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,notify_agent,script,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "notify_agent",
+    "script",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-03T17:31:03.331",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,online,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "online",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 33,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-01T20:46:44.154",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,online,rss_cap_mb,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "online",
+    "rss_cap_mb",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-13T21:17:37.618",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,online,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 44,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-24T14:01:13.586",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 83,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-24T15:06:54.182",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 15,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-23T21:01:38.342",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,rss_cap_mb,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "rss_cap_mb",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 15,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-13T20:36:38.698",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "script"
+   ],
+   "calls_au_gel": 221,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-25T16:28:51.997",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 89,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-24T15:49:33.270",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 11,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-02T20:49:48.199",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,lane,script,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "lane",
+    "script",
+    "timeout"
+   ],
+   "calls_au_gel": 3,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-03T15:46:05.593",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,network,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "network",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 3,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-15T19:59:27.437",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,notify_agent,online,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "notify_agent",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 6,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-02T01:24:14.485",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,notify_agent,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "notify_agent",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 7,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-10T00:40:39.385",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,notify_agent,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "notify_agent",
+    "script"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-02T01:13:45.873",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,notify_agent,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "notify_agent",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 8,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-07T04:38:57.540",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,notify_agent,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "notify_agent",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-03T19:59:23.536",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,online,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "online",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 13,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-23T17:09:41.279",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,online,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 95,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-25T16:03:11.287",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 55,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-23T11:33:14.221",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,online,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "online",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-02T20:55:36.647",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,online,script,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "online",
+    "script",
+    "timeout"
+   ],
+   "calls_au_gel": 4,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-02T16:39:57.664",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,path": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path"
+   ],
+   "calls_au_gel": 55,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-20T13:50:20.464",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,path,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path",
+    "script_args"
+   ],
+   "calls_au_gel": 195,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T15:17:44.949",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation,path,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 152,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T01:20:13.080",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation,path,timeout": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "path",
+    "timeout"
+   ],
+   "calls_au_gel": 29,
+   "derive": false,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-17T03:28:22.706",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 9,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-23T21:00:13.271",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,explanation,script": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "script"
+   ],
+   "calls_au_gel": 204,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-25T16:28:54.540",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,explanation,script,script_args": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 86,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-25T01:18:56.742",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,job_id": {
+   "arg_keys": [
+    "action",
+    "job_id"
+   ],
+   "calls_au_gel": 179,
+   "derive": false,
+   "forme": "obj:job_id,log_tail,ok,pid,progress,rc,started,status",
+   "last_ts_au_gel": "2026-09-25T00:49:47.536",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,lane,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 14,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-20T18:47:37.689",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,lane,rss_cap_mb,script": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "rss_cap_mb",
+    "script"
+   ],
+   "calls_au_gel": 21,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-13T17:36:55.840",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,lane,rss_cap_mb,script,script_args": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "rss_cap_mb",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-13T15:07:52.316",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,lane,script": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "script"
+   ],
+   "calls_au_gel": 64,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-24T22:58:45.731",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,lane,script,script_args": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 131,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-24T22:41:15.595",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,lane,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "lane",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 17,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-06T12:16:30.626",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,online,script": {
+   "arg_keys": [
+    "action",
+    "online",
+    "script"
+   ],
+   "calls_au_gel": 26,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-14T04:51:46.205",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,online,script,script_args": {
+   "arg_keys": [
+    "action",
+    "online",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 55,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,text",
+   "last_ts_au_gel": "2026-09-25T00:28:14.102",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,online,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "online",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 22,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-06T11:49:05.237",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,path": {
+   "arg_keys": [
+    "action",
+    "path"
+   ],
+   "calls_au_gel": 17,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-22T14:12:41.201",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,path,script_args": {
+   "arg_keys": [
+    "action",
+    "path",
+    "script_args"
+   ],
+   "calls_au_gel": 80,
+   "derive": true,
+   "forme": "obj:text",
+   "last_ts_au_gel": "2026-09-25T00:01:37.126",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,path,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "path",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 22,
+   "derive": true,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-25T00:50:23.384",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,script": {
+   "arg_keys": [
+    "action",
+    "script"
+   ],
+   "calls_au_gel": 166,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-25T00:37:59.218",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,script,script_args": {
+   "arg_keys": [
+    "action",
+    "script",
+    "script_args"
+   ],
+   "calls_au_gel": 113,
+   "derive": true,
+   "forme": "obj:job_id,ok,pid,task_id",
+   "last_ts_au_gel": "2026-09-25T00:49:23.191",
+   "tier": "garanti",
+   "tool": "run"
+  },
+  "run|action,script,script_args,timeout": {
+   "arg_keys": [
+    "action",
+    "script",
+    "script_args",
+    "timeout"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-06T03:23:13.740",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "run|action,script,timeout": {
+   "arg_keys": [
+    "action",
+    "script",
+    "timeout"
+   ],
+   "calls_au_gel": 9,
+   "derive": false,
+   "forme": "obj:job_id,ok,pid",
+   "last_ts_au_gel": "2026-09-06T02:17:04.360",
+   "tier": "opportuniste",
+   "tool": "run"
+  },
+  "task|action,agent": {
+   "arg_keys": [
+    "action",
+    "agent"
+   ],
+   "calls_au_gel": 8,
+   "derive": true,
+   "forme": "obj:agent,ok,reason",
+   "last_ts_au_gel": "2026-09-17T08:35:25.673",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,description": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "description"
+   ],
+   "calls_au_gel": 28,
+   "derive": false,
+   "forme": "obj:agent,frame_id,job_id,ok,task_id",
+   "last_ts_au_gel": "2026-09-22T16:26:27.496",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,description,explanation,intent,priority": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "description",
+    "explanation",
+    "intent",
+    "priority"
+   ],
+   "calls_au_gel": 44,
+   "derive": true,
+   "forme": "obj:agent,frame_id,job_id,ok,task_id",
+   "last_ts_au_gel": "2026-09-23T16:23:07.343",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,description,intent": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "description",
+    "intent"
+   ],
+   "calls_au_gel": 8,
+   "derive": false,
+   "forme": "obj:agent,frame_id,job_id,ok,task_id",
+   "last_ts_au_gel": "2026-09-24T12:56:04.402",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,description,intent,priority": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "description",
+    "intent",
+    "priority"
+   ],
+   "calls_au_gel": 17,
+   "derive": false,
+   "forme": "obj:agent,frame_id,job_id,ok,task_id",
+   "last_ts_au_gel": "2026-09-24T13:13:58.063",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,description,job_id": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "description",
+    "job_id"
+   ],
+   "calls_au_gel": 21,
+   "derive": true,
+   "forme": "obj:agent,frame_id,job_id,ok,result,task_id",
+   "last_ts_au_gel": "2026-09-11T19:19:17.856",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,explanation": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "explanation"
+   ],
+   "calls_au_gel": 2,
+   "derive": false,
+   "forme": "obj:ok,reason,text",
+   "last_ts_au_gel": "2026-09-16T00:36:20.605",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,agent,task": {
+   "arg_keys": [
+    "action",
+    "agent",
+    "task"
+   ],
+   "calls_au_gel": 24,
+   "derive": false,
+   "forme": "obj:agent,frame_id,job_id,ok,task_id",
+   "last_ts_au_gel": "2026-09-19T02:11:12.747",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,explanation": {
+   "arg_keys": [
+    "action",
+    "explanation"
+   ],
+   "calls_au_gel": 4,
+   "derive": false,
+   "forme": "obj:ok,reason,text",
+   "last_ts_au_gel": "2026-09-20T12:58:35.859",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,explanation,task_id": {
+   "arg_keys": [
+    "action",
+    "explanation",
+    "task_id"
+   ],
+   "calls_au_gel": 21,
+   "derive": false,
+   "forme": "obj:agent,error,intent_type,job_id,result_summary,status,task_id",
+   "last_ts_au_gel": "2026-09-24T13:00:03.303",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,intent,result,task_id": {
+   "arg_keys": [
+    "action",
+    "intent",
+    "result",
+    "task_id"
+   ],
+   "calls_au_gel": 143,
+   "derive": false,
+   "forme": "obj:job_id,ok,status,task_id",
+   "last_ts_au_gel": "2026-09-24T13:18:16.674",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "task|action,task_id": {
+   "arg_keys": [
+    "action",
+    "task_id"
+   ],
+   "calls_au_gel": 5,
+   "derive": false,
+   "forme": "obj:agent,error,intent_type,job_id,result_summary,status,task_id,text",
+   "last_ts_au_gel": "2026-09-18T16:19:16.033",
+   "tier": "opportuniste",
+   "tool": "task"
+  },
+  "tool_scope|action,explanation": {
+   "arg_keys": [
+    "action",
+    "explanation"
+   ],
+   "calls_au_gel": 6,
+   "derive": false,
+   "forme": "obj:?",
+   "last_ts_au_gel": "2026-09-24T21:29:43.361",
+   "tier": "opportuniste",
+   "tool": "tool_scope"
+  },
+  "web_search|explanation,max_results,query": {
+   "arg_keys": [
+    "explanation",
+    "max_results",
+    "query"
+   ],
+   "calls_au_gel": 18,
+   "derive": false,
+   "forme": "texte:long",
+   "last_ts_au_gel": "2026-09-16T00:33:53.830",
+   "tier": "opportuniste",
+   "tool": "web_search"
+  },
+  "web_search|explanation,query": {
+   "arg_keys": [
+    "explanation",
+    "query"
+   ],
+   "calls_au_gel": 2,
+   "derive": true,
+   "forme": "texte:moyen",
+   "last_ts_au_gel": "2026-09-06T18:07:04.411",
+   "tier": "opportuniste",
+   "tool": "web_search"
+  }
+ },
+ "genere_par": "tools/forge_capability_ratchet.py --ecrire-socle",
+ "inventaire": "ToolRegistry.handle_* + get_tool_list(ring=0) + 84 actions",
+ "matrice": "2026-09-25T16:29:34 (0 h)"
+}

@@ -1,0 +1,66 @@
+# Nokido — normalize line endings to LF everywhere
+* text=auto eol=lf
+
+# Force binary for non-text files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.gguf binary
+*.onnx binary
+*.safetensors binary
+*.db binary
+*.zip binary
+*.tar.gz binary
+*.whl binary
+
+# --- GitHub linguist : stats de langage sur le code source ACTIF seulement ---
+# Exclut backups, données, modèles, docs -> la barre reflète le vrai code.
+sandbox/**        linguist-vendored
+RAG/**            linguist-generated
+models/**         linguist-vendored
+data/**           linguist-vendored
+docs/**           linguist-documentation
+*.ipynb           linguist-documentation
+**/_attic/**      linguist-vendored
+**/legacy/**      linguist-vendored
+# Forcer la détection du code TS / Rust / Go (sinon noyé)
+proxy_deno/**     linguist-detectable
+go_services/**    linguist-detectable
+
+# --- Curation release publique : drop des artefacts dev/internes du `git archive` ---
+# (git archive honore export-ignore ; utilisé par tools/launch_public_mirror.py +
+#  tools/forge_release_assets.py pour bâtir le tarball public v0.1.)
+# Owner 2026-09-30 : « pleinement fonctionnel, pas bride ». `sandbox/` n'est plus
+# ignore en bloc (le census organ_map_full.json, les historiques pip-audit/perf,
+# routes_instables.json y sont LUS par le code) : son etat volatil est bloque
+# finement au profil public. Les audits et handoffs Markdown partent (les audits
+# SENSIBLES -- registre securite, coffre -- sont bloques nommement).
+temp_*.txt        export-ignore
+findings.jsonl    export-ignore
+*_REFLECTION.md   export-ignore
+big_prompt*.txt   export-ignore
+.gemini/          export-ignore
+RAG/              export-ignore
+.github/workflows/ export-ignore
+
+# Bundles vendored frontend : GARDÉS dans la release (offline/souverain), épinglés vendor.lock
+app/web_hub/static/*.min.js   linguist-vendored
+
+# --- SENSIBLE : disclosures sécurité (responsible disclosure — JAMAIS public) ---
+docs/HACKERONE_REPORT_*.md                 export-ignore
+docs/DRAFT-REPORT-security-anthropic.txt   export-ignore
+docs/HOWTO-Reproduce-Injection.md          export-ignore
+docs/INCIDENT-*-INJECTION.md               export-ignore
+docs/POC-MCP-SCHEMA-LEAK-*.md              export-ignore
+docs/poc_mcp_injection.py                  export-ignore
+docs/STRATEGY_AMD_BUGBOUNTY.md             export-ignore
+docs/SECURITY_SEPARATION_PLAN.md           export-ignore
+# Scripts scratch jetables (fuitent emails gmail perso, non essentiels)
+tools/tmp_*.py                             export-ignore
+app/tmp_*.py                               export-ignore
+# Capacité déportée (lab borné) = conservée dans la dist (choix user 2026-06-21).
+# Code mort archivé (fuite chemins home + bloat) — hors dist
+**/_attic/                                 export-ignore

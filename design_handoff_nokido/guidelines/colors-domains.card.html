@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 18px; background: var(--bg-0); }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .dom { border-radius: var(--radius-sm); background: var(--bg-2); border: 1px solid var(--border); padding: 10px 12px; display: flex; align-items: center; gap: 9px; }
+  .chip { width: 26px; height: 26px; border-radius: var(--radius-sm); flex-shrink: 0; }
+  .name { font-size: 11.5px; color: var(--text-secondary); font-weight: 600; }
+  .add { border-style: dashed; border-color: var(--border); background: transparent; color: var(--text-dim); justify-content: center; }
+  .add .chip { width: 22px; height: 22px; border: 1.5px dashed var(--text-dim); background: transparent; display: flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; }
+  .note { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; font-size: 11px; color: var(--text-dim); font-family: var(--font-mono); }
+  .note b { color: var(--text-secondary); font-weight: 600; }
+</style></head>
+<body>
+  <div class="note"><span style="color:var(--purple)">▸</span> Liste <b>non figée</b> — ce sont des exemples. Toute nouvelle section reçoit sa teinte et hérite de la même grammaire de carte.</div>
+  <div class="grid">
+    <div class="dom"><span class="chip" style="background:var(--domain-transport)"></span><span class="name">Transport</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-sante)"></span><span class="name">Santé</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-finance)"></span><span class="name">Finance</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-loisir)"></span><span class="name">Loisir</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-achat)"></span><span class="name">Achat</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-creation)"></span><span class="name">Création</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-jeux)"></span><span class="name">Jeux</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-dev)"></span><span class="name">Dev</span></div>
+    <div class="dom"><span class="chip" style="background:var(--domain-domotique)"></span><span class="name">Domotique</span></div>
+    <div class="dom add"><span class="chip">+</span><span class="name" style="color:var(--text-dim)">Ajouter…</span></div>
+  </div>
+</body></html>

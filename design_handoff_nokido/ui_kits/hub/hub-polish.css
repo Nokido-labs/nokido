@@ -1,0 +1,20 @@
+/* hub-polish.css — convergence /hub vers le look :7500 (netcfg dashboard).
+   Profondeur (ombre) + hover-lift + glow sur les cartes. Tokens depuis styles.css.
+   Le wrapper porte l'ombre/hover ; les composants _ds_bundle restent inchanges.
+   Servi NO-STORE via /design. */
+
+.lf-tile {
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.lf-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg), 0 0 24px rgba(119, 74, 255, 0.13);
+}
+/* tuiles non-cliquables (soon/down) : pas de lift trompeur */
+.lf-tile.is-static,
+.lf-tile.is-static:hover {
+  transform: none;
+  box-shadow: var(--shadow-md);
+}

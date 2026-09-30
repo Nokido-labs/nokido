@@ -1,0 +1,131 @@
+# Nokido — Sovereign AI Orchestrator
+# docker compose up -d → hub :8766 + webhub :7400 + ollama :11434 ready in ~5 min
+# Full install: docker compose --profile ml up -d  (adds brain-worker BGE-M3)
+#
+# Quick start:
+#   cp Nokido.env.example Nokido.env   # set FORGE_MCP_TOKEN
+#   docker compose up -d
+#   open http://localhost:7400
+
+services:
+
+  # ── MCP Hub — core orchestration ─────────────────────────────────────────
+  laforge-hub:
+    build:
+      context: .
+      dockerfile: docker/nokido/Dockerfile
+      args:
+        INSTALL_ML: "false"
+    image: nokido:latest
+    container_name: laforge-hub
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8766:8766"
+    volumes:
+      - laforge-rag:/app/RAG
+      - laforge-sandbox:/app/sandbox
+      - laforge-logs:/app/logs
+    env_file:
+      - Nokido.env
+    environment:
+      - LAFORGE_PYTHON_BIN=/usr/local/bin/python
+      - LAFORGE_IDLE_ENABLED=false
+      - OLLAMA_BASE_URL=http://ollama:11434
+    command: ["python", "tools/nokido_hub.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8766/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ── Web Dashboard ─────────────────────────────────────────────────────────
+  laforge-webhub:
+    image: nokido:latest
+    container_name: laforge-webhub
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7400:7400"
+    volumes:
+      - laforge-rag:/app/RAG
+      - laforge-sandbox:/app/sandbox
+      - laforge-logs:/app/logs
+    env_file:
+      - Nokido.env
+    environment:
+      - LAFORGE_PYTHON_BIN=/usr/local/bin/python
+      - LAFORGE_HUB_URL=http://laforge-hub:8766
+    command: ["python", "tools/nokido_web_hub.py"]
+    depends_on:
+      - laforge-hub
+
+  # ── Ollama — local LLM inference ─────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: laforge-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=30s
+      - OLLAMA_MAX_LOADED_MODELS=1
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── Brain Worker — embeddings BGE-M3 (optional, needs GPU/NPU) ───────────
+  brain-worker:
+    build:
+      context: .
+      dockerfile: docker/nokido/Dockerfile
+      args:
+        INSTALL_ML: "true"
+    image: laforge-ml:latest
+    container_name: laforge-brain-worker
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5557:5557"
+    volumes:
+      - laforge-rag:/app/RAG
+      - laforge-models:/app/models
+    env_file:
+      - Nokido.env
+    environment:
+      - LAFORGE_PYTHON_BIN=/usr/local/bin/python
+    command: ["python", "tools/brain_worker.py"]
+    profiles:
+      - ml
+    healthcheck:
+      test: ["CMD", "python", "-c", "import zmq; ctx=zmq.Context(); s=ctx.socket(zmq.REQ); s.connect('tcp://localhost:5557'); print('ok')"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # ── Netcfg Agent MCP — network config tools ──────────────────────────────
+  netcfg-mcp:
+    image: netcfg-agent-mcp:latest
+    container_name: laforge-netcfg-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8767:8767"
+    profiles:
+      - netcfg
+
+volumes:
+  laforge-rag:
+    driver: local
+  laforge-sandbox:
+    driver: local
+  laforge-logs:
+    driver: local
+  laforge-models:
+    driver: local
+  ollama-models:
+    driver: local

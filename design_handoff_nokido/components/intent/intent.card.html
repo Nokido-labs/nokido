@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}#root{max-width:440px;}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { CapStep } = window.NokidoDesignSystem_bdc2ac;
+function Demo(){
+  return (
+    <div>
+      <CapStep index={1} title="Cartographier l'historique des échanges" state="done" provenance="local" ring="gold"/>
+      <CapStep index={2} title="Reconstituer le cap (intention)" state="done" provenance="local" ring="verified"/>
+      <CapStep index={3} title="Décomposer en 112 étapes" state="active" provenance="remote" ring="verified"/>
+      <CapStep index={4} title="Estimer les dépendances" state="pending" parallel/>
+      <CapStep index={5} title="Proposer la prochaine étape" state="pending" ring="draft" last/>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+setTimeout(()=>window.lucide&&lucide.createIcons(),50);
+</script>
+</body></html>

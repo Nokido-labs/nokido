@@ -1,0 +1,14 @@
+/* ===========================================================================
+   Nokido Design System — entrée CSS complète (portage web hub, passe 1).
+   Source : Nokido Design System.zip (design handoff). Lier CE fichier seul.
+   =========================================================================== */
+@import "tokens/fonts.css";
+@import "tokens/colors.css";
+@import "tokens/themes.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/effects.css";
+@import "tokens/motion.css";
+@import "tokens/domains.css";
+@import "tokens/provenance.css";
+@import "tokens/base.css";

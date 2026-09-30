@@ -1,0 +1,66 @@
+Tu es chef de projet IA technique. Mission : valider la definition d'un sprint
+Bibliography Worker pour Nokido MCP. Repere les ambiguites + criteres "fini" mal definis.
+
+CONTEXTE :
+- Nokido tourne sur Windows + service NSSM `LaForgeMCP` deja UP
+- DB SQLite `RAG/embeddings.db` deja en place (60 tables existantes)
+- TUI Textual existante avec commands `@rag *`
+- Mistral Large dispo, Groq/Qwen/GPT-4o aussi
+- SearXNG Docker local sur 127.0.0.1:8080 deja teste OK
+
+SPRINT ALPHA (16h, MVP utilisable seul, livre incrementalement) :
+
+α1 - Schema DB minimal (2h)
+  Livrable : `migrations/004_biblio_alpha.sql`
+  Tables : ideas (FK parent_idea_id, superseded_by), biblio_raw (FK triggered_by_idea_id,
+  status=unverified, payload_hash, parent_hash), bibliography (FK promoted_from_raw_id)
+  Index : status, triggered_by_idea_id, payload_hash UNIQUE
+  Critere fini : 3 tables creees, 5 index actifs, 0 erreur sqlite
+
+α2 - Hook EventBus extracteur (4h)
+  Livrable : `app/forge_biblio_extractor.py`
+  Subscribe topic `biblio.text_pasted` -> recoit (text, idea_id) -> appelle Mistral Large
+  avec prompt JSON strict -> parse 1-N entries -> INSERT biblio_raw status=unverified
+  Provider fixe Mistral (pas de fallback en alpha)
+  Critere fini : passer un texte avec 3 citations -> 3 lignes biblio_raw inserees, hash chain valide
+
+α3 - Daemon NSSM stub (4h)
+  Livrable : service `NokidoBiblioWorker` + module `app/forge_biblio_worker.py`
+  Boucle : SELECT biblio_raw WHERE status='queued' LIMIT 1
+  -> appel SearXNG /search?q=...&engines=arxiv,crossref,openalex&format=json
+  -> sleep 3s entre requetes
+  -> UPDATE biblio_raw SET search_results=..., status='reviewed' WHERE id=?
+  Pas de rate limit budget en alpha, juste sleep
+  Critere fini : service NSSM RUNNING, traite 5 entries en 30s, logs propres
+
+α4 - Affineur requete basique (2h)
+  Livrable : fonction `refine_query(entry: dict) -> str`
+  Pas de LLM en alpha. Templating simple : `<title> <first_author> <year>`
+  + filtre stopwords + truncate 100 chars
+  Critere fini : 10 entries -> 10 queries valides, longueur max respectee
+
+α5 - Sanitization basique (2h)
+  Livrable : `app/forge_biblio_sanitizer.py`
+  - Regex DOI : ^10\.\d{4,9}/[-._;()/:A-Z0-9]+$
+  - Regex arxiv id : ^\d{4}\.\d{4,5}(v\d+)?$
+  - URL whitelist : arxiv, doi, openalex, openlibrary, edu, gov, acm, ieee
+  - Sanitize content snippet : regex Q5 patterns override (ignore previous, you are now)
+  Critere fini : 10 cas test (5 OK / 5 KO) tous bien classifies
+
+α6 - TUI commands minimales (2h)
+  Livrable : patch `app/forge_handler_rag.py` ou nouveau handler
+  - `@biblio list [--status=unverified]` : liste les entries (id, title, status)
+  - `@biblio promote <id>` : passe a status=verified, copie vers bibliography
+  - `@biblio reject <id> <reason>` : marque rejected
+  Critere fini : 3 commandes fonctionnelles, output formate Rich, validation utilisateur OK
+
+QUESTIONS (max 500 mots, francais, tranchant) :
+
+1. Quelle ambiguite critique vois-tu dans cette definition ?
+2. Le critere "fini" de chaque sous-tache est-il assez objectif (testable sans interpretation) ?
+3. Y a-t-il une dependance manquante entre sous-taches que je n'ai pas vue ?
+   (ex: alpha2 a besoin que alpha1 soit deploye avant)
+4. Le scope alpha (16h) est-il MVP ou trop ambitieux ?
+5. Une etape critique manquante avant de demarrer le code ?
+
+Format : 1 paragraphe par question, pas de blabla, francais.

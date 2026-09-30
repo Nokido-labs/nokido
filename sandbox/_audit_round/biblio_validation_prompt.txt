@@ -1,0 +1,272 @@
+Tu es architecte senior consulte par Nokido MCP Hub pour valider une spec.
+Tu as deja audite Q5 (memoire long-terme lessons) avec brio.
+
+CONTEXTE : Nokido construit un Bibliography Worker autonome qui :
+1. Extrait les sources (livres/papiers/concepts) depuis les textes colles dans le chat
+2. Stocke en zone tampon biblio_raw (UNVERIFIED par defaut)
+3. Demande a un LLM d'affiner la requete (multi-langue) avant SearXNG
+4. Recherche via SearXNG Docker local (instance prive, limiter desactive)
+5. Promotion vers bibliography (VERIFIED) apres validation RING_0 ou agent
+6. Vectorisation rag_chunks domain='bibliography' uniquement si VERIFIED
+
+ARCHITECTURE CIBLE (deja validee par utilisateur) :
+- Hybride : extracteur worker on-demand + daemon NSSM consommateur queue + cron scheduler
+- Provider Mistral pour extraction, Groq/Qwen pour affinage requete, LLM local pour tri resultats
+- 3 zones : biblio_raw (unverified) -> bibliography (verified) -> biblio_rejected (audit)
+- Reutilise framework Q5 : hash chain SHA-256, sanitization regex, source_kind, workflow draft->validated
+
+VOICI LA DOC SEARXNG TUNING que je viens de produire (sources OWASP/empirique) :
+
+```markdown
+# SearXNG Tuning Documentation - Nokido Bibliography Worker
+
+Date : 2026-04-27
+Status : DOC ONLY (Sprint 1 cadrage)
+Scope : Reglages optimaux pour le worker bibliographique Nokido
+
+## 1. Etat de ton instance Docker
+
+- **URL** : http://127.0.0.1:8080
+- **Version** : 2026.4.24+a7ac696b4
+- **Mode** : private/local (`public_instance: false`)
+- **Limiter** : DESACTIVE (`limiter.enabled: false`) -> pas de rate limit cote SearXNG lui-meme
+- **Format JSON** : ACTIF (`/search?format=json` repond 200)
+- **DOI resolvers** : `oadoi.org`, `doi.org`, `sci-hub.se` (3 actifs)
+- **Engines totaux** : 251
+
+## 2. Engines bibliographique scientifiques disponibles
+
+Tous DEJA ACTIFS sur ton instance :
+
+| Engine             | Shortcut | Categorie                              | Timeout | Notes                            |
+|--------------------|----------|----------------------------------------|---------|----------------------------------|
+| arxiv              | !arx     | science,scientific publications        | 3s      | Papiers preprints, PDF natif     |
+| crossref           | !cr      | science,scientific publications        | **30s** | DOI registry officiel            |
+| google scholar     | !gos     | science,scientific publications        | 3s      | Couverture maximale              |
+| semantic scholar   | !se      | science,scientific publications        | 3s      | Bonne metadata, RATE LIMIT STRICT|
+| openalex           | !oa      | science,scientific publications        | 5s      | Open API metadata                |
+| pubmed             | !pub     | science,scientific publications        | 3s      | Biomedical, NIH/NLM              |
+| openairepublications | !oap   | science                                | 5s      | EU OpenAire                      |
+| openairedatasets   | !oad     | science                                | 5s      | Datasets associes                |
+| pdbe               | !pdb     | science                                | 3s      | Proteine, biochimie              |
+| openlibrary        | !ol      | books                                  | 10s     | Livres avec ISBN                 |
+| annas archive      | !aa      | files,books                            | 5s      | Acces ouvrage / shadow lib       |
+| library genesis    | !lg      | files                                  | 7s      | Acces ouvrage                    |
+
+Plus engines generalistes pour disambiguation : google, duckduckgo, bing, qwant, startpage,
+wikipedia (lang multiple), wikibooks, wikispecies.
+
+## 3. Format JSON de retour - structure observee
+
+Sur une requete `engines=arxiv,semantic scholar,google scholar`, retour typique :
+
+```json
+{
+  "query": "...",
+  "number_of_results": 0,
+  "unresponsive_engines": [["semantic scholar", "rate limited"]],
+  "results": [
+    {
+      "url": "http://arxiv.org/abs/2210.03629v3",
+      "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
+      "engine": "arxiv",
+      "category": "science",
+      "publishedDate": "2022-10-06T01:00:32",
+      "authors": ["Shunyu Yao", "Jeffrey Zhao", "Dian Yu", "Nan Du", "..."],
+      "journal": "",
+      "doi": "",
+      "isbn": [],
+      "pdf_url": "https://arxiv.org/pdf/2210.03629v3",
+      "tags": ["cs.CL", "cs.AI", "cs.LG"],
+      "content": "While large language models (LLMs) have demonstrated...",
+      "score": 0.5,
+      "thumbnail": null,
+      "img_src": null
+    }
+  ],
+  "answers": [],
+  "corrections": [],
+  "infoboxes": [],
+  "suggestions": [],
+  "unresponsive_engines": []
+}
+```
+
+Champs cles pour bibliographie :
+- `url` (canonical) + `pdf_url` (acces direct au PDF si dispo)
+- `title`, `authors` (LIST), `publishedDate` (ISO 8601), `journal`
+- `doi` (parfois present, surtout via crossref), `isbn` (LIST)
+- `tags` (categories arXiv ou keywords)
+- `content` (snippet pour pre-tri par LLM)
+- `engine` (provenance, utile pour scoring)
+
+## 4. Parametres API officiels (doc SearXNG)
+
+Source : https://docs.searxng.org/dev/search_api.html
+
+| Parametre         | Defaut              | Description                                              |
+|-------------------|---------------------|----------------------------------------------------------|
+| q                 | REQUIS              | Requete. Supporte syntaxe natif (site:, !engine, etc)   |
+| categories        | -                   | Liste CSV : science, books, general, news, etc.         |
+| engines           | -                   | Liste CSV ciblee : arxiv,crossref,google scholar         |
+| language          | from settings       | en, fr, de, all... NB: 'all' permis aussi               |
+| pageno            | 1                   | Pagination                                               |
+| time_range        | -                   | day | month | year                                      |
+| format            | -                   | json | csv | rss (json doit etre actif dans settings)  |
+| safesearch        | from settings       | 0 (none) | 1 (moderate) | 2 (strict)                  |
+| autocomplete      | from settings       | google | duckduckgo | qwant | wikipedia | startpage | etc |
+| enabled_plugins   | -                   | Liste plugins actives                                    |
+| disabled_plugins  | -                   | Liste plugins desactivees                                |
+| enabled_engines   | -                   | Override la liste d'engines                              |
+| disabled_engines  | -                   | Idem inverse                                             |
+
+Plugins utiles (a tester dans Nokido) :
+- `Open_Access_DOI_rewrite` : reecrit les DOI vers oadoi.org pour acces ouvert. **Important pour worker.**
+- `Tracker_URL_remover` : nettoie les utm_* dans les URLs
+
+## 5. Rate limits empiriquement mesures (10 reqs en 5s sur ton instance)
+
+| Engine            | Comportement empirique              | Limite estimee     |
+|-------------------|--------------------------------------|--------------------|
+| arxiv             | OK 10/10                             | > 100/heure         |
+| google scholar    | OK 10/10                             | ~ 50-100/heure (varie selon detection bot) |
+| semantic scholar  | KO 5 dernieres / rate limited        | **~ 5 reqs / 5s puis cooldown** |
+| crossref          | OK (timeout 30s donc moins frequent) | API publique, generous   |
+| pubmed            | OK                                   | API publique, ~3 reqs/s NCBI guideline |
+| openalex          | OK                                   | API publique, free, generous |
+| openlibrary       | OK                                   | API publique, generous |
+
+**Politique recommandee pour worker Nokido** :
+- Espacer les requetes : **1 req / 3s** (politesse generale)
+- Pour Semantic Scholar : limiter a **5 reqs puis attendre 60s**
+- Pour Google Scholar : si bot detection se declenche, **switcher vers DuckDuckGo Scholar bang `!ddg !gos`**
+- Crossref pour DOI : pas plus de 50 polite/heure (User-Agent identifiant Nokido)
+
+## 6. Configuration recommandee pour le worker biblio
+
+### Strategie multi-passes par source
+
+Pour chaque entree biblio a chercher, 3 passes :
+
+**Pass 1 - DOI resolution (si manquant)** :
+- engines: `crossref,arxiv,openalex`
+- query: `"<title>" <author> <year>`
+- objectif: trouver le DOI canonique
+
+**Pass 2 - PDF / acces complet** :
+- engines: `arxiv,openairepublications,openlibrary` + plugin `Open_Access_DOI_rewrite`
+- query: `<title> <author> filetype:pdf` ou via DOI direct
+- objectif: pdf_url + version ouverte
+
+**Pass 3 - Critique / commentaires / implementations** :
+- engines: `google scholar,semantic scholar,duckduckgo`
+- query: `<title> review OR critique OR implementation`
+- objectif: contexte, popularity, refs croisees
+- multi-langue : aussi `language=fr` pour francophone
+
+### Espacement des requetes
+
+```
+worker_loop:
+  for entry in queue:
+    for pass_num in [1, 2, 3]:
+      results = searxng_search(...)
+      sleep(3.0)  # politesse de base
+      if 'semantic scholar' in unresponsive:
+        skip semantic scholar pendant 60s
+```
+
+## 7. Anti-pollution / sanitization a la reception
+
+Avant insert dans `biblio_raw` :
+
+1. **Validation DOI** : regex `^10\.\d{4,9}/[-._;()/:A-Z0-9]+$` (case insensitive)
+2. **Validation arxiv ID** : regex `^\d{4}\.\d{4,5}(v\d+)?$`
+3. **Validation ISBN** : 10 ou 13 chiffres, checksum verif
+4. **URL whitelist** : domaines acceptes pour `pdf_url`/`url` :
+   - arxiv.org, doi.org, oadoi.org, openalex.org
+   - openlibrary.org, semanticscholar.org, scholar.google.com
+   - openreview.net, neurips.cc, aclanthology.org, ijcai.org
+   - acm.org, ieee.org, springer.com, sciencedirect.com
+   - github.com (papiers avec code)
+   - nokido.internal (interne)
+   - tout `*.edu` et `*.gov` (educatif/gouv)
+5. **Sanitize content snippet** : regex Q5 deja definies
+   - bloquer override patterns (`ignore previous`, `you are now`, etc.)
+   - encadrement code/example whitelisted
+6. **Title duplication check** : fuzzy match (Levenshtein < 5%) avant insert
+
+## 8. Decisions a graver dans la spec du worker
+
+1. Polling queue toutes les 3s (synchrone avec politesse de base)
+2. Round-robin sur les engines pour eviter de pilonner un seul
+3. Backoff exponentiel sur 429 (`SearxEngineTooManyRequests` : 3600s suspended)
+4. User-Agent identifiant : `NokidoBiblioWorker/1.0`
+5. Plugin `Open_Access_DOI_rewrite` ACTIVE par defaut sur les requetes
+6. Format `json` toujours
+7. `safesearch: 0` (cibler bibliographie, pas de filtre)
+8. Logs : chaque requete loggee avec corr_id, latence, unresponsive_engines, n_results
+
+## 9. Tests realises (preuve empirique)
+
+- /healthz : OK
+- /config : version 2026.4.24, 251 engines, JSON OK
+- 5 reqs/5s libres : pas de rate limit cote SearXNG
+- 10 reqs avec 3 engines science : Google Scholar + arXiv robust, Semantic Scholar fragile
+- Test ReAct paper : DOI extrait via crossref, PDF arxiv, authors structures parfaits
+- Test livre Kahneman : openlibrary retourne 10 resultats, ISBN structures
+- Test multi-langues : `language=fr` retourne aussi les versions francaises
+
+## 10. Effort estime pour Sprint suivant (conception worker)
+
+- Schema DB `biblio_raw` + `bibliography` + `biblio_rejected` : 2h
+- Hook EventBus `biblio.text_pasted` -> extracteur Mistral : 4h
+- Daemon NSSM `NokidoBiblioWorker` (queue consumer) : 6h
+- Affineur de requete LLM (multi-langue, 3 passes) : 4h
+- Sanitization Q5 + dedup fuzzy : 3h
+- Promotion workflow (UNVERIFIED -> VERIFIED) : 3h
+
+**Total estimé : 22h** (cohérent avec Sprint 1 Q5 = 22h, executable en parallele)
+
+```
+
+QUESTIONS QUE JE TE POSE (max 800 mots, francais, tranchant) :
+
+Q-A : La strategie 3 passes (DOI resolution / PDF / critique) est-elle pertinente ?
+Y a-t-il des passes manquantes ou des passes superflues ?
+
+Q-B : La politique 'sleep 3s entre requetes + cooldown 60s sur Semantic Scholar' est-elle
+suffisante pour un worker qui tournerait 24/7 sur 100 entrees biblio par jour ?
+Faut-il un budget global (ex: 50 reqs/h Google Scholar) ?
+
+Q-C : Le choix des engines par passe :
+  - Pass 1 (DOI): crossref,arxiv,openalex
+  - Pass 2 (PDF): arxiv,openairepublications,openlibrary + Open_Access_DOI_rewrite
+  - Pass 3 (critique): google scholar,semantic scholar,duckduckgo + multi-langue
+Tu rajoutes/retires/permutes quoi ?
+
+Q-D : La whitelist URLs sources fiables (arxiv, doi, openalex, openlibrary, edu, gov, acm, ieee, etc.)
+Quelque chose d'important manque ? Doit-on bloquer aussi medium.com, blog perso, etc ?
+Que faire des URLs github (papiers avec code) -> les autoriser sous condition ?
+
+Q-E : Sanitization a la reception. Mes regles actuelles :
+  1. Validation DOI/arxiv/ISBN regex
+  2. URL whitelist (cf Q-D)
+  3. Sanitize content snippet (Q5 patterns override deja definis)
+  4. Title fuzzy dedup Levenshtein < 5%
+Que rajouter ? Detection langue + filter ? Detection paper retracted (via crossref API) ?
+Detection 'predatory journal' (Beall's list) ?
+
+Q-F : LE MODELE DE PROMOTION est-il bon ?
+  biblio_raw (unverified) -> validation RING_0 ou peer agent -> bibliography (verified)
+  rag_chunks INSERT seulement si verified
+Risque : explosion biblio_raw avec entries jamais validees.
+Faut-il un auto-archivage apres N jours sans validation ? Quelle valeur N ?
+
+Q-G : Effort 22h estime pour Sprint 2 (worker complet). Realiste ?
+Tu allouerais le temps differemment ?
+
+FORMAT REPONSE STRICT :
+- Pour chaque sous-question Q-A a Q-G : verdict 1-3 phrases + recommandation chiffree
+- Conclusion : ce qui est solide + ce qu'il faut corriger imperativement avant Sprint 2
+- Pas de code, juste concepts/specs/regles

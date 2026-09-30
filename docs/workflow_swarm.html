@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Workflow — swarm</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#0C0A13;--paper-2:#1C1928;--ink:#EDEBF4;--muted:#B2AEC4;--soft:#6E6A82;
+        --rule:#262338;--accent:#774AFF;--warn:#FFC22D;--orange:#FF9142;--bad:#F24F4F;--link:#3BB2D0;
+        --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+        --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:64ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:900px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}.card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · workflow 9/n · 2026-08-12</p>
+  <h1>Swarm</h1>
+  <p class="sub">Douze modules, une chaîne à jalons numérotés <code>M0 → M5</code>. Le trait
+     distinctif n'est pas le parallélisme : c'est que chaque worker reçoit un contexte
+     <b>stérile</b> et écrit dans un tableau noir <b>zoné</b>. Un essaim qui partage tout
+     n'est pas un essaim, c'est une seule tête bruyante.</p>
+
+  <figure>
+  <svg viewBox="0 0 952 560" role="img" aria-labelledby="ws-t ws-d">
+    <title id="ws-t">Workflow du swarm, de la validation au patch</title>
+    <desc id="ws-d">Chaîne à cinq jalons — validation déterministe, contexte stérile,
+      workers éphémères, réduction map-reduce, application de patch — entourée du tableau
+      noir zoné, du bus d'événements et du garde de télémétrie.</desc>
+    <defs>
+      <pattern id="ws-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+        <circle cx="11" cy="11" r="0.8" fill="rgba(237,235,244,0.10)"/></pattern>
+      <marker id="ws-ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#B2AEC4"/></marker>
+      <marker id="ws-ar-a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#774AFF"/></marker>
+    </defs>
+    <rect width="952" height="560" fill="#0C0A13"/>
+    <rect width="952" height="560" fill="url(#ws-dots)" opacity="0.55"/>
+
+    <!-- entree -->
+    <rect x="24" y="96" width="118" height="54" rx="4" fill="#1C1928" stroke="#774AFF"/>
+    <text x="83" y="118" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">forge_spawn_swarm</text>
+    <text x="83" y="134" text-anchor="middle" font-family="JetBrains Mono" font-size="9" fill="#774AFF">ring ≤ 2 · tasks[]</text>
+    <line x1="142" y1="123" x2="176" y2="123" stroke="#774AFF" stroke-width="1.2" marker-end="url(#ws-ar-a)"/>
+
+    <!-- M0 -->
+    <rect x="178" y="96" width="122" height="54" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="188" y="112" font-family="JetBrains Mono" font-size="9" fill="#FFC22D">M0</text>
+    <text x="239" y="126" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">validator</text>
+    <text x="239" y="141" text-anchor="middle" font-size="10" fill="#B2AEC4">gatekeeper pré-vol</text>
+    <line x1="300" y1="123" x2="334" y2="123" stroke="#B2AEC4" stroke-width="1" marker-end="url(#ws-ar)"/>
+
+    <!-- M1 -->
+    <rect x="336" y="96" width="122" height="54" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="346" y="112" font-family="JetBrains Mono" font-size="9" fill="#FFC22D">M1</text>
+    <text x="397" y="126" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">context</text>
+    <text x="397" y="141" text-anchor="middle" font-size="10" fill="#B2AEC4">stérile par worker</text>
+    <line x1="458" y1="123" x2="492" y2="123" stroke="#B2AEC4" stroke-width="1" marker-end="url(#ws-ar)"/>
+
+    <!-- M2 fan-out -->
+    <rect x="494" y="60" width="122" height="42" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="504" y="76" font-family="JetBrains Mono" font-size="9" fill="#FFC22D">M2</text>
+    <text x="555" y="88" text-anchor="middle" font-size="11" fill="#EDEBF4">worker éphémère</text>
+    <rect x="494" y="108" width="122" height="42" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="555" y="134" text-anchor="middle" font-size="11" fill="#EDEBF4">worker éphémère</text>
+    <rect x="494" y="156" width="122" height="42" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="555" y="182" text-anchor="middle" font-size="11" fill="#EDEBF4">worker éphémère</text>
+    <line x1="616" y1="129" x2="650" y2="129" stroke="#B2AEC4" stroke-width="1" marker-end="url(#ws-ar)"/>
+
+    <!-- M5 -->
+    <rect x="652" y="96" width="122" height="54" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="662" y="112" font-family="JetBrains Mono" font-size="9" fill="#FFC22D">M5</text>
+    <text x="713" y="126" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">orchestrator</text>
+    <text x="713" y="141" text-anchor="middle" font-size="10" fill="#B2AEC4">map-reduce</text>
+    <line x1="774" y1="123" x2="806" y2="123" stroke="#B2AEC4" stroke-width="1" marker-end="url(#ws-ar)"/>
+
+    <!-- patch -->
+    <rect x="808" y="96" width="120" height="54" rx="4" fill="#1C1928" stroke="#3BB2D0"/>
+    <text x="868" y="118" text-anchor="middle" font-size="12" font-weight="600" fill="#EDEBF4">patch</text>
+    <text x="868" y="134" text-anchor="middle" font-size="10" fill="#3BB2D0">SR blocks + VFS overlay</text>
+
+    <!-- organes lateraux -->
+    <line x1="24" y1="238" x2="928" y2="238" stroke="rgba(237,235,244,0.12)" stroke-width="0.8"/>
+    <text x="24" y="262" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">ORGANES TRANSVERSES</text>
+
+    <rect x="24" y="276" width="176" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="38" y="298" font-size="12" font-weight="600" fill="#EDEBF4">blackboard zoné</text>
+    <text x="38" y="315" font-size="10" fill="#B2AEC4">zones + ACL par ring</text>
+    <text x="38" y="330" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">init_db · read_zone · gc</text>
+
+    <rect x="212" y="276" width="176" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="226" y="298" font-size="12" font-weight="600" fill="#EDEBF4">bus</text>
+    <text x="226" y="315" font-size="10" fill="#B2AEC4">side-channel collaboration</text>
+    <text x="226" y="330" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">subscribe · publish</text>
+
+    <rect x="400" y="276" width="176" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="414" y="298" font-size="12" font-weight="600" fill="#EDEBF4">telemetry_guard</text>
+    <text x="414" y="315" font-size="10" fill="#B2AEC4">S5 du VSM sur l'essaim</text>
+    <text x="414" y="330" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">sign_vector · egress_ok</text>
+
+    <rect x="588" y="276" width="164" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="602" y="298" font-size="12" font-weight="600" fill="#EDEBF4">router</text>
+    <text x="602" y="315" font-size="10" fill="#B2AEC4">intelligence × cadre</text>
+    <text x="602" y="330" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">route_subtask</text>
+
+    <rect x="764" y="276" width="164" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="778" y="298" font-size="12" font-weight="600" fill="#EDEBF4">agents</text>
+    <text x="778" y="315" font-size="10" fill="#B2AEC4">catalogue par provider</text>
+    <text x="778" y="330" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">groq · cerebras · glm5</text>
+
+    <!-- team -->
+    <rect x="24" y="366" width="364" height="66" rx="4" fill="#1C1928" stroke="#262338"/>
+    <text x="38" y="388" font-size="12" font-weight="600" fill="#EDEBF4">team — 42k, le plus gros module</text>
+    <text x="38" y="405" font-size="10" fill="#B2AEC4">Participant · SwarmTeam · LeadOrchestrator</text>
+    <text x="38" y="421" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">get_team · save_team</text>
+
+    <!-- trou mesure -->
+    <rect x="400" y="366" width="528" height="66" rx="4" fill="rgba(242,79,79,0.06)" stroke="#F24F4F" stroke-dasharray="4 3"/>
+    <text x="414" y="388" font-size="12" font-weight="600" fill="#F24F4F">DebateWorker — ABSENT du dépôt</text>
+    <text x="414" y="405" font-size="11" fill="#B2AEC4">Intention notoire réclamée 3× : « brancher DebateWorker sur LeadOrchestrator ».</text>
+    <text x="414" y="421" font-size="11" fill="#B2AEC4">Le point d'accroche existe, le pendant n'a jamais été écrit. Couverture git 0 %.</text>
+
+    <line x1="24" y1="456" x2="928" y2="456" stroke="rgba(237,235,244,0.16)" stroke-width="0.8"/>
+    <text x="24" y="478" font-size="11" fill="#B2AEC4">Numérotation des jalons telle qu'elle figure dans les docstrings : <tspan font-family="JetBrains Mono" fill="#EDEBF4">M0, M1, M2, M5</tspan>.</text>
+    <text x="24" y="496" font-size="11" fill="#B2AEC4">M3 et M4 ne sont déclarés nulle part — trou de numérotation non expliqué, laissé tel quel plutôt qu'inventé.</text>
+    <text x="24" y="522" font-size="11" fill="#6E6A82">La délibération elle-même reste à faire : <tspan font-family="JetBrains Mono">forge_spawn_swarm</tspan> en <tspan font-family="JetBrains Mono">op=noop</tspan> ne délibère pas —</text>
+    <text x="24" y="538" font-size="11" fill="#6E6A82">un débat s'obtient aujourd'hui en lançant N appels <tspan font-family="JetBrains Mono">ask</tspan> séparés.</text>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>Stérile et zoné</h3>
+      <ul>
+        <li><code>build_worker_context</code> construit un contexte fermé ; <code>ScopeViolation</code> sanctionne la sortie de périmètre.</li>
+        <li><code>sterile_read</code> / <code>assert_writable</code> : lire large, écrire étroit.</li>
+        <li>Le blackboard applique une <b>ACL par ring</b> zone par zone.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>Le pré-vol est déterministe</h3>
+      <ul>
+        <li>M0 <code>validate_swarm_plan</code> juge le plan <b>avant</b> toute dépense de tokens.</li>
+        <li>Déterministe = pas de LLM dans le gatekeeper : un garde qui hallucine ne garde rien.</li>
+        <li><code>forge_spawn_swarm</code> refuse sans <code>tasks</code> non vide.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#F24F4F"></span>Ce qui manque</h3>
+      <ul>
+        <li><b>DebateWorker</b> : absent, réclamé 3×.</li>
+        <li><b>M3 / M4</b> : jalons jamais déclarés.</li>
+        <li>La délibération collégiale reste <b>parquée</b> depuis le 04/08 — à reprendre par la sélection des rôles.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Sources : 12 modules app/forge_swarm*.py cartographiés par AST (classes et fonctions publiques
+    lues dans le code, pas recopiées) · app/forge_mcp_registry.py::_handle_spawn_swarm ·
+    absence de DebateWorker vérifiée sur app/ et tools/ entiers.</footer>
+</div>
+</body>
+</html>

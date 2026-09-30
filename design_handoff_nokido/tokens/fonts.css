@@ -1,0 +1,69 @@
+/* ============================================================================
+   Nokido — Webfonts
+   Inter (UI) + JetBrains Mono (mono), servis EN LOCAL depuis /static/fonts/.
+
+   Mesure 2026-08-29 (sonde navigateur sur la page d'accueil) : ces @font-face
+   pointaient vers gstatic, la CSP du hub interdit `font-src` externe, et la
+   console rendait 38 erreurs — sept polices bloquees, rendu en pile systeme.
+   Le commentaire d'origine disait « aucun binaire de police n'etait fourni
+   dans le depot » : c'etait vrai a l'ecriture, plus depuis que les sept woff2
+   ont ete rapatries dans app/web_hub/static/fonts/. Une note qui survit a son
+   fait devient une consigne fausse — les URLs suivent desormais le disque.
+
+   Souverain : aucune requete sortante pour afficher l'interface.
+   ============================================================================ */
+
+/* -------- Inter -------- */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/static/fonts/inter-400.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/static/fonts/inter-500.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(/static/fonts/inter-600.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/static/fonts/inter-700.woff2) format('woff2');
+}
+
+/* -------- JetBrains Mono --------
+   Les trois graisses pointaient vers le MEME woff2 (400) : le gras et le
+   semi-gras etaient synthetises par le navigateur. Un fichier par graisse. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-400.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-500.woff2) format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(/static/fonts/jetbrains-mono-700.woff2) format('woff2');
+}

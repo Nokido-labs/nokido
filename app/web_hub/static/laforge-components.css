@@ -1,0 +1,159 @@
+/* ============================================================================
+   Nokido Design System — Primitives (passe 2 du portage).
+   Classes .lf-* portées depuis les composants ref du handoff
+   (Button/Card/Badge/StatusPill/ProvenanceBadge — inline styles -> classes).
+   Utilisent les tokens de laforge-tokens.css. CSP-safe, servable 1-segment.
+   ============================================================================ */
+
+/* ---- Button --------------------------------------------------------------- */
+.lf-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  font-family: var(--font-sans); font-weight: 600; border: 1px solid transparent;
+  border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap;
+  padding: 6px 14px; font-size: 13.5px; height: 36px;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast);
+}
+.lf-btn:disabled, .lf-btn[disabled] { opacity: .4; cursor: not-allowed; }
+.lf-btn--sm { padding: 4px 10px; font-size: 12px; height: 30px; }
+.lf-btn--lg { padding: 9px 18px; font-size: 14px; height: 44px; }
+.lf-btn--primary { background: var(--purple); color: #fff; }
+.lf-btn--primary:hover { background: var(--purple-dim); }
+.lf-btn--ghost { background: transparent; color: var(--text-secondary); border-color: var(--border); }
+.lf-btn--ghost:hover { color: var(--purple); border-color: var(--purple); }
+.lf-btn--success { background: var(--green); color: var(--bg-0); }
+.lf-btn--success:hover { background: #3fae7a; }
+
+/* ---- Card ----------------------------------------------------------------- */
+.lf-card {
+  display: block; position: relative; overflow: hidden;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-md);
+  color: var(--text-primary); text-decoration: none;
+  transition: background var(--motion-base), box-shadow var(--motion-base);
+}
+.lf-card--interactive { cursor: pointer; }
+.lf-card--interactive:hover { background: var(--bg-3); box-shadow: var(--shadow-glow); }
+.lf-card__icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 44px; width: 44px; border-radius: var(--radius-sm); margin-bottom: 10px;
+  background: var(--tint-purple); color: var(--purple);
+}
+.lf-card__icon--blue   { background: var(--tint-blue);   color: var(--blue); }
+.lf-card__icon--cyan   { background: var(--tint-cyan);   color: var(--cyan); }
+.lf-card__icon--green  { background: var(--tint-green);  color: var(--green); }
+.lf-card__icon--yellow { background: var(--tint-yellow); color: var(--yellow); }
+.lf-card__icon--orange { background: var(--tint-orange); color: var(--orange); }
+.lf-card__icon--red    { background: var(--tint-red);    color: var(--red); }
+.lf-card__icon--pink   { background: var(--tint-pink);   color: var(--pink); }
+.lf-card__title    { margin: 0; font-size: 16px; font-weight: 700; color: var(--text-primary); }
+.lf-card__subtitle { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.lf-card__footer   { margin-top: 14px; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim); }
+
+/* ---- Badge ---------------------------------------------------------------- */
+.lf-badge {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  font-family: var(--font-sans); font-weight: 600; padding: 2px 8px;
+  border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: var(--tint-purple); color: var(--purple);
+}
+.lf-badge--mono { font-size: 9.5px; font-family: var(--font-mono); font-weight: 700; letter-spacing: .3px; text-transform: uppercase; }
+.lf-badge--blue   { background: var(--tint-blue);   color: var(--blue); }
+.lf-badge--cyan   { background: var(--tint-cyan);   color: var(--cyan); }
+.lf-badge--green  { background: var(--tint-green);  color: var(--green); }
+.lf-badge--yellow { background: var(--tint-yellow); color: var(--yellow); }
+.lf-badge--orange { background: var(--tint-orange); color: var(--orange); }
+.lf-badge--red    { background: var(--tint-red);    color: var(--red); }
+.lf-badge--pink   { background: var(--tint-pink);   color: var(--pink); }
+.lf-badge--solid   { background: var(--purple); color: var(--bg-0); }
+.lf-badge--outline { background: transparent; border-color: var(--purple); color: var(--purple); }
+
+/* ---- StatusPill ----------------------------------------------------------- */
+.lf-status {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+  font-family: var(--font-mono); padding: 2px 8px; border-radius: var(--radius-pill);
+  color: var(--blue); background: rgba(59, 178, 208, .12);
+}
+.lf-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.lf-status--pulse::before { animation: laforge-pulse var(--pulse-period) infinite; }
+.lf-status--up   { color: var(--green);    background: rgba(74, 194, 139, .12); }
+.lf-status--down { color: var(--red);      background: rgba(242, 79, 79, .12); }
+.lf-status--warn { color: var(--yellow);   background: rgba(255, 194, 45, .12); }
+.lf-status--idle { color: var(--text-dim); background: rgba(110, 106, 130, .12); }
+
+/* ---- ProvenanceBadge (souverain : où vit le calcul) ----------------------- */
+.lf-prov {
+  display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono);
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: var(--radius-pill);
+  color: var(--prov-local); background: var(--prov-local-tint);
+}
+.lf-prov::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.lf-prov--hybrid { color: var(--prov-hybrid); background: var(--prov-hybrid-tint); }
+.lf-prov--remote { color: var(--prov-remote); background: var(--prov-remote-tint); }
+
+/* ---- Anneaux d'intégrité (draft/verified/gold) ---------------------------- */
+.lf-ring { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10.5px; }
+.lf-ring::before { content: ""; width: 8px; height: 8px; border-radius: 50%; }
+.lf-ring--draft    { color: var(--ring-draft); }
+.lf-ring--draft::before    { background: transparent; border: 1.5px dashed var(--ring-draft); }
+.lf-ring--verified { color: var(--ring-verified); }
+.lf-ring--verified::before { background: var(--ring-verified); }
+.lf-ring--gold     { color: var(--ring-gold); }
+.lf-ring--gold::before     { background: var(--ring-gold); box-shadow: 0 0 6px rgba(255, 194, 45, .6); }
+
+/* ============================================================================
+   Passe 3 — Composants souverains (SovereigntyGauge/PowerSlider/ModuleCard/CapStep)
+   ============================================================================ */
+
+/* ---- SovereigntyGauge (jauge "où vit le calcul") -------------------------- */
+.lf-gauge__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
+.lf-gauge__label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text-secondary); }
+.lf-gauge__pct { font-family: var(--font-mono); font-size: 12px; color: var(--prov-local); }
+.lf-gauge__track { position: relative; height: 10px; border-radius: var(--radius-pill); background: var(--prov-remote-tint); overflow: hidden; border: 1px solid var(--border-subtle); }
+.lf-gauge__fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--prov-local), #5fd6a0); box-shadow: 0 0 12px rgba(74, 194, 139, .4); transition: width var(--motion-slow) var(--ease-out); }
+.lf-gauge__legend { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+
+/* ---- PowerSlider (curseur de puissance local↔cloud) ----------------------- */
+.lf-power { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; }
+.lf-power__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.lf-power__metrics { display: flex; gap: 12px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.lf-power-range { width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: var(--radius-pill); outline: none; cursor: pointer; background: var(--prov-remote-tint); }
+.lf-power-range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--prov-local); box-shadow: 0 0 10px rgba(74, 194, 139, .5); cursor: pointer; }
+.lf-power-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid var(--prov-local); box-shadow: 0 0 10px rgba(74, 194, 139, .5); cursor: pointer; }
+
+/* ---- ModuleCard (tuile module, accent par domaine via --lf-accent) -------- */
+.lf-module { --lf-accent: var(--purple); position: relative; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 16px; overflow: hidden; transition: background var(--motion-base); }
+.lf-module--dim { background: var(--bg-1); border-color: var(--border-subtle); opacity: .55; }
+.lf-module__accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--lf-accent); }
+.lf-module__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.lf-module__icon { display: inline-flex; align-items: center; justify-content: center; height: 40px; width: 40px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--lf-accent) 16%, transparent); color: var(--lf-accent); }
+.lf-module__title { margin: 12px 0 0; font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 7px; }
+.lf-module__desc { margin: 4px 0 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
+.lf-module__toggle { width: 38px; height: 22px; border-radius: var(--radius-pill); border: none; cursor: pointer; background: var(--bg-4); position: relative; transition: background var(--motion-fast); flex-shrink: 0; }
+.lf-module__toggle[aria-checked="true"] { background: var(--lf-accent); }
+.lf-module__toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left var(--motion-fast); }
+.lf-module__toggle[aria-checked="true"]::after { left: 19px; }
+.lf-module__soon { font-family: var(--font-mono); font-size: 9.5px; font-weight: 700; letter-spacing: .3px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; }
+
+/* ---- CapStep (étape de capacité : rail + contenu) ------------------------- */
+.lf-step { display: flex; gap: 12px; }
+.lf-step__rail { display: flex; flex-direction: column; align-items: center; }
+.lf-step__dot { width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid var(--border); background: transparent; }
+.lf-step--done .lf-step__dot { background: var(--prov-local); border-color: var(--prov-local); }
+.lf-step--active .lf-step__dot { background: var(--purple); border-color: var(--purple); box-shadow: 0 0 10px rgba(119, 74, 255, .5); }
+.lf-step__line { width: 2px; flex: 1; min-height: 18px; background: var(--border); margin-top: 2px; }
+.lf-step--done .lf-step__line { background: var(--prov-local); }
+.lf-step__index { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.lf-step__title { font-size: 13px; color: var(--text-primary); }
+.lf-step__parallel { font-family: var(--font-mono); font-size: 9px; color: var(--cyan); border: 1px solid var(--cyan); border-radius: 3px; padding: 0 4px; }
+
+/* redteam opt-in (module offensif / dual-use) */
+.lf-card--danger { border: 1px solid var(--red, #f44336); background: rgba(244, 67, 54, .06); }
+.lf-warn-list { margin: 8px 0; padding-left: 18px; color: var(--text-primary); font-size: 13px; }
+.lf-warn-list li { margin: 4px 0; }
+.lf-consent { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0; font-size: 13px; cursor: pointer; }
+/* UNE seule definition (2026-09-29) : elle etait posee deux fois, lignes 23-24 et ici ; la
+   seconde l'emportait. Fusion A SA PLACE (cascade inchangee) : meme rendu, plus de doublon. */
+.lf-btn--danger { background: var(--red, #f44336); color: #fff; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+.lf-btn--danger:hover { background: #d83b3b; filter: brightness(1.1); }
+.lf-status--ok { color: var(--prov-local, #4caf50); }
+.lf-status--err { color: var(--red, #f44336); }

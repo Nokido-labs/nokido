@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Workflow — homéostasie</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#0C0A13;--paper-2:#1C1928;--ink:#EDEBF4;--muted:#B2AEC4;--soft:#6E6A82;
+        --rule:#262338;--accent:#774AFF;--warn:#FFC22D;--orange:#FF9142;--bad:#F24F4F;
+        --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+        --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1100px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:64ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:900px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}.card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · workflow 8/n · 2026-08-12</p>
+  <h1>Homéostasie</h1>
+  <p class="sub">Sept boucles réflexes déclarées dans <code>tools/forge_regulation_loops.py</code>.
+     Chacune a un capteur, un seuil de déclenchement, un remède et une <b>période réfractaire</b> —
+     le vocabulaire est neuronal, pas métaphorique : un réflexe qui peut se redéclencher aussitôt
+     est une crise d'épilepsie, pas une régulation.</p>
+
+  <figure>
+  <svg viewBox="0 0 952 566" role="img" aria-labelledby="wh-t wh-d">
+    <title id="wh-t">Les sept boucles de régulation homéostatique</title>
+    <desc id="wh-d">Tableau des sept boucles réflexes : capteur, délai de détection,
+      remède et période réfractaire, ordonnées de la plus violente à la plus douce.</desc>
+    <defs>
+      <pattern id="wh-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+        <circle cx="11" cy="11" r="0.8" fill="rgba(237,235,244,0.10)"/></pattern>
+    </defs>
+    <rect width="952" height="566" fill="#0C0A13"/>
+    <rect width="952" height="566" fill="url(#wh-dots)" opacity="0.55"/>
+
+    <text x="24" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">BOUCLE</text>
+    <text x="286" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">CAPTEUR</text>
+    <text x="486" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">DÉTECTE EN</text>
+    <text x="576" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">REMÈDE</text>
+    <text x="796" y="30" font-family="JetBrains Mono" font-size="9" fill="#6E6A82" letter-spacing="1.4">RÉFRACTAIRE</text>
+    <line x1="24" y1="40" x2="928" y2="40" stroke="rgba(237,235,244,0.16)" stroke-width="0.8"/>
+
+    <!-- 1. docker.force_recycle -->
+    <rect x="24" y="52" width="904" height="56" fill="rgba(242,79,79,0.05)"/>
+    <rect x="24" y="52" width="2.5" height="56" fill="#F24F4F"/>
+    <text x="38" y="72" font-size="13" font-weight="600" fill="#EDEBF4">docker.force_recycle</text>
+    <text x="38" y="88" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">forge_docker_keeper.py · critical · violent</text>
+    <text x="286" y="76" font-size="11" fill="#B2AEC4">docker info (npipe)</text>
+    <text x="486" y="76" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">90 s</text>
+    <text x="486" y="90" font-family="JetBrains Mono" font-size="8" fill="#6E6A82">3 × 30 s</text>
+    <text x="576" y="70" font-size="11" fill="#B2AEC4">taskkill /F + wsl --shutdown</text>
+    <text x="576" y="86" font-size="11" fill="#B2AEC4">+ relance</text>
+    <rect x="796" y="70" width="140" height="7" rx="3.5" fill="#F24F4F" opacity="0.85"/>
+    <text x="796" y="92" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">1800 s</text>
+
+    <!-- 2. docker.release -->
+    <rect x="24" y="116" width="904" height="56" fill="rgba(255,194,45,0.05)"/>
+    <rect x="24" y="116" width="2.5" height="56" fill="#FFC22D"/>
+    <text x="38" y="136" font-size="13" font-weight="600" fill="#EDEBF4">docker.release</text>
+    <text x="38" y="152" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">_maybe_release · medium</text>
+    <text x="286" y="134" font-size="11" fill="#B2AEC4">docker.wanted expire</text>
+    <text x="286" y="150" font-size="11" fill="#B2AEC4">+ chains_active == 0</text>
+    <text x="486" y="140" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">30 s</text>
+    <text x="486" y="154" font-family="JetBrains Mono" font-size="8" fill="#6E6A82">1 × 30 s</text>
+    <text x="576" y="140" font-size="11" fill="#B2AEC4">stop conteneurs puis Docker</text>
+    <rect x="796" y="134" width="140" height="7" rx="3.5" fill="#FFC22D" opacity="0.85"/>
+    <text x="796" y="156" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">1800 s de grâce</text>
+
+    <!-- 3. inspector.oom -->
+    <rect x="24" y="180" width="904" height="56" fill="rgba(255,145,66,0.05)"/>
+    <rect x="24" y="180" width="2.5" height="56" fill="#FF9142"/>
+    <text x="38" y="200" font-size="13" font-weight="600" fill="#EDEBF4">inspector.oom</text>
+    <text x="38" y="216" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">ACTION_MATRIX · high · violent · dynamique</text>
+    <text x="286" y="204" font-size="11" fill="#B2AEC4">psutil RAM</text>
+    <text x="486" y="204" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">60 s</text>
+    <text x="486" y="218" font-family="JetBrains Mono" font-size="8" fill="#6E6A82">2 × 30 s</text>
+    <text x="576" y="204" font-size="11" fill="#B2AEC4">kill workers Python</text>
+    <rect x="796" y="198" width="119" height="7" rx="3.5" fill="#FF9142" opacity="0.85"/>
+    <text x="796" y="220" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">600 s · urgence = ram_pct</text>
+
+    <!-- 4. inspector.service_down -->
+    <rect x="24" y="244" width="904" height="52" fill="rgba(255,194,45,0.05)"/>
+    <rect x="24" y="244" width="2.5" height="52" fill="#FFC22D"/>
+    <text x="38" y="264" font-size="13" font-weight="600" fill="#EDEBF4">inspector.service_down</text>
+    <text x="38" y="280" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">ACTION_MATRIX · medium</text>
+    <text x="286" y="268" font-size="11" fill="#B2AEC4">netstat port</text>
+    <text x="486" y="268" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">90 s</text>
+    <text x="576" y="268" font-size="11" fill="#B2AEC4">nssm start hub</text>
+    <rect x="796" y="262" width="106" height="7" rx="3.5" fill="#FFC22D" opacity="0.85"/>
+    <text x="796" y="284" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">300 s</text>
+
+    <!-- 5. inspector.zombie -->
+    <rect x="24" y="304" width="904" height="52" fill="rgba(119,74,255,0.05)"/>
+    <rect x="24" y="304" width="2.5" height="52" fill="#774AFF"/>
+    <text x="38" y="324" font-size="13" font-weight="600" fill="#EDEBF4">inspector.zombie</text>
+    <text x="38" y="340" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">ACTION_MATRIX · low · violent</text>
+    <text x="286" y="328" font-size="11" fill="#B2AEC4">inventaire PID/cmd</text>
+    <text x="486" y="328" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">30 s</text>
+    <text x="576" y="328" font-size="11" fill="#B2AEC4">kill process zombie</text>
+    <rect x="796" y="322" width="76" height="7" rx="3.5" fill="#774AFF" opacity="0.85"/>
+    <text x="796" y="344" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">60 s</text>
+
+    <!-- 6. embed_router.circuit_breaker -->
+    <rect x="24" y="364" width="904" height="52" fill="rgba(119,74,255,0.05)"/>
+    <rect x="24" y="364" width="2.5" height="52" fill="#774AFF"/>
+    <text x="38" y="384" font-size="13" font-weight="600" fill="#EDEBF4">embed_router.circuit_breaker</text>
+    <text x="38" y="400" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">forge_embed_router.py · low</text>
+    <text x="286" y="388" font-size="11" fill="#B2AEC4">échec d'appel provider</text>
+    <text x="486" y="388" font-family="JetBrains Mono" font-size="12" fill="#EDEBF4">3 s</text>
+    <text x="486" y="402" font-family="JetBrains Mono" font-size="8" fill="#6E6A82">3 × 1 s</text>
+    <text x="576" y="388" font-size="11" fill="#B2AEC4">ouvrir le circuit (skip provider)</text>
+    <rect x="796" y="382" width="76" height="7" rx="3.5" fill="#774AFF" opacity="0.85"/>
+    <text x="796" y="404" font-family="JetBrains Mono" font-size="10" fill="#B2AEC4">60 s</text>
+
+    <!-- 7. témoin historique -->
+    <rect x="24" y="424" width="904" height="56" fill="rgba(237,235,244,0.03)" stroke="#262338" stroke-dasharray="3 3"/>
+    <text x="38" y="444" font-size="13" font-weight="600" fill="#6E6A82">docker.force_recycle — variante d'AVANT le 26/07</text>
+    <text x="38" y="460" font-family="JetBrains Mono" font-size="9" fill="#6E6A82">tags: historique, validate — conservée comme TEST de non-régression</text>
+    <text x="286" y="476" font-size="11" fill="#6E6A82">même capteur</text>
+    <text x="486" y="476" font-family="JetBrains Mono" font-size="12" fill="#6E6A82">90 s</text>
+    <text x="576" y="476" font-size="11" fill="#6E6A82">même remède</text>
+    <text x="796" y="450" font-family="JetBrains Mono" font-size="11" fill="#F24F4F">AUCUNE — 0 s</text>
+    <text x="796" y="466" font-size="10" fill="#6E6A82">le défaut corrigé,</text>
+    <text x="796" y="478" font-size="10" fill="#6E6A82">gardé comme témoin</text>
+
+    <line x1="24" y1="504" x2="928" y2="504" stroke="rgba(237,235,244,0.16)" stroke-width="0.8"/>
+    <text x="24" y="524" font-size="11" fill="#B2AEC4">Toutes les boucles tiquent à <tspan font-family="JetBrains Mono" fill="#EDEBF4">30 s</tspan>, sauf le circuit breaker à <tspan font-family="JetBrains Mono" fill="#EDEBF4">1 s</tspan>. Deux ont un réfractaire ABSOLU de <tspan font-family="JetBrains Mono" fill="#EDEBF4">45–60 s</tspan> :</text>
+    <text x="24" y="542" font-size="11" fill="#B2AEC4">aucun signal, si fort soit-il, ne peut les redéclencher pendant ce délai. C'est la garantie anti-emballement.</text>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#F24F4F"></span>Ce que la panne du jour révèle</h3>
+      <ul>
+        <li><b>docker.release</b> est la boucle qui a éteint Docker : <code>docker.wanted</code> expiré <b>et</b> zéro chaîne active.</li>
+        <li>Elle a bien fonctionné — la veille, elle, ne réclamait plus rien de façon audible.</li>
+        <li>La grâce de <b>1800 s</b> existe pour ne jamais couper dans le dos d'un consommateur qui vient de finir.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>Le réfractaire n'est pas un délai</h3>
+      <ul>
+        <li><b>refractory_s</b> : délai avant un nouveau déclenchement normal.</li>
+        <li><b>absolute_refractory_s</b> : fenêtre où <b>rien</b> ne passe, quelle que soit l'urgence.</li>
+        <li>Sans lui, <code>threshold_ticks</code> atteint = boucle de kill/relance infinie.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>Le témoin historique</h3>
+      <ul>
+        <li>La 7<sup>e</sup> entrée n'est <b>pas</b> une boucle active : c'est la version d'avant le 26/07, <code>refractory_s = 0</code>.</li>
+        <li>Elle reste au catalogue pour que le test de non-régression ait une cible.</li>
+        <li>Un défaut corrigé qu'on efface est un défaut qui revient.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Source : tools/forge_regulation_loops.py (catalogue déclaratif, 7 entrées) ·
+    app/forge_inspector.py:ACTION_MATRIX · tools/forge_docker_keeper.py · app/forge_embed_router.py —
+    valeurs extraites par AST, non recopiées à la main.</footer>
+</div>
+</body>
+</html>

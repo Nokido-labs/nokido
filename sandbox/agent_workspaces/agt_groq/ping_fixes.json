@@ -1,0 +1,42 @@
+{
+  "gemini_payload": {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+    "headers": {
+      "Content-Type": "application/json",
+      "x-goog-api-key": "${GEMINI_API_KEY}"
+    },
+    "body": {
+      "contents": [
+        {
+          "parts": [
+            {
+              "text": "ping"
+            }
+          ]
+        }
+      ]
+    },
+    "analysis": "Gemini exige POST /generateContent. GET → 405. Endpoint /models liste les modèles (GET valide pour ping alternatif)."
+  },
+  "xai_payload": {
+    "method": "POST",
+    "url": "https://api.x.ai/v1/chat/completions",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer ${XAI_API_KEY}"
+    },
+    "body": {
+      "model": "grok-3-mini-latest",
+      "messages": [
+        {
+          "role": "user",
+          "content": "ping"
+        }
+      ],
+      "max_tokens": 1
+    },
+    "analysis": "xAI OpenAI-compat. GET → 404. POST /chat/completions avec max_tokens=1 = ping minimal."
+  },
+  "fix_recommendation": "Ajouter champ method et body dans provider config. Dans _ping_one: if p.get(method)==POST → session.post(url, json=p[body]). Fallback GET /models ou /health si disponible."
+}

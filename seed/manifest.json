@@ -1,0 +1,83 @@
+{
+  "exported_at": "2026-05-23T09:38:27",
+  "db_source": "RAG\\embeddings.db",
+  "exports": [
+    {
+      "table": "rag_chunks",
+      "where": "id LIKE 'lesson_sol_%' OR id LIKE 'lesson_err_%'",
+      "rows": 1316,
+      "file": "seed\\rag_chunks__id_LIKE_lesson_sol__OR_id_LIKE_lesson_er.jsonl",
+      "size_kb": 736.1
+    },
+    {
+      "table": "rag_chunks",
+      "where": "domain='curated_skills'",
+      "rows": 0,
+      "file": "seed\\rag_chunks__domain_curated_skills.jsonl",
+      "size_kb": 0.0
+    },
+    {
+      "table": "biblio_raw",
+      "where": "status='promoted'",
+      "rows": 53,
+      "file": "seed\\biblio_raw__status_promoted.jsonl",
+      "size_kb": 154.6
+    },
+    {
+      "table": "biblio_topics",
+      "where": null,
+      "rows": 159,
+      "file": "seed\\biblio_topics.jsonl",
+      "size_kb": 22.1
+    },
+    {
+      "table": "biblio_link",
+      "where": null,
+      "rows": 200,
+      "file": "seed\\biblio_link.jsonl",
+      "size_kb": 32.0
+    },
+    {
+      "table": "adr_records",
+      "where": null,
+      "rows": 16,
+      "file": "seed\\adr_records.jsonl",
+      "size_kb": 15.5
+    },
+    {
+      "table": "system_rules",
+      "where": null,
+      "rows": 56,
+      "file": "seed\\system_rules.jsonl",
+      "size_kb": 45.8
+    },
+    {
+      "table": "agent_profiles",
+      "where": null,
+      "rows": 53,
+      "file": "seed\\agent_profiles.jsonl",
+      "size_kb": 22.0
+    },
+    {
+      "table": "forge_entities",
+      "where": null,
+      "rows": 12,
+      "file": "seed\\forge_entities.jsonl",
+      "size_kb": 4.3
+    },
+    {
+      "table": "trajectories",
+      "where": null,
+      "rows": 18,
+      "file": "seed\\trajectories.jsonl",
+      "size_kb": 15.4
+    },
+    {
+      "table": "commit_intel",
+      "where": null,
+      "rows": 923,
+      "file": "seed\\commit_intel.jsonl",
+      "size_kb": 452.1
+    }
+  ]
+}

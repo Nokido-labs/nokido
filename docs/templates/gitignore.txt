@@ -1,0 +1,190 @@
+# =============================================================================
+# La Forge v13 — .gitignore
+# À placer à la RACINE du projet (à côté de Nokido_Lanceur.bat)
+# =============================================================================
+
+# =============================================================================
+# SECRETS & CREDENTIALS — NE JAMAIS COMMITTER
+# =============================================================================
+Nokido.env
+*.env
+*.env.local
+*.env.production
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+id_ecdsa
+*.openssh
+secrets.json
+credentials.json
+
+# =============================================================================
+# MODÈLES ML — GROS FICHIERS (> 100 Mo à plusieurs Go)
+# =============================================================================
+
+# Phi-3.5 ONNX local (2–4 Go selon quantification)
+app/models/
+models/
+
+# Fichiers modèles par extension (sécurité supplémentaire)
+*.onnx
+*.gguf
+*.ggml
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.pkl
+*.h5
+*.tflite
+*.mlmodel
+
+# Cache HuggingFace (sentence-transformers, transformers)
+.cache/
+huggingface/
+~/.cache/huggingface/
+
+# =============================================================================
+# DONNÉES GÉNÉRÉES — LOGS, SESSIONS, BACKUPS
+# =============================================================================
+
+# Logs de session (croissent vite, aucune valeur VCS)
+logs/
+*.log
+*.jsonl
+# Exception : garder le .gitkeep si présent
+!logs/.gitkeep
+
+# Backups automatiques du code source (générés au boot)
+app/backups/
+backups/
+
+# Versions historiques (générées par VersionManager)
+versions/
+
+# Sessions RAG persistées
+data/session_*.json
+
+# Historique NLU (apprentissage runtime)
+data/nlu_history.json
+
+# Backlog de patches (runtime)
+data/.patch_backlog.json
+
+# Benchmark et scores (runtime)
+data/rag_benchmark.json
+data/last_scores.json
+data/last_assignment.json
+
+# Services enregistrés dynamiquement (contient des IPs/ports locaux)
+data/services.json
+
+# =============================================================================
+# RAG FILES — PDFs et docs techniques (potentiellement lourds)
+# =============================================================================
+
+# Les PDFs et docs ingérés peuvent faire plusieurs centaines de Mo
+data/rag_files/
+app/data/rag_files/
+
+# Exception : garder la structure avec .gitkeep
+!data/rag_files/.gitkeep
+!data/.gitkeep
+
+# =============================================================================
+# GOLD SAMPLES — À COMMITTER (données d'entraînement précieuses)
+# =============================================================================
+# Ne PAS ignorer ces fichiers — ils sont le fruit du travail d'amélioration
+# data/gold_samples.jsonl      ← NE PAS IGNORER
+# data/gold_samples_base.jsonl ← NE PAS IGNORER
+# data/skill_registry.json     ← NE PAS IGNORER
+
+# =============================================================================
+# PYTHON — CACHE ET ARTEFACTS
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pylint.d/
+
+# Cache lint La Forge
+app/logs/.lint_cache/
+.lint_cache/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# =============================================================================
+# OUTILS DE DÉVELOPPEMENT
+# =============================================================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains / PyCharm
+.idea/
+*.iml
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.#*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# =============================================================================
+# WORKSPACE — FICHIERS DE TRAVAIL VERSIONNÉS (optionnel)
+# =============================================================================
+# Le dossier workspace/ contient les fichiers modifiés en cours de loop.
+# Committer ou non selon la politique de l'équipe.
+# Par défaut : on commit pour conserver l'historique des améliorations.
+# Décommenter la ligne suivante pour ignorer :
+# workspace/
+
+# =============================================================================
+# ENVIRONNEMENTS VIRTUELS
+# =============================================================================
+venv/
+env/
+.venv/
+.env/
+miniforge3/
+anaconda3/
+miniconda3/
+
+# =============================================================================
+# FICHIERS TEMPORAIRES
+# =============================================================================
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.lock
+# Exception : le lockfile du lanceur est en %TEMP%, pas dans le repo

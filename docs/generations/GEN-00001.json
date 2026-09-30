@@ -1,0 +1,34 @@
+{
+  "generation": "GEN-00001",
+  "cree_le": "2026-08-28T10:38:50+00:00",
+  "statut": "CANDIDATE",
+  "statut_raison": "au moins une suite non mesuree",
+  "agent": "CLAUDE",
+  "note": "premiere generation : reparations providers/SNN/carte/M2M + 27 NR",
+  "depot": {
+    "sha": "41147543d8f8e155dca2cbf8a946d00656006586",
+    "branche": "alpha",
+    "sujet": "fix(core): subprocess texte sans errors= dans le registre de generations",
+    "propre": false
+  },
+  "submodules": {},
+  "environnement": {
+    "python": "3.14.4",
+    "executable": "%USERPROFILE%\\miniforge3\\envs\\laforge_py314\\python.exe",
+    "paquets": {
+      "torch": "2.11.0",
+      "snntorch": "1.0.0",
+      "litellm": "1.83.7",
+      "pytest": "8.4.2",
+      "numpy": "2.4.4",
+      "fastapi": "0.136.1"
+    }
+  },
+  "tests": {
+    "nr_du_jour": "PASS",
+    "ci_gates": "PASS",
+    "suite_complete": "NON_MESURE"
+  },
+  "capacites": {},
+  "metriques": {}
+}

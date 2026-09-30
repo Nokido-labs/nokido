@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido Hub</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<script src="/static/lucide.min.js?v=0544"></script>
+<style>
+/* Specifique dashboard portail (le reste vient de /static/nokido.css) */
+body { overflow: auto; }
+.lf-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 22px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lf-header h1 {
+  margin: 0; font-size: 1.15rem; font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.4px;
+}
+.lf-header .lf-spacer { flex: 1; }
+.lf-header .lf-muted   { color: var(--text-secondary); font-size: 12px; }
+.lf-header .lf-version {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--text-dim); padding: 2px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+main { max-width: 1280px; margin: 0 auto; padding: 28px 22px; }
+.lf-quick {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.lf-quick a {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-decoration: none;
+  transition: 120ms;
+}
+.lf-quick a:hover {
+  border-color: var(--purple);
+  color: var(--text-primary);
+  background: var(--bg-2);
+}
+.lf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 6px;
+}
+.lf-panel {
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+.lf-panel .lf-mono { color: var(--text-dim); }
+/* Cards (compat avec dashboard_html.py - voir laforge-dashboard-card-* ci-dessous) */
+.lf-card {
+  position: relative; overflow: hidden;
+  display: block; padding: 18px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  transition: 150ms;
+  color: var(--text-primary);
+}
+.lf-card:hover {
+  background: var(--bg-3);
+  box-shadow: var(--shadow-glow);
+}
+.lf-card-head { display: flex; align-items: flex-start; justify-content: space-between; }
+.lf-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 44px; width: 44px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+}
+.lf-icon-purple { background: rgba(119, 74, 255, 0.16); color: var(--purple); }
+.lf-icon-blue   { background: rgba(59, 178, 208, 0.16); color: var(--blue); }
+.lf-icon-cyan   { background: rgba(45, 212, 191, 0.16); color: var(--cyan); }
+.lf-icon-green  { background: rgba(74, 194, 139, 0.16); color: var(--green); }
+.lf-icon-yellow { background: rgba(255, 194, 45, 0.16); color: var(--yellow); }
+.lf-icon-orange { background: rgba(255, 145, 66, 0.16); color: var(--orange); }
+.lf-icon-red    { background: rgba(242, 79, 79, 0.16);  color: var(--red); }
+.lf-icon-pink   { background: rgba(236, 72, 153, 0.16); color: var(--pink); }
+.lf-card h3 {
+  margin: 0; font-size: 16px; font-weight: 700;
+  color: var(--text-primary);
+}
+.lf-card p {
+  margin: 4px 0 0; font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.lf-card .lf-card-target {
+  margin-top: 14px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-dim);
+}
+.lf-ext-badge {
+  display: inline-block; margin-left: 6px;
+  padding: 1px 6px; font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.3px;
+  border-radius: 4px;
+  background: var(--bg-3); color: var(--text-secondary);
+  border: 1px solid var(--border);
+  vertical-align: middle;
+}
+.lf-status-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--text-disabled);
+}
+.lf-status-dot.up   { background: var(--green); animation: laforge-pulse 2s infinite; }
+.lf-status-dot.down { background: var(--red); }
+.lf-card-disabled {
+  position: relative; overflow: hidden;
+  display: block; padding: 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: not-allowed;
+  user-select: none;
+}
+</style>
+</head><body>
+<header class="lf-header">
+  <h1><img src="/static/nokido-mark.svg" alt="" width="28" height="28" style="vertical-align:middle"> Nokido Hub</h1>
+  <span class="lf-version">v__VERSION__</span>
+  <div class="lf-spacer"></div>
+  <span class="lf-muted">Web Hub :7400</span>
+</header>
+<main>
+  <section class="lf-quick">
+    <a href="/launcher">Launcher</a>
+    <a href="/forge/feed">Event Feed</a>
+    <a href="/mcp_lab/">MCP Lab</a>
+    <a href="/reports/">CTF Reports</a>
+    <a href="http://127.0.0.1:8766/" target="_blank" rel="noopener">Hub :8766</a>
+    <a href="/rag">RAG</a>
+    <a href="/swarm">Swarm</a>
+    <a href="/postal">Postal</a>
+    <a href="/maison">🏠 Maison</a>
+    <a href="/forge/debate">🟣 Débat <span class="lf-ext-badge" style="background:rgba(119,74,255,.16);color:var(--purple);border-color:rgba(119,74,255,.3)">LATENT</span></a>
+    <a href="http://127.0.0.1:8766/forge/network" target="_blank" rel="noopener">Network</a>
+    <a href="http://127.0.0.1:7401/health" target="_blank" rel="noopener">Deno :7401</a>
+    <a href="/status">Status JSON</a>
+    <a href="/auth/logout">Logout</a>
+  </section>
+  <section class="lf-grid">__CARDS__</section>
+  <section class="lf-panel">
+    MCP endpoint actif: <span class="lf-mono">http://127.0.0.1:8766/mcp</span>.
+    Cette page est le hub web sur <span class="lf-mono">:7400</span>.
+    Charte: <span class="lf-mono">/static/nokido.css</span> (palette netcfg-agent).
+  </section>
+</main>
+<script>
+if(window.lucide){lucide.createIcons();}
+// Liens cross-port hardcodés -> hôte courant (marche via IP LAN/tunnel/proxy, pas que 127.0.0.1).
+for(const a of document.querySelectorAll('a[href^="http://127.0.0.1:"]')) a.href=a.href.replace('127.0.0.1',location.hostname);
+async function pollStatus(){
+  try{
+    const r=await fetch('/status',{signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return;
+    const d=await r.json();
+    document.querySelectorAll('[data-service]').forEach(dot=>{
+      const s=d[dot.dataset.service];
+      if(!s)return;
+      dot.classList.remove('up','down');
+      if(s.error==='not_deployed'){dot.style.background='var(--text-disabled)';return;}
+      dot.classList.add(s.ok?'up':'down');
+    });
+  }catch(_){}
+}
+pollStatus();
+setInterval(pollStatus,15000);
+</script>
+</body></html>

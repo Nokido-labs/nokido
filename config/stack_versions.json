@@ -1,0 +1,18 @@
+{
+  "_doc": "Inventaire VERSIONNE des briques technologiques qui composent Nokido. Source des gaps de type stack_version_gap (forge_curiosity_driver.detect_stack_gaps) : la question posee a la veille est ancree sur la version REELLEMENT installee, pas sur un nom de techno. Un gap ici ne signifie pas 'la version est vieille' mais 'Nokido ignore ce qui a change depuis celle qu'il fait tourner'.",
+  "_pourquoi_config_et_pas_data": "data/ est dans .gitignore (donnee runtime). Cet inventaire est une DECLARATION du corps : il doit survivre a un clone, sinon detect_stack_gaps retombe sur son fail-safe en silence et la veille sur les briques ne part jamais.",
+  "_maj": "Rafraichir depuis la session owner : les binaires du profil owner (deno, claude, codex) sont INVISIBLES au compte sandbox, donc l'inventaire est mesure puis fige, jamais devine.",
+  "mesure_le": "2026-07-27T22:51:00+02:00",
+  "briques": {
+    "deno": {"version": "2.7.14", "role": "runtime du superviseur LaForge-Master et du web hub", "organe": "SNC"},
+    "ollama": {"version": "0.30.11", "role": "serveur de modeles locaux :11434", "organe": "Metabolisme LLM"},
+    "qdrant": {"version": "1.18.2", "role": "moteur vectoriel :6333 du RAG", "organe": "Memoire"},
+    "docker": {"version": "29.6.2", "role": "moteur de conteneurs (SearXNG)", "organe": "Digestif/Sens"},
+    "node": {"version": "25.8.0", "role": "outillage JS", "organe": "Infra"},
+    "python": {"version": "3.12.12", "role": "interpreteur principal (miniforge3)", "organe": "Infra"},
+    "git": {"version": "2.53.0.windows.1", "role": "versionnement + CI", "organe": "Qualite/Build"},
+    "claude-code": {"version": "2.1.220", "role": "surface agentique CLAUDE", "organe": "Cognition"},
+    "codex-cli": {"version": "0.145.0", "role": "surface agentique CODEX", "organe": "Cognition"},
+    "nokido-hub": {"version": "18.3", "role": "hub souverain :8766", "organe": "SNC"}
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "Nokido Dev Sandbox",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "forwardPorts": [
+    8766,
+    8767,
+    11434
+  ],
+  "remoteEnv": {
+    "LAFORGE_HUB_URL": "http://host.docker.internal:8766/mcp",
+    "LAFORGE_AGENT": "CLINE",
+    "PYTHONUTF8": "1"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "saoudrizwan.claude-dev",
+        "GitHub.copilot",
+        "ms-python.python"
+      ],
+      "mcp": {
+        "servers": {
+          "Nokido": {
+            "command": "python",
+            "args": [
+              "/workspace/tools/mcp_stdio_bridge.py"
+            ],
+            "env": {
+              "LAFORGE_AGENT": "CLINE",
+              "LAFORGE_HUB_URL": "http://host.docker.internal:8766/mcp"
+            }
+          }
+        }
+      }
+    }
+  },
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind"
+  ],
+  "postCreateCommand": "pip install -r /workspace/requirements.txt --quiet 2>/dev/null || true"
+}

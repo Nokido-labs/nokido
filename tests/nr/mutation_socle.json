@@ -1,0 +1,71 @@
+{
+ "genere_par": "tools/forge_mutation_ratchet.py --ecrire-socle",
+ "par_cle": {
+  "app/forge_intent_parser.py|arithmetique": 1,
+  "app/forge_intent_parser.py|comparaison": 1,
+  "app/forge_lock_manager.py|comparaison": 1,
+  "tools/forge_dup_detector.py|booleen": 1,
+  "tools/forge_golden_rules_ast.py|et_ou": 1,
+  "tools/forge_memory_gate.py|comparaison": 1,
+  "tools/forge_retrieval_sweep.py|booleen": 1,
+  "tools/forge_retrieval_sweep.py|et_ou": 1
+ },
+ "surfaces": [
+  {
+   "module": "tools/forge_golden_rules_ast.py",
+   "mutants": 14,
+   "score": 92.9,
+   "survivants": 1,
+   "tues": 13
+  },
+  {
+   "module": "tools/forge_dup_detector.py",
+   "mutants": 14,
+   "score": 92.9,
+   "survivants": 1,
+   "tues": 13
+  },
+  {
+   "module": "tools/forge_release_lock.py",
+   "mutants": 14,
+   "score": 100.0,
+   "survivants": 0,
+   "tues": 14
+  },
+  {
+   "module": "tools/forge_bisect.py",
+   "mutants": 12,
+   "score": 100.0,
+   "survivants": 0,
+   "tues": 12
+  },
+  {
+   "module": "app/forge_lock_manager.py",
+   "mutants": 12,
+   "score": 91.7,
+   "survivants": 1,
+   "tues": 11
+  },
+  {
+   "module": "app/forge_intent_parser.py",
+   "mutants": 10,
+   "score": 80.0,
+   "survivants": 2,
+   "tues": 8
+  },
+  {
+   "module": "tools/forge_retrieval_sweep.py",
+   "mutants": 8,
+   "score": 75.0,
+   "survivants": 2,
+   "tues": 6
+  },
+  {
+   "module": "tools/forge_memory_gate.py",
+   "mutants": 8,
+   "score": 87.5,
+   "survivants": 1,
+   "tues": 7
+  }
+ ]
+}

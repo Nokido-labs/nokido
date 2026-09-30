@@ -1,0 +1,35 @@
+/* ============================================================================
+   Nokido — Espacement, rayons, dimensions de layout
+   ============================================================================ */
+
+:root {
+  /* -- Échelle d'espacement (base 4px) -------------------------------------- */
+  --space-0:  0;
+  --space-1:  2px;
+  --space-2:  4px;
+  --space-3:  6px;
+  --space-4:  8px;
+  --space-5:  10px;
+  --space-6:  12px;
+  --space-7:  14px;
+  --space-8:  16px;
+  --space-10: 20px;
+  --space-12: 22px;
+  --space-14: 28px;
+  --space-16: 32px;
+  --space-20: 40px;
+
+  /* -- Rayons --------------------------------------------------------------- */
+  --radius-sm: 6px;    /* boutons, inputs, puces */
+  --radius-md: 10px;   /* cartes, panneaux */
+  --radius-lg: 14px;   /* grandes surfaces, modales */
+  --radius-pill: 999px;/* statuts, badges arrondis */
+
+  /* -- Dimensions de layout ------------------------------------------------- */
+  --sidebar-w: 220px;
+  --topbar-h:  52px;
+  --content-max: 1280px;
+
+  /* -- Cibles tactiles (accessibilité AA : ≥ 44px) -------------------------- */
+  --tap-min: 44px;
+}

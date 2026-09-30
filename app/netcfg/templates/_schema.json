@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "vendor": { "type": "string" },
+    "netmiko_device_type": { "type": "string" },
+    "display_name": { "type": "string" },
+    "detection": {
+      "type": "object",
+      "properties": {
+        "ssh_banner_match": { "type": "array", "items": { "type": "string" } },
+        "snmp_sysobjectid_prefix": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "properties": {
+        "show_running": { "type": "string" },
+        "show_version": { "type": "string" },
+        "backup_startup": { "type": "string" },
+        "enter_config": { "type": "string" },
+        "exit_config": { "type": "string" },
+        "save_config": { "type": "string" },
+        "commit_confirm": { "type": "string" },
+        "commit": { "type": "string" },
+        "rollback": { "type": "string" }
+      },
+      "required": ["show_running", "enter_config", "exit_config"]
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "template": { "type": "string" },
+          "params": { "type": "array", "items": { "type": "string" } },
+          "validate_regex": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["template", "params"]
+      }
+    },
+    "destructive_blacklist": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["vendor", "netmiko_device_type", "commands", "destructive_blacklist"]
+}

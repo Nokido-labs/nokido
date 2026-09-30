@@ -1,0 +1,28 @@
+# JEPA train_step cProfile -- py312_baseline
+# Python : 3.12.12
+# numpy  : 1.26.4
+# Steps  : 200
+
+         38201 function calls in 0.405 seconds
+
+   Ordered by: internal time
+   List reduced from 36 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.311    0.002    0.405    0.002 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:370(train_step)
+      200    0.022    0.000    0.037    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:354(context_encode)
+      200    0.019    0.000    0.032    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:358(target_encode)
+      800    0.013    0.000    0.023    0.000 %USERPROFILE%\miniforge3\Lib\site-packages\numpy\core\_methods.py:135(_var)
+      800    0.006    0.000    0.013    0.000 %USERPROFILE%\miniforge3\Lib\site-packages\numpy\core\_methods.py:101(_mean)
+     2400    0.006    0.000    0.006    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+      800    0.005    0.000    0.045    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:345(_ln)
+     1600    0.005    0.000    0.005    0.000 %USERPROFILE%\miniforge3\Lib\site-packages\numpy\core\_methods.py:67(_count_reduce_items)
+      600    0.003    0.000    0.007    0.000 %NOKIDO_WORKSPACE%\LaForge\app\forge_world_model.py:349(_norm)
+      800    0.002    0.000    0.025    0.000 %USERPROFILE%\miniforge3\Lib\site-packages\numpy\core\_methods.py:204(_std)
+      600    0.002    0.000    0.004    0.000 %USERPROFILE%\miniforge3\Lib\site-packages\numpy\linalg\linalg.py:2383(norm)
+      600    0.001    0.000    0.001    0.000 {method 'dot' of 'numpy.ndarray' objects}
+      800    0.001    0.000    0.001    0.000 %USERPROFILE%\miniforge3\Lib\contextlib.py:104(__init__)
+      800    0.001    0.000    0.014    0.000 {method 'mean' of 'numpy.ndarray' objects}
+     1600    0.001    0.000    0.002    0.000 {built-in method builtins.next}
+
+

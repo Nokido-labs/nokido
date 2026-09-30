@@ -1,0 +1,37 @@
+# Nokido Constitution — Constitutional Guardrails for Autonomous Mutations
+# Version: 1.0 (2026-06-30)
+
+[rules]
+# Chemins d'écriture autorisés pour les agents autonomes (Ring 1 & 2)
+write_allowed_paths = [
+    "sandbox/",
+    "docs/",
+    "tests/",
+    "logs/",
+    "migrations/",
+    "config/"
+]
+
+# Types d'instructions et fonctions strictement interdites dans le code généré
+forbidden_ast_nodes = [
+    "eval",
+    "exec",
+    "shutil.rmtree",
+    "os.system"
+]
+
+# Fichiers système dont la modification requiert obligatoirement une validation humaine (Ring 0)
+immutable_files = [
+    "app/forge_security_mcp.py",
+    "app/forge_agent_authority.py",
+    "app/forge_guarded_change.py",
+    "config/constitution.toml"
+]
+
+[limits]
+# Limite d'effondrement RAG tolérée lors d'une mutation (0.8 = pas plus de 20% de suppression sans alerte)
+rag_collapse_ratio = 0.8
+# Seuil d'oubli Hebbien / Ebbinghaus pour passage en stockage à froid
+ebbinghaus_forget_threshold = 0.15
+# Seuil de dépréciation d'outil MCP inactif (en nombre de cycles)
+tool_inactivity_threshold_cycles = 10

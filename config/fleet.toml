@@ -1,0 +1,39 @@
+# fleet.toml — flotte Nokido : llama-server distants par rôle/lentille (role-clustering).
+#
+# Modèle : DISTRIBUTED SWARM, pas tensor/pipeline parallelism. Le hub route des prompts
+# (KB) en HTTP entre machines ; l'inférence reste à la vitesse RAM LOCALE de chaque box
+# (~100 Go/s), pas à la vitesse du LAN (~0.1 Go/s). On ajoute une machine = +1 worker
+# parallèle, 0 ms de latence ajoutée sur la principale. Cf docs/wiki/20.
+#
+# Découverte = STATIQUE + health-gated, PAS mDNS/ZeroConf :
+#   - Zero-trust : un mDNS auto-advertise laisserait n'importe quel appareil LAN recevoir
+#     tes prompts (fuite/poisoning) → viole les Rings. IP épinglées + token = souverain.
+#   - 1-3 machines : tu CONNAIS ta flotte. mDNS = daemon + flaky Wi-Fi + non-déterminisme.
+#   - Le router ping /health avant de router → écarte les nœuds morts (résilience sans mDNS).
+
+[fleet]
+token_secret = "LAFORGE_FLEET_TOKEN"  # nom de clé vault (bearer partagé) ; vide = pas d'auth
+health_path  = "/health"
+health_timeout_s = 2.0
+health_ttl_s = 10.0                   # cache du statut health (évite de pinger à chaque appel)
+
+# ── Machine-1 : Ryzen 8700G — planificateur GOAP ──────────────────────────
+[[node]]
+name   = "local-planner"
+url    = "http://127.0.0.1:8091"
+lenses = ["goap", "plan", "default"]
+model  = "qwen2.5-coder-7b"
+# Context Anchoring : épingle le préfixe stable (system + repo_map) dans un slot KV-cache
+# persistant ; les appels suivants n'envoient que le delta → prefill ≈ taille du delta.
+anchor          = true
+anchor_id_slot  = 0                   # slot llama.cpp dédié au préfixe ancré de ce nœud
+
+# ── Machine-2 : second PC — workers ForgeAudit / ForgeSwarm ────────────────
+# Décommente + ajuste l'IP quand la 2e box est en place (llama-server :8080).
+# [[node]]
+# name   = "worker-audit"
+# url    = "http://localhost:8080"
+# lenses = ["security", "audit", "review", "exploit"]
+# model  = "qwen2.5-coder-7b"
+# anchor          = true
+# anchor_id_slot  = 0

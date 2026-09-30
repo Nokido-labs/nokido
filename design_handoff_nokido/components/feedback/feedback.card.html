@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}.r{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { Badge, StatusPill } = window.NokidoDesignSystem_bdc2ac;
+function Demo(){
+  return (
+    <>
+      <div className="r">
+        <Badge color="green">Local</Badge>
+        <Badge color="purple">Distant</Badge>
+        <Badge color="cyan">Hybride</Badge>
+        <Badge color="yellow" variant="outline">Or</Badge>
+        <Badge color="blue" variant="outline">Vérifié</Badge>
+        <Badge color="dim" variant="outline">Brouillon</Badge>
+      </div>
+      <div className="r">
+        <Badge color="purple" variant="solid">Persona</Badge>
+        <Badge color="purple" mono>EXT</Badge>
+        <Badge color="dim" mono>Bientôt</Badge>
+        <Badge color="red" mono>Sensible</Badge>
+      </div>
+      <div className="r">
+        <StatusPill status="up" pulse>en ligne</StatusPill>
+        <StatusPill status="down">hors-ligne</StatusPill>
+        <StatusPill status="warn">dégradé</StatusPill>
+        <StatusPill status="info">vérification</StatusPill>
+        <StatusPill status="idle">au repos</StatusPill>
+      </div>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body></html>

@@ -1,0 +1,344 @@
+{
+ "resume": {
+  "modules_dans_l_histoire": 1442,
+  "vivants_aujourdhui": 1395,
+  "renommes_faux_positifs": 4,
+  "cyber_a_migrer_redteam": 5,
+  "regressions_reelles": 38
+ },
+ "regressions_reelles": [
+  {
+   "module": "app/forge_hybrid_retriever.py",
+   "ne_le": 1777809269,
+   "ne_sha": "884374b3f6f601f591d78d42ae8c86fdca38ae68",
+   "mort_le": 1785653180,
+   "mort_sha": "536a41fc67481b96b7716039056beea042fddc5e"
+  },
+  {
+   "module": "app/forge_cli_daemon.py",
+   "ne_le": 1781558586,
+   "ne_sha": "78cce0f23a1f7f7a038d46e290002551d92c51b1",
+   "mort_le": 1784015552,
+   "mort_sha": "b911dd9bc143867739d4f076235777365dd671bd"
+  },
+  {
+   "module": "tools/forge_embed_drain_bg.py",
+   "ne_le": 1779631579,
+   "ne_sha": "e5dd3e17a4e9f89a7f0c7d89c5e95d64c9e79cf8",
+   "mort_le": 1779631614,
+   "mort_sha": "eb1850dcdc29d5deb913780791785c0c9952c932"
+  },
+  {
+   "module": "tools/forge_spec_formalizer.py",
+   "ne_le": 1778002140,
+   "ne_sha": "f44093b8184d4ea11134a82869783dfc1c17973b",
+   "mort_le": 1779165438,
+   "mort_sha": "53b51c5a58990154f87df35d4e9acaa48f152ddc"
+  },
+  {
+   "module": "app/forge_core_agents.py",
+   "ne_le": 1773785144,
+   "ne_sha": "4c47b7d2ac4e1fb78e709dbbe9ce7ac4c7af1882",
+   "mort_le": 1777050916,
+   "mort_sha": "4dfaeb4710cb478f9aea8cbfedf945be2e65e93f"
+  },
+  {
+   "module": "app/forge_pii_detector.py",
+   "ne_le": 1777028207,
+   "ne_sha": "fdb452b508ad1dda9b6ef24a2e02844a5d84a696",
+   "mort_le": 1777030852,
+   "mort_sha": "e11d4aa1a91185c0a52efcb7a14bbefd233a858c"
+  },
+  {
+   "module": "app/forge_logger.py",
+   "ne_le": 1774117850,
+   "ne_sha": "d59c7f5e88eb90a50517319167a0f84801b60523",
+   "mort_le": 1776346881,
+   "mort_sha": "dd166e0e9eb66a2ba44ae0f640304d230de7783f"
+  },
+  {
+   "module": "app/forge_unified_logger.py",
+   "ne_le": 1774117850,
+   "ne_sha": "d59c7f5e88eb90a50517319167a0f84801b60523",
+   "mort_le": 1776346881,
+   "mort_sha": "dd166e0e9eb66a2ba44ae0f640304d230de7783f"
+  },
+  {
+   "module": "app/forge_core_utils.py",
+   "ne_le": 1774458094,
+   "ne_sha": "e1c1d189b36972726c48d3b7bf1b96d1eabe6abc",
+   "mort_le": 1776334508,
+   "mort_sha": "976a269221c779f29d09376e046877c062cbe5c4"
+  },
+  {
+   "module": "app/forge_adr_rag_sync.py",
+   "ne_le": 1774031959,
+   "ne_sha": "1bda98741da81ce1b2404373d80bcdab14b5c067",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_banner.py",
+   "ne_le": 1773442638,
+   "ne_sha": "0fb03ff7db8781e1124565f317371eda2c9fcc90",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_batch_resolver.py",
+   "ne_le": 1775866303,
+   "ne_sha": "11464a5ba3a3fb2e35de53f9391d85e98e8a66a7",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_batch_resolver_patch2.py",
+   "ne_le": 1776075377,
+   "ne_sha": "0661413affd5a5e364ca5d36d6b2fdbea4df191d",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_dataset_loader.py",
+   "ne_le": 1773008891,
+   "ne_sha": "875b17c5340a55ecae14df36067eb485832aa972",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_deepseek_bridge.py",
+   "ne_le": 1774191403,
+   "ne_sha": "1e3ed0442d5daf58effed585e60fcce10b571a57",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_distribution.py",
+   "ne_le": 1773674674,
+   "ne_sha": "9acdffa32933bd564618edcdc6a9e7b434c86c95",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_docker_orchestrator.py",
+   "ne_le": 1775848001,
+   "ne_sha": "c39a42d894644e570810b4a6a9fe73d9df238e38",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_domain_adapter.py",
+   "ne_le": 1775848001,
+   "ne_sha": "c39a42d894644e570810b4a6a9fe73d9df238e38",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_exec.py",
+   "ne_le": 1776171759,
+   "ne_sha": "a2275969f2e56b631cac24341526862b6e2b15ea",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_git_worker.py",
+   "ne_le": 1773693633,
+   "ne_sha": "81712fa2a83b348b38cd5ae35af2ecf21519b79f",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_github_intel.py",
+   "ne_le": 1774728993,
+   "ne_sha": "34b359ce5fb5b91db42c0601d1a0673207c00fda",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_gnn.py",
+   "ne_le": 1775732405,
+   "ne_sha": "a44c82c6b91205c9cd41c2089790c28f1824ed5a",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_graph_bench.py",
+   "ne_le": 1775904099,
+   "ne_sha": "cef57a69475d03b5a900f4289d00a6ab3a8d8be9",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_graph_engine.py",
+   "ne_le": 1775732405,
+   "ne_sha": "a44c82c6b91205c9cd41c2089790c28f1824ed5a",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_help.py",
+   "ne_le": 1773598687,
+   "ne_sha": "56d09c92c88fe2364315a43efb370bd95983a71b",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_inhibition_bus.py",
+   "ne_le": 1774728993,
+   "ne_sha": "34b359ce5fb5b91db42c0601d1a0673207c00fda",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_longmemeval.py",
+   "ne_le": 1775735840,
+   "ne_sha": "147ed0074ffd1b5f6775e3125d03ab6628e886fe",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_longmemeval_bge.py",
+   "ne_le": 1775743750,
+   "ne_sha": "5859f1f7dc81e26aa57ec4b5c9558d6ac456785b",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_longmemeval_enhanced.py",
+   "ne_le": 1775738089,
+   "ne_sha": "b8140c186901748fc81abc655432f19b75c0646b",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_mutation_cache.py",
+   "ne_le": 1774200338,
+   "ne_sha": "4656b08a649d73ab82907bdcaf391964f3a3adf4",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_native_bridge.py",
+   "ne_le": 1776171759,
+   "ne_sha": "a2275969f2e56b631cac24341526862b6e2b15ea",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_ogb_arxiv_bench.py",
+   "ne_le": 1775906406,
+   "ne_sha": "1daae703470d58ee61574902c844c180c7733b83",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_onnx_genai.py",
+   "ne_le": 1773930834,
+   "ne_sha": "e4f2f3f6693e0e18fd3dd6bd53ff86f58aea2495",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_snn_bench.py",
+   "ne_le": 1775904317,
+   "ne_sha": "b0d0babd2e1b0a1b2eb2f3469e435f487031bf13",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_spike_router_lite.py",
+   "ne_le": 1775906406,
+   "ne_sha": "1daae703470d58ee61574902c844c180c7733b83",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  },
+  {
+   "module": "app/forge_code_sandbox.py",
+   "ne_le": 1774458073,
+   "ne_sha": "b5d735331e24e9f7171a4659c7fa65fe2c71192f",
+   "mort_le": 1774458086,
+   "mort_sha": "39b890a8e7dfcf81057ce1641dd81c921d4b2e54"
+  },
+  {
+   "module": "app/forge_agent_planner.py",
+   "ne_le": 1774458073,
+   "ne_sha": "d4997685ec67c508c43620ffe21a5845dddf130a",
+   "mort_le": 1774458084,
+   "mort_sha": "dda2e5817ab4c66080c92e8492abfdc4224f7962"
+  },
+  {
+   "module": "app/forge_collab_modes_v2.py",
+   "ne_le": 1773598687,
+   "ne_sha": "56d09c92c88fe2364315a43efb370bd95983a71b",
+   "mort_le": 1773674674,
+   "mort_sha": "9acdffa32933bd564618edcdc6a9e7b434c86c95"
+  }
+ ],
+ "cyber_a_migrer_redteam": [
+  {
+   "module": "app/forge_adaptive_pwn.py",
+   "ne_le": 1775902032,
+   "ne_sha": "3e3e83edf61c7082db482aded58a6aba64a0497d",
+   "mort_le": 1777426547,
+   "mort_sha": "a568ee64e1a09cd214ce1ea7df0804f00d8c1f21"
+  },
+  {
+   "module": "app/forge_cyber_pivot.py",
+   "ne_le": 1776280578,
+   "ne_sha": "38190af0dbb28c6bb33a0569c5bbba79ca362501",
+   "mort_le": 1777426547,
+   "mort_sha": "a568ee64e1a09cd214ce1ea7df0804f00d8c1f21"
+  },
+  {
+   "module": "app/forge_cyber_pivot_engine.py",
+   "ne_le": 1776280578,
+   "ne_sha": "38190af0dbb28c6bb33a0569c5bbba79ca362501",
+   "mort_le": 1777426547,
+   "mort_sha": "a568ee64e1a09cd214ce1ea7df0804f00d8c1f21"
+  },
+  {
+   "module": "tools/forge_semantic_fuzzer.py",
+   "ne_le": 1774561693,
+   "ne_sha": "9e9be3adbf5c2bbdd80d4dc0a840ea8302f6b0b7",
+   "mort_le": 1777426547,
+   "mort_sha": "a568ee64e1a09cd214ce1ea7df0804f00d8c1f21"
+  },
+  {
+   "module": "app/forge_pwn_leak_parser.py",
+   "ne_le": 1775904099,
+   "ne_sha": "cef57a69475d03b5a900f4289d00a6ab3a8d8be9",
+   "mort_le": 1776332417,
+   "mort_sha": "dc1cf44406d6b9439cabbcff52de4aca4bc93628"
+  }
+ ],
+ "renommes_faux_positifs": [
+  {
+   "module": "app/forge_code_atlas.py",
+   "ne_le": 1779644302,
+   "ne_sha": "9147a3c385b140b860f90a9da956d83c36f572cb",
+   "mort_le": null,
+   "mort_sha": null
+  },
+  {
+   "module": "app/forge_laforge_packet.py",
+   "ne_le": 1777426547,
+   "ne_sha": "a568ee64e1a09cd214ce1ea7df0804f00d8c1f21",
+   "mort_le": null,
+   "mort_sha": null
+  },
+  {
+   "module": "tests/nr/test_laforge_headless_nr.py",
+   "ne_le": 1773784126,
+   "ne_sha": "a2e50eb2e8c855ac243a84407606c421e1cf6d47",
+   "mort_le": null,
+   "mort_sha": null
+  },
+  {
+   "module": "tools/forge_resource_manager.py",
+   "ne_le": 1774562645,
+   "ne_sha": "eab266aeb34f3ab7889599267f5069a30e41b7ac",
+   "mort_le": null,
+   "mort_sha": null
+  }
+ ]
+}

@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "Nokido_Plan": {
+      "command": "%USERPROFILE%/miniforge3/python.exe",
+      "args": [
+        "-u",
+        "%NOKIDO_ROOT%/app/mcp_bridge.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONPATH": "%NOKIDO_ROOT%/app",
+        "LAFORGE_AGENT": "CLINE_PLAN"
+      }
+    },
+    "Nokido_Act": {
+      "command": "%USERPROFILE%/miniforge3/python.exe",
+      "args": [
+        "-u",
+        "%NOKIDO_ROOT%/app/mcp_bridge.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONPATH": "%NOKIDO_ROOT%/app",
+        "LAFORGE_AGENT": "CLINE_ACT"
+      }
+    }
+  }
+}

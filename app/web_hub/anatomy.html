@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Nokido — Anatomie Live</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<!-- Design system Nokido (convergence tokens). -->
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  body {
+    margin: 0; padding: 0;
+    font-family: var(--font-sans, -apple-system, "Segoe UI", sans-serif);
+    background: var(--bg-0);
+    color: var(--text-primary);
+    overflow-x: hidden;
+  }
+  header {
+    padding: 12px 20px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text-primary); }
+  #stats {
+    display: flex; gap: 20px;
+    font-size: 12px; opacity: 0.85;
+  }
+  .stat-pill {
+    padding: 4px 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+  }
+  .stat-pill.opsec-PARANOID { border-color: var(--green); color: var(--green); }
+  .stat-pill.opsec-STANDARD { border-color: var(--cyan); color: var(--cyan); }
+  .stat-pill.opsec-CTF { border-color: var(--yellow); color: var(--yellow); }
+  main {
+    display: flex;
+    height: calc(100vh - 60px);
+  }
+  #anatomy-svg {
+    flex: 1;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.02) 0%, transparent 70%);
+  }
+  #legend {
+    width: 320px;
+    padding: 16px;
+    background: var(--bg-1);
+    overflow-y: auto;
+    font-size: 12px;
+    border-left: 1px solid var(--border);
+  }
+  .organ-row {
+    padding: 6px 8px;
+    margin: 3px 0;
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    display: flex; justify-content: space-between; align-items: center;
+    transition: background 0.3s;
+  }
+  .organ-row:hover { background: var(--bg-3); }
+  .organ-row .name { font-weight: 600; }
+  .organ-row .meta { opacity: 0.6; font-size: 10px; }
+  .organ-row .pulse {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .health-active { color: var(--green); }
+  .health-alive  { color: var(--cyan); }
+  .health-idle   { color: var(--text-dim); }
+  .health-dead   { color: var(--red); }
+  /* Pulse anim */
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.6; transform: scale(1.15); }
+  }
+  .organ.active   { animation: pulse 1.0s infinite ease-in-out; }
+  .organ.alive    { animation: pulse 2.5s infinite ease-in-out; }
+  .organ.idle     { opacity: 0.4; }
+  .organ.dead     { opacity: 0.2; filter: grayscale(1); }
+  /* MESURE 2026-09-18 : l'API rend `health: "ok"` pour les 22 organes, et aucune des
+     quatre classes ci-dessus ne correspond a "ok" -- donc RIEN ne pulsait, jamais.
+     On distingue desormais ce qui est MESURE de ce qui n'a pas de capteur, au lieu de
+     faire bouger les 22 pareil (ce qui serait un faux vivant). */
+  .organ.mesure       { animation: pulse 1.0s infinite ease-in-out; }
+  .organ.sans-capteur { opacity: 0.45; }
+  .organ.eteint       { opacity: 0.2; filter: grayscale(1); }
+  .health-ok          { color: var(--cyan); }
+  .health-mesure      { color: var(--green); }
+  .health-sans-capteur{ color: var(--text-dim); }
+  /* Un flux DECLARE (topologie) ne doit pas se donner l'allure d'un flux mesure. */
+  .flow-declare { stroke-dasharray: 2 6; }
+  .bandeau-mesure {
+    padding: 6px 10px; margin: 0 0 10px;
+    border-left: 3px solid var(--yellow);
+    background: var(--bg-2); border-radius: var(--radius-sm);
+    font-size: 11px; color: var(--text-secondary); line-height: 1.45;
+  }
+  .grp-titre { margin: 12px 0 6px; font-size: 12px; opacity: 0.75;
+               text-transform: uppercase; letter-spacing: .5px; }
+  .organ-row .compte { font-family: 'JetBrains Mono', monospace; font-size: 10px;
+                       color: var(--green); }
+  .organ-label {
+    fill: var(--text-secondary);
+    font-size: 9px;
+    pointer-events: none;
+    text-anchor: middle;
+  }
+  .body-outline {
+    fill: rgba(255,255,255,0.04);
+    stroke: var(--border);
+    stroke-width: 1;
+  }
+  #ts { font-size: 10px; opacity: 0.5; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧬 Nokido — Anatomie Live</h1>
+  <div id="stats">
+    <span class="stat-pill" id="stat-msgs">msgs/60s: -</span>
+    <span class="stat-pill" id="stat-rag">RAG/60s: -</span>
+    <span class="stat-pill" id="stat-services">services: -</span>
+    <span class="stat-pill" id="stat-opsec" data-testid="anatomy-opsec">OPSEC: -</span>
+    <button id="kill-switch-btn" data-testid="anatomy-kill-switch" onclick="triggerKillSwitch()" title="Coupe TOUS outbounds cloud + force PARANOID + lock humain">
+      🛑 KILL SWITCH
+    </button>
+    <span id="ts"></span>
+  </div>
+</header>
+<style>
+  #kill-switch-btn {
+    background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+    color: white; border: 2px solid #fca5a5;
+    padding: 6px 14px; border-radius: 6px;
+    font-weight: 700; font-size: 13px; cursor: pointer;
+    box-shadow: 0 0 12px rgba(220, 38, 38, 0.4);
+    transition: all 0.2s; letter-spacing: 0.5px;
+  }
+  #kill-switch-btn:hover {
+    background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.7);
+    transform: scale(1.05);
+  }
+  #kill-switch-btn.active {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    border-color: #fde68a;
+    animation: pulse-warn 1s infinite;
+  }
+  @keyframes pulse-warn {
+    50% { box-shadow: 0 0 30px rgba(245, 158, 11, 1); }
+  }
+</style>
+
+<main>
+  <svg id="anatomy-svg" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid meet">
+    <!-- Body outline (humanoïde simplifié) -->
+    <g id="body">
+      <!-- Tête -->
+      <ellipse cx="200" cy="55" rx="42" ry="50" class="body-outline"/>
+      <!-- Cou -->
+      <rect x="190" y="100" width="20" height="20" class="body-outline"/>
+      <!-- Torse -->
+      <path d="M 145 125 L 255 125 L 270 350 L 130 350 Z" class="body-outline"/>
+      <!-- Bras gauche -->
+      <path d="M 145 130 Q 90 170, 80 280 L 95 285 Q 105 195, 155 145 Z" class="body-outline"/>
+      <!-- Bras droit -->
+      <path d="M 255 130 Q 310 170, 320 280 L 305 285 Q 295 195, 245 145 Z" class="body-outline"/>
+      <!-- Bassin/jambes -->
+      <path d="M 130 350 L 270 350 L 250 580 L 215 580 L 205 400 L 195 400 L 185 580 L 150 580 Z" class="body-outline"/>
+    </g>
+    <!-- Defs : marker arrowhead pour flux -->
+    <defs>
+      <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24" opacity="0.7"/>
+      </marker>
+    </defs>
+    <!-- Flux inter-organes (rendered avant organes pour z-order) -->
+    <g id="organ-flows"></g>
+    <!-- Organes injectés via JS -->
+    <g id="organs"></g>
+    <g id="organ-labels"></g>
+  </svg>
+
+  <aside id="legend"></aside>
+</main>
+
+<script>
+const ENDPOINT = "/api/anatomy/state";
+const REFRESH_MS = 2000;
+
+async function fetchState() {
+  try {
+    const r = await fetch(ENDPOINT);
+    return await r.json();
+  } catch (e) {
+    // Une NAVIGATION annule les fetch en vol : ce catch se declenche alors que
+    // rien n'est casse. Mesure 2026-08-29 — `console.error(e)` sur l'objet nu
+    // rendait « JSHandle@object », illisible, et la campagne UI l'imputait a la
+    // page SUIVANTE (elle arrive apres le changement de page). On nomme l'erreur,
+    // et on se tait sur l'abandon : un signal qui crie a chaque navigation se
+    // fait ignorer, et emporte les vrais avec lui.
+    const msg = (e && e.message) ? e.message : String(e);
+    if (!/abort|NetworkError|Failed to fetch|load failed/i.test(msg)) {
+      console.error("anatomy/state: " + msg);
+    }
+    return null;
+  }
+}
+
+// Trafic REELLEMENT mesure par organe, sur la fenetre. C'est la seule source qui dise
+// qu'il se passe quelque chose : `activity` plafonne a 0.3 pour 21 organes sur 22
+// (plancher constant, pas une mesure), et l'ancien seuil d'animation a 0.5 n'etait donc
+// JAMAIS atteint -- intensite maximale mesuree le 2026-09-18 : 0.439.
+function traficDe(data, nom) {
+  const t = data.trafic_par_organe || {};
+  return t[nom] || 0;
+}
+
+function renderFlows(data) {
+  const g = document.getElementById("organ-flows");
+  g.innerHTML = "";
+  if (!data.flows) return;
+  // `flows_live === false` : ces aretes sont une TOPOLOGIE DECLAREE, pas une mesure.
+  // Les animer comme un debit ferait croire a un trafic que personne n'observe.
+  const mesure = data.flows_live === true;
+  for (const f of data.flows) {
+    const fromOrg = data.organs[f.from];
+    const toOrg = data.organs[f.to];
+    if (!fromOrg || !toOrg) continue;
+    const debit = Math.min(traficDe(data, f.from), traficDe(data, f.to));
+    const intensity = mesure && debit > 0 ? 1 : 0;
+    const opacity = mesure && debit > 0 ? 0.75 : 0.18;
+    // Curved path (quadratic bezier) entre organes
+    const mx = (fromOrg.x + toOrg.x) / 2;
+    const my = (fromOrg.y + toOrg.y) / 2 - 25;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", `M ${fromOrg.x} ${fromOrg.y} Q ${mx} ${my} ${toOrg.x} ${toOrg.y}`);
+    path.setAttribute("stroke", "#fbbf24");
+    path.setAttribute("stroke-width", "1.2");
+    path.setAttribute("fill", "none");
+    path.setAttribute("opacity", opacity.toFixed(2));
+    path.setAttribute("marker-end", "url(#arrowhead)");
+    path.setAttribute("class", mesure ? "flow-line" : "flow-line flow-declare");
+    // On n'anime QUE ce qui est mesure. Un pointille fige dit « lien connu » ;
+    // un pointille qui defile dirait « ca circule », ce qu'on ne sait pas.
+    if (intensity > 0) {
+      path.setAttribute("stroke-dasharray", "4 4");
+      const animate = document.createElementNS("http://www.w3.org/2000/svg", "animate");
+      animate.setAttribute("attributeName", "stroke-dashoffset");
+      animate.setAttribute("from", "0");
+      animate.setAttribute("to", "-16");
+      animate.setAttribute("dur", "1s");
+      animate.setAttribute("repeatCount", "indefinite");
+      path.appendChild(animate);
+    }
+    // Tooltip via title : il DIT si l'arete est mesuree ou seulement declaree.
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = `${f.module_from} → ${f.msg} → ${f.module_to}\n${f.effect}\n`
+      + (mesure ? `débit observé : ${debit} sur la fenêtre`
+                : "lien DÉCLARÉ (topologie) — aucun débit observé");
+    path.appendChild(title);
+    g.appendChild(path);
+  }
+}
+
+function renderOrgans(data) {
+  const g = document.getElementById("organs");
+  const lg = document.getElementById("organ-labels");
+  g.innerHTML = "";
+  lg.innerHTML = "";
+  for (const [name, o] of Object.entries(data.organs)) {
+    // Pulse circle
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", o.x);
+    c.setAttribute("cy", o.y);
+    c.setAttribute("r", o.r);
+    c.setAttribute("fill", o.color);
+    c.setAttribute("stroke", "rgba(255,255,255,0.3)");
+    c.setAttribute("stroke-width", "1");
+    // Trois etats, jamais deux : trafic MESURE / pas de capteur / eteint.
+    const trafic = traficDe(data, name);
+    let etat = "sans-capteur";
+    if (o.health && o.health !== "ok" && o.health !== "alive") etat = "eteint";
+    else if (trafic > 0) etat = "mesure";
+    c.setAttribute("class", `organ ${etat}`);
+    c.setAttribute("data-name", name);
+    c.setAttribute("data-trafic", String(trafic));
+    c.setAttribute("opacity", etat === "mesure" ? "0.95" : "0.7");
+    const ct = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    ct.textContent = `${o.label}${o.port ? " · :" + o.port : ""}\n${o.bio || ""}\n`
+      + (trafic > 0 ? `${trafic} requêtes observées sur la fenêtre`
+                    : "aucun capteur de trafic sur cet organe");
+    c.appendChild(ct);
+    g.appendChild(c);
+    // Label only for big organs
+    if (o.r >= 14 && !name.includes("yeux") && !name.includes("oreilles")) {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", o.x);
+      t.setAttribute("y", o.y + o.r + 12);
+      t.setAttribute("class", "organ-label");
+      t.textContent = name.replace(/_/g, " ");
+      lg.appendChild(t);
+    }
+  }
+}
+
+function renderLegend(data) {
+  // CONTRAT ROMPU, mesure 2026-09-18 : cette fonction groupait sur `o.system` et
+  // affichait `o.module`. Un organe rend {activity,bio,color,health,label,port,r,x,y} :
+  // `system` n'existe sur AUCUN, `module` sur une partie seulement. Tout tombait donc
+  // dans un groupe « undefined », avec « undefined » en sous-titre. Meme famille que le
+  // contrat `data.metrics` deja corrige dans renderStats -- un champ absent ne leve pas
+  // en JavaScript, il s'affiche.
+  const el = document.getElementById("legend");
+  const mesures = [], sansCapteur = [], eteints = [];
+  for (const [name, o] of Object.entries(data.organs)) {
+    const trafic = traficDe(data, name);
+    const ligne = { name, trafic, ...o };
+    if (o.health && o.health !== "ok" && o.health !== "alive") eteints.push(ligne);
+    else if (trafic > 0) mesures.push(ligne);
+    else sansCapteur.push(ligne);
+  }
+  mesures.sort((a, b) => b.trafic - a.trafic);
+
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+    c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  const bloc = (titre, lignes, etat) => {
+    if (!lignes.length) return "";
+    let h = `<div class="grp-titre">${titre} · ${lignes.length}</div>`;
+    for (const o of lignes) {
+      h += `<div class="organ-row">
+        <div>
+          <div class="name">${esc(o.label || o.name)}</div>
+          <div class="meta">${esc(o.bio || "")}${o.port ? " · :" + o.port : ""}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:7px">
+          ${o.trafic > 0 ? `<span class="compte">${o.trafic}</span>` : ""}
+          <span class="pulse health-${etat}" title="${esc(o.health)}"></span>
+        </div>
+      </div>`;
+    }
+    return h;
+  };
+
+  // Le bandeau dit ce que l'ecran NE SAIT PAS. Sans lui, 21 organes immobiles se
+  // lisent « en panne » alors qu'ils n'ont simplement aucun capteur de trafic.
+  const nFlux = (data.flows || []).length;
+  let html = `<div class="bandeau-mesure">`;
+  if (data.flows_live === true) {
+    html += `<strong>Flux mesurés.</strong> ${nFlux} liens observés sur la fenêtre.`;
+  } else {
+    html += `<strong>Les ${nFlux} liens affichés sont une topologie DÉCLARÉE</strong>, `
+         + `pas un débit observé — ils sont tracés en pointillé fixe et ne défilent pas. `
+         + esc(data.flows_reason || "");
+  }
+  html += `<br>Seuls <strong>${mesures.length}</strong> organe(s) sur `
+       + `${Object.keys(data.organs).length} portent un compteur de trafic ; `
+       + `les autres ne sont pas éteints, ils sont <strong>sans capteur</strong>.</div>`;
+
+  html += bloc("Trafic mesuré", mesures, "mesure");
+  html += bloc("Sans capteur de trafic", sansCapteur, "sans-capteur");
+  html += bloc("Hors service", eteints, "dead");
+  el.innerHTML = html;
+}
+
+function renderStats(data) {
+  // /api/anatomy/state -> {daemons{alive,total}, rag{embedded,chunks}, flows[], ts}.
+  // L'ancien contrat data.metrics n'existe plus -> lecture directe du state reel.
+  const d = data.daemons || {};
+  const rag = data.rag || {};
+  const win = data.window_seconds || 60;
+  // « msgs » etait trompeur : ce compteur rend le nombre de LIENS du graphe, pas des
+  // messages. On nomme ce qu'on montre, et on montre le trafic REEL a cote.
+  const msgs = document.getElementById("stat-msgs");
+  if (msgs) {
+    const total = Object.values(data.trafic_par_organe || {})
+                        .reduce((a, b) => a + b, 0);
+    msgs.textContent = `requêtes/${win}s: ${total} · liens: ${(data.flows || []).length}`;
+  }
+  // FAUX ZERO : `rag.embedded` vaut null quand le snapshot du producteur est perime
+  // (mesure 2026-09-18 : 11,9 jours d'age, `mesure: "INCONNU"`). `|| 0` affichait donc
+  // « 0 vectorise » — un chiffre INVENTE, pire qu'une case vide.
+  const ragEl = document.getElementById("stat-rag");
+  if (ragEl) {
+    if (rag.embedded == null) {
+      const j = rag.age_s ? ` (${(rag.age_s / 86400).toFixed(1)} j)` : "";
+      ragEl.textContent = `RAG: ${rag.chunks || "?"} chunks · vectorisé INCONNU${j}`;
+      ragEl.title = rag.raison || "le producteur n'a pas publié de snapshot frais";
+    } else {
+      ragEl.textContent = `RAG: ${rag.embedded}/${rag.chunks || 0}`;
+      ragEl.title = "";
+    }
+  }
+  const svc = document.getElementById("stat-services");
+  if (svc) svc.textContent = `services: ${d.alive || 0}/${d.total || 0}`;
+  const tsEl = document.getElementById("ts");
+  if (tsEl) tsEl.textContent = new Date((data.ts || 0) * 1000).toLocaleTimeString();
+}
+
+async function tick() {
+  const data = await fetchState();
+  if (data) {
+    renderFlows(data);
+    renderOrgans(data);
+    renderLegend(data);
+    renderStats(data);
+    // Kill switch state visualisation
+    const btn = document.getElementById("kill-switch-btn");
+    // Etat reel via opsec (PARANOID = outbounds cloud coupes = kill actif)
+    try {
+      const s = await fetch("/api/opsec/status").then(r => r.json());
+      const op = document.getElementById("stat-opsec");
+      if (op && s && s.level) {
+        op.textContent = `OPSEC: ${s.level}${s.human_locked ? " 🔒" : " 🔓"}`;
+        op.className = `stat-pill opsec-${s.level}`;
+      }
+      if (s?.level === "PARANOID" || s?.human_locked === true) {
+        btn.classList.add("active");
+        btn.textContent = "🟧 KILL ACTIVE — click to RELEASE";
+        btn.onclick = releaseKillSwitch;
+      } else {
+        btn.classList.remove("active");
+        btn.textContent = "🛑 KILL SWITCH";
+        btn.onclick = triggerKillSwitch;
+      }
+    } catch (_e) {}
+  }
+}
+
+async function triggerKillSwitch() {
+  if (!confirm("⚠ KILL SWITCH va :\n• Forcer OPSEC PARANOID\n• Verrouiller humain\n• Couper TOUS outbounds cloud\n\nConfirmer ?")) return;
+  const reason = prompt("Raison (obligatoire pour audit) :", "comportement IA erratique") || "human emergency";
+  try {
+    const r = await fetch("/api/opsec/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: "PARANOID", lock: true, reason })
+    });
+    const d = await r.json();
+    if (!d.error) alert("🛑 KILL SWITCH ACTIVÉ — OPSEC PARANOID + verrou humain. Outbounds cloud coupés.");
+    else alert("❌ FAIL: " + d.error);
+  } catch (e) {
+    alert("❌ KILL SWITCH FAIL: " + e);
+  }
+  tick();
+}
+
+async function releaseKillSwitch() {
+  if (!confirm("Lever le KILL SWITCH ? (network_kill=false, lock + level préservés)")) return;
+  const reason = prompt("Raison de levée :", "manual release") || "manual release";
+  try {
+    const r = await fetch("/api/opsec/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ level: "STANDARD", lock: false, reason })
+    });
+    const d = await r.json();
+    if (!d.error) alert("✅ KILL SWITCH levé — OPSEC STANDARD, verrou retiré. Outbounds réautorisés.");
+    else alert("❌ FAIL: " + (d.error || "unknown"));
+  } catch (e) {
+    alert("❌ RELEASE FAIL: " + e);
+  }
+  tick();
+}
+
+tick();
+setInterval(tick, REFRESH_MS);
+</script>
+
+</body>
+</html>

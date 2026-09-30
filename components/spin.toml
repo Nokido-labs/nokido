@@ -1,0 +1,14 @@
+spin_manifest_version = 2
+
+[application]
+name = "laforge-webhub-embedded"
+version = "0.1.0"
+description = "Embedded WASM components for Nokido Deno WebHub"
+
+[[trigger.http]]
+route = "/health"
+component = "health-embedded"
+
+[component.health-embedded]
+source = "health_embedded.wasm"
+allowed_outbound_hosts = []

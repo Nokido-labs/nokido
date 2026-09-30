@@ -1,0 +1,37 @@
+{
+  "C4_utils": {
+    "fns": 146,
+    "samples": [
+      "_safe_llm_text",
+      "_header",
+      "_alias_path"
+    ],
+    "action": "forge_utils.py"
+  },
+  "C3_security": {
+    "fns": 19,
+    "samples": [
+      "analyze_ast",
+      "is_dangerous_code",
+      "validate_python_syntax"
+    ],
+    "action": "forge_utils_security.py"
+  },
+  "C11_rag": {
+    "fns": 43,
+    "samples": [
+      "sync_adrs_to_rag",
+      "get_rag",
+      "rag_engine"
+    ],
+    "action": "already isolated"
+  },
+  "C8_authority": {
+    "fns": 97,
+    "samples": [
+      "acquire_master_dev",
+      "release_master_dev"
+    ],
+    "action": "already isolated"
+  }
+}

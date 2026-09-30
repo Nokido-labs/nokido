@@ -1,0 +1,106 @@
+// Nokido — configuration GOUVERNÉE d'opencode (sst/opencode, npm opencode-ai).
+//
+// Chargée par OPENCODE_CONFIG_DIR, que pose tools/nokido_opencode_web.py (lanceur :7400,
+// décision owner du 2026-09-25, choix A). La config vit DANS le dépôt — versionnée,
+// relue, vue par la CI — au lieu de dormir dans ~/.config/opencode/.
+//
+// AUCUN SECRET ICI, et il ne faut jamais en ajouter : `{env:VAR}` est substitué avant le
+// parsing, y compris dans les en-têtes HTTP. Le wrapper place FORGE_TOKEN_OPENCODE dans
+// l'environnement du seul processus opencode, depuis le coffre.
+//
+// FORMAT — le même que mammouth (fork d'opencode) : `mcp` est un Record KEYÉ PAR NOM,
+// l'inverse du tableau `[[mcp_servers]]` de vibe. Voir config/clients/mammouth/README.md.
+{
+  // ── Modèle : la passerelle GOUVERNÉE de Nokido, jamais le cloud d'opencode ─
+  // Décision owner du 2026-09-25 : fournisseur = tools/forge_openai_proxy.py
+  // (NokidoOpenAIProxy, :7777/v1). Il authentifie le client par SON jeton dérivé
+  // (identité OPENCODE prouvée, comparaison en temps constant) et passe par le
+  // SemanticFirewall. Zen (`opencode`, big-pickle) est COUPÉ : tout ce qu'opencode lui
+  // envoie — prompts, fichiers lus, AGENTS.md — sortait sans firewall (règle SYMBIOSE).
+  //
+  // Voie outils (décision owner du 25/09, points 1+2+3) : chaque tour d'agent porte des
+  // `tools`, et la passerelle sert le modèle DEMANDÉ — seulement s'il est mesuré `APPELLE`
+  // par tools/forge_tool_call_probe.py (rapport sandbox/tool_call_probe.json). Un modèle
+  // jamais mesuré, qui IGNORE l'outil, ou un agent CLI (claude-code, agy) est REFUSÉ en le
+  // disant ; plus jamais de qwen imposé à la place. Identifiant = <fournisseur>/<modèle>
+  // tel que la sonde l'a mesuré. Le modèle servi est déclaré (en-tête X-Nokido-Modele-Servi).
+  // ⚠️ Cloud : ce qu'opencode lit (read/grep) PART chez le fournisseur — le pare-feu
+  // contrôle chaque message (DLP : donnée sensible ⇒ refus, « utilisez un modèle local »).
+  // Pour ajouter un modèle plus fort : le MESURER d'abord (sonde), puis le lister ici.
+  "provider": {
+    "nokido": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Nokido (passerelle gouvernée :7777)",
+      "options": {
+        "baseURL": "http://127.0.0.1:7777/v1",
+        "apiKey": "{env:FORGE_TOKEN_OPENCODE}"
+      },
+      // MESURE 2026-09-25 : Groq gratuit plafonne a 8 000 jetons/min ; un tour d'opencode en
+      // envoie ~25 600 (prompt + schemas d'outils) -> HTTP 413. Codestral / ministral (Mistral)
+      // portent ce volume. Les autres Mistral (small, medium, devstral) : NON_MESURE (429 quota).
+      "models": {
+        "auto": {
+          "name": "Nokido auto — le routeur choisit (modèles mesurés, bascule sur capacité/débit)"
+        },
+        "mistral/codestral-latest": {
+          "name": "Codestral — Mistral, modèle de code (APPELLE mesuré)"
+        },
+        "groq/openai/gpt-oss-20b": {
+          "name": "gpt-oss 20B — Groq (APPELLE mesuré ; 8 000 jetons/min : trop peu pour un agent)"
+        },
+        "openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": {
+          "name": "Nemotron nano 30B raisonnement — OpenRouter gratuit (APPELLE mesuré)"
+        },
+        "mistral/ministral-8b-2512": {
+          "name": "Ministral 8B — Mistral (APPELLE mesuré)"
+        },
+        "lmstudio/qwen2.5-coder-7b-instruct": {
+          "name": "qwen2.5-coder 7B — LM Studio LOCAL, rien ne sort (APPELLE mesuré)"
+        }
+      }
+    }
+  },
+  "model": "nokido/auto",
+  // Sans lui, opencode prend le petit modèle de SON fournisseur pour titrer les sessions.
+  "small_model": "nokido/mistral/ministral-8b-2512",
+  "disabled_providers": ["opencode"],
+
+  // ── Outils natifs : REFUSÉS ────────────────────────────────────────────────
+  // Doctrine RULES_SHARED : tout ce qui EXÉCUTE ou ÉCRIT repasse par le hub —
+  //   exécution → `run`           (videur + firewall sémantique + exec_tier)
+  //   écriture  → `governed_edit` (AST + scan secret + claim tree_lock anti-clobber)
+  // Il n'existe pas de clé `write` distincte : `edit` couvre l'écriture de fichiers.
+  "permission": {
+    "bash": "deny",
+    "edit": "deny",
+    "external_directory": "deny",
+
+    // Lecture : sans effet de bord, donc autorisée. Le chemin ÉCONOME reste le hub
+    // (`read`, `read_function_body`, `rag`), qui sert une fenêtre et non un fichier entier.
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+
+    // Sortie réseau : on demande. La souveraineté passe par le crawl du hub (SearXNG).
+    "webfetch": "ask",
+    "websearch": "ask"
+  },
+
+  // ── Hub souverain : SEUL chemin d'action ──────────────────────────────────
+  // Jeton DÉRIVÉ, jamais le maître : FORGE_MCP_TOKEN conserve l'agent déclaré dans
+  // l'en-tête et son ring (via=master_token) — un passe-partout d'identité. Ici le
+  // porteur est apparié à OPENCODE seul (via=token), son ring est PROUVÉ.
+  // Voir config/agent_identities.json → OPENCODE (ring 3 provisoire).
+  "mcp": {
+    "laforge": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8766/mcp",
+      "enabled": true,
+      "headers": {
+        "Authorization": "Bearer {env:FORGE_TOKEN_OPENCODE}",
+        "X-Agent-Name": "OPENCODE"
+      }
+    }
+  }
+}

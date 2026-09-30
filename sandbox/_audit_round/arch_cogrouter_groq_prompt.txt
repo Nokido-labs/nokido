@@ -1,0 +1,175 @@
+Tu es expert performance LLM et orchestration. Mission : valider une décision
+d'architecture pour Nokido MCP Hub visant l'économie de tokens et la réactivité.
+
+CONTEXTE :
+Nokido est un hub MCP (Model Context Protocol) Python sur Windows.
+Il gère 14 outils MCP et 3 agents LLM connectés (Claude, Gemini CLI, Cline).
+Problème actuel : chaque requête LLM reçoit les 14 schémas d'outils (~6000 tokens).
+Pas de routing sémantique : le LLM "réfléchit" à quel outil utiliser.
+
+CODE EXISTANT (les 2 composants à connecter) :
+
+forge_byte_router.py (middleware avant dispatch) :
+```python
+# -*- coding: utf-8 -*-
+"""
+forge_byte_router.py — Middleware Hub._tool_call AVANT dispatch
+==============================================================
+Session 5 — 2026-04-27
+ADR Gemini 2026-04-15 : middleware dans Hub._tool_call, pas broker séparé.
+Rôles : logging structuré, rate-limit par agent, rewrite d'args, ts injection.
+"""
+from __future__ import annotations
+import logging, time
+
+log = logging.getLogger("forge.byte_router")
+
+_CALL_COUNTS: dict = {}
+_RATE_LIMITS: dict = {}   # tool -> max calls/min (configurable)
+
+
+class ByteRouterMiddleware:
+
+    @staticmethod
+    async def process(tool_name: str, args: dict, agent: str = "CLAUDE") -> tuple:
+        """
+        Retourne (tool_name, args) — potentiellement modifiés.
+        Lève PermissionError si rate-limit dépassé.
+        Appeler AVANT Hub._dispatch().
+        """
+        ts = time.time()
+
+        # Comptage par agent
+        key = f"{agent}:{tool_name}"
+        _CALL_COUNTS[key] = _CALL_COUNTS.get(key, 0) + 1
+        _CALL_COUNTS[agent] = _CALL_COUNTS.get(agent, 0) + 1
+
+        # Log structuré
+        log.info("[ByteRouter] agent=%s tool=%s args_keys=%s count=%d",
+                 agent, tool_name, list(args.keys()), _CALL_COUNTS[agent])
+
+        # Rate-limit optionnel
+        limit = _RATE_LIMITS.get(tool_name)
+        if limit and _CALL_COUNTS.get(key, 0) > limit:
+            raise PermissionError(
+                f"[ByteRouter] Rate-limit: {agent} depasse {limit} appels/min sur {tool_name}"
+            )
+
+        # Injecter ts et agent pour traçabilité
+        args = dict(args)
+        args.setdefault("_br_ts", ts)
+        args.setdefault("_br_agent", agent)
+
+        return tool_name, args
+
+    @staticmethod
+    def set_rate_limit(tool_name: str, max_per_min: int):
+        _RATE_LIMITS[tool_name] = max_per_min
+
+    @staticmethod
+    def stats() -> dict:
+        return dict(_CALL_COUNTS)
+
+```
+
+forge_cognitive_router.py (routing sémantique, extrait) :
+```python
+from __future__ import annotations
+
+# -*- coding: utf-8 -*-
+"""
+FORGE INTELLIGENCE v3 [BLUE]
+DATE:2026-03-25 | VER:v_batch_forge_cognitive_router
+#FORGE:[score:75|agent:batch-hd-injector|temp:0.00|risk:0.30|ast:KO|test:KO|lint:KO|color:BLUE|attempt:1]
+CONTRAINTE: header HD batch — statut initial
+"""
+__FORGE_COLOR__ = "BLUE"
+__FORGE_TAGS__  = "#FORGE:[score:75|agent:batch-hd-injector|temp:0.00|risk:0.30|ast:KO|test:KO|lint:KO|color:BLUE|attempt:1]"
+"""
+forge_cognitive_router.py — Routage Dynamique Cognitif v0.13.1
+===============================================================
+Cervelet de Nokido : dirige chaque intention vers la ressource
+la plus apte, en optimisant coût / sécurité / précision.
+
+Piliers implémentés :
+  1. Modality Routing     — complexité → modèle (ONNX/Qwen1.5B/7B/Claude)
+  2. Security-Aware       — ring de la tâche → chemin forcé (déjà partiel)
+  3. Capability Routing   — anticipation proactive [NEED:] avant le 1er appel
+  4. Fallback Routing     — Ollama→LiteLLM→Claude si réponse vide/entropique
+  5. Context Pruning      — filtre RAG par domaine/type avant injection
+
+Usage :
+  from forge_cognitive_router import route_task, prune_rag_context
+
+  result = await route_task(
+      task      = "débugge ce script Python",
+      rag_ctx   = chunks,
+      ring      = 1,
+      session_id= "abc123",
+  )
+"""
+
+
+import logging
+import re
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+_ROOT = Path(__file__).resolve().parent.parent
+
+
+# =============================================================================
+# PILIER 1 — MODALITY ROUTING (complexité → modèle)
+# =============================================================================
+
+# Seuils de confiance NLU → niveau de complexité
+_COMPLEXITY_THRESHOLDS = {
+    "simple": 0.85,  # conf ≥ 0.85 → ONNX local ou Qwen 1.5B
+    "technical": 0.55,  # 0.55 ≤ conf < 0.85 → Qwen 7B (défaut)
+    "strategic": 0.00,  # conf < 0.55 → Claude via LiteLLM
+}
+
+# Patterns sémantiques → escalade forcée vers Claude
+_STRATEGIC_PATTERNS = [
+    r"\b(risque|risk|architecture|stratégie|strategy|analyse|sécurité globale)\b",
+    r"\b(vulnérabilité critique|CVE|menace|threat model)\b",
+    r"\b(décision|recommandation|impact|conséquence)\b",
+    r"\b(compare|évalue|arbitre|choisir entre)\b",
+]
+_STRATEGIC_RE = re.compile("|".join(_STRATEGIC_PATTERNS), re.IGNORECASE)
+
+# Patterns → tâche simple (ONNX/Qwen 0.5B)
+_SIMPLE_PATTERNS = [
+    r"\b(quelle heure|quel jour|date|bonjour|merci|ok|oui|non)\b",
+    r"\b(l
+```
+
+DÉCISION À VALIDER :
+Brancher _anticipate_tools() dans ByteRouterMiddleware pour :
+1. Détecter les outils probables AVANT le dispatch
+2. Injecter la doc des outils anticipés dans le contexte
+3. Réduire les tokens envoyés en n'exposant que les outils pertinents
+
+QUESTIONS (max 400 mots, français, direct) :
+
+Q1 : Brancher _anticipate_tools() dans ByteRouterMiddleware.process() est-il
+     le bon endroit ? Ou faut-il un composant séparé en amont du hub ?
+
+Q2 : Le pre-fetch RAG (forge_cognitive_router.build_proactive_system) injecte
+     la doc des outils dans le system prompt. Est-ce compatible avec le
+     Prompt Caching Anthropic (cache_control: ephemeral sur le system prompt) ?
+     Risque de cache invalidation si le system prompt change à chaque requête ?
+
+Q3 : Groq Llama 3.3 70B est-il approprié pour la classification sémantique
+     rapide (quel outil pour ce message ?) ou faut-il un embedding local
+     (bge-m3 ou similaire) pour éviter une requête réseau supplémentaire ?
+
+Q4 : Le Lazy Loading d'outils (n'exposer que 3-4 outils pertinents au lieu
+     de 14) est-il une vraie économie quand les 14 schémas sont déjà en cache
+     Anthropic ? Dans ce cas, le ROI du Lazy Loading disparaît-il ?
+
+Q5 : Ordre d'implémentation recommandé : Prompt Caching d'abord (économie
+     immédiate -78%) ou Cognitive Router d'abord (réactivité) ?
+
+Format : verdict + recommandation par question. 2-3 phrases max par réponse.

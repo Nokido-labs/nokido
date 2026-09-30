@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="../../favicon.svg">
+<title>Nokido — Hub mobile</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="../../assets/laforge-prefs.js"></script>
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: radial-gradient(ellipse at 50% 0%, #1a1626 0%, var(--bg-0) 60%);
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; box-sizing: border-box; }
+</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" src="../onboarding/ios-frame.jsx"></script>
+<script type="text/babel" src="mobile-hub.ref.jsx"></script>
+<script type="text/babel">
+function App() {
+  const { IOSDevice, MobileHub } = window;
+  React.useEffect(() => { if (window.lucide) lucide.createIcons(); });
+  return (
+    <IOSDevice dark width={402} height={874}>
+      <MobileHub />
+    </IOSDevice>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+setTimeout(() => window.lucide && lucide.createIcons(), 100);
+</script>
+</body></html>

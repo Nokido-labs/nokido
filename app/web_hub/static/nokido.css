@@ -1,0 +1,246 @@
+/* Nokido UI common stylesheet — derived from netcfg-agent (Datadog/Site24x7-inspired)
+   Source palette : %NOKIDO_WORKSPACE%/netcfg-agent/static/style.css
+   Source doc     : docs/style_netcfg.md
+   Importer dans toute UI Nokido :  <link rel="stylesheet" href="/static/nokido.css">
+   Version 1.0 — 2026-04-30
+*/
+
+/* Passe 1 portage design system (Nokido Design System.zip) — tokens complets :
+   couleurs/rings d'intégrité/provenance/domaines/type/spacing/effects/motion.
+   Chargés AVANT les règles ci-dessous (palette compatible : mêmes --bg-*). */
+@import url("laforge-tokens.css");
+@import url("laforge-components.css");  /* passe 2 — primitives .lf-* */
+
+/* TOKENS : source unique = laforge-tokens.css (importe ci-dessus, genere depuis
+   laforge-ds/tokens/). Les 47 redefinitions :root locales ont ete RETIREES
+   (consolidation DS C1 — 44 etaient identiques, 3 ombres = artefact theme clair).
+   Tout --bg/--text/--purple/--radius/--sidebar-w/--topbar-h/aliases vient des tokens. */
+
+/* ============================================================ Reset minimal */
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-0);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, pre, .mono, .lf-mono {
+  font-family: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+/* ============================================================ Scrollbar */
+::-webkit-scrollbar          { width: 10px; height: 10px; }
+::-webkit-scrollbar-track    { background: transparent; }
+::-webkit-scrollbar-thumb    { background: var(--bg-3); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bg-4); }
+
+/* ============================================================ Liens */
+a {
+  color: var(--purple);
+  text-decoration: none;
+}
+a:hover { color: var(--cyan); }
+
+/* ============================================================ Composants .nokido-* */
+
+/* Cards */
+.laforge-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-md);
+}
+.laforge-card-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+.laforge-card-subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Buttons */
+.laforge-btn {
+  background: var(--purple);
+  color: #fff;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms;
+}
+.laforge-btn:hover    { background: var(--purple-dim); }
+.laforge-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.laforge-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.laforge-btn-ghost:hover { color: var(--purple); border-color: var(--purple); }
+.laforge-btn-danger { background: var(--red); }
+.laforge-btn-success { background: var(--green); color: var(--bg-0); }
+
+/* Inputs */
+.laforge-input, .laforge-select, .laforge-textarea {
+  background: var(--bg-0);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font: inherit;
+}
+.laforge-input:focus, .laforge-select:focus, .laforge-textarea:focus {
+  outline: none;
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px rgba(119, 74, 255, 0.15);
+}
+
+/* Tables */
+.laforge-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.laforge-table th, .laforge-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+}
+.laforge-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.laforge-table tr:hover { background: var(--bg-2); }
+
+/* Status pills */
+.laforge-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.laforge-status::before {
+  content: '';
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.laforge-status-up   { color: var(--green);  background: rgba(74, 194, 139, 0.12); }
+.laforge-status-down { color: var(--red);    background: rgba(242, 79, 79, 0.12); }
+.laforge-status-warn { color: var(--yellow); background: rgba(255, 194, 45, 0.12); }
+.laforge-status-info { color: var(--blue);   background: rgba(59, 178, 208, 0.12); }
+
+/* Layout helpers */
+.laforge-pane {
+  background: var(--bg-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.laforge-pane-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-1);
+  font-weight: 600;
+}
+.laforge-pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+
+/* Sidebar (fixed left) */
+.laforge-sidebar {
+  position: fixed;
+  left: 0; top: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--bg-1);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+/* Topbar (fixed top) */
+.laforge-topbar {
+  position: fixed;
+  top: 0; left: var(--sidebar-w); right: 0;
+  height: var(--topbar-h);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 90;
+}
+
+/* Main content area when using sidebar+topbar */
+.laforge-main {
+  margin-left: var(--sidebar-w);
+  padding-top: var(--topbar-h);
+  min-height: 100vh;
+}
+
+/* Pulse animation for live indicators */
+@keyframes laforge-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+.laforge-pulse { animation: laforge-pulse 2s infinite; }
+
+/* Toast container */
+.laforge-toast-stack {
+  position: fixed;
+  bottom: 18px; right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+}
+.laforge-toast {
+  background: var(--bg-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--purple);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  box-shadow: var(--shadow-md);
+  animation: laforge-toast-in 220ms ease-out;
+  max-width: 360px;
+}
+.laforge-toast-success { border-left-color: var(--green); }
+.laforge-toast-error   { border-left-color: var(--red); }
+.laforge-toast-warn    { border-left-color: var(--yellow); }
+@keyframes laforge-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Responsive : sidebar collapse sur mobile */
+@media (max-width: 768px) {
+  .laforge-sidebar { transform: translateX(-100%); transition: transform 220ms; }
+  .laforge-sidebar.open { transform: translateX(0); }
+  .laforge-topbar  { left: 0; }
+  .laforge-main    { margin-left: 0; }
+}

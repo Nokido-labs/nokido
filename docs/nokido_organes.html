@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Nokido — organes et interactions</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--paper:#0C0A13;--paper-2:#1C1928;--ink:#EDEBF4;--muted:#B2AEC4;--soft:#6E6A82;
+        --rule:#262338;--accent:#774AFF;--link:#3BB2D0;--ok:#4AC28B;--warn:#FFC22D;
+        --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+        --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:64ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:860px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1.2fr 1fr .9fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}.card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · anatomie fonctionnelle · 2026-08-12</p>
+  <h1>Organes et interactions</h1>
+  <p class="sub">Neuf organes sur les quinze du census, 621 modules sur 985. Le flux va
+     de l'afférent à l'efférent, et <b>rien ne traverse sans passer par l'immunitaire</b> —
+     c'est la boucle nerveuse, pas un organigramme.</p>
+
+  <figure>
+  <svg viewBox="0 0 960 552" role="img" aria-labelledby="no-title no-desc">
+    <title id="no-title">Organes de Nokido et leurs interactions</title>
+    <desc id="no-desc">Les sens ingèrent vers la mémoire, qui alimente la cognition ;
+      celle-ci formule une intention au système nerveux central, filtrée par l'immunitaire
+      avant d'atteindre le locomoteur, pendant que le végétatif régule le tout.</desc>
+    <defs>
+      <marker id="no-ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#B2AEC4"/></marker>
+      <marker id="no-ar-a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#774AFF"/></marker>
+    </defs>
+    <rect width="960" height="552" fill="#0C0A13"/>
+
+    <!-- zones -->
+    <rect x="40" y="72" width="280" height="400" rx="8" fill="rgba(237,235,244,0.02)" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <rect x="124" y="76" width="112" height="12" rx="2" fill="#0C0A13"/>
+    <text x="180" y="85" fill="rgba(237,235,244,0.40)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">AFFÉRENT</text>
+
+    <rect x="352" y="72" width="256" height="400" rx="8" fill="rgba(119,74,255,0.05)" stroke="rgba(119,74,255,0.40)" stroke-width="0.8" stroke-dasharray="4,4"/>
+    <rect x="436" y="76" width="88" height="12" rx="2" fill="#0C0A13"/>
+    <text x="480" y="85" fill="rgba(119,74,255,0.70)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">CENTRAL</text>
+
+    <rect x="640" y="72" width="280" height="400" rx="8" fill="rgba(237,235,244,0.02)" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <rect x="724" y="76" width="112" height="12" rx="2" fill="#0C0A13"/>
+    <text x="780" y="85" fill="rgba(237,235,244,0.40)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">EFFÉRENT</text>
+
+    <!-- connecteurs -->
+    <line x1="180" y1="184" x2="180" y2="212" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#no-ar)"/>
+    <rect x="192" y="190" width="72" height="12" rx="2" fill="#0C0A13"/>
+    <text x="228" y="199" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle">INGESTION</text>
+    <line x1="180" y1="296" x2="180" y2="324" stroke="#B2AEC4" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#no-ar)"/>
+    <path d="M 304,240 H 328 Q 336,240 336,232 V 156 Q 336,148 344,148 H 368" fill="none" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#no-ar)"/>
+    <rect x="248" y="122" width="56" height="12" rx="2" fill="#0C0A13"/>
+    <text x="276" y="131" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle">RAPPEL</text>
+    <line x1="480" y1="184" x2="480" y2="212" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#no-ar)"/>
+    <line x1="480" y1="296" x2="480" y2="324" stroke="#774AFF" stroke-width="1.4" marker-end="url(#no-ar-a)"/>
+    <rect x="492" y="302" width="72" height="12" rx="2" fill="#0C0A13"/>
+    <text x="528" y="311" fill="#774AFF" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle">FILTRAGE</text>
+    <line x1="592" y1="148" x2="656" y2="148" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#no-ar)"/>
+    <path d="M 592,364 H 628 Q 636,364 636,356 V 264 Q 636,256 644,256 H 656" fill="none" stroke="#774AFF" stroke-width="1.4" marker-end="url(#no-ar-a)"/>
+    <path d="M 656,352 H 620 Q 612,352 612,344 V 272 Q 612,264 604,264 H 592" fill="none" stroke="#B2AEC4" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#no-ar)"/>
+
+    <!-- organes -->
+    <g font-family="'Inter',sans-serif" text-anchor="middle">
+      <rect x="56" y="112" width="248" height="72" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="180" y="140" font-size="12" font-weight="600" fill="#EDEBF4">Digestif &amp; Sens</text>
+      <text x="180" y="156" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">crawl · ingest · PTY · browser</text>
+      <text x="180" y="172" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">48 modules</text>
+
+      <rect x="56" y="212" width="248" height="84" rx="6" fill="rgba(119,74,255,0.10)" stroke="#774AFF"/>
+      <text x="180" y="242" font-size="12" font-weight="600" fill="#EDEBF4">Mémoire</text>
+      <text x="180" y="258" font-size="9" fill="#B2AEC4" font-family="'JetBrains Mono',monospace">hippocampe + RAG 1024D</text>
+      <text x="180" y="274" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">97 modules · 1 M chunks</text>
+      <text x="180" y="288" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">%NOKIDO_DATA%\ chiffré</text>
+
+      <rect x="56" y="324" width="248" height="72" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="180" y="352" font-size="12" font-weight="600" fill="#EDEBF4">Graph &amp; Savoirs</text>
+      <text x="180" y="368" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">PPR · liens · CVE · historien</text>
+      <text x="180" y="384" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">43 modules</text>
+
+      <rect x="368" y="112" width="224" height="72" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="480" y="140" font-size="12" font-weight="600" fill="#EDEBF4">Cognition</text>
+      <text x="480" y="156" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">rôles · métacognition · GOAP</text>
+      <text x="480" y="172" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">72 modules</text>
+
+      <rect x="368" y="212" width="224" height="84" rx="6" fill="rgba(119,74,255,0.10)" stroke="#774AFF"/>
+      <text x="480" y="242" font-size="12" font-weight="600" fill="#EDEBF4">SNC</text>
+      <text x="480" y="258" font-size="9" fill="#B2AEC4" font-family="'JetBrains Mono',monospace">hub · moelle · SN périphérique</text>
+      <text x="480" y="274" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">89 modules · 43k LOC</text>
+      <text x="480" y="288" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">write-funnel unique</text>
+
+      <rect x="368" y="324" width="224" height="72" rx="6" fill="rgba(119,74,255,0.06)" stroke="rgba(119,74,255,0.55)" stroke-dasharray="4,4"/>
+      <text x="480" y="352" font-size="12" font-weight="600" fill="#EDEBF4">Immunitaire</text>
+      <text x="480" y="368" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">firewall · membrane · rings</text>
+      <text x="480" y="384" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">49 modules</text>
+
+      <rect x="656" y="112" width="248" height="72" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="780" y="140" font-size="12" font-weight="600" fill="#EDEBF4">Métabolisme LLM</text>
+      <text x="780" y="156" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">routeur · backends · NPU</text>
+      <text x="780" y="172" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">67 modules</text>
+
+      <rect x="656" y="212" width="248" height="84" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="780" y="242" font-size="12" font-weight="600" fill="#EDEBF4">Locomoteur</text>
+      <text x="780" y="258" font-size="9" fill="#B2AEC4" font-family="'JetBrains Mono',monospace">7 silos · runner · handoff</text>
+      <text x="780" y="274" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">81 modules · 34k LOC</text>
+      <text x="780" y="288" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">686 nœuds de chaîne</text>
+
+      <rect x="656" y="324" width="248" height="72" rx="6" fill="rgba(237,235,244,0.04)" stroke="rgba(237,235,244,0.30)"/>
+      <text x="780" y="352" font-size="12" font-weight="600" fill="#EDEBF4">Végétatif</text>
+      <text x="780" y="368" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">homéostasie · watchdog · rescue</text>
+      <text x="780" y="384" font-size="9" fill="#6E6A82" font-family="'JetBrains Mono',monospace">75 modules</text>
+    </g>
+
+    <!-- légende -->
+    <line x1="32" y1="500" x2="928" y2="500" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <g font-family="'JetBrains Mono',monospace" font-size="9" fill="#B2AEC4">
+      <text x="32" y="520" font-size="8" fill="#6E6A82" letter-spacing="0.14em">LÉGENDE</text>
+      <rect x="128" y="510" width="14" height="10" rx="2" fill="rgba(119,74,255,0.10)" stroke="#774AFF"/>
+      <text x="150" y="520">organe pivot</text>
+      <rect x="256" y="510" width="14" height="10" rx="2" fill="rgba(119,74,255,0.06)" stroke="rgba(119,74,255,0.55)" stroke-dasharray="4,4"/>
+      <text x="278" y="520">frontière immunitaire</text>
+      <line x1="424" y1="515" x2="456" y2="515" stroke="#774AFF" stroke-width="1.4"/>
+      <text x="464" y="520">chemin gouverné</text>
+      <line x1="592" y1="515" x2="624" y2="515" stroke="#B2AEC4" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="632" y="520">régulation / liens</text>
+      <text x="128" y="538" font-size="8" fill="#6E6A82">9 organes sur 15 · 621 modules sur 985 — infra (98), observabilité (36), qualité (44), réseau (21), offensif (11), SWE (5) et legacy (149) ne sont pas figurés</text>
+    </g>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>La boucle, pas l'organigramme</h3>
+      <ul>
+        <li>Les sens ingèrent, la mémoire retient, la cognition formule, le SNC décide, l'immunitaire filtre, le locomoteur agit.</li>
+        <li><b>Aucun chemin ne contourne l'immunitaire.</b> C'est ce qui rend la gouvernance structurelle : on ne peut pas oublier de l'appeler.</li>
+        <li>Le végétatif ne participe pas au flux — il le <b>régule</b>, en boucle fermée sur le SNC.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#4AC28B"></span>Ce que le census dit</h3>
+      <ul>
+        <li>Les deux plus gros organes en LOC sont le <b>SNC</b> (43k) et le <b>locomoteur</b> (34k) : décider et agir coûtent plus cher que percevoir.</li>
+        <li>La mémoire a le plus de <b>modules</b> (97) pour 24k LOC — beaucoup de petites pièces spécialisées.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>Ce qui n'est pas dessiné</h3>
+      <ul>
+        <li>6 organes et 364 modules restent hors cadre — le budget du schéma est de 9 nœuds.</li>
+        <li>Ne pas les figurer est un choix, pas un oubli : la carte complète est dans <code>organ_map_full.json</code>.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Nokido · census 985 modules / 15 organes · CLAUDE.md §10 · 2026-08-12</footer>
+</div>
+</html>

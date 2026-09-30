@@ -1,0 +1,18 @@
+import * as React from "react";
+
+/**
+ * Jauge de souveraineté — part du calcul qui tourne en local vs distant.
+ * Barre verte (local) sur fond violet (cloud). À afficher en permanence dans le hub.
+ *
+ * @startingPoint section="Sovereignty" subtitle="Jauge part locale vs distante" viewport="700x120"
+ */
+export interface SovereigntyGaugeProps {
+  /** Pourcentage exécuté en local (0–100) */
+  local?: number;
+  label?: React.ReactNode;
+  showLegend?: boolean;
+  height?: number;
+  style?: React.CSSProperties;
+}
+
+export function SovereigntyGauge(props: SovereigntyGaugeProps): JSX.Element;

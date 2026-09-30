@@ -1,0 +1,132 @@
+#!/bin/bash
+# pcwake — reveille le PC (WOL) et ouvre une session RDP.
+# Deploye sur le Debian nomade : /usr/local/bin/pcwake
+#
+# Usage : pcwake <user_windows> [lan|wan|auto] [f|fit|dyn|LARGEURxHAUTEUR]
+#   lan  : force le mode LAN (pas de tunnel) — a la maison
+#   wan  : force le mode distant (tunnel WireGuard) — dehors
+#   auto : detecte (defaut)
+# Affichage (3e arg, defaut "f") :
+#   f        plein ecran + barre flottante. LE PLUS FLUIDE : le compositeur
+#            (marco/MATE) de-redirige la fenetre plein ecran -> rendu direct.
+#            En fenetre, chaque image repasse par la composition -> saccades.
+#            Sortie : barre flottante en haut (Ctrl+Alt+Entree est avale par le WM).
+#   fit      fenetre calee sur l'ecran (moins fluide, mais croix de fermeture)
+#   dyn      fenetre redimensionnable
+#   1280x800 taille fixe
+set -eu
+
+MAC="A0:AD:9F:CE:F1:99"
+IP="localhost"
+BOX="localhost"
+BOX_UID="a7fa331b3451c00ccbc73f2aa9b50363"
+HOME_CONN="Freebox-84E974"
+TUN="fbx"
+
+# Performance : GFX (H.264 AVC444) + profil reseau auto. FreeRDP ne les active
+# PAS par defaut, d'ou un rendu inutilement mou. Le client Debian est bien lie
+# a libavcodec + libopenh264, le codec est donc disponible.
+PERF="/network:lan -wallpaper -themes -menu-anims /gfx:AVC420 /gdi:hw +clipboard /sound:sys:pulse,latency:50,quality:medium /cert:ignore"
+PERF_FALLBACK="/network:lan -wallpaper -themes -menu-anims +clipboard /sound:sys:pulse,latency:50,quality:medium /cert:ignore"
+
+WINUSER="${1:-}"
+MODE="${2:-auto}"
+SIZE="${3:-f}"
+[ -n "$WINUSER" ] || { echo "usage: pcwake <user_windows> [lan|wan|auto] [f|fit|dyn|LxH]"; exit 2; }
+
+screen_geom() { xrandr 2>/dev/null | awk '/\*/ {print $1; exit}'; }
+
+GEOM=""
+FLOAT=""
+case "$SIZE" in
+    f)   GEOM="/f"; FLOAT="+floatbar" ;;
+    dyn) GEOM="/dynamic-resolution" ;;
+    fit)
+        g="$(screen_geom || true)"
+        if [ -n "${g:-}" ]; then
+            w="${g%x*}"; h="${g#*x}"
+            GEOM="/size:${w}x$((h - 70))"
+        else
+            GEOM="/f"; FLOAT="+floatbar"
+        fi
+        ;;
+    *)   GEOM="/size:$SIZE" ;;
+esac
+
+# --- Suis-je a la maison ? ------------------------------------------------
+# NE PAS tester le sous-reseau : la maison ET beaucoup d'autres reseaux (box
+# d'amis, partages 4G) utilisent localhost/24. Le seul test qui ne ment pas :
+# la Freebox repond-elle EN DIRECT (tunnel baisse) avec SON identifiant unique ?
+at_home() {
+    if curl -s --max-time 2 "http://$BOX/api_version" 2>/dev/null | grep -q "$BOX_UID"; then
+        return 0
+    fi
+    nmcli -t -f NAME connection show --active 2>/dev/null | grep -qx "$HOME_CONN"
+}
+
+want_wan=0
+case "$MODE" in
+    lan) want_wan=0 ;;
+    wan) want_wan=1 ;;
+    auto) at_home || want_wan=1 ;;
+    *) echo "[pcwake] mode inconnu : $MODE (lan|wan|auto)"; exit 2 ;;
+esac
+
+if [ "$want_wan" = 1 ]; then
+    if at_home; then
+        echo "[pcwake] REFUS : la Freebox repond en direct -> tu es a la maison."
+        echo "         Monter le tunnel ici te couperait du reseau."
+        echo "  -> utilise le lanceur LAN, ou 'pcwake $WINUSER lan'."
+        exit 3
+    fi
+    echo "[pcwake] mode distant -> montee du tunnel $TUN"
+    sudo wg-quick up "$TUN" 2>/dev/null || true
+    hs=0
+    for _ in $(seq 1 10); do
+        if sudo wg show "$TUN" 2>/dev/null | grep -q 'latest handshake'; then hs=1; break; fi
+        sleep 1
+    done
+    [ "$hs" = 1 ] || { echo "[pcwake] pas de handshake WireGuard -> UDP 1111 bloque, ou endpoint change"; exit 1; }
+    echo "[pcwake] tunnel OK -> reveil"
+    # Reveil distant, deux tentatives cumulees (reveiller un PC deja reveille = inoffensif) :
+    #  1. unicast WOL A TRAVERS le tunnel : la box a un bail statique .210->MAC,
+    #     donc une entree ARP permanente -> elle livre le paquet unicast a la carte
+    #     endormie. Zero exposition, marche sur tout reseau (ne route que .210).
+    #  2. API Freebox en repli (publique si acces distant actif, sinon LAN maison).
+    wakeonlan -i "$IP" "$MAC" >/dev/null 2>&1 || true
+    sudo fbxwol --mac "$MAC" >/dev/null 2>&1 || true
+else
+    echo "[pcwake] mode LAN -> reveil direct (pas de tunnel)"
+    # Filet : si on est rentre a la maison avec le tunnel monte, il faut le couper.
+    sudo wg-quick down "$TUN" >/dev/null 2>&1 || true
+    wakeonlan "$MAC" >/dev/null || true
+fi
+
+printf "[pcwake] attente du port 3389"
+ok=0
+for _ in $(seq 1 60); do
+    if nc -z -w1 "$IP" 3389 2>/dev/null; then echo " -> ouvert"; ok=1; break; fi
+    printf "."
+    sleep 2
+done
+
+if [ "$ok" != 1 ]; then
+    echo
+    echo "[pcwake] 3389 injoignable apres 120s."
+    echo "  -> ouvre http://$BOX (Freebox OS), clique 'Reveiller' sur DESKTOP-XXXX,"
+    echo "     puis relance : pcwake \"$WINUSER\" $MODE"
+    read -rp "Appuie sur Entree pour fermer..." _ || true
+    exit 1
+fi
+
+# FreeRDP flatpak (H264) prioritaire : le paquet Debian est compile SANS AVC
+# (le serveur loggue "AVC disponible: 0" -> RFX progressif, 50-75% CPU client
+# en lecture video). Filets : xfreerdp distro, puis sans GFX.
+if flatpak info com.freerdp.FreeRDP >/dev/null 2>&1; then
+    flatpak run com.freerdp.FreeRDP /v:"$IP" /u:"$WINUSER" $GEOM $FLOAT $PERF \
+        || xfreerdp /v:"$IP" /u:"$WINUSER" $GEOM $FLOAT $PERF \
+        || xfreerdp /v:"$IP" /u:"$WINUSER" $GEOM $FLOAT $PERF_FALLBACK
+else
+    xfreerdp /v:"$IP" /u:"$WINUSER" $GEOM $FLOAT $PERF \
+        || xfreerdp /v:"$IP" /u:"$WINUSER" $GEOM $FLOAT $PERF_FALLBACK
+fi

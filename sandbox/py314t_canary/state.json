@@ -1,0 +1,111 @@
+{
+  "phase1_ts": "2026-05-29T07:24:59.823632+00:00",
+  "phase1_heartbeat": {
+    "ts": "2026-05-29T04:40:58.998451",
+    "pid": 18596,
+    "interval_s": 21600,
+    "last_results": {
+      "skipped": "skip \u2014 only 0 new traces (min=50)",
+      "total_traces": 13105,
+      "new_traces": 0
+    }
+  },
+  "phase1_heartbeat_age_s": 9840.825181,
+  "phase1_old_pid": 18596,
+  "target_service": "NokidoOfflineTrainer",
+  "old_cmd": "${PYTHON}",
+  "new_cmd": "${PY314T}",
+  "phase2_ts": "2026-05-29T07:25:28.696614+00:00",
+  "phase2_backup_path": "sandbox/py314t_canary/services.toml.backup",
+  "phase2_status": "flipped",
+  "phase2_method": "Edit tool (Claude session) -- sandbox write blocked",
+  "phase2_env_added": {
+    "PYTHON_GIL": "0"
+  },
+  "phase3_ts": "2026-05-29T07:43:43.342187+00:00",
+  "phase3_samples": [
+    {
+      "ts": "2026-05-29T07:26:37.780878+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:27:07.781387+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:27:37.781699+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:28:07.782175+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:28:37.783074+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:29:07.783735+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:29:37.784712+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:30:07.785720+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:30:37.786654+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    },
+    {
+      "ts": "2026-05-29T07:31:07.788951+00:00",
+      "hb_ts": "2026-05-29T09:25:49.346396",
+      "hb_age_s": -1,
+      "pid": 15464,
+      "pid_changed_vs_baseline": true
+    }
+  ],
+  "phase3_verdict": "HEALTHY",
+  "phase3_pid_changed": true,
+  "phase3_last_hb_age_s": -1,
+  "phase3_method": "supervisor sleep+reload+wake (restart endpoint cache stale)",
+  "phase3_final_pid": 19372,
+  "phase3_final_exe": "%USERPROFILE%\\miniforge3\\envs\\laforge_py314t\\python.exe",
+  "phase3_mem_mb": 40.6,
+  "phase4_ts": "2026-05-29T07:43:43.342187+00:00",
+  "phase4_status": "committed",
+  "nssm_application_set": "%USERPROFILE%/miniforge3/envs/laforge_py314t/python.exe",
+  "nssm_env": {
+    "PYTHON_GIL": "0"
+  }
+}

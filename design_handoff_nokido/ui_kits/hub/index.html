@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido Hub</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="./hub-polish.css?v=1">
+<script src="../../assets/laforge-prefs.js"></script>
+<script src="/static/lucide.min.js?v=0544"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg-0); overflow: hidden; }
+  #root { height: 100vh; display: flex; }
+</style>
+</head><body>
+<div id="root"></div>
+<!-- Maquette PRE-COMPILEE (node + babel-standalone, en local) : hub-shell + hub-views + App
+     dans un seul bundle JS. Plus de Babel-in-browser (3MB) ni de transpile a chaque chargement
+     -> fin du freeze 'la page ne repond plus'. Regenerer : node build-hub.js (DANS ce
+     dossier, git-tracke). La consigne pointait vers C:/tmp/precompile_hub.js, copie
+     restee au 19 juin dont les chemins nomment encore LaForge/design_handoff_laforge :
+     elle echoue depuis le cutover, et un lecteur y perdait son temps. Un lanceur
+     pointe le DEPOT. -->
+<script src="./hub-compiled.js?v=10"></script>
+</body></html>

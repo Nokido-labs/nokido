@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Nokido — vue d'ensemble</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#0C0A13; --paper-2:#1C1928; --ink:#EDEBF4; --muted:#B2AEC4;
+    --soft:#6E6A82; --rule:#262338; --accent:#774AFF; --link:#3BB2D0;
+    --ok:#4AC28B; --warn:#FFC22D; --bad:#F24F4F;
+    --sans:'Inter',-apple-system,'Segoe UI',sans-serif;
+    --mono:'JetBrains Mono','Consolas',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+       padding:3rem 2rem;line-height:1.5}
+  .wrap{max-width:1240px;margin:0 auto}
+  .eyebrow{font-family:var(--mono);font-size:8px;letter-spacing:.16em;
+           text-transform:uppercase;color:var(--soft);margin:0 0 .5rem}
+  h1{font-size:28px;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 2rem;max-width:62ch}
+  figure{margin:0;overflow-x:auto}
+  svg{display:block;min-width:1000px;width:100%;height:auto}
+  .cards{display:grid;grid-template-columns:1.15fr 1fr .85fr;gap:1rem;margin-top:2.5rem}
+  .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.25rem}
+  .card h3{font-size:14px;font-weight:600;margin:0 0 .75rem;display:flex;align-items:center;gap:.5rem}
+  .dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+  .card ul{margin:0;padding-left:1.1rem;color:var(--muted);font-size:13px}
+  .card li{margin-bottom:.4rem}
+  .card b{color:var(--ink);font-weight:600}
+  code{font-family:var(--mono);font-size:12px;color:var(--ink)}
+  footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--rule);
+         font-family:var(--mono);font-size:10px;color:var(--soft)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Nokido · vue système · 2026-08-12</p>
+  <h1>Anatomie de Nokido</h1>
+  <p class="sub">985 modules, 52 services, un seul chemin. Tout appel traverse la membrane :
+     c'est elle qui décide, et c'est elle qui tombe en premier quand le corps va mal.</p>
+
+  <figure>
+  <svg viewBox="0 0 1200 520" role="img" aria-labelledby="nokido-title nokido-desc">
+    <title id="nokido-title">Anatomie de Nokido</title>
+    <desc id="nokido-desc">Le superviseur possède le hub, qui n'atteint aucun organe sans
+      traverser la membrane souveraine ; celle-ci ouvre l'accès à la mémoire RAG, au pool
+      de modèles locaux et à la périphérie, tandis que le hub inscrit les faits au
+      blackboard qui alimente la roadmap.</desc>
+
+    <defs>
+      <marker id="n-ar" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#B2AEC4"/></marker>
+      <marker id="n-ar-a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#774AFF"/></marker>
+    </defs>
+
+    <rect width="100%" height="100%" fill="#0C0A13"/>
+
+    <!-- zones -->
+    <rect x="32" y="88" width="280" height="248" rx="8" fill="rgba(237,235,244,0.02)" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <rect x="112" y="92" width="120" height="12" rx="2" fill="#0C0A13"/>
+    <text x="172" y="101" fill="rgba(237,235,244,0.40)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">GOUVERNANCE</text>
+
+    <rect x="368" y="168" width="248" height="168" rx="8" fill="rgba(119,74,255,0.05)" stroke="rgba(119,74,255,0.50)" stroke-width="0.8" stroke-dasharray="4,4"/>
+    <rect x="440" y="172" width="104" height="12" rx="2" fill="#0C0A13"/>
+    <text x="492" y="181" fill="rgba(119,74,255,0.70)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">MEMBRANE</text>
+
+    <rect x="672" y="88" width="496" height="296" rx="8" fill="rgba(237,235,244,0.02)" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <rect x="872" y="92" width="96" height="12" rx="2" fill="#0C0A13"/>
+    <text x="920" y="101" fill="rgba(237,235,244,0.40)" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.14em">ORGANES</text>
+
+    <!-- arrows -->
+    <line x1="172" y1="176" x2="172" y2="220" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#n-ar)"/>
+    <rect x="188" y="186" width="72" height="12" rx="2" fill="#0C0A13"/>
+    <text x="224" y="195" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.06em">POSSÈDE</text>
+
+    <line x1="296" y1="264" x2="384" y2="264" stroke="#774AFF" stroke-width="1.2" marker-end="url(#n-ar-a)"/>
+
+    <path d="M 600,240 H 656 Q 664,240 664,232 V 152 Q 664,144 672,144 H 696" fill="none" stroke="#774AFF" stroke-width="1.2" marker-end="url(#n-ar-a)"/>
+    <rect x="608" y="212" width="56" height="12" rx="2" fill="#0C0A13"/>
+    <text x="636" y="221" fill="#774AFF" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.06em">RING</text>
+
+    <path d="M 600,288 H 632 Q 640,288 640,280 V 276 Q 640,268 648,268 H 696" fill="none" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#n-ar)"/>
+
+    <line x1="912" y1="144" x2="944" y2="144" stroke="#B2AEC4" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#n-ar)"/>
+
+    <path d="M 492,316 V 344 Q 492,352 500,352 H 1036 Q 1044,352 1044,344 V 308" fill="none" stroke="#B2AEC4" stroke-width="1.2" marker-end="url(#n-ar)"/>
+    <rect x="700" y="330" width="88" height="12" rx="2" fill="#0C0A13"/>
+    <text x="744" y="339" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.06em">FAITS</text>
+
+    <!-- nœuds -->
+    <rect x="48" y="112" width="248" height="64" rx="6" fill="#0C0A13"/>
+    <rect x="48" y="112" width="248" height="64" rx="6" fill="#1C1928" stroke="rgba(237,235,244,0.30)" stroke-width="1"/>
+    <text x="172" y="142" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">LaForge-Master</text>
+    <text x="172" y="158" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:8765 · 52 services · propriétaire du hub</text>
+
+    <rect x="48" y="220" width="248" height="88" rx="6" fill="#0C0A13"/>
+    <rect x="48" y="220" width="248" height="88" rx="6" fill="rgba(119,74,255,0.10)" stroke="#774AFF" stroke-width="1"/>
+    <rect x="56" y="228" width="36" height="12" rx="2" fill="transparent" stroke="rgba(119,74,255,0.60)" stroke-width="0.8"/>
+    <text x="74" y="237" fill="#774AFF" font-size="7" font-family="'JetBrains Mono',monospace" text-anchor="middle" letter-spacing="0.08em">SNC</text>
+    <text x="172" y="264" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Hub souverain</text>
+    <text x="172" y="280" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:8766 · 80 handlers · 50 exposés</text>
+    <text x="172" y="296" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">write-funnel unique, mono-writer</text>
+
+    <rect x="384" y="212" width="216" height="104" rx="6" fill="#0C0A13"/>
+    <rect x="384" y="212" width="216" height="104" rx="6" fill="rgba(119,74,255,0.05)" stroke="rgba(119,74,255,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="492" y="244" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Gate souverain</text>
+    <text x="492" y="262" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">rings · videur · firewall</text>
+    <text x="492" y="276" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">membrane · secret guard</text>
+    <text x="492" y="298" fill="#F24F4F" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">fail-closed = tout refusé</text>
+
+    <rect x="696" y="104" width="216" height="80" rx="6" fill="#0C0A13"/>
+    <rect x="696" y="104" width="216" height="80" rx="6" fill="rgba(119,74,255,0.10)" stroke="#774AFF" stroke-width="1"/>
+    <text x="804" y="134" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Mémoire RAG</text>
+    <text x="804" y="150" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">%NOKIDO_DATA%\ chiffré · embeddings.db</text>
+    <text x="804" y="166" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">1 M chunks · FTS5 + 1024D</text>
+
+    <rect x="696" y="224" width="216" height="88" rx="6" fill="#0C0A13"/>
+    <rect x="696" y="224" width="216" height="88" rx="6" fill="#1C1928" stroke="rgba(237,235,244,0.30)" stroke-width="1"/>
+    <text x="804" y="254" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Pool LLM local</text>
+    <text x="804" y="270" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:8091 llama.cpp · :11434 ollama</text>
+    <text x="804" y="286" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:8099 embed · :8100 rerank</text>
+    <text x="804" y="302" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">réveil à l'intention · *.wanted</text>
+
+    <rect x="944" y="104" width="200" height="80" rx="6" fill="#0C0A13"/>
+    <rect x="944" y="104" width="200" height="80" rx="6" fill="rgba(237,235,244,0.03)" stroke="rgba(237,235,244,0.30)" stroke-width="1"/>
+    <text x="1044" y="134" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Périphérie</text>
+    <text x="1044" y="150" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:7401 bus Deno · :7400 UI</text>
+    <text x="1044" y="166" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">:7500 netcfg · :8767 mcp</text>
+
+    <rect x="944" y="236" width="200" height="72" rx="6" fill="#0C0A13"/>
+    <rect x="944" y="236" width="200" height="72" rx="6" fill="rgba(237,235,244,0.05)" stroke="#B2AEC4" stroke-width="1"/>
+    <text x="1044" y="266" fill="#EDEBF4" font-size="12" font-weight="600" font-family="'Inter',sans-serif" text-anchor="middle">Blackboard</text>
+    <text x="1044" y="282" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">zones · trust · ACL par ring</text>
+    <text x="1044" y="298" fill="#6E6A82" font-size="9" font-family="'JetBrains Mono',monospace" text-anchor="middle">→ roadmap SSoT</text>
+
+    <!-- légende -->
+    <line x1="32" y1="424" x2="1168" y2="424" stroke="rgba(237,235,244,0.10)" stroke-width="0.8"/>
+    <text x="32" y="444" fill="#6E6A82" font-size="8" font-family="'JetBrains Mono',monospace" letter-spacing="0.14em">LÉGENDE</text>
+    <rect x="128" y="434" width="14" height="10" rx="2" fill="rgba(119,74,255,0.10)" stroke="#774AFF" stroke-width="1"/>
+    <text x="150" y="443" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace">focal</text>
+    <rect x="228" y="434" width="14" height="10" rx="2" fill="rgba(119,74,255,0.05)" stroke="rgba(119,74,255,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+    <text x="250" y="443" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace">frontière de sécurité</text>
+    <rect x="424" y="434" width="14" height="10" rx="2" fill="#1C1928" stroke="rgba(237,235,244,0.30)" stroke-width="1"/>
+    <text x="446" y="443" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace">service</text>
+    <rect x="552" y="434" width="14" height="10" rx="2" fill="rgba(237,235,244,0.05)" stroke="#B2AEC4" stroke-width="1"/>
+    <text x="574" y="443" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace">état persistant</text>
+    <line x1="716" y1="439" x2="748" y2="439" stroke="#B2AEC4" stroke-width="1" stroke-dasharray="4,3"/>
+    <text x="756" y="443" fill="#B2AEC4" font-size="9" font-family="'JetBrains Mono',monospace">à la demande</text>
+  </svg>
+  </figure>
+
+  <div class="cards">
+    <div class="card">
+      <h3><span class="dot" style="background:#774AFF"></span>Un seul chemin</h3>
+      <ul>
+        <li>Aucun organe n'est joignable sans traverser la membrane — c'est ce qui rend la gouvernance réelle plutôt que déclarative.</li>
+        <li><b>Contrepartie mesurée</b> : le 12/08, <code>V:</code> non monté a fait échouer le contrôle des <i>switches</i> → <b>100 % des appels en GATE_DENIED</b>, y compris l'édition gouvernée.</li>
+        <li>Et <code>/health</code> répondait <code>ok</code> pendant ce temps : le port vit, le corps non.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#4AC28B"></span>Le corps s'économise</h3>
+      <ul>
+        <li>Embedder, reranker et graph sont <b>éteints au boot</b> — réveillés par une intention <code>*.wanted</code> à TTL.</li>
+        <li>Une intention qui ne périme jamais est un blocage permanent : le TTL n'est pas cosmétique.</li>
+        <li>52 services, ~18 vivants en régime normal.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="dot" style="background:#FFC22D"></span>Ce qui reste ouvert</h3>
+      <ul>
+        <li><code>Géré-superviseur : 0</code> — aucun service piloté par le superviseur, contre l'intention.</li>
+        <li><code>poll</code> dispatché mais hors surface ring 0.</li>
+        <li>Miroir Codeberg bloqué par quota.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>Nokido · census 985 modules / 15 organes · skin design_handoff_nokido · 2026-08-12</footer>
+</div>
+</html>

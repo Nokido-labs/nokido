@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr" data-theme="dark"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido — Onboarding souverain</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/lucide.min.js"></script>
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  html, body { height: 100%; }
+  body { margin: 0; background: radial-gradient(ellipse at 50% 0%, #1a1626 0%, var(--bg-0) 60%);
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; box-sizing: border-box; }
+</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="onboarding-screens.ref.jsx"></script>
+<script type="text/babel">
+const { IOSDevice } = window;
+
+function Flow() {
+  const [step, setStep] = React.useState(0);
+  const [level, setLevel] = React.useState("hybrid");
+  const [power, setPower] = React.useState(70);
+  const [enabled, setEnabled] = React.useState({ sante: true, domotique: true, transport: false, finance: false, creation: true, dev: false });
+  const toggle = (id) => setEnabled((e) => ({ ...e, [id]: !e[id] }));
+  const next = () => setStep((s) => Math.min(4, s + 1));
+  const back = () => setStep((s) => Math.max(0, s - 1));
+
+  React.useEffect(() => { if (window.lucide) lucide.createIcons(); });
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", paddingTop: "52px", boxSizing: "border-box" }}>
+      <div style={{ padding: "0 22px 10px" }}><window.OnbProgress step={step} /></div>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {step === 0 && <window.OnbS0 onNext={next} />}
+        {step === 1 && <window.OnbS1 onNext={next} onBack={back} level={level} setLevel={setLevel} />}
+        {step === 2 && <window.OnbS2 onNext={next} onBack={back} power={power} setPower={setPower} />}
+        {step === 3 && <window.OnbS3 onNext={next} onBack={back} enabled={enabled} toggle={toggle} />}
+        {step === 4 && <window.OnbS4 onBack={back} onDone={() => { window.location.href = "../hub/index.html"; }} level={level} power={power} enabled={enabled} />}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+      <IOSDevice dark width={402} height={874}>
+        <Flow />
+      </IOSDevice>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-dim)" }}>Parcours interactif · « Entrer dans le hub » mène au hub PC</div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+setTimeout(() => window.lucide && lucide.createIcons(), 100);
+</script>
+</body></html>

@@ -1,0 +1,32 @@
+/* ============================================================================
+   Nokido — Domain accent tokens   (NEW)
+   Each module/section shares one card grammar but carries its own accent tint
+   for immediate recognition. Tints are drawn from the core palette so the
+   whole grid stays cohesive.
+   ----------------------------------------------------------------------------
+   Santé & Domotique lean to the LOCAL (green) family by design — their data is
+   private / local-first by default.
+   ========================================================================== */
+
+:root {
+  --domain-transport:  #3BB2D0;   /* blue   — real-time, motion, maps */
+  --domain-sante:      #4AC28B;   /* green  — local-forced, max privacy */
+  --domain-finance:    #FFC22D;   /* ambre — traçabilité, neutralité (aligne sur le hub, owner 2026-09-29) */
+  --domain-loisir:     #EC4899;   /* pink   — discovery, serendipity */
+  --domain-achat:      #FF9142;   /* orange — comparatif, neutralité */
+  --domain-creation:   #774AFF;   /* purple — atelier, iteration */
+  --domain-jeux:       #2DD4BF;   /* cyan — immersif, faible latence */
+  --domain-dev:        #B2AEC4;   /* gris froid — terminal, logs */
+  --domain-domotique:  #4AC28B;   /* vert — local-first absolu, maison vivante */
+
+  /* matching translucent tints for icon chips / accents */
+  --domain-transport-tint:  rgba(59, 178, 208, 0.16);
+  --domain-sante-tint:      rgba(74, 194, 139, 0.16);
+  --domain-finance-tint:    rgba(45, 212, 191, 0.16);
+  --domain-loisir-tint:     rgba(236, 72, 153, 0.16);
+  --domain-achat-tint:      rgba(255, 194, 45, 0.16);
+  --domain-creation-tint:   rgba(119, 74, 255, 0.16);
+  --domain-jeux-tint:       rgba(255, 145, 66, 0.16);
+  --domain-dev-tint:        rgba(88, 199, 226, 0.16);
+  --domain-domotique-tint:  rgba(91, 216, 156, 0.16);
+}

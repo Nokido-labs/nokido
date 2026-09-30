@@ -1,0 +1,107 @@
+{
+  "gardes": {
+    "anatomie": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "archi-lint": {
+      "dernier_reel": "2026-08-30",
+      "dernier_unknown": "2026-08-20",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "ast-bunker": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "bandit": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "capacites": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "couverture de mesure": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "duplication": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "flake8 critique": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "flake8 style": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "gate bidon": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "golden-rules": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "license guard": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "mutation-ratchet": {
+      "dernier_reel": "2026-09-11",
+      "dernier_unknown": "2026-09-01",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "pip-audit": {
+      "dernier_reel": "2026-09-03",
+      "dernier_unknown": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 4
+    },
+    "pytest": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "ruff critique": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "ruff style": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "secrets hors coffre": {
+      "dernier_reel": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 0
+    },
+    "ui-acceptance": {
+      "dernier_reel": "2026-09-09",
+      "dernier_unknown": "2026-09-11",
+      "etat": "PASS",
+      "unknown_consecutifs": 1
+    }
+  },
+  "genere_par": "tools/ci_local.py",
+  "observe_le": "2026-09-11",
+  "perimetre": "FULL",
+  "seuil_anergie_jours": 14
+}

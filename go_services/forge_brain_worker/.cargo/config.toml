@@ -1,0 +1,17 @@
+# Optimisation pour Ryzen 7 8700G (Zen 4) — AVX-512 VNNI + BF16 + complet.
+# Gain ~1.5-2x sur le wrapper Rust + tokenizer + msgpack vs build x86_64 generique.
+#
+# Note : pour AVX-512 dans les kernels ONNXRuntime eux-memes, il faut un
+# onnxruntime custom compile avec --use_avx512. Sinon le crate ort utilise
+# un binaire onnxruntime precompile generique. Voir docs/BRAIN_WORKER_AVX512.md
+# pour la procedure complete.
+
+[build]
+rustflags = [
+    "-C", "target-cpu=znver4",
+    "-C", "target-feature=+avx512f,+avx512vnni,+avx512bf16,+avx512vl,+avx512bw,+avx512dq,+avx512cd",
+    "-C", "link-arg=-Wl,-O1",
+]
+
+# Si tu compiles aussi sur d'autres machines, override possible via env :
+#   $env:CARGO_BUILD_RUSTFLAGS = "-C target-cpu=native"

@@ -1,0 +1,445 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nokido-agent"
+version = "0.20.4"
+description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "AGPL-3.0-or-later"}
+authors = [
+    # Pseudonyme (decision owner 2026-09-30) : le nom civil ne figure que dans les
+    # documents ou un titulaire identifiable est requis (NOTICE, CLA, COMMERCIAL*).
+    {name = "user"},
+]
+keywords = ["agent", "autonomous", "llm", "mcp", "rag", "ami", "neuro-symbolic", "local-first", "sovereignty"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Free Threading :: 1 - Unstable",
+    "Operating System :: OS Independent",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CORE — strictement le minimum pour un client MCP ou un script qui parle au hub
+# Pas de hub serveur, pas de RAG, pas de UI. ~10 MB d'install.
+# Usage: pip install nokido-agent
+# ─────────────────────────────────────────────────────────────────────────────
+dependencies = [
+    "httpx>=0.27.0",
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+    "psutil>=5.9.0",
+    "rich>=13.0.0",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXTRAS MODULAIRES — installer selon besoin
+# Exemples :
+#   pip install "nokido-agent[hub,rag,llm]"          # stack typique
+#   pipx install "nokido-agent[cli,llm]"             # CLI usage
+#   pip install "nokido-agent[full]"                 # tout sauf dev/bench
+#   pip install "nokido-agent[all]"                  # vraiment tout
+# ─────────────────────────────────────────────────────────────────────────────
+[project.optional-dependencies]
+
+# Hub MCP serveur (FastAPI + Starlette) — pour héberger le hub :8766
+hub = [
+    # FastAPI >=0.116 requis pour compat Starlette 1.0+
+    # (versions plus anciennes pinnent starlette<1.0.0 = bloquent CVE fix).
+    "fastapi>=0.116.0",
+    "uvicorn[standard]>=0.30.0",
+    # CVE-2026-48710 BadHost : Host-header auth bypass dans <1.0.1.
+    # Affecte hub :8766 + tout middleware path-based. Fix 21 mai 2026.
+    "starlette>=1.0.1",
+    "aiohttp>=3.9.0",
+    "mcp>=1.0.0",
+]
+
+# RAG vectoriel — FAISS + BM25 + chunking AST
+rag = [
+    "faiss-cpu>=1.7.4",
+    "numpy>=1.26.0",
+    "rank-bm25>=0.2.2",
+    "tree-sitter>=0.23.0",
+    "tree-sitter-python>=0.23.0",
+]
+
+# Routage LLM multi-providers (litellm cascade)
+llm = [
+    "litellm>=1.40.0",
+    "openai>=1.30.0",
+    "google-genai>=1.0.0",
+]
+
+# Clients cloud spécifiques (au-delà de litellm)
+cloud = [
+    "anthropic>=0.30.0",
+    "groq>=0.4.0",
+    "cohere>=5.0.0",
+    "mistralai>=1.0.0",
+]
+
+# Interfaces utilisateur (CLI TUI + Desktop GUI)
+ui = [
+    "textual>=0.70.0",
+    "PySide6>=6.6.0",
+]
+
+# CLI uniquement (TUI sans GUI desktop) — usage pipx idéal
+cli = [
+    "textual>=0.70.0",
+    "click>=8.1.0",
+]
+
+# Machine Learning (embeddings ONNX, SNN, GNN, sentence-transformers)
+ml = [
+    "onnxruntime>=1.17.0",
+    # >=2.6 et PAS 2.2 : c'est la version ou `torch.load(weights_only=True)`
+    # devient le DEFAUT. Mesure du 2026-09-19 : neuf `torch.load` dans le depot,
+    # dont SEPT sans `weights_only` explicite — ils s'en remettent donc au defaut
+    # de la version. Sous torch 2.2 a 2.5, ce defaut est `False` et `torch.load`
+    # DEPICKLE, c'est-a-dire execute du code a la lecture d'un fichier de modele.
+    # La protection existait, elle n'etait pas DECLAREE : un contributeur
+    # installant l'extra `ml` pouvait obtenir une version ou elle n'existe pas.
+    "torch>=2.6.0",
+    "torch-geometric>=2.5.0",
+    "sentence-transformers>=3.0.0",
+    "snntorch>=0.9.0",
+]
+
+# Git ingestion + monitoring
+git = [
+    "gitpython>=3.1.0",
+    "pygithub>=2.3.0",
+]
+
+# Docker bridge + monitoring
+docker = [
+    "docker>=7.0.0",
+    "matplotlib>=3.8.0",
+]
+
+# Net config (netcfg-agent — multi-vendor SSH, parse Visio)
+netcfg = [
+    "asyncssh>=2.14.0",
+    "paramiko>=3.4.0",
+    "lxml>=5.0.0",
+    "pyte>=0.8.0",
+]
+
+# Documents/PDF extraction (pour ingest /ingest/url, biblio veille)
+docs = [
+    "pdfplumber>=0.10.0",
+    "beautifulsoup4>=4.12.0",
+    "markdownify>=0.13.0",
+]
+
+# Active inference + Liquid Neural Networks (pile AMI Friston/Hasani)
+ami = [
+    "pymdp>=0.0.7",
+    "ncps>=1.0.0",
+    "jax>=0.4.30",
+]
+
+# Benchmarking (promptfoo / langfuse / ragas)
+bench = [
+    "ragas>=0.2.0",
+    "langfuse>=2.30.0",
+    "pytest-benchmark>=4.0.0",
+]
+
+# Security scanning (Semgrep + bandit) — pour Commit Guard étendu
+security = [
+    "semgrep>=1.80.0",
+    "bandit>=1.7.0",
+    "detect-secrets>=1.5.0",
+]
+
+# Dev/test/lint
+dev = [
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "pylint>=3.2.0",
+]
+
+# Bundle "full" — stack typique d'un user qui veut tout sauf le matos lourd ML
+full = [
+    "nokido-agent[hub,rag,llm,cloud,ui,git,docker,docs]",
+]
+
+# Bundle "all" — vraiment tout (gros téléchargement : torch + jax + semgrep ~5 GB)
+all = [
+    "nokido-agent[hub,rag,llm,cloud,ui,ml,git,docker,netcfg,docs,ami,bench,security]",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry points — pipx-ready
+# ─────────────────────────────────────────────────────────────────────────────
+# Les cibles passent par le NAMESPACE, pas par les paquets a plat : une fois la
+# wheel posee, `tools` et `app` n'existent plus comme paquets de premier niveau —
+# seuls `nokido.tools` et `nokido.app` sont installes. Un entry point qui pointe
+# `tools.llama_cli` s'installe parfaitement et casse au premier lancement.
+[project.scripts]
+nokido           = "nokido_agent.tools.llama_cli:main"
+# Couche console SYNCHRONE : `nokido_hub.main` est un `async def`, et un
+# console_script fait `sys.exit(cible())` — appeler une coroutine rendait un
+# objet et rc=1. Mesure du 2026-09-10 dans un venv neuf : cet entry point
+# n'avait JAMAIS fonctionne.
+nokido-hub       = "nokido_agent.tools.nokido_hub_cli:main"
+nokido-cli       = "nokido_agent.tools.llama_cli:main"
+# Diagnostic d'installation : dit ce que Nokido cherche sur la machine et ne
+# trouve pas. Premiere commande a lancer apres `pip install nokido-agent` — la
+# wheel n'embarque aucun binaire tiers (licences, poids, builds par plateforme).
+nokido-doctor    = "nokido_agent.tools.nokido_doctor:main"
+nokido-vault     = "nokido_agent.app.forge_machine_vault:main"
+nokido-secrets   = "nokido_agent.app.forge_secrets:main"
+
+[project.urls]
+# Canonique (owner 2026-09-15) : repo public = Nokido-labs/nokido. Les URLs
+# ci-dessous pointent deja le canonique ; l'ancien mirror Nokido-public est
+# supplante. Verifier la coherence OIDC de release.yml (owner/repo du pending
+# publisher) avant la 1re publication PyPI.
+Homepage      = "https://github.com/Nokido-labs/nokido"
+Repository    = "https://github.com/Nokido-labs/nokido"
+Issues        = "https://github.com/Nokido-labs/nokido/issues"
+Documentation = "https://github.com/Nokido-labs/nokido/blob/alpha/docs/ARCHITECTURE.md"
+Manifesto     = "https://github.com/Nokido-labs/nokido/blob/alpha/MANIFESTO.md"
+
+# LE MAPPING QUI EVITE DE DEPLACER LE CORPS. Les fichiers restent a `app/` et
+# `tools/` — ou le hub, les hooks, `services.toml`, les taches planifiees et les
+# workflows CI les adressent par CHEMIN — et la wheel les expose sous
+# `nokido.app` / `nokido.tools`. Deplacer physiquement ces dossiers casserait
+# toute cette infrastructure a chaud, pour un benefice qui n'arrive qu'a
+# l'installation.
+#
+# Mesure qui l'autorise : prototype PHASE 4b du 2026-09-10 — « package-dir tient
+# dans les DEUX modes : installe et checkout », entry point compris, zero chemin
+# du depot dans le `sys.path` du processus installe.
+#
+# `packages.find` est incompatible avec un mapping multi-racines : la liste est
+# donc EXPLICITE, et un NR la confronte aux repertoires reels pour qu'elle ne se
+# perime pas en silence.
+#
+# LE NOM EST `nokido_agent`, PAS `nokido`. Mesure du 2026-09-10 : `nokido` est
+# deja pris par `tools/nokido.py` (l'entrypoint `python tools/nokido.py up`) et
+# par `app/Nokido.py`. Comme `sys.path[0]` vaut `tools/` pour un script, un
+# paquet nomme `nokido` aurait ete masque par ce module dans tout le corps.
+# `nokido_agent` est libre et egale le nom de la distribution.
+[tool.setuptools.package-dir]
+"nokido_agent"       = "nokido_agent"
+"nokido_agent.app"   = "app"
+"nokido_agent.tools" = "tools"
+# Donnees pures, sous nokido_agent/ pour que les chemins relatifs a ROOT
+# (`ROOT / "config"`, `ROOT / "proxy_deno"`) tiennent une fois la wheel installee.
+"nokido_agent.proxy_deno" = "proxy_deno"
+"nokido_agent.config"     = "config"
+
+[tool.setuptools]
+packages = [
+    "nokido_agent",
+    "nokido_agent.app",
+    "nokido_agent.app.agents",
+    "nokido_agent.app.collab_modes",
+    "nokido_agent.app.core",
+    "nokido_agent.app.core.settings",
+    "nokido_agent.app.forge_tools_dynamic",
+    "nokido_agent.app.hardware",
+    "nokido_agent.app.llm",
+    "nokido_agent.app.llm.backends",
+    "nokido_agent.app.orchestration",
+    # `nokido_agent.app.rag` RETIRE le 2026-09-10 — il CASSAIT le build.
+    #
+    # `app/rag/` existe sur le disque local mais n'est PAS suivi par git : sur un
+    # checkout propre (runner GitHub, worktree detache) setuptools echoue en
+    # `error: package directory 'app\rag' does not exist`, donc le job `build`
+    # serait mort au premier tag. La certification « wheel 18/18 paquets » avait
+    # ete faite dans l'arbre partage, qui porte ce fichier non tracke.
+    #
+    # Le paquet est un SQUELETTE de la refacto d'avril 2026 (une docstring, zero
+    # module) et rien ne l'importe : les « usages » trouves etaient
+    # `app.rag_engine` / `app.rag_info`, des attributs d'objet — une mention
+    # n'est pas une structure.
+    #
+    # ⚠️ On retire la DECLARATION, pas le fichier : rien n'est enterre. Le jour
+    # ou `app/rag/` portera du code et sera suivi par git, il se redeclare ici.
+    "nokido_agent.app.security",
+    "nokido_agent.app.services",
+    "nokido_agent.app.tui_adapters",
+    "nokido_agent.app.ui",
+    "nokido_agent.app.web_hub",
+    "nokido_agent.tools",
+    # --- 0.20.4 : « sans absolument aucun manque » (owner 2026-09-30) ----------
+    # Mesure du jour : la wheel embarquait 1 798 fichiers sur 6 483. 95 dossiers
+    # Python suivis n'etaient declares nulle part, dont l'UI web et les 85 agents
+    # metier. Ils le sont tous desormais ; les SEULES exclusions sont nommees,
+    # avec leur raison, dans tests/nr/test_wheel_paquets_declares_nr.EXCLUS_WHEEL,
+    # et ce NR casse si un nouveau dossier Python n'est ni declare ni exclu.
+    "nokido_agent.app._internal",
+    "nokido_agent.app.agent_actuaire_statisticien",
+    "nokido_agent.app.agent_administrateur_syst_mes_r_seaux",
+    "nokido_agent.app.agent_analyste_quantitatif_quant",
+    "nokido_agent.app.agent_analyste_risques",
+    "nokido_agent.app.agent_analyste_soc_siem",
+    "nokido_agent.app.agent_architecte_cloud",
+    "nokido_agent.app.agent_architecte_dplg_urbaniste",
+    "nokido_agent.app.agent_architecte_logiciel",
+    "nokido_agent.app.agent_archiviste_pal_ographe",
+    "nokido_agent.app.agent_astrophysicien",
+    "nokido_agent.app.agent_avocat_d_affaires_fiscaliste",
+    "nokido_agent.app.agent_bio_informaticien",
+    "nokido_agent.app.agent_chasseur_de_t_tes_recruteur",
+    "nokido_agent.app.agent_chef_de_produit_marketing",
+    "nokido_agent.app.agent_chef_de_projet_product_owner",
+    "nokido_agent.app.agent_chercheur_en_math_matiques_pures",
+    "nokido_agent.app.agent_chimiste_organique_inorganique",
+    "nokido_agent.app.agent_chirurgien_sp_cialis",
+    "nokido_agent.app.agent_climatologue",
+    "nokido_agent.app.agent_commercial_b2b_key_account_manager",
+    "nokido_agent.app.agent_concepteur_cao_dao",
+    "nokido_agent.app.agent_concepteur_micro_lectronique_fpga_asic",
+    "nokido_agent.app.agent_conducteur_de_travaux",
+    "nokido_agent.app.agent_consultant_en_strat_gie",
+    "nokido_agent.app.agent_contr_leur_de_gestion_auditeur_financier",
+    "nokido_agent.app.agent_criminologue",
+    "nokido_agent.app.agent_cryptographe",
+    "nokido_agent.app.agent_d_veloppeur_backend_frontend",
+    "nokido_agent.app.agent_data_scientist_data_engineer",
+    "nokido_agent.app.agent_directeur_de_la_supply_chain",
+    "nokido_agent.app.agent_enseignant_chercheur",
+    "nokido_agent.app.agent_expert_comptable",
+    "nokido_agent.app.agent_expert_en_propri_t_intellectuelle_inpi",
+    "nokido_agent.app.agent_expert_en_r_seaux_lectriques_smart_grids",
+    "nokido_agent.app.agent_expert_en_structures_g_nie_civil",
+    "nokido_agent.app.agent_fiabiliste",
+    "nokido_agent.app.agent_g_n_ticien_biologiste_mol_culaire",
+    "nokido_agent.app.agent_g_omaticien_cartographe_sig",
+    "nokido_agent.app.agent_graphiste_directeur_artistique",
+    "nokido_agent.app.agent_infirmier_dipl_m_d_tat",
+    "nokido_agent.app.agent_ing_nieur_agronome",
+    "nokido_agent.app.agent_ing_nieur_du_son_expert_haute_fid_lit_dsp",
+    "nokido_agent.app.agent_ing_nieur_en_g_nie_m_canique",
+    "nokido_agent.app.agent_ing_nieur_en_maintenance_industrielle",
+    "nokido_agent.app.agent_ing_nieur_en_nergies_renouvelables",
+    "nokido_agent.app.agent_ing_nieur_en_sciences_des_mat_riaux",
+    "nokido_agent.app.agent_ing_nieur_en_thermodynamique_m_canique_des_fluides",
+    "nokido_agent.app.agent_ing_nieur_en_traitement_des_eaux_d_chets",
+    "nokido_agent.app.agent_ing_nieur_lean_manufacturing",
+    "nokido_agent.app.agent_ing_nieur_nucl_aire",
+    "nokido_agent.app.agent_ing_nieur_p_dagogique",
+    "nokido_agent.app.agent_ing_nieur_qualit",
+    "nokido_agent.app.agent_ing_nieur_rag_llm",
+    "nokido_agent.app.agent_ing_nieur_syst_mes_embarqu_s_c_rust",
+    "nokido_agent.app.agent_ing_nieur_t_l_coms",
+    "nokido_agent.app.agent_inspecteur_des_finances_publiques",
+    "nokido_agent.app.agent_journaliste_fact_checker",
+    "nokido_agent.app.agent_juriste_en_droit_administratif",
+    "nokido_agent.app.agent_juriste_en_droit_social_expert_prud_hommes",
+    "nokido_agent.app.agent_kin_sith_rapeute_ergonome",
+    "nokido_agent.app.agent_libraire_expert_bibliographique",
+    "nokido_agent.app.agent_logisticien_gestionnaire_de_flux",
+    "nokido_agent.app.agent_m_decin_g_n_raliste_diagnostiqueur",
+    "nokido_agent.app.agent_m_t_orologue_agricole",
+    "nokido_agent.app.agent_mod_lisateur_animateur_3d",
+    "nokido_agent.app.agent_monteur_vid_o_r_alisateur",
+    "nokido_agent.app.agent_n_gociateur_immobilier",
+    "nokido_agent.app.agent_notaire",
+    "nokido_agent.app.agent_pharmacologue",
+    "nokido_agent.app.agent_physicien_quantique",
+    "nokido_agent.app.agent_pid_miologiste",
+    "nokido_agent.app.agent_psychiatre",
+    "nokido_agent.app.agent_psychologue_cognitif",
+    "nokido_agent.app.agent_r_dacteur_copywriter",
+    "nokido_agent.app.agent_sociologue_d_mographe",
+    "nokido_agent.app.agent_sommelier_expert_en_gastronomie",
+    "nokido_agent.app.agent_sp_cialiste_optimisation_mat_rielle_acc_l_ration_igpu_npu",
+    "nokido_agent.app.agent_sp_cialiste_robotique_automatisation",
+    "nokido_agent.app.agent_sp_cialiste_vision_par_ordinateur_traitement_du_langage_nlp",
+    "nokido_agent.app.agent_sre_observabilit",
+    "nokido_agent.app.agent_strat_ge_seo_trafic_manager",
+    "nokido_agent.app.agent_tacticien_militaire",
+    "nokido_agent.app.agent_trader_gestionnaire_de_portefeuille",
+    "nokido_agent.app.agent_traducteur_litt_raire_technique",
+    "nokido_agent.app.agent_ux_ui_designer",
+    "nokido_agent.app.laforge_tui",
+    "nokido_agent.app.mcp_agent_template",
+    "nokido_agent.app.netcfg",
+    "nokido_agent.app.web_hub.forms",
+    "nokido_agent.tools.archive_tui",
+    "nokido_agent.tools.bench",
+    "nokido_agent.tools.intel",
+    "nokido_agent.tools.nomad",
+    "nokido_agent.tools.research",
+    # Donnees pures (aucun .py) : superviseur Deno et configuration. Leurs
+    # fichiers, comme les assets de l'UI web (`app/web_hub/static/**`), entrent
+    # par MANIFEST.in + include-package-data : un paquet declare ne suffit pas a
+    # embarquer ce qui n'est pas du Python.
+    "nokido_agent.proxy_deno",
+    "nokido_agent.config",
+]
+
+[tool.setuptools.package-data]
+"nokido_agent.app" = ["*.json", "*.toml", "*.yaml"]
+
+# =============================================================================
+# Configuration outils d'analyse statique
+# =============================================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit:        Tests unitaires rapides (< 100ms, pas de I/O)",
+    "integration: Tests d'integration (DB, fichiers, modules complets)",
+    "nr:          Non-regression — comportement fige, golden datasets",
+    "slow:        Tests lents (> 1s) — exclus du run rapide",
+    "security:    Tests de securite (Integrity, Sentinel, tokens)",
+    # Declares le 2026-08-14 en cablant tests/nr dans la CI : `--strict-markers`
+    # refusait la collecte de deux fichiers NR, qui ne tournaient donc NULLE
+    # PART. `filterwarnings` est pourtant natif — mais `-p no:warnings` ci-dessous
+    # desenregistre le plugin qui le fournit ; `asyncio` vient de pytest-asyncio.
+    # Les declarer fait tourner ces tests plutot que d'allonger la liste des
+    # --ignore, qui est deja la ou deux autres NR ont ete mis de cote.
+    "asyncio:     Tests asynchrones (pytest-asyncio)",
+    "filterwarnings: Filtrage de warnings (natif, masque par -p no:warnings)",
+]
+addopts = "-v --tb=short --strict-markers -p no:warnings --ignore=tests/nr/test_import_all_nr.py --ignore=tests/nr/test_behavior_nr.py"
+norecursedirs = [
+    ".git", ".cache", "versions", "workspace",
+    "sandbox", "logs", "app/backups", "app/legacy", "models"
+]
+
+# Ruff config canonique : voir ruff.toml a la racine (priorite explicite).
+# Bloc supprime de pyproject.toml pour eviter double source de verite.
+
+[tool.mypy]
+python_version         = "3.14"
+ignore_missing_imports = true
+follow_imports         = "silent"
+disallow_untyped_defs  = false
+check_untyped_defs     = false
+warn_return_any        = false
+warn_unused_ignores    = false
+no_error_summary       = true
+
+[tool.pylint.main]
+jobs       = 1
+persistent = false
+
+[tool.pylint."messages control"]
+disable = ["C", "R"]
+
+[tool.pylint.format]
+max-line-length = 120

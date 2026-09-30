@@ -1,0 +1,26 @@
+# MANIFEST.in -- ce que le sdist embarque, et donc la wheel (include-package-data).
+#
+# Owner 2026-09-30 : « presenter la version complete de Nokido, sans absolument
+# aucun manque ». Sans ce fichier, le sdist ne contenait que les .py des paquets
+# declares et trois motifs de donnees : l'UI web (static/, polices, laforge-ds),
+# le superviseur Deno et la configuration n'arrivaient JAMAIS dans la wheel.
+#
+# Les elagages sont les exclusions NOMMEES de
+# tests/nr/test_wheel_paquets_declares_nr.EXCLUS_WHEEL -- le NR verifie que les
+# deux listes coincident. Tout ce qui n'y figure pas part dans le paquet.
+graft app
+graft tools
+graft proxy_deno
+graft config
+prune app/_attic
+prune app/legacy
+prune app/tests
+prune app/build_cython
+prune tools/bench_fixtures
+# Liste PRIVEE des identites de l'owner : une wheel construite depuis la source
+# (et non depuis le dist, ou elle est deja bloquee) l'embarquerait sinon.
+exclude config/identites_privees.txt
+global-exclude *.py[cod]
+prune **/__pycache__
+include README.md
+include LICENSE

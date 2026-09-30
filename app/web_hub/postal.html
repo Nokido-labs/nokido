@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido — Conversations & Agents · live</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  /* Convergence DS : couleurs de base (--bg/--border/--text/--purple/--blue/--cyan/--green/--red)
+     fournies par nokido.css ; alias page-specifiques remappes sur les tokens DS. */
+  :root { --card:var(--surface); --card2:var(--surface-card);
+          --muted:var(--text-dim); --amber:var(--yellow); }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.55 ui-monospace,"Cascadia Code",Menlo,monospace; }
+  header { display:flex; align-items:center; gap:14px; padding:10px 20px; border-bottom:1px solid var(--border); background:var(--card); }
+  header h1 { margin:0; font-size:.98rem; font-weight:600; flex:1; }
+  header h1 span { color:var(--muted); font-size:.74rem; font-weight:400; }
+  .tab { font-size:.78rem; padding:4px 12px; border-radius:8px; border:1px solid var(--border); color:var(--muted); cursor:pointer; background:none; }
+  .tab.on { color:var(--text); border-color:var(--purple); background:rgba(163,113,247,.12); }
+  .conn { font-size:.7rem; padding:3px 10px; border-radius:12px; border:1px solid var(--border); }
+  .conn.on { color:var(--green); border-color:var(--green); } .conn.off { color:var(--red); border-color:var(--red); }
+  .wrap { display:grid; grid-template-columns:1.55fr 1fr; height:calc(100vh - 47px); }
+  .col { overflow-y:auto; padding:14px 16px; } .col.left { border-right:1px solid var(--border); padding:0; }
+  .view { height:100%; } #schemaView { display:none; }
+  h2 { font-size:.7rem; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin:14px 0 10px; font-weight:600; }
+  h2:first-child { margin-top:0; }
+  /* CHAT */
+  #chat { padding:16px 18px; display:flex; flex-direction:column; gap:9px; height:100%; overflow-y:auto; }
+  .bubble { max-width:78%; border:1px solid var(--border); border-left:3px solid var(--muted); border-radius:9px;
+            padding:7px 11px; background:var(--card); animation:in .25s ease; }
+  @keyframes in { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
+  .bubble.me { align-self:flex-end; background:rgba(88,166,255,.08); }
+  .bubble.them { align-self:flex-start; }
+  .bh { display:flex; align-items:center; gap:6px; font-size:.72rem; }
+  .av { width:18px; height:18px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+        font-size:.64rem; font-weight:700; color:#0d1117; }
+  .bh b { font-weight:600; } .rl { color:var(--muted); font-size:.64rem; }
+  .bc { margin:4px 0; font-size:.86rem; white-space:pre-wrap; word-break:break-word; }
+  .bf { font-size:.64rem; color:var(--muted); } .bf .tk.acked { color:var(--green); } .bf .tk.delivered { color:var(--blue); }
+  /* SCHEMA */
+  #graph { width:100%; height:100%; display:block; }
+  .gleg { position:absolute; top:56px; right:24px; font-size:.66rem; color:var(--muted); }
+  /* SIDEBAR */
+  .agent { background:var(--card2); border:1px solid var(--border); border-left:3px solid var(--muted); border-radius:7px; padding:6px 10px; margin-bottom:6px; }
+  .agent.live { border-left-color:var(--green); }
+  .agent .name { font-weight:600; } .agent .n { float:right; color:var(--muted); font-size:.68rem; }
+  .agent .meta { color:var(--muted); font-size:.64rem; } .agent .act { font-size:.7rem; margin-top:2px; }
+  .agent .last { color:var(--muted); font-size:.66rem; font-style:italic; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sw { background:var(--card); border:1px solid var(--border); border-left:3px solid var(--green); border-radius:6px; padding:5px 9px; margin-bottom:5px; font-size:.72rem; }
+  .sw .k { color:var(--green); font-weight:600; } .sw .d { color:var(--muted); font-size:.66rem; }
+  .log .ev { padding:2px 0; border-bottom:1px solid var(--border); color:var(--muted); font-size:.7rem; }
+  .log .ev .k { color:var(--purple); } .log .ev b { color:var(--text); }
+  .empty { color:var(--muted); font-style:italic; padding:16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Nokido — Conversations & Agents <span>· live</span></h1>
+  <button class="tab on" id="tabC" onclick="show('chat')">💬 Chat</button>
+  <button class="tab" id="tabS" onclick="show('schema')">🕸 Schéma</button>
+  <span id="conn" class="conn off">déconnecté</span>
+</header>
+<div class="wrap">
+  <div class="col left">
+    <div class="view" id="chatView"><div id="chat"><div class="empty" id="chat-empty">en attente de messages…</div></div></div>
+    <div class="view" id="schemaView"><svg id="graph" viewBox="0 0 620 460" preserveAspectRatio="xMidYMid meet"></svg></div>
+  </div>
+  <div class="col right">
+    <h2>🤖 Agents & pools (rôle · ring · canal)</h2>
+    <div id="agents"><div class="empty" id="agents-empty">aucun agent vu…</div></div>
+    <h2>🐝 Essaim (qui appelle · tâches)</h2>
+    <div id="swarm"><div class="empty" id="swarm-empty">—</div></div>
+    <h2>⚡ Flux brut</h2>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+<script>
+const SVGNS="http://www.w3.org/2000/svg";
+const AGENTS={
+  CLAUDE:{role:"CLI souverain",ring:1,ch:"STDIO_CLAUDE"}, CLAUDE_AUTO:{role:"agent autonome",ring:1,ch:"STDIO_CLAUDE"},
+  GEMINI:{role:"collègue IA",ring:3,ch:"GEMINI_OAUTH"}, GEMINI_AUTO:{role:"agent autonome (headless)",ring:3,ch:"GEMINI_OAUTH"},
+  SWARM:{role:"essaim LLM",ring:1,ch:"INTERNAL_HUB"}, COPILOT:{role:"CLI",ring:3,ch:"HTTP_DIRECT"}, HUB:{role:"hub",ring:0,ch:"INTERNAL_HUB"},
+  NOKIDO:{role:"CENTRE intelligence",ring:0,ch:"INTERNAL_HUB"},
+};
+const COL={CLAUDE:"#58a6ff",CLAUDE_AUTO:"#79c0ff",GEMINI:"#a371f7",GEMINI_AUTO:"#d2a8ff",SWARM:"#3fb950",COPILOT:"#f0883e",HUB:"#d29922",NOKIDO:"#e3b341"};
+function meta(n){ n=(n||"?").toUpperCase(); return AGENTS[n]||{role:"agent",ring:"?",ch:""}; }
+function color(n){ return COL[(n||"").toUpperCase()]||"#8b949e"; }
+const STATUS={postal_queued:"queued",postal_delivered:"delivered",postal_acked:"acked"};
+const TK={queued:"⏳ en gare",delivered:"✓ livré",acked:"✓✓ accusé reçu"};
+const chatEl=document.getElementById("chat"),agentsEl=document.getElementById("agents"),swarmEl=document.getElementById("swarm"),
+      logEl=document.getElementById("log"),connEl=document.getElementById("conn"),graph=document.getElementById("graph"),
+      chatV=document.getElementById("chatView"),schemaV=document.getElementById("schemaView"),tabC=document.getElementById("tabC"),tabS=document.getElementById("tabS");
+const agents={}, msgOrder=[], msgById={}, nodes={}, edges={};
+let mode="chat";
+
+function show(v){ mode=v; chatV.style.display=v==="chat"?"block":"none"; schemaV.style.display=v==="schema"?"block":"none";
+  tabC.classList.toggle("on",v==="chat"); tabS.classList.toggle("on",v==="schema"); if(v==="schema")renderGraph(); }
+
+/* ---- CHAT ---- */
+function onMsg(d){
+  const e=document.getElementById("chat-empty"); if(e)e.remove();
+  if(!d.id) d.id="x"+Math.random();
+  if(!msgById[d.id]){ msgById[d.id]=d; msgOrder.push(d.id); } else Object.assign(msgById[d.id],d);
+  if(mode==="chat") renderChat();
+}
+function renderChat(){
+  chatEl.innerHTML=msgOrder.map(id=>{ const m=msgById[id]; const me=(m.from||"").toUpperCase()==="CLAUDE";
+    const st=m.status||"queued";
+    return `<div class="bubble ${me?'me':'them'}" style="border-left-color:${color(m.from)}">`+
+      `<div class="bh"><span class="av" style="background:${color(m.from)}">${(m.from||'?')[0]}</span>`+
+      `<b>${m.from}</b><span class="rl">${meta(m.from).role} · r${meta(m.from).ring} · ${m.channel||meta(m.from).ch}</span></div>`+
+      `<div class="bc">${(m.body||'').replace(/</g,'&lt;')}</div>`+
+      `<div class="bf">→ <b>${m.to}</b> · <span class="tk ${st}">${TK[st]||st}</span>${m.in_reply_to?' · ↳ fil':''}</div></div>`;
+  }).join("");
+  chatEl.scrollTop=chatEl.scrollHeight;
+}
+
+/* ---- SCHEMA (graphe agentique) ---- */
+function layout(){ const ns=Object.keys(nodes),N=ns.length||1,cx=310,cy=215,R=Math.min(160,90+N*10);
+  ns.forEach((n,i)=>{ const a=(2*Math.PI*i/N)-Math.PI/2; nodes[n].x=cx+R*Math.cos(a); nodes[n].y=cy+R*Math.sin(a); }); }
+function node(n){ n=(n||"").toUpperCase(); if(n&&!nodes[n]){ nodes[n]={x:310,y:215}; layout(); } return n; }
+function edge(a,b){ a=node(a); b=node(b); if(!a||!b||a===b)return; const k=a+">"+b; if(!edges[k])edges[k]={a,b,n:0}; edges[k].n++; }
+function renderGraph(){
+  if(!Object.keys(nodes).length){ graph.innerHTML='<text x="310" y="215" text-anchor="middle" fill="#8b949e" font-size="11">en attente d interactions…</text>'; return; }
+  const E=Object.values(edges).map(e=>{ const A=nodes[e.a],B=nodes[e.b]; if(!A||!B)return"";
+    const dx=B.x-A.x,dy=B.y-A.y,d=Math.hypot(dx,dy)||1,r=24; const x1=A.x+dx/d*r,y1=A.y+dy/d*r,x2=B.x-dx/d*r,y2=B.y-dy/d*r;
+    const w=Math.min(1+e.n*0.4,5);
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#3bb2d0" stroke-width="${w}" opacity="0.45" marker-end="url(#arr)"/>`+
+           `<text x="${(x1+x2)/2}" y="${(y1+y2)/2-3}" fill="#6e7681" font-size="7" text-anchor="middle">${e.n}</text>`;
+  }).join("");
+  const Nn=Object.entries(nodes).map(([n,p])=>{ const m=meta(n);
+    return `<g><circle cx="${p.x}" cy="${p.y}" r="22" fill="#1c2230" stroke="${color(n)}" stroke-width="2"/>`+
+      `<text x="${p.x}" y="${p.y-1}" text-anchor="middle" fill="#c9d1d9" font-size="8.5" font-weight="600">${n.slice(0,9)}</text>`+
+      `<text x="${p.x}" y="${p.y+9}" text-anchor="middle" fill="#8b949e" font-size="6">r${m.ring}·${(m.ch||'').slice(0,7)}</text></g>`;
+  }).join("");
+  graph.innerHTML=`<defs><marker id="arr" markerWidth="9" markerHeight="9" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#3bb2d0"/></marker></defs>${E}${Nn}`;
+}
+function flow(a,b){ a=(a||"").toUpperCase(); b=(b||"").toUpperCase(); const A=nodes[a],B=nodes[b]; if(!A||!B||mode!=="schema")return;
+  const dot=document.createElementNS(SVGNS,"circle"); dot.setAttribute("r","4.5"); dot.setAttribute("fill","#3fb950");
+  graph.appendChild(dot); const t0=performance.now(),dur=900;
+  function step(t){ const k=Math.min((t-t0)/dur,1); dot.setAttribute("cx",A.x+(B.x-A.x)*k); dot.setAttribute("cy",A.y+(B.y-A.y)*k);
+    if(k<1)requestAnimationFrame(step); else dot.remove(); }
+  requestAnimationFrame(step);
+}
+
+/* ---- AGENTS / SWARM / LOG ---- */
+function touch(name,action,snippet){ if(!name)return; name=String(name).toUpperCase();
+  if(!agents[name])agents[name]={name,n:0}; const a=agents[name]; a.act=action||a.act; if(snippet)a.last=snippet; a.n++; a.t=Date.now(); renderAgents(); }
+function renderAgents(){ const e=document.getElementById("agents-empty"); if(e)e.remove();
+  agentsEl.innerHTML=Object.values(agents).sort((x,y)=>y.t-x.t).map(a=>{ const m=meta(a.name),live=(Date.now()-a.t)<20000;
+    return `<div class="agent ${live?'live':''}"><span class="n">${a.n}</span><div class="name">${a.name} ${live?'🟢':''}</div>`+
+      `<div class="meta">${m.role} · ring ${m.ring} · ${m.ch}</div><div class="act">▸ ${a.act||'—'}</div>`+(a.last?`<div class="last">« ${a.last} »</div>`:'')+`</div>`;
+  }).join(""); }
+function renderSwarm(ev){ const e=document.getElementById("swarm-empty"); if(e)e.remove(); const d=ev.data||{};
+  let body; if(d.prompt) body='📤 prompt headless : '+d.prompt; else if(d.response) body='📥 réponse : '+d.response;
+  else body=Object.entries(d).filter(([k])=>k!=="agent").map(([k,v])=>`${k}=${String(v).slice(0,40)}`).join(" · ")||'appelé par CLAUDE';
+  const div=document.createElement("div"); div.className="sw";
+  div.innerHTML=`<span class="k">${ev.kind}</span>${d.agent?(' · <b>'+d.agent+'</b>'):''}<div class="d">${(body||'').replace(/</g,'&lt;').slice(0,280)}</div>`;
+  swarmEl.insertBefore(div,swarmEl.firstChild); while(swarmEl.children.length>12)swarmEl.removeChild(swarmEl.lastChild); }
+function pushLog(ev){ const t=new Date().toTimeString().slice(0,8),d=ev.data||{}; const div=document.createElement("div"); div.className="ev";
+  let line; if(ev.kind in STATUS) line=`<b>${d.from}</b>→<b>${d.to}</b> ${(d.body||'').slice(0,46)}`;
+  else line=`<b>${d.agent||d.from||ev.topic}</b> ${Object.keys(d).slice(0,2).map(k=>k+'='+String(d[k]).slice(0,20)).join(' ')}`;
+  div.innerHTML=`${t} <span class="k">${ev.kind}</span> ${line}`; logEl.insertBefore(div,logEl.firstChild);
+  while(logEl.children.length>120)logEl.removeChild(logEl.lastChild); }
+
+function handle(ev){
+  pushLog(ev); const d=ev.data||{};
+  if(ev.kind in STATUS){ d.status=STATUS[ev.kind]; onMsg(d); edge(d.from,d.to); flow(d.from,d.to);
+    touch(d.from,"envoi → "+(d.to||''),d.body); touch(d.to,"réception",d.body); if(mode==="schema")renderGraph(); }
+  else if(ev.kind==="agent_op"){ touch(d.agent,d.action||"opère",d.from?("courrier de "+d.from):""); edge(d.from||"HUB",d.agent); if(mode==="schema")renderGraph(); }
+  else if(ev.topic==="swarm"||/swarm|agent_/.test(ev.kind)){ renderSwarm(ev); const ag=d.agent||"SWARM"; touch(ag,ev.kind,d.prompt||d.task||"");
+    edge("CLAUDE","SWARM"); if(ag!=="SWARM")edge("SWARM",ag); flow("CLAUDE","SWARM"); if(mode==="schema")renderGraph(); }
+  else touch(d.agent||d.from||ev.topic,ev.kind,"");
+}
+function connect(){ const es=new EventSource("/api/swarm/stream");
+  es.onopen=()=>{connEl.textContent="connecté";connEl.className="conn on";};
+  es.onerror=()=>{connEl.textContent="reconnexion…";connEl.className="conn off";};
+  es.onmessage=(e)=>{ try{handle(JSON.parse(e.data));}catch(_){}}; }
+// Registre LIVE (reco audit Gemini) : remplace le AGENTS hardcodé par les vraies métadonnées
+// (ring/canal = registre source de vérité ; rôles curés gardés ; nouveaux agents auto-ajoutés).
+fetch('/api/agents').then(r=>r.json()).then(d=>{ if(d&&d.ok) for(const[n,m] of Object.entries(d.agents||{})){
+  if(!AGENTS[n]) AGENTS[n]={role:(m.transport||'agent'),ring:m.ring,ch:m.channel};
+  else { AGENTS[n].ring=m.ring; AGENTS[n].ch=m.channel; } } renderAgents(); }).catch(()=>{});
+connect(); setInterval(renderAgents,5000);
+</script>
+</body>
+</html>

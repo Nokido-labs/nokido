@@ -1,0 +1,33 @@
+import * as React from "react";
+
+/**
+ * Carte de module / section Nokido (Transport, Santé, Finance…). Filet
+ * d'accent du domaine, tuile d'icône teintée, bascule activer/désactiver,
+ * marqueur de provenance et statut. État `comingSoon` grisé.
+ *
+ * @startingPoint section="Modules" subtitle="Carte de section avec accent de domaine et bascule" viewport="700x220"
+ */
+export interface ModuleCardProps {
+  /** Domaine → teinte d'accent. Liste non figée : toute valeur correspondant
+   *  à un token `--domain-<x>` fonctionne (string acceptée pour extension). */
+  domain?: "transport" | "sante" | "finance" | "loisir" | "achat" | "creation" | "jeux" | "dev" | "domotique" | "travail" | "energie" | "famille" | "voyage" | string;
+  title: React.ReactNode;
+  desc?: React.ReactNode;
+  /** Icône Lucide/SVG */
+  icon?: React.ReactNode;
+  /** Module activé */
+  enabled?: boolean;
+  /** Affiche une bascule ; reçoit le nouvel état */
+  onToggle?: (enabled: boolean) => void;
+  /** Marqueur de provenance */
+  provenance?: "local" | "hybrid" | "remote" | null;
+  /** Pastille de statut (si pas de bascule) */
+  status?: "up" | "down" | "warn" | null;
+  /** Épinglé dans la vue perso */
+  pinned?: boolean;
+  /** Non déployé */
+  comingSoon?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function ModuleCard(props: ModuleCardProps): JSX.Element;

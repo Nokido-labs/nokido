@@ -1,0 +1,47 @@
+# Nokido_SysAdmin.psrc
+# Role Capability File pour JEA endpoint Nokido
+# Commandes strictement autorisées pour le rôle SysAdmin_Operator
+
+@{
+    # Modules autorisés
+    ModulesToImport = 'Microsoft.PowerShell.Core', 'Microsoft.PowerShell.Management'
+
+    # Cmdlets visibles (whitelist)
+    VisibleCmdlets = @(
+        # Lecture système (safe)
+        'Get-Process',
+        'Get-Service',
+        'Get-NetTCPConnection',
+        'Get-ChildItem',
+        'Get-Content',
+        'Get-Date',
+        'Get-EventLog',
+        'Test-Connection',
+        'Test-Path',
+        'Measure-Object',
+        'Select-Object',
+        'Where-Object',
+        'Sort-Object',
+        'Format-Table',
+        'Format-List',
+        'Out-String',
+
+        # Actions Nokido autorisées uniquement
+        @{ Name = 'Start-Service';   Parameters = @{ Name = 'Name'; ValidateSet = 'LaForgeMCP' } },
+        @{ Name = 'Stop-Service';    Parameters = @{ Name = 'Name'; ValidateSet = 'LaForgeMCP' } },
+        @{ Name = 'Restart-Service'; Parameters = @{ Name = 'Name'; ValidateSet = 'LaForgeMCP' } }
+    )
+
+    # Commandes externes autorisées
+    VisibleExternalCommands = @(
+        'netstat',
+        'ipconfig',
+        'ping'
+    )
+
+    # Aliases autorisés
+    VisibleAliases = @('gps', 'gs', 'gl', 'gc', 'ft', 'fl')
+
+    # Variables visibles
+    VisibleVariables = @('PWD', 'HOME', 'PSVersionTable')
+}

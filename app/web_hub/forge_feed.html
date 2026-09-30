@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nokido - Event Feed (Audit Trail)</title>
+    <link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+    <link rel="stylesheet" href="/static/nokido.css">
+    <style>
+        .feed-container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 20px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .event-item {
+            padding: 10px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+            font-family: monospace;
+            animation: fadeIn 0.3s ease-out;
+            font-size: 0.85rem;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .ts { color: var(--text-dim); min-width: 80px; }
+        .topic { font-weight: bold; min-width: 180px; }
+        .agent { color: var(--accent-blue); min-width: 100px; font-weight: bold; }
+        .data { flex-grow: 1; overflow-wrap: break-word; color: var(--text-main); }
+        
+        /* Colorisation par topic */
+        .topic-tool { color: #ff7b72 !important; }
+        .topic-rpc { color: #79c0ff !important; }
+        .topic-silo { color: #7ee787 !important; }
+        .topic-skill { color: #ffa657 !important; }
+        .topic-debate { color: #d2a8ff !important; }
+        .topic-agent { color: #f2cc60 !important; }
+        .topic-system { color: #8b949e !important; }
+
+        .filters {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        input {
+            background: var(--bg-input);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            padding: 6px 12px;
+            border-radius: 4px;
+            min-width: 200px;
+        }
+        .btn {
+            background: var(--bg-button);
+            color: white;
+            border: none;
+            padding: 6px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.2); }
+        
+        h1 { margin-top: 0; font-size: 1.5rem; color: var(--accent-blue); }
+    </style>
+</head>
+<body>
+    <div class="feed-container">
+        <h1>🧠 Nokido Event Feed (Audit Trail)</h1>
+        <div class="filters">
+            <input type="text" id="topicFilter" placeholder="Filtrer par topic (ex: tool.*)">
+            <input type="text" id="agentFilter" placeholder="Filtrer par agent">
+            <button class="btn" onclick="clearFeed()">Effacer</button>
+            <span id="statusLabel" style="margin-left: auto; font-size: 0.8rem; color: var(--text-dim);">Live polling (2s)</span>
+        </div>
+        <div id="eventList">
+            <div class="event-item" style="color: var(--text-dim)">Attente du premier poll...</div>
+        </div>
+    </div>
+
+    <script src="/static/nokido.js"></script>
+    <script>
+        async function pollEvents() {
+            try {
+                const topicVal = document.getElementById('topicFilter').value || '*';
+                const agentVal = document.getElementById('agentFilter').value.toLowerCase();
+                
+                const res = await fetch(`/api/events/history?topics=${encodeURIComponent(topicVal)}&limit=100`);
+                if (!res.ok) return;
+                
+                const events = await res.json();
+                if (!events || !Array.isArray(events)) return;
+
+                const list = document.getElementById('eventList');
+                
+                let filtered = events;
+                if (agentVal) {
+                    filtered = events.filter(e => e.agent && e.agent.toLowerCase().includes(agentVal));
+                }
+
+                if (filtered.length === 0) {
+                    list.innerHTML = '<div class="event-item" style="color: var(--text-dim)">Aucun événement correspondant aux filtres.</div>';
+                    return;
+                }
+
+                let html = '';
+                filtered.forEach(e => {
+                    const topicPrefix = e.topic.split('.')[0];
+                    const topicClass = `topic-${topicPrefix}`;
+                    // ts = UTC NAIF (forge_state_manager : datetime.utcnow().isoformat(), sans « Z »).
+                    // On l'affichait tel quel : l'heure UTC, pas celle du PC (owner 2026-09-25).
+                    const time = heureLocale(e.ts);
+                    
+                    const dataStr = JSON.stringify(e.data);
+                    const dataPreview = dataStr.length > 500 ? dataStr.slice(0, 500) + '...' : dataStr;
+
+                    html += `
+                        <div class="event-item">
+                            <span class="ts">${time}</span>
+                            <span class="agent">${Nokido.escapeHtml(e.agent || 'SYSTEM')}</span>
+                            <span class="topic ${topicClass}">${Nokido.escapeHtml(e.topic)}</span>
+                            <span class="data">${Nokido.escapeHtml(dataPreview)}</span>
+                        </div>
+                    `;
+                });
+                list.innerHTML = html;
+
+            } catch (err) {
+                // Une NAVIGATION annule les requetes en vol : ce catch se
+                // declenche alors que rien n'est casse. Le polling de cette page
+                // tourne toutes les 2 s et SURVIT au changement de page, donc son
+                // cri arrive quand la page suivante est deja chargee -- et c'est
+                // a ELLE que la campagne UI l'impute. Mesure 2026-09-18 :
+                // /anatomy sortait en defaut sur une passe sur trois avec
+                // « Poll failed TypeError: Failed to fetch », alors que /anatomy
+                // ne contient pas cette chaine et filtre deja ce cas chez elle
+                // depuis le 2026-08-29. Le defaut etait ICI, et il accusait une
+                // page innocente.
+                //
+                // On nomme l'erreur au lieu de journaliser l'objet nu (qui rend
+                // « JSHandle@object », illisible), et on se tait sur l'abandon :
+                // un signal qui crie a chaque navigation se fait ignorer, et il
+                // emporte les vrais avec lui.
+                const msg = (err && err.message) ? err.message : String(err);
+                if (!/abort|NetworkError|Failed to fetch|load failed/i.test(msg)) {
+                    console.error("forge/feed poll: " + msg);
+                }
+            }
+        }
+
+        function clearFeed() {
+            document.getElementById('eventList').innerHTML = '';
+            document.getElementById('topicFilter').value = '';
+            document.getElementById('agentFilter').value = '';
+        }
+
+        // Heure LOCALE du PC depuis un horodatage UTC (naif ou explicite).
+        function heureLocale(ts) {
+            if (!ts) return '--:--:--';
+            const iso = String(ts).replace(' ', 'T');
+            const d = new Date(/[zZ]$|[+-]\d\d:?\d\d$/.test(iso) ? iso : iso + 'Z');
+            return isNaN(d) ? String(ts) : d.toLocaleTimeString('fr-FR', { hour12: false });
+        }
+
+        // Démarrage du polling
+        Nokido.poll(pollEvents, 2000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><title>Lucide icon test</title>
+<script src="/static/lucide.min.js?v=0544"></script>
+</head>
+<body style="background:#0C0A13;color:#EDEBF4;font-family:monospace;padding:24px;line-height:2">
+<h3>Test icônes lucide (sans login, sans React)</h3>
+<div id="diag"></div>
+<div id="out" style="font-size:28px;display:flex;gap:18px;flex-wrap:wrap;margin-top:16px"></div>
+<script>
+function pas(n){ return n.split('-').map(function(p){return p.charAt(0).toUpperCase()+p.slice(1);}).join(''); }
+function svg(n){
+  var ic = window.lucide && window.lucide.icons;
+  var ch = ic && ic[pas(n)];
+  if (!Array.isArray(ch)) return '<span style="color:#F24F4F;font-size:13px">['+n+': NO DATA]</span>';
+  var inner = ch.map(function(x){
+    var a = Object.keys(x[1]||{}).map(function(k){return k+'="'+x[1][k]+'"';}).join(' ');
+    return '<'+x[0]+' '+a+'/>';
+  }).join('');
+  return '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#774AFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+inner+'</svg>';
+}
+var d = document.getElementById('diag');
+var hasL = (typeof window.lucide);
+var nIcons = (window.lucide && window.lucide.icons) ? Object.keys(window.lucide.icons).length : 'AUCUNE';
+d.innerHTML = 'window.lucide = <b>'+hasL+'</b> &nbsp;|&nbsp; nb icônes = <b>'+nIcons+'</b> &nbsp;|&nbsp; createIcons = '+(window.lucide&&typeof window.lucide.createIcons);
+var o = document.getElementById('out');
+['activity','house','git-fork','shield-check','moon','brain','target','network','flask-conical'].forEach(function(n){
+  o.innerHTML += '<span title="'+n+'">'+svg(n)+'</span>';
+});
+</script>
+</body></html>

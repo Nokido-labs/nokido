@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>RDP hote : qualite audio Medium (AllowedAudioQualityMode=3 — High=7 sature le TCP partage audio+video sur client Wi-Fi) + encodage H.264 materiel (AVCHardwareEncodePreferred=1, Radeon 780M). One-shot idempotent, declenchement manuel via schtasks /run. Rollback : reg delete des valeurs.</Description>
+  </RegistrationInfo>
+  <Triggers />
+  <Principals>
+    <Principal id="Author">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT1M</ExecutionTimeLimit>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>reg</Command>
+      <Arguments>add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v AllowedAudioQualityMode /t REG_DWORD /d 3 /f</Arguments>
+    </Exec>
+    <Exec>
+      <Command>reg</Command>
+      <Arguments>add "HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" /v AVCHardwareEncodePreferred /t REG_DWORD /d 1 /f</Arguments>
+    </Exec>
+  </Actions>
+</Task>

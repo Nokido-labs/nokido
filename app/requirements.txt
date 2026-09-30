@@ -1,0 +1,57 @@
+# =============================================================================
+# La Forge v13.6 — Dépendances Python
+# =============================================================================
+# Installation :
+#   pip install -r requirements.txt --break-system-packages
+#
+# Python >= 3.10 requis
+# =============================================================================
+
+# ── Interface TUI ─────────────────────────────────────────────────────────────
+textual>=0.70.0          # Interface graphique TUI (OBLIGATOIRE)
+rich>=13.0.0             # Rendu couleur/markup dans la TUI
+
+# ── Réseau / SSH ──────────────────────────────────────────────────────────────
+aiohttp>=3.9.0           # Requêtes HTTP async (Ollama API)
+asyncssh>=2.14.0         # Connexion SSH async vers l'hôte cible
+httpx>=0.27.0            # HTTP/2 client (fetch web, déjà présent)
+
+# ── Recherche web ─────────────────────────────────────────────────────────────
+duckduckgo-search>=6.0.0 # Recherche DDG sans API key (OBLIGATOIRE pour @web)
+trafilatura>=1.8.0       # Extraction contenu HTML propre (remplace newspaper3k)
+beautifulsoup4>=4.12.0   # Fallback parsing HTML (déjà présent via httpx)
+
+# ── RAG / Vectorisation ───────────────────────────────────────────────────────
+numpy>=1.26.0            # Calculs vectoriels (embeddings FAISS)
+faiss-cpu>=1.7.4         # Index vectoriel FAISS (optionnel mais recommandé)
+rank-bm25>=0.2.2         # Index BM25 pour la recherche hybride (optionnel)
+
+# ── Lecture de documents ──────────────────────────────────────────────────────
+pdfplumber>=0.10.0       # Extraction texte PDF — tableaux inclus
+pypdf>=4.0.0             # Lecture PDF basique (2e fallback)
+# marker-pdf>=0.2.0      # PDF → Markdown haute qualité (optionnel, lourd ~2 Go)
+
+# ── Terminal virtuel ──────────────────────────────────────────────────────────
+pyte>=0.8.0              # Émulateur terminal PTY (rendu SSH dans la TUI)
+
+# ── Presse-papier ─────────────────────────────────────────────────────────────
+pyperclip>=1.8.0         # Copier/coller cross-platform
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+pydantic-settings>=2.0.0 # Chargement Nokido.env
+
+# ── Sentinelle tree-sitter ────────────────────────────────────────────────────
+tree-sitter>=0.23.0        # Parser incrémental CST (brain_worker.py)
+tree-sitter-python>=0.23.0 # Grammaire Python
+
+# ── Backend ONNX local (optionnel — forge_runtime.py) ────────────────────────
+# Décommentez pour embeddings locaux MiniLM / génération Phi-3.5
+# sentence-transformers>=2.7.0
+# onnxruntime>=1.17.0
+# onnxruntime-genai>=0.3.0   # Pour Phi-3.5 DirectML/CPU
+
+# ── Orchestration de tâches (optionnel — @workflow) ──────────────────────────
+# prefect>=2.19.0
+
+# ── Workflows réseau (optionnel — @snif / @switch) ───────────────────────────
+# scapy>=2.5.0

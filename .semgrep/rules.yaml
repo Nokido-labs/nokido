@@ -1,0 +1,78 @@
+# Semgrep rules Nokido — pare-feu sémantique custom.
+# Run : semgrep --config .semgrep/rules.yaml app/ tools/
+# Doc : https://semgrep.dev/
+
+rules:
+  # === SÉCURITÉ EXÉCUTION ===
+  - id: ban-raw-os-system
+    patterns:
+      - pattern: os.system(...)
+      - pattern-not: nokido_mcp.execute_sandboxed(...)
+    message: "Securite: Execution systeme directe interdite. Utiliser bridge MCP execute_sandboxed pour isolation."
+    severity: ERROR
+    languages: [python]
+
+  - id: ban-shell-true-subprocess
+    pattern: subprocess.run(..., shell=True, ...)
+    message: "Securite: subprocess shell=True = injection shell. Utiliser argv list ou hub run."
+    severity: ERROR
+    languages: [python]
+
+  - id: ban-eval-exec
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: exec(...)
+    message: "Securite: eval/exec interdits. Voir forge_safe_exec."
+    severity: ERROR
+    languages: [python]
+
+  # === SOVEREIGNTY ===
+  - id: ban-anthropic-api-direct
+    patterns:
+      - pattern-either:
+          - pattern: anthropic.Anthropic(...)
+          - pattern: provider="claude"
+    message: "Sovereignty: Anthropic API direct interdit. Utiliser claude_cli OU claude_agent_sdk (abo claude.ai)."
+    severity: ERROR
+    languages: [python]
+
+  # === SECRETS ===
+  - id: ban-hardcoded-api-key
+    patterns:
+      - pattern-either:
+          - pattern: |
+              "sk-..."
+          - pattern: |
+              "ghp_..."
+          - pattern: |
+              "Bearer ..."
+    message: "Securite: API key hardcoded. Utiliser forge_machine_vault.get_secret()."
+    severity: ERROR
+    languages: [python]
+
+  # === SQL LIKE PRIMITIVE (memoire feedback) ===
+  - id: ban-sql-like-raw-rag
+    pattern: |
+      $C.execute("... LIKE %... rag_chunks ...")
+    message: "RAG: SQL LIKE raw interdit sur rag_chunks. Utiliser rag_fts ou RAGEngine.search."
+    severity: WARNING
+    languages: [python]
+
+  # === DB WRITE WITHOUT EXPLICIT ID ===
+  - id: ban-rag-chunks-insert-no-id
+    patterns:
+      - pattern: $C.execute("INSERT INTO rag_chunks ...")
+      - pattern-not: $C.execute("INSERT INTO rag_chunks(id,...)")
+    message: "RAG: INSERT rag_chunks sans id explicite. Schema requiert TEXT PRIMARY KEY."
+    severity: WARNING
+    languages: [python]
+
+  # === FILEHANDLER (rotation) ===
+  - id: warn-filehandler-not-rotating
+    patterns:
+      - pattern: logging.FileHandler(...)
+      - pattern-not: logging.handlers.RotatingFileHandler(...)
+    message: "Use RotatingFileHandler (Phase 23 durcissement). Voir tools/forge_filehandler_migrator.py."
+    severity: WARNING
+    languages: [python]

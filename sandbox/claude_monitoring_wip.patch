@@ -1,0 +1,2017 @@
+diff --git a/docs/demo/v4_build/fragments/03a_tui_boot.mp4 b/docs/demo/v4_build/fragments/03a_tui_boot.mp4
+index ea72fa8..a784563 100644
+Binary files a/docs/demo/v4_build/fragments/03a_tui_boot.mp4 and b/docs/demo/v4_build/fragments/03a_tui_boot.mp4 differ
+diff --git a/docs/demo/v4_build/fragments/03c_tui_multivendor.mp4 b/docs/demo/v4_build/fragments/03c_tui_multivendor.mp4
+index f323cd3..3c5a24e 100644
+Binary files a/docs/demo/v4_build/fragments/03c_tui_multivendor.mp4 and b/docs/demo/v4_build/fragments/03c_tui_multivendor.mp4 differ
+diff --git a/docs/demo/v4_build/fragments/03d_tui_identity.mp4 b/docs/demo/v4_build/fragments/03d_tui_identity.mp4
+index d53c99a..26c9663 100644
+Binary files a/docs/demo/v4_build/fragments/03d_tui_identity.mp4 and b/docs/demo/v4_build/fragments/03d_tui_identity.mp4 differ
+diff --git a/docs/demo/v4_build/fragments/03e_mcp_bonus.mp4 b/docs/demo/v4_build/fragments/03e_mcp_bonus.mp4
+index d5b8149..a8050c8 100644
+Binary files a/docs/demo/v4_build/fragments/03e_mcp_bonus.mp4 and b/docs/demo/v4_build/fragments/03e_mcp_bonus.mp4 differ
+diff --git a/docs/demo/v4_build/frames/03_racks.png b/docs/demo/v4_build/frames/03_racks.png
+index 01cc457..2cd54c7 100644
+Binary files a/docs/demo/v4_build/frames/03_racks.png and b/docs/demo/v4_build/frames/03_racks.png differ
+diff --git a/docs/demo/v4_build/frames/03a_tui_boot.png b/docs/demo/v4_build/frames/03a_tui_boot.png
+index 1729c37..c027f68 100644
+Binary files a/docs/demo/v4_build/frames/03a_tui_boot.png and b/docs/demo/v4_build/frames/03a_tui_boot.png differ
+diff --git a/docs/demo/v4_build/frames/03c_tui_multivendor.png b/docs/demo/v4_build/frames/03c_tui_multivendor.png
+index a3c3b3f..23409ba 100644
+Binary files a/docs/demo/v4_build/frames/03c_tui_multivendor.png and b/docs/demo/v4_build/frames/03c_tui_multivendor.png differ
+diff --git a/docs/demo/v4_build/frames/03d_tui_identity.png b/docs/demo/v4_build/frames/03d_tui_identity.png
+index 7b8d139..ce95ac7 100644
+Binary files a/docs/demo/v4_build/frames/03d_tui_identity.png and b/docs/demo/v4_build/frames/03d_tui_identity.png differ
+diff --git a/docs/demo/v4_build/frames/03e_mcp_bonus.png b/docs/demo/v4_build/frames/03e_mcp_bonus.png
+index 2034a91..34ab335 100644
+Binary files a/docs/demo/v4_build/frames/03e_mcp_bonus.png and b/docs/demo/v4_build/frames/03e_mcp_bonus.png differ
+diff --git a/docs/demo/v4_build/frames/04_topology.png b/docs/demo/v4_build/frames/04_topology.png
+index a4441fd..7b633e0 100644
+Binary files a/docs/demo/v4_build/frames/04_topology.png and b/docs/demo/v4_build/frames/04_topology.png differ
+diff --git a/docs/demo/v4_build/frames/05_switches.png b/docs/demo/v4_build/frames/05_switches.png
+index 5c342c7..0d7818c 100644
+Binary files a/docs/demo/v4_build/frames/05_switches.png and b/docs/demo/v4_build/frames/05_switches.png differ
+diff --git a/docs/demo/v4_build/frames/06_mcp_tools.png b/docs/demo/v4_build/frames/06_mcp_tools.png
+index 2034a91..b7b567a 100644
+Binary files a/docs/demo/v4_build/frames/06_mcp_tools.png and b/docs/demo/v4_build/frames/06_mcp_tools.png differ
+diff --git a/netcfg/db.py b/netcfg/db.py
+index cac34da..4959342 100644
+--- a/netcfg/db.py
++++ b/netcfg/db.py
+@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS netcfg_equipment (
+     vendor_key      TEXT    NOT NULL,
+     model           TEXT,
+     os_version      TEXT,
++    serial_number   TEXT,
++    asset_tag       TEXT,
++    qr_data         TEXT,
++    rack_u          INTEGER,
+     location        TEXT,
+     visio_shape_id  TEXT,
+     keepass_entry   TEXT,
+@@ -32,6 +36,20 @@ CREATE TABLE IF NOT EXISTS netcfg_equipment (
+     status          TEXT    NOT NULL DEFAULT 'active'
+ );
+ 
++CREATE TABLE IF NOT EXISTS netcfg_hosts (
++    id              INTEGER PRIMARY KEY AUTOINCREMENT,
++    hostname        TEXT    NOT NULL,
++    ip_address      TEXT    NOT NULL UNIQUE,
++    mac_address     TEXT,
++    kind            TEXT    NOT NULL, -- 'pc', 'mac', 'android', 'iot', 'smartphone'
++    os_version      TEXT,
++    vlan_id         INTEGER,
++    switch_port     TEXT,    -- ex: 'GigabitEthernet0/0/5'
++    connected_to    TEXT,    -- hostname du switch
++    last_seen       TEXT    NOT NULL,
++    status          TEXT    NOT NULL DEFAULT 'online'
++);
++
+ CREATE TABLE IF NOT EXISTS netcfg_config_backup (
+     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+     equipment_id    INTEGER NOT NULL REFERENCES netcfg_equipment(id),
+@@ -82,6 +100,18 @@ def migrate(db_path):
+     con = connect(db_path)
+     try:
+         con.executescript(SCHEMA_SQL)
++        # Migration auto pour colonnes manquantes
++        existing_cols = [r["name"] for r in con.execute("PRAGMA table_info(netcfg_equipment)").fetchall()]
++        new_cols = {
++            "serial_number": "TEXT",
++            "asset_tag": "TEXT",
++            "qr_data": "TEXT",
++            "rack_u": "INTEGER"
++        }
++        for col, col_type in new_cols.items():
++            if col not in existing_cols:
++                con.execute(f"ALTER TABLE netcfg_equipment ADD COLUMN {col} {col_type}")
++
+         tables = [r[0] for r in con.execute(
+             "SELECT name FROM sqlite_master WHERE type='table' "
+             "AND name LIKE 'netcfg_%' ORDER BY name"
+diff --git a/netcfg/monitoring.py b/netcfg/monitoring.py
+index c3bc378..e85deb0 100644
+--- a/netcfg/monitoring.py
++++ b/netcfg/monitoring.py
+@@ -75,6 +75,15 @@ class SwitchTelemetry:
+         self.traffic_out_mbps = deque(maxlen=self.MAX_POINTS)
+         self.errors_per_sec = deque(maxlen=self.MAX_POINTS)
+         self.timestamps = deque(maxlen=self.MAX_POINTS)
++        
++        # Senseurs materiels etendus
++        self.fan_speed_rpm = random.randint(3500, 6500)
++        self.psu_status = ["ok", "ok"] # Double alimentation redundante
++        self.temp_sensors = {
++            "ambient": deque(maxlen=self.MAX_POINTS),
++            "cpu": deque(maxlen=self.MAX_POINTS),
++            "asic": deque(maxlen=self.MAX_POINTS)
++        }
+ 
+         # Etat statut
+         self.status = "up"  # up | warn | down
+@@ -112,6 +121,15 @@ class SwitchTelemetry:
+         cpu = max(2, min(95, b["cpu"] + wave * 10 + noise * 3))
+         mem = max(15, min(92, b["mem"] + wave * 5 + noise * 2))
+         temp = max(28, min(75, b["temp"] + wave * 4 + noise))
++        
++        # Simulation senseurs multiples
++        self.temp_sensors["ambient"].append(round(temp - 10 + random.uniform(-1, 1), 1))
++        self.temp_sensors["cpu"].append(round(cpu * 0.6 + 20 + noise, 1))
++        self.temp_sensors["asic"].append(round(temp + 5 + wave * 2, 1))
++        
++        # Fan speed suit le CPU/Temp
++        self.fan_speed_rpm = int(4000 + (cpu * 20) + (temp * 10) + noise * 100)
++
+         in_mbps = max(5, b["traffic_mbps"] + wave * b["traffic_mbps"] * 0.4 + noise * 30)
+         out_mbps = max(5, b["traffic_mbps"] * 0.7 + wave * b["traffic_mbps"] * 0.3 + noise * 25)
+         errors = max(0, int(random.gauss(0.5, 0.8)))
+@@ -190,6 +208,151 @@ class SwitchTelemetry:
+         }
+ 
+ 
++# ============================================================================
++# HostTelemetry (machines, serveurs, appliances)
++# ============================================================================
++
++
++class HostTelemetry:
++    """Etat telemetrique d un host non-switch (serveur, NAS, printer, appliance).
++
++    Differences avec SwitchTelemetry :
++      - pas de temp (machines server ont souvent plusieurs capteurs mais pas expose)
++      - metriques systeme (disk, IOPS, services)
++      - network par interface virtuelle (eth0/eth1/lo)
++      - pas de ports physiques
++    """
++
++    MAX_POINTS = 60
++
++    def __init__(self, hostname: str, host_type: str = "server", os: str = "linux"):
++        self.hostname = hostname
++        self.host_type = host_type  # server | nas | printer | appliance | iot
++        self.os = os  # linux | windows | embedded
++
++        # Baselines par type
++        baseline = {
++            "server":    {"cpu": 22, "mem": 55, "disk": 45, "net": 180, "iops": 120},
++            "nas":       {"cpu": 8,  "mem": 35, "disk": 72, "net": 450, "iops": 340},
++            "printer":   {"cpu": 3,  "mem": 22, "disk": 8,  "net": 2,   "iops": 2},
++            "appliance": {"cpu": 15, "mem": 40, "disk": 30, "net": 80,  "iops": 60},
++            "iot":       {"cpu": 5,  "mem": 28, "disk": 12, "net": 4,   "iops": 5},
++        }.get(host_type, {"cpu": 10, "mem": 30, "disk": 25, "net": 50, "iops": 30})
++
++        self._baseline = baseline
++        self._phase = random.uniform(0, 2 * math.pi)
++
++        # Series temporelles
++        self.cpu_percent = deque(maxlen=self.MAX_POINTS)
++        self.mem_percent = deque(maxlen=self.MAX_POINTS)
++        self.temp_celsius = deque(maxlen=self.MAX_POINTS)
++        self.disk_percent = deque(maxlen=self.MAX_POINTS)
++        self.net_in_mbps = deque(maxlen=self.MAX_POINTS)
++        self.net_out_mbps = deque(maxlen=self.MAX_POINTS)
++        self.iops = deque(maxlen=self.MAX_POINTS)
++        self.timestamps = deque(maxlen=self.MAX_POINTS)
++
++        self.status = "up"
++        self.last_seen = datetime.datetime.now().isoformat()
++        self.uptime_seconds = random.randint(86400, 86400 * 180)
++
++        # Services simules (pertinent pour servers)
++        self.services = self._init_services()
++
++        # User sessions (pertinent pour servers/nas)
++        self.active_sessions = random.randint(0, 8) if host_type in ("server", "nas") else 0
++
++        # Last backup (NAS uniquement)
++        if host_type == "nas":
++            hours_ago = random.randint(1, 48)
++            self.last_backup = (datetime.datetime.now() -
++                                datetime.timedelta(hours=hours_ago)).isoformat()
++        else:
++            self.last_backup = None
++
++    def _init_services(self):
++        """Services plausibles par type."""
++        services_map = {
++            "server": ["sshd", "nginx", "postgresql", "redis", "systemd-journald"],
++            "nas":    ["sshd", "smbd", "nfs-kernel-server", "rsnapshot", "snmpd"],
++            "printer": ["httpd-cups", "snmpd"],
++            "appliance": ["sshd", "nginx", "telemetry-agent"],
++            "iot":    ["sensor-agent", "mqtt-client"],
++        }
++        names = services_map.get(self.host_type, ["sshd"])
++        return [
++            {"name": n, "state": random.choices(["active", "inactive"], weights=[92, 8])[0]}
++            for n in names
++        ]
++
++    def tick(self, elapsed_s: float):
++        t = datetime.datetime.now()
++        b = self._baseline
++        wave = math.sin((elapsed_s / 40) + self._phase)
++        noise = random.gauss(0, 2)
++
++        cpu = max(1, min(96, b["cpu"] + wave * 12 + noise * 3))
++        mem = max(10, min(94, b["mem"] + wave * 4 + noise * 1.5))
++        # Disk croit lentement (drift positif)
++        disk = max(5, min(98, b["disk"] + wave * 1.5 + noise * 0.5))
++        net_in = max(0.1, b["net"] + wave * b["net"] * 0.5 + noise * 8)
++        net_out = max(0.1, b["net"] * 0.6 + wave * b["net"] * 0.3 + noise * 6)
++        iops_val = max(0, int(b["iops"] + wave * b["iops"] * 0.4 + noise * 10))
++
++        self.cpu_percent.append(round(cpu, 1))
++        self.mem_percent.append(round(mem, 1))
++        self.disk_percent.append(round(disk, 1))
++        self.net_in_mbps.append(round(net_in, 2))
++        self.net_out_mbps.append(round(net_out, 2))
++        self.iops.append(iops_val)
++        self.timestamps.append(t.isoformat(timespec="seconds"))
++
++        if cpu > 85 or mem > 88 or disk > 92:
++            self.status = "warn"
++        elif cpu > 93 or mem > 95 or disk > 97:
++            self.status = "down"
++        else:
++            self.status = "up"
++        self.last_seen = t.isoformat()
++        self.uptime_seconds += elapsed_s
++
++        # Occasionally flip a service
++        if random.random() < 0.005 and self.services:  # 0.5% par tick
++            svc = random.choice(self.services)
++            svc["state"] = "active" if svc["state"] == "inactive" else "inactive"
++
++    def snapshot(self) -> dict:
++        return {
++            "hostname": self.hostname,
++            "host_type": self.host_type,
++            "os": self.os,
++            "status": self.status,
++            "last_seen": self.last_seen,
++            "uptime_seconds": self.uptime_seconds,
++            "current": {
++                "cpu_percent": self.cpu_percent[-1] if self.cpu_percent else 0,
++                "mem_percent": self.mem_percent[-1] if self.mem_percent else 0,
++                "temp_celsius": self.temp_celsius[-1] if self.temp_celsius else 0,
++                "disk_percent": self.disk_percent[-1] if self.disk_percent else 0,
++                "net_in_mbps": self.net_in_mbps[-1] if self.net_in_mbps else 0,
++                "net_out_mbps": self.net_out_mbps[-1] if self.net_out_mbps else 0,
++                "iops": self.iops[-1] if self.iops else 0,
++            },
++            "series": {
++                "timestamps": list(self.timestamps),
++                "cpu": list(self.cpu_percent),
++                "mem": list(self.mem_percent),
++                "disk": list(self.disk_percent),
++                "net_in": list(self.net_in_mbps),
++                "net_out": list(self.net_out_mbps),
++                "iops": list(self.iops),
++            },
++            "services": self.services,
++            "active_sessions": self.active_sessions,
++            "last_backup": self.last_backup,
++        }
++
++
+ # ============================================================================
+ # Collector (orchestre events + telemetry)
+ # ============================================================================
+@@ -217,6 +380,13 @@ SYSLOG_TEMPLATES = [
+     ("WARN",     "metric",   "High CPU utilization detected: {cpu}%"),
+     ("WARN",     "metric",   "Temperature warning: {temp}C (threshold 65C)"),
+     ("INFO",     "netflow",  "Top talker: 10.0.20.{ip} -> 8.8.8.8 ({traffic} Mbps)"),
++    # SD-WAN & MPLS
++    ("INFO",     "sdwan",    "SD-WAN Tunnel {iface} to Site-{site_id} UP (SLA: Gold)"),
++    ("WARN",     "sdwan",    "SD-WAN Path {iface} Latency spike: {latency}ms (Threshold: 50ms)"),
++    ("CRITICAL", "sdwan",    "SD-WAN Policy Failover: Traffic moved from MPLS to LTE (High Jitter)"),
++    ("INFO",     "mpls",     "MPLS LDP neighbor 10.255.{site_id}.1 UP on {iface}"),
++    ("WARN",     "mpls",     "MPLS Label binding failure for prefix 10.0.{vlan}.0/24"),
++    ("INFO",     "bgp",      "BGP Session with ServiceProvider_MPLS established, {count} prefixes"),
+ ]
+ 
+ 
+@@ -226,7 +396,8 @@ class MonitoringCollector:
+     def __init__(self):
+         self.subscribers: List[Callable] = []
+         self.events = deque(maxlen=200)  # history des events
+-        self.telemetry: dict = {}  # hostname -> SwitchTelemetry
++        self.telemetry: dict = {}  # hostname -> SwitchTelemetry (switches only)
++        self.hosts: dict = {}      # hostname -> HostTelemetry (servers/machines)
+         self.is_running = False
+         self._started_at: Optional[float] = None
+ 
+@@ -243,6 +414,47 @@ class MonitoringCollector:
+             except Exception:
+                 pass
+ 
++    async def trigger_scenario(self, scenario_name: str):
++        """Déclenche un scénario d'incident complexe pour la démo."""
++        if scenario_name == "thermal_spike":
++            # On prend un switch de core au hasard
++            target = random.choice([h for h, t in self.telemetry.items() if t.role == "core"])
++            t = self.telemetry[target]
++            await self.emit(MonitoringEvent("CRITICAL", target, "FAN TRAY 1 FAILURE - RPM dropped to 0", "security"))
++            await self.emit(MonitoringEvent("WARN", target, f"ASIC Temperature rising: 78.5C", "metric"))
++            # Simulation impact sur la télémétrie (temporaire)
++            t.fan_speed_rpm = 0
++            
++        elif scenario_name == "sdwan_failover":
++            target = "HQ-DIST-01"
++            await self.emit(MonitoringEvent("WARN", target, "MPLS Link quality degraded (Packet Loss 12%)", "mpls"))
++            await asyncio.sleep(1)
++            await self.emit(MonitoringEvent("CRITICAL", target, "SD-WAN Policy: Switching traffic to Backup Internet Tunnel", "sdwan"))
++            
++        elif scenario_name == "brute_force":
++            target = "DC-CORE-01"
++            for i in range(5):
++                await self.emit(MonitoringEvent("WARN", "security", f"SSH login failure from 185.12.45.{i} (admin)", "security"))
++            await self.emit(MonitoringEvent("CRITICAL", "security", "Host 185.12.45.0/24 added to Temporary Ban List", "security"))
++
++        elif scenario_name == "simulate_peripherals":
++            # On execute le script de simulation (ou on appelle sa logique)
++            from .inventory import register_host
++            import random
++            from pathlib import Path
++            db_path = Path.home() / ".netcfg" / "db" / "netcfg.db"
++            switches = ["HQ-ACC-ET1", "HQ-ACC-ET2", "RD-ACC-OFFICE", "RD-ACC-LAB", "WH-ACC-MAIN", "DC-ACC-OOB"]
++            kinds = [("pc", "Windows 11"), ("mac", "macOS Sonoma"), ("android", "Android 14"), ("iot", "RTOS")]
++            
++            for i in range(1, 41):
++                k, os_v = random.choice(kinds)
++                sw = random.choice(switches)
++                vlan = random.choice([10, 20, 30, 40, 50])
++                ip = f"10.0.{vlan}.{100 + i}"
++                register_host(db_path, f"{k.upper()}-{i:02d}", ip, k, os_version=os_v, vlan_id=vlan, connected_to=sw)
++            
++            await self.emit(MonitoringEvent("INFO", "inventory", "40 assets simulated and registered in database", "inventory"))
++
+     def get_telemetry_snapshot(self, hostname: Optional[str] = None) -> dict:
+         """Retourne le snapshot d un switch (ou tous)."""
+         if hostname:
+@@ -296,8 +508,153 @@ class MonitoringCollector:
+             ],
+         }
+ 
++
++    @staticmethod
++    def _guess_host_type(hostname: str, eq: dict) -> str:
++        """Infere le type de host depuis le hostname / model."""
++        hn = hostname.lower()
++        model = (eq.get("model", "") or "").lower()
++        if any(kw in hn for kw in ("nas", "synology", "truenas", "backup")):
++            return "nas"
++        if any(kw in hn for kw in ("print", "impr")):
++            return "printer"
++        if any(kw in hn for kw in ("capteur", "sensor", "scada", "plc", "iot")):
++            return "iot"
++        if any(kw in hn for kw in ("srv", "server", "wms", "ad", "dc")):
++            return "server"
++        if any(kw in hn for kw in ("ups", "firewall", "fw", "idrac", "ilo")):
++            return "appliance"
++        if any(kw in model for kw in ("ups",)):
++            return "appliance"
++        return "server"  # defaut
++
++    @staticmethod
++    def _guess_os(hostname: str, host_type: str) -> str:
++        """Devine OS (informatif)."""
++        hn = hostname.lower()
++        if any(kw in hn for kw in ("win", "ad", "exchange")):
++            return "windows"
++        if host_type in ("nas",):
++            return "linux"  # la plupart des NAS (Synology DSM, TrueNAS)
++        if host_type in ("printer", "iot", "appliance"):
++            return "embedded"
++        return "linux"
++
++    def _spawn_demo_hosts(self, network_data):
++        """Genere des machines demo plausibles par site si inventory n en a pas.
++
++        Pour chaque site (page_id), spawn :
++          - 1 serveur principal (srv-<site>-01)
++          - 1 NAS (nas-<site>)
++          - 1 appliance ups
++          - 1 printer
++          - 2 machines admin (poste utilisateur)
++        Total : ~6 machines par site.
++        """
++        pages = network_data.get("pages", [])
++        if not pages:
++            # Fallback : 4 sites typiques
++            pages = [
++                {"id": "dc", "name": "Datacenter"},
++                {"id": "hq", "name": "Siege"},
++                {"id": "rd", "name": "R&D"},
++                {"id": "wh", "name": "Warehouse"},
++            ]
++
++        machines_per_site = {
++            "dc": [  # datacenter : plus de servers
++                ("srv-ad-01", "server", "windows"),
++                ("srv-ad-02", "server", "windows"),
++                ("srv-file-01", "server", "linux"),
++                ("srv-backup-01", "server", "linux"),
++                ("nas-dc-01", "nas", "linux"),
++                ("nas-dc-02", "nas", "linux"),
++                ("ups-dc-a", "appliance", "embedded"),
++                ("ups-dc-b", "appliance", "embedded"),
++                ("fw-edge-01", "appliance", "embedded"),
++            ],
++            "hq": [  # siege : mix
++                ("srv-wsus-01", "server", "windows"),
++                ("srv-dc-01", "server", "windows"),  # domain controller local
++                ("nas-hq-01", "nas", "linux"),
++                ("print-hq-accueil", "printer", "embedded"),
++                ("print-hq-rdc", "printer", "embedded"),
++                ("print-hq-r1", "printer", "embedded"),
++                ("ups-hq-main", "appliance", "embedded"),
++            ],
++            "rd": [  # R&D : servers de lab
++                ("srv-lab-01", "server", "linux"),
++                ("srv-gitlab-01", "server", "linux"),
++                ("srv-ci-01", "server", "linux"),
++                ("nas-rd-01", "nas", "linux"),
++                ("print-rd-lab", "printer", "embedded"),
++            ],
++            "wh": [  # warehouse : SCADA + IoT
++                ("srv-wms-01", "server", "linux"),
++                ("nas-wh-01", "nas", "linux"),
++                ("plc-chaine-a", "iot", "embedded"),
++                ("plc-chaine-b", "iot", "embedded"),
++                ("sensor-temp-01", "iot", "embedded"),
++                ("sensor-temp-02", "iot", "embedded"),
++                ("print-wh-exp", "printer", "embedded"),
++                ("ups-wh-main", "appliance", "embedded"),
++            ],
++        }
++
++        for page in pages:
++            pid = page.get("id", "")
++            specs = machines_per_site.get(pid, [
++                (f"srv-{pid}-01", "server", "linux"),
++                (f"nas-{pid}-01", "nas", "linux"),
++                (f"print-{pid}", "printer", "embedded"),
++            ])
++            for hostname, htype, os in specs:
++                if hostname not in self.hosts:
++                    self.hosts[hostname] = HostTelemetry(
++                        hostname=hostname, host_type=htype, os=os,
++                    )
++
++    def get_host_snapshot(self, hostname: Optional[str] = None) -> dict:
++        """Retourne snapshot d une machine (ou toutes)."""
++        if hostname:
++            h = self.hosts.get(hostname)
++            return h.snapshot() if h else {}
++        return {h: t.snapshot() for h, t in self.hosts.items()}
++
++    def get_hosts_summary(self) -> dict:
++        """Agregats sur les machines (non-switches)."""
++        snaps = [h.snapshot() for h in self.hosts.values()]
++        if not snaps:
++            return {"hosts": 0}
++
++        by_type = {}
++        for s in snaps:
++            t = s["host_type"]
++            by_type.setdefault(t, {"count": 0, "up": 0, "warn": 0, "down": 0})
++            by_type[t]["count"] += 1
++            by_type[t][s["status"]] = by_type[t].get(s["status"], 0) + 1
++
++        total_net_in = sum(s["current"]["net_in_mbps"] for s in snaps)
++        total_net_out = sum(s["current"]["net_out_mbps"] for s in snaps)
++        avg_cpu = sum(s["current"]["cpu_percent"] for s in snaps) / len(snaps)
++        avg_mem = sum(s["current"]["mem_percent"] for s in snaps) / len(snaps)
++        high_disk = [s["hostname"] for s in snaps if s["current"]["disk_percent"] > 80]
++
++        return {
++            "hosts": len(snaps),
++            "up": sum(1 for s in snaps if s["status"] == "up"),
++            "warn": sum(1 for s in snaps if s["status"] == "warn"),
++            "down": sum(1 for s in snaps if s["status"] == "down"),
++            "by_type": by_type,
++            "total_net_in_mbps": round(total_net_in, 1),
++            "total_net_out_mbps": round(total_net_out, 1),
++            "avg_cpu_percent": round(avg_cpu, 1),
++            "avg_mem_percent": round(avg_mem, 1),
++            "high_disk_hosts": high_disk,
++        }
++
+     async def start_simulation(self, network_data):
+-        """Lance la simulation : telemetry 1Hz + events aleatoires."""
++        """Lance la simulation : telemetry 1Hz (switches + hosts) + events."""
+         if self.is_running:
+             return
+         self.is_running = True
+@@ -306,15 +663,33 @@ class MonitoringCollector:
+         if not equipment:
+             return
+ 
+-        # Initialiser la telemetry pour chaque switch
++        # Classification : switch vs host non-switch
++        SWITCH_VENDORS = {"huawei_vrp", "hp_comware", "aruba_aoscx",
++                          "hp_procurve", "netgear_prosafe"}
++
+         for eq in equipment:
+             hn = eq.get("hostname", eq.get("shape_id", "UNKNOWN"))
+-            if hn not in self.telemetry:
+-                self.telemetry[hn] = SwitchTelemetry(
+-                    hostname=hn,
+-                    vendor_key=eq.get("vendor_key", "unknown"),
+-                    role=eq.get("role", "access"),
+-                )
++            vendor_key = eq.get("vendor_key", "")
++            if vendor_key in SWITCH_VENDORS:
++                # C est un switch
++                if hn not in self.telemetry:
++                    self.telemetry[hn] = SwitchTelemetry(
++                        hostname=hn, vendor_key=vendor_key,
++                        role=eq.get("role", "access"),
++                    )
++            else:
++                # C est une machine listee dans inventory (rare dans la demo actuelle)
++                htype = self._guess_host_type(hn, eq)
++                if hn not in self.hosts:
++                    self.hosts[hn] = HostTelemetry(
++                        hostname=hn, host_type=htype,
++                        os=self._guess_os(hn, htype),
++                    )
++
++        # Si aucune machine dans inventory, on genere des hosts demo par site
++        # pour que la vue Monitoring ait du contenu
++        if not self.hosts:
++            self._spawn_demo_hosts(network_data)
+ 
+         loop = asyncio.get_event_loop()
+         self._started_at = loop.time()
+@@ -326,9 +701,11 @@ class MonitoringCollector:
+                 now = loop.time()
+                 elapsed = now - self._started_at
+ 
+-                # Tick telemetry (1 Hz)
++                # Tick telemetry (1 Hz) - switches + hosts
+                 for t in self.telemetry.values():
+                     t.tick(1.0)
++                for h in self.hosts.values():
++                    h.tick(1.0)
+ 
+                 # Emettre un event selon probabilite (~1 event toutes 2s en moyenne)
+                 if now - last_event_at >= random.uniform(1.5, 3.5):
+diff --git a/netcfg/paths.py b/netcfg/paths.py
+index 9cd3272..31f36d5 100644
+--- a/netcfg/paths.py
++++ b/netcfg/paths.py
+@@ -74,6 +74,14 @@ def demo_running_dir() -> Path:
+     return resource_path("demo/running_configs_enterprise")
+ 
+ 
++def test_templates_dir() -> Path:
++    """Dossier des templates de test Nokido fournis par l'utilisateur."""
++    # En dev local, on remonte d'un niveau depuis netcfg-agent
++    repo_parent = _bundle_root().parent
++    test_dir = repo_parent / "Nokido" / "Template visio"
++    return test_dir
++
++
+ def is_frozen() -> bool:
+     """True si on tourne dans un binaire PyInstaller."""
+     return bool(getattr(sys, "frozen", False))
+diff --git a/netcfg/session.py b/netcfg/session.py
+index 83d3813..0a502b6 100644
+--- a/netcfg/session.py
++++ b/netcfg/session.py
+@@ -84,7 +84,7 @@ class Session:
+     # ---- Visio ----
+ 
+     def load_user_vsdx(self, uploaded_bytes, original_filename):
+-        """Accepte les bytes d'un .vsdx uploade. Essaye 2 strategies :
++        """Accepte les bytes d'un .vsdx ou .vst uploade. Essaye 2 strategies :
+ 
+         1. Le Visio embarque netcfg/network.json (format netcfg-agent complet)
+         2. Le Visio n'a que des shapes reelles -> parser vsdx_reader +
+@@ -92,9 +92,7 @@ class Session:
+         """
+         # Sanity : taille
+         if len(uploaded_bytes) > 50 * 1024 * 1024:
+-            raise ValueError(".vsdx trop volumineux (>50 Mo)")
+-        if not uploaded_bytes[:4] == b"PK\x03\x04":
+-            raise ValueError("Fichier non-ZIP (pas un .vsdx valide)")
++            raise ValueError("Fichier trop volumineux (>50 Mo)")
+ 
+         # Sauvegarde temp
+         dest = UPLOAD_DIR / ("user_" + uuid.uuid4().hex + "_" + original_filename)
+@@ -359,6 +357,24 @@ class Session:
+             "warnings": self.warnings,
+         }
+ 
++    def load_template_vsdx(self, path: Path):
++        """Charge un Visio depuis le disque (Template de test)."""
++        if not path.exists():
++            raise FileNotFoundError(f"Template introuvable : {path}")
++        
++        network = nv.parse(path)
++        self._apply_new_network(
++            network, path, "test_template",
++            path.name, path.stat().st_size
++        )
++        self.warnings = [f"Visio de test '{path.name}' charge."]
++        return {
++            "ok": True,
++            "source": self.source.__dict__,
++            "summary": self._summary(),
++            "warnings": self.warnings
++        }
++
+ 
+ # ============================================================================
+ # Convertisseur vsdx_reader.classify() -> modele netcfg-network-v2
+diff --git a/netcfg/templates/aruba_aoscx.yml b/netcfg/templates/aruba_aoscx.yml
+index c86bbea..c343033 100644
+--- a/netcfg/templates/aruba_aoscx.yml
++++ b/netcfg/templates/aruba_aoscx.yml
+@@ -74,6 +74,13 @@ operations:
+       - "^interface .+$"
+       - "^    vlan trunk allowed .+$"
+ 
++  set_locator_led:
++    template: |
++      chassis locator-led {{ state }}
++    params: [state]
++    validate_regex:
++      - "^chassis locator-led (blink|off)$"
++
+ destructive_blacklist:
+   - "^erase all"
+   - "^erase startup-config"
+diff --git a/netcfg/templates/hp_comware.yml b/netcfg/templates/hp_comware.yml
+index be49c24..96db518 100644
+--- a/netcfg/templates/hp_comware.yml
++++ b/netcfg/templates/hp_comware.yml
+@@ -73,6 +73,13 @@ operations:
+       - "^interface .+$"
+       - "^ port trunk permit vlan .+$"
+ 
++  set_locator_led:
++    template: |
++      led locator {{ state }}
++    params: [state]
++    validate_regex:
++      - "^led locator (on|off|blink)$"
++
+ destructive_blacklist:
+   - "^reset saved-configuration"
+   - "^delete .+ flash:"
+diff --git a/netcfg/templates/hp_procurve.yml b/netcfg/templates/hp_procurve.yml
+index eeb0c1c..a45a388 100644
+--- a/netcfg/templates/hp_procurve.yml
++++ b/netcfg/templates/hp_procurve.yml
+@@ -74,6 +74,13 @@ operations:
+       - "^vlan \\d+$"
+       - "^   tagged .+$"
+ 
++  set_locator_led:
++    template: |
++      chassis locator-led {{ state }}
++    params: [state]
++    validate_regex:
++      - "^chassis locator-led (on|off|blink)$"
++
+ destructive_blacklist:
+   - "^erase startup-config"
+   - "^erase running-config"
+diff --git a/netcfg/templates/huawei_vrp.yml b/netcfg/templates/huawei_vrp.yml
+index 848b9c2..992f8bc 100644
+--- a/netcfg/templates/huawei_vrp.yml
++++ b/netcfg/templates/huawei_vrp.yml
+@@ -71,6 +71,13 @@ operations:
+       - "^interface .+$"
+       - "^ port trunk allow-pass vlan .+$"
+ 
++  set_locator_led:
++    template: |
++      led locator {{ state }}
++    params: [state]
++    validate_regex:
++      - "^led locator (on|off|blink)$"
++
+ destructive_blacklist:
+   - "^reset saved-configuration"
+   - "^delete .+"
+diff --git a/netcfg/templates/netgear_prosafe.yml b/netcfg/templates/netgear_prosafe.yml
+index 3116b57..39a6bb1 100644
+--- a/netcfg/templates/netgear_prosafe.yml
++++ b/netcfg/templates/netgear_prosafe.yml
+@@ -78,6 +78,13 @@ operations:
+       - "^interface .+$"
+       - "^vlan tagging .+$"
+ 
++  set_locator_led:
++    template: |
++      locator-led {{ state }}
++    params: [state]
++    validate_regex:
++      - "^locator-led (on|off|blink)$"
++
+ destructive_blacklist:
+   - "^clear config"
+   - "^erase startup-config"
+diff --git a/netcfg/views.py b/netcfg/views.py
+index e80278b..2b6a378 100644
+--- a/netcfg/views.py
++++ b/netcfg/views.py
+@@ -34,8 +34,8 @@ from . import topology as nt
+ from . import optimization as nopt
+ from .session import Session
+ from . import paths as ncpaths
+-from . import inventory as ni
+ from . import monitoring as nm
++from . import inventory as ni
+ 
+ 
+ def create_app(visio_path, running_configs_dir=None, templates_dir=None,
+@@ -548,6 +548,36 @@ def create_app(visio_path, running_configs_dir=None, templates_dir=None,
+             return to_mermaid(parsed)
+         raise HTTPException(status_code=400, detail="Mermaid export requires a .vsdx source")
+ 
++    @app.get("/api/hosts")
++    def api_hosts():
++        """Liste des machines et périphériques (PC, Mac, IoT...) détectés."""
++        db_path = Path.home() / ".netcfg" / "db" / "netcfg.db"
++        if not db_path.exists():
++            return []
++        return ni.get_hosts_status(db_path)
++
++    @app.get("/api/assets")
++    def api_assets():
++        """Vue consolidée switches + périphériques via InventoryNG."""
++        db_path = Path.home() / ".netcfg" / "db" / "netcfg.db"
++        inv = ni.InventoryNG(app.state.session.network, db_path=db_path)
++        return inv.get_all_assets()
++
++    @app.get("/api/vendor-knowledge/search")
++    def api_vendor_search(q: str, vendor: str = ""):
++        """Recherche dans la base de connaissance CLI depuis le Web."""
++        try:
++            from netcfg_mcp.tools_impl.vendor_search import vendor_search
++            return vendor_search(query=q, vendor=vendor)
++        except ImportError:
++            raise HTTPException(status_code=501, detail="Module vendor_search non disponible")
++
++    @app.post("/api/monitoring/trigger")
++    async def post_trigger_scenario(scenario: str):
++        """Déclenche un scénario d'incident pour la démo."""
++        await nm.collector.trigger_scenario(scenario)
++        return {"status": "triggered", "scenario": scenario}
++
+     @app.get("/api/dashboard")
+     def api_dashboard():
+         """Agregat complet pour le dashboard : agregation de network + audit +
+@@ -887,6 +917,24 @@ def create_app(visio_path, running_configs_dir=None, templates_dir=None,
+             "total_in_buffer": len(nm.collector.events),
+         }
+ 
++    @app.get("/api/monitoring/hosts/summary")
++    def api_monitoring_hosts_summary():
++        """Agregats sur les machines non-switches (serveurs, NAS, printers...)."""
++        return nm.collector.get_hosts_summary()
++
++    @app.get("/api/monitoring/hosts")
++    def api_monitoring_hosts():
++        """Snapshot de toutes les machines non-switches."""
++        return nm.collector.get_host_snapshot()
++
++    @app.get("/api/monitoring/hosts/{hostname}")
++    def api_monitoring_hosts_one(hostname: str):
++        """Telemetry detaillee d une machine precise."""
++        data = nm.collector.get_host_snapshot(hostname)
++        if not data:
++            raise HTTPException(404, f"Host telemetry not available for {hostname}")
++        return data
++
+     # ==================================================================
+     # REAL-TIME MONITORING (WebSocket)
+     # ==================================================================
+diff --git a/netcfg/visio.py b/netcfg/visio.py
+index 1cf1de1..3060377 100644
+--- a/netcfg/visio.py
++++ b/netcfg/visio.py
+@@ -52,7 +52,7 @@ ALLOWED_PORT_KEYS = {
+ }
+ ALLOWED_PAGE_KEYS = {"id", "name", "map_image", "width", "height"}
+ ALLOWED_POSITION_KEYS = {"x", "y"}
+-VALID_ROLES = {"core", "distribution", "access"}
++VALID_ROLES = {"core", "distribution", "access", "server"}
+ VALID_LINK_TYPES = {"trunk", "access"}
+ VALID_SCHEMAS = {"netcfg-network-v1", "netcfg-network-v2"}
+ 
+@@ -155,6 +155,17 @@ def _validate_network(data):
+         hu = rk.get("height_u", 42)
+         if not isinstance(hu, int) or not (1 <= hu <= 60):
+             raise VisioParseError("rack %s : height_u invalide : %r" % (rid, hu))
++        if "position" in rk and rk["position"] is not None:
++            pos = rk["position"]
++            if not isinstance(pos, dict):
++                raise VisioParseError("rack %s : position doit etre un objet" % rid)
++            _whitelist(pos, ALLOWED_POSITION_KEYS, "position de %s" % rid)
++            for coord in ("x", "y"):
++                val = pos.get(coord)
++                if not isinstance(val, (int, float)) or not (0 <= val <= 10000):
++                    raise VisioParseError(
++                        "rack %s : position.%s invalide : %r" % (rid, coord, val)
++                    )
+ 
+     # ---- VLANs ----
+     vlans = data.get("vlans", [])
+@@ -292,6 +303,17 @@ def parse_vsdx(path):
+     """Parse un .vsdx. Cherche `netcfg/network.json` dans le ZIP."""
+     path = Path(path)
+     size = path.stat().st_size
++    
++    # Check header pour formats binaires legacy (D0 CF 11 E0)
++    with open(path, "rb") as f:
++        header = f.read(4)
++        if header == b"\xd0\xcf\x11\xe0":
++            raise VisioParseError(
++                "Le fichier %s est au format Visio binaire (Legacy). "
++                "Veuillez l'enregistrer en format '.vsdx' (Open XML) dans Visio "
++                "pour permettre l'importation." % path.name
++            )
++
+     if size > MAX_VSDX_SIZE:
+         raise VisioParseError(
+             ".vsdx trop volumineux (%d bytes > %d)" % (size, MAX_VSDX_SIZE)
+@@ -321,18 +343,134 @@ def parse_vsdx(path):
+     return _validate_network(data)
+ 
+ 
++def parse_excel(path):
++    """
++    Parse un fichier .xlsx sans openpyxl (via zip + xml).
++    Cherche a extraire une liste d'equipements.
++    """
++    from xml.etree import ElementTree as ET
++    path = Path(path)
++    
++    with zipfile.ZipFile(path, 'r') as z:
++        # 1. Charger les shared strings (les textes)
++        strings = []
++        if 'xl/sharedStrings.xml' in z.namelist():
++            with z.open('xl/sharedStrings.xml') as f:
++                tree = ET.parse(f)
++                for t in tree.findall('.//{http://schemas.openxmlformats.org/spreadsheetml/2006/main}t'):
++                    strings.append(t.text)
++        
++        # 2. Charger la feuille 1
++        with z.open('xl/worksheets/sheet1.xml') as f:
++            tree = ET.parse(f)
++            rows = []
++            ns = {'ns': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
++            for row_node in tree.findall('.//ns:row', ns):
++                row_data = []
++                for cell in row_node.findall('ns:c', ns):
++                    val_node = cell.find('ns:v', ns)
++                    if val_node is not None:
++                        val = val_node.text
++                        # Si type 's', c'est un index dans sharedStrings
++                        if cell.get('t') == 's':
++                            val = strings[int(val)] if int(val) < len(strings) else ""
++                        row_data.append(val)
++                    else:
++                        row_data.append(None)
++                if any(row_data):
++                    rows.append(row_data)
++
++    if not rows:
++        raise VisioParseError("Fichier Excel vide ou illisible.")
++
++    # 3. Mapping intelligent des colonnes
++    # On cherche la ligne de header (celle qui a le plus de mots-clés reconnus)
++    header_idx = 0
++    best_score = -1
++    keywords_all = ['host', 'nom', 'name', 'appareil', 'ip', 'mgmt', 'adresse', 'vendor', 'constructeur', 'marque', 'type', 'serial', 'asset']
++    
++    for i in range(min(5, len(rows))):
++        score = sum(1 for c in rows[i] if any(k in str(c).lower() for k in keywords_all))
++        if score > best_score:
++            best_score = score
++            header_idx = i
++            
++    header = [str(c).lower() if c else "" for c in rows[header_idx]]
++    
++    def find_col(keywords):
++        for i, h in enumerate(header):
++            if any(k in h for k in keywords): return i
++        return -1
++
++    idx_host = find_col(['host', 'nom', 'name', 'appareil', 'displayed text'])
++    idx_ip = find_col(['ip', 'mgmt', 'adresse'])
++    idx_vendor = find_col(['vendor', 'constructeur', 'marque', 'type', 'manufacturer'])
++    idx_role = find_col(['role', 'fonction'])
++    idx_model = find_col(['model', 'modele', 'ref', 'product number'])
++    idx_sn = find_col(['serial', 's/n'])
++    idx_asset = find_col(['asset', 'étiquette'])
++
++    if idx_host == -1:
++        # Fallback: si on trouve pas 'host', on essaye de prendre la première colonne non vide qui n'est pas IP
++        idx_host = 0
++
++    equipment = []
++    # On commence après le header
++    for i, r in enumerate(rows[header_idx+1:]):
++        # On saute les lignes vides
++        if not any(r): continue
++        
++        # On essaye de trouver un nom. Si r[idx_host] est vide, on tente r[idx_model] ou un nom générique
++        hostname = str(r[idx_host]) if idx_host < len(r) and r[idx_host] else ""
++        if not hostname and idx_model != -1 and idx_model < len(r) and r[idx_model]:
++            hostname = str(r[idx_model])
++        if not hostname:
++            hostname = f"EQUIP-{i+1}"
++
++        # On stocke toutes les colonnes brutes dans 'props' pour enrichissement
++        props = {}
++        for j, val in enumerate(r):
++            if j < len(header) and header[j]:
++                props[header[j]] = val
++
++        equipment.append({
++            "shape_id": f"xl_{i}",
++            "hostname": hostname,
++            "mgmt_ip": str(r[idx_ip]) if idx_ip != -1 and idx_ip < len(r) and r[idx_ip] else "0.0.0.0",
++            "vendor_key": str(r[idx_vendor]).lower().replace(" ", "_") if idx_vendor != -1 and idx_vendor < len(r) and r[idx_vendor] else "_generic",
++            "model": str(r[idx_model]) if idx_model != -1 and idx_model < len(r) and r[idx_model] else "",
++            "serial_number": str(r[idx_sn]) if idx_sn != -1 and idx_sn < len(r) and r[idx_sn] else None,
++            "asset_tag": str(r[idx_asset]) if idx_asset != -1 and idx_asset < len(r) and r[idx_asset] else None,
++            "role": str(r[idx_role]).lower() if idx_role != -1 and idx_role < len(r) and r[idx_role] else "access",
++            "page_id": "p_excel",
++            "properties": props # On garde TOUT le contenu XLSX ici
++        })
++
++    return {
++        "schema": "netcfg-network-v2",
++        "site": f"Import Excel: {path.name}",
++        "vlans": [{"id": 1, "name": "default"}],
++        "pages": [{"id": "p_excel", "name": "Inventaire Excel", "width": 1000, "height": 800}],
++        "equipment": equipment,
++        "links": [],
++        "ports": [],
++        "racks": []
++    }
++
+ def parse(path):
+-    """Auto-detecte .vsdx vs .json selon l'extension."""
++    """Auto-detecte .vsdx vs .json vs .xlsx selon l'extension."""
+     path = Path(path)
+     if not path.exists():
+         raise VisioParseError("Fichier introuvable : %s" % path)
+     suffix = path.suffix.lower()
+-    if suffix == ".vsdx":
++    if suffix in (".vsdx", ".vst"):
+         return parse_vsdx(path)
+     if suffix == ".json":
+         return parse_json(path)
++    if suffix == ".xlsx":
++        return parse_excel(path)
+     raise VisioParseError(
+-        "Extension non supportee : %s (attendu .vsdx ou .json)" % suffix
++        "Extension non supportee : %s (attendu .vsdx, .vst, .json ou .xlsx)" % suffix
+     )
+ 
+ 
+diff --git a/static/app.js b/static/app.js
+index f15ab49..6ddc6a0 100644
+--- a/static/app.js
++++ b/static/app.js
+@@ -43,14 +43,15 @@ function toast(msg, kind = 'info') {
+ // ============================================================================
+ 
+ const VIEWS = {
+-  dashboard: { label: 'Dashboard',    render: renderDashboard },
+-  topology:  { label: 'Topologie',    render: renderTopology },
+-  sites:     { label: 'Sites & plans', render: renderSites },
+-  racks:     { label: 'Baies',        render: renderRacks },
+-  switches:  { label: 'Switches',     render: renderSwitches },
+-  machines:  { label: 'Machines',     render: renderMachines },
+-  optimize:  { label: 'Optimisations', render: renderOptimize },
+-  sources:   { label: 'Sources',       render: renderSources },
++  dashboard:  { label: 'Dashboard',    render: renderDashboard },
++  topology:   { label: 'Topologie',    render: renderTopology },
++  sites:      { label: 'Sites & plans', render: renderSites },
++  racks:      { label: 'Diagramme Baies', render: renderRacks },
++  switches:   { label: 'Switches',     render: renderSwitches },
++  inventory:  { label: 'Audit Inventaire', render: renderInventory },
++  monitoring: { label: 'Monitoring',   render: renderMonitoring },
++  optimize:   { label: 'Optimisations', render: renderOptimize },
++  sources:    { label: 'Sources',       render: renderSources },
+ };
+ 
+ function navigate(viewId) {
+@@ -68,9 +69,61 @@ function navigate(viewId) {
+     state.gridInstance = null;
+   }
+ 
++  // Update topbar actions based on view
++  updateTopbarActions(viewId);
++
+   VIEWS[viewId].render();
+ }
+ 
++function updateTopbarActions(viewId) {
++    const actions = $('.topbar-actions');
++    if (!actions) return;
++    
++    // Garde le refresh-btn
++    actions.innerHTML = `
++      <div class="pill"><span class="pill-dot static"></span> Intent statique · Visio</div>
++      ${viewId === 'inventory' ? `
++        <button class="btn btn-primary" id="simulate-assets-btn">
++          ⚡ Simuler périphériques
++        </button>
++      ` : ''}
++      <button class="btn btn-icon" id="refresh-btn" title="Actualiser">
++        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
++          <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
++          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
++        </svg>
++      </button>
++    `;
++    
++    // Wire up events
++    const refresh = $('#refresh-btn');
++    if (refresh) refresh.onclick = async () => {
++        toast('Rechargement...');
++        await reloadAll();
++        navigate(state.currentView);
++        toast('Données rechargées', 'ok');
++    };
++    
++    const simulate = $('#simulate-assets-btn');
++    if (simulate) simulate.onclick = async () => {
++        toast('Lancement de la simulation...');
++        simulate.disabled = true;
++        try {
++            const r = await fetch('/api/monitoring/trigger?scenario=simulate_peripherals', { method: 'POST' });
++            // On attend un peu que le background worker finisse de peupler
++            setTimeout(async () => {
++                await reloadAll();
++                renderInventory();
++                toast('40 nouveaux périphériques injectés !', 'ok');
++                simulate.disabled = false;
++            }, 1000);
++        } catch (e) {
++            toast('Erreur : ' + e.message, 'error');
++            simulate.disabled = false;
++        }
++    };
++}
++
+ window.addEventListener('hashchange', () => {
+   const viewId = window.location.hash.slice(1) || 'dashboard';
+   navigate(viewId);
+@@ -268,17 +321,13 @@ function renderDashboard() {
+ 
+   const widgets = [
+     { x:0, y:0,  w:12, h:2, id:'kpis', html: widgetKPIs(d.site_info.totals, totalOps, spofCount, ghostVlans, issues, sev) },
+-    // Live monitoring widgets (se mettent à jour toutes 2s via fetchMonitoring)
+-    { x:0, y:2,  w:4,  h:3, id:'mon-fleet', html: widgetMonitoringFleet() },
+-    { x:4, y:2,  w:4,  h:3, id:'mon-talkers', html: widgetMonitoringTalkers() },
+-    { x:8, y:2,  w:4,  h:3, id:'mon-events', html: widgetMonitoringEvents() },
+-    { x:0, y:5,  w:4,  h:4, id:'drift', html: widgetDrift(sevArr) },
+-    { x:4, y:5,  w:4,  h:4, id:'spofs', html: widgetSPOFs(d.optimization_summary.top_spofs) },
+-    { x:8, y:5,  w:4,  h:4, id:'vendors', html: widgetVendors(vendorArr) },
+-    { x:0, y:9,  w:8,  h:4, id:'sites', html: widgetSites(d.sites) },
+-    { x:8, y:9,  w:4,  h:4, id:'topo', html: widgetTopology(d.topology_stats, d.cycle_stats) },
+-    { x:0, y:13, w:6,  h:5, id:'top-sw', html: widgetTopSwitches(d.top_switches) },
+-    { x:6, y:13, w:6,  h:5, id:'vlans', html: widgetVLANUsage(d.vlan_usage) },
++    { x:0, y:2,  w:4,  h:4, id:'drift', html: widgetDrift(sevArr) },
++    { x:4, y:2,  w:4,  h:4, id:'spofs', html: widgetSPOFs(d.optimization_summary.top_spofs) },
++    { x:8, y:2,  w:4,  h:4, id:'vendors', html: widgetVendors(vendorArr) },
++    { x:0, y:6,  w:8,  h:4, id:'sites', html: widgetSites(d.sites) },
++    { x:8, y:6,  w:4,  h:4, id:'topo', html: widgetTopology(d.topology_stats, d.cycle_stats) },
++    { x:0, y:10, w:6,  h:5, id:'top-sw', html: widgetTopSwitches(d.top_switches) },
++    { x:6, y:10, w:6,  h:5, id:'vlans', html: widgetVLANUsage(d.vlan_usage) },
+   ];
+ 
+   const grid = GridStack.init({
+@@ -896,64 +945,81 @@ function renderRacks() {
+ 
+   $('#view-container').innerHTML = `
+     <div style="padding:0 4px">
+-      <h2 style="margin:0 0 16px 0;font-size:18px;font-weight:600">
+-        Baies <span style="color:var(--text-dim);font-size:13px;font-weight:400">· ${racks.length} racks modelises</span>
+-      </h2>
+-      <div class="racks-grid">
+-        ${racks.map(r => {
+-          const items = equipment.filter(e => e.rack_id === r.id);
+-          const rackU = r.height_u || 42;
+-          const slotPx = 14;
+-
+-          // Chaque equipement : bottom = (rack_u - 1) * slotPx, hauteur = rack_u_height * slotPx
+-          const equipItems = items.map(e => {
+-            const a = state.audit.equipment.find(x => x.shape_id === e.shape_id);
+-            const sev = a?.severity || 'unknown';
+-            return `
+-              <div class="u-equip ${e.role === 'server' ? 'server' : 'switch'} ${e.role}"
+-                   style="bottom:${(e.rack_u - 1) * slotPx}px;height:${(e.rack_u_height || 1) * slotPx - 1}px"
+-                   data-node-id="${e.shape_id}"
+-                   title="${e.hostname} (U${e.rack_u}) · ${e.role === 'server' ? 'Machine' : sev}">
+-                ${e.role !== 'server' ? `<span class="sev-dot ${sev}" style="margin-right:5px"></span>` : '🖥️ '}
+-                ${e.hostname}
+-              </div>`;
+-          }).join('');
+-
+-          return `
+-            <div class="rack-frame">
+-              <div class="rack-frame-head">
+-                <div class="rack-frame-name">${r.label || r.id}</div>
+-                <div class="rack-frame-meta">${rackU}U · ${items.length} unités · ${r.page_id}</div>
+-              </div>
+-              <div class="rack-elev" style="--slot-px:${slotPx}px">
+-                <div class="rack-u-index">
+-                  ${Array.from({length: rackU}, (_, i) => `<span>${rackU - i}</span>`).join('')}
+-                </div>
+-                <div class="rack-u-column" style="height:${rackU * slotPx}px;position:relative">
+-                  ${Array.from({length: rackU}, () => `<div class="u-slot"></div>`).join('')}
+-                  ${equipItems}
+-                </div>
+-              </div>
+-            </div>`;
+-        }).join('')}
++      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px">
++        <div>
++          <h2 style="margin:0;font-size:18px;font-weight:600">Diagramme des Baies (Physical Elevation)</h2>
++          <p style="color:var(--text-dim);font-size:12px">Modélisation haute-fidélité des racks 42U</p>
++        </div>
++      </div>
++      <div class="racks-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:32px">
++        ${racks.map(r => renderSingleRackDiagram(r, equipment)).join('')}
+       </div>
+     </div>
+   `;
+ 
+-  $$('[data-node-id]').forEach(el => {
+-    el.addEventListener('click', (e) => {
+-      e.stopPropagation();
+-      const id = el.dataset.nodeId;
+-      const eq = state.network.equipment.find(x => x.shape_id === id);
+-      if (eq.role === 'server') {
+-        toast(`Machine : ${eq.hostname} (${eq.model})`, 'info');
+-      } else {
+-        openSwitchPreview(id);
+-      }
+-    });
++  // Interaction
++  $$('.rack-asset').forEach(el => {
++    el.onclick = (e) => {
++        e.stopPropagation();
++        openSwitchPreview(el.dataset.nodeId);
++    };
+   });
+ }
+ 
++function renderSingleRackDiagram(rack, allEquipment) {
++    const items = allEquipment.filter(e => e.rack_id === rack.id);
++    const rackU = rack.height_u || 42;
++    const uHeight = 18; // px par U
++    const width = 280;
++    const totalHeight = rackU * uHeight;
++
++    const equipHtml = items.map(e => {
++        const a = state.audit.equipment.find(x => x.shape_id === e.shape_id);
++        const sev = a?.severity || 'unknown';
++        const height = (e.rack_u_height || 1) * uHeight - 2;
++        const bottom = (e.rack_u - 1) * uHeight + 1;
++        
++        // Couleur par vendor
++        let color = '#444';
++        if (e.vendor_key === 'huawei_vrp') color = '#d72638';
++        else if (e.vendor_key === 'hp_comware') color = '#0073e6';
++        else if (e.vendor_key === 'aruba_aoscx') color = '#ff8300';
++        
++        return `
++            <div class="rack-asset ${e.role}" 
++                 data-node-id="${e.shape_id}"
++                 style="bottom:${bottom}px; height:${height}px; border-left:4px solid ${color}"
++                 title="${e.hostname} (U${e.rack_u})">
++                <div class="rack-asset-info">
++                    <span class="name">${e.hostname}</span>
++                    <span class="meta">${e.model || e.vendor_key}</span>
++                </div>
++                <div class="rack-asset-status">
++                    <span class="sev-dot ${sev}"></span>
++                </div>
++            </div>
++        `;
++    }).join('');
++
++    return `
++        <div class="rack-diagram-container">
++            <div class="rack-header">
++                <div class="rack-name">${rack.label || rack.id}</div>
++                <div class="rack-site">${rack.page_id.toUpperCase()} · ${items.length} units</div>
++            </div>
++            <div class="rack-body" style="height:${totalHeight + 40}px">
++                <div class="rack-u-labels">
++                    ${Array.from({length: rackU}, (_, i) => `<div style="height:${uHeight}px">${rackU - i}</div>`).join('')}
++                </div>
++                <div class="rack-rail" style="height:${totalHeight}px; width:${width}px">
++                    ${Array.from({length: rackU}, () => `<div class="rack-u-slot" style="height:${uHeight}px"></div>`).join('')}
++                    ${equipHtml}
++                </div>
++            </div>
++        </div>
++    `;
++}
++
+ // ============================================================================
+ // VIEW : SWITCHES (table filtrable)
+ // ============================================================================
+@@ -1716,177 +1782,395 @@ window.switchDemoTemplate = switchDemoTemplate;
+ 
+ 
+ // ============================================================================
+-// LIVE MONITORING widgets (widgets a injection DOM dynamique)
++// ============================================================================
++// MONITORING VIEW (vue dediee : fleet + switches detail + hosts detail)
+ // ============================================================================
+ 
+-function widgetMonitoringFleet() {
+-  return `
+-    <div class="widget" id="widget-mon-fleet">
+-      <div class="widget-header">
+-        <div class="widget-title">
++let _monInterval = null;
++let _monMode = 'fleet';       // 'fleet' | 'switches' | 'hosts'
++let _monSelectedSwitch = null;
++let _monSelectedHost = null;
++
++function renderMonitoring() {
++  const c = $('#view-container');
++  c.innerHTML = `
++    <div class="mon-page">
++      <div class="mon-tabs">
++        <button class="mon-tab active" data-mon-tab="fleet">◉ Fleet overview</button>
++        <button class="mon-tab" data-mon-tab="switches">⊡ Switches (15)</button>
++        <button class="mon-tab" data-mon-tab="hosts">▣ Hosts & Servers</button>
++        <div class="mon-tabs-spacer"></div>
++        <div class="mon-live-indicator">
+           <span class="live-dot"></span>
+-          Fleet live
++          <span class="mon-live-text">Live · refresh 2s</span>
+         </div>
+-        <div class="widget-drag-handle">⋮⋮</div>
+       </div>
+-      <div class="widget-body">
+-        <div class="mon-kpi-grid">
+-          <div class="mon-kpi"><div class="mon-kpi-value" data-mon="up">–</div><div class="mon-kpi-label">UP</div></div>
+-          <div class="mon-kpi"><div class="mon-kpi-value mon-warn" data-mon="warn">–</div><div class="mon-kpi-label">WARN</div></div>
+-          <div class="mon-kpi"><div class="mon-kpi-value mon-err" data-mon="down">–</div><div class="mon-kpi-label">DOWN</div></div>
++      <div id="mon-content" class="mon-content">
++        <div class="mon-loading">Connecting to telemetry…</div>
++      </div>
++    </div>
++  `;
++
++  $$('.mon-tab').forEach(el => {
++    el.addEventListener('click', () => {
++      $$('.mon-tab').forEach(t => t.classList.remove('active'));
++      el.classList.add('active');
++      _monMode = el.dataset.monTab;
++      _monSelectedSwitch = null;
++      _monSelectedHost = null;
++      monitoringRefresh();
++    });
++  });
++
++  startMonitoringPoll();
++  monitoringRefresh();  // immediate
++}
++
++async function monitoringRefresh() {
++  if (state.currentView !== 'monitoring') return;
++  const el = $('#mon-content');
++  if (!el) return;
++
++  try {
++    if (_monMode === 'fleet') {
++      await renderMonFleet(el);
++    } else if (_monMode === 'switches') {
++      if (_monSelectedSwitch) await renderMonSwitchDetail(el, _monSelectedSwitch);
++      else await renderMonSwitches(el);
++    } else if (_monMode === 'hosts') {
++      if (_monSelectedHost) await renderMonHostDetail(el, _monSelectedHost);
++      else await renderMonHosts(el);
++    }
++  } catch (e) {
++    console.warn('[monitoring]', e);
++  }
++}
++
++// ============================================================================
++// LEVEL 1 — FLEET OVERVIEW
++// ============================================================================
++async function renderMonFleet(el) {
++  const [sw, hs, ev] = await Promise.all([
++    fetch('/api/monitoring/summary').then(r => r.json()),
++    fetch('/api/monitoring/hosts/summary').then(r => r.json()),
++    fetch('/api/monitoring/events?limit=20').then(r => r.json()),
++  ]);
++
++  const totalHosts = (sw.hosts || 0) + (hs.hosts || 0);
++  const totalUp = (sw.up || 0) + (hs.up || 0);
++  const totalWarn = (sw.warn || 0) + (hs.warn || 0);
++  const totalDown = (sw.down || 0) + (hs.down || 0);
++  const totalTrafficIn = (sw.total_traffic_in_mbps || 0) + (hs.total_net_in_mbps || 0);
++  const totalTrafficOut = (sw.total_traffic_out_mbps || 0) + (hs.total_net_out_mbps || 0);
++
++  el.innerHTML = `
++    <div class="mon-fleet-grid">
++      <!-- row 1 : global KPI -->
++      <div class="mon-kpi-big mon-kpi-total"><div class="mon-kpi-big-val">${totalHosts}</div><div class="mon-kpi-big-lbl">Total nodes</div></div>
++      <div class="mon-kpi-big mon-kpi-up"><div class="mon-kpi-big-val">${totalUp}</div><div class="mon-kpi-big-lbl">UP</div></div>
++      <div class="mon-kpi-big mon-kpi-warn"><div class="mon-kpi-big-val">${totalWarn}</div><div class="mon-kpi-big-lbl">WARN</div></div>
++      <div class="mon-kpi-big mon-kpi-down"><div class="mon-kpi-big-val">${totalDown}</div><div class="mon-kpi-big-lbl">DOWN</div></div>
++      <div class="mon-kpi-big mon-kpi-events"><div class="mon-kpi-big-val">${sw.events_warn + sw.events_critical}</div><div class="mon-kpi-big-lbl">Alerts</div></div>
++
++      <!-- row 2 : split switch/hosts -->
++      <div class="mon-panel mon-panel-switches">
++        <div class="mon-panel-header">◉ SWITCHES</div>
++        <div class="mon-panel-body">
++          <div class="mon-inline-stat"><b>${sw.hosts}</b> switches · <b>${sw.up}</b> up</div>
++          <div class="mon-inline-stat">CPU avg: <b>${(sw.avg_cpu_percent || 0).toFixed(1)}%</b> · Temp avg: <b>${(sw.avg_temp_celsius || 0).toFixed(1)}°C</b></div>
++          <div class="mon-inline-stat">▼ <b>${Math.round(sw.total_traffic_in_mbps || 0)} Mbps</b> in · ▲ <b>${Math.round(sw.total_traffic_out_mbps || 0)} Mbps</b> out</div>
++        </div>
++      </div>
++      <div class="mon-panel mon-panel-hosts">
++        <div class="mon-panel-header">▣ HOSTS</div>
++        <div class="mon-panel-body">
++          <div class="mon-inline-stat"><b>${hs.hosts || 0}</b> hosts · <b>${hs.up || 0}</b> up</div>
++          <div class="mon-inline-stat">CPU avg: <b>${(hs.avg_cpu_percent || 0).toFixed(1)}%</b> · Mem avg: <b>${(hs.avg_mem_percent || 0).toFixed(1)}%</b></div>
++          <div class="mon-inline-stat">By type: ${Object.entries(hs.by_type || {}).map(([t, info]) => `<span class="mon-type-pill mon-type-${t}">${t}: ${info.count}</span>`).join(' ')}</div>
++        </div>
++      </div>
++      <div class="mon-panel mon-panel-talkers">
++        <div class="mon-panel-header">🔥 TOP TALKERS (switches)</div>
++        <div class="mon-panel-body">
++          ${(sw.top_talkers || []).map(t => {
++            const pct = Math.min(100, (t.traffic_mbps / (sw.top_talkers[0]?.traffic_mbps || 1)) * 100);
++            return `<div class="mon-talker-row">
++              <div class="mon-talker-name">${t.hostname}</div>
++              <div class="mon-talker-bar"><div class="mon-talker-fill" style="width:${pct}%"></div></div>
++              <div class="mon-talker-val">${Math.round(t.traffic_mbps)} Mbps</div>
++            </div>`;
++          }).join('')}
++        </div>
++      </div>
++
++      <!-- row 3 : events stream -->
++      <div class="mon-panel mon-panel-events">
++        <div class="mon-panel-header">⚡ EVENTS STREAM <span class="mon-panel-header-hint">${ev.events.length}/${ev.total_in_buffer} buffered</span></div>
++        <div class="mon-panel-body mon-events-body">
++          ${ev.events.slice().reverse().map(e => {
++            const lvl = e.level === 'CRITICAL' ? 'mon-ev-crit' : e.level === 'WARN' ? 'mon-ev-warn' : 'mon-ev-info';
++            return `<div class="mon-event-row ${lvl}">
++              <span class="mon-event-time">${e.timestamp.substring(11,19)}</span>
++              <span class="mon-event-level">${e.level}</span>
++              <span class="mon-event-source">${e.source}</span>
++              <span class="mon-event-cat">${e.category}</span>
++              <span class="mon-event-msg">${e.message}</span>
++            </div>`;
++          }).join('')}
+         </div>
+-        <div class="mon-gauge-row">
+-          <div class="mon-gauge">
+-            <div class="mon-gauge-label">CPU avg</div>
+-            <div class="mon-gauge-bar"><div class="mon-gauge-fill" data-mon-bar="cpu" style="width:0%"></div></div>
+-            <div class="mon-gauge-val" data-mon="cpu">–</div>
++      </div>
++    </div>
++  `;
++}
++
++// ============================================================================
++// LEVEL 2 — SWITCHES GRID + DETAIL
++// ============================================================================
++async function renderMonSwitches(el) {
++  const data = await fetch('/api/monitoring/telemetry').then(r => r.json());
++  const entries = Object.entries(data);
++  el.innerHTML = `
++    <div class="mon-grid-cards">
++      ${entries.map(([hn, s]) => `
++        <div class="mon-card mon-card-${s.status}" data-sw="${hn}">
++          <div class="mon-card-top">
++            <div class="mon-card-name">${hn}</div>
++            <div class="mon-card-status mon-status-${s.status}">${s.status.toUpperCase()}</div>
+           </div>
+-          <div class="mon-gauge">
+-            <div class="mon-gauge-label">Temp avg</div>
+-            <div class="mon-gauge-bar"><div class="mon-gauge-fill mon-gauge-temp" data-mon-bar="temp" style="width:0%"></div></div>
+-            <div class="mon-gauge-val" data-mon="temp">–</div>
++          <div class="mon-card-meta">
++            <span class="mon-card-chip v-${s.vendor_key}">${s.vendor_key}</span>
++            <span class="mon-card-chip">${s.role}</span>
+           </div>
+-        </div>
+-        <div class="mon-traffic-row">
+-          <div class="mon-traffic-item">
+-            <span class="mon-traffic-arrow">▼</span>
+-            <span class="mon-traffic-val" data-mon="traffic_in">– Mbps</span>
+-            <span class="mon-traffic-label">in</span>
++          <div class="mon-card-gauges">
++            <div class="mon-sparkgauge">
++              <div class="mon-sparkgauge-lbl">CPU</div>
++              <div class="mon-sparkgauge-bar"><div class="mon-sparkgauge-fill" style="width:${s.current.cpu_percent}%"></div></div>
++              <div class="mon-sparkgauge-val">${s.current.cpu_percent.toFixed(0)}%</div>
++            </div>
++            <div class="mon-sparkgauge">
++              <div class="mon-sparkgauge-lbl">Temp</div>
++              <div class="mon-sparkgauge-bar"><div class="mon-sparkgauge-fill mon-gauge-temp" style="width:${Math.min(100, (s.current.temp_celsius - 25) * 2)}%"></div></div>
++              <div class="mon-sparkgauge-val">${s.current.temp_celsius.toFixed(0)}°C</div>
++            </div>
+           </div>
+-          <div class="mon-traffic-item">
+-            <span class="mon-traffic-arrow mon-up-arrow">▲</span>
+-            <span class="mon-traffic-val" data-mon="traffic_out">– Mbps</span>
+-            <span class="mon-traffic-label">out</span>
++          <div class="mon-card-traffic">
++            <span>▼ ${Math.round(s.current.traffic_in_mbps)}</span>
++            <span>▲ ${Math.round(s.current.traffic_out_mbps)}</span>
++            <span class="mon-card-ports">${s.ports_summary.up}/${s.ports_summary.total} ports up</span>
+           </div>
++          <div class="mon-sparkline">${renderSparkline(s.series.cpu)}</div>
+         </div>
+-      </div>
+-    </div>`;
++      `).join('')}
++    </div>
++  `;
++  $$('.mon-card[data-sw]').forEach(card => {
++    card.addEventListener('click', () => {
++      _monSelectedSwitch = card.dataset.sw;
++      monitoringRefresh();
++    });
++  });
+ }
+ 
+-function widgetMonitoringTalkers() {
+-  return `
+-    <div class="widget" id="widget-mon-talkers">
+-      <div class="widget-header">
+-        <div class="widget-title">
+-          <span class="live-dot"></span>
+-          Top talkers
+-        </div>
+-        <div class="widget-drag-handle">⋮⋮</div>
++async function renderMonSwitchDetail(el, hostname) {
++  const s = await fetch(`/api/monitoring/telemetry/${encodeURIComponent(hostname)}`).then(r => r.json());
++  if (!s.hostname) {
++    el.innerHTML = `<div class="mon-loading">Host ${hostname} not found</div>`;
++    return;
++  }
++  const ports = Object.values({}); // pas dans snapshot, on montre summary
++  el.innerHTML = `
++    <button class="mon-back-btn" onclick="_monSelectedSwitch=null; monitoringRefresh();">← Back to switches</button>
++    <div class="mon-detail-hdr">
++      <h2>${s.hostname}</h2>
++      <div class="mon-detail-meta">
++        <span class="mon-card-chip v-${s.vendor_key}">${s.vendor_key}</span>
++        <span class="mon-card-chip">${s.role}</span>
++        <span class="mon-status-${s.status}">●  ${s.status.toUpperCase()}</span>
++        <span class="mon-card-chip">uptime ${formatUptime(s.uptime_seconds)}</span>
+       </div>
+-      <div class="widget-body">
+-        <div class="mon-talkers-list" data-mon="talkers">
+-          <div class="mon-loading">Loading telemetry…</div>
+-        </div>
++    </div>
++    <div class="mon-detail-grid">
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">CPU</div><div class="mon-big-gauge-val">${s.current.cpu_percent.toFixed(1)}%</div><div class="mon-big-sparkline">${renderSparkline(s.series.cpu, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">MEMORY</div><div class="mon-big-gauge-val">${s.current.mem_percent.toFixed(1)}%</div><div class="mon-big-sparkline">${renderSparkline(s.series.mem, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">TEMP</div><div class="mon-big-gauge-val">${s.current.temp_celsius.toFixed(1)}°C</div><div class="mon-big-sparkline">${renderSparkline(s.series.temp, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">ERRORS/s</div><div class="mon-big-gauge-val">${s.current.errors_per_sec}</div><div class="mon-big-sparkline">${renderSparkline(s.series.errors, 120, 40)}</div></div>
++    </div>
++    <div class="mon-traffic-detail">
++      <h3>TRAFFIC (last 60s)</h3>
++      <div class="mon-traffic-grid">
++        <div class="mon-traffic-card"><span class="mon-traffic-arrow">▼</span><b>${Math.round(s.current.traffic_in_mbps)} Mbps</b> in</div>
++        <div class="mon-traffic-card"><span class="mon-traffic-arrow mon-up-arrow">▲</span><b>${Math.round(s.current.traffic_out_mbps)} Mbps</b> out</div>
++        <div class="mon-traffic-card">Total: <b>${formatBytes(s.totals.bytes_in)} / ${formatBytes(s.totals.bytes_out)}</b></div>
++        <div class="mon-traffic-card">Errors cumul: <b>${s.totals.errors}</b></div>
+       </div>
+-    </div>`;
++      <div class="mon-dual-sparkline">${renderDualSparkline(s.series.in_mbps, s.series.out_mbps, 600, 80)}</div>
++    </div>
++    <div class="mon-ports-detail">
++      <h3>PORTS (${s.ports_summary.up}/${s.ports_summary.total} up · avg util ${s.ports_summary.avg_utilization}%)</h3>
++      <div class="mon-ports-info">Detail par port disponible via /api/monitoring/telemetry/${hostname} → series.ports</div>
++    </div>
++  `;
+ }
+ 
+-function widgetMonitoringEvents() {
+-  return `
+-    <div class="widget" id="widget-mon-events">
+-      <div class="widget-header">
+-        <div class="widget-title">
+-          <span class="live-dot"></span>
+-          Events stream
+-        </div>
+-        <div class="widget-drag-handle">⋮⋮</div>
+-      </div>
+-      <div class="widget-body">
+-        <div class="mon-events-list" data-mon="events">
+-          <div class="mon-loading">Listening…</div>
++// ============================================================================
++// LEVEL 3 — HOSTS GRID + DETAIL
++// ============================================================================
++async function renderMonHosts(el) {
++  const data = await fetch('/api/monitoring/hosts').then(r => r.json());
++  const entries = Object.entries(data);
++  // Group by type
++  const byType = {};
++  for (const [hn, h] of entries) {
++    (byType[h.host_type] ||= []).push([hn, h]);
++  }
++  el.innerHTML = `
++    <div class="mon-hosts-sections">
++    ${Object.entries(byType).map(([type, list]) => `
++      <div class="mon-hosts-section">
++        <h3 class="mon-hosts-section-title">${type.toUpperCase()} · ${list.length}</h3>
++        <div class="mon-grid-cards mon-grid-cards-sm">
++          ${list.map(([hn, h]) => `
++            <div class="mon-card mon-card-${h.status}" data-host="${hn}">
++              <div class="mon-card-top">
++                <div class="mon-card-name">${hn}</div>
++                <div class="mon-card-status mon-status-${h.status}">${h.status.toUpperCase()}</div>
++              </div>
++              <div class="mon-card-meta">
++                <span class="mon-type-pill mon-type-${h.host_type}">${h.host_type}</span>
++                <span class="mon-card-chip">${h.os}</span>
++              </div>
++              <div class="mon-card-gauges">
++                <div class="mon-sparkgauge">
++                  <div class="mon-sparkgauge-lbl">CPU</div>
++                  <div class="mon-sparkgauge-bar"><div class="mon-sparkgauge-fill" style="width:${h.current.cpu_percent}%"></div></div>
++                  <div class="mon-sparkgauge-val">${h.current.cpu_percent.toFixed(0)}%</div>
++                </div>
++                <div class="mon-sparkgauge">
++                  <div class="mon-sparkgauge-lbl">Disk</div>
++                  <div class="mon-sparkgauge-bar"><div class="mon-sparkgauge-fill mon-gauge-disk" style="width:${h.current.disk_percent}%"></div></div>
++                  <div class="mon-sparkgauge-val">${h.current.disk_percent.toFixed(0)}%</div>
++                </div>
++              </div>
++              <div class="mon-card-traffic">
++                <span>▼ ${h.current.net_in_mbps.toFixed(1)}</span>
++                <span>▲ ${h.current.net_out_mbps.toFixed(1)}</span>
++                <span class="mon-card-ports">IOPS ${h.current.iops}</span>
++              </div>
++            </div>
++          `).join('')}
+         </div>
+       </div>
+-    </div>`;
++    `).join('')}
++    </div>
++  `;
++  $$('.mon-card[data-host]').forEach(card => {
++    card.addEventListener('click', () => {
++      _monSelectedHost = card.dataset.host;
++      monitoringRefresh();
++    });
++  });
+ }
+ 
+-// ----------------------------------------------------------------------------
+-// Monitoring poll loop
+-// ----------------------------------------------------------------------------
+-
+-let _monInterval = null;
+-
+-async function monitoringPoll() {
+-  // Stop si on a quitte la vue dashboard
+-  if (state.currentView !== 'dashboard' || !document.querySelector('#widget-mon-fleet')) {
++async function renderMonHostDetail(el, hostname) {
++  const h = await fetch(`/api/monitoring/hosts/${encodeURIComponent(hostname)}`).then(r => r.json());
++  if (!h.hostname) {
++    el.innerHTML = `<div class="mon-loading">Host ${hostname} not found</div>`;
+     return;
+   }
++  el.innerHTML = `
++    <button class="mon-back-btn" onclick="_monSelectedHost=null; monitoringRefresh();">← Back to hosts</button>
++    <div class="mon-detail-hdr">
++      <h2>${h.hostname}</h2>
++      <div class="mon-detail-meta">
++        <span class="mon-type-pill mon-type-${h.host_type}">${h.host_type}</span>
++        <span class="mon-card-chip">${h.os}</span>
++        <span class="mon-status-${h.status}">●  ${h.status.toUpperCase()}</span>
++        <span class="mon-card-chip">uptime ${formatUptime(h.uptime_seconds)}</span>
++        ${h.active_sessions ? `<span class="mon-card-chip">${h.active_sessions} sessions</span>` : ''}
++        ${h.last_backup ? `<span class="mon-card-chip">Backup ${new Date(h.last_backup).toLocaleString()}</span>` : ''}
++      </div>
++    </div>
++    <div class="mon-detail-grid">
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">CPU</div><div class="mon-big-gauge-val">${h.current.cpu_percent.toFixed(1)}%</div><div class="mon-big-sparkline">${renderSparkline(h.series.cpu, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">MEMORY</div><div class="mon-big-gauge-val">${h.current.mem_percent.toFixed(1)}%</div><div class="mon-big-sparkline">${renderSparkline(h.series.mem, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">DISK</div><div class="mon-big-gauge-val">${h.current.disk_percent.toFixed(1)}%</div><div class="mon-big-sparkline">${renderSparkline(h.series.disk, 120, 40)}</div></div>
++      <div class="mon-big-gauge"><div class="mon-big-gauge-lbl">IOPS</div><div class="mon-big-gauge-val">${h.current.iops}</div><div class="mon-big-sparkline">${renderSparkline(h.series.iops, 120, 40)}</div></div>
++    </div>
++    <div class="mon-traffic-detail">
++      <h3>NETWORK (last 60s)</h3>
++      <div class="mon-traffic-grid">
++        <div class="mon-traffic-card"><span class="mon-traffic-arrow">▼</span><b>${h.current.net_in_mbps.toFixed(1)} Mbps</b> in</div>
++        <div class="mon-traffic-card"><span class="mon-traffic-arrow mon-up-arrow">▲</span><b>${h.current.net_out_mbps.toFixed(1)} Mbps</b> out</div>
++      </div>
++      <div class="mon-dual-sparkline">${renderDualSparkline(h.series.net_in, h.series.net_out, 600, 80)}</div>
++    </div>
++    <div class="mon-services">
++      <h3>SERVICES</h3>
++      <div class="mon-services-list">
++        ${h.services.map(s => `<div class="mon-service-row ${s.state === 'active' ? 'mon-svc-up' : 'mon-svc-down'}"><span class="mon-svc-name">${s.name}</span><span class="mon-svc-state">${s.state}</span></div>`).join('')}
++      </div>
++    </div>
++  `;
++}
+ 
+-  try {
+-    // Parallel fetch summary + events
+-    const [summaryResp, eventsResp] = await Promise.all([
+-      fetch('/api/monitoring/summary'),
+-      fetch('/api/monitoring/events?limit=12'),
+-    ]);
+-    const summary = await summaryResp.json();
+-    const eventsData = await eventsResp.json();
++// ============================================================================
++// Helpers
++// ============================================================================
++function renderSparkline(data, w, h) {
++  if (!data || data.length < 2) return '';
++  w = w || 80; h = h || 20;
++  const max = Math.max(...data, 1);
++  const min = Math.min(...data, 0);
++  const range = (max - min) || 1;
++  const pts = data.map((v, i) => {
++    const x = (i / (data.length - 1)) * w;
++    const y = h - ((v - min) / range) * h;
++    return `${x.toFixed(1)},${y.toFixed(1)}`;
++  }).join(' ');
++  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" class="mon-spark">
++    <polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.5" />
++  </svg>`;
++}
+ 
+-    // === Fleet widget ===
+-    const setText = (key, value) => {
+-      const el = document.querySelector(`[data-mon="${key}"]`);
+-      if (el) el.textContent = value;
+-    };
+-    const setBar = (key, pct) => {
+-      const el = document.querySelector(`[data-mon-bar="${key}"]`);
+-      if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+-    };
++function renderDualSparkline(inData, outData, w, h) {
++  if (!inData || inData.length < 2) return '';
++  const max = Math.max(...inData, ...outData, 1);
++  const pts = data => data.map((v, i) => {
++    const x = (i / (data.length - 1)) * w;
++    const y = h - (v / max) * h;
++    return `${x.toFixed(1)},${y.toFixed(1)}`;
++  }).join(' ');
++  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" class="mon-dualspark" preserveAspectRatio="none">
++    <polyline points="${pts(inData)}" fill="none" stroke="#3b82f6" stroke-width="2" opacity="0.8"/>
++    <polyline points="${pts(outData)}" fill="none" stroke="#a855f7" stroke-width="2" opacity="0.8"/>
++  </svg>`;
++}
+ 
+-    setText('up', summary.up ?? 0);
+-    setText('warn', summary.warn ?? 0);
+-    setText('down', summary.down ?? 0);
+-    setText('cpu', `${(summary.avg_cpu_percent ?? 0).toFixed(1)}%`);
+-    setText('temp', `${(summary.avg_temp_celsius ?? 0).toFixed(1)}°C`);
+-    setText('traffic_in', `${Math.round(summary.total_traffic_in_mbps ?? 0)} Mbps`);
+-    setText('traffic_out', `${Math.round(summary.total_traffic_out_mbps ?? 0)} Mbps`);
+-    setBar('cpu', summary.avg_cpu_percent ?? 0);
+-    // Temp: mappe 25-75°C sur 0-100%
+-    setBar('temp', ((summary.avg_temp_celsius ?? 25) - 25) * 2);
+-
+-    // === Top talkers widget ===
+-    const talkersEl = document.querySelector('[data-mon="talkers"]');
+-    if (talkersEl && summary.top_talkers) {
+-      const max = summary.top_talkers[0]?.traffic_mbps || 1;
+-      talkersEl.innerHTML = summary.top_talkers.map(t => `
+-        <div class="mon-talker-row">
+-          <div class="mon-talker-name">${t.hostname}</div>
+-          <div class="mon-talker-bar">
+-            <div class="mon-talker-fill" style="width:${(t.traffic_mbps / max) * 100}%"></div>
+-          </div>
+-          <div class="mon-talker-val">${Math.round(t.traffic_mbps)} Mbps</div>
+-        </div>
+-      `).join('');
+-    }
++function formatUptime(sec) {
++  const d = Math.floor(sec / 86400);
++  const h = Math.floor((sec % 86400) / 3600);
++  if (d > 0) return `${d}d ${h}h`;
++  const m = Math.floor((sec % 3600) / 60);
++  return `${h}h ${m}m`;
++}
+ 
+-    // === Events widget ===
+-    const eventsEl = document.querySelector('[data-mon="events"]');
+-    if (eventsEl && eventsData.events) {
+-      const evs = eventsData.events.slice().reverse();  // newest first
+-      if (evs.length === 0) {
+-        eventsEl.innerHTML = `<div class="mon-loading">No events yet…</div>`;
+-      } else {
+-        eventsEl.innerHTML = evs.slice(0, 8).map(ev => {
+-          const lvlClass = ev.level === 'CRITICAL' ? 'mon-ev-crit' :
+-                           ev.level === 'WARN' ? 'mon-ev-warn' : 'mon-ev-info';
+-          const time = ev.timestamp.substring(11, 19);
+-          return `
+-            <div class="mon-event-row ${lvlClass}">
+-              <span class="mon-event-time">${time}</span>
+-              <span class="mon-event-level">${ev.level}</span>
+-              <span class="mon-event-source">${ev.source}</span>
+-              <span class="mon-event-cat">${ev.category}</span>
+-              <span class="mon-event-msg">${ev.message}</span>
+-            </div>`;
+-        }).join('');
+-      }
+-    }
+-  } catch (e) {
+-    console.warn('[monitoring] poll failed:', e);
+-  }
++function formatBytes(n) {
++  if (n < 1024) return n + 'B';
++  if (n < 1024**2) return (n/1024).toFixed(1) + 'KB';
++  if (n < 1024**3) return (n/1024**2).toFixed(1) + 'MB';
++  if (n < 1024**4) return (n/1024**3).toFixed(1) + 'GB';
++  return (n/1024**4).toFixed(2) + 'TB';
+ }
+ 
+ function startMonitoringPoll() {
+   if (_monInterval) return;
+-  monitoringPoll();  // immediate
+-  _monInterval = setInterval(monitoringPoll, 2000);
++  _monInterval = setInterval(() => {
++    if (state.currentView !== 'monitoring') {
++      stopMonitoringPoll();
++      return;
++    }
++    monitoringRefresh();
++  }, 2000);
+ }
+ 
+ function stopMonitoringPoll() {
+@@ -1896,21 +2180,122 @@ function stopMonitoringPoll() {
+   }
+ }
+ 
+-// Auto-start quand le DOM monitoring apparait
+-const _observer = new MutationObserver(() => {
+-  if (document.querySelector('#widget-mon-fleet')) {
+-    startMonitoringPoll();
+-  } else {
+-    stopMonitoringPoll();
+-  }
+-});
+-_observer.observe(document.body, { childList: true, subtree: true });
++function renderInventory() {
++  const container = $('#view-container');
++  container.innerHTML = `
++    <div style="padding:0 4px">
++      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:16px">
++        <div>
++          <h2 style="margin:0;font-size:18px;font-weight:600">Inventaire Global (Next-Gen)</h2>
++          <p style="color:var(--text-dim);font-size:12px;margin-top:4px">Vue consolidée : Source Visio + Base de données physique + Périphériques simulés</p>
++        </div>
++        <div class="switches-filters" style="margin-bottom:0">
++           <input id="inv-search" class="filter-input" placeholder="Filtrer par nom, IP, S/N..." style="width:300px" />
++           <select id="inv-type" class="filter-input">
++             <option value="">Tous les types</option>
++             <option value="network_equipment">Switches uniquement</option>
++             <option value="peripheral">Périphériques uniquement</option>
++           </select>
++        </div>
++      </div>
++
++      <div class="grid-stack-item-content" style="padding:0">
++        <table class="switch-table" id="inventory-table">
++          <thead>
++            <tr>
++              <th>Asset</th>
++              <th>Type</th>
++              <th>Modèle / OS</th>
++              <th>IP / MAC</th>
++              <th>Connecté à</th>
++              <th>S/N (Mapping)</th>
++              <th>Statut</th>
++            </tr>
++          </thead>
++          <tbody id="inventory-tbody">
++            <tr><td colspan="7" class="mon-loading">Chargement des données consolidées...</td></tr>
++          </tbody>
++        </table>
++      </div>
++    </div>
++  `;
++
++  const refreshTable = async () => {
++    try {
++      const assets = await api('/api/assets');
++      const q = $('#inv-search').value.toLowerCase();
++      const typeFilter = $('#inv-type').value;
++
++      const filtered = assets.filter(a => {
++        if (typeFilter && a.asset_type !== typeFilter) return false;
++        if (q) {
++          const hay = `${a.hostname} ${a.ip_address || a.mgmt_ip} ${a.serial_number || ''} ${a.model || ''}`.toLowerCase();
++          if (!hay.includes(q)) return false;
++        }
++        return true;
++      });
+ 
+-window.startMonitoringPoll = startMonitoringPoll;
+-window.stopMonitoringPoll = stopMonitoringPoll;
++      $('#inventory-tbody').innerHTML = filtered.map(a => {
++        const isSw = a.asset_type === 'network_equipment';
++        const sn = a.serial_number;
++        const snDisplay = sn ? `<span style="color:var(--green)">${sn}</span>` : `<span style="color:var(--text-disabled);font-style:italic">Non mappé</span>`;
++        
++        // Icone par type
++        let icon = '🖥️';
++        if (isSw) icon = '⬢';
++        else if (a.kind === 'iot') icon = '📡';
++        else if (a.kind === 'smartphone' || a.kind === 'android') icon = '📱';
++        else if (a.kind === 'mac') icon = '🍎';
++
++        return `
++          <tr ${isSw ? `onclick="openSwitchPreview('${a.shape_id}')"` : ''}>
++            <td>
++              <div style="display:flex;align-items:center;gap:10px">
++                <span style="font-size:16px">${icon}</span>
++                <div>
++                  <div style="font-weight:600">${a.hostname}</div>
++                  <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase">${a.asset_type.replace('_',' ')}</div>
++                </div>
++              </div>
++            </td>
++            <td>
++              ${isSw ? `<span class="role-chip ${a.role}">${a.role}</span>` : `<span class="pill" style="font-size:10px">${a.kind}</span>`}
++            </td>
++            <td>
++              <div style="font-size:12px">${a.model || a.os_version || '-'}</div>
++            </td>
++            <td class="mono" style="font-size:11px">
++              <div>${a.ip_address || a.mgmt_ip}</div>
++              <div style="color:var(--text-dim)">${a.mac_address || ''}</div>
++            </td>
++            <td>
++              <div style="font-size:11px">
++                ${a.connected_to ? `<strong>${a.connected_to}</strong>` : (a.page_id || '-')}
++                <div style="color:var(--text-dim)">${a.switch_port || ''}</div>
++              </div>
++            </td>
++            <td class="mono" style="font-size:11px">${snDisplay}</td>
++            <td>
++              <span class="sev-badge ${a.status === 'online' || a.status === 'active' ? 'aligned' : 'drift_heavy'}">
++                ${a.status || 'unknown'}
++              </span>
++            </td>
++          </tr>
++        `;
++      }).join('') || '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-dim)">Aucun asset trouvé</td></tr>';
++
++    } catch (e) {
++      $('#inventory-tbody').innerHTML = `<tr><td colspan="7" style="color:var(--red);text-align:center;padding:20px">Erreur : ${e.message}</td></tr>`;
++    }
++  };
+ 
++  $('#inv-search').oninput = refreshTable;
++  $('#inv-type').onchange = refreshTable;
++  refreshTable();
++}
++
++window.renderInventory = renderInventory;
+ 
+-// ============================================================================
+ // Lance
+ // ============================================================================
+ init();
+diff --git a/static/index.html b/static/index.html
+index d84b479..53ecf4a 100644
+--- a/static/index.html
++++ b/static/index.html
+@@ -64,6 +64,18 @@
+       </svg>
+       Switches
+     </a>
++    <a href="#inventory" class="nav-item" data-view="inventory">
++      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
++        <path d="M20 7h-9m3 4h-3m3 4h-9M4 17h.01M4 12h.01M4 7h.01M7 17h13M7 12h13M7 7h13"/>
++      </svg>
++      Inventaire
++    </a>
++    <a href="#monitoring" class="nav-item" data-view="monitoring">
++      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
++        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
++      </svg>
++      Monitoring
++    </a>
+     <a href="#optimize" class="nav-item" data-view="optimize">
+       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+diff --git a/static/style.css b/static/style.css
+index 0153194..82ba690 100644
+--- a/static/style.css
++++ b/static/style.css
+@@ -1433,3 +1433,21 @@ code, pre, .mono { font-family: 'JetBrains Mono', 'Consolas', monospace; }
+   text-align: center;
+   font-size: 12px;
+ }
++
++/* Rack Diagram Styles */
++.rack-diagram-container { background: var(--bg-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
++.rack-header { padding: 12px 16px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
++.rack-name { font-weight: 700; font-size: 14px; color: var(--text-primary); }
++.rack-site { font-size: 10px; color: var(--text-dim); text-transform: uppercase; margin-top: 2px; }
++.rack-body { display: flex; padding: 20px; background: var(--bg-0); position: relative; }
++.rack-u-labels { width: 30px; display: flex; flex-direction: column; color: #444; font-size: 9px; font-family: var(--font-mono); text-align: right; padding-right: 8px; border-right: 1px solid #222; }
++.rack-rail { background: #111; border: 2px solid #333; position: relative; margin-left: 10px; box-shadow: inset 0 0 10px #000; }
++.rack-u-slot { border-bottom: 1px solid #1a1a1a; width: 100%; box-sizing: border-box; }
++.rack-asset { position: absolute; left: 2px; right: 2px; background: #2a2a2a; border: 1px solid #444; border-radius: 2px; display: flex; align-items: center; padding: 0 10px; cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
++.rack-asset:hover { transform: scale(1.01); box-shadow: 0 0 8px rgba(255,255,255,0.1); z-index: 10; }
++.rack-asset-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
++.rack-asset-info .name { font-size: 10px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
++.rack-asset-info .meta { font-size: 8px; color: #888; text-transform: uppercase; }
++.rack-asset-status { margin-left: 8px; }
++.rack-asset.core { background: #2d2d3a; }
++.rack-asset.server { background: #1a2a1a; }
+diff --git a/tools/video/capture_mockups_v4.py b/tools/video/capture_mockups_v4.py
+index f48a2bd..2f953a4 100644
+--- a/tools/video/capture_mockups_v4.py
++++ b/tools/video/capture_mockups_v4.py
+@@ -34,7 +34,7 @@ def capture_all():
+             print(f"Capture de {html_file.name}...")
+             page.goto(url, wait_until="networkidle")
+             # Petit délai pour le rendu des SVG et du backdrop-filter
+-            page.wait_for_timeout(1000)
++            page.wait_for_timeout(2000)
+             
+             page.screenshot(path=str(png_out), full_page=False)
+             
+diff --git a/tools/video/mcp_server.py b/tools/video/mcp_server.py
+index 52aa1d4..561d432 100644
+--- a/tools/video/mcp_server.py
++++ b/tools/video/mcp_server.py
+@@ -55,16 +55,48 @@ OUTPUT_DIR = Path(os.environ.get("VIDEO_MCP_OUTPUT_DIR",
+ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+ 
+ 
++def _load_hf_token() -> str | None:
++    """Recupere HF_TOKEN depuis l env ou Nokido.env."""
++    tok = os.environ.get("HF_TOKEN", "").strip()
++    if tok:
++        return tok
++    # Fallback : lire depuis Nokido.env si present
++    lf_env = Path(r"%NOKIDO_WORKSPACE%\LaForge\LaForge.env")
++    if lf_env.is_file():
++        for line in lf_env.read_text(encoding="utf-8").split("\n"):
++            line = line.strip()
++            if line.startswith("HF_TOKEN"):
++                parts = line.split("=", 1)
++                if len(parts) == 2:
++                    tok = parts[1].strip().strip('"').strip("'")
++                    # Stripper commentaires inline
++                    if "#" in tok:
++                        tok = tok.split("#")[0].strip()
++                    if tok:
++                        return tok
++    return None
++
++
+ def _get_client(spaces: list[str]):
+     """Retourne un client Gradio connecte au premier Space disponible.
+ 
+-    Essaye chaque Space de la liste et retourne le premier qui repond.
++    Essaye chaque Space de la liste avec HF_TOKEN si disponible,
++    pour debloquer les quotas ZeroGPU superieurs.
+     """
+     from gradio_client import Client
++    hf_token = _load_hf_token()
++    if hf_token:
++        logger.info(f"HF_TOKEN detecte ({len(hf_token)} chars) - acces ZeroGPU privilegie")
++    else:
++        logger.warning("HF_TOKEN absent - quotas anonymes (risque GPU duration error)")
++
+     last_err = None
+     for space in spaces:
+         try:
+-            c = Client(space, verbose=False)
++            kwargs = {"verbose": False}
++            if hf_token:
++                kwargs["token"] = hf_token  # gradio_client 2.5 : param 'token', pas 'hf_token'
++            c = Client(space, **kwargs)
+             logger.info(f"Connecte au Space {space}")
+             return c, space
+         except Exception as e:

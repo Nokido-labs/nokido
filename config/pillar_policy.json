@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "maj": "2026-09-01",
+  "_lisez_moi": [
+    "POLITIQUE DES PILIERS LOURDS -- donnee du corps, pas du code.",
+    "Lue par app/forge_pillar_arbiter.py, consultee par les clients qui RECLAMENT",
+    "un pilier (routeur d'embedding, keeper, resource manager).",
+    "L'owner change ici SANS toucher au code. Un flag absent = INCONNU = le corps",
+    "ne refuse rien (une politique muette ne doit jamais couper en silence).",
+    "'substitut' = par quoi passer quand le corps refuse : un refus qui ne nomme",
+    "pas d'alternative renvoie le client a son echec, donc a reposer le drapeau."
+  ],
+  "piliers": {
+    "embed.wanted": {
+      "accorde": true,
+      "substitut": "cloudflare",
+      "motif": "Directive owner 2026-09-06 : « reparer l'embedding local ». Le pilier local est REOUVERT parce que les deux causes de son ecartement du 2026-09-01 sont mesurees et traitees : (1) sa RAM etait non bornee (jusqu'a 10,92 Go le 2026-08-06) -- avec -c 2048 -b 2048 --ubatch 512 --parallel 1, la pente tombe de 1,8 a 0,21 Go / 1000 chunks (job_788f8541fe4a), le gros du RSS (2,3 Go) etant atteint des les premiers chunks, donc un cout FIXE ; (2) le drain n'avait AUCUNE garde de charge et vectorisait a 98 % de RAM -- il s'abstient desormais au-dessus de 85 % et ne reprend que sous 75 % (hysteresis, seuils forge_physiology, NR test_embed_drain_garde_ram_nr). Debit mesure : 15,6 chunks/s, soit ~56 000/h. CE QUI N'EST PAS PROUVE : le plateau. Sur 1 000 chunks la croissance residuelle vaut 0,21 a 0,34 Go / 1000 selon la fenetre -- extrapolee, une campagne de 100 000 chunks depasserait la machine. Une campagne longue RECYCLE donc le service par lots (arret/relance de :8099 entre deux lots) ou s'appuie sur l'eviction du resource manager ; le drain, lui, ne fait que s'abstenir : il ne rend pas la RAM deja prise par llama-server."
+    }
+  },
+  "backends": {
+    "embed": ["llama8099", "cloudflare", "modal"]
+  },
+  "_note_backends": [
+    "2026-09-06 : ordre revu apres mesure. llama8099 EN TETE -- souverain, sans egress,",
+    "15,6 chunks/s, RAM bornee et regulee (voir le motif du pilier). Cloudflare Workers AI",
+    "@cf/baai/bge-m3 = MEME espace vectoriel : il complete par son quota journalier, qui",
+    "se reinitialise a 00:00 UTC (mesure du 2026-09-06 13:15 : QUOTA_EPUISE des le premier",
+    "lot, alors que le registre de budget ne portait que 192 jetons du jour -- le",
+    "consommateur n'est PAS identifie, la capacite reelle en chunks reste donc a mesurer",
+    "juste apres un reset, par tools/forge_embed_cloudflare_lot.py). Modal en dernier :",
+    "son workspace rend 404 'disabled' depuis le 2026-09-01 ; il reprend sa place des",
+    "qu'il revient, sans nouvelle edition. Jina et Voyage restent HORS de cette liste :",
+    "autres modeles, autre espace vectoriel, melange irreversible dans rag_chunks."
+  ]
+}

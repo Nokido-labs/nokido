@@ -1,0 +1,17 @@
+Nokido — Autonomous Local-First AI Operating System with Neuro-Symbolic Governance
+
+Copyright (C) 2026 Thomas Signorelli <thomas.signorelli@proton.me>
+
+This product is licensed under the GNU Affero General Public License v3
+or later (AGPLv3-or-later). See LICENSE for the full text.
+
+A commercial / proprietary license is also available for organizations
+that cannot comply with AGPLv3 obligations. See COMMERCIAL.md for terms.
+
+Third-party dependencies retain their respective licenses. See
+pyproject.toml `dependencies` and `optional-dependencies` for the full
+upstream list.
+
+Third-party files shipped in this repository (web portal scripts, style
+sheets and fonts) are listed in NOTICE.md, pinned in vendor.lock, and their
+license texts are reproduced under licenses/.

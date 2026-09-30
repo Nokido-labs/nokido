@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="/static/react.min.js"></script>
+<script src="/static/react-dom.min.js"></script>
+<script src="/static/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;padding:20px;background:var(--bg-0);}#root{display:flex;flex-direction:column;gap:16px;}.r{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}</style>
+</head><body>
+<div id="root"></div>
+<script type="text/babel">
+const { ProvenanceBadge, SovereigntyGauge, PowerSlider } = window.NokidoDesignSystem_bdc2ac;
+function Demo(){
+  const [p,setP]=React.useState(68);
+  return (
+    <>
+      <div className="r">
+        <ProvenanceBadge origin="local" ring="gold" detail="ollama · 612ms"/>
+        <ProvenanceBadge origin="remote" ring="verified" detail="groq"/>
+        <ProvenanceBadge origin="hybrid" ring="draft"/>
+      </div>
+      <SovereigntyGauge local={p}/>
+      <PowerSlider value={p} onChange={setP}/>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body></html>

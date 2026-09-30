@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<script src="/static/lucide.min.js"></script>
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg-0); }
+  .cap { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
+  .grid { display: flex; gap: 12px; flex-wrap: wrap; }
+  .ic { display: inline-flex; align-items: center; justify-content: center; height: 46px; width: 46px;
+    border-radius: var(--radius-sm); cursor: pointer; border: 1px solid var(--border-subtle);
+    background: var(--bg-2); color: var(--text-dim); transition: all var(--motion-base); }
+  .ic i { width: 22px; height: 22px; }
+  /* État allumé (actif) : teinte pleine du domaine + halo */
+  .ic.on { color: #fff; border-color: transparent; }
+  .ic.on.purple { background: var(--purple); box-shadow: 0 0 16px color-mix(in srgb, var(--purple) 55%, transparent); }
+  .ic.on.green  { background: var(--green);  box-shadow: 0 0 16px color-mix(in srgb, var(--green) 55%, transparent); }
+  .ic.on.blue   { background: var(--blue);   box-shadow: 0 0 16px color-mix(in srgb, var(--blue) 55%, transparent); }
+  .ic.on.cyan   { background: var(--cyan);   box-shadow: 0 0 16px color-mix(in srgb, var(--cyan) 55%, transparent); }
+  .ic.on.yellow { background: var(--yellow); color: var(--bg-0); box-shadow: 0 0 16px color-mix(in srgb, var(--yellow) 55%, transparent); }
+  .ic.on.orange { background: var(--orange); box-shadow: 0 0 16px color-mix(in srgb, var(--orange) 55%, transparent); }
+  .ic.on.pink   { background: var(--pink);   box-shadow: 0 0 16px color-mix(in srgb, var(--pink) 55%, transparent); }
+  .ic.on.red    { background: var(--red);    box-shadow: 0 0 16px color-mix(in srgb, var(--red) 55%, transparent); }
+</style></head>
+<body>
+  <div class="cap"><i data-lucide="mouse-pointer-click" style="width:14px;height:14px"></i> Cliquer une icône : <b style="color:var(--text-secondary)">éteinte au repos → s'allume quand active</b></div>
+  <div class="grid" id="grid">
+    <button class="ic on purple" data-c="purple"><i data-lucide="cpu"></i></button>
+    <button class="ic on green"  data-c="green"><i data-lucide="shield-check"></i></button>
+    <button class="ic blue"   data-c="blue"><i data-lucide="route"></i></button>
+    <button class="ic cyan"   data-c="cyan"><i data-lucide="gamepad-2"></i></button>
+    <button class="ic yellow" data-c="yellow"><i data-lucide="wallet"></i></button>
+    <button class="ic orange" data-c="orange"><i data-lucide="shopping-cart"></i></button>
+    <button class="ic pink"   data-c="pink"><i data-lucide="compass"></i></button>
+    <button class="ic on green" data-c="green"><i data-lucide="house"></i></button>
+    <button class="ic purple" data-c="purple"><i data-lucide="brain"></i></button>
+    <button class="ic blue"   data-c="blue"><i data-lucide="terminal"></i></button>
+    <button class="ic purple" data-c="purple"><i data-lucide="sliders-horizontal"></i></button>
+    <button class="ic red"    data-c="red"><i data-lucide="octagon-alert"></i></button>
+  </div>
+  <script>
+    lucide.createIcons();
+    document.querySelectorAll('.ic').forEach(b => {
+      b.addEventListener('click', () => b.classList.toggle('on'));
+    });
+  </script>
+</body></html>

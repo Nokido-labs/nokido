@@ -1,0 +1,58 @@
+# requirements-ci.lock — GENERE par tools/forge_ci_lock.py, ne pas editer a la main.
+#
+# Fermeture TRANSITIVE des outils de CI, relevee dans l'environnement de
+# certification. Ce fichier DECRIT l'environnement observe ; il ne le
+# CONSTRUIT pas : il ne porte pas de hash de distribution, donc il ne permet
+# pas encore une installation verifiee (`--require-hashes`). Le dire est le
+# minimum : un lock muet sur cette limite se lit comme reproductible.
+#
+# Verifier : LAFORGE_PYTHON tools/forge_ci_lock.py --verifier
+# Regenerer : LAFORGE_PYTHON tools/forge_ci_lock.py --ecrire
+# racines : bandit, flake8, pip-audit, pytest, pytest-asyncio, pytest-mock, pytest-timeout, ruff
+# fermeture : 43 paquet(s)
+# declare NON INSTALLE (dependance conditionnelle) : backports-asyncio-runner (PackageNotFoundError)
+# declare NON INSTALLE (dependance conditionnelle) : exceptiongroup (PackageNotFoundError)
+
+bandit==1.9.4
+boolean.py==5.0
+cachecontrol==0.14.4
+certifi==2026.4.22
+charset-normalizer==3.4.7
+colorama==0.4.6
+cyclonedx-python-lib==11.7.0
+defusedxml==0.7.1
+flake8==7.3.0
+idna==3.15
+iniconfig==2.3.0
+license-expression==30.4.4
+markdown-it-py==4.0.0
+mccabe==0.7.0
+mdurl==0.1.2
+msgpack==1.2.1
+packageurl-python==0.17.6
+packaging==26.2
+pip==26.2.1
+pip-api==0.0.34
+pip-audit==2.10.0
+pip-requirements-parser==32.0.1
+platformdirs==4.9.6
+pluggy==1.6.0
+py-serializable==2.1.0
+pycodestyle==2.14.0
+pyflakes==3.4.0
+pygments==2.20.0
+pyparsing==3.3.2
+pytest==9.0.3
+pytest-asyncio==1.3.0
+pytest-mock==3.15.1
+pytest-timeout==2.4.0
+pyyaml==6.0.3
+requests==2.33.1
+rich==15.0.0
+ruff==0.15.15
+sortedcontainers==2.4.0
+stevedore==5.9.0
+tomli==2.4.1
+tomli-w==1.2.0
+typing-extensions==4.15.0
+urllib3==2.7.0

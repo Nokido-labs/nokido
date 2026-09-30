@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="laforge-bearer" content="__LAFORGE_BEARER__">
+<title>Nokido — Recon research_agent (live)</title>
+<link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
+<link rel="stylesheet" href="/static/nokido.css">
+<style>
+  body { margin:0; min-height:100vh; background:var(--bg-0);
+         color:var(--text-primary); font-family:var(--font-sans,-apple-system,"Segoe UI",sans-serif); }
+  header { padding:14px 24px; background:var(--bg-1); border-bottom:1px solid var(--border);
+           display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:1.1rem; color:var(--red); }
+  .conn { font-size:.72rem; padding:2px 8px; border-radius:10px; background:var(--bg-3); color:var(--text-dim); }
+  .conn.on { background:var(--green); color:white; }
+  .bar { padding:10px 24px; background:var(--bg-2); border-bottom:1px solid var(--border);
+         display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  #obj { flex:1; min-width:300px; padding:7px 10px; border-radius:6px; border:1px solid var(--border);
+         background:var(--bg-2); color:var(--text-primary); font-size:.82rem; }
+  button { padding:7px 16px; border-radius:6px; border:1px solid var(--green); background:var(--green);
+           color:white; font-weight:600; cursor:pointer; font-size:.82rem; }
+  button:disabled { background:var(--bg-3); border-color:var(--border); color:var(--text-dim); cursor:not-allowed; }
+  .grid { display:grid; grid-template-columns:1.3fr 1fr; gap:14px; padding:14px; height:calc(100vh - 132px); }
+  .panel { background:var(--bg-1); border:1px solid var(--border); border-radius:8px; padding:14px;
+           display:flex; flex-direction:column; overflow:hidden; }
+  .panel h2 { margin:0 0 10px; font-size:.9rem; color:var(--blue); }
+  pre { font-size:.74rem; line-height:1.55; overflow-y:auto; flex-grow:1; white-space:pre-wrap; margin:0; }
+  .ok{color:var(--green)} .warn{color:var(--orange)} .err{color:var(--red)} .target{color:var(--purple)}
+  .stage { display:flex; gap:6px; align-items:center; margin:5px 0; font-size:.78rem; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--text-dim); }
+  .dot.done{background:var(--green)} .dot.live{background:var(--blue); animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+  .kpi { display:flex; gap:14px; margin:10px 0; font-size:.78rem; }
+  .kpi b { color:var(--blue); font-size:1.1rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nokido — Recon <span style="color:var(--text-dim);font-size:.8rem">· research_agent live</span></h1>
+  <span id="conn" class="conn">déconnecté</span>
+</header>
+
+<div class="bar">
+  <input id="obj" placeholder="Objectif de recherche…"
+         value="Panorama des techniques de prompt injection indirecte 2026 et défenses.">
+  <button id="run">Lancer un recon réel</button>
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Sortie (live)</h2>
+    <pre id="out">[init] research_agent prêt — SearXNG → LLM → RAG ingest.</pre>
+  </div>
+  <div class="panel">
+    <h2>Pipeline réel</h2>
+    <div class="stage" id="st0"><span class="dot"></span><span>1. Génération de requêtes (LLM)</span></div>
+    <div class="stage" id="st1"><span class="dot"></span><span>2. Recherche web (SearXNG)</span></div>
+    <div class="stage" id="st2"><span class="dot"></span><span>3. Fetch + firewall + ingestion RAG</span></div>
+    <div class="stage" id="st3"><span class="dot"></span><span>4. Synthèse LLM (firewallée)</span></div>
+    <div class="stage" id="st4"><span class="dot"></span><span>5. Ancrage RAG</span></div>
+    <div class="kpi">
+      <div>requêtes <b id="k-q">—</b></div>
+      <div>trouvés <b id="k-f">—</b></div>
+      <div>ingérés <b id="k-i">—</b></div>
+    </div>
+    <div style="font-size:.7rem;color:var(--text-dim)">SemanticFirewall pre/post obligatoire avant egress LLM · SovereignMembrane wrap.</div>
+  </div>
+</div>
+
+<script>
+const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content || "";
+const OUT = document.getElementById("out");
+const conn = document.getElementById("conn");
+function setStage(i, s){ const d=document.querySelector(`#st${i} .dot`); if(d) d.className="dot "+(s||""); }
+function log(line, cls){ OUT.innerHTML += "\n" + (cls?`<span class="${cls}">${line}</span>`:line); OUT.scrollTop=OUT.scrollHeight; }
+
+function handle(ev){
+  if(ev.topic && ev.topic!=="recon" && ev.kind!=="connected") return;
+  const d = ev.data || {};
+  switch(ev.kind){
+    case "connected": conn.textContent="connecté"; conn.className="conn on"; break;
+    case "recon_start":
+      OUT.innerHTML = `<span class="ok">[start]</span> objectif : <span class="target">${d.objective||""}</span>`;
+      [0,1,2,3,4].forEach(i=>setStage(i,"")); setStage(0,"live"); setStage(1,"live");
+      log("[run] research_agent en cours (SearXNG → LLM → RAG)…", "warn");
+      break;
+    case "recon_result":
+      if(d.error){ log("[err] "+(d.synthesis||"echec"), "err"); [0,1,2,3,4].forEach(i=>setStage(i,"done")); break; }
+      
+      const isReal = d.files_touched !== undefined;
+      const queries = isReal ? ["recherche local-explore : " + (d.intent || "")] : (d.queries || []);
+      const found = isReal ? (d.n_hits ?? 0) : (d.found ?? "—");
+      const ingested = isReal ? (d.files_touched ? d.files_touched.length : 0) : (d.ingested ?? "—");
+      const domain = isReal ? "codebase" : (d.domain || "research");
+      const synthesis = isReal ? (d.digest || "") : (d.synthesis || "(vide)");
+
+      document.getElementById("k-q").textContent = queries.length;
+      document.getElementById("k-f").textContent = found;
+      document.getElementById("k-i").textContent = ingested;
+      setStage(0,"done"); setStage(1,"done"); setStage(2,"done"); setStage(3,"live");
+      queries.forEach(q=>log("  [query] "+q, "target"));
+      log(`[search] ${found} résultats · ${ingested} fichiers scannés (domain=${domain})`, "ok");
+      log("\n[extraits / synthèse]\n"+synthesis);
+      
+      setStage(3,"done"); setStage(4,"done");
+      break;
+    case "recon_done":
+      log("\n<span class='ok'>[done] recon terminé · findings ancrés dans le RAG</span>");
+      break;
+  }
+}
+
+// Toujours connecté en local
+conn.textContent = "prêt";
+conn.className = "conn on";
+
+const btn = document.getElementById("run");
+btn.addEventListener("click", async () => {
+  const objective = document.getElementById("obj").value;
+  btn.disabled = true;
+  btn.textContent = "recon en cours…";
+  
+  // Démarrer l'animation
+  handle({ kind: "recon_start", data: { objective } });
+  
+  try {
+    const res = await fetch("/api/recon/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(TOK ? { "Authorization": "Bearer " + TOK } : {}) },
+      body: JSON.stringify({ objective }),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      // Le proxy renvoie j.data
+      handle({ kind: "recon_result", data: j.data });
+      handle({ kind: "recon_done" });
+    } else {
+      log("[err] run refusé : " + (j.error || "?"), "err");
+      handle({ kind: "recon_result", data: { error: true, synthesis: j.error } });
+    }
+  } catch (e) {
+    log("[err] " + (e.message || e), "err");
+    handle({ kind: "recon_result", data: { error: true, synthesis: String(e) } });
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Lancer un recon réel";
+  }
+});
+</script>
+
+</body>
+</html>

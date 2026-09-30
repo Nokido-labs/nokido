@@ -1,0 +1,24 @@
+import * as React from "react";
+
+/**
+ * Étape d'une intention longue (« Cap ») — un nœud d'une roadmap de 100+ étapes.
+ * Connecteur vertical, état (fait/actif/à venir), provenance et anneau
+ * d'intégrité par étape, marqueur de silo parallèle.
+ *
+ * @startingPoint section="Intent" subtitle="Étape de roadmap longue avec provenance + anneau" viewport="700x180"
+ */
+export interface CapStepProps {
+  /** Numéro d'étape */
+  index?: number;
+  title: React.ReactNode;
+  state?: "done" | "active" | "pending";
+  provenance?: "local" | "hybrid" | "remote" | null;
+  ring?: "draft" | "verified" | "gold" | null;
+  /** Étape exécutée dans un silo parallèle */
+  parallel?: boolean;
+  /** Dernière étape (masque le connecteur) */
+  last?: boolean;
+  style?: React.CSSProperties;
+}
+
+export function CapStep(props: CapStepProps): JSX.Element;

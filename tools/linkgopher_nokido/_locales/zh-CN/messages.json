@@ -1,0 +1,56 @@
+{
+  "extensionName": {
+    "message": "链接提取",
+    "description": "none"
+  },
+
+  "extensionDescription": {
+    "message": "从网页提取所有链接",
+    "description": "none"
+  },
+
+  "askPattern": {
+    "message": "输入链接提取关键字，不包含关键字的链接将被忽略。",
+    "description": "none"
+  },
+
+  "pleaseWait": {
+    "message": "请稍候...",
+    "description": "none"
+  },
+
+  "links": {
+    "message": "链接",
+    "description": "none"
+  },
+
+  "domains": {
+    "message": "域名",
+    "description": "none"
+  },
+
+  "noMatches": {
+    "message": "无匹配",
+    "description": "none"
+  },
+
+  "extractAll": {
+    "message": "提取所有链接",
+    "description": "none"
+  },
+
+  "extractDomains": {
+    "message": "只提取域名",
+    "description": "none"
+  },
+
+  "extractSome": {
+    "message": "根据关键字提取链接",
+    "description": "none"
+  },
+
+  "aboutLinkGopher": {
+    "message": "关于 Link Gopher",
+    "description": "none"
+  }
+}

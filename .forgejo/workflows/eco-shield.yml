@@ -1,0 +1,94 @@
+name: "Eco-Shield Codeberg"
+
+on:
+  push:
+    branches: [ alpha, main ]
+    paths:
+      - '**.py'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  fast-audit:
+    name: "Ruff + Bandit"
+    runs-on: codeberg-small
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install tools
+        run: pip install ruff bandit --quiet
+
+      - name: Ruff
+        run: ruff check . --config pyproject.toml --output-format=github || true
+
+      - name: Bandit
+        run: bandit -r app/ -x app/backups,app/legacy -ll --skip B101,B404,B603,B607 -f txt || true
+
+  ast-bunker:
+    name: "AST Bunker-Grade"
+    runs-on: codeberg-small
+    if: github.ref == 'refs/heads/alpha'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: AST check
+        run: |
+          python - <<'EOF'
+          import ast, sys
+          from pathlib import Path
+
+          targets = [
+            "app/forge_collab_modes.py",
+            "app/forge_ollama_bridge.py",
+            "app/forge_prompt_guard.py",
+            "app/forge_conv_sanitizer.py",
+            "app/forge_env_crypt.py",
+            "app/forge_settings.py",
+            "tools/nokido_mcp_server.py",
+          ]
+          fails = 0
+          for f in targets:
+              p = Path(f)
+              if not p.exists():
+                  print(f"SKIP {f}")
+                  continue
+              try:
+                  ast.parse(p.read_text(encoding='utf-8', errors='ignore'))
+                  print(f"OK   {f}")
+              except SyntaxError as e:
+                  print(f"FAIL {f} L{e.lineno}: {e.msg}")
+                  fails += 1
+
+          # Feature checks Bunker-Grade
+          src_b = Path("app/forge_ollama_bridge.py").read_text(encoding='utf-8')
+          checks = {
+              "Proxy-Trigger":    "_NEED_PATTERN" in src_b,
+              "Sentinel":         "_sentinel_query" in src_b,
+              "Output-Max":       "_WEB_OUTPUT_MAX" in src_b,
+              "Ring-Fencing":     "ring-fence" in src_b.lower(),
+          }
+          src_c = Path("app/forge_collab_modes.py").read_text(encoding='utf-8')
+          checks.update({
+              "TOKEN_BUDGET":     "TOKEN_BUDGET" in src_c,
+              "blind_instruction":"blind_instruction" in src_c,
+          })
+          for k, v in checks.items():
+              print(f"{'OK' if v else 'FAIL'}  {k}")
+              if not v: fails += 1
+
+          sys.exit(fails)
+          EOF

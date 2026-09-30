@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Nokido — Anatomie 2026-05-04</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a14; color:#e0e0ff; font-family:'Segoe UI',sans-serif; padding:24px; }
+  h1 { font-size:22px; color:#9090ff; margin-bottom:6px; letter-spacing:1px; }
+  p.sub { font-size:11px; color:#5555aa; margin-bottom:16px; }
+  .badges { margin-bottom:18px; }
+  .badge { display:inline-block; background:#1a1a3a; border:1px solid #4040aa;
+            border-radius:6px; padding:3px 10px; font-size:10px; color:#8080cc; margin:2px; }
+  .mermaid { background:#0d0d1a; border-radius:12px; padding:20px; border:1px solid #2a2a5a; }
+  .footer { margin-top:16px; font-size:10px; color:#333366; text-align:center; }
+</style>
+</head>
+<body>
+<h1>&#x2B21; Nokido &#x2014; Corps Cognitif v2.0</h1>
+<p class="sub">Anatomie 2026-05-04 &middot; LaForge-Master supervisor &middot; 17 services &middot; branch alpha</p>
+<div class="badges">
+  <span class="badge">17 services</span>
+  <span class="badge">1 NSSM entry</span>
+  <span class="badge">WASM sandbox</span>
+  <span class="badge">NPU BGE-M3 24chunks/s</span>
+  <span class="badge">dep-aware boot</span>
+  <span class="badge">RAM homeostasis</span>
+  <span class="badge">control :8765</span>
+</div>
+<div class="mermaid">
+graph TD
+    subgraph NSSM["Windows NSSM - LaForge-Master"]
+        MASTER["LaForge-Master\nproxy_deno/core/supervisor.ts\n:8765 control API"]
+    end
+
+    subgraph TIER0["Tier 0 - Noyau (no deps)"]
+        HUB["LaForgeMCP\nnokido_hub.py :8766\n13 tools MCP HTTP"]
+        OLLAMA["NokidoOllama\nollama.exe :11434\n12 modeles"]
+        LLAMA_N["NokidoLlamaNative\nllama-server :8091\nQwen2.5-7B + draft 1.5B"]
+        LLAMA_R["NokidoLlamaRouter\nllama-server :8092\nmulti-model LRU"]
+        NETCFG["NokidoNetcfgMCP\nnetcfg-agent-mcp.exe :8767\n9 tools netcfg"]
+    end
+
+    subgraph TIER1["Tier 1 - Depend hub :8766"]
+        DENO_PROXY["NokidoDenoProxy\nproxy_deno/main.ts :8000\nnervous system"]
+        DENO_WH["NokidoDenoWebHub\nweb_hub/main.ts :7401\nWASM native + anatomy"]
+        DENO_HUB["NokidoDenoHubMCP\nhub_mcp/main.ts :8769"]
+        WEBHUB["NokidoWebHub\nnokido_web_hub.py :7400"]
+        OPENAI["NokidoOpenAIProxy\nforge_openai_proxy.py"]
+    end
+
+    subgraph TIER1B["Tier 1 - Daemons autonomes"]
+        GEMINI["NokidoGeminiDaemon\ngemini_poll_daemon.py\npolling actif 30s"]
+        GRAPH["NokidoGraph\nforge_graph_explorer.py"]
+        HEBBIAN["NokidoHebbian\nforge_hebbian_linker.py"]
+        HOMEO["NokidoHomeostasis\nforge_homeostasis_orchestrator.py"]
+        AUTOLOOP["NokidoAutonomousLoops\nforge_autonomous_loops.py\ntick 60s"]
+        RSS["NokidoRSSWatcher\nforge_rss_watcher.py"]
+        CAPTURE["NokidoCapture\ncli_tail_capture --watch"]
+    end
+
+    subgraph WASM["WASM Sandbox"]
+        DENO_WASM["Deno native WebAssembly\n:7401/api/wasm/run\nus startup, 4MB max"]
+        WASM_PY["wasmtime-py fallback\nforge_wasm_cervelet.py\nWASI sandbox"]
+        CERVELET["Cervelet Docker\nwasmedge :55555\nnomic-embed-text"]
+    end
+
+    subgraph RAG["Memoire / RAG"]
+        BRAIN["brain_worker :5557 ZMQ\nBGE-M3 NPU DML FP16\n24 chunks/s"]
+        DB["RAG/embeddings.db\n14946+ chunks FTS5"]
+        FAISS["FAISS IndexFlatIP\n+ BM25 RRF fusion"]
+    end
+
+    subgraph SECURITY["Immunite"]
+        FW["SemanticFirewall\n4 couches DLP+injection\n+ring_check+canary"]
+        MEMBRANE["SovereignMembrane\nHMAC aliases\nmembrane.db"]
+    end
+
+    MASTER -->|"spawn + watch"| TIER0
+    MASTER -->|"spawn after :8766 UP"| TIER1
+    MASTER -->|"spawn after :8766 UP"| TIER1B
+    HUB --> DENO_PROXY
+    HUB --> DENO_WH
+    HUB --> DENO_HUB
+    HUB --> GEMINI
+    DENO_WH --> DENO_WASM
+    DENO_WASM -.->|"fallback"| WASM_PY
+    WASM_PY -.->|"embed fallback"| CERVELET
+    HUB --> BRAIN
+    BRAIN --> DB
+    DB --> FAISS
+    HUB --> FW
+    FW --> MEMBRANE
+
+    style MASTER fill:#1a1a2e,color:#e0e0ff,stroke:#7070ff
+    style TIER0 fill:#0d2137,color:#cce5ff
+    style TIER1 fill:#0d3728,color:#ccffe5
+    style TIER1B fill:#2d1a0d,color:#ffe5cc
+    style WASM fill:#1a0d2d,color:#e5ccff
+    style RAG fill:#1a2d0d,color:#e5ffcc
+    style SECURITY fill:#2d0d0d,color:#ffcccc
+</div>
+<div class="footer">
+  LaForge-Master :8765 &middot; Hub MCP :8766 &middot; Ollama :11434 &middot; LlamaCpp :8091/:8092
+  &middot; DenoProxy :8000 &middot; DenoWebHub :7401 &middot; NetcfgMCP :8767 &middot; RAG 14946+ chunks
+</div>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1a1a3a',
+      primaryTextColor: '#e0e0ff',
+      primaryBorderColor: '#5050aa',
+      lineColor: '#7070cc',
+      secondaryColor: '#0d2137',
+      tertiaryColor: '#1a0d2d',
+      background: '#0a0a14',
+      mainBkg: '#1a1a2e',
+      nodeBorder: '#5050aa',
+      clusterBkg: '#0d0d1a',
+      titleColor: '#9090ff',
+      edgeLabelBackground: '#1a1a3a',
+      fontSize: '13px'
+    },
+    flowchart: { curve: 'basis', padding: 15 }
+  });
+</script>
+</body>
+</html>

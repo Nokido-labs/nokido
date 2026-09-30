@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 0; background: var(--bg-0); display: flex; }
+  .tile { flex: 1; display: flex; align-items: center; justify-content: center; gap: 14px; padding: 24px; }
+  .tile + .tile { border-left: 1px solid var(--border-subtle); }
+  .panel { background: var(--bg-1); }
+  .raised { background: var(--bg-3); }
+  .col { display: flex; flex-direction: column; align-items: center; }
+  .logo { display: inline-flex; align-items: center; gap: 13px; }
+  .word { font-family: var(--font-sans); font-weight: 800; font-size: 27px; letter-spacing: 0.3px;
+    background: linear-gradient(90deg, var(--text-primary), #B98BFF); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .cap { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-top: 12px; }
+  .mark { overflow: visible; }
+
+  .anim .hammer { transform-box: view-box; transform-origin: 6px 31px; animation: lf-swing 1.2s cubic-bezier(.5,0,.4,1) infinite; }
+  .anim .bolt   { transform-box: view-box; transform-origin: 31px 40px; opacity: 0; animation: lf-flash 1.2s linear infinite; }
+  .anim .anvil  { transform-box: view-box; transform-origin: 32px 54px; animation: lf-squash 1.2s linear infinite; }
+  @keyframes lf-swing { 0%{transform:rotate(-38deg)} 30%{transform:rotate(2deg)} 39%{transform:rotate(-5deg)} 48%{transform:rotate(0deg)} 100%{transform:rotate(-38deg)} }
+  @keyframes lf-flash { 0%,27%{opacity:0;transform:scale(.4)} 32%{opacity:1;transform:scale(1.12)} 44%{opacity:1;transform:scale(1)} 60%{opacity:0} 100%{opacity:0} }
+  @keyframes lf-squash { 0%,27%{transform:scaleY(1)} 32%{transform:scaleY(.93) translateY(2px)} 44%{transform:scaleY(1.02)} 52%,100%{transform:scaleY(1)} }
+  @media (prefers-reduced-motion: reduce){ .anim .hammer{animation:none} .anim .bolt{animation:none;opacity:1} .anim .anvil{animation:none} }
+</style></head>
+<body>
+
+  <!-- Marque animée -->
+  <div class="tile">
+    <div class="col">
+      <svg class="mark anim" width="106" height="106" viewBox="0 0 64 64" fill="none">
+        <defs><linearGradient id="bg1" x1="26" y1="12" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE070"/><stop offset="1" stop-color="#FFC22D"/></linearGradient></defs>
+        <g class="anvil" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round">
+          <path d="M6 35 L20 31 H48 q4 0 4 3.5 Q52 39 47 39 H39 q-3 0 -4 3 l-1.5 3 H27 q-1 -3 -4 -3 H15 Q6 42 6 35 Z" fill="#9A90BC"/>
+          <path d="M28 45 h8 l-1.5 5 h-5 Z" fill="#6F6498"/>
+          <path d="M17 50 H47 l3 6 H14 Z" fill="#9A90BC"/>
+        </g>
+        <g class="hammer">
+          <rect x="4" y="29" width="23" height="5" rx="2.5" fill="#C77D4A" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+          <rect x="25" y="21" width="11" height="21" rx="3" fill="#B7BCD2" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+          <rect x="27.5" y="24" width="5.5" height="6" rx="1.5" fill="#D9DCE8"/>
+        </g>
+        <!-- éclair au PREMIER PLAN, départ zone d'impact, décalé à droite -->
+        <path class="bolt" d="M31 41 L40 26 H34 L42 11 L30 28 H36 Z" fill="url(#bg1)" stroke="#15121F" stroke-width="2" stroke-linejoin="round"/>
+      </svg>
+      <span class="cap">marque · animée</span>
+    </div>
+  </div>
+
+  <!-- Lockup -->
+  <div class="tile panel">
+    <div class="col">
+      <span class="logo">
+        <svg class="mark" width="50" height="50" viewBox="0 0 64 64" fill="none">
+          <defs><linearGradient id="bg2" x1="26" y1="12" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE070"/><stop offset="1" stop-color="#FFC22D"/></linearGradient></defs>
+          <g stroke="#15121F" stroke-width="2.4" stroke-linejoin="round">
+            <path d="M6 35 L20 31 H48 q4 0 4 3.5 Q52 39 47 39 H39 q-3 0 -4 3 l-1.5 3 H27 q-1 -3 -4 -3 H15 Q6 42 6 35 Z" fill="#9A90BC"/>
+            <path d="M28 45 h8 l-1.5 5 h-5 Z" fill="#6F6498"/>
+            <path d="M17 50 H47 l3 6 H14 Z" fill="#9A90BC"/>
+          </g>
+          <g>
+            <rect x="4" y="29" width="23" height="5" rx="2.5" fill="#C77D4A" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+            <rect x="25" y="21" width="11" height="21" rx="3" fill="#B7BCD2" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+            <rect x="27.5" y="24" width="5.5" height="6" rx="1.5" fill="#D9DCE8"/>
+          </g>
+          <path d="M31 41 L40 26 H34 L42 11 L30 28 H36 Z" fill="url(#bg2)" stroke="#15121F" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+        <span class="word">Nokido</span>
+      </span>
+      <span class="cap">lockup horizontal</span>
+    </div>
+  </div>
+
+  <!-- Pastille -->
+  <div class="tile raised">
+    <div class="col">
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:58px;height:58px;border-radius:16px;background:linear-gradient(140deg,#26223A,#14121C);border:1px solid var(--border)">
+        <svg class="mark" width="44" height="44" viewBox="0 0 64 64" fill="none">
+          <defs><linearGradient id="bg3" x1="26" y1="12" x2="40" y2="40" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE070"/><stop offset="1" stop-color="#FFC22D"/></linearGradient></defs>
+          <g stroke="#15121F" stroke-width="2.4" stroke-linejoin="round">
+            <path d="M6 35 L20 31 H48 q4 0 4 3.5 Q52 39 47 39 H39 q-3 0 -4 3 l-1.5 3 H27 q-1 -3 -4 -3 H15 Q6 42 6 35 Z" fill="#9A90BC"/>
+            <path d="M28 45 h8 l-1.5 5 h-5 Z" fill="#6F6498"/>
+            <path d="M17 50 H47 l3 6 H14 Z" fill="#9A90BC"/>
+          </g>
+          <g>
+            <rect x="4" y="29" width="23" height="5" rx="2.5" fill="#C77D4A" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+            <rect x="25" y="21" width="11" height="21" rx="3" fill="#B7BCD2" stroke="#15121F" stroke-width="2.4" stroke-linejoin="round"/>
+            <rect x="27.5" y="24" width="5.5" height="6" rx="1.5" fill="#D9DCE8"/>
+          </g>
+          <path d="M31 41 L40 26 H34 L42 11 L30 28 H36 Z" fill="url(#bg3)" stroke="#15121F" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="cap">pastille · favicon</span>
+    </div>
+  </div>
+</body></html>

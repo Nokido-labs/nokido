@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 18px; background: var(--bg-0); display: flex; gap: 12px; }
+  .prov { flex: 1; border-radius: var(--radius-md); padding: 14px; background: var(--bg-2); border: 1px solid var(--border); }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; padding: 3px 9px; border-radius: var(--radius-pill); font-weight: 600; }
+  .tag::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .local  { color: var(--prov-local);  background: var(--prov-local-tint); }
+  .hybrid { color: var(--prov-hybrid); background: var(--prov-hybrid-tint); }
+  .remote { color: var(--prov-remote); background: var(--prov-remote-tint); }
+  .desc { color: var(--text-dim); font-size: 11px; margin-top: 10px; line-height: 1.45; }
+  .desc b { color: var(--text-secondary); font-weight: 600; }
+</style></head>
+<body>
+  <div class="prov" style="box-shadow:var(--prov-local-glow)">
+    <span class="tag local">LOCAL</span>
+    <div class="desc"><b>Souverain.</b> Calcul sur la machine. Hors-ligne possible. Langage « chaud », ancré.</div>
+  </div>
+  <div class="prov">
+    <span class="tag hybrid">HYBRIDE</span>
+    <div class="desc"><b>Partiellement local.</b> Selon la puissance allouée. Curseur, pas interrupteur.</div>
+  </div>
+  <div class="prov" style="box-shadow:var(--prov-remote-glow)">
+    <span class="tag remote">DISTANT</span>
+    <div class="desc"><b>Cloud.</b> Plus puissant mais externe. Signalé, anonymisé, réversible.</div>
+  </div>
+</body></html>

@@ -1,0 +1,15 @@
+# OPENCODE_CONFIG_DIR pointe ici : mammouth y ÉCRIT ce qu'il veut (auth, sessions,
+# journaux, caches). On ne sait pas d'avance quoi — donc ALLOWLIST, pas denylist.
+#
+# Pour vibe on avait listé ce qu'on croyait devoir exclure, et il a fallu ajouter des
+# exceptions après coup. Ici on inverse : rien ne passe, sauf ce qui est explicitement
+# gouverné. Un secret ne doit pas dépendre de notre capacité à deviner un nom de fichier.
+*
+!.gitignore
+!mammouth.jsonc
+!README.md
+
+# Pour versionner un ajout (profil d'agent, prompt), l'autoriser NOMMÉMENT ci-dessus.
+# Et pour un sous-dossier, il faut les deux lignes : `!dossier/` puis `!dossier/*` —
+# git n'entre pas dans un dossier ignoré, une exception à l'intérieur ne serait jamais
+# évaluée.

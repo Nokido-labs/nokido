@@ -1,0 +1,661 @@
+{
+  "_doc": "NPSC — Nokido Protocol & Standards Conformance. Registre DECLARATIF multi-autorite. Le moteur (tools/forge_npsc.py) l'execute ; il n'encode aucune norme en dur. REGLE FONDATRICE : une norme n'est pas applicable parce qu'elle existe, elle le devient parce qu'une SURFACE MESUREE l'active. REGLE DE MESURE (2026-09-04) : une surface se PROUVE par une signature structurelle (import, route declaree, appel), jamais par la presence d'un mot — un mot en commentaire ou en dataset fabrique une surface inexistante.",
+  "version": "3.0.0",
+  "revise": "2026-09-04",
+  "_lot2": "Standards et surfaces ajoutes le 2026-09-04 apres la DECOUVERTE par mesure (tools/forge_npsc_decouverte.py). Le registre v2 en declarait 13 surfaces, choisies a la main ; l'owner a demande pourquoi si peu. Une liste ecrite a la main mesure ce que son auteur avait en tete, pas ce que le depot manipule. Les surfaces du lot 2 viennent toutes d'un compteur : hashlib 194 fichiers, hmac 29, base64 42, uuid 54, unicodedata 8, sqlite3 467, Cache-Control 8, Access-Control-* 2, Content-Security-Policy 1, X-Forwarded-For 2, multipart/form-data 4, otpauth:// 1, socks5h:// 1.",
+
+  "_populations": {
+    "CODE": "app/ tools/ src/ proxy_deno/ — seule population ou une signature vaut PREUVE",
+    "CONFIG": "*.toml *.yaml *.yml Dockerfile compose* — PREUVE pour les surfaces d'infrastructure",
+    "TEST": "tests/ — INDICE : un test peut viser une surface non encore livree",
+    "DOC": "docs/ *.md — INDICE seulement, jamais preuve",
+    "DATA": "*.json volumineux, models/ datasets/ RAG_plain_bak/ data/ — EXCLU de la preuve par construction"
+  },
+
+  "autorites": {
+    "ietf":    {"nom": "Internet Engineering Task Force", "amont": "https://www.rfc-editor.org/rfc/{id}.json", "fraicheur": "tools/forge_rfc_freshness_gate.py"},
+    "mcp":     {"nom": "Model Context Protocol", "amont": "https://modelcontextprotocol.io/specification/latest", "fraicheur": "redirection de /latest"},
+    "jsonrpc": {"nom": "JSON-RPC Working Group", "amont": "https://www.jsonrpc.org/specification", "fraicheur": "version figee depuis 2010"},
+    "whatwg":  {"nom": "WHATWG", "amont": "https://html.spec.whatwg.org/", "fraicheur": "living standard — comparer par date de commit"},
+    "w3c":     {"nom": "World Wide Web Consortium", "amont": "https://www.w3.org/TR/", "fraicheur": "piste de maturite REC/CR/WD"},
+    "oci":     {"nom": "Open Container Initiative", "amont": "https://github.com/opencontainers", "fraicheur": "tags GitHub"},
+    "compose": {"nom": "Compose Specification", "amont": "https://github.com/compose-spec/compose-spec", "fraicheur": "tags GitHub"},
+    "openapi": {"nom": "OpenAPI Initiative", "amont": "https://spec.openapis.org/oas/", "fraicheur": "index des versions"},
+    "unicode": {"nom": "Unicode Consortium", "amont": "https://www.unicode.org/versions/", "fraicheur": "version annuelle"},
+    "iana":    {"nom": "IANA", "amont": "https://www.iana.org/protocols", "fraicheur": "registres vivants"},
+    "nokido":  {"nom": "Regles internes Nokido", "amont": "Nokido/RULES_SHARED.md + docs/", "fraicheur": "git"}
+  },
+
+  "standards": {
+    "MCP-2026-07-28":     {"autorite": "mcp", "titre": "Model Context Protocol Specification", "version": "2026-07-28", "statut": "COURANT", "url": "https://modelcontextprotocol.io/specification/2026-07-28", "remplace": ["MCP-2025-11-25", "MCP-2025-06-18", "MCP-2025-03-26", "MCP-2024-11-05"], "note_veille": "la page de versioning cite aussi 2026-08-30, NON servie par /latest au 2026-09-04 — a resurveiller",
+      "exigences": [
+        {"id": "MCP-R1",
+         "texte": "Le serveur DOIT negocier et declarer une version de protocole a l'initialisation : sans elle, client et serveur supposent des contrats differents.",
+         "detecteur": {"type": "presence_requise", "motif": "protocolVersion",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "VIOLATION"},
+        {"id": "MCP-R2",
+         "texte": "Les outils DOIVENT etre exposes par tools/list et invoques par tools/call — c'est le contrat d'appel, distinct de la simple presence d'une implementation MCP.",
+         "detecteur": {"type": "presence_requise", "motif": "tools/(list|call)",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "VIOLATION"}
+      ]},
+    "JSON-RPC-2.0":       {"autorite": "jsonrpc", "titre": "JSON-RPC 2.0 Specification", "version": "2.0", "statut": "COURANT", "url": "https://www.jsonrpc.org/specification",
+      "exigences": [
+        {"id": "JSONRPC2-R1",
+         "texte": "Tout objet de requete et de reponse DOIT porter le membre jsonrpc valant exactement 2.0 (section 4).",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "jsonrpc.{0,8}2\\.0",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "VIOLATION"},
+        {"id": "JSONRPC2-R2",
+         "texte": "Les erreurs DOIVENT utiliser les codes reserves de la specification (-32700 parse, -32600 requete invalide, -32601 methode absente, -32602 parametres invalides, -32603 erreur interne).",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "-32700|-3260[0-3]",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "VIOLATION"}
+      ]},
+
+    "RFC-9110": {"autorite": "ietf", "titre": "HTTP Semantics", "statut": "INTERNET STANDARD", "std": "STD 97",
+      "exigences": [
+        {"id": "RFC9110-R1",
+         "texte": "Une reponse 429 ou 503 DEVRAIT porter Retry-After (section 10.2.3) : sans elle, un client bien eleve ne peut pas espacer ses tentatives et le service se fait marteler.",
+         "detecteur": {"type": "presence_requise", "motif": "Retry-After",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-9112": {"autorite": "ietf", "titre": "HTTP/1.1", "statut": "INTERNET STANDARD", "std": "STD 99"},
+    "RFC-9113": {"autorite": "ietf", "titre": "HTTP/2", "statut": "PROPOSED STANDARD"},
+    "RFC-8259": {"autorite": "ietf", "titre": "The JavaScript Object Notation (JSON) Data Interchange Format", "statut": "INTERNET STANDARD", "std": "STD 90"},
+    "RFC-3986": {"autorite": "ietf", "titre": "URI Generic Syntax", "statut": "INTERNET STANDARD", "std": "STD 66", "mis_a_jour_par": ["RFC-6874", "RFC-7320", "RFC-8820"],
+      "exigences": [
+        {"id": "RFC3986-R1",
+         "texte": "Toute donnee variable inseree dans un URI DOIT etre percent-encodee (section 2.1) : concatener une valeur brute produit un URI invalide ou une injection de parametre.",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "urllib\\.parse\\.(quote|quote_plus|urlencode)|from urllib\\.parse import[^\\n]*(quote|urlencode)",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"}
+      ]},
+    "RFC-3629": {"autorite": "ietf", "titre": "UTF-8, a transformation format of ISO 10646", "statut": "INTERNET STANDARD", "std": "STD 63",
+      "exigences": [
+        {"id": "RFC3629-R1",
+         "texte": "Les entrees-sorties texte DOIVENT declarer explicitement UTF-8 : sous Windows l'encodage par defaut n'est pas UTF-8, et un fichier ecrit sans le dire devient illisible pour le lecteur suivant.",
+         "detecteur": {"type": "presence_requise", "motif": "encoding\\s*=\\s*[\"']utf-8[\"']",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"}
+      ]},
+    "RFC-5234": {"autorite": "ietf", "titre": "Augmented BNF for Syntax Specifications (ABNF)", "statut": "INTERNET STANDARD", "std": "STD 68"},
+    "RFC-8785": {"autorite": "ietf", "titre": "JSON Canonicalization Scheme (JCS)", "statut": "INFORMATIONAL"},
+    "RFC-6455": {"autorite": "ietf", "titre": "The WebSocket Protocol", "statut": "PROPOSED STANDARD"},
+    "RFC-9846": {
+      "autorite": "ietf", "titre": "The Transport Layer Security (TLS) Protocol Version 1.3", "statut": "COURANT",
+      "remplace": ["RFC-8446"], "verifie_amont": "2026-09-04",
+      "exigences": [
+        {
+          "id": "RFC9846-R1",
+          "texte": "Aucune version de TLS anterieure a 1.2 ne doit etre selectionnee explicitement (SSLv2, SSLv3, TLS 1.0, TLS 1.1 sont depreciees par RFC 8996).",
+          "detecteur": {"type": "absence_requise",
+                        "motif": "PROTOCOL_SSLv|PROTOCOL_TLSv1_1|PROTOCOL_TLSv1[^_]|PROTOCOL_TLSv1$",
+                        "globs": ["app/*.py", "app/**/*.py", "tools/*.py"],
+                        "exemptions": ["standards/registry.json", "tests/nr/"],
+                        "note_motif": "Sans lookahead : `git grep -E` est du POSIX ERE, pas du PCRE. Le motif `PROTOCOL_TLSv1(?!_2|_3)` sortait `rc=128 fatal: command line` et le standard rendait NO_VERDICT — le garde a bien refuse de conclure, mais l'exigence ne mesurait rien. Enumerer plutot que nier."},
+          "si_present": "VIOLATION"
+        }
+      ]
+    },
+    "RFC-8446": {"autorite": "ietf", "titre": "TLS 1.3 (obsolete)", "statut": "OBSOLETE", "remplace_par": ["RFC-9846"], "verifie_amont": "2026-09-04"},
+    "RFC-6749": {"autorite": "ietf", "titre": "The OAuth 2.0 Authorization Framework", "statut": "PROPOSED STANDARD", "mis_a_jour_par": ["RFC-9700"]},
+    "RFC-6819": {"autorite": "ietf", "titre": "OAuth 2.0 Threat Model and Security Considerations", "statut": "INFORMATIONAL"},
+    "RFC-8693": {"autorite": "ietf", "titre": "OAuth 2.0 Token Exchange", "statut": "PROPOSED STANDARD"},
+    "RFC-9700": {"autorite": "ietf", "titre": "Best Current Practice for OAuth 2.0 Security", "statut": "BCP 240", "met_a_jour": ["RFC-6749"],
+      "exigences": [
+        {"id": "RFC9700-R1",
+         "texte": "PKCE DOIT etre employe par TOUS les clients OAuth, publics comme confidentiels (section 2.1.1) — il n'est plus reserve aux clients publics comme dans RFC 6749.",
+         "detecteur": {"type": "presence_requise", "motif": "code_challenge|code_verifier",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "UNVERIFIED"},
+        {"id": "RFC9700-R2",
+         "texte": "Le flux implicite (response_type=token) NE DOIT PLUS etre utilise (section 2.1.2) : le jeton transite alors dans le fragment d'URL, donc dans l'historique et les journaux.",
+         "detecteur": {"type": "absence_requise", "motif": "response_type=token",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"],
+                       "exemptions": ["tests/", "docs/"]},
+         "si_present": "VIOLATION"}
+      ]},
+    "RFC-8895": {"autorite": "ietf", "titre": "ALTO Incremental Updates Using Server-Sent Events (SSE)", "statut": "PROPOSED STANDARD", "note": "PROXY ASSUME pour SSE : SSE n'a aucune RFC propre. L'autorite reelle est WHATWG-EVENTSOURCE. Conserve car il normalise un USAGE de SSE, pas SSE lui-meme."},
+
+    "WHATWG-EVENTSOURCE": {"autorite": "whatwg", "titre": "HTML Living Standard — Server-sent events", "statut": "LIVING", "url": "https://html.spec.whatwg.org/multipage/server-sent-events.html",
+      "exigences": [
+        {"id": "SSE-R1",
+         "texte": "Un flux d'evenements DOIT etre servi avec le type MIME text/event-stream : sans lui le client ne reconnait pas un EventSource et bufferise la reponse.",
+         "detecteur": {"type": "presence_requise", "motif": "text/event-stream",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "VIOLATION"}
+      ]},
+    "WHATWG-FETCH":       {"autorite": "whatwg", "titre": "Fetch Living Standard", "statut": "LIVING", "url": "https://fetch.spec.whatwg.org/"},
+    "WHATWG-URL":         {"autorite": "whatwg", "titre": "URL Living Standard", "statut": "LIVING", "url": "https://url.spec.whatwg.org/", "tension": "diverge de RFC-3986 sur le parsing — conflit d'autorites a arbitrer, pas a masquer"},
+    "W3C-WEBAUTHN-L3":    {"autorite": "w3c", "titre": "Web Authentication Level 3", "statut": "CANDIDATE RECOMMENDATION"},
+
+    "OCI-IMAGE":        {"autorite": "oci", "titre": "OCI Image Format Specification", "statut": "COURANT",
+      "exigences": [
+        {"id": "OCI-IMG-R1",
+         "texte": "Une image DOIT etre referencee par un tag stable ou un digest, jamais par `latest` : `latest` n'est pas une version, et deux deploiements du meme fichier peuvent alors executer des binaires differents.",
+         "detecteur": {"type": "absence_requise", "motif": ":latest",
+                       "globs": ["docker/**/*.yml", "docker/**/*.yaml", "**/Dockerfile*", "**/docker-compose*.yml"],
+                       "exemptions": ["tests/", "docs/"]},
+         "si_present": "VIOLATION"}
+      ]},
+    "OCI-RUNTIME":      {"autorite": "oci", "titre": "OCI Runtime Specification", "statut": "COURANT"},
+    "OCI-DISTRIBUTION": {"autorite": "oci", "titre": "OCI Distribution Specification", "statut": "COURANT"},
+    "COMPOSE-SPEC":     {"autorite": "compose", "titre": "Compose Specification", "statut": "COURANT"},
+    "OAS-3.2.0": {
+      "autorite": "openapi", "titre": "OpenAPI Specification 3.2.0", "statut": "COURANT",
+      "exigences": [
+        {
+          "id": "OAS-R1",
+          "texte": "Section 4.8.10 : operationId DOIT etre unique dans tout le document. Un decorateur multi-methodes fait deriver le meme identifiant pour deux operations.",
+          "detecteur": {"type": "absence_requise",
+                        "motif": "api_route\\([^)]*methods\\s*=\\s*\\[[^]]*,",
+                        "globs": ["app/*.py", "app/**/*.py"],
+                        "exemptions": ["standards/registry.json", "tests/nr/"]},
+          "si_present": "VIOLATION"
+        }
+      ]
+    },
+    "UNICODE":          {"autorite": "unicode", "titre": "The Unicode Standard", "statut": "COURANT"},
+    "IANA-REGISTRIES":  {"autorite": "iana", "titre": "IANA Protocol Registries", "statut": "VIVANT", "note": "ports, media types, URI schemes, ALPN — verifier plutot que coder des valeurs plausibles"},
+
+    "RFC-2104": {
+      "autorite": "ietf", "titre": "HMAC: Keyed-Hashing for Message Authentication", "statut": "INFORMATIONAL",
+      "exigences": [
+        {
+          "id": "RFC2104-R1",
+          "texte": "La verification d'un MAC DOIT se faire a temps constant : une comparaison naive fuit la position du premier octet faux (attaque temporelle).",
+          "detecteur": {"type": "presence_requise", "motif": "compare_digest", "globs": ["app/*.py", "tools/*.py"]},
+          "si_absent": "VIOLATION"
+        }
+      ]
+    },
+    "RFC-7519": {"autorite": "ietf", "titre": "JSON Web Token (JWT)", "statut": "PROPOSED STANDARD"},
+    "RFC-7515": {
+      "autorite": "ietf", "titre": "JSON Web Signature (JWS)", "statut": "PROPOSED STANDARD",
+      "exigences": [
+        {
+          "id": "RFC7515-R1",
+          "texte": "Le verificateur NE DOIT PAS faire confiance a l'entete `alg` du jeton : accepter `none` ou un algorithme choisi par l'emetteur annule la signature (CVE recurrente de l'ecosysteme JWT).",
+          "detecteur": {"type": "absence_requise",
+                        "motif": "algorithms\\s*=\\s*\\[\\s*[\"']none|verify_signature[\"']?\\s*:\\s*False",
+                        "globs": ["app/*.py", "app/**/*.py", "tools/*.py"],
+                        "exemptions": ["standards/registry.json", "tests/nr/"]},
+          "si_present": "VIOLATION"
+        }
+      ]
+    },
+    "RFC-7518": {"autorite": "ietf", "titre": "JSON Web Algorithms (JWA)", "statut": "PROPOSED STANDARD", "note": "Section 3.2 : pour HS256 la cle DOIT valoir au moins la taille du hash, 32 octets. Ecart ouvert au 2026-09-04 sur le chemin LAFORGE_JWT_SECRET explicite (app/web_hub/auth.py) — delegue a ANTIGRAVITY, bb:discovered_facts/npsc_tache_rfc7518_longueur_cle. Non atomise ici tant que le remede n'est pas tranche : une exigence ecrite avant sa decision figerait le mauvais remede."},
+    "RFC-6234": {"autorite": "ietf", "titre": "US Secure Hash Algorithms (SHA and SHA-based HMAC)", "statut": "INFORMATIONAL",
+      "exigences": [
+        {"id": "RFC6234-R1",
+         "texte": "La comparaison d'un condensat ou d'un jeton DOIT etre a temps constant : une comparaison naive fuit le secret par son temps de reponse.",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "compare_digest",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"},
+        {"id": "RFC6234-R2",
+         "texte": "MD5 et SHA-1 NE DOIVENT PAS servir a une fonction de securite (signature, jeton, mot de passe). Leur usage comme empreinte de deduplication reste licite et doit etre exempte explicitement.",
+         "detecteur": {"type": "absence_requise",
+                       "motif": "hashlib\\.(md5|sha1)\\(",
+                       "globs": ["app/forge_auth*.py", "app/forge_secrets*.py", "app/forge_dpop.py", "app/forge_persona_tpm.py"],
+                       "exemptions": ["tests/"]},
+         "si_present": "VIOLATION"}
+      ]},
+    "RFC-4086": {"autorite": "ietf", "titre": "Randomness Requirements for Security", "statut": "BCP 106",
+      "exigences": [
+        {"id": "RFC4086-R1",
+         "texte": "Tout materiau de securite (jeton, nonce, sel) DOIT provenir d'un generateur cryptographique, jamais d'un PRNG statistique (RFC 4086 section 3).",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "secrets\\.(token_hex|token_urlsafe|token_bytes|compare_digest)",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"},
+        {"id": "RFC4086-R2",
+         "texte": "Les modules qui frappent des credentials NE DOIVENT PAS utiliser le PRNG statistique du module random.",
+         "detecteur": {"type": "absence_requise",
+                       "motif": "random\\.(random|randint|choice|randrange)\\(",
+                       "globs": ["app/forge_auth*.py", "app/forge_secrets*.py", "app/forge_key_rotation.py", "app/forge_dpop.py"],
+                       "exemptions": ["tests/"]},
+         "si_present": "VIOLATION"}
+      ]},
+    "RFC-4648": {"autorite": "ietf", "titre": "The Base16, Base32, and Base64 Data Encodings", "statut": "PROPOSED STANDARD",
+      "exigences": [
+        {"id": "RFC4648-R1",
+         "texte": "L'encodage base64 DOIT passer par une implementation conforme, et la variante url-safe DOIT etre employee la ou la valeur voyage dans une URL ou un JWT (RFC 4648 section 5).",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "base64\\.(urlsafe_b64encode|urlsafe_b64decode|b64encode|b64decode)",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-9562": {"autorite": "ietf", "titre": "Universally Unique IDentifiers (UUIDs)", "statut": "PROPOSED STANDARD", "remplace": ["RFC-4122"],
+      "exigences": [
+        {"id": "RFC9562-R1",
+         "texte": "Un identifiant unique DOIT provenir d'une implementation conforme (uuid4 aleatoire, uuid5 par nom), jamais d'une concatenation maison d'horodatage.",
+         "detecteur": {"type": "presence_requise", "motif": "uuid\\.uuid[1457]\\(",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-6238": {"autorite": "ietf", "titre": "TOTP: Time-Based One-Time Password Algorithm", "statut": "INFORMATIONAL"},
+    "RFC-9111": {"autorite": "ietf", "titre": "HTTP Caching", "statut": "INTERNET STANDARD", "std": "STD 98",
+      "exigences": [
+        {"id": "RFC9111-R1",
+         "texte": "Une reponse dont la fraicheur compte DOIT porter une directive Cache-Control explicite. Son absence n'est pas une faute en soi — un service peut n'avoir aucune reponse cacheable — d'ou UNVERIFIED et non VIOLATION.",
+         "detecteur": {"type": "presence_requise", "motif": "Cache-Control",
+                       "globs": ["app/*.py", "tools/*.py", "proxy_deno/**/*.ts"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-7239": {"autorite": "ietf", "titre": "Forwarded HTTP Extension", "statut": "PROPOSED STANDARD"},
+    "RFC-7578": {"autorite": "ietf", "titre": "Returning Values from Forms: multipart/form-data", "statut": "PROPOSED STANDARD"},
+    "RFC-6265": {
+      "autorite": "ietf", "titre": "HTTP State Management Mechanism (Cookies)", "statut": "PROPOSED STANDARD",
+      "exigences": [
+        {
+          "id": "RFC6265-R1",
+          "texte": "Un cookie de session DOIT porter HttpOnly (soustrait au script) et un SameSite explicite (defense CSRF).",
+          "detecteur": {"type": "presence_requise", "motif": "httponly\\s*=\\s*True", "globs": ["app/**/*.py"]},
+          "si_absent": "VIOLATION"
+        }
+      ],
+      "ecart_connu": "`secure=False` sur le cookie de session (app/web_hub/app.py:288) avec renvoi a la doc de deploiement. Defendable sur un portail HTTP en loopback, NON conforme des que le portail est expose en HTTPS. Consigne, pas atomise : l'exigence dependrait du mode de deploiement, que le code seul ne dit pas."
+    },
+    "RFC-1952": {"autorite": "ietf", "titre": "GZIP file format specification", "statut": "INFORMATIONAL"},
+    "RFC-1950": {"autorite": "ietf", "titre": "ZLIB Compressed Data Format", "statut": "INFORMATIONAL"},
+    "RFC-4180": {"autorite": "ietf", "titre": "Common Format and MIME Type for CSV Files", "statut": "INFORMATIONAL",
+      "exigences": [
+        {"id": "RFC4180-R1",
+         "texte": "Un CSV DOIT etre lu et ecrit par une implementation qui gere l'echappement des guillemets et les sauts de ligne internes : un decoupage naif casse des la premiere valeur citee.",
+         "detecteur": {"type": "presence_requise", "motif": "csv\\.(reader|writer|DictReader|DictWriter)",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-5322": {"autorite": "ietf", "titre": "Internet Message Format", "statut": "DRAFT STANDARD"},
+    "RFC-5952": {"autorite": "ietf", "titre": "A Recommendation for IPv6 Address Text Representation", "statut": "PROPOSED STANDARD",
+      "exigences": [
+        {"id": "RFC5952-R1",
+         "texte": "Une adresse IPv6 DOIT etre normalisee par une implementation conforme avant comparaison ou stockage : deux ecritures de la meme adresse ne se comparent pas comme des chaines.",
+         "detecteur": {"type": "presence_requise", "motif": "ipaddress\\.(ip_address|IPv6Address|ip_network)",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "RFC-1928": {"autorite": "ietf", "titre": "SOCKS Protocol Version 5", "statut": "PROPOSED STANDARD"},
+    "RFC-9309": {
+      "autorite": "ietf", "titre": "Robots Exclusion Protocol", "statut": "PROPOSED STANDARD",
+      "exigences": [
+        {
+          "id": "RFC9309-R1",
+          "texte": "Un crawleur DOIT recuperer robots.txt et respecter ses regles avant de recuperer une ressource (RFC 9309 section 2.3).",
+          "detecteur": {"type": "presence_requise", "motif": "robotparser|RobotFileParser|can_fetch|protego|reppy", "globs": ["*.py", "*.ts"]},
+          "si_absent": "VIOLATION"
+        }
+      ]
+    },
+    "RFC-5424": {"autorite": "ietf", "titre": "The Syslog Protocol", "statut": "PROPOSED STANDARD"},
+
+    "W3C-CSP3": {
+      "autorite": "w3c", "titre": "Content Security Policy Level 3", "statut": "WORKING DRAFT",
+      "exigences": [
+        {
+          "id": "CSP3-R1",
+          "texte": "Une interface web servie par Nokido DOIT emettre un en-tete Content-Security-Policy : sans lui, aucune restriction ne s'applique aux ressources chargees par la page.",
+          "detecteur": {"type": "presence_requise", "motif": "Content-Security-Policy", "globs": ["app/**/*.py", "proxy_deno/**/*.ts"]},
+          "si_absent": "VIOLATION"
+        }
+      ]
+    },
+    "W3C-XML":       {"autorite": "w3c", "titre": "Extensible Markup Language (XML) 1.0", "statut": "RECOMMENDATION",
+      "exigences": [
+        {"id": "XML-R1",
+         "texte": "Un parseur XML expose a une entree non fiable DOIT desactiver les entites externes (XXE). On ne peut PAS prouver par recherche textuelle qu'une entree est non fiable : l'absence de garde rend donc UNVERIFIED, jamais un acquittement ni une accusation.",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "defusedxml|resolve_entities\\s*=\\s*False|forbid_entities",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "W3C-SVG":       {"autorite": "w3c", "titre": "Scalable Vector Graphics (SVG)", "statut": "RECOMMENDATION"},
+    "W3C-WOFF2":     {"autorite": "w3c", "titre": "WOFF File Format 2.0", "statut": "RECOMMENDATION"},
+    "WHATWG-CORS":   {"autorite": "whatwg", "titre": "Fetch Living Standard — CORS protocol", "statut": "LIVING", "url": "https://fetch.spec.whatwg.org/#http-cors-protocol"},
+    "UNICODE-UAX15": {"autorite": "unicode", "titre": "UAX #15: Unicode Normalization Forms", "statut": "COURANT", "note": "NFC/NFD — l'ingestion PDF LaTeX depend directement de cette norme (accents decomposes, mesure du 2026-07-29)",
+      "exigences": [
+        {"id": "UAX15-R1",
+         "texte": "Le texte ingere DOIT etre normalise avant indexation : sans NFC, un accent decompose rend le mot introuvable en lexical (8 653 accents orphelins mesures le 2026-07-29, zero occurrence de complexite en base).",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "unicodedata\\.normalize\\(",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"},
+        {"id": "UAX15-R2",
+         "texte": "La forme employee DOIT etre explicitement NFC ou NFD, jamais implicite.",
+         "detecteur": {"type": "presence_requise",
+                       "motif": "normalize\\(\\s*[\"']NF[CDKM]",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "UNVERIFIED"}
+      ]},
+    "COMMONMARK":    {"autorite": "w3c", "titre": "CommonMark Specification", "statut": "COURANT", "note": "autorite de fait ; pas de SDO. Rattachee a w3c faute de mieux — a corriger si un referentiel dedie est ajoute"},
+    "ISO-SQL":       {"autorite": "nokido", "titre": "SQL (ISO/IEC 9075) — dialecte SQLite", "statut": "PARTIEL", "note": "SQLite n'implemente qu'un sous-ensemble et ajoute ses extensions. La norme utile ici est le CONTRAT SQLite (types dynamiques, FTS5, WAL), pas ISO 9075. Rattache a NOKIDO en attendant un referentiel SQLite explicite",
+      "atomisation_differee": {
+        "exigence": "valeurs liees par parametre, jamais interpolees (anti-injection)",
+        "raison": "MESURE du 2026-09-05 : un detecteur textuel sur `execute(` + f-string rend 120 sites, dont la quasi-totalite interpole un IDENTIFIANT (PRAGMA table_info, FROM guillemete) ou une liste de placeholders — or SQLite NE PERMET PAS de lier un identifiant, donc ces sites sont corrects. Le garde accusait 120 fois a tort, et un garde qui crie a faux se fait desarmer. Distinguer une valeur d'un identifiant demande d'analyser le litteral SQL, pas de le greper : l'exigence reste UNVERIFIED tant que ce detecteur n'existe pas.",
+        "requiert": "analyse AST du litteral SQL"
+      },
+      "exigences": [
+        {"id": "SQL-R2",
+         "texte": "Tout ecrivain SQLite DOIT poser un busy_timeout : sans lui, un verrou concurrent rend database is locked immediatement et l'ecriture est PERDUE — mesure 2026-07-25, trois veilles perdues ainsi.",
+         "detecteur": {"type": "presence_requise", "motif": "busy_timeout",
+                       "globs": ["app/*.py", "tools/*.py"]},
+         "si_absent": "VIOLATION"}
+      ]}
+  },
+
+  "surfaces": {
+    "hub.mcp": {
+      "libelle": "Endpoint MCP JSON-RPC du hub",
+      "priorite": "P0",
+      "preuve": {"imports": ["mcp"], "chaines": ["/mcp", "/mcp/sse", "jsonrpc", "tools/call", "tools/list"], "attributs": [], "seuil": 2},
+      "indice": {"motif": "MCP|Model Context Protocol"},
+      "standards": ["MCP-2026-07-28", "JSON-RPC-2.0", "RFC-8259", "RFC-9110", "RFC-3986"],
+      "conditionnels": ["RFC-9113", "RFC-9846"]
+    },
+    "http.serveur": {
+      "libelle": "Serveurs HTTP/ASGI (hub, webhub, portal)",
+      "priorite": "P0",
+      "preuve": {"imports": ["fastapi", "uvicorn", "starlette", "aiohttp", "http.server", "wsgiref"], "chaines": [], "attributs": ["FastAPI", "BaseHTTPRequestHandler", "HTTPServer", "ThreadingHTTPServer"], "seuil": 2},
+      "indice": {"motif": "ASGI|WSGI"},
+      "standards": ["RFC-9110", "RFC-9112", "RFC-3986", "IANA-REGISTRIES"],
+      "conditionnels": ["RFC-9113", "OAS-3.2.0"]
+    },
+    "sse": {
+      "libelle": "Server-Sent Events (text/event-stream)",
+      "priorite": "P0",
+      "preuve": {"imports": ["sse_starlette"], "chaines": ["text/event-stream"], "attributs": ["EventSourceResponse", "StreamingResponse"], "seuil": 1},
+      "indice": {"motif": "server-sent|EventSource"},
+      "standards": ["WHATWG-EVENTSOURCE", "RFC-9110"],
+      "conditionnels": ["RFC-8895"]
+    },
+    "json": {
+      "libelle": "Echanges JSON",
+      "priorite": "P0",
+      "preuve": {"imports": ["json", "orjson", "ujson", "simplejson"], "chaines": ["application/json"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "JSON"},
+      "standards": ["RFC-8259", "RFC-3629", "UNICODE"],
+      "conditionnels": ["RFC-8785"]
+    },
+    "tls": {
+      "libelle": "TLS / HTTPS",
+      "priorite": "P1",
+      "preuve": {"imports": ["ssl", "certifi", "OpenSSL"], "chaines": [], "attributs": ["SSLContext", "create_default_context", "wrap_socket"], "seuil": 1},
+      "indice": {"motif": "TLS|HTTPS"},
+      "standards": ["RFC-9846"],
+      "conditionnels": []
+    },
+    "oauth": {
+      "libelle": "OAuth 2.x / jetons Bearer",
+      "priorite": "P0",
+      "preuve": {"imports": ["authlib", "oauthlib", "requests_oauthlib"], "chaines": ["grant_type", "client_credentials", "authorization_code", "code_challenge", "/oauth/token", "/authorize"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "OAuth|Bearer"},
+      "standards": ["RFC-6749", "RFC-9700", "RFC-6819"],
+      "conditionnels": ["RFC-8693"],
+      "note_mesure": "Un en-tete `Bearer` SEUL ne prouve pas OAuth : Nokido emet des jetons HMAC maison (forge_auth_tokens). Le schema Bearer vient de RFC 6750 mais son emploi hors flux OAuth ne rend pas RFC 6749 applicable. La preuve exige un ELEMENT DE FLUX (grant_type, endpoint d'autorisation, PKCE)."
+    },
+    "websocket": {
+      "libelle": "WebSocket",
+      "priorite": "P1",
+      "preuve": {"imports": ["websockets", "websocket", "starlette.websockets"], "chaines": ["ws://", "wss://"], "attributs": ["WebSocket", "websocket_route", "add_websocket_route", "accept"], "seuil": 2},
+      "indice": {"motif": "websocket"},
+      "standards": ["RFC-6455"],
+      "conditionnels": []
+    },
+    "oci.conteneurs": {
+      "libelle": "Conteneurs OCI / Docker",
+      "priorite": "P1",
+      "preuve": {"imports": ["docker"], "chaines": ["unix://var/run/docker.sock", "npipe:////./pipe/docker_engine"], "attributs": ["from_env", "containers", "DockerClient"], "seuil": 1},
+      "indice": {"motif": "docker|conteneur"},
+      "standards": ["OCI-IMAGE", "OCI-RUNTIME"],
+      "conditionnels": ["OCI-DISTRIBUTION", "COMPOSE-SPEC"]
+    },
+    "openapi": {
+      "libelle": "Description OpenAPI des APIs HTTP",
+      "priorite": "P1",
+      "preuve": {"imports": [], "chaines": ["/openapi.json", "/docs", "/redoc"], "attributs": ["get_openapi", "openapi_schema"], "seuil": 1},
+      "indice": {"motif": "openapi|swagger"},
+      "standards": ["OAS-3.2.0"],
+      "conditionnels": []
+    },
+    "web.ui": {
+      "libelle": "Interface web (portal, dashboards)",
+      "priorite": "P1",
+      "preuve": {"imports": ["jinja2"], "chaines": ["text/html"], "attributs": ["render_template", "TemplateResponse", "HTMLResponse", "Jinja2Templates"], "seuil": 1},
+      "indice": {"motif": "dashboard|template HTML"},
+      "standards": ["WHATWG-FETCH", "WHATWG-URL"],
+      "conditionnels": []
+    },
+    "webauthn": {
+      "libelle": "WebAuthn / passkeys",
+      "priorite": "conditionnel",
+      "preuve": {"imports": ["webauthn", "fido2"], "chaines": ["publicKey", "navigator.credentials"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "webauthn|passkey|fido"},
+      "standards": ["W3C-WEBAUTHN-L3"],
+      "conditionnels": []
+    },
+    "zmq": {
+      "libelle": "Bus ZeroMQ (brain_worker)",
+      "priorite": "P2",
+      "preuve": {"imports": ["zmq"], "chaines": [], "attributs": ["DEALER", "REQ", "REP", "Context"], "seuil": 1},
+      "indice": {"motif": "ZeroMQ|zmq"},
+      "standards": [],
+      "conditionnels": [],
+      "sans_autorite": "ZeroMQ n'a aucune autorite normative publique. Surface ACTIVE et NON normee : a couvrir par une regle NOKIDO, jamais a laisser en silence."
+    },
+    "crypto.integrite": {
+      "libelle": "Empreintes et authentification de message (HMAC, SHA-2)",
+      "priorite": "P0",
+      "preuve": {"imports": ["hmac", "hashlib"], "chaines": ["sha256", "sha512"], "attributs": ["new", "hexdigest", "compare_digest"], "seuil": 2},
+      "indice": {"motif": "HMAC|SHA-?256"},
+      "standards": ["RFC-2104", "RFC-6234"],
+      "conditionnels": []
+    },
+    "crypto.aleatoire": {
+      "libelle": "Generation d'aleas a usage de securite",
+      "priorite": "P0",
+      "preuve": {"imports": ["secrets"], "chaines": [], "attributs": ["token_hex", "token_urlsafe", "token_bytes", "randbelow"], "seuil": 1},
+      "indice": {"motif": "token_hex|urandom"},
+      "standards": ["RFC-4086"],
+      "conditionnels": []
+    },
+    "encodage.base64": {
+      "libelle": "Encodages Base16/32/64",
+      "priorite": "P1",
+      "preuve": {"imports": ["base64", "binascii"], "chaines": [], "attributs": ["b64encode", "b64decode", "urlsafe_b64encode", "urlsafe_b64decode"], "seuil": 1},
+      "indice": {"motif": "base64"},
+      "standards": ["RFC-4648"],
+      "conditionnels": []
+    },
+    "identifiant.uuid": {
+      "libelle": "Identifiants universels",
+      "priorite": "P1",
+      "preuve": {"imports": ["uuid"], "chaines": [], "attributs": ["uuid4", "uuid5", "uuid1", "UUID"], "seuil": 1},
+      "indice": {"motif": "uuid"},
+      "standards": ["RFC-9562"],
+      "conditionnels": []
+    },
+    "jwt": {
+      "libelle": "Jetons JWT / JOSE",
+      "priorite": "P0",
+      "preuve": {"imports": ["jwt", "jose", "authlib.jose"], "chaines": ["HS256", "RS256", "Bearer "], "attributs": ["encode", "decode", "algorithms"], "seuil": 2},
+      "indice": {"motif": "JWT|JWS|JWK"},
+      "standards": ["RFC-7519", "RFC-7515", "RFC-7518", "RFC-2104"],
+      "conditionnels": [],
+      "note_mesure": "Surface reperee le 2026-09-04 dans les logs de CI (InsecureKeyLengthWarning citant RFC 7518), pas par le registre — preuve qu'un referentiel ecrit de memoire rate ce qu'un journal signale. Les trois jwt.decode du depot forcent tous `algorithms` explicitement, avec le commentaire « rejette alg=none » : conforme RFC 7515."
+    },
+    "otp": {
+      "libelle": "Mot de passe a usage unique (TOTP)",
+      "priorite": "conditionnel",
+      "preuve": {"imports": ["pyotp"], "chaines": ["otpauth://"], "attributs": ["totp", "TOTP"], "seuil": 1},
+      "indice": {"motif": "TOTP|otpauth"},
+      "standards": ["RFC-6238"],
+      "conditionnels": []
+    },
+    "http.cache": {
+      "libelle": "Semantique de cache HTTP",
+      "priorite": "P1",
+      "preuve": {"imports": [], "chaines": ["Cache-Control", "ETag", "If-None-Match", "Retry-After", "no-store", "max-age"], "attributs": [], "seuil": 2},
+      "indice": {"motif": "Cache-Control|ETag"},
+      "standards": ["RFC-9111"],
+      "conditionnels": []
+    },
+    "http.auth": {
+      "libelle": "Authentification HTTP (challenge/reponse)",
+      "priorite": "P0",
+      "preuve": {"imports": [], "chaines": ["WWW-Authenticate", "Authorization", "Bearer ", "Basic "], "attributs": [], "seuil": 2},
+      "indice": {"motif": "WWW-Authenticate"},
+      "standards": ["RFC-9110"],
+      "conditionnels": ["RFC-6749"]
+    },
+    "cors": {
+      "libelle": "Partage de ressources entre origines",
+      "priorite": "P1",
+      "preuve": {"imports": [], "chaines": ["Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers"], "attributs": ["CORSMiddleware", "add_middleware"], "seuil": 1},
+      "indice": {"motif": "CORS"},
+      "standards": ["WHATWG-CORS"],
+      "conditionnels": []
+    },
+    "csp": {
+      "libelle": "En-tetes de securite du navigateur",
+      "priorite": "P0",
+      "preuve": {"imports": [], "chaines": ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Strict-Transport-Security"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "Content-Security-Policy|CSP"},
+      "standards": ["W3C-CSP3"],
+      "conditionnels": []
+    },
+    "proxy.forwarded": {
+      "libelle": "Chaine de proxies et IP client d'origine",
+      "priorite": "P1",
+      "preuve": {"imports": [], "chaines": ["X-Forwarded-For", "X-Real-IP", "X-Forwarded-Proto", "Forwarded"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "Forwarded-For"},
+      "standards": ["RFC-7239"],
+      "conditionnels": [],
+      "ecart_connu": "Mesure 2026-09-04 : Nokido emploie `X-Forwarded-For` / `X-Real-IP` (de facto) et l'en-tete NORMALISE `Forwarded` de RFC 7239 n'apparait que dans un fuzzer. Ecart reel mais defendable — la forme de facto reste la plus interoperable. A trancher, pas a masquer."
+    },
+    "multipart": {
+      "libelle": "Televersement de formulaires",
+      "priorite": "P1",
+      "preuve": {"imports": [], "chaines": ["multipart/form-data"], "attributs": ["UploadFile", "File"], "seuil": 1},
+      "indice": {"motif": "multipart"},
+      "standards": ["RFC-7578"],
+      "conditionnels": []
+    },
+    "cookies": {
+      "libelle": "Gestion d'etat par cookies",
+      "priorite": "P1",
+      "preuve": {"imports": ["http.cookies"], "chaines": ["Set-Cookie", "HttpOnly", "SameSite"], "attributs": ["set_cookie", "delete_cookie"], "seuil": 1},
+      "indice": {"motif": "cookie"},
+      "standards": ["RFC-6265"],
+      "conditionnels": []
+    },
+    "compression": {
+      "libelle": "Compression de flux et d'archives",
+      "priorite": "P2",
+      "preuve": {"imports": ["gzip", "zlib", "tarfile", "zipfile"], "chaines": ["Content-Encoding", "gzip"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "gzip|deflate"},
+      "standards": ["RFC-1952", "RFC-1950"],
+      "conditionnels": []
+    },
+    "csv": {
+      "libelle": "Echanges tabulaires CSV",
+      "priorite": "P2",
+      "preuve": {"imports": ["csv"], "chaines": ["text/csv"], "attributs": ["DictReader", "DictWriter"], "seuil": 1},
+      "indice": {"motif": "CSV"},
+      "standards": ["RFC-4180"],
+      "conditionnels": []
+    },
+    "unicode.normalisation": {
+      "libelle": "Normalisation Unicode (NFC/NFD)",
+      "priorite": "P0",
+      "preuve": {"imports": ["unicodedata"], "chaines": ["NFC", "NFD", "NFKC"], "attributs": ["normalize", "combining"], "seuil": 1},
+      "indice": {"motif": "unicode|normalize"},
+      "standards": ["UNICODE-UAX15", "RFC-3629"],
+      "conditionnels": [],
+      "note_mesure": "Surface CRITIQUE, pas theorique : l'ingestion des PDF LaTeX francophones sortait 8 653 accents decomposes orphelins, donc BM25 ne matchait jamais « complexite » (mesure du 2026-07-29). La conformite UAX #15 est ici une propriete de recherche, pas de forme."
+    },
+    "sql": {
+      "libelle": "Acces aux bases SQLite",
+      "priorite": "P1",
+      "preuve": {"imports": ["sqlite3"], "chaines": ["PRAGMA", "SELECT ", "CREATE TABLE"], "attributs": ["execute", "executemany"], "seuil": 2},
+      "indice": {"motif": "sqlite|SQL"},
+      "standards": ["ISO-SQL"],
+      "conditionnels": []
+    },
+    "xml": {
+      "libelle": "Documents XML",
+      "priorite": "P2",
+      "preuve": {"imports": ["xml", "lxml", "defusedxml"], "chaines": ["application/xml", "text/xml"], "attributs": ["fromstring", "ElementTree"], "seuil": 1},
+      "indice": {"motif": "XML"},
+      "standards": ["W3C-XML"],
+      "conditionnels": []
+    },
+    "markdown": {
+      "libelle": "Rendu Markdown",
+      "priorite": "P2",
+      "preuve": {"imports": ["markdown", "markdown_it", "mistune"], "chaines": ["text/markdown"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "markdown"},
+      "standards": ["COMMONMARK"],
+      "conditionnels": []
+    },
+    "email": {
+      "libelle": "Messages au format Internet",
+      "priorite": "conditionnel",
+      "preuve": {"imports": ["email", "smtplib", "imaplib"], "chaines": [], "attributs": ["MIMEText", "MIMEMultipart", "SMTP"], "seuil": 1},
+      "indice": {"motif": "SMTP|IMAP"},
+      "standards": ["RFC-5322"],
+      "conditionnels": []
+    },
+    "ip.adressage": {
+      "libelle": "Manipulation d'adresses IP",
+      "priorite": "P2",
+      "preuve": {"imports": ["ipaddress"], "chaines": [], "attributs": ["ip_address", "ip_network", "IPv6Address", "IPv4Network"], "seuil": 1},
+      "indice": {"motif": "IPv6|IPv4"},
+      "standards": ["RFC-5952"],
+      "conditionnels": []
+    },
+    "socks": {
+      "libelle": "Proxy SOCKS5",
+      "priorite": "conditionnel",
+      "preuve": {"imports": ["socks", "socksio"], "chaines": ["socks5://", "socks5h://"], "attributs": [], "seuil": 1},
+      "indice": {"motif": "SOCKS"},
+      "standards": ["RFC-1928"],
+      "conditionnels": []
+    },
+    "crawl.web": {
+      "libelle": "Recuperation de pages web arbitraires (veille, ingestion)",
+      "priorite": "P0",
+      "preuve": {"imports": ["trafilatura", "playwright", "bs4", "crawl4ai", "selenium", "scrapy", "newspaper", "readability"], "chaines": [], "attributs": ["BeautifulSoup", "extract", "goto"], "seuil": 1},
+      "indice": {"motif": "crawl|scraping"},
+      "standards": ["RFC-9309", "RFC-9110", "RFC-3986"],
+      "conditionnels": ["RFC-9111"],
+      "ecart_mesure": "VIOLATION CANDIDATE, mesuree le 2026-09-04 : `robotparser`, `robots.txt` et `can_fetch` ne figurent dans AUCUN fichier du depot (git grep, exit 1), alors que 62 fichiers emettent des requetes HTTP sortantes et que la chaine de veille complete crawle des pages arbitraires (forge_crawl_tool, forge_web, forge_source_discovery, forge_playwright_browser, forge_hot_ingest, forge_veille_backfill, forge_docset_sync). RFC 9309 n'est pas une politesse : c'est la norme qui rend le crawl legitime.",
+      "correction_de_modele": "Ce bloc remplace une surface `robots` qui n'en etait pas une. Une surface est ce que le systeme FAIT (crawler) ; robots.txt est une OBLIGATION qui en decoule. Modelise en surface, le respect de robots.txt sortait NOT_APPLICABLE faute de code — c'est-a-dire que l'absence du remede eteignait l'obligation. Exactement l'inverse de ce qu'un moteur de conformite doit rendre."
+    },
+    "syslog": {
+      "libelle": "Journalisation au format Syslog",
+      "priorite": "conditionnel",
+      "preuve": {"imports": ["logging.handlers", "syslog"], "chaines": ["RFC5424", "syslog"], "attributs": ["SysLogHandler"], "seuil": 1},
+      "indice": {"motif": "syslog"},
+      "standards": ["RFC-5424"],
+      "conditionnels": [],
+      "note_registre": "RFC 5424 figurait deja dans CRITICAL_RFCS (audit_rfc_compliance) sans qu'aucune surface ne la declenche. C'est exactement le cas qu'un registre d'applicabilite doit rendre visible."
+    },
+    "grpc": {
+      "libelle": "gRPC — client Qdrant sur :6334 (surface DELEGUEE)",
+      "priorite": "P2",
+      "preuve": {"imports": ["grpc", "google.protobuf"], "chaines": [], "attributs": ["insecure_channel", "secure_channel", "prefer_grpc", "grpc_port"], "seuil": 1},
+      "indice": {"motif": "grpc|protobuf"},
+      "standards": [],
+      "conditionnels": ["RFC-9113"],
+      "sans_autorite": "gRPC est une specification CNCF hors IETF. Referentiel a ajouter si la surface grandit.",
+      "delegation": "Surface DELEGUEE : aucun `import grpc` dans Nokido — c'est `qdrant_client` qui parle gRPC, active par `prefer_grpc=True` (forge_qdrant_fill:35, forge_qdrant_sync_daemon:126) vers le port declare `grpc_port=6334` (forge_rag_store:296). La conformite du PROTOCOLE incombe a la dependance ; ce qui reste NOTRE responsabilite est l'exposition reseau : port, chiffrement, authentification. Une signature d'import seule aurait rate cette surface — elle sortait INDICE_SEUL a tort le 2026-09-04."
+    }
+  }
+}

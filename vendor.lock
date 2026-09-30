@@ -1,0 +1,283 @@
+{
+  "_comment": "Provenance of vendored frontend bundles kept in-repo (offline/sovereign). SHA256 is the pin. Regenerate via tools/forge_release_assets.py --vendor-lock-only.",
+  "vendored": [
+    {
+      "path": "app/web_hub/static/alpine.min.js",
+      "composant": "Alpine.js",
+      "version": "3.14.8",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js",
+      "licence_texte": [
+        "licenses/alpinejs/LICENSE.md"
+      ],
+      "sha256": "b600e363d99d95444db54acbfb2deffec9ae792aa99a09229bcda078e5b55643",
+      "bytes": 44758
+    },
+    {
+      "path": "app/web_hub/static/babel.min.js",
+      "composant": "@babel/standalone",
+      "version": "7.29.0",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/@babel/standalone@7.29.0/babel.min.js",
+      "licence_texte": [
+        "licenses/babel-standalone/LICENSE"
+      ],
+      "sha256": "2623a9e22809915ce789b4461154e277ddce520d5a4320c14d44332a5d0dcea0",
+      "bytes": 3137752
+    },
+    {
+      "path": "app/web_hub/static/cytoscape.min.js",
+      "composant": "Cytoscape.js",
+      "version": "3.28.1",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/cytoscape@3.28.1/dist/cytoscape.min.js",
+      "licence_texte": [
+        "licenses/cytoscape/LICENSE"
+      ],
+      "sha256": "92d752b48ea949720675865197fd2a0001c95bc5888545e990af60321712d4c6",
+      "bytes": 365827
+    },
+    {
+      "path": "app/web_hub/static/htmx.min.js",
+      "composant": "htmx",
+      "version": "2.0.4",
+      "licence": "0BSD",
+      "source": "https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js",
+      "licence_texte": [
+        "licenses/htmx/LICENSE"
+      ],
+      "sha256": "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447",
+      "bytes": 50917
+    },
+    {
+      "path": "app/web_hub/static/lucide.min.js",
+      "composant": "Lucide",
+      "version": "0.544.0",
+      "licence": "ISC",
+      "source": "https://cdn.jsdelivr.net/npm/lucide@0.544.0/dist/umd/lucide.min.js",
+      "licence_texte": [
+        "licenses/lucide/LICENSE"
+      ],
+      "sha256": "72646e574ecc776f056949d914e5f461881e639b236910680e38b097d3561634",
+      "bytes": 373553
+    },
+    {
+      "path": "app/web_hub/static/react.min.js",
+      "composant": "React",
+      "version": "18.3.1",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js",
+      "licence_texte": [
+        "licenses/react/LICENSE"
+      ],
+      "sha256": "d949f1c3687aedadcedac85261865f29b17cd273997e7f6b2bfc53b2f9d4c4dd",
+      "bytes": 10751
+    },
+    {
+      "path": "app/web_hub/static/react-dom.min.js",
+      "composant": "ReactDOM",
+      "version": "18.3.1",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js",
+      "licence_texte": [
+        "licenses/react-dom/LICENSE"
+      ],
+      "sha256": "35f4f974f4b2bcd44da73963347f8952e341f83909e4498227d4e26b98f66f0d",
+      "bytes": 131835
+    },
+    {
+      "path": "app/web_hub/static/redoc.standalone.js",
+      "composant": "Redoc",
+      "version": "2.5.3",
+      "licence": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/redoc@2.5.3/bundles/redoc.standalone.js",
+      "licence_texte": [
+        "licenses/redoc/LICENSE",
+        "licenses/redoc/redoc.standalone.js.LICENSE.txt"
+      ],
+      "sha256": "1320f442151c57c447d3b70c7ffc6c4f86d08464020fe34c8cc5d3164e9944f0",
+      "bytes": 1097271
+    },
+    {
+      "path": "app/web_hub/static/swagger-ui-bundle.js",
+      "composant": "Swagger UI",
+      "version": "5.32.14",
+      "licence": "Apache-2.0",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.14/swagger-ui-bundle.js",
+      "licence_texte": [
+        "licenses/swagger-ui/LICENSE",
+        "licenses/swagger-ui/NOTICE",
+        "licenses/swagger-ui/swagger-ui-bundle.js.LICENSE.txt"
+      ],
+      "sha256": "16d93d5cc19e54c98fb0b81157dbb3bd90780aa36b914e128a643b31e54a93f4",
+      "bytes": 1553809
+    },
+    {
+      "path": "app/web_hub/static/swagger-ui.css",
+      "composant": "Swagger UI (CSS, inclut normalize.css 7.0.0)",
+      "version": "5.32.14",
+      "licence": "Apache-2.0 AND MIT",
+      "source": "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.14/swagger-ui.css",
+      "licence_texte": [
+        "licenses/swagger-ui/LICENSE",
+        "licenses/swagger-ui/NOTICE",
+        "licenses/normalize.css/LICENSE.md"
+      ],
+      "sha256": "d7f39f764aa18c7b47dd05b9af5613e373e4ac0f3557c2693d52d0abc2464d76",
+      "bytes": 185784
+    },
+    {
+      "path": "app/web_hub/static/tailwind.min.js",
+      "composant": "Tailwind CSS (Play CDN)",
+      "version": "3.4.17",
+      "licence": "MIT",
+      "source": "https://cdn.tailwindcss.com/3.4.17",
+      "licence_texte": [
+        "licenses/tailwindcss/LICENSE"
+      ],
+      "sha256": "176e894661aa9cdc9a5cba6c720044cbbf7b8bd80d1c9a142a7c24b1b6c50d15",
+      "bytes": 407279
+    },
+    {
+      "path": "app/web_hub/static/vega.min.js",
+      "composant": "Vega",
+      "version": "5.33.1",
+      "licence": "BSD-3-Clause",
+      "source": "https://cdn.jsdelivr.net/npm/vega@5.33.1/build/vega.min.js",
+      "licence_texte": [
+        "licenses/vega/LICENSE"
+      ],
+      "sha256": "463f3db6a40b20e9747b4ed38f37ed0add508838f9141b1cf8366784b07b30c8",
+      "bytes": 515242
+    },
+    {
+      "path": "app/web_hub/static/vega-lite.min.js",
+      "composant": "Vega-Lite",
+      "version": "5.23.0",
+      "licence": "BSD-3-Clause",
+      "source": "https://cdn.jsdelivr.net/npm/vega-lite@5.23.0/build/vega-lite.min.js",
+      "licence_texte": [
+        "licenses/vega-lite/LICENSE"
+      ],
+      "sha256": "58c27358e26f2d319cf62f45bc17a4c8362f08645001df2ec8d341eee4097c7f",
+      "bytes": 252198
+    },
+    {
+      "path": "app/web_hub/static/vega-embed.min.js",
+      "composant": "Vega-Embed",
+      "version": "6.29.0",
+      "licence": "BSD-3-Clause",
+      "source": "https://cdn.jsdelivr.net/npm/vega-embed@6.29.0/build/vega-embed.min.js",
+      "licence_texte": [
+        "licenses/vega-embed/LICENSE"
+      ],
+      "sha256": "12d02acfbe3ec59ef9a37dd4822a2e04e2961b5bbb671bbe661d2221715b99da",
+      "bytes": 60630
+    },
+    {
+      "path": "app/web_hub/static/vis-network.min.js",
+      "composant": "vis-network",
+      "version": "9.1.9",
+      "licence": "Apache-2.0 OR MIT",
+      "source": "https://cdn.jsdelivr.net/npm/vis-network@9.1.9/standalone/umd/vis-network.min.js",
+      "licence_texte": [
+        "licenses/vis-network/LICENSE-MIT",
+        "licenses/vis-network/LICENSE-APACHE-2.0"
+      ],
+      "sha256": "f53f833ddb9bf97efe856bb0637d4fe88f39e39999c7e94a4b8afc8de8a1a2e5",
+      "bytes": 688911
+    },
+    {
+      "path": "app/web_hub/static/fonts/inter-400.woff2",
+      "composant": "Inter",
+      "version": "Google Fonts v20 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "licence_texte": [
+        "licenses/inter/OFL.txt"
+      ],
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    {
+      "path": "app/web_hub/static/fonts/inter-500.woff2",
+      "composant": "Inter",
+      "version": "Google Fonts v20 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "licence_texte": [
+        "licenses/inter/OFL.txt"
+      ],
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    {
+      "path": "app/web_hub/static/fonts/inter-600.woff2",
+      "composant": "Inter",
+      "version": "Google Fonts v20 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "licence_texte": [
+        "licenses/inter/OFL.txt"
+      ],
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    {
+      "path": "app/web_hub/static/fonts/inter-700.woff2",
+      "composant": "Inter",
+      "version": "Google Fonts v20 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7.woff2",
+      "licence_texte": [
+        "licenses/inter/OFL.txt"
+      ],
+      "sha256": "3100e775e8616cd2611beecfa23a4263d7037586789b43f035236a2e6fbd4c62",
+      "bytes": 48256
+    },
+    {
+      "path": "app/web_hub/static/fonts/jetbrains-mono-400.woff2",
+      "composant": "JetBrains Mono",
+      "version": "Google Fonts v24 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2",
+      "licence_texte": [
+        "licenses/jetbrains-mono/OFL.txt"
+      ],
+      "sha256": "83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be",
+      "bytes": 31432
+    },
+    {
+      "path": "app/web_hub/static/fonts/jetbrains-mono-500.woff2",
+      "composant": "JetBrains Mono",
+      "version": "Google Fonts v24 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2",
+      "licence_texte": [
+        "licenses/jetbrains-mono/OFL.txt"
+      ],
+      "sha256": "83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be",
+      "bytes": 31432
+    },
+    {
+      "path": "app/web_hub/static/fonts/jetbrains-mono-700.woff2",
+      "composant": "JetBrains Mono",
+      "version": "Google Fonts v24 (latin, police variable)",
+      "licence": "OFL-1.1",
+      "source": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbv2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKwBNntkaToggR7BYRbKPxDcwg.woff2",
+      "licence_texte": [
+        "licenses/jetbrains-mono/OFL.txt"
+      ],
+      "sha256": "83c005d49d8a6a50474c73a5a36ac0468076e9c4a29da7bdb14995d80560a5be",
+      "bytes": 31432
+    }
+  ],
+  "propres": [
+    "app/web_hub/static/hub-compiled.js",
+    "app/web_hub/static/providers.js",
+    "app/web_hub/static/nokido*.js",
+    "app/web_hub/static/nokido*.css",
+    "app/web_hub/static/laforge-*.css",
+    "app/web_hub/static/laforge-ds/*"
+  ]
+}

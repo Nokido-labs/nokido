@@ -1,0 +1,29 @@
+Tu m'as deja audite Q5 puis le worker biblio. Connais le contexte.
+
+Sprint 2 estime a 38h. L'utilisateur demande : split en 2a + 2b ou monolithique ?
+
+Le contenu :
+1. Schema DB (3h)
+2. Hook EventBus extracteur Mistral (4h)
+3. Daemon NSSM consumer (6h)
+4. Affineur requete LLM 3 passes (4h)
+5. Sanitization avancee (Beall + retracted + langdetect + score) (5h)
+6. Rate limiting budget global (4h)
+7. Promotion workflow unverified->verified (3h)
+8. Mecanisme purge orphan sur idea.refined (3h)
+9. TUI commands @biblio purge/pin/promote (3h)
+10. Tests rate limiting + fallback + purge orphan (3h)
+
+Utilisateur travaille seul, environnement Windows + Nokido MCP. Risque burn-out
+sprint 38h sans livrable intermediaire utilisable.
+
+QUESTIONS (max 400 mots, francais, tranchant) :
+
+1. Tu recommandes : monolithique 38h, ou split en combien de phases ?
+2. Si split, ou couper exactement ? Quel livrable intermediaire serait
+   le plus utilisable EN L'ETAT (sans le reste) ?
+3. Quelles taches sont des bloquants critiques (sans elles, le reste ne marche pas) ?
+4. Quelles taches sont "nice to have" reportables ?
+5. Suggestion d'ordre execution optimal ?
+
+Format : 1 paragraphe court par question. Pas de code.

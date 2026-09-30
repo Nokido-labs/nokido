@@ -1,0 +1,23 @@
+import * as React from "react";
+
+/**
+ * Marqueur de provenance — l'élément de design le plus important de Nokido.
+ * Indique l'origine du calcul (local / hybride / distant) et, en option,
+ * l'anneau d'intégrité de la donnée (brouillon / vérifié / or).
+ *
+ * @startingPoint section="Sovereignty" subtitle="Badge provenance local/distant + anneau d'intégrité" viewport="700x120"
+ */
+export interface ProvenanceBadgeProps {
+  /** Origine du calcul */
+  origin?: "local" | "hybrid" | "remote";
+  /** Anneau d'intégrité de la donnée (optionnel) */
+  ring?: "draft" | "verified" | "gold" | null;
+  /** Libellé custom (sinon LOCAL/HYBRIDE/DISTANT) */
+  label?: React.ReactNode;
+  /** Détail mono en suffixe (ex. modèle, latence) */
+  detail?: React.ReactNode;
+  size?: "sm" | "md";
+  style?: React.CSSProperties;
+}
+
+export function ProvenanceBadge(props: ProvenanceBadgeProps): JSX.Element;

@@ -1,0 +1,208 @@
+{
+  "runtime": {
+    "ts": "2026-05-29T07:15:40.281662+00:00",
+    "python_version": "3.14.5",
+    "executable": "%USERPROFILE%\\miniforge3\\envs\\laforge_py314t\\python.exe",
+    "env_alias": "PY314T",
+    "free_threaded": true,
+    "numpy_version": "2.4.6"
+  },
+  "label": "py314t_nogil",
+  "config": {
+    "thread_counts": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "runs_per_combo": 3
+  },
+  "workloads": {
+    "pure_python_fib25": {
+      "threads_1": {
+        "n_threads": 1,
+        "iters_per_thread": 20,
+        "wall_s_runs": [
+          0.1944,
+          0.1864,
+          0.1792
+        ],
+        "wall_s_median": 0.1864,
+        "wall_s_min": 0.1792,
+        "total_ops": 20,
+        "ops_per_s_median": 107.3,
+        "speedup_vs_1thread": 1.0,
+        "efficiency_pct": 100.0
+      },
+      "threads_2": {
+        "n_threads": 2,
+        "iters_per_thread": 20,
+        "wall_s_runs": [
+          0.1825,
+          0.1957,
+          0.1963
+        ],
+        "wall_s_median": 0.1957,
+        "wall_s_min": 0.1825,
+        "total_ops": 40,
+        "ops_per_s_median": 204.4,
+        "speedup_vs_1thread": 0.95,
+        "efficiency_pct": 47.6
+      },
+      "threads_4": {
+        "n_threads": 4,
+        "iters_per_thread": 20,
+        "wall_s_runs": [
+          0.2001,
+          0.2002,
+          0.1981
+        ],
+        "wall_s_median": 0.2001,
+        "wall_s_min": 0.1981,
+        "total_ops": 80,
+        "ops_per_s_median": 399.8,
+        "speedup_vs_1thread": 0.93,
+        "efficiency_pct": 23.3
+      },
+      "threads_8": {
+        "n_threads": 8,
+        "iters_per_thread": 20,
+        "wall_s_runs": [
+          0.2514,
+          0.2382,
+          0.2321
+        ],
+        "wall_s_median": 0.2382,
+        "wall_s_min": 0.2321,
+        "total_ops": 160,
+        "ops_per_s_median": 671.7,
+        "speedup_vs_1thread": 0.78,
+        "efficiency_pct": 9.8
+      }
+    },
+    "numpy_matmul_softmax_256": {
+      "threads_1": {
+        "n_threads": 1,
+        "iters_per_thread": 50,
+        "wall_s_runs": [
+          0.0376,
+          0.0226,
+          0.0243
+        ],
+        "wall_s_median": 0.0243,
+        "wall_s_min": 0.0226,
+        "total_ops": 50,
+        "ops_per_s_median": 2055.7,
+        "speedup_vs_1thread": 1.0,
+        "efficiency_pct": 100.0
+      },
+      "threads_2": {
+        "n_threads": 2,
+        "iters_per_thread": 50,
+        "wall_s_runs": [
+          0.0269,
+          0.0274,
+          0.028
+        ],
+        "wall_s_median": 0.0274,
+        "wall_s_min": 0.0269,
+        "total_ops": 100,
+        "ops_per_s_median": 3643.1,
+        "speedup_vs_1thread": 0.89,
+        "efficiency_pct": 44.3
+      },
+      "threads_4": {
+        "n_threads": 4,
+        "iters_per_thread": 50,
+        "wall_s_runs": [
+          0.0327,
+          0.0304,
+          0.0308
+        ],
+        "wall_s_median": 0.0308,
+        "wall_s_min": 0.0304,
+        "total_ops": 200,
+        "ops_per_s_median": 6501.2,
+        "speedup_vs_1thread": 0.79,
+        "efficiency_pct": 19.7
+      },
+      "threads_8": {
+        "n_threads": 8,
+        "iters_per_thread": 50,
+        "wall_s_runs": [
+          0.0428,
+          0.0414,
+          0.04
+        ],
+        "wall_s_median": 0.0414,
+        "wall_s_min": 0.04,
+        "total_ops": 400,
+        "ops_per_s_median": 9661.7,
+        "speedup_vs_1thread": 0.59,
+        "efficiency_pct": 7.3
+      }
+    },
+    "ami_nmlp_forward_768": {
+      "threads_1": {
+        "n_threads": 1,
+        "iters_per_thread": 100,
+        "wall_s_runs": [
+          0.0244,
+          0.0166,
+          0.0179
+        ],
+        "wall_s_median": 0.0179,
+        "wall_s_min": 0.0166,
+        "total_ops": 100,
+        "ops_per_s_median": 5577.7,
+        "speedup_vs_1thread": 1.0,
+        "efficiency_pct": 100.0
+      },
+      "threads_2": {
+        "n_threads": 2,
+        "iters_per_thread": 100,
+        "wall_s_runs": [
+          0.0198,
+          0.0197,
+          0.0207
+        ],
+        "wall_s_median": 0.0198,
+        "wall_s_min": 0.0197,
+        "total_ops": 200,
+        "ops_per_s_median": 10080.5,
+        "speedup_vs_1thread": 0.9,
+        "efficiency_pct": 45.2
+      },
+      "threads_4": {
+        "n_threads": 4,
+        "iters_per_thread": 100,
+        "wall_s_runs": [
+          0.0282,
+          0.0276,
+          0.0281
+        ],
+        "wall_s_median": 0.0281,
+        "wall_s_min": 0.0276,
+        "total_ops": 400,
+        "ops_per_s_median": 14248.8,
+        "speedup_vs_1thread": 0.64,
+        "efficiency_pct": 15.9
+      },
+      "threads_8": {
+        "n_threads": 8,
+        "iters_per_thread": 100,
+        "wall_s_runs": [
+          0.0662,
+          0.0645,
+          0.0678
+        ],
+        "wall_s_median": 0.0662,
+        "wall_s_min": 0.0645,
+        "total_ops": 800,
+        "ops_per_s_median": 12079.0,
+        "speedup_vs_1thread": 0.27,
+        "efficiency_pct": 3.4
+      }
+    }
+  }
+}

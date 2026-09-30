@@ -1,0 +1,22 @@
+#!/bin/sh
+# Hook NetworkManager (Debian nomade) : /etc/NetworkManager/dispatcher.d/90-fbx-home
+# Coupe le tunnel WireGuard des qu'on se reconnecte au Wi-Fi de la maison.
+#
+# Pourquoi : la conf fbx route localhost/24 dans le tunnel, ce qui inclut la
+# passerelle localhost. Rentrer a la maison avec le tunnel monte coupe donc
+# la machine du LAN ET d'internet (la box, necessaire au tunnel, est elle-meme
+# routee dans le tunnel : boucle fermee, irrecuperable a distance).
+#
+# Detection par le profil NetworkManager, PAS par le sous-reseau : beaucoup de
+# partages 4G distribuent aussi du 192.168.1.x.
+
+ACTION="$2"
+HOME_CONN="Freebox-84E974"
+
+[ "$ACTION" = "up" ] || exit 0
+[ "$CONNECTION_ID" = "$HOME_CONN" ] || exit 0
+ip link show fbx >/dev/null 2>&1 || exit 0
+
+/usr/bin/wg-quick down fbx >/dev/null 2>&1 || ip link del fbx >/dev/null 2>&1
+logger -t fbx-home "retour sur le LAN maison -> tunnel fbx coupe"
+exit 0

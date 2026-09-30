@@ -1,0 +1,308 @@
+From 1282191a2da4fd8aabeb0d399c9188bb87d1659b Mon Sep 17 00:00:00 2001
+From: user <naarobb@gmail.com>
+Date: Sat, 25 Apr 2026 13:45:48 +0200
+Subject: [PATCH] fix(mcp): retire _stdin_watchdog qui consommait stdin et
+ bloquait le handshake initialize
+
+Le thread _stdin_watchdog faisait sys.stdin.read() en parallele de
+stdio_server() et volait tous les bytes JSON-RPC. Resultat: Claude
+Desktop timeout sur initialize au bout de 60s, et le serveur ne
+repondait jamais ('could not attach').
+
+stdio_server() du SDK MCP gere deja la fermeture sur EOF via le
+read_stream interne, le watchdog n'avait aucun role utile.
+
+Bonus: creation auto du dossier logs/ avant FileHandler pour eviter
+un crash a l'import si le dossier n'existe pas (cause potentielle
+d'echec silencieux au demarrage).
+---
+ tools/nokido_mcp_server.py   | 42 ++++++++++++-------
+ tools/nokido_stdio_bridge.py | 79 +++++++++++++----------------------
+ 2 files changed, 58 insertions(+), 63 deletions(-)
+
+diff --git a/tools/nokido_mcp_server.py b/tools/nokido_mcp_server.py
+index dfbf225..65397f4 100644
+--- a/tools/nokido_mcp_server.py
++++ b/tools/nokido_mcp_server.py
+@@ -1,7 +1,14 @@
+ """
+-nokido_mcp_server.py — Nokido MCP Server (STDIO) v17.00
++nokido_mcp_server.py — Nokido MCP Server (STDIO) v17.01
+ =========================================================
+ Unified with forge_mcp_registry (Chantier C).
++
++v17.01 :
++  - Suppression du _stdin_watchdog qui consommait stdin et empechait
++    le handshake MCP initialize de fonctionner (cause directe du
++    "could not attach" cote Claude Desktop).
++  - Securisation du logging : creation auto du dossier logs/ si absent.
++  - Pas de print/log en stdout (reserve au protocole MCP).
+ """
+ 
+ from __future__ import annotations
+@@ -11,7 +18,6 @@ import json
+ import logging
+ import os
+ import sys
+-import threading
+ import time
+ from datetime import datetime as _dt
+ from pathlib import Path
+@@ -32,10 +38,14 @@ _SANDBOX = ROOT / "sandbox"
+ _LIVE_LOG = _SANDBOX / "mcp_live.log"
+ _SANDBOX.mkdir(parents=True, exist_ok=True)
+ 
++# v17.01 : sécuriser la création du dossier logs/ avant FileHandler
++_LOGS_DIR = ROOT / "logs"
++_LOGS_DIR.mkdir(parents=True, exist_ok=True)
++
+ logging.basicConfig(
+     level=logging.INFO,
+     format="%(asctime)s [%(levelname)s] %(message)s",
+-    handlers=[logging.FileHandler(ROOT / "logs" / "mcp_service.log", encoding="utf-8")]
++    handlers=[logging.FileHandler(_LOGS_DIR / "mcp_service.log", encoding="utf-8")]
+ )
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+@@ -48,7 +58,8 @@ def _live_log(tool, msg, status="OK"):
+         line = f"[{ts}] [{status:4}] [{tool:18}] {msg[:200]}\n"
+         with open(_LIVE_LOG, "a", encoding="utf-8") as f:
+             f.write(line)
+-    except: pass
++    except Exception:
++        pass
+ 
+ # ─────────────────────────────────────────────────────────────────────────────
+ # SERVER CORE
+@@ -67,28 +78,31 @@ async def handle_call_tool(name, arguments):
+     args = arguments or {}
+     _agent = os.environ.get("LAFORGE_AGENT", "UNKNOWN")
+     _live_log(name, f"appel STDIO [{_agent}]", "CALL")
+-    
++
+     try:
+         from forge_mcp_registry import get_registry
+         # Le serveur STDIO est considere RING_0 par defaut (local)
+         ring = int(os.environ.get("LAFORGE_RING", "0"))
+         res = await get_registry().dispatch(name, args, agent=_agent, ring=ring)
+-        
++
+         _is_err = str(res).startswith("ERR") or str(res).startswith("SECURITY")
+         return [TextContent(type="text", text=str(res), isError=_is_err)]
+     except Exception as e:
+         return [TextContent(type="text", text=f"INTERNAL ERROR: {e}", isError=True)]
+ 
++
+ async def main():
+-    _live_log("SYSTEM", "MCP STDIO démarre", "INIT")
++    _live_log("SYSTEM", "MCP STDIO demarre", "INIT")
++    # stdio_server() gere lui-meme la fermeture du flux quand stdin recoit EOF
++    # — pas besoin de watchdog manuel qui consommerait stdin et casserait le
++    # handshake initialize.
+     async with stdio_server() as (read_stream, write_stream):
+-        await server.run(read_stream, write_stream, server.create_initialization_options())
++        await server.run(
++            read_stream,
++            write_stream,
++            server.create_initialization_options(),
++        )
+ 
+-def _stdin_watchdog():
+-    """Arrête le process si stdin est fermé (évite les zombies)."""
+-    sys.stdin.read()
+-    os._exit(0)
+ 
+ if __name__ == "__main__":
+-    threading.Thread(target=_stdin_watchdog, daemon=True).start()
+-    asyncio.run(main())
++    asyncio.run(main())
+\ No newline at end of file
+diff --git a/tools/nokido_stdio_bridge.py b/tools/nokido_stdio_bridge.py
+index e4454de..5035328 100644
+--- a/tools/nokido_stdio_bridge.py
++++ b/tools/nokido_stdio_bridge.py
+@@ -16,7 +16,6 @@ v17.02 :
+ Config claude_desktop_config.json :
+   Voir tools/claude_desktop_config_bridge.json
+ """
+-
+ from __future__ import annotations
+ 
+ import asyncio
+@@ -26,10 +25,10 @@ import sys
+ import time
+ from pathlib import Path
+ 
+-ROOT = Path(r"%NOKIDO_WORKSPACE%\LaForge")
+-HUB_URL = os.environ.get("LAFORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
++ROOT      = Path(r"%NOKIDO_WORKSPACE%\LaForge")
++HUB_URL   = os.environ.get("LAFORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
+ HUB_TOKEN = ""
+-TIMEOUT = 30.0
++TIMEOUT   = 30.0
+ RETRY_MAX = 3
+ RETRY_DELAY = 1.0  # secondes entre retries
+ 
+@@ -44,7 +43,6 @@ if _env_file.exists():
+ 
+ # ── HTTP helpers ──────────────────────────────────────────────────────────────
+ 
+-
+ def _headers() -> dict:
+     h = {"Content-Type": "application/json"}
+     if HUB_TOKEN:
+@@ -58,14 +56,15 @@ def _error_response(bid, code: int, msg: str) -> dict:
+ 
+ async def _post_aiohttp(session, body: dict) -> dict:
+     import aiohttp
+-
+     try:
+         async with session.post(
+-            HUB_URL, json=body, headers=_headers(), timeout=aiohttp.ClientTimeout(total=TIMEOUT)
++            HUB_URL, json=body, headers=_headers(),
++            timeout=aiohttp.ClientTimeout(total=TIMEOUT)
+         ) as resp:
+             return await resp.json()
+     except asyncio.TimeoutError:
+-        return _error_response(body.get("id"), -32000, "Hub timeout (" + str(TIMEOUT) + "s)")
++        return _error_response(body.get("id"), -32000,
++                               "Hub timeout (" + str(TIMEOUT) + "s)")
+     except aiohttp.ClientConnectorError:
+         return _error_response(body.get("id"), -32000, "Hub non accessible")
+     except Exception as e:
+@@ -78,7 +77,7 @@ async def _post_urllib(loop, body: dict) -> dict:
+ 
+     def _sync():
+         data = json.dumps(body).encode()
+-        req = urllib.request.Request(HUB_URL, data=data, method="POST")
++        req  = urllib.request.Request(HUB_URL, data=data, method="POST")
+         for k, v in _headers().items():
+             req.add_header(k, v)
+         try:
+@@ -93,7 +92,6 @@ async def _post_urllib(loop, body: dict) -> dict:
+ async def _ping_hub() -> dict | None:
+     """Vérifie que le Hub répond — retourne le health dict ou None."""
+     import urllib.request
+-
+     url = HUB_URL.replace("/mcp", "/health")
+     req = urllib.request.Request(url, method="GET")
+     if HUB_TOKEN:
+@@ -121,28 +119,31 @@ async def _wait_hub_ready(max_wait: float = 30.0) -> bool:
+ 
+ # ── Bridge principal ──────────────────────────────────────────────────────────
+ 
+-
+ async def run_bridge():
+     """Boucle STDIO → Hub → STDIO. Auto-reconnect sur restart Hub."""
+ 
+     # Vérifier aiohttp
+     try:
+         import aiohttp
+-
+         _use_aiohttp = True
+     except ImportError:
+         _use_aiohttp = False
+         sys.stderr.write(
+-            "[Bridge] aiohttp absent — fallback urllib. pip install aiohttp pour de meilleures perfs." + chr(10)
++            "[Bridge] aiohttp absent — fallback urllib. "
++            "pip install aiohttp pour de meilleures perfs." + chr(10)
+         )
+ 
+     # Ping initial
+     h = await _ping_hub()
+     if h:
+-        sys.stderr.write("[Bridge] Hub " + h.get("version", "?") + " connecté sur " + HUB_URL + chr(10))
++        sys.stderr.write(
++            "[Bridge] Hub " + h.get("version", "?") +
++            " connecté sur " + HUB_URL + chr(10)
++        )
+     else:
+         sys.stderr.write(
+-            "[Bridge] Hub non accessible au démarrage." + chr(10) + "[Bridge] Attente Hub (max 30s)..." + chr(10)
++            "[Bridge] Hub non accessible au démarrage." + chr(10) +
++            "[Bridge] Attente Hub (max 30s)..." + chr(10)
+         )
+         ok = await _wait_hub_ready(max_wait=30.0)
+         if ok:
+@@ -150,41 +151,26 @@ async def run_bridge():
+         else:
+             sys.stderr.write("[Bridge] Hub toujours absent — je continue quand même." + chr(10))
+ 
+-    # Lire stdin async — compatible Windows
+-    loop = asyncio.get_event_loop()
++    # Lire stdin async
++    loop   = asyncio.get_event_loop()
+     reader = asyncio.StreamReader()
+-    proto = asyncio.StreamReaderProtocol(reader)
+-    try:
+-        await loop.connect_read_pipe(lambda: proto, sys.stdin)
+-    except NotImplementedError:
+-        # Windows fallback — lecture synchrone dans un thread
+-        import threading
+-
+-        def _feed_stdin():
+-            try:
+-                while True:
+-                    line = sys.stdin.buffer.readline()
+-                    if not line:
+-                        break
+-                    loop.call_soon_threadsafe(reader.feed_data, line)
+-            except Exception:
+-                loop.call_soon_threadsafe(reader.feed_eof)
++    proto  = asyncio.StreamReaderProtocol(reader)
++    await loop.connect_read_pipe(lambda: proto, sys.stdin)
+ 
+-        threading.Thread(target=_feed_stdin, daemon=True).start()
+-    # Écrire stdout
+-    _write_lock = threading.Lock()
++    # Écrire stdout async
++    w_transport, w_proto = await loop.connect_write_pipe(
++        asyncio.BaseProtocol, sys.stdout.buffer
++    )
++    writer = asyncio.StreamWriter(w_transport, w_proto, None, loop)
+ 
+     def _write(obj: dict):
+         line = json.dumps(obj, ensure_ascii=False) + chr(10)
+-        with _write_lock:
+-            sys.stdout.buffer.write(line.encode())
+-            sys.stdout.buffer.flush()
++        writer.write(line.encode())
+ 
+     # Session aiohttp réutilisable avec keepalive
+     session = None
+     if _use_aiohttp:
+         import aiohttp
+-
+         connector = aiohttp.TCPConnector(
+             limit=10,
+             keepalive_timeout=60,
+@@ -232,14 +218,9 @@ async def run_bridge():
+                 if err and err.get("code") in (-32000, -32603):
+                     if attempt < RETRY_MAX - 1:
+                         sys.stderr.write(
+-                            "[Bridge] Hub indisponible (tentative "
+-                            + str(attempt + 1)
+-                            + "/"
+-                            + str(RETRY_MAX)
+-                            + ") — reconnexion dans "
+-                            + str(RETRY_DELAY)
+-                            + "s..."
+-                            + chr(10)
++                            "[Bridge] Hub indisponible (tentative " +
++                            str(attempt + 1) + "/" + str(RETRY_MAX) +
++                            ") — reconnexion dans " + str(RETRY_DELAY) + "s..." + chr(10)
+                         )
+                         await asyncio.sleep(RETRY_DELAY * (attempt + 1))
+ 
+@@ -264,7 +245,7 @@ async def run_bridge():
+                 response["id"] = bid
+ 
+             _write(response)
+-            sys.stdout.buffer.flush()
++            await writer.drain()
+ 
+     finally:
+         if session:
+-- 
+2.53.0.windows.1
+

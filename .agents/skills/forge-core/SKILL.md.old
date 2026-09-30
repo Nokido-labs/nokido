@@ -1,0 +1,238 @@
+---
+name: nokido
+description: Use this skill when operating the Nokido Sovereign Hub MCP server on port 8766 — distinct from netcfg-agent-mcp on port 8767. Triggers: Nokido tools (read/write/query/run/auto_test/get_mode/set_mode/notify/poll/search_recent/trigger_autonomous_evolution), silo engine, cerveau souverain, bridge modes (AUTO/CLINE/CHEF/DEBAT/PING), 6 agents (CLAUDE/GEMINI/ROO/USER/CLINE/CHEF), LLM routing via 24 cloud providers and 12 cascades, RAG SQL on embeddings.db, ONNX sidecar brain_worker ZMQ 5557, NPU VitisAI/DirectML Radeon 780M, Ollama/llama.cpp/LM Studio, ClawHub marketplace (627 skills), CTF agent with Exegol (175 tools), recon_silo + MsfRpcClient + ChainEngine, Engrid v3 layers, IntegrityRing (MASTER/SYSTEM/DEV/TRUSTED/COLLAB/UNTRUSTED), NoiseGuardian + TrustBroker, evolutionary_engine + Cerberus guard, shadow_mutation vault, forge_swarm state machine, or any autonomous evolution request.
+
+---
+
+# Nokido Sovereign Hub
+
+Nokido is a **local-first multi-agent orchestrator** built on a sovereign design: the user's intent never leaves the machine unless explicitly allowed, and even then only after NoiseGuardian anonymization. Its architecture spans 196 `forge_*.py` modules totaling 505 MB, organized around six concepts:
+
+1. **Cerveau souverain** — `trigger_autonomous_evolution` decomposes → silos parallel → synthesize → RAG
+2. **Silos of reasoning** — 7 cognitive domains, each with its own LLM + filtered RAG context
+3. **Cascade routing** — 24 cloud providers in 12 use-case chains, local always last-resort
+4. **Rings of integrity** — data promoted from UNTRUSTED → DRAFT → TRUSTED → VERIFIED → GOLD
+5. **Agent bridge** — 6 agents coordinate via notifications + modes + notifications
+6. **Skill marketplace** — ClawHub catalog of 627 skills, 8 installed locally
+
+**Claude (you) are a terminal into the cerveau, not the brain.** When the user says "demande à Nokido", use `trigger_autonomous_evolution`. When they want a file or a log, use `read`. When they want to query past work, use `query` or `search_recent`.
+
+---
+
+## Two MCP servers must not be confused
+
+| Server | Transport | Port | Owns |
+|---|---|---|---|
+| **Nokido Sovereign Hub** | HTTP streamable | **8766** | This skill. Cerveau, silos, RAG, bridge. |
+| **netcfg-agent-mcp** | HTTP + stdio | **8767** | Different skill. Network audit domain. |
+
+---
+
+## The 12 tools — when to use each
+
+### Filesystem
+
+**`read(action, path, pattern=None, lines=100)`** — `action="file"` for full read, `action="tail_logs"` for tailing with optional grep pattern.
+
+**`write(path, content)`** — thread-safe. For `.py` files, a Commit Guard runs `ast.parse()` and rejects syntax errors. Prefer targeted edits.
+
+### RAG
+
+**`query(sql)`** — raw SQL on `embeddings.db` (148 MB RAG store). Auto-snapshots on mutation. Main table: `rag_chunks(id, text, embedding BLOB, domain, role_hint, author, ingested_at, ring)`.
+
+**`search_recent(topic=None, limit=10)`** — recent entries across agents. Fast, cheap.
+
+**`index_result(...)`** — persists task result into RAG with author/domain metadata.
+
+### Execution
+
+**`run(action, code=None)`** — dispatcher. Valid actions (2026-04-23, commit 1a69fe6): `github`, `python`, `atlas_build`, `save_situation`, `atlas_get`, `make_snapshot`, `hub_restart`, `hub_status`, `setup_check` (runtime diagnostic), `unified_discovery` (modules+RAG+agents scan), `audit_log` (tail `logs/mcp_audit.log`, N via `code` arg). All handlers now implemented; no more "Action non autorisée" on these.
+
+**`auto_test(filepath)`** — `py_compile`. If fails in `CHEF` mode, auto-switches to `CLINE`.
+
+### Bridge
+
+**`get_mode()`** — current mode + per-agent activity from `bridge_state.json`.
+
+**`set_mode(mode, reason)`** — `AUTO` | `CLINE` | `CHEF` | `DEBAT` | `PING`.
+
+**`notify(message)`** — send to the other active agent.
+
+**`poll()`** — drain pending notifications.
+
+### Sovereign brain
+
+**`trigger_autonomous_evolution(intention, domains=None, max_silos=None, noise=False)`** — decompose (local) → N silos parallel → synthesize (local) → index. **WARNING**: this call can exceed Claude Desktop's default MCP timeout (often 4 minutes) when cascade routing tries multiple cloud providers in sequence, each with 10-30s timeouts. For fast responses, explicitly pass `max_silos=1` and a single `domains=["code"]` to stay on local Ollama. For complex cross-domain synthesis, expect 30s-3min even in the happy path. See REFERENCE.md for the full flow.
+
+---
+
+## Bridge modes (5)
+
+| Mode | Semantics |
+|---|---|
+| `AUTO` | Delegates automatically based on detected task type |
+| `CLINE` | Pure execution — no deliberation, immediate action |
+| `CHEF` | Planning + decomposition — produces plans, not code |
+| `DEBAT` | Two contradictory models → synthesis arbitrage |
+| `PING` | Keep-alive only — no actual work |
+
+Don't flip modes mid-operation; the other active agent is watching.
+
+---
+
+## Agents (6) and markers (12)
+
+Colors in TUI: CLAUDE `#ff9770` · GEMINI `#a7c7e7` · ROO `#c8b6ff` · USER `#ffd670` · CLINE `#77dd77` · CHEF `#fbb1bd`.
+
+Notification markers (lead with them in `notify`):
+🔒 CLAIM · 🔓 RELEASE · 💡 PROPOSE · ✅ APPROVE · ❌ REJECT · 🛂 NEED_ADMIN · 🎫 GRANT · 🚫 DENY · 🔄 SYNC · ⏳ PROGRESS · ❓ QUESTION · 📝 NOTE.
+
+---
+
+## Integrity rings — read this carefully
+
+Rule: **lower ring = MORE rights** (inverted intuition). Never compare with `==`; use `is_at_least()`.
+
+| Ring | Name | Meaning |
+|---|---|---|
+| -1 | MASTER | Root. TTL 300s. Cannot be held persistently. |
+| 0 | SYSTEM | Nokido internals. Bootstrap, snapshots. |
+| 1 | DEV | Developer mode. Live code edits. |
+| 2 | TRUSTED | Verified sources. RAG ingestion default. |
+| 3 | COLLAB | Multi-agent shared work. |
+| 4 | UNTRUSTED | External inputs, anonymized cloud returns. |
+
+Data promotion is monotonic (`forge_rag_truth.py::TruthState`): `DRAFT → VERIFIED → GOLD`. Never goes backwards except via explicit revocation at ring 0/1. See ARCHITECTURE.md for the full Engrid v3 layering.
+
+---
+
+## LLM backends at a glance
+
+**Local first, cloud last.** The cascade is always:
+NPU (VitisAI) → iGPU 780M (DirectML) → Ollama → llama.cpp :8080 → cloud providers
+
+- **Ollama :11434** — default. 12 models installed. Usually UP. Cold start for `laforge-qwen:latest` = ~4.4s (measured), warm = ~0.4s.
+- **llama.cpp :8080/v1** — often DOWN; check with `run(action="hub_status")`.
+- **LM Studio :1234/v1** — optional, usually DOWN.
+- **ONNX sidecar** — ZMQ `127.0.0.1:5557`, `brain_worker.py`. Serves MiniLM-L6-v2 (22 MB int8) for embeddings + Phi-3.5 Mini (DirectML) for text gen. **Usually DOWN** — not started at hub boot by default. If you need embeddings or DirectML gen, launch manually via `python app/brain_worker.py &` or fall back to Ollama `nomic-embed-text` / `bge-m3`.
+- **24 cloud providers** — see BACKENDS.md. GitHub Models prioritized (free quota), then OpenRouter free tier, then specialized.
+
+---
+
+## Quick recipes
+
+### Add a function to a file and verify
+
+```
+1. read(action="file", path=...)
+2. write(path=..., content=<full new content>)
+3. auto_test(filepath=...)
+```
+
+### Ask Nokido to think about something
+
+```
+trigger_autonomous_evolution(
+    intention="<one sentence, ≥10 words>",
+    domains=["code", "strategy"],   # optional, auto-detected otherwise
+    max_silos=3,
+)
+```
+
+Then `search_recent(topic="<keyword>", limit=5)` to retrieve synthesized output.
+
+### Install a skill from ClawHub
+
+ClawHub has 627 skills. Use TUI command `@skill search <query>`, `@skill install <slug>`, `@skill run <slug>`. See CLAWHUB.md. Don't call ClawHub API directly — always through `forge_clawhub_bridge` which does local security review via `SkillGuardian`.
+
+### Launch a CTF agent
+
+```
+run(action="python", code="from app.forge_ctf_agent import CTFAgent; ...")
+```
+
+Or the preferred route: check CTF.md for the Exegol-based autonomous pipeline.
+
+### Get runtime state
+
+```
+run(action="hub_status")            # ports, hub version, ring, collab mode
+run(action="setup_check")           # deeper diagnostic (may fail with NoneType error — known bug)
+read(action="tail_logs", path="logs/mcp_audit.log", lines=50)  # recent MCP calls
+query("SELECT action, result, ts FROM audit_events ORDER BY ts DESC LIMIT 20")  # structured audit
+```
+
+---
+
+## Safety invariants you must not bypass
+
+1. **`decompose` and `synthesize` always run local** on `laforge-qwen:latest`. Never cloud. The original intention and the aggregated synthesis never leave the machine.
+2. **`KnowledgeGuardian` filters RAG per domain** before feeding a silo. A security silo never sees doc chunks.
+3. **`NoiseGuardian` anonymizes before cloud** — IPs, MACs, CVEs, internal paths. Use `noise=True` when intention contains sensitive snippets.
+4. **HTTP bind is `127.0.0.1` only**. Never expose to LAN.
+5. **MCP `STRICT_MODE=true`** disables dangerous tools (`write` outside workspace, `run` code execution). Respect it when set.
+
+---
+
+## TUI @-commands (for reference)
+
+The Nokido TUI dispatches user input starting with `@` to handlers. Main ones:
+
+| Command | Handler | Purpose |
+|---|---|---|
+| `@skill` | `forge_handler_skill.py` | ClawHub marketplace (search/install/run/list/info/remove/status) |
+| `@evolve` | `forge_handler_evolve.py` | Mutate a file via evolutionary_engine |
+| `@fragment` | `forge_handler_fragment.py` | Split a chunk into RAG fragments |
+| `@rag` | `forge_handler_rag.py` | RAG operations (query/promote/demote) |
+| `@agents` | `forge_handler_agents.py` | Agent roles + collaboration |
+| `@build` | `forge_handler_build.py` | `build_new_app` OneMCP workflow |
+| `@ci` | `forge_handler_ci.py` | CI/CD workflow loop |
+| `@patch` | `forge_handler_patch.py` | Apply AST patches |
+| `@nr` | `forge_handler_nr.py` | Natural request dispatch |
+| `@advanced` | `forge_handler_advanced.py` | Power-user tools |
+| `@exegol` | `tools/ctf/forge_handler_exegol.py` | CTF Exegol toolbox |
+| `@disco` | `forge_disco.py` | Web knowledge discovery → RAG |
+
+---
+
+## When to load the reference files
+
+This SKILL.md covers the 20% you'll need 80% of the time. When the user's request touches specific subsystems, **load the appropriate reference file** from the same directory before answering:
+
+- **`REFERENCE.md`** — Complete module inventory (196 files, categorized). Load when the user asks "where does X live" or "what does `forge_Y` do".
+- **`BACKENDS.md`** — LLM backends, provider cascades, model map, NPU cascade details. Load for routing/performance questions.
+- **`ARCHITECTURE.md`** — Engrid v3 layers, Rings, TruthState, MeshMemory, sovereign membrane. Load for data-flow or integrity questions.
+- **`CLAWHUB.md`** — Skill marketplace, API endpoints, SkillGuardian review, installed catalog. Load for `@skill` or skill-related questions.
+- **`CTF.md`** — Exegol toolbox, forge_ctf_agent pipeline, pwn/reverse/web helpers. Load for CTF or offensive-security work.
+- **`RECON.md`** — Recon silo, MsfRpcClient, ChainEngine live/sandbox, network_profiler. Load for network recon / pentest pipeline questions.
+- **`SECURITY.md`** — NoiseGuardian, TrustBroker, forge_integrity, forge_prompt_guard, env_crypt. Load for security/anonymization questions.
+
+Use `view` tool on the relevant file before producing a substantive answer. The cost is low; the accuracy gain is significant.
+
+---
+
+## Failure modes to recognize
+
+- **`HTTP 401` on Hub** → `FORGE_MCP_TOKEN` mismatch between `Nokido.env` and client config. Must send `Authorization: Bearer <64-hex-token>` + `X-Agent-Name: <AGENT>`.
+- **`run(action="audit_log")`** → valid since 2026-04-23 (commit 1a69fe6). Returns tail of `logs/mcp_audit.log` (default N=30, max 500 via `code` arg). Pre-fix was `"Action non autorisée"`.
+- **`run(action="setup_check")`** → valid since 2026-04-23 (commit 1a69fe6). Returns runtime diagnostic (Hub/NSSM/Ring/Collab/Ollama/llama.cpp/LM Studio/brain_worker/netcfg-mcp/RAG). State access is guarded against None. Pre-fix raised `"NoneType is not iterable"`.
+- **Empty silo output** → `KnowledgeGuardian` filtered too aggressively. Broaden domain list or drop to 1 silo.
+- **`trigger_autonomous_evolution` hangs / MCP client times out at 4 min** → cascade routing exhausting cloud providers one by one. Set `LAFORGE_SILO_USE_CASCADE=0` for local-only (fast), or use `max_silos=1` + explicit local domain.
+- **`trigger_autonomous_evolution` returns empty** → `LAFORGE_SILO_USE_CASCADE=0` AND Ollama DOWN. Start Ollama.
+- **Cascade silently picks local** → all cloud providers hit 401 or quota. Check `read(action="tail_logs", path="logs/mcp_audit.log", pattern="route_llm|cascade")`.
+- **`[KV]` spam in `logs/mcp_service_err.log`** — fixed 2026-04-23 in `tools/forge_kv_keepalive.py`. If still seen, `FREE_CODE_MODELS` was mutated to reintroduce non-openrouter prefixes. Check `forge_openrouter.py::FREE_CODE_MODELS`.
+- **`brain_worker :5557` timeout** → ONNX sidecar not running (default). Launch with `python app/brain_worker.py &` in a separate terminal if NPU embeddings are needed.
+- **`IdleWatchdog → arrêt` in logs** → hub auto-stops after 3600s idle (see `forge_idle_watchdog.py`). On next call Claude Desktop reconnects and re-bootstraps automatically.
+- **ClawHub skill install fails on audit** → `SkillGuardian` rejected the `SKILL.md` as risky. Check stderr for reason.
+
+---
+
+## What NOT to do
+
+- Don't `write` directly to `embeddings.db` — use `query` with parameterized SQL or `index_result`.
+- Don't call `trigger_autonomous_evolution` with fewer than ~10 words in intention; decompose produces junk silos.
+- Don't set `noise=True` for trivial questions — latency cost with no benefit.
+- Don't use `run(action="audit_log")` — that action does not exist. Use `read(tail_logs)` or `query(audit_events)`.
+- Don't cross into `netcfg-agent-mcp` tools for orchestration tasks; stay on this server.
+- Don't bypass `_local_only` on decompose/synthesize. The safety contract depends on it.
+- Don't present `forge_*.py` internals as stable API — they evolve; stick to the 12 MCP tools for user-facing actions.

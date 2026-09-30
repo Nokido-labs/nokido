@@ -1,0 +1,164 @@
+{
+  "_doc": "Registre SSoT M2M (Machine-to-Machine) Intent Dictionary. Remplace le langage naturel dans les payloads inter-agents (notify/postal/task). Conçu par AGY, revu et câblé par CLAUDE. Émanation automatique dans RULES_SHARED.md via tools/forge_m2m_emanate.py.",
+  "_review": "CLAUDE 2026-07-05 v1.1.0 : +SCOPE_CLEARED/ERR_INTERNAL/OK_DONE (codes émis live par tool_scope & génériques) ; alias intent_code accepté par le validateur ; canal task_assign préparé (câblage phase 2) ; validateur = app/forge_m2m_protocol.py (mode warn par défaut, LAFORGE_M2M_MODE=error pour enforce).",
+  "_review_1_3_0": "CLAUDE 2026-09-02 : +categorie `authz` (AUTHZ_OBSERVATION, AUTHZ_CLASS_PROPOSED) pour la phase C d'authentification de :8766. Les deux intents portent un pointeur et JAMAIS le contenu : la matrice (routes, PID, processus) reste dans l'evidence store. `fenetre` est obligatoire sur AUTHZ_OBSERVATION parce qu'une observation sans sa fenetre se lit comme un etat permanent — or une route absente de la fenetre n'est pas une route morte.",
+  "version": "1.4.1",
+  "updated_at": "2026-09-17",
+  "_review_1_4_1": "GEN-2.1. Extension ASCENDANTE de la v1.4.0 : rien n'est retire. Le canal 'transient' exige desormais source_call_id et content_fingerprint, parce qu'une mesure du 2026-09-17 a montre qu'un identifiant unique fondant (session, methode, charge) fusionnait 2 appels x 2 cablages en UNE identite. Trois notions distinctes : source_call_id = ce que la SOURCE fournit (tool_use_id, present dans l'evenement PreToolUse reel) ; content_fingerprint = le CONTENU, que deux appels identiques legitimes partagent ; correlation_id = la session. Sans identifiant de source, source_call_id vaut UNKNOWN -- on le DECLARE, on n'en fabrique pas.",
+  "_review_1_4_0": "GEN-1 du Transient Spine. EXTENSION STRICTEMENT ASCENDANTE de la v1.3.0 : les 25 intents existants sont inchanges, les 4 canaux existants (notify, postal, task_assign, task_result) gardent EXACTEMENT leurs champs requis. Ajouts : un canal 'transient' et un intent 'TRANSIENT_OBSERVED'. Raison du choix : le depot s'interdit un 3e protocole (cf. le verdict ACP/A2A du 2026-09-17), donc l'observation d'une intention est un CANAL de ce contrat, jamais un dictionnaire concurrent. Le M2M autonome n'est pas modifie : il FONCTIONNE, et le Spine le consomme au lieu de le remplacer.",
+  "schema_rules": {
+    "prose_max_words": 15,
+    "intent_field_aliases": ["intent", "intent_code"],
+    "required_fields_by_channel": {
+      "notify": ["intent", "pointer_ref"],
+      "postal": ["intent", "pointer_ref", "confidence"],
+      "task_result": ["intent", "status_code", "pointer_ref"],
+      "task_assign": ["intent", "pointer_ref"],
+      "transient": ["intent", "schema", "source", "provenance", "effect", "source_call_id", "content_fingerprint"]
+    }
+  },
+  "intents": {
+    "TRANSIENT_OBSERVED": {
+      "category": "transient",
+      "description": "Intention observee sur une surface existante et normalisee, SANS effet sur le chemin d'origine.",
+      "payload_schema": {
+        "schema": "str",
+        "id": "str",
+        "source_call_id": "str (identifiant fourni par la source, ou UNKNOWN -- jamais fabrique)",
+        "content_fingerprint": "str (empreinte du CONTENU, partagee par deux appels identiques legitimes)",
+        "correlation_id": "str (session, pour rattacher les observations entre elles)",
+        "observed_at": "float",
+        "source": "dict(surface, surface_resolution, transport, producer, signal, method, champs_bruts)",
+        "payload": "dict",
+        "provenance": "dict(session, depth, parent)",
+        "observation": "str(CAPTURED|UNKNOWN)",
+        "effect": "str(UNCHANGED)"
+      }
+    },
+    "SCOPE_SET": {
+      "category": "routing",
+      "description": "Injection dynamique d'outils MCP réussie par le routeur local.",
+      "payload_schema": {"tools_injected": "list[str]", "confidence": "float"}
+    },
+    "SCOPE_LOW_CONF_FULL": {
+      "category": "routing",
+      "description": "Classification d'intention incertaine ; repli de sécurité sur la liste complète des outils MCP.",
+      "payload_schema": {"reason": "str", "fallback_count": "int"}
+    },
+    "SCOPE_CLEARED": {
+      "category": "routing",
+      "description": "Scope d'outils MCP effacé ; retour à la liste complète.",
+      "payload_schema": {"was_scoped": "bool"}
+    },
+    "HANDOFF_NEXT": {
+      "category": "routing",
+      "description": "Tâche locale terminée, passage du relais au rôle/agent suivant sans verbiage.",
+      "payload_schema": {"next_role": "str", "pointer_ref": "str"}
+    },
+    "PLAN_READY": {
+      "category": "ssot",
+      "description": "Plan d'exécution ou arbre GOAP prêt dans le SSoT ou Blackboard.",
+      "payload_schema": {"pointer_ref": "str", "steps_count": "int"}
+    },
+    "FACT_PROPOSED": {
+      "category": "ssot",
+      "description": "Nouveau fait ou découverte architecturale inscrite au Blackboard.",
+      "payload_schema": {"zone": "str", "key": "str", "pointer_ref": "str"}
+    },
+    "LOCK_CLAIMED": {
+      "category": "ssot",
+      "description": "Verrou d'édition ou ressource acquis par l'agent dans tree_locks.",
+      "payload_schema": {"key": "str", "owner": "str", "ttl_s": "int"}
+    },
+    "LOCK_RELEASED": {
+      "category": "ssot",
+      "description": "Verrou d'édition libéré ; la ressource est disponible pour le reste du swarm.",
+      "payload_schema": {"key": "str", "owner": "str"}
+    },
+    "ERR_DEPENDENCY": {
+      "category": "error",
+      "description": "Dépendance requise manquante dans l'environnement d'exécution. Requis : lancer dependency_resolver ou installer via worker.",
+      "payload_schema": {"module": "str", "env": "str", "action_required": "str"}
+    },
+    "ERR_AST_BLOCK": {
+      "category": "error",
+      "description": "Modification bloquée par le guardrail AST ou le pare-feu sémantique (cerberus/guarded_loop).",
+      "payload_schema": {"file": "str", "violation_type": "str", "line": "int"}
+    },
+    "ERR_TEST_FAIL": {
+      "category": "error",
+      "description": "Échec de régression ou test TDD en erreur lors de la validation GREEN.",
+      "payload_schema": {"test_name": "str", "pointer_ref": "str", "exit_code": "int"}
+    },
+    "ERR_RBAC_DENY": {
+      "category": "error",
+      "description": "Tentative d'action non autorisée pour ce ring ou profil d'identité.",
+      "payload_schema": {"capability": "str", "ring_required": "int", "ring_actual": "int"}
+    },
+    "ERR_TIMEOUT": {
+      "category": "error",
+      "description": "Exécution de tool, sous-processus ou job de veille ayant dépassé le timeout imparti.",
+      "payload_schema": {"tool": "str", "timeout_s": "int", "pointer_ref": "str"}
+    },
+    "ERR_INTERNAL": {
+      "category": "error",
+      "description": "Erreur interne générique (fallback quand aucun ERR_* spécifique ne convient).",
+      "payload_schema": {"where": "str", "pointer_ref": "str"}
+    },
+    "NEED_CLARIFY": {
+      "category": "governance",
+      "description": "Ambiguïté bloquante ou exigence manquante. Met le workflow en pause pour requête utilisateur.",
+      "payload_schema": {"question_id": "str", "options": "list[str]", "pointer_ref": "str"}
+    },
+    "NEED_HUMAN_APPROVAL": {
+      "category": "governance",
+      "description": "Action irréversible ou critique nécessitant la validation explicite de user au Ring 0.",
+      "payload_schema": {"action_type": "str", "target": "str", "risk_level": "str"}
+    },
+    "BUDGET_EXCEEDED": {
+      "category": "governance",
+      "description": "Quota de tokens cloud ou budget ATP/métabolisme dépassé ; bascule requise en local.",
+      "payload_schema": {"pool": "str", "limit": "int", "actual": "int"}
+    },
+    "COLLAB_PING": {
+      "category": "collab",
+      "description": "Requête inter-agent synchrone minimaliste (remplace le texte libre dans notify/postal).",
+      "payload_schema": {"proposed_action": "str", "confidence": "float", "thought_process": "str"}
+    },
+    "COLLAB_PONG": {
+      "category": "collab",
+      "description": "Réponse inter-agent synchrone minimaliste.",
+      "payload_schema": {"verdict": "GO|NO_GO|ADAPT", "pointer_ref": "str", "confidence": "float"}
+    },
+    "OK_DONE": {
+      "category": "collab",
+      "description": "Travail livré et vérifié ; le pointer_ref porte le détail (commit/blackboard/RAG).",
+      "payload_schema": {"pointer_ref": "str", "confidence": "float"}
+    },
+    "REVIEW_OK": {
+      "category": "review",
+      "description": "Revue menée : AUCUN problème observé dans le périmètre déclaré. N'affirme PAS que le sujet est sûr — seulement que cette revue-là n'a rien vu. `perimetre` est obligatoire : un OK sans dénominateur se lit comme un OK global.",
+      "payload_schema": {"pointer_ref": "str", "perimetre": "str", "confidence": "float"}
+    },
+    "REVIEW_FINDING": {
+      "category": "review",
+      "description": "Défaut observé par une revue indépendante ; le pointer_ref porte l'artefact (fichier:ligne, repro, preuve). Un finding est une OBSERVATION à vérifier, jamais un verdict d'activation.",
+      "payload_schema": {"pointer_ref": "str", "severite": "str", "perimetre": "str"}
+    },
+    "REVIEW_UNKNOWN": {
+      "category": "review",
+      "description": "Revue NON MENÉE ou partielle : accès refusé, outil absent, périmètre non couvert. Ne vaut ni REVIEW_OK ni REVIEW_FINDING — c'est le troisième état, celui qui empêche de lire un silence comme une absence de défaut.",
+      "payload_schema": {"pointer_ref": "str", "perimetre": "str", "raison": "str"}
+    },
+    "AUTHZ_OBSERVATION": {
+      "category": "authz",
+      "description": "Observation d'autorisation en phase SHADOW : un appelant ou un chemin à faire vérifier par un pair. N'AUTORISE ni ne REFUSE rien — le pair reçoit un pointeur, jamais la matrice : le détail (routes, PID, processus) reste dans l'evidence store, hors du canal. `fenetre` est obligatoire : une observation sans sa fenêtre se lit comme un état permanent, alors qu'une route absente de la fenêtre n'est pas une route morte.",
+      "payload_schema": {"pointer_ref": "str", "fenetre": "str", "perimetre": "str"}
+    },
+    "AUTHZ_CLASS_PROPOSED": {
+      "category": "authz",
+      "description": "Classe (PUBLIC/LOCAL/AUTH/ADMIN) et capability PROPOSÉES pour une route, avec la preuve qui les fonde (statique, sonde ou runtime). Proposition soumise à contre-expertise, jamais une décision : le passage à l'enforcement est une étape séparée et explicite.",
+      "payload_schema": {"pointer_ref": "str", "route": "str", "classe_proposee": "str", "preuve": "str"}
+    }
+  }
+}

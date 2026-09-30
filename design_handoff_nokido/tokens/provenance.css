@@ -1,0 +1,51 @@
+/* ============================================================================
+   Nokido — Provenance & Integrity tokens   (NEW — the "face visible")
+   The single most important design system in Nokido: at every moment the user
+   must distinguish WHERE the computation lives and HOW trustworthy a result is.
+   ----------------------------------------------------------------------------
+   PROVENANCE   local  -> warm, anchored, stable (sovereign, private, offline-ok)
+                distant-> signalled, reversible   (cloud, more powerful, external)
+   INTEGRITY    brouillon (draft) -> verifie (verified) -> or (gold)
+   ========================================================================== */
+
+:root {
+  /* --- Provenance : LOCAL (sovereign) ------------------------------------- */
+  --prov-local:        #4AC28B;                   /* warm anchored green */
+  --prov-local-strong: #5BD89C;
+  --prov-local-tint:   rgba(74, 194, 139, 0.14);   /* aligne sur le hub (owner 2026-09-29) */
+  --prov-local-border: rgba(74, 194, 139, 0.45);
+  --prov-local-halo:   0 0 0 1px rgba(74,194,139,0.35), 0 0 18px rgba(74,194,139,0.18);
+
+  /* --- Provenance : DISTANT (cloud / external) ---------------------------- */
+  --prov-distant:        #3BB2D0;                 /* signalled cool blue */
+  --prov-distant-strong: #58C7E2;
+  --prov-distant-tint:   rgba(59, 178, 208, 0.12);
+  --prov-distant-border: rgba(59, 178, 208, 0.45);
+  --prov-distant-halo:   0 0 0 1px rgba(59,178,208,0.35), 0 0 18px rgba(59,178,208,0.16);
+  /* dashed stroke signals "external / reversible" — used on distant outlines */
+  --prov-distant-dash:   2px 3px;
+
+  /* --- Provenance : HYBRID (partly local, partly delegated) --------------- */
+  --prov-hybrid:        #2DD4BF;   /* cyan : jamais la couleur de --prov-remote (owner 2026-09-29) */
+  --prov-hybrid-tint:   rgba(45, 212, 191, 0.14);
+  --prov-hybrid-border: rgba(119, 74, 255, 0.45);
+
+  /* --- Integrity rings ---------------------------------------------------- */
+  /* brouillon — unverified, in progress */
+  --ring-draft:        #6E6A82;
+  --ring-draft-tint:   rgba(110, 106, 130, 0.14);
+  --ring-draft-style:  dashed;
+  /* verifie — checked & consistent */
+  --ring-verified:        #3BB2D0;   /* bleu : le vert dit deja local et succes (owner 2026-09-29) */
+  --ring-verified-tint:   rgba(74, 194, 139, 0.14);
+  --ring-verified-style:  solid;
+  /* or — gold standard, fully trusted / promoted */
+  --ring-gold:        #FFC22D;
+  --ring-gold-tint:   rgba(255, 194, 45, 0.16);
+  --ring-gold-style:  solid;
+  --ring-gold-glow:   0 0 16px rgba(255, 194, 45, 0.28);
+
+  /* ring geometry */
+  --ring-width: 2px;
+  --ring-gap:   2px;
+}

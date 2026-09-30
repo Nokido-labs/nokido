@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 20px; background: var(--bg-0); display: flex; gap: 18px; align-items: center; }
+  .item { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .box { width: 96px; height: 72px; background: var(--bg-2); border: 1px solid var(--border); }
+  .lbl { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+  .r-sm { border-radius: var(--radius-sm); }
+  .r-md { border-radius: var(--radius-md); }
+  .r-lg { border-radius: var(--radius-lg); }
+  .s-md { box-shadow: var(--shadow-md); border-radius: var(--radius-md); }
+  .s-glow { box-shadow: var(--shadow-glow); border-radius: var(--radius-md); border-color: var(--purple); }
+</style></head>
+<body>
+  <div class="item"><div class="box r-sm"></div><span class="lbl">radius-sm · 6</span></div>
+  <div class="item"><div class="box r-md"></div><span class="lbl">radius-md · 10</span></div>
+  <div class="item"><div class="box r-lg"></div><span class="lbl">radius-lg · 14</span></div>
+  <div class="item"><div class="box s-md"></div><span class="lbl">shadow-md</span></div>
+  <div class="item"><div class="box s-glow"></div><span class="lbl">shadow-glow</span></div>
+</body></html>
