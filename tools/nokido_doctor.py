@@ -5,9 +5,17 @@ rien : il REGARDE, et il nomme ce qu'il n'a pas pu voir.
 
 Ce qu'il repond, et ce qu'il ne repond pas :
 
-    INSTALLE   <- la seule question traitee ici
+    INSTALLE   <- la question par defaut
+    VIVANT     <- `--vivant` : ce qui BAT, organe par organe (forge_nervous_map.autorites)
     DEMARRE    <- `nokido_ensure_service`
     CAPABLE    <- forge_organ_agents.probe()
+
+`--vivant` (owner 2026-10-01 : « tu ne mesures pas un etat fige mais un corps
+vivant ») : le README ne porte plus d'instantane -- il designe cette commande, qui
+demande l'etat au corps SUR LA MACHINE DU LECTEUR. Quatre etats, jamais deux (vivant,
+incertain, ne bat plus, illisible), et un organe coupe par politique n'est jamais dit
+mort. Elle ne demarre rien, et une observation n'echoue pas : rc 2 seulement quand la
+source elle-meme est illisible.
 
 Les confondre est le defaut le plus courant du diagnostic d'installation : un
 `ollama.exe` present ne prouve aucun runner charge, et un port qui repond ne
@@ -108,16 +116,90 @@ def rendre_texte(b: dict, verbeux: bool = False) -> str:
     return "\n".join(out)
 
 
+def _autorites() -> dict:
+    """forge_nervous_map.autorites(), sous ses deux noms d'import (wheel puis depot)."""
+    try:
+        from nokido_agent.app import forge_nervous_map as N  # type: ignore
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from app import forge_nervous_map as N  # noqa: E402
+    return N.autorites()
+
+
+# (cle, libelle) dans l'ordre d'affichage. COUPE n'est pas un etat du pouls : c'est
+# une POLITIQUE (disabled=true), donc lue sur le superviseur, jamais deduite du pouls.
+_GROUPES_VIVANT = (
+    ("OUI", "VIVANT (pouls frais, porteur present)"),
+    ("INCERTAIN", "INCERTAIN (pouls frais, porteur non attribuable)"),
+    ("NON", "NE BAT PLUS (pouls perime ou orphelin)"),
+    ("COUPE", "COUPE PAR POLITIQUE (disabled : un choix, pas une panne)"),
+    ("INCONNU", "ILLISIBLE (aucun pouls lisible)"),
+)
+
+
+def _coupe_par_politique(fiche: dict) -> bool:
+    sup = fiche.get("supervisor")
+    sup = sup.get("valeur") if isinstance(sup, dict) else sup
+    return bool(fiche.get("eteint_par_decision") or "eteint par decision" in str(sup or ""))
+
+
+def _groupe(fiche: dict) -> str:
+    vivant = fiche.get("producteur_vivant") or "INCONNU"
+    # Un pouls frais PRIME sur la politique : `disabled` veut dire « pas demarre
+    # d'office », et un organe a la demande reveille bat bel et bien (mesure
+    # 2026-10-01 : NokidoIngestDaemon). La politique ne range que ce qui ne bat pas.
+    if vivant in ("OUI", "INCERTAIN"):
+        return vivant
+    return "COUPE" if _coupe_par_politique(fiche) else vivant
+
+
+def rendre_vivant(a: dict) -> str:
+    """L'etat vivant des organes, groupe par etat ; les sources illisibles sont DITES."""
+    out = ["Nokido — ce qui bat sur cette machine, organe par organe", ""]
+    for nom, etat in (a.get("sources") or {}).items():
+        out.append("  source %-18s %s" % (nom, etat))
+    groupes: dict = {}
+    for f in a.get("organes") or []:
+        groupes.setdefault(_groupe(f), []).append(f)
+    for cle, libelle in _GROUPES_VIVANT:
+        fiches = sorted(groupes.get(cle, []), key=lambda f: str(f.get("organe")))
+        out += ["", "%s — %d" % (libelle, len(fiches))]
+        for f in fiches:
+            age = f.get("age_s")
+            demande = cle in ("OUI", "INCERTAIN") and _coupe_par_politique(f)
+            out.append("  %-32s %-28s %s%s%s" % (
+                f.get("organe"), f.get("service") or "(hors registre)",
+                f.get("producteur_preuve") or "",
+                "" if age is None else "  [pouls il y a %d s]" % int(age),
+                "  (a la demande)" if demande else ""))
+    out += ["", "Instantane de CETTE machine, a cet instant : relancer pour mesurer de nouveau."]
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="nokido-doctor",
-        description="Verifie la presence des prerequis externes de Nokido.")
+        description="Verifie la presence des prerequis externes de Nokido "
+                    "(--vivant : ce qui bat, organe par organe).")
+    ap.add_argument("--vivant", action="store_true",
+                    help="ce qui BAT sur cette machine, organe par organe (ne demarre rien)")
     ap.add_argument("--json", action="store_true", help="sortie machine")
     ap.add_argument("--requis-seulement", action="store_true",
                     help="ignore les prerequis optionnels")
     ap.add_argument("-v", "--verbeux", action="store_true",
                     help="detaille aussi les prerequis presents")
     a = ap.parse_args(argv)
+
+    if a.vivant:
+        try:
+            etat = _autorites()
+        except Exception as exc:  # noqa: BLE001 - source illisible : le DIRE, rc 2
+            print("ILLISIBLE : l'etat vivant n'a pas pu etre lu (%s: %s)"
+                  % (type(exc).__name__, exc))
+            return 2
+        print(json.dumps(etat, indent=2, ensure_ascii=False, default=str) if a.json
+              else rendre_vivant(etat))
+        return 0
 
     b = P.bilan(inclure_optionnels=not a.requis_seulement)
     if a.json:

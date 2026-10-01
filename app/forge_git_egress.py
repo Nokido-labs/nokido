@@ -302,11 +302,39 @@ def load_manifest() -> dict:
     return _DEFAULT_MANIFEST
 
 
+# Une cle `owner/nom` (proprietaire GitHub : ni point ni slash) designe UN depot.
+_RE_CLE_DEPOT = re.compile(r"^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
+
+
+def _depot_de_l_url(remote_url: str) -> str:
+    """`owner/nom` d'une URL git (https, ssh, scp, credential embarque), en
+    minuscules et sans `.git` ; '' si l'URL n'a pas deux segments."""
+    u = (remote_url or "").strip().rstrip("/")
+    if u.lower().endswith(".git"):
+        u = u[:-4]
+    parts = [p for p in re.split(r"[/:]", u) if p]
+    return "/".join(parts[-2:]).lower() if len(parts) >= 2 else ""
+
+
 def resolve_profile(remote_url: str, manifest: dict | None = None) -> tuple[str, dict]:
+    """Profil egress d'un remote : premier match gagne, casse ignoree (GitHub
+    l'ignore). Une cle `owner/nom` se compare au depot de l'URL par EGALITE :
+    en sous-chaine, `Nokido-labs/nokido` capterait tous les `Nokido-labs/nokido-*`
+    (renommage 2026-09-30 : nokido-private, nokido-workspace...). Toute autre cle
+    (hote, URL partielle) garde la semantique historique de sous-chaine."""
     manifest = manifest or load_manifest()
     name = manifest.get("default_profile", "public")
+    url = (remote_url or "").lower()
+    depot = _depot_de_l_url(remote_url)
     for sub, prof_name in (manifest.get("remote_profiles") or {}).items():
-        if sub and sub in (remote_url or ""):
+        if not sub:
+            continue
+        if _RE_CLE_DEPOT.match(sub):
+            cle = sub.lower()
+            touche = depot == (cle[:-4] if cle.endswith(".git") else cle)
+        else:
+            touche = sub.lower() in url
+        if touche:
             name = prof_name
             break
     return name, (manifest.get("profiles") or {}).get(name, _DEFAULT_MANIFEST["profiles"]["public"])

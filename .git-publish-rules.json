@@ -1,10 +1,10 @@
 {
   "_doc": "Manifeste du gate egress git souverain (app/forge_git_egress.py). default_profile=private bloque SEULEMENT les secrets (ne casse pas les push dev). Pour vos MIROIRS PUBLICS : ajoutez l'URL (ou une sous-chaine) dans remote_profiles -> 'public' afin d'activer le filtrage strict (scrub host/IP/path + chemins interdits). Bypass ponctuel : git push --no-verify.",
   "default_profile": "private",
-  "_doc_remote_profiles": "Premier match gagne sur une sous-chaine de l'URL du remote : 'Nokido-labs/nokido-dist' DOIT preceder 'Nokido-labs/nokido.git', car 'Nokido-labs/nokido' est une sous-chaine de 'Nokido-labs/nokido-dist'. ATTENTION : le profil 'public' regle le FILTRAGE egress (scrub + chemins interdits + cap 5 Mo), il ne change JAMAIS la visibilite GitHub du depot -- nokido-dist reste PRIVE tant que l'owner n'a pas donne un go explicite.",
+  "_doc_remote_profiles": "Premier match gagne, casse ignoree. Une cle 'owner/nom' designe UN depot (egalite avec le depot de l'URL, '.git' ignore) ; toute autre cle (hote, URL partielle) est une sous-chaine. Seuls les depots PUBLICS sont nommes ici : l'atelier source et les autres depots de l'organisation tombent dans default_profile=private, sans que ce fichier -- qui part au public -- les nomme. Plan 2026-09-30 : le depot de publication 'nokido-dist' devient la vitrine 'Nokido-labs/nokido' ; les deux noms sont couverts pour que le renommage ne fasse jamais sortir la vitrine du profil public. ATTENTION : le profil 'public' regle le FILTRAGE egress (scrub + chemins interdits + cap 5 Mo), il ne change JAMAIS la visibilite GitHub du depot.",
   "remote_profiles": {
     "Nokido-labs/nokido-dist": "public",
-    "Nokido-labs/nokido.git": "private"
+    "Nokido-labs/nokido": "public"
   },
   "proxy_allow_hosts": ["github.com", "codeberg.org", "gitlab.com", "ssh.github.com", "objects.githubusercontent.com"],
   "profiles": {

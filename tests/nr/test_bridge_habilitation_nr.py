@@ -185,7 +185,7 @@ def test_l_habilitation_emise_porte_ses_bornes(outil):
     outil.main(["--sujet", "action-essai", "--ttl-jours", "30", "--rejeu", "multi"])
     emis = _sortie(outil)
     assert emis["sub"] == "action-essai"
-    assert emis["resource"] == "Nokido-labs/nokido"
+    assert emis["resource"] == "Nokido-labs/nokido-private"   # atelier (2026-09-30)
     assert emis["replay"] == "multi"
     assert emis["jti"].startswith("bridge-"), "le jti doit etre tracable a l'emission"
     reste = emis["exp"] - time.time()

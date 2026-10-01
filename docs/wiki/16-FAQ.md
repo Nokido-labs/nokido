@@ -351,7 +351,7 @@ CI matrix : Ubuntu + macOS + Windows. See
 
 ### Where do I file an issue ?
 
-GitHub : <https://github.com/user/Nokido/issues>. Use the **Bug
+GitHub : <https://github.com/Nokido-labs/nokido/issues>. Use the **Bug
 report** or **Feature request** template. For security : private email
 (see above).
 
@@ -409,7 +409,7 @@ PRs is the best way to support the project.
   title  = {Nokido: An Autonomous, Local-First AI Operating System
             with Neuro-Symbolic Governance},
   year   = 2026,
-  url    = {https://github.com/user/Nokido}
+  url    = {https://github.com/Nokido-labs/nokido}
 }
 ```
 

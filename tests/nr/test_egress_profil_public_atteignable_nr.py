@@ -23,7 +23,10 @@ if str(ROOT) not in sys.path:
 from app import forge_git_egress as E  # noqa: E402
 
 URL_PUBLICATION = "https://github.com/Nokido-labs/nokido-dist.git"
-URL_TRAVAIL = "https://github.com/Nokido-labs/nokido.git"
+# Renommage 2026-09-30 : l'atelier source est `nokido-private`, et le nom
+# `Nokido-labs/nokido` revient a la vitrine publique (ex-nokido-dist).
+URL_TRAVAIL = "https://github.com/Nokido-labs/nokido-private.git"
+URL_VITRINE = "https://github.com/Nokido-labs/nokido.git"
 
 
 def test_remote_profiles_n_est_pas_vide():
@@ -180,21 +183,46 @@ def test_le_cap_de_taille_du_profil_public_reste_a_5_mo():
 
 
 def test_l_ordre_protege_de_l_ambiguite_de_sous_chaine():
-    # 'Nokido-labs/nokido' est une SOUS-CHAINE de 'Nokido-labs/nokido-dist'. Si l'entree
-    # du depot de travail passait en premier, `resolve_profile` (premier match gagne)
-    # capterait aussi les push de publication et les ferait partir en `private`, donc
-    # sans aucun scrub. L'ordre EST le garde-fou : ce test le verrouille.
+    # 'Nokido-labs/nokido' est une SOUS-CHAINE de tous les 'Nokido-labs/nokido-*'.
+    # En sous-chaine, la vitrine capterait l'atelier (qui partirait scrube) ou
+    # l'inverse (la vitrine partirait SANS scrub). Une cle `owner/nom` se compare
+    # donc au depot par EGALITE : ce test verrouille les deux sens.
     nom, _ = E.resolve_profile(URL_TRAVAIL)
     assert nom == "private", f"{URL_TRAVAIL} resout en {nom!r} au lieu de 'private'"
+    for voisin in ("nokido-workspace", "nokido-trust", "nokido-dist-sauvegarde"):
+        nom, _ = E.resolve_profile("https://github.com/Nokido-labs/%s.git" % voisin)
+        assert nom == "private", f"{voisin} capte par une cle voisine : {nom!r}"
 
-    cles = list((E.load_manifest().get("remote_profiles") or {}).keys())
-    assert "Nokido-labs/nokido-dist" in cles, "l'entree du depot de publication a disparu"
-    i_dist = cles.index("Nokido-labs/nokido-dist")
-    i_travail = next(
-        (i for i, k in enumerate(cles) if k in URL_TRAVAIL and "dist" not in k),
-        len(cles),
-    )
-    assert i_dist < i_travail, (
-        "ordre inverse : l'entree du depot de travail precede celle du depot de "
-        "publication et capterait ses push (premier match gagne)"
-    )
+
+def test_la_vitrine_resout_en_public_sous_toutes_ses_formes():
+    # Le renommage nokido-dist -> nokido ne doit JAMAIS faire sortir la vitrine du
+    # profil public : ni par le nouveau nom, ni par une casse differente, ni en ssh.
+    formes = (URL_VITRINE, "https://github.com/Nokido-labs/nokido",
+              "https://github.com/nokido-labs/nokido.git",
+              "git@github.com:Nokido-labs/nokido.git",
+              "https://github.com/Nokido-labs/nokido/",
+              URL_PUBLICATION, "https://github.com/nokido-labs/NOKIDO-DIST")
+    for url in formes:
+        nom, prof = E.resolve_profile(url)
+        assert nom == "public", f"{url} resout en {nom!r} au lieu de 'public'"
+        assert prof.get("scrub") is True, f"{url} : profil public sans scrub"
+
+
+def test_les_regles_publiees_ne_nomment_aucun_depot_prive():
+    # `.git-publish-rules.json` part au public : l'atelier et les autres depots de
+    # l'organisation doivent tomber dans default_profile, pas y etre nommes.
+    m = E.load_manifest()
+    assert m.get("default_profile") == "private"
+    for cle, profil in (m.get("remote_profiles") or {}).items():
+        assert profil == "public", f"depot prive nomme dans les regles publiees : {cle!r}"
+
+
+def test_une_cle_non_depot_garde_la_semantique_de_sous_chaine():
+    # Hote ou URL partielle : la comparaison reste une sous-chaine (casse ignoree).
+    manifeste = {"default_profile": "private",
+                 "remote_profiles": {"codeberg.org/user": "public"},
+                 "profiles": {"public": {"scrub": True}, "private": {"scrub": False}}}
+    nom, _ = E.resolve_profile("https://codeberg.org/user/x.git", manifeste)
+    assert nom == "public"
+    nom, _ = E.resolve_profile("https://github.com/user/x.git", manifeste)
+    assert nom == "private"

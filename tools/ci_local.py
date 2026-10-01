@@ -1070,6 +1070,8 @@ PURE_TESTS = [
     "tests/nr/test_lot_20260820_outils_nr.py",
     "tests/nr/test_memory_compactor_datation_nr.py",
     "tests/nr/test_capability_audit_nr.py",
+    "tests/nr/test_readme_pip_nr.py",
+    "tests/nr/test_doctor_vivant_nr.py",
     # Routage (21/08). La regle d'abstention de l'etage SNN est testee via la
     # fonction pure decide_from_rates : aucun service, aucun reseau, et les
     # tests qui exigent torch se marquent skip si torch manque -- la CI reste
@@ -2128,6 +2130,9 @@ PURE_TESTS = [
     "tests/nr/test_soif_bloquee_par_dependance_nr.py",
     "tests/nr/test_veille_modele_vivant_nr.py",
     "tests/nr/test_soif_choisit_son_traitement_nr.py",
+    "tests/nr/test_soif_examen_a_la_demande_nr.py",
+    "tests/nr/test_effecteurs_du_tri_nr.py",
+    "tests/nr/test_docs_deportes_hors_audit_nr.py",
     "tests/nr/test_medecin_lit_les_examens_nr.py",
     "tests/nr/test_critique_exige_deux_sondes_nr.py",
     "tests/nr/test_capteur_ram_superviseur_nr.py",

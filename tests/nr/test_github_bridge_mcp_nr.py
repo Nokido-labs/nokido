@@ -75,6 +75,10 @@ def adaptateur(monkeypatch):
     except Exception as exc:  # noqa: BLE001
         pytest.fail("l'adaptateur ne s'importe pas : %s: %s"
                     % (type(exc).__name__, exc))
+    # Depot d'ESSAI (2026-09-30) : les tests du mecanisme ne suivent pas le nom du
+    # depot reel, verrouille a part (test_la_description_nomme_le_depot_reel).
+    monkeypatch.setattr(module.PONT, "DEPOTS_AUTORISES",
+                        frozenset({"Nokido-labs/nokido"}))
     # une habilitation de processus valide, signee par la passerelle elle-meme
     import time as _t
     monkeypatch.setenv("NOKIDO_BRIDGE_HABILITATION", module.PONT.forger_capacite({
@@ -167,6 +171,18 @@ def test_le_depot_reste_celui_de_la_liste_blanche(adaptateur):
     """L'adaptateur n'elargit pas l'allowlist : il n'en porte pas."""
     assert adaptateur.PONT.DEPOTS_AUTORISES == frozenset({"Nokido-labs/nokido"})
     assert "frozenset({" not in _source(), "l'adaptateur porte sa propre liste"
+
+
+def test_la_description_nomme_le_depot_de_la_liste_blanche(adaptateur, monkeypatch):
+    """2026-09-30 : c'est par la description MCP que ChatGPT apprend la valeur de
+    `repo`. Elle la LIT dans la liste blanche du pont : un renommage s'y propage
+    sans configuration tenue a la main cote client."""
+    monkeypatch.setattr(adaptateur.PONT, "DEPOTS_AUTORISES",
+                        frozenset({"Nokido-labs/nokido-private"}))
+    for nom in adaptateur.outils_exposes():
+        texte = adaptateur.description_outil(nom)
+        assert "Nokido-labs/nokido-private" in texte, texte
+        assert "ecriture" in texte.lower()
 
 
 def test_l_habilitation_vient_du_processus_pas_de_l_appelant(adaptateur):

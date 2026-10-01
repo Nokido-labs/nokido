@@ -60,8 +60,14 @@ def _commandes() -> str:
     desarmer, donc on corrige l'instrument, pas le texte qui avait raison.
 
     Ce qu'on cherche est ce qu'un lecteur COPIERAIT : le contenu des blocs ``` .
+
+    Le bloc GENERE `<!-- PIP:BEGIN ... -->` est exclu (decision owner 2026-10-01) :
+    il n'annonce pip que lorsque PyPI SERT une version -- donc apres la preuve trois
+    OS de release.yml -- et `tools/forge_readme_pip.py` en garde l'exactitude. Hors
+    de ce bloc, la regle d'ici reste entiere.
     """
-    return "\n".join(re.findall(r"```[a-zA-Z]*\n(.*?)```", _readme(), re.S))
+    hors_bloc = re.sub(r"<!-- PIP:BEGIN .*?<!-- PIP:END -->", "", _readme(), flags=re.S)
+    return "\n".join(re.findall(r"```[a-zA-Z]*\n(.*?)```", hors_bloc, re.S))
 
 
 def test_le_readme_ne_promet_aucune_installation_par_pip():

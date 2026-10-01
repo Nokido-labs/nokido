@@ -56,7 +56,7 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "RAG" / "embeddings.db"
-GH_REPO = os.environ.get("LAFORGE_GH_REPO", "user/nokido")
+GH_REPO = os.environ.get("LAFORGE_GH_REPO", "Nokido-labs/nokido-private")
 TASKS_DB = ROOT / "sandbox" / "tasks.db"
 SUPERREPO = ROOT.parent
 

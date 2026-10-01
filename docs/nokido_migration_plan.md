@@ -64,7 +64,7 @@ Renommer les éléments suivants dans `%NOKIDO_ROOT%\` :
 Il y a deux approches possibles pour les centaines de fichiers `forge_*` dans `app/` :
 
 * **Option A (Recommandée - Restructuration propre par sous-packages)** :
-  Suivre la table de correspondance déjà définie dans [app/MIGRATION_PLAN.md](../app/MIGRATION_PLAN.md) pour déplacer les fichiers vers leurs dossiers respectifs (`core/`, `llm/`, `ui/`, `orchestration/`, `security/`, `hardware/`, `ctf/`) en supprimant le préfixe `forge_` ou en le remplaçant par `nokido_` (ex: `forge_rag_engine.py` ➔ `core/rag_engine.py`).
+  Suivre la table de correspondance interne (déportée hors de ce dépôt le 2026-09-30) pour déplacer les fichiers vers leurs dossiers respectifs (`core/`, `llm/`, `ui/`, `orchestration/`, `security/`, `hardware/`) en supprimant le préfixe `forge_` ou en le remplaçant par `nokido_` (ex: `forge_rag_engine.py` ➔ `core/rag_engine.py`).
   
 * **Option B (Directe - Simple remplacement de préfixe)** :
   Renommer tous les fichiers de `app/` commençant par `forge_` par le préfixe `nokido_` (ex: `forge_rag_engine.py` ➔ `nokido_rag_engine.py`).

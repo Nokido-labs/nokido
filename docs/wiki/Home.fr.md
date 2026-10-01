@@ -71,7 +71,7 @@ lire [docs/ARCHITECTURE.md](../ARCHITECTURE.md).
 | Dashboard RBAC | <http://127.0.0.1:7400/rbac> |
 | Endpoint health | <http://127.0.0.1:8766/health> |
 | Endpoint MCP | <http://127.0.0.1:8766/mcp> |
-| Repo | <https://github.com/user/Nokido> |
+| Repo | <https://github.com/Nokido-labs/nokido> |
 | Contact sécurité | onglet *Security* → *Report a vulnerability* |
 
 ---

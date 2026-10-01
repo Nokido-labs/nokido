@@ -65,6 +65,28 @@ def _exiger_un_disque_peuple():
     if not presents:
         pytest.skip("aucun *.heartbeat dans %s (clone frais ?) : l'enumeration n'a "
                     "rien a enumerer, ce n'est pas une panne du capteur" % fhd.SANDBOX)
+    # PEUPLE, pas juste NON VIDE (mesure 2026-09-30). Le renommage du depot a cree un
+    # dossier runner NEUF `_work/nokido-private/sandbox` ou 10 heartbeats TRANSITOIRES
+    # (ecrits par un autre job), aucun adosse a services.toml, etaient presents. L'audit
+    # ne DEPASSAIT alors pas la liste en dur (test 1) et aucune decision n'etait resoluble
+    # (test 2) : deux ROUGES sur un disque simplement PARTIEL, pas sur une panne du capteur.
+    # Le garde exige donc ce que les tests mesurent vraiment : assez de heartbeats HORS liste
+    # en dur pour que l'enumeration la depasse, ET au moins un heartbeat DECLARE (sinon
+    # `eteint_par_decision` est None partout). En deca -> skip, jamais un faux echec.
+    en_dur = set(fhd._WORKER_HEARTBEATS.values())
+    seuil = 2 * len(en_dur)
+    decouverts = [p for p in presents if p.name not in en_dur]
+    if len(decouverts) <= seuil:
+        pytest.skip("sandbox PARTIEL : %d heartbeat(s) hors liste en dur (seuil %d) — dossier "
+                    "runner frais / etat transitoire, l'enumeration ne peut pas depasser la "
+                    "liste en dur ; ce n'est pas une panne du capteur" % (len(decouverts), seuil))
+    try:
+        declares = {Path(v).name for v in fhd._hb_declares_par_services_toml().values()}
+    except Exception:  # noqa: BLE001 - registre illisible : on ne pretend pas a une provenance
+        declares = set()
+    if not any(p.name in declares for p in presents):
+        pytest.skip("aucun heartbeat present n'est adosse a services.toml : aucune decision "
+                    "resoluble (etat transitoire) — ce n'est pas une panne du registre")
     return presents
 
 
@@ -144,3 +166,48 @@ def test_un_organe_eteint_par_decision_n_est_pas_compte_comme_mort():
     for nom, h in w.items():
         if h.get("alive") is True:
             assert not (h.get("eteint_par_decision") is True and h.get("alive") is False)
+
+
+def _sandbox_avec(tmp_path, monkeypatch, noms):
+    import forge_health_diagnostic as fhd  # noqa: PLC0415
+
+    monkeypatch.setattr(fhd, "SANDBOX", tmp_path)
+    for nom in noms:
+        (tmp_path / nom).write_text('{"ts": 1790000000.0}', encoding="utf-8")
+    return fhd
+
+
+def test_le_garde_SKIP_sur_un_dossier_runner_partiel(tmp_path, monkeypatch):
+    """Le cas ROUGE du 2026-09-30 : quelques heartbeats transitoires, hors registre."""
+    import pytest  # noqa: PLC0415
+
+    _sandbox_avec(tmp_path, monkeypatch,
+                  ["transitoire_1.heartbeat", "transitoire_2.heartbeat", "transitoire_3.heartbeat"])
+    with pytest.raises(pytest.skip.Exception):
+        _exiger_un_disque_peuple()
+
+
+def test_le_garde_PASSE_sur_un_disque_reellement_peuple(tmp_path, monkeypatch):
+    import forge_health_diagnostic as fhd  # noqa: PLC0415
+
+    en_dur = set(fhd._WORKER_HEARTBEATS.values())
+    faux = ["organe_%d.heartbeat" % i for i in range(3 * len(en_dur))]
+    fhd_mod = _sandbox_avec(tmp_path, monkeypatch, faux + ["declare.heartbeat"])
+    # un heartbeat DECLARE par services.toml, sans dependre de sa lisibilite reelle
+    monkeypatch.setattr(fhd_mod, "_hb_declares_par_services_toml",
+                        lambda: {"svc": tmp_path / "declare.heartbeat"})
+    presents = _exiger_un_disque_peuple()
+    assert len(presents) >= 3 * len(en_dur)
+
+
+def test_le_garde_SKIP_si_aucun_heartbeat_n_est_declare(tmp_path, monkeypatch):
+    import pytest  # noqa: PLC0415
+
+    import forge_health_diagnostic as fhd  # noqa: PLC0415
+
+    en_dur = set(fhd._WORKER_HEARTBEATS.values())
+    faux = ["inconnu_%d.heartbeat" % i for i in range(3 * len(en_dur))]
+    _sandbox_avec(tmp_path, monkeypatch, faux)
+    monkeypatch.setattr(fhd, "_hb_declares_par_services_toml", lambda: {})
+    with pytest.raises(pytest.skip.Exception):
+        _exiger_un_disque_peuple()

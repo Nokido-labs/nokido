@@ -56,8 +56,8 @@ docs/HOWTO-Reproduce-Injection.md          export-ignore
 docs/INCIDENT-*-INJECTION.md               export-ignore
 docs/POC-MCP-SCHEMA-LEAK-*.md              export-ignore
 docs/poc_mcp_injection.py                  export-ignore
-docs/STRATEGY_AMD_BUGBOUNTY.md             export-ignore
-docs/SECURITY_SEPARATION_PLAN.md           export-ignore
+# 2026-09-30 : les plans internes de reorganisation sont DEPORTES hors de ce depot
+# (preserves ailleurs, prives) -- ils ne sont donc plus ni ici ni sur la vitrine.
 # Scripts scratch jetables (fuitent emails gmail perso, non essentiels)
 tools/tmp_*.py                             export-ignore
 app/tmp_*.py                               export-ignore

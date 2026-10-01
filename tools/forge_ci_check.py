@@ -28,7 +28,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_REPO = "user/nokido"
+DEFAULT_REPO = "Nokido-labs/nokido-private"   # atelier source (renomme le 2026-09-30)
 API = "https://api.github.com"
 
 # Console Windows = cp1252 : sans ca, tiret cadratin et accents sortent en mojibake

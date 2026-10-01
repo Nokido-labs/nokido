@@ -613,6 +613,44 @@ def submit_candidate_to_judge(ref_exp: str, rel: str, nouveau: str,
 
 
 _DOCS_HISTORIQUES = ("/archive/", "/wiki/", "/launch/")
+_DEPORTE_CACHE: dict = {"set": frozenset(), "ts": 0.0}
+
+
+def _docs_deportes() -> frozenset:
+    """Docs marques `export-ignore` -- DEPORTES du produit public (memorise 60 s, minuscules).
+
+    AUTORITE UNIQUE : les decisions `export-ignore` de `.gitattributes` (owner). Un doc
+    deporte du produit public n'est pas une intention NON TENUE de ce produit -- et son
+    lexique n'a rien a faire dans le registre d'evolution ni le RAG. Mesure 2026-09-30 :
+    l'audit doc<->code scannait des plans internes deportes et ramenait leur vocabulaire en
+    contexte, ce qui re-declenchait un classifieur. On REUTILISE la separation existante
+    (anti-dup), jamais une 2e liste.
+
+    `git` indisponible -> ensemble VIDE : best-effort, on ne sur-exclut pas (la protection
+    PUBLIQUE, elle, tient par `git archive` qui honore export-ignore, independamment d'ici)."""
+    import subprocess as _sp
+
+    if time.time() - _DEPORTE_CACHE["ts"] < 60:
+        return _DEPORTE_CACHE["set"]
+    # -c safe.directory=* : le service tourne sous un autre compte que le proprietaire du
+    # depot -> sans lui, git rend « dubious ownership » (rc 128) et l'ensemble serait vide.
+    _g = ["git", "-c", "safe.directory=*", "-C", str(ROOT)]
+    depo: set = set()
+    try:
+        ls = _sp.run([*_g, "ls-files", "-z", "*.md"], capture_output=True, timeout=15)
+        mds = [p for p in ls.stdout.decode("utf-8", "replace").split("\0") if p]
+        if mds:
+            ca = _sp.run([*_g, "check-attr", "export-ignore", "-z", "--stdin"],
+                         input="\0".join(mds).encode(), capture_output=True, timeout=20)
+            toks = ca.stdout.decode("utf-8", "replace").split("\0")
+            for i in range(0, len(toks) - 2, 3):     # -z : path \0 attr \0 value
+                if toks[i + 2] == "set":
+                    depo.add(toks[i].replace("\\", "/").lower())
+    except Exception as e:  # noqa: BLE001 - git muet => aucun doc exclu, on le DIT
+        log.warning("[unmet_intention] export-ignore illisible (%s) : aucun doc deporte exclu",
+                    type(e).__name__)
+    _DEPORTE_CACHE.update(ts=time.time(), set=frozenset(depo))
+    return _DEPORTE_CACHE["set"]
 
 
 def _est_doc_d_intention(rel: str) -> bool:
@@ -630,6 +668,10 @@ def _est_doc_d_intention(rel: str) -> bool:
     if not rel.endswith(".md") or rel.startswith("/memory/"):
         return False
     if any(h in rel for h in _DOCS_HISTORIQUES) or "passation" in rel or "session-" in rel:
+        return False
+    # Doc DEPORTE du produit public (export-ignore) : ni une intention de ce produit, ni un
+    # lexique a ramener en contexte/RAG. Consulte l'autorite existante, jamais une 2e liste.
+    if rel.lstrip("/") in _docs_deportes():
         return False
     nom = rel.rsplit("/", 1)[-1][:-3]
     mots = set(_re.split(r"[^a-z0-9]+", nom))
@@ -3920,6 +3962,186 @@ def pat_evolution_triage() -> dict:
             "experiences_couvertes": sum(len(v) for v in dossiers.values()),
             "par_traitement": par_traitement, "reexamen_par_verdict": par_verdict,
             "lignes_illisibles": illisibles}
+
+
+# ── EFFECTEURS DU TRI (owner 2026-09-30 : « on arme 1 et 2 ») ─────────────────────────────────
+# Le tri decidait A BLANC depuis le 25/09. Mesure du jour avant d'armer : les 3 decisions
+# RELANCE_OU_OWNER forment UN dossier, deja RESOLU ou CHOIX_DE_CONFIGURATION ; les 23
+# ROUTEUR_A_VERIFIER portent sur UN fournisseur, `mistral`, TOUJOURS_EN_ECHEC depuis le 27/09,
+# sans AUCUNE ligne dans motivation_failures : le routeur ne l'a jamais ecarte.
+# Deux effecteurs sont armes, les plus surs ; chacun agit sur un RE-EXAMEN du jour :
+#   relance : organe DECLARE actif, port FERME A L'INSTANT, et service que le superviseur
+#             rapporte ARRETE -- jamais `sleeping` (la regulation l'a endormi), jamais un pilier
+#             du keeper (il les eteint quand ils ne servent plus) : relancer l'un ou l'autre
+#             reproduirait l'anti-phase de la soif du 30/09. UNE demande par service et par
+#             24 h ; toujours ferme au passage suivant -> OWNER_REQUIS, une fois.
+#   routeur : LECTURE SEULE. Le fournisseur toujours en echec est-il ecarte par le routeur
+#             (dead_end de forge_motivation, la ou le routeur le lit) ? Le verdict est ecrit au
+#             registre ; aucun marquage : poser un dead_end reste une decision owner.
+# Desarmement sans toucher au code : LAFORGE_EFFECTEUR_RELANCE=0 / LAFORGE_EFFECTEUR_ROUTEUR=0.
+_EFFECTEUR_TTL_S = 24 * 3600
+_STATUTS_ARRETES = frozenset({"stopped", "crashed", "failed", "exited", "dead"})
+
+
+def _statuts_superviseur() -> dict:
+    """{service: statut} lu au superviseur ; {} si illisible : on n'agit pas a l'aveugle."""
+    import urllib.request as _u
+
+    try:
+        with _u.urlopen("http://127.0.0.1:8765/supervisor/status", timeout=8) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:  # noqa: BLE001 - statut inconnu => abstention, dite dans le resultat
+        log.warning("[effecteurs] superviseur illisible : %s", type(e).__name__)
+        return {}
+    s = d.get("services") if isinstance(d, dict) else d
+    if isinstance(s, dict):
+        return {k: (v.get("status") if isinstance(v, dict) else v) for k, v in s.items()}
+    return {x.get("name"): x.get("status") for x in (s or []) if isinstance(x, dict)}
+
+
+def _piliers_du_keeper() -> set:
+    try:
+        from nokido_agent.tools.forge_llama_keeper import _PILIERS
+
+        return {nom for nom, _port, _drapeau in _PILIERS}
+    except Exception as e:  # noqa: BLE001 - repli sur les piliers CONNUS, jamais sur « aucun »
+        log.warning("[effecteurs] piliers du keeper illisibles (%s) : repli", type(e).__name__)
+        return {"NokidoLlamaEmbed", "NokidoLlamaReranker"}
+
+
+def _registre_lu() -> tuple:
+    """(experiences par exp_id, decisions de tri, actes d'effecteur) du registre."""
+    exps, tri, actes = {}, [], []
+    try:
+        lignes = Path(_EVOLUTION_LEDGER).read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return exps, tri, actes
+    for ligne in lignes:
+        try:
+            e = json.loads(ligne)
+        except ValueError:
+            continue    # muet-ok : le tri compte deja les lignes illisibles de ce registre
+        if e.get("kind") == "triage":
+            tri.append(e)
+        elif e.get("kind") == "effecteur":
+            actes.append(e)
+        if e.get("exp_id"):
+            exps[e["exp_id"]] = e
+    return exps, tri, actes
+
+
+def _acte_recent(actes, effecteur: str, cible: str):
+    """Dernier acte de cet effecteur sur cette cible dans les 24 h, sinon None."""
+    for a in reversed(actes):
+        if a.get("effecteur") == effecteur and a.get("cible") == cible:
+            try:
+                t = time.mktime(time.strptime(str(a.get("ts"))[:19], "%Y-%m-%dT%H:%M:%S"))
+            except ValueError:
+                return a    # date illisible : tenue pour recente -> on s'abstient
+            return a if time.time() - t < _EFFECTEUR_TTL_S else None
+    return None
+
+
+def _effecteur_relance(decision: dict, lot: list, actes: list) -> list:
+    reex = _reexaminer("organ_down", lot)      # MAINTENANT, avec l'instrument du producteur
+    fermes = [c for c, v in (reex.get("par_cible") or {}).items() if v == "FERME_A_L_INSTANT"]
+    if not fermes:
+        return []
+    statuts = _statuts_superviseur()
+    piliers = _piliers_du_keeper()
+    par_port = _politique_des_ports().get("par_port") or {}
+    faits = []
+    for cible in fermes:
+        try:
+            port = int(str(cible).rsplit(":", 1)[1])
+        except (IndexError, ValueError):
+            faits.append({"cible": cible, "acte": "ABSTENTION", "motif": "port illisible"})
+            continue
+        for svc in (par_port.get(port) or {}).get("actifs") or []:
+            statut = statuts.get(svc)
+            if svc in piliers or statut not in _STATUTS_ARRETES:
+                faits.append({"service": svc, "port": port, "acte": "ABSTENTION",
+                              "motif": "pilier du keeper" if svc in piliers else "statut %r" % statut})
+                continue
+            deja = _acte_recent(actes, "relance", svc)
+            if deja and deja.get("status") == "OWNER_REQUIS":
+                continue    # deja remonte a l'owner dans les 24 h : ne pas le redire chaque heure
+            if deja:
+                acte, detail = "OWNER_REQUIS", "deja relance (%s) et toujours ferme" % deja.get("ts")
+            else:
+                try:
+                    from nokido_agent.tools.forge_ensure_service import ensure
+
+                    r = ensure(svc, "running")
+                    ok = bool((r or {}).get("success")) if isinstance(r, dict) else bool(r)
+                    acte, detail = ("RELANCE_DEMANDEE" if ok else "RELANCE_REFUSEE"), str(r)[:200]
+                except Exception as e:  # noqa: BLE001 - l'echec est ecrit au registre
+                    acte, detail = "RELANCE_ECHOUEE", ("%s: %s" % (type(e).__name__, e))[:200]
+            record_evolution_experience({
+                "kind": "effecteur", "effecteur": "relance", "cible": svc, "status": acte,
+                "port": port, "statut_superviseur": statut,
+                "dossier": decision.get("dossier"), "detail": detail})
+            faits.append({"service": svc, "port": port, "acte": acte})
+    return faits
+
+
+def _effecteur_routeur(decision: dict, lot: list, actes: list) -> list:
+    reex = _reexaminer("usage_findings", lot)
+    faits = []
+    for outil, v in (reex.get("par_cible") or {}).items():
+        if v != "TOUJOURS_EN_ECHEC" or _acte_recent(actes, "routeur", outil):
+            continue
+        try:
+            from nokido_agent.app import forge_motivation as _mot
+
+            con = sqlite3.connect("file:%s?mode=ro" % _mot.DEFAULT_DB, uri=True, timeout=10)
+            try:
+                marques = con.execute(
+                    "SELECT target, failure_count, dead_end FROM motivation_failures WHERE method=?",
+                    ("llm_call:%s" % outil,)).fetchall()
+            finally:
+                con.close()
+            ecarte = [t for t, _n, de in marques if de]
+            verdict = "ECARTE_PAR_LE_ROUTEUR" if ecarte else "NON_ECARTE"
+            detail = {"dead_end_sur": ecarte, "marques": len(marques)}
+        except Exception as e:  # noqa: BLE001 - une lecture ratee est ILLISIBLE, jamais NON
+            verdict, detail = "ILLISIBLE", {"erreur": ("%s: %s" % (type(e).__name__, e))[:160]}
+        record_evolution_experience({
+            "kind": "effecteur", "effecteur": "routeur", "cible": outil, "status": verdict,
+            "dossier": decision.get("dossier"),
+            "mesure": (reex.get("mesures") or {}).get(outil), "detail": detail})
+        faits.append({"outil": outil, "verdict": verdict})
+    return faits
+
+
+@register_pattern(
+    "evolution_effecteurs",
+    interval_sec=3600,
+    description=(
+        "Effecteurs ARMES du tri (owner 2026-09-30) : relance d'un organe declare actif, ferme "
+        "et ARRETE (jamais endormi par la regulation, jamais un pilier du keeper) ; verification "
+        "LECTURE SEULE du routeur pour un fournisseur toujours en echec."
+    ),
+    preferred_window=None,
+)
+def pat_evolution_effecteurs() -> dict:
+    from nokido_agent.app.forge_drapeau_env import actif
+
+    exps, tri, actes = _registre_lu()
+    dernieres: dict = {}
+    for d in tri:
+        if d.get("treatment") in ("RELANCE_OU_OWNER", "ROUTEUR_A_VERIFIER"):
+            dernieres[d.get("dossier")] = d        # la decision la plus recente fait foi
+    armes = {"relance": actif("LAFORGE_EFFECTEUR_RELANCE", True),
+             "routeur": actif("LAFORGE_EFFECTEUR_ROUTEUR", True)}
+    res = {"ok": True, "armes": armes, "relance": [], "routeur": []}
+    for d in dernieres.values():
+        lot = [exps[x] for x in (d.get("experiences") or []) if x in exps]
+        if d["treatment"] == "RELANCE_OU_OWNER" and armes["relance"]:
+            res["relance"] += _effecteur_relance(d, lot, actes)
+        elif d["treatment"] == "ROUTEUR_A_VERIFIER" and armes["routeur"]:
+            res["routeur"] += _effecteur_routeur(d, lot, actes)
+    return res
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-DEPOT = "user/nokido"
+DEPOT = "Nokido-labs/nokido-private"   # atelier source (renomme le 2026-09-30)
 CLES_COFFRE = ("GITHUB_TOKEN", "GITHUB_MODELS_TOKEN")
 TIMEOUT = 15
 

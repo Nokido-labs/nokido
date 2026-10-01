@@ -325,7 +325,7 @@ def ctrl_ui_gate_arme():
             provenance = "jeton du coffre"
     except Exception as e:  # noqa: BLE001 - coffre indisponible : on tente l'auth native
         provenance = "coffre injoignable (%s), auth native de gh" % type(e).__name__
-    r = subprocess.run(["gh", "api", "repos/user/nokido/actions/secrets",
+    r = subprocess.run(["gh", "api", "repos/Nokido-labs/nokido-private/actions/secrets",
                         "--jq", ".secrets[].name"],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", timeout=60, env=env)

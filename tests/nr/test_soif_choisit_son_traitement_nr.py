@@ -84,6 +84,14 @@ def _cycle(d, monkeypatch, objectif):
     monkeypatch.setattr(d.ev, "coverage_dense", lambda q: {"ok": True, "score": -1.5, "gap": False})
     monkeypatch.setattr(d, "_propose_gap", lambda *a, **k: None)
     monkeypatch.setattr(d, "AUTO_VEILLE", True)
+    # Examen declenche SANS reveiller de pilier ni toucher le vrai sandbox/ (2026-09-30 :
+    # l'examen exteroceptif a sa porte, la decision de traitement est testee derriere).
+    import tempfile
+    _tmp = Path(tempfile.mkdtemp(prefix="soif_nr_"))
+    monkeypatch.setattr(d, "_decision_examen", lambda besoin: "essai")
+    monkeypatch.setattr(d, "_reveiller_piliers", lambda *a, **k: (True, "essai"))
+    monkeypatch.setattr(d, "_marque_dernier_examen", lambda: _tmp / "soif_dernier_examen")
+    monkeypatch.setattr(d, "_demande_manuelle", lambda: _tmp / "soif_examen.wanted")
     journal, veilles = [], []
     monkeypatch.setattr(d, "_journal", journal.append)
     monkeypatch.setattr(d.ev, "veille_on_gap", lambda q, **k: veilles.append(q) or {"ok": True, "result": {}})

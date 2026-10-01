@@ -86,7 +86,7 @@ Aucune donnée ne quitte la machine sans passer par deux barrières actives :
 
 ### 3.2 Local-first par défaut
 
-Le hub écoute sur `127.0.0.1`. Aucune télémétrie. L'ouverture cloud est **opt-in par provider**, jamais globale. Les 26 providers cloud sont là pour la qualité quand tu en as besoin — pas comme dépendance du chemin critique. La cascade `forge_llm_router` retombe toujours sur Ollama / llama.cpp local en cas de panne.
+Le hub écoute sur `127.0.0.1`. Aucune télémétrie. L'ouverture cloud est **opt-in par provider**, jamais globale. Les fournisseurs (20 familles, 39 slots routés, locaux compris — mesure du 2026-09-30) sont là pour la qualité quand tu en as besoin — pas comme dépendance du chemin critique. La cascade `forge_llm_router` retombe toujours sur Ollama / llama.cpp local en cas de panne.
 
 ### 3.3 Mémoire persistante par construction
 
@@ -134,7 +134,7 @@ Les opérations longues (>70 s, multi-étapes, embedding batch, scan de repo, ve
 
 - **`run` action=python avec `detach=True`** → process spawné, retour immédiat d'un `job_id`, le client peut poller plus tard.
 - **`task assign agent=...`** → mailbox persistante, un daemon de rôle (`gemini_poll_daemon`, `claude_poll_daemon`, `multi_llm_daemon`) consomme la queue en arrière-plan.
-- **`orchestrate task="..."`** → boucle agentique côté serveur, exécutée par un LLM local (Qwen2.5-Coder via llama-server :8091), résultat unique consolidé.
+- **`orchestrate task="..."`** → boucle agentique côté serveur, exécutée par un LLM local (Qwen2.5-Coder via llama-server :8091, réveillé à la demande), résultat unique consolidé.
 - **`forge_auto_evolution_loop`, `forge_auto_compact`, `forge_embed_auto_trigger`** → daemons NSSM/systemd qui tournent **24/24** sans aucun client connecté. La mémoire RAG s'enrichit pendant que tu dors.
 
 → Tu n'as pas à payer GPT-4 pour qu'il regarde tes daemons travailler. **Ils travaillent. Tu lis le résultat.**
@@ -209,7 +209,7 @@ L'auto-modification sans frein, c'est la pathologie qu'on appelle **cancer**. No
 | | Keeper des cerveaux | `tools/forge_llama_keeper.py` — piliers RAG et drain de vectorisation on-demand (intention × RAM) |
 | **Immunitaire** | Videur (identité × ring) | `app/forge_videur.py` — le ring est RÉSOLU PAR REQUÊTE, plancher anti-spoof sur en-tête non authentifié |
 | **Observabilité** | Axone critique | `app/forge_critical_events.py` — alertes persistantes qui survivent au restart |
-| | Superviseur | `proxy_deno/core/supervisor.ts` — 54 services nommés, deps, defer, déclaration d'intention |
+| | Superviseur | `proxy_deno/core/supervisor.ts` — 62 services nommés au 2026-09-30, deps, defer, déclaration d'intention |
 
 ---
 
@@ -242,7 +242,7 @@ Nokido ne sort pas du néant. Elle se nourrit explicitement de :
 - **`pymdp`** (Heins) — implémentation Active Inference pour Python.
 
 ### Origines pratiques
-- **Anthropic** *Model Context Protocol* (2024) — le protocole hub. Nokido expose 25 tools MCP.
+- **Anthropic** *Model Context Protocol* (2024) — le protocole hub. Nokido expose plusieurs dizaines de tools MCP (52 vus par un client Claude Code le 2026-09-30 ; le périmètre varie selon le client).
 - **Cline / Claude Code / Codex CLI / Gemini CLI** — clients de référence pour valider la portabilité.
 
 → Nokido **n'invente pas**. Elle **compose**.
@@ -323,7 +323,7 @@ Pour éviter les malentendus :
 - **Pas un wrapper de l'API OpenAI.** Le routage cloud est *un* des chemins, pas le seul.
 - **Pas un chatbot.** Le LLM est un module parmi d'autres ; le hub, l'AMI strategist, le firewall sémantique fonctionnent sans lui.
 - **Pas un produit fini.** Branche `alpha`, en évolution active.
-- **Pas une boîte noire.** Tout est lisible : 378 modules Python tracés, AGPLv3, `CLAUDE.md` qui documente le protocole interne.
+- **Pas une boîte noire.** Tout est lisible : 1 770 modules Python recensés dans `app/` et `tools/` (2026-09-30), AGPLv3, `CLAUDE.md` qui documente le protocole interne.
 - **Pas un outil de surveillance.** Aucune télémétrie, pas même opt-in. Si tu veux des stats, elles sont dans **ta** base.
 - **Pas un cluster.** Un seul nœud par utilisateur. Le clustering edge (`roadmap_edge_inference_fleet`) est étudié mais reste **horizontal entre tes propres machines**, pas dans un cloud opérateur.
 
@@ -347,7 +347,7 @@ Pour éviter les malentendus :
 
 Depuis la publication initiale de ce manifeste, l'architecture a muté d'une métaphore vers une réalité d'ingénierie stricte :
 - **Clôture Opérationnelle (M2M)** : La mémoire (RAG) est désormais physiquement séparée du système nerveux central (Hub/Registry). Le flux de pensée et l'archive sont deux organes distincts.
-- **Taxonomie Anatomique** : L'organisme connaît son propre corps. L'intégralité des modules, daemons, et hooks (>140 scripts) déclarent formellement à quel organe ils appartiennent. La CI refuse la compilation de tout module orphelin.
+- **Taxonomie Anatomique** : L'organisme connaît son propre corps. L'intégralité des modules de `app/` et `tools/` — daemons et hooks compris, 1 770 au recensement du 2026-09-30, 0 non classé — déclarent formellement à quel organe ils appartiennent. La CI refuse tout nouveau `forge_*.py` sans déclaration d'organe (gate `anatomie`, bloquant depuis le 2026-09-06).
 - **Homéostasie de Survie** : L'autopoïèse n'est plus théorique. Nokido surveille l'empreinte de ses propres organes (profil de *tick*, compteurs d'audit) et s'ampute dynamiquement (désactivation des balayeurs et modules non-critiques) pour protéger son *runtime* sous forte charge.
 - **Élagage Circadien** : Le sommeil paradoxal n'est plus une simple suppression de logs ; il est asynchrone, épargne les ponts STDIO vitaux, et attend activement que le cortex (Hub) écoute pour resynchroniser l'organisme.
 

@@ -93,6 +93,18 @@ def _charger_pont():
 PONT = _charger_pont()
 
 
+def description_outil(nom: str) -> str:
+    """Description MCP d'un outil : elle NOMME le depot autorise, lu dans la liste
+    blanche du pont (l'adaptateur n'en porte aucune).
+
+    C'est le seul canal par lequel un client -- ChatGPT -- apprend la valeur de
+    `repo` : un nom tenu a la main cote client casse en silence au premier
+    renommage (2026-09-30 : `Nokido-labs/nokido` devenu `nokido-private`)."""
+    return ("Lecture seule GitHub (%s) sur le depot autorise : %s. "
+            "Aucune ecriture n'existe."
+            % (nom, ", ".join(sorted(PONT.DEPOTS_AUTORISES))))
+
+
 def outils_exposes() -> tuple:
     """La surface MCP EST celle de la passerelle -- elle n'en est pas une copie.
 
@@ -288,8 +300,7 @@ def construire_serveur(transport: str = "stdio", port: int = 0, oauth=None):
     serveur = FastMCP("nokido-github-readonly", **reglages)
 
     def _enregistrer(nom: str):
-        description = ("Lecture seule GitHub (%s) sur le depot autorise. "
-                       "Aucune ecriture n'existe." % nom)
+        description = description_outil(nom)
 
         async def _outil(repo: str, branch: str = "", sha: str = "",
                          base: str = "", head: str = "", path: str = "",

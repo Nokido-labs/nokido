@@ -113,9 +113,8 @@ python tools/forge_knowledge_pack_import.py --download
 ```
 
 Downloads `latest` release asset, verifies SHA256 (manifest-embedded),
-imports into the local RAG base. Its default repository is `user/Nokido`, the planned
-public mirror ; until it exists, pass `--repo` (the project lives at `Nokido-labs/nokido`,
-private for now) or use Option C.
+imports into the local RAG base. Its default repository is `Nokido-labs/nokido`, the
+public showcase that carries the releases ; until it is public, use Option C.
 
 ### Option B — Specific version
 

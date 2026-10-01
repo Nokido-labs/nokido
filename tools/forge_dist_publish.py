@@ -54,7 +54,11 @@ TMP = Path("C:/tmp") if sys.platform == "win32" else Path("/tmp")
 # On pointe donc le nom canonique. Cf blackboard CLAUDE_ram_churn_boot_2026-07-17 pour la
 # demonstration de ce qu'un lookup perime coute quand personne ne le voit.
 DEFAULT_DIST_PATH = TMP / "nokido-dist"
-# 2026-09-20 (owner) : la cible VERIFIEE est GitHub `Nokido-labs/nokido-dist`.
+# 2026-09-30 (owner) : la VITRINE publique est GitHub `Nokido-labs/nokido` (ex-nokido-dist,
+# renomme ce jour, id 1276398399 inchange ; l'ancien nom redirige). L'atelier source est
+# `Nokido-labs/nokido-private`. Le promoteur vise la VITRINE ; le dist-manifest ne nomme
+# jamais l'atelier (SOURCE_PUBLIEE).
+# 2026-09-20 (owner) : la cible VERIFIEE etait GitHub `Nokido-labs/nokido-dist`.
 # Codeberg etait declare « primary (sovereign) » alors qu'il n'est PAS lisible
 # depuis ce poste — mesure du jour : `git ls-remote` y demande une
 # authentification (« could not read Username »), donc son etat reel est
@@ -63,11 +67,16 @@ DEFAULT_DIST_PATH = TMP / "nokido-dist"
 # en tete, c'est accepter qu'elle gagne le jour ou elle repond. Codeberg devient
 # donc OPT-IN (`--with-codeberg`), miroir et non autorite.
 #
-# `user/nokido-dist` et `Nokido-labs/nokido-dist` sont le MEME depot GitHub
-# (id 1276398399, mesure owner) : on ecrit l'identite CANONIQUE plutot que de
-# dependre d'une redirection historique qui peut cesser un jour.
-DIST_REPO_GITHUB = "Nokido-labs/nokido-dist"
-CODEBERG_URL = "https://codeberg.org/user/nokido-dist.git"   # miroir, opt-in
+# `Nokido-labs/nokido-dist` redirige vers `Nokido-labs/nokido` depuis le renommage
+# (meme id 1276398399) : on ecrit l'identite CANONIQUE plutot que de dependre d'une
+# redirection historique qui peut cesser un jour.
+DIST_REPO_GITHUB = "Nokido-labs/nokido"
+CODEBERG_URL = "https://codeberg.org/user/nokido-dist.git"   # miroir opt-in (nom Codeberg inchange)
+# `source.repository` du dist-manifest.json, qui part AVEC la vitrine publique.
+# 2026-09-30 : `Nokido-labs/nokido` y designerait la vitrine elle-meme (ou ce sha
+# n'existe pas), et le nom de l'atelier prive n'a pas a y figurer. La preuve de
+# provenance est `source.sha` + la certification CI, pas un nom de depot.
+SOURCE_PUBLIEE = "atelier prive (non publie)"
 DEFAULT_REMOTES = {
     "github": "https://github.com/%s.git" % DIST_REPO_GITHUB,  # cible VERIFIEE
 }
@@ -371,6 +380,10 @@ def _appliquer_politique_publique(dist: Path) -> None:
 # lanceurs .bat/.ps1, et restent des placeholders lisibles dans .py/.md.
 # ---------------------------------------------------------------------------
 # ordre = specificite DECROISSANTE ; separateurs \, / et \\ captes par [\\/]+
+# Limite AVANT un nom de machine : pas de lettre ni de chiffre juste avant (un
+# `_` ou un `-` comptent comme limite -- `\b` ne voyait pas `user_DESKTOP-...`), OU
+# un echappement litteral `\n` / `\t` / `\r` (lookbehind de largeur fixe 2).
+_AVANT_NOM = r"(?:(?<=\\[ntr])|(?<![A-Za-z0-9]))"
 _GEN_SUBS = [
     (re.compile(r"C:[\\/]+Users[\\/]+user[\\/]+Script python IA[\\/]+Nokido", re.I), "%NOKIDO_ROOT%"),
     (re.compile(r"C:[\\/]+Users[\\/]+user[\\/]+Script python IA", re.I), "%NOKIDO_WORKSPACE%"),
@@ -391,19 +404,28 @@ _GEN_SUBS = [
     # entrer dans la source publiee (comme `user` y est deja), et ne
     # couvrirait que CETTE machine. Un motif couvre aussi la suivante.
     # `(?!XXXX)` : le motif recomptait son propre remplacant a chaque passe.
-    (re.compile(r"\bDESKTOP-(?!XXXX\b)[A-Z0-9]{4,}\b"), "DESKTOP-XXXX"),
+    # `_AVANT_NOM` : un echappement LITTERAL (`\n`, `\t`, `\r` ecrits dans un JSON
+    # serialise) colle son `n`/`t`/`r` au nom -- `\b` n'y voit alors aucune limite.
+    # Mesure du 2026-09-30 : perf_history/ami_py312_baseline.json portait
+    # `\\n\\tDESKTOP-.../user`, rate par la generisation ET la defense residuelle.
+    (re.compile(_AVANT_NOM + r"DESKTOP-(?!XXXX\b)[A-Z0-9]{4,}\b"), "DESKTOP-XXXX"),
     # La MEME machine en minuscules : `whoami` rend `desktop-xxxxxxx\compte`.
     # Mesure du 2026-09-30 : v0.20.2 publiee le portait dans 9 fichiers, le motif
     # majuscule seul le laissait passer. Insensible a la casse mais BORNE a la
     # forme des noms generes par Windows (7 caracteres dont un chiffre) : sans
     # borne, `Claude-Desktop-03052026` ou `claude-desktop-stdio` seraient reecrits.
-    (re.compile(r"\bdesktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b", re.I), "desktop-xxxx"),
+    (re.compile(_AVANT_NOM + r"desktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b", re.I), "desktop-xxxx"),
+    # SID d'une machine/compte local (S-1-5-21-<3 blocs>-<rid>) : l'identifie autant
+    # que son nom (meme ligne, meme fichier, meme date). Les SID bien connus
+    # (S-1-5-18, S-1-5-32-544...) ne designent aucune machine et restent intacts.
+    (re.compile(r"\bS-1-5-21-\d{6,10}-\d{6,10}-\d{6,10}(?:-\d+)?\b"), "S-1-5-21-XXXX"),
 ]
 # apres coup, plus AUCUN de ces marqueurs ne doit subsister en clair (defense)
 _GEN_RESIDUEL = re.compile(
     r"C:[\\/]+Users[\\/]+user|\bV:[\\/]|\bNaarob\b|\b192\.168\.\d{1,3}\.\d{1,3}\b|"
     r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b|"
-    r"\bdesktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b", re.I)
+    r"(?:(?<=\\[ntr])|(?<![A-Za-z0-9]))desktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b|"
+    r"\bS-1-5-21-\d{6,10}-\d{6,10}-\d{6,10}", re.I)
 _GEN_BIN_EXT = {
     ".gif", ".png", ".jpg", ".jpeg", ".webm", ".webp", ".ico", ".pdf", ".zip",
     ".gz", ".tar", ".7z", ".db", ".sqlite", ".npz", ".npy", ".prof", ".pyc",
@@ -856,7 +878,11 @@ def write_dist_manifest(chemin, *, depot_source, source_sha, version, dist_commi
 
 def commit_version(dist: Path, version: str, source_sha: str | None = None) -> bool:
     """Stage all + commit vX.Y.Z. Idempotent : skip if no changes."""
-    run([*_GIT_DIST, "add", "-A"], cwd=dist)
+    # `--force` : la source suit certains fichiers MALGRE son .gitignore (census
+    # organ_map_full.json, 10 outils tools/_*). `add -A` seul les ecartait EN
+    # SILENCE a chaque promotion (13 fichiers, mesure 2026-09-30). Le snapshot
+    # est deja cure (politique publique, generisation, gardes) : tout part.
+    run([*_GIT_DIST, "add", "-A", "--force"], cwd=dist)
     if run([*_GIT_DIST, "diff", "--cached", "--quiet"], cwd=dist,
            check=False).returncode == 0:
         print(f"[commit] no changes vs current dist tip -> skip (idempotent)")
@@ -1155,6 +1181,47 @@ def build_assets(version: str, rev: str, out_dir, skip_pack=False, depot=None) -
     run(cmd)
 
 
+def _module_readme_pip():
+    """tools/forge_readme_pip.py, charge a cote du promoteur (stdlib seule)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "forge_readme_pip", Path(__file__).with_name("forge_readme_pip.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _version_pypi_servie(paquet: str, hors_ligne: bool) -> str | None:
+    """Ce que PyPI SERT, lu AVANT toute mutation du clone dist.
+
+    Decision owner 2026-10-01 : le README du dist annonce `pip install` des que
+    PyPI sert une version, et le fait correspondre a chaque distribution. PyPI
+    illisible = promotion REFUSEE : ecrire « pas encore publie » sur un index
+    qu'on n'a pas pu lire transformerait « non mesure » en « rien ». `hors_ligne`
+    garde le bloc de la source tel quel, et le DIT (rend None).
+    """
+    mod = _module_readme_pip()
+    if hors_ligne:
+        print("[pip] --pip-hors-ligne : bloc pip de la source garde tel quel, "
+              "NON aligne sur PyPI")
+        return None
+    servie = mod.version_servie(paquet)
+    if servie == mod.ILLISIBLE:
+        raise SystemExit("[pip] PyPI illisible : le bloc pip du README ne peut pas "
+                         "etre aligne. Relancer, ou --pip-hors-ligne pour promouvoir "
+                         "en le DISANT.")
+    print("[pip] PyPI sert %s pour %s" % (servie, paquet))
+    return servie
+
+
+def _aligner_bloc_pip(dist: Path, paquet: str, servie: str | None) -> None:
+    """Regenere le bloc pip de chaque README du dist sur la version servie."""
+    if servie is None:
+        return
+    for p in _module_readme_pip().ecrire(dist, paquet, servie):
+        print("[pip] bloc aligne sur %s : %s" % (servie, p.relative_to(dist)))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="SemVer e.g. 0.1.0")
@@ -1171,8 +1238,9 @@ def main() -> int:
                     help="dossier d'artefacts de la CI qui a certifie la source "
                          "(registres de generation + rapports JUnit). Son "
                          "absence est DITE dans le manifeste, jamais tue.")
-    ap.add_argument("--source-repo", default="Nokido-labs/nokido",
-                    help="depot d'ou vient la source promue")
+    ap.add_argument("--source-repo", default=SOURCE_PUBLIEE,
+                    help="libelle de la source promue dans le manifeste PUBLIC "
+                         "(jamais le nom d'un depot prive)")
     ap.add_argument("--codeberg-url", default=CODEBERG_URL)
     ap.add_argument("--with-codeberg", action="store_true",
                     help="ajouter Codeberg comme miroir. Hors de ce drapeau il "
@@ -1189,6 +1257,9 @@ def main() -> int:
                     help="also build the downloadable assets")
     ap.add_argument("--push", action="store_true",
                     help="actually push to both remotes (outward — explicit)")
+    ap.add_argument("--pip-hors-ligne", action="store_true",
+                    help="ne pas interroger PyPI : le bloc pip du README garde "
+                         "l'etat de la source, et la promotion le DIT")
     args = ap.parse_args()
 
     if not SEMVER.match(args.version):
@@ -1208,6 +1279,8 @@ def main() -> int:
     # l'erreur d'entree une fois le mal fait.
     certification = _lire_certification(args.certification, source_sha)
     print("[certification] %s" % certification.get("etat"))
+    paquet = _nom_du_paquet(source_sha) or "nokido-agent"
+    pypi_servie = _version_pypi_servie(paquet, args.pip_hors_ligne)
 
     dist = Path(args.dist_path)
     remotes = {"github": args.github_url}
@@ -1220,6 +1293,7 @@ def main() -> int:
     print(f"=== publish v{args.version} (from {args.branch} = {source_sha[:12]}) -> {dist} ===")
     ensure_dist_repo(dist, remotes)
     sync_snapshot(source_sha, dist)
+    _aligner_bloc_pip(dist, paquet, pypi_servie)
     committed = commit_version(dist, args.version, source_sha)
     tagged = tag_version(dist, args.version)
     # D n'existe qu'APRES le commit : le manifeste est ecrit ENSUITE, avec des

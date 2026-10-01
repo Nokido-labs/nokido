@@ -33,6 +33,12 @@ import pytest
 
 MODULE = "forge_github_bridge"
 CHEMIN = pathlib.Path(__file__).resolve().parents[2] / "tools" / (MODULE + ".py")
+# Les tests du MECANISME (liste blanche, habilitation, rejeu...) tournent sur un
+# depot d'ESSAI pose par la fixture : un renommage du depot reel (2026-09-30 :
+# nokido -> nokido-private) ne doit pas reecrire 32 lignes. La valeur REELLE de
+# la liste blanche est verrouillee a part, par test_la_liste_blanche_reelle_*.
+DEPOT_ESSAI = "Nokido-labs/nokido"
+DEPOT_REEL = "Nokido-labs/nokido-private"
 
 
 @pytest.fixture()
@@ -58,6 +64,8 @@ def pont():
         spec.loader.exec_module(module)
     except Exception as exc:  # noqa: BLE001
         pytest.fail("%s ne s'importe pas : %s: %s" % (MODULE, type(exc).__name__, exc))
+    # module neuf a chaque test : poser le depot d'essai ne fuit dans aucun autre
+    module.DEPOTS_AUTORISES = frozenset({DEPOT_ESSAI})
     return module
 
 
@@ -97,6 +105,15 @@ def _capacite(pont, **remplace):
 
 def _source(pont) -> str:
     return CHEMIN.read_text(encoding="utf-8", errors="replace")
+
+
+def test_la_liste_blanche_reelle_est_l_atelier_et_lui_seul(pont):
+    """Owner 2026-09-30 : le pont lit l'atelier `nokido-private`. `Nokido-labs/nokido`
+    est desormais la VITRINE publique : le laisser ici ferait lire la vitrine a la
+    place de l'atelier, sans une erreur. UN seul depot : l'OAuth l'exige
+    (`forge_bridge_oauth.depot_unique`)."""
+    assert ('DEPOTS_AUTORISES: frozenset = frozenset({"%s"})' % DEPOT_REEL
+            in _source(pont)), "la liste blanche reelle n'est plus l'atelier seul"
 
 
 # --------------------------------------------------------------- surface publique

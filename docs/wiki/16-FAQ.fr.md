@@ -275,7 +275,7 @@ CI matrix : Ubuntu + macOS + Windows. Voir `.github/workflows/ci.yml`.
 
 ### Ouvrir une issue ?
 
-GitHub : <https://github.com/user/Nokido/issues>. Templates **Bug report** ou **Feature request**. Pour sécurité : email privé (voir au-dessus).
+GitHub : <https://github.com/Nokido-labs/nokido/issues>. Templates **Bug report** ou **Feature request**. Pour sécurité : email privé (voir au-dessus).
 
 ## 🛣️ Futur
 
@@ -323,7 +323,7 @@ Public release setupera GitHub Sponsors. D'ici-là, contribuer des PRs = meilleu
   title  = {Nokido: An Autonomous, Local-First AI Operating System
             with Neuro-Symbolic Governance},
   year   = 2026,
-  url    = {https://github.com/user/Nokido}
+  url    = {https://github.com/Nokido-labs/nokido}
 }
 ```
 

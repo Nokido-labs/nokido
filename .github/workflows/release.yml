@@ -4,9 +4,10 @@
 # sur PyPI en **Trusted Publishing (OIDC)** : AUCUN token PyPI stocké en secret
 # — GitHub s'authentifie à PyPI via OIDC. Plus sûr que twine + API token.
 #
-# ⚠️ EDITEUR = Nokido-labs/nokido-dist depuis le 2026-09-30 (owner) : le paquet
-# publie est le contenu FILTRE du dist. Les jobs de publication ne tournent que
-# la-bas (garde `github.repository`), et seulement par workflow_dispatch. Les
+# ⚠️ EDITEUR = le depot dist depuis le 2026-09-30 (owner) : le paquet publie est
+# le contenu FILTRE du dist. Les jobs de publication ne tournent que la ou la
+# variable de depot NOKIDO_EDITEUR vaut 'true' (Settings > Secrets and variables
+# > Actions > Variables), et seulement par workflow_dispatch. Les
 # prerequis ci-dessous valent donc avec repo=nokido-dist ; l'env `testpypi` du
 # dist admet la branche `main`.
 #
@@ -73,7 +74,12 @@ jobs:
     # `v*` que pousse la promotion ne publie rien, et comme `publish` exige un
     # `push`, PyPI reel est inatteignable partout tant que l'owner ne rouvre pas
     # ce chemin. Sur la source, `build` tourne toujours (verification du paquet).
-    if: github.repository != 'Nokido-labs/nokido-dist' || github.event_name == 'workflow_dispatch'
+    # L'editeur se designe par la VARIABLE de depot NOKIDO_EDITEUR == 'true' (posee
+    # sur lui seul), jamais par un NOM : au renommage prevu (nokido ->
+    # nokido-private, nokido-dist -> nokido), le nom `nokido` change de proprietaire
+    # et une garde par nom ferait publier la SOURCE pendant la fenetre. La variable
+    # suit le depot quand on le renomme.
+    if: vars.NOKIDO_EDITEUR != 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # UNE SEULE CONSTRUCTION, et ce qu'elle a produit voyage vers les jobs de
     # preuve. Ceux-ci ne relisent JAMAIS `pyproject.toml` : ils valideraient
@@ -189,7 +195,7 @@ jobs:
     # octets du dist (filtre + generise) different de ceux de la source. La
     # source ne publie donc plus ; `verify`, `publish` et `create-release` en
     # dependent et sautent avec lui.
-    if: github.repository == 'Nokido-labs/nokido-dist'
+    if: vars.NOKIDO_EDITEUR == 'true'
     needs: build
     runs-on: ubuntu-latest
     environment: testpypi
@@ -680,3 +686,45 @@ jobs:
             --title "$GITHUB_REF_NAME — nokido-agent ${{ steps.v.outputs.version }}" \
             --notes-file /tmp/notes.md \
             --verify-tag
+
+  readme-pypi:
+    name: README — le bloc pip annonce la version que PyPI sert
+    # Decision owner 2026-10-01 : des qu'une version est servie par PyPI, le README
+    # (et ses traductions) la propose en `pip install`. Ce job ne tourne qu'APRES
+    # `create-release`, donc apres que PyPI sert les octets prouves sur trois OS.
+    # Il ne publie RIEN (pas d'id-token) et n'ecrit que le bloc genere
+    # <!-- PIP:BEGIN --> (tools/forge_readme_pip.py). Job SEPARE : un echec (branche
+    # protegee, course avec une promotion) reste visible ici sans rougir la Release.
+    if: github.event_name == 'push'
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # committer le README. PAS d'id-token : rien n'est publie ici.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Le bloc pip suit PyPI (refus si PyPI ne sert pas exactement cette version)
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          # L'API JSON de PyPI suit le telechargement avec un leger retard :
+          # attente BORNEE (3 min), et son echec est un ECHEC.
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            if python3 tools/forge_readme_pip.py --ecrire --version "$V" --exiger-servie; then
+              ok=1; break
+            fi
+            sleep 30
+          done
+          if [ "$ok" != 1 ]; then
+            echo "::error::PyPI ne sert pas nokido-agent $V apres 3 min : README NON aligne"
+            exit 1
+          fi
+          if git diff --quiet; then
+            echo "README deja aligne sur PyPI $V"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "docs(readme): pip install nokido-agent==$V, servi par PyPI"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

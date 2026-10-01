@@ -69,6 +69,27 @@ _VOLATILE = re.compile(r"depuis\s+\d+\s+cycles?", re.I)
 # moins couvert. Trop court = harcelement ; definitif = amnesie.
 _INTENTION_TTL_S = float(os.environ.get("LAFORGE_EPISTEMIC_INTENTION_TTL_S", 48 * 3600))
 
+# ── EXAMEN EXTEROCEPTIF A LA DEMANDE (owner 2026-09-30) ─────────────────────────
+# Mesure du jour : 22/22 cycles BLOQUE_PAR_DEPENDANCE, en ALTERNANCE reranker / dense.
+# L'examen a besoin de l'embedder (:8099) ET du reranker (:8100) dans le MEME cycle ;
+# la soif ne reclamait que le reranker (rien pour le dense), le keeper allumait UN
+# pilier puis l'eteignait « INUTILE » 15 min plus tard (TTL de l'intention = intervalle
+# de la soif), pendant que le cycle suivant reclamait l'autre : 1,4 a 3,2 Go reveilles
+# toutes les 15 min pour ZERO examen.
+# Decision owner : l'examen (~4,6 Go de piliers) ne part plus a heure fixe. Il part sur
+# un SEUIL de besoin, a la MAIN (--examiner), ou au plus tard apres EXAMEN_MAX_AGE_S ;
+# il reclame ses piliers ENSEMBLE et attend (borne) qu'ils repondent. Sous pression RAM
+# le keeper ne les demarre pas : l'examen est DIFFERE, rien n'a ete allume, donc rien
+# que l'autoregulation doive couper. L'interoception (soin) ne coute rien : elle garde
+# son rythme.
+SEUIL_EXAMEN = int(os.environ.get("LAFORGE_EPISTEMIC_SEUIL_EXAMEN", "10"))
+EXAMEN_MAX_AGE_S = float(os.environ.get("LAFORGE_EPISTEMIC_EXAMEN_MAX_AGE_S", 24 * 3600))
+ATTENTE_PILIERS_S = float(os.environ.get("LAFORGE_EPISTEMIC_ATTENTE_PILIERS_S", "180"))
+DEMANDE_TTL_S = 6 * 3600
+_PILIERS_EXAMEN = (("embed.wanted", "http://127.0.0.1:8099/health"),
+                   ("rerank.wanted", "http://127.0.0.1:8100/health"),
+                   (None, "http://127.0.0.1:6333/readyz"))   # Qdrant : service permanent
+
 
 def _norm(q: str) -> str:
     return _VOLATILE.sub("depuis N cycles", " ".join((q or "").lower().split()))[:200]
@@ -393,6 +414,76 @@ def _modules_du_depot_cites(q: str) -> list:
     return vus
 
 
+def _demande_manuelle() -> Path:
+    return ROOT / "sandbox" / "soif_examen.wanted"
+
+
+def _marque_dernier_examen() -> Path:
+    return ROOT / "sandbox" / "soif_dernier_examen"
+
+
+def _decision_examen(besoin: int):
+    """Motif de l'examen exteroceptif, ou None : on attend. Trois declencheurs.
+
+    Une date ILLISIBLE ne declenche rien (on ne reveille pas 4,6 Go sur une mesure
+    manquee) ; une marque ABSENTE declenche : aucun examen n'a jamais ete enregistre."""
+    now = time.time()
+    try:
+        if now - _demande_manuelle().stat().st_mtime < DEMANDE_TTL_S:
+            return "demande manuelle"
+    except FileNotFoundError:
+        pass    # muet-ok : demande absente = aucune demande, c'est l'etat nominal
+    except OSError as e:
+        _journal(f"demande manuelle ILLISIBLE ({type(e).__name__}) -- ignoree")
+    if besoin >= SEUIL_EXAMEN:
+        return f"seuil : {besoin} question(s) en attente >= {SEUIL_EXAMEN}"
+    try:
+        age = now - _marque_dernier_examen().stat().st_mtime
+    except FileNotFoundError:
+        return "aucun examen enregistre"
+    except OSError as e:
+        _journal(f"date du dernier examen ILLISIBLE ({type(e).__name__}) -- pas d'examen sur echeance")
+        return None
+    if age >= EXAMEN_MAX_AGE_S:
+        return f"echeance : dernier examen il y a {age / 3600:.0f} h"
+    return None
+
+
+def _reveiller_piliers(attente_s=None):
+    """(prets, detail) : reclame les piliers de l'examen ENSEMBLE, puis attend (borne).
+
+    Le keeper passe environ toutes les 30 s et ne demarre rien au-dessus de son seuil
+    RAM : des piliers muets a l'echeance veulent dire DIFFERE par la regulation."""
+    import urllib.request as _u
+
+    attente_s = ATTENTE_PILIERS_S if attente_s is None else attente_s
+    try:
+        from nokido_agent.app.forge_embed_router import declare_wanted
+
+        poses = {f: bool(declare_wanted(f, motif="soif epistemique : examen exteroceptif"))
+                 for f, _ in _PILIERS_EXAMEN if f}
+    except Exception as e:  # noqa: BLE001 - l'intention non posee se DIT dans le detail
+        poses = {"intention": "NON POSEE (%s)" % type(e).__name__}
+
+    def _repond(url: str) -> bool:
+        try:
+            with _u.urlopen(url, timeout=3) as r:
+                return r.status == 200
+        except Exception:  # noqa: BLE001 - muet-ok : un pilier muet est l'objet meme de l'attente
+            return False
+
+    fin = time.time() + attente_s
+    while True:
+        muets = [u.split("/")[2] for _, u in _PILIERS_EXAMEN if not _repond(u)]
+        if not muets:
+            return True, f"piliers prets (intentions : {poses})"
+        if time.time() >= fin:
+            return False, (f"piliers muets apres {attente_s:.0f} s : {', '.join(muets)} "
+                           f"(intentions : {poses})")
+        _beat(f"examen : attente des piliers ({', '.join(muets)})")
+        time.sleep(10)
+
+
 def run_once(conn: sqlite3.Connection) -> dict:
     conn.executescript(_SCHEMA)
     seen = {r[0] for r in conn.execute("SELECT query_hash FROM epistemic_seen")}
@@ -413,6 +504,22 @@ def run_once(conn: sqlite3.Connection) -> dict:
     rows = list(rows) + [(q,) for q in _split["soif"]]
     for _item in _split["soin"]:
         _propose_care(_item)
+
+    # PORTE DE L'EXAMEN (owner 2026-09-30) : l'interoception ci-dessus a tourne ; ce qui
+    # suit reveille ~4,6 Go de piliers et n'a lieu que sur declencheur.
+    besoin = sum(1 for (qt,) in rows
+                 if hashlib.sha256(_norm(qt).encode()).hexdigest()[:16] not in seen)
+    motif = _decision_examen(besoin)
+    _sans_examen = {"examinees": 0, "gaps": 0, "veilles": 0, "hors_variete_ignores": 0,
+                    "soif_intero": len(_split["soif"]), "soif_intention": len(_intention),
+                    "intention_gap": None, "soin": len(_split["soin"]), "abstentions": {}}
+    if motif is None:
+        return dict(_sans_examen, examen=f"EN_ATTENTE : {besoin}/{SEUIL_EXAMEN} question(s) "
+                                          f"en attente, ni demande ni echeance")
+    prets, detail = _reveiller_piliers()
+    if not prets:
+        return dict(_sans_examen, examen=f"DIFFERE_PAR_REGULATION ({motif}) : {detail}")
+    examen = f"FAIT ({motif})"
 
     examinees = gaps = veilles = hors_variete = 0
     # Abstentions PAR DEPENDANCE (2026-09-25) : un cycle qui n'examine rien parce qu'un
@@ -537,7 +644,17 @@ def run_once(conn: sqlite3.Connection) -> dict:
             "hors_variete_ignores": hors_variete,
             "soif_intero": len(_split["soif"]), "soif_intention": len(_intention),
             "intention_gap": intention_gap, "soin": len(_split["soin"]),
-            "abstentions": abstentions}
+            "abstentions": abstentions, "examen": examen}
+    # Examen tenu (piliers prets) : l'echeance repart de maintenant et la demande
+    # manuelle est CONSOMMEE -- laissee, elle redeclencherait 4,6 Go a chaque cycle.
+    try:
+        _m = _marque_dernier_examen()
+        _m.parent.mkdir(parents=True, exist_ok=True)
+        _m.write_text(str(time.time()), encoding="utf-8")
+        _demande_manuelle().unlink(missing_ok=True)
+    except OSError as e:
+        _journal(f"examen FAIT mais marque non ecrite ({type(e).__name__}) -- "
+                 f"l'echeance pourrait redeclencher trop tot")
 
     # ── SÉRIE PERSISTÉE (2026-07-29) ────────────────────────────────────────
     # Sans elle, « la boucle de curiosité APPREND-elle ? » est indécidable. Le cycle
@@ -623,6 +740,12 @@ def _transition_blocage(etat, res):
     cycle sans question : l'organe passait pour mort (25/09). On ecrit a l'ENTREE dans un
     blocage (ou quand la dependance en cause change), puis a la SORTIE -- rien tant que
     l'etat tient, pour ne pas noyer le journal d'une ligne toutes les 15 min."""
+    if not str(res.get("examen") or "FAIT").startswith("FAIT"):
+        # Cycle SANS examen (en attente, ou differe par la regulation) : il ne dit rien
+        # des dependances -- ni blocage, ni deblocage. Sans ce garde, le premier cycle
+        # en attente ecrivait « DEBLOQUE -- examen repris » alors qu'aucun examen
+        # n'avait lieu.
+        return etat, None
     ab = res.get("abstentions") or {}
     sig = ", ".join(sorted(ab)) if (not res.get("examinees") and ab) else None
     if sig == etat:
@@ -639,6 +762,7 @@ def run(interval: int, once: bool) -> int:
     _journal(f"demarrage — auto_veille={AUTO_VEILLE} cap={MAX_VEILLES_CYCLE} interval={interval}")
     echecs = 0
     etat_blocage = None
+    etat_examen = None
 
     def _dormir(total: float) -> None:
         # Dormir par tranches en BATTANT : le heartbeat dit VIVANT, pas productif.
@@ -684,9 +808,17 @@ def run(interval: int, once: bool) -> int:
         etat_blocage, _ligne_blocage = _transition_blocage(etat_blocage, r)
         if _ligne_blocage:
             _journal(_ligne_blocage)
+        # Le journal dit chaque examen FAIT et chaque ENTREE en attente ou en report,
+        # pas la repetition d'une attente toutes les 15 min.
+        _ex = str(r.get("examen") or "")
+        _genre = _ex.split(" ", 1)[0]
+        if _ex and (_genre == "FAIT" or _genre != etat_examen):
+            _journal(f"examen {_ex}")
+        etat_examen = _genre or etat_examen
         _beat(f"examinees {r['examinees']} (soif intero {r.get('soif_intero', 0)}), "
           f"gaps {r['gaps']}, veilles {r['veilles']}, soin {r.get('soin', 0)}"
-          + (f", BLOQUE {etat_blocage}" if etat_blocage else ""))
+          + (f", BLOQUE {etat_blocage}" if etat_blocage else "")
+          + (f", examen {_genre}" if _genre else ""))
         if r["examinees"] or r["gaps"]:
             print(f"[epistemic] cycle: {r}", flush=True)
             _journal(f"cycle: {r}")
@@ -701,7 +833,18 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Soif de connaissance : detecte les gaps RAG et propose/veille")
     ap.add_argument("--interval", type=int, default=900)
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--examiner", action="store_true",
+                    help="demande MANUELLE d'un examen exteroceptif : pose "
+                         "sandbox/soif_examen.wanted (valable 6 h) et rend la main ; "
+                         "le demon l'execute a son prochain cycle")
     a = ap.parse_args()
+    if a.examiner:
+        p = _demande_manuelle()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(str(time.time()), encoding="utf-8")
+        print(f"[epistemic] examen demande : {p} (valable {DEMANDE_TTL_S // 3600} h, "
+              f"execute au prochain cycle du demon)", flush=True)
+        return 0
     return run(a.interval, a.once)
 
 

@@ -27,7 +27,7 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "sandbox" / "ci_stop_hook_state.json"
-REPO = os.environ.get("NOKIDO_CI_REPO", "user/nokido")
+REPO = os.environ.get("NOKIDO_CI_REPO", "Nokido-labs/nokido-private")
 
 
 def _git(*args):

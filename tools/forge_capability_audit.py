@@ -607,6 +607,159 @@ def c_ports_docs(readme: str, pyproject: str) -> dict:
               "cites comme vivants — " + detail)
 
 
+# Tableau « Project status » du README : chaque ligne qui nomme un organe PORTE
+# PAR UN SERVICE se confronte a services.toml. Mesure 2026-09-30 : A2A affichait
+# « operational » alors que NokidoA2A est disabled, et l'homeostasie « daemon
+# deliberately stopped » alors qu'elle tournait -- seize controles etaient
+# ALIGNES, aucun ne lisait ce bloc. La politique declaree (`disabled`) est la
+# seule source stable en CI, ou le superviseur vivant ne tourne pas : un service
+# enabled ne prouve pas qu'il tourne (TRANSPORT != CAPACITE), un service disabled
+# prouve qu'il ne sert pas. Les lignes sans service (AMI, Swarm...) ne sont PAS
+# mesurees ici, et le verdict le dit.
+STATUT_SERVICES = {
+    "Emergency homeostasis": ("NokidoHomeostasis",),
+    "MCP": ("NokidoMCP",),
+    "ACP": ("NokidoAcpWs",),
+    "A2A Tier-1": ("NokidoA2A",),
+    "Endocrine": ("NokidoHormonesListener",),
+    "Nervous system": ("NokidoAfferent", "NokidoOrganPulse"),
+    "Immune system": ("NokidoCoagulation", "NokidoTdrSentinel"),
+    "NPU / edge": ("NokidoBrainWorker",),
+}
+_RE_STATUT_ACTIF = re.compile(r"\b(operational|achieved|running|active)\b", re.I)
+_RE_STATUT_ARRET = re.compile(r"\b(stopped|disabled|paused|parked)\b", re.I)
+
+
+def _services_coupes(toml: str) -> dict:
+    """{nom: disabled?} pour chaque [[service]] de services.toml."""
+    etats = {}
+    for bloc in toml.split("[[service]]")[1:]:
+        nom = re.search(r'^\s*name\s*=\s*"([^"]+)"', bloc, re.M)
+        if nom:
+            etats[nom.group(1)] = bool(re.search(r"^\s*disabled\s*=\s*true", bloc, re.M))
+    return etats
+
+
+def _lignes_statut(readme: str) -> dict | None:
+    """{label: (icone, texte)} du bloc « Project status » ; None s'il est absent."""
+    m = re.search(r"# 🔬 Project status.*?```text\n(.*?)```", readme, re.S)
+    if not m:
+        return None
+    lignes, courant = {}, None
+    for ligne in m.group(1).splitlines():
+        mo = re.match(r"^ {2}(\S.*?)\s{2,}(\S+)\s+(.*)$", ligne)
+        if mo:
+            courant = mo.group(1).strip()
+            lignes[courant] = [mo.group(2), mo.group(3).strip()]
+        elif courant and ligne.startswith(" " * 20) and ligne.strip():
+            lignes[courant][1] += " " + ligne.strip()   # suite de la ligne precedente
+        elif not ligne.startswith(" "):
+            courant = None                                # titre de famille
+    return {k: tuple(v) for k, v in lignes.items()}
+
+
+def _preuve_resolue(jeton: str, services: dict, ci_src: str) -> bool:
+    """Une preuve citee `entre accents` existe-t-elle DANS LE DEPOT ?
+
+    Module (`forge_x`, `nokido_x`), service (`NokidoX`), gate de ci_local
+    (`anatomie`) ou chemin versionne. Rien d'autre : une preuve qu'on ne peut pas
+    retrouver dans le depot n'en est pas une.
+    """
+    mot = jeton.split()[0] if jeton.split() else ""
+    if mot.startswith(("forge_", "nokido_")):
+        return any((ROOT / d / (mot + ".py")).exists() for d in ("app", "tools"))
+    if mot.startswith("Nokido"):
+        return mot in services
+    if ('_run("%s' % mot) in ci_src:
+        return True
+    return bool(mot) and (ROOT / mot).exists()
+
+
+def c_statut(readme: str, pyproject: str, toml: str | None = None) -> dict:
+    """Le tableau de statut du README face a la politique declaree des services.
+
+    Owner 2026-10-01 : « tu ne mesures pas un etat fige mais un corps vivant ». Le
+    tableau ne porte plus d'instantane (« daemon running » a une date) : chaque ligne
+    cite sa preuve DANS LE DEPOT (module, service, gate), qui doit exister, et la
+    section designe la mesure vivante `nokido-doctor --vivant`. « not measured » est
+    refuse : on mesure ou on declasse.
+    """
+    nom = "tableau de statut"
+    if toml is None:
+        toml = _lire("proxy_deno/core/services.toml")
+    if toml is None:
+        return _v(nom, INDETERMINE, None, None, "services.toml illisible")
+    lignes = _lignes_statut(readme)
+    if lignes is None:
+        return _v(nom, INDETERMINE, None, None, "bloc « Project status » introuvable")
+    etats = _services_coupes(toml)
+    ecarts, mesurees = [], 0
+    section = re.split(r"\n# ", readme.split("# 🔬 Project status", 1)[-1], maxsplit=1)[0]
+    if "nokido-doctor --vivant" not in section:
+        ecarts.append("la section ne designe pas la mesure vivante (`nokido-doctor --vivant`)")
+    ci_src = _lire("tools/ci_local.py") or ""
+    for label, (icone, texte) in lignes.items():
+        if re.search(r"not measured", texte, re.I):
+            ecarts.append("%s « not measured » : mesurer ou declasser" % label)
+        jetons = re.findall(r"`([^`]+)`", texte)
+        if icone == "✅" and not jetons:
+            ecarts.append("%s ✅ sans preuve citee dans le depot" % label)
+        for j in jetons:
+            if not _preuve_resolue(j, etats, ci_src):
+                ecarts.append("%s : preuve `%s` introuvable dans le depot" % (label, j))
+    for label, services in STATUT_SERVICES.items():
+        if label not in lignes:
+            continue
+        connus = [s for s in services if s in etats]
+        if not connus:
+            continue
+        mesurees += 1
+        icone, texte = lignes[label]
+        coupes = [s for s in connus if etats[s]]
+        dit_arret = bool(_RE_STATUT_ARRET.search(texte))
+        dit_actif = icone == "✅" and bool(_RE_STATUT_ACTIF.search(texte)) and not dit_arret
+        if dit_actif and coupes:
+            ecarts.append("%s « %s » mais %s disabled" % (label, texte, ", ".join(coupes)))
+        elif dit_arret and not coupes:
+            ecarts.append("%s « %s » mais %s enabled" % (label, texte, ", ".join(connus)))
+    hors = len(lignes) - mesurees
+    if ecarts:
+        return _v(nom, DIVERGE, "%d ligne(s)" % len(lignes),
+                  "preuves du depot + politique services.toml", " ; ".join(ecarts))
+    if not mesurees:
+        return _v(nom, INDETERMINE, "%d ligne(s)" % len(lignes), None,
+                  "aucune ligne ne nomme un service connu de services.toml")
+    return _v(nom, ALIGNE, "%d ligne(s), dont %d a service" % (len(lignes), mesurees),
+              "preuves du depot + politique services.toml",
+              "%d ligne(s) sans service : preuves du depot verifiees ; l'etat vivant "
+              "se demande a `nokido-doctor --vivant`" % hors if hors else "")
+
+
+def c_bloc_pip(readme: str, pyproject: str) -> dict:
+    """Le bloc `pip install` du README est celui que sa declaration genere.
+
+    Decision owner 2026-10-01 : le README du dist annonce pip des que PyPI SERT une
+    version, et la fait correspondre a chaque distribution. Hors ligne, ce controle
+    verifie la FORME (bloc regenere, aucune commande pip hors du bloc, bon paquet) ;
+    la concordance avec l'index est mesuree en ligne par
+    `tools/forge_readme_pip.py --verifier`, a la promotion et dans release.yml.
+    """
+    nom = "bloc pip"
+    m = re.search(r'^\s*name\s*=\s*["\']([^"\']+)["\']', pyproject, re.M)
+    chemin = ROOT / "tools" / "forge_readme_pip.py"
+    if not m or not chemin.exists():
+        return _v(nom, INDETERMINE, None, None,
+                  "pyproject sans `name`" if not m else "forge_readme_pip absent")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("forge_readme_pip", chemin)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    statut, note = mod.coherence(readme, m.group(1))
+    d = mod.lire(readme)
+    return _v(nom, {mod.ALIGNE: ALIGNE, mod.DIVERGE: DIVERGE}.get(statut, INDETERMINE),
+              d["version"] if d else None, "bloc genere" if statut == mod.ALIGNE else None, note)
+
+
 CONTROLES = (
     ("nom du paquet pip", lambda r, p: c_nom_paquet(r, p)),
     ("commandes CLI", lambda r, p: c_entrypoints(r, p)),
@@ -624,6 +777,8 @@ CONTROLES = (
     ("benchmarks dates", lambda r, p: c_benchmarks(r)),
     ("cibles des cartouches", lambda r, p: c_cibles_badges(r)),
     ("ports arretes dans docs/", lambda r, p: c_ports_docs(r, p)),
+    ("tableau de statut", lambda r, p: c_statut(r, p)),
+    ("bloc pip", lambda r, p: c_bloc_pip(r, p)),
 )
 
 

@@ -50,7 +50,7 @@ from importlib.abc import Loader as _Loader
 from importlib.abc import MetaPathFinder as _Finder
 from pathlib import Path as _Path
 
-__version__ = "0.20.4"
+__version__ = "0.20.5"
 
 _RACINE = _Path(__file__).resolve().parent.parent
 _ZONES = ("app", "tools")

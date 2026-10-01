@@ -102,3 +102,134 @@ def test_un_controle_qui_ne_peut_pas_mesurer_le_DIT():
     m = _audit()
     r = m.c_extras("Nokido se package en **17 extras**.", "[project]\nname = 'x'")
     assert r["statut"] == m.INDETERMINE
+
+
+# --- tableau « Project status » face a la politique des services -------------
+# Mesure 2026-09-30 : le README affichait A2A « operational » alors que NokidoA2A
+# est disabled, et l'homeostasie « daemon deliberately stopped » alors qu'elle
+# tourne. Seize controles etaient ALIGNES : aucun ne lisait ce bloc.
+
+def _readme_statut(*lignes, vivant=True):
+    prose = "Live state on your machine: `nokido-doctor --vivant`.\n\n" if vivant else ""
+    return ("# 🔬 Project status\n\n" + prose + "```text\nCOMMUNICATION\n"
+            + "\n".join(lignes) + "\n```\n")
+
+
+def _toml(**services):
+    return "".join('[[service]]\nname = "%s"\ndisabled = %s\n'
+                   % (nom, "true" if coupe else "false")
+                   for nom, coupe in services.items())
+
+
+def test_un_service_coupe_affiche_operationnel_est_detecte():
+    m = _audit()
+    r = m.c_statut(_readme_statut("  A2A Tier-1                      ✅ operational"),
+                   "", toml=_toml(NokidoA2A=True))
+    assert r["statut"] == m.DIVERGE
+    assert "A2A" in r["note"]
+
+
+def test_un_service_actif_dit_arrete_est_detecte():
+    m = _audit()
+    r = m.c_statut(_readme_statut(
+        "  Emergency homeostasis           ✅ achieved (safeguard mode: the",
+        "                                  regulation daemon is deliberately",
+        "                                  stopped since 2026-09-05)"),
+        "", toml=_toml(NokidoHomeostasis=False))
+    assert r["statut"] == m.DIVERGE
+    assert "homeostasis" in r["note"].lower()
+
+
+def test_un_tableau_aligne_ne_declenche_rien():
+    m = _audit()
+    r = m.c_statut(_readme_statut(
+        "  A2A Tier-1                      ⏸️ paused            `NokidoA2A`, disabled by default",
+        "  Emergency homeostasis           ✅ achieved          `NokidoHomeostasis`, enabled by default"),
+        "", toml=_toml(NokidoA2A=True, NokidoHomeostasis=False))
+    assert r["statut"] == m.ALIGNE, r
+
+
+def test_un_tableau_sans_service_connu_le_DIT():
+    """Aucune ligne confrontable n'est pas un tableau juste : c'est une mesure absente."""
+    m = _audit()
+    r = m.c_statut(_readme_statut("  A2A Tier-1                      ✅ operational       `forge_a2a_card`"),
+                   "", toml="")
+    assert r["statut"] == m.INDETERMINE
+
+
+# --- un corps VIVANT ne se fige pas dans un README (owner 2026-10-01) ------------
+
+def test_not_measured_est_une_divergence():
+    m = _audit()
+    r = m.c_statut(_readme_statut("  Swarm                           🟡 hardening         not measured by this table"),
+                   "", toml=_toml())
+    assert r["statut"] == m.DIVERGE and "not measured" in r["note"]
+
+
+def test_un_check_sans_preuve_du_depot_est_une_divergence():
+    m = _audit()
+    r = m.c_statut(_readme_statut("  M2M                             ✅ operational       protocol in use"),
+                   "", toml=_toml())
+    assert r["statut"] == m.DIVERGE and "M2M" in r["note"]
+
+
+def test_une_preuve_citee_qui_n_existe_pas_est_une_divergence():
+    m = _audit()
+    r = m.c_statut(_readme_statut("  M2M                             ✅ operational       `forge_m2m_inexistant`"),
+                   "", toml=_toml())
+    assert r["statut"] == m.DIVERGE and "forge_m2m_inexistant" in r["note"]
+
+
+def test_une_preuve_citee_qui_existe_est_acceptee():
+    m = _audit()
+    r = m.c_statut(_readme_statut(
+        "  M2M                             ✅ operational       `forge_m2m_protocol` validator",
+        "  CI architectural gate           ✅ achieved          `anatomie` gate, blocking",
+        "  Emergency homeostasis           ✅ achieved          `NokidoHomeostasis`, enabled by default"),
+        "", toml=_toml(NokidoHomeostasis=False))
+    assert r["statut"] == m.ALIGNE, r
+
+
+def test_la_section_doit_designer_la_mesure_vivante():
+    m = _audit()
+    r = m.c_statut(_readme_statut(
+        "  Emergency homeostasis           ✅ achieved          `NokidoHomeostasis`, enabled by default",
+        vivant=False), "", toml=_toml(NokidoHomeostasis=False))
+    assert r["statut"] == m.DIVERGE and "--vivant" in r["note"]
+
+
+def test_les_traductions_portent_le_MEME_tableau_que_le_README():
+    """Le controle lit README.md ; les 7 traductions copient son tableau. Mesure
+    2026-10-01 : elles avaient garde l'ancien tableau (A2A « operational ») apres la
+    correction de l'anglais -- deux fois en une semaine. Le bloc doit etre identique."""
+    import re
+    motif = re.compile(r"\n# 🔬[^\n]*\n.*?```text\n(.*?)```", re.S)
+    ref = motif.search((ROOT / "README.md").read_text(encoding="utf-8"))
+    assert ref, "tableau de statut introuvable dans README.md"
+    for p in sorted((ROOT / "docs" / "i18n").glob("README.*.md")):
+        m = motif.search(p.read_text(encoding="utf-8"))
+        assert m, "%s : tableau de statut introuvable" % p.name
+        assert m.group(1) == ref.group(1), "%s : tableau different du README" % p.name
+
+
+def test_le_controle_du_tableau_est_cable_dans_l_audit():
+    """Le chemin reel : auditer() doit le jouer, pas seulement la fonction exister."""
+    m = _audit()
+    assert "tableau de statut" in [nom for nom, _ in m.CONTROLES]
+
+
+# --- bloc pip genere (decision owner 2026-10-01) -------------------------------
+
+_PYPROJECT_PIP = "[project]\nname = \"nokido-agent\"\n"
+
+
+def test_un_bloc_pip_retouche_a_la_main_diverge():
+    m = _audit()
+    readme = ("<!-- PIP:BEGIN nokido-agent version=0.21.0 -->\n"
+              "```bash\npip install nokido-agent==0.22.0\n```\n<!-- PIP:END -->\n")
+    assert m.c_bloc_pip(readme, _PYPROJECT_PIP)["statut"] == m.DIVERGE
+
+
+def test_le_controle_du_bloc_pip_est_cable_dans_l_audit():
+    m = _audit()
+    assert "bloc pip" in [nom for nom, _ in m.CONTROLES]

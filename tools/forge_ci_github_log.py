@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-REPO = "Nokido-labs/nokido"
+REPO = "Nokido-labs/nokido-private"   # atelier source (renomme le 2026-09-30)
 _PAT = re.compile(
     r"(Traceback|Error|FAILED|assert|ModuleNotFound|ImportError|No such file|non class|"
     r"^E |exit code|Process completed with exit code|\.py::|=+ .*(passed|failed))",

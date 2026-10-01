@@ -65,6 +65,70 @@
 
 ---
 
+## 🧭 In one minute
+
+Nokido is a **local-first runtime for an artificial organism**: the nervous system and the
+physiology that let several AIs — local models, cloud providers, coding agents such as Claude
+Code, Codex CLI, OpenCode or Antigravity — work together on your machine **without becoming a
+heap of independent agents**.
+
+It starts from three observations, developed in the [Manifesto](MANIFESTO.md):
+
+1. **Most AI is external.** Prompts, code and documents travel to infrastructure you do not own.
+2. **Most AI is amnesic.** Memory is an add-on, not a foundation.
+3. **Most AI is single-brained.** One large model answers everything, where biology shows
+   intelligence to be distributed and specialised.
+
+Nokido does not add one more agent framework. It adds the **organism layer** around the models:
+
+* **routing** across local and cloud models by use case, with a local fallback;
+* **long-term memory with provenance** — full-text and vector retrieval over what the system learned;
+* **regulation** of CPU, RAM, queues and providers — homeostasis, reflexes, circadian cycles;
+* **deterministic gates** around actions — AST checks, secret scanning, RBAC, egress control;
+* **messaging between agents** (M2M, swarms) and **introspection** of its own code and state;
+* **one hub** that clients reach through MCP: the client stays disposable, the system persists.
+
+### A proof system, not only an architecture
+
+Nokido keeps apart three things most projects blur: what is **declared**, what is **observed**
+and what is **verified**. A port that answers does not prove a model is loaded; an accepted
+command is not a reached state; a probe that cannot look reports `ILLISIBLE` (unreadable),
+never “no”. These distinctions are enforced in code and in CI — and this README follows them:
+its [status table](#-project-status) pairs every claim with its evidence, and a CI control
+fails when a paused service is displayed as operational.
+
+Sovereignty is an **architecture**, not a guarantee: Nokido lets you keep data, memory and
+critical decisions on your own infrastructure, with explicit control over what leaves it. Your
+own compliance still depends on how you deploy it — and what Nokido does **not** claim is written
+down further below.
+
+## 🚀 Quick start
+
+<!-- PIP:BEGIN nokido-agent version=none -->
+`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
+trusts: a version reaches it only after the install proof on Linux, Windows
+and macOS. Until then, install from a clone.
+<!-- PIP:END -->
+
+**From a clone** — the path CI itself uses ([why](#-distribution-and-extras)):
+
+```bash
+git clone https://github.com/Nokido-labs/nokido.git
+cd nokido
+python -m venv .venv
+.venv\Scripts\activate          # Linux / macOS: source .venv/bin/activate
+pip install -r requirements.txt
+python tools/nokido_doctor.py   # what this machine has, lacks, or cannot read
+python tools/nokido_hub.py
+```
+
+Then `curl http://localhost:8766/health` should answer. Next steps:
+[requirements and the Docker / native paths](#-installation) ·
+[verify the installation](#-verify-the-installation) ·
+[connect Claude Code, Codex, OpenCode…](#-connect-an-external-agent).
+
+---
+
 ## 🧠 Why “Nokido”?
 
 **Nokido** draws inspiration from Japanese:
@@ -876,41 +940,57 @@ A2A adds agent-to-agent communication for systems that implement the A2A protoco
 
 # 🔬 Project status
 
+Each line pairs a **declared** maturity with the **evidence in this repository** that backs
+it: a module, a service, a CI gate. Every piece of evidence cited is re-checked by
+`tools/forge_capability_audit.py` (control « tableau de statut »): a ✅ without evidence, a
+citation that does not exist, or a paused service shown as operational fails CI.
+
+This table does **not** say whether an organ is beating *right now*. Nokido is a living body
+and a README can only freeze it, so ask the body itself, on your machine:
+
+```bash
+nokido-doctor --vivant          # from a clone: python tools/nokido_doctor.py --vivant
+```
+
+It reports every organ that declares a pulse — alive, uncertain, no longer beating, off by
+policy (a choice, not a failure), or unreadable — with the evidence behind each verdict.
+
 ```text
+                                  DECLARED             EVIDENCE IN THIS REPOSITORY
 ANATOMY / ORGANISM
-  Strict anatomical census        ✅ achieved
-  CI architectural gate           ✅ achieved
-  M2M memory separation           ✅ achieved
-  Emergency homeostasis           ✅ achieved (safeguard mode: the
-                                  regulation daemon is deliberately
-                                  stopped since 2026-09-05; one full
-                                  tick profiled at 79 s / 0.30 GB)
-  Sleep / circadian regulation    ✅ advanced
+  Strict anatomical census        ✅ achieved          `forge_module_census` --check, 0 unclassified
+  CI architectural gate           ✅ achieved          `anatomie` gate, blocking since 2026-09-06
+  M2M memory separation           ✅ achieved          `forge_db_path`: one switch read by every process
+  Emergency homeostasis           ✅ achieved          `NokidoHomeostasis` + `forge_homeostasis_orchestrator`
+  Sleep / circadian regulation    ✅ advanced          `forge_circadian` + `forge_circadian_loop`
 
 COMMUNICATION
-  MCP                             ✅ operational
-  ACP                             🟡 active development
-  A2A Tier-1                      ✅ operational
-  M2M                             ✅ operational
-  Swarm                           🟡 hardening
+  MCP                             ✅ operational       `NokidoMCP` hub, enabled by default
+  ACP                             🟡 in development    `NokidoAcpWs`, disabled by default
+  A2A Tier-1                      ⏸️ paused            `NokidoA2A`, disabled by default (code present)
+  M2M                             ✅ operational       `forge_m2m_protocol` validator (intents, pointers)
+  Swarm                           🟡 hardening         `forge_swarm` family, several modules without NR yet
 
 COGNITION
-  AMI                             🟡 active
-  Active Inference                🟡 active
-  Neuro-symbolic governance       ✅ operational
-  Autonomous evolution            🟡 guarded / experimental
+  AMI                             🟡 active            `forge_world_model` + `forge_ami_strategist`
+  Active Inference                🟡 active            `forge_active_inference`; homeostat coupling = prototype
+  Neuro-symbolic governance       ✅ operational       `NokidoGateConsumer` + `forge_golden_rules_ast`
+  Autonomous evolution            🟡 guarded           first two effectors, each with its own kill switch
 
 PHYSIOLOGY
-  Endocrine                       ✅ operational
-  Nervous system                  ✅ operational
-  Immune system                   🟡 partial / evolving
-  Cortex ↔ autonomic loop         🟡 next major coupling
+  Endocrine                       ✅ operational       `NokidoHormonesListener` + `forge_endocrine`
+  Nervous system                  ✅ operational       `NokidoAfferent` + `NokidoOrganPulse`
+  Immune system                   🟡 partial           `forge_semantic_firewall` + `forge_sovereign_membrane`
+  Cortex ↔ autonomic loop         🔬 not built yet     no module — the next major coupling
 
 NEURAL SUBSTRATE
-  Software SNN                    ✅ operational / experimental
-  NPU / edge                      🟡 development
-  Neuromorphic hardware           🔬 future
+  Software SNN                    ✅ experimental      `forge_snn_core` + `forge_snn_router`, on demand
+  NPU / edge                      🟡 in development    `NokidoBrainWorker`, disabled by default since 2026-07-24
+  Neuromorphic hardware           🔬 future            —
 ```
+
+A service that answers proves the **transport**, not the capability: it says the organ
+responds, not that every tool behind it works. Those are proven one by one by the tests.
 
 ### What Nokido has learned about being an organism
 

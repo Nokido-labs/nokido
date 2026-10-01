@@ -382,23 +382,28 @@ def test_la_preuve_couvre_le_SDIST_et_pas_seulement_la_wheel():
 # contenu FILTRE et generise du dist, pas la source. Le meme `release.yml` vit
 # dans les deux depots (le promoteur l'embarque), donc son graphe se juge PAR
 # DEPOT, et par EVENEMENT : une garde relue a l'oeil ne dit pas ce qui tourne.
-DEPOT_SOURCE = "Nokido-labs/nokido"
-DEPOT_DIST = "Nokido-labs/nokido-dist"
+# L'editeur se designe par la variable de depot NOKIDO_EDITEUR == 'true', JAMAIS
+# par un nom (owner 2026-09-30) : au renommage prevu (nokido -> nokido-private,
+# nokido-dist -> nokido), le nom `nokido` change de proprietaire -- une garde
+# `github.repository == 'Nokido-labs/nokido'` ferait publier la SOURCE pendant
+# la fenetre. La variable suit le depot quand on le renomme.
+DEPOT_SOURCE = ""        # variable absente sur la source
+DEPOT_DIST = "true"      # posee sur l'editeur seulement
 
 
 def _condition_vraie(expr, depot: str, evenement: str) -> bool:
-    """Evalue une garde `if:` pour un couple (depot, evenement).
+    """Evalue une garde `if:` pour un couple (valeur de NOKIDO_EDITEUR, evenement).
 
-    Seules `github.repository`, `github.event_name`, `==`, `!=`, `||`, `&&` sont
-    traduites : tout autre symbole leve une erreur a l'evaluation, et le test
-    echoue en le disant plutot que de deviner une valeur.
+    Seules `vars.NOKIDO_EDITEUR`, `github.event_name`, `==`, `!=`, `||`, `&&` sont
+    traduites : tout autre symbole -- `github.repository` compris -- leve une
+    erreur a l'evaluation, et le test echoue en le disant.
     """
     if expr in (None, ""):
         return True
     s = str(expr).strip()
     if s.startswith("${{") and s.endswith("}}"):
         s = s[3:-2]
-    s = (s.replace("github.repository", repr(depot))
+    s = (s.replace("vars.NOKIDO_EDITEUR", repr(depot))
           .replace("github.event_name", repr(evenement))
           .replace("||", " or ").replace("&&", " and "))
     return bool(eval(s, {"__builtins__": {}}, {}))  # noqa: S307 - chaine du depot, symboles traduits
@@ -452,10 +457,18 @@ def test_sur_le_dist_le_tag_de_PROMOTION_ne_publie_RIEN():
 def test_l_evaluateur_de_gardes_MORD():
     """Contre-epreuve : sans elle, un evaluateur qui rendrait toujours faux
     ferait passer les trois tests ci-dessus pour de mauvaises raisons."""
-    assert _condition_vraie("github.repository == 'Nokido-labs/nokido-dist'", DEPOT_DIST, "push")
-    assert not _condition_vraie("github.repository == 'Nokido-labs/nokido-dist'", DEPOT_SOURCE, "push")
+    assert _condition_vraie("vars.NOKIDO_EDITEUR == 'true'", DEPOT_DIST, "push")
+    assert not _condition_vraie("vars.NOKIDO_EDITEUR == 'true'", DEPOT_SOURCE, "push")
     assert _condition_vraie("github.event_name == 'push'", DEPOT_SOURCE, "push")
     assert _condition_vraie(None, DEPOT_SOURCE, "push")
+
+
+def test_aucune_garde_ne_depend_du_NOM_du_depot():
+    """Un nom de depot change de proprietaire au renommage : la garde doit tenir
+    par la variable NOKIDO_EDITEUR, qui suit le depot."""
+    for nom, job in _graphe().items():
+        garde = str(job.get("if", ""))
+        assert "github.repository" not in garde, f"{nom} : garde par nom de depot ({garde})"
 
 
 def test_CE_QUE_CE_TEST_NE_COUVRE_PAS_est_ECRIT():

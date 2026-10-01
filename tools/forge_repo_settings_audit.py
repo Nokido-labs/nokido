@@ -14,7 +14,7 @@ monkeypatchables (les tests NR fabriquent les reponses, zero reseau).
 
 CLI :
     trusted_script path=tools/forge_repo_settings_audit.py \
-        script_args="--repo user/nokido --branch main"
+        script_args="--repo Nokido-labs/nokido-private --branch main"
 """
 from __future__ import annotations
 
@@ -332,7 +332,7 @@ def _fmt(a):
 
 def main():
     ap = argparse.ArgumentParser(description="Audit reglages GitHub gouvernant une branche")
-    ap.add_argument("--repo", default="user/nokido")
+    ap.add_argument("--repo", default="Nokido-labs/nokido-private")
     ap.add_argument("--branch", default="main")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--apply-protection", action="store_true",

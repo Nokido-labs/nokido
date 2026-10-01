@@ -79,7 +79,11 @@ OPERATIONS: tuple = ("repo_info", "branch_head", "commit_info", "compare", "read
 METHODES_AUTORISEES: frozenset = frozenset({"GET"})
 
 #: Liste BLANCHE des depots. Extensible explicitement, jamais par joker.
-DEPOTS_AUTORISES: frozenset = frozenset({"Nokido-labs/nokido"})
+#: 2026-09-30 (owner) : l'atelier source est renomme `nokido-private` et le nom
+#: `Nokido-labs/nokido` revient a la VITRINE publique -- le garder ici ferait lire
+#: la vitrine a la place de l'atelier, sans une erreur. UN seul depot :
+#: `forge_bridge_oauth.depot_unique()` l'exige.
+DEPOTS_AUTORISES: frozenset = frozenset({"Nokido-labs/nokido-private"})
 
 AUDIENCE = "nokido-github-bridge"
 SCOPE = "github:read"

@@ -162,7 +162,7 @@ def main(argv=None) -> int:
     ap.add_argument("--frapper-la-clef", action="store_true",
                     help="cree la clef de signature au coffre (une seule fois)")
     ap.add_argument("--sujet", default="", help="a QUI cette habilitation est remise")
-    ap.add_argument("--ressource", default="Nokido-labs/nokido")
+    ap.add_argument("--ressource", default="Nokido-labs/nokido-private")
     ap.add_argument("--ttl-jours", type=int, default=30)
     ap.add_argument("--rejeu", default="single", choices=("single", "multi"))
     opts = ap.parse_args(argv)

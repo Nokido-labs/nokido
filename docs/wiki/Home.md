@@ -71,7 +71,7 @@ workflows, troubleshooting. For the *why* behind Nokido's design, read
 | RBAC dashboard | <http://127.0.0.1:7400/rbac> |
 | Health endpoint | <http://127.0.0.1:8766/health> |
 | MCP endpoint | <http://127.0.0.1:8766/mcp> |
-| Repository | <https://github.com/user/Nokido> |
+| Repository | <https://github.com/Nokido-labs/nokido> |
 | Security contact | *Security* tab → *Report a vulnerability* |
 
 ---

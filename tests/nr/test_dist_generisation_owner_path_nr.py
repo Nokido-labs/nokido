@@ -125,6 +125,38 @@ def test_nom_de_machine_en_minuscules_generise():
         assert n >= 1 and "7k2mq9z" not in out.lower(), (src, out)
 
 
+def test_nom_de_machine_apres_un_echappement_litteral_generise():
+    """Mesure du 2026-09-30 (tarball 0.20.4) : un JSON serialise un message git
+    avec des echappements LITTERAUX -- `\\n\\tDESKTOP-.../user`. Le `t` de `\\t`
+    colle au nom : `\\bDESKTOP-` n'y voyait aucune limite de mot, generisation ET
+    defense residuelle le rataient."""
+    for src in ("owned by:\\n\\tDESKTOP-XXXX/user", "x\\ndesktop-xxxx\\laforgesbxoffline",
+                "\\rDESKTOP-XXXX",
+                # `_` est un caractere de MOT : `\b` n'y voit pas de limite non plus.
+                "user_DESKTOP-XXXX", "hote_desktop-xxxx"):
+        out, n = D.generiser_texte(src)
+        assert n >= 1 and "7k2mq9z" not in out.lower(), (src, out)
+
+
+def test_sid_machine_generise_sid_bien_connu_intouche():
+    """Le SID d'une machine (S-1-5-21-<3 blocs>-<rid>) l'identifie autant que son
+    nom. Les SID bien connus (S-1-5-18 SYSTEM...) ne designent aucune machine."""
+    out, n = D.generiser_texte("(S-1-5-21-XXXX)")
+    assert n >= 1 and "1111111111" not in out, out
+    for src in ("S-1-5-18", "S-1-5-32-544"):
+        assert D.generiser_texte(src) == (src, 0), src
+
+
+@pytest.mark.parametrize("marqueur", ["\\tDESKTOP-XXXX", "S-1-5-21-XXXX"])
+def test_la_defense_residuelle_voit_l_echappe_et_le_sid(tmp_path, monkeypatch, marqueur):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "x.json").write_text('{"err": "%s"}' % marqueur.replace("\\", "\\\\"), encoding="utf-8")
+    monkeypatch.setattr(D, "_GEN_SUBS", [])   # rien n'est substitue -> residuel
+    with pytest.raises(RuntimeError):
+        D._generiser_chemins_owner(dist)
+
+
 def test_desktop_qui_n_est_pas_un_nom_de_machine_est_intouche():
     for src in ("data-Claude-Desktop-03052026", "claude-desktop-stdio",
                 "anthropics/claude-desktop-buddy", "Claude-Desktop", "DESKTOP-XXXX"):

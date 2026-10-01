@@ -3,6 +3,68 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: fc309c0ab..dbf1ab75d -->
+## 2026-10-01 — alpha `fc309c0ab..dbf1ab75d` (3 commits)
+
+### Nouveautés
+- **doctor** : nokido-doctor --vivant, ce qui bat organe par organe (`1a2a6b273`)
+- **audit** : le tableau de statut prouve par le depot, le vivant par le corps (`123b4f7e0`)
+
+### Maintenance
+- **release** : 0.20.5 (`dbf1ab75d`)
+
+<!-- changelog: 8c20fd918..95dd496af -->
+## 2026-10-01 — alpha `8c20fd918..95dd496af` (5 commits)
+
+### Nouveautés
+- **audit** : le tableau de statut du README se confronte a services.toml (`1ff01415f`)
+- **dist** : le bloc pip du README suit ce que PyPI sert (`95dd496af`)
+
+### Documentation
+- **readme** : tableau de statut au reel, declare a cote de la preuve (`b18b2d779`)
+- **readme** : ouverture tiree du MANIFESTO, demarrage rapide en tete (`6062a6eed`)
+
+### Maintenance
+- **separation** : deporte les plans internes hors de l'atelier (`22c1c0498`)
+
+<!-- changelog: deef0d10c..c0ffcdfae -->
+## 2026-09-30 — alpha `deef0d10c..c0ffcdfae` (6 commits)
+
+### Nouveautés
+- **evolution** : arme les deux effecteurs les plus surs du tri (`4ac75719a`)
+
+### Corrections
+- **soif** : examen exteroceptif a la demande, piliers reclames ensemble (`e6eaca6a1`)
+- **separation** : l'audit doc/code saute les docs deportes (export-ignore) (`c47568f15`)
+
+### Maintenance
+- **soif** : marquer muet-ok l'absence de demande manuelle (`f81318822`)
+- **dist** : le promoteur vise la vitrine Nokido-labs/nokido (ex-nokido-dist) (`d88ab63c4`)
+- **liveness** : le garde exige un disque PEUPLE de heartbeats declares (`c0ffcdfae`)
+
+<!-- changelog: e30bad076..4d2d06496 -->
+## 2026-09-30 — alpha `e30bad076..4d2d06496` (3 commits)
+
+### Corrections
+- **egress** : une cle owner/nom designe UN depot (vitrine vs atelier) (`e716b1af1`)
+- **pont-github** : le pont lit l'atelier nokido-private, la description le nomme (`4d2d06496`)
+
+### Maintenance
+- **repos** : outils de dev sur l'atelier nokido-private, liens sur la vitrine (`bfcf49c6d`)
+
+<!-- changelog: 35c3a011f..4607b0612 -->
+## 2026-09-30 — alpha `35c3a011f..4607b0612` (4 commits)
+
+### Nouveautés
+- **release** : l'editeur se designe par la variable NOKIDO_EDITEUR, plus par un nom (`4607b0612`)
+
+### Corrections
+- **dist** : le commit du snapshot n'ecarte plus les fichiers du .gitignore (`c229fe6f2`)
+- **dist** : nom de machine apres un echappement ou un souligne, SID machine generise (`b7d0f4633`)
+
+### Maintenance
+- **dist** : subprocess texte avec errors=replace dans le NR du commit force (`6537f925f`)
+
 <!-- changelog: f891c7bea..7a4d6415a -->
 ## 2026-09-30 — alpha `f891c7bea..7a4d6415a` (1 commit)
 

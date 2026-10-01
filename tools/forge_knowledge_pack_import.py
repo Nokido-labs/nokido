@@ -52,7 +52,7 @@ logger = logging.getLogger("forge.knowledge_pack")
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "RAG" / "embeddings.db"
-DEFAULT_REPO = "user/Nokido"  # public mirror once flipped
+DEFAULT_REPO = "Nokido-labs/nokido"  # vitrine publique (ex-nokido-dist) : releases + Knowledge Pack
 
 
 def _download_pack(repo: str, version: str | None, dest: Path) -> Path:

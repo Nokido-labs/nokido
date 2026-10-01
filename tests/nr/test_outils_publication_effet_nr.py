@@ -495,11 +495,14 @@ def test_la_cible_par_defaut_est_GitHub_Nokido_labs():
     """
     m = _charger("forge_dist_publish")
     assert list(m.DEFAULT_REMOTES) == ["github"], m.DEFAULT_REMOTES
-    assert m.DEFAULT_REMOTES["github"].endswith("Nokido-labs/nokido-dist.git")
-    assert m.DIST_REPO_GITHUB == "Nokido-labs/nokido-dist"
+    # 2026-09-30 : nokido-dist renomme Nokido-labs/nokido (la VITRINE). Le promoteur
+    # ecrit l'identite CANONIQUE de la vitrine, jamais l'ancien nom ni l'atelier prive.
+    assert m.DEFAULT_REMOTES["github"].endswith("Nokido-labs/nokido.git")
+    assert m.DIST_REPO_GITHUB == "Nokido-labs/nokido"
     # L'identite canonique est ECRITE, pas obtenue par une redirection
     # historique : une redirection peut cesser, un nom canonique non.
-    assert "user/nokido-dist" not in m.DEFAULT_REMOTES["github"]
+    assert "nokido-dist" not in m.DEFAULT_REMOTES["github"]
+    assert "nokido-private" not in m.DEFAULT_REMOTES["github"], "la vitrine ne vise jamais l'atelier prive"
     # Codeberg reste disponible, en miroir opt-in.
     assert "codeberg.org" in m.CODEBERG_URL
 
@@ -797,6 +800,18 @@ def test_le_promoteur_passe_D_et_le_depot_dist_aux_artefacts():
         "main() ne tire pas l'asset source de D")
 
 
+def test_le_manifeste_public_ne_nomme_aucun_depot_comme_source():
+    """2026-09-30 : `source.repository` part avec la vitrine publique. Par defaut il
+    ne designe AUCUN depot : ni `Nokido-labs/nokido` (la vitrine, ou ce sha n'existe
+    pas) ni l'atelier prive. Chemin reel : le defaut de `--source-repo` dans main()."""
+    import inspect
+    m = _charger("forge_dist_publish")
+    assert "/" not in m.SOURCE_PUBLIEE and "nokido" not in m.SOURCE_PUBLIEE.lower()
+    src = inspect.getsource(m.main)
+    assert '"--source-repo", default=SOURCE_PUBLIEE' in src, (
+        "le defaut de --source-repo ne passe plus par SOURCE_PUBLIEE")
+
+
 def test_forge_release_assets_archive_le_depot_demande(monkeypatch, tmp_path):
     ra = _charger("forge_release_assets")
     vus = []
@@ -910,6 +925,39 @@ def test_le_scan_de_secrets_est_cable_apres_le_garde_d_identite():
     src = inspect.getsource(_charger("forge_dist_publish").sync_snapshot)
     assert "_scanner_secrets(dist)" in src
     assert src.index("_scanner_secrets(dist)") > src.index("_verifier_identite_civile(dist)")
+
+
+def test_le_commit_dist_n_ecarte_pas_les_fichiers_du_gitignore(tmp_path):
+    """Mesure du 2026-09-30 : `git add -A` dans le clone dist ecartait EN SILENCE
+    tout fichier que la source suit malgre son .gitignore (13 fichiers, dont le
+    census sandbox/workspace/organ_map_full.json lu par le code) -- a CHAQUE
+    promotion depuis toujours. Le snapshot est deja cure (politique, generisation,
+    gardes) : tout ce qu'il contient doit partir. Vrai depot git, hermetique."""
+    import subprocess as sp
+    m = _charger("forge_dist_publish")
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    sp.run(["git", "init", "-q", str(dist)], check=True)
+    (dist / ".gitignore").write_text("workspace/\n", encoding="utf-8")
+    (dist / "workspace").mkdir()
+    (dist / "workspace" / "carte.json").write_text("{}\n", encoding="utf-8")
+    (dist / "code.py").write_text("x = 1\n", encoding="utf-8")
+    # CONTRE-EPREUVE d'abord : le scenario est reel -- un `add -A` simple ecarte bien le fichier.
+    temoin = tmp_path / "temoin"
+    temoin.mkdir()
+    sp.run(["git", "init", "-q", str(temoin)], check=True)
+    (temoin / ".gitignore").write_text("workspace/\n", encoding="utf-8")
+    (temoin / "workspace").mkdir()
+    (temoin / "workspace" / "carte.json").write_text("{}\n", encoding="utf-8")
+    sp.run(["git", "-c", "safe.directory=*", "-C", str(temoin), "add", "-A"], check=True)
+    indexes = sp.run(["git", "-c", "safe.directory=*", "-C", str(temoin), "ls-files"],
+                     capture_output=True, text=True, errors="replace", check=True).stdout.split()
+    assert "workspace/carte.json" not in indexes, "scenario sans objet : le .gitignore n'ecarte rien"
+
+    assert m.commit_version(dist, "9.9.9", "a" * 40)
+    suivis = sp.run(["git", "-c", "safe.directory=*", "-C", str(dist), "ls-files"],
+                    capture_output=True, text=True, errors="replace", check=True).stdout.split()
+    assert "workspace/carte.json" in suivis and "code.py" in suivis, suivis
 
 
 def test_aucun_identifiant_kaggle_en_dur():

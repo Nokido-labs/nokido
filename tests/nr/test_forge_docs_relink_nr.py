@@ -102,6 +102,18 @@ def test_verifier_signale_un_vrai_lien_mort_hors_depot(tmp_path, capsys):
     assert "MORT" in sortie and "voisine.md" in sortie
 
 
+def test_les_traductions_du_README_n_ont_AUCUN_lien_relatif_mort(capsys):
+    """Le chemin reel, pas une doublure. Mesure 2026-10-01 : 231 liens relatifs
+    des 7 traductions (`(LICENSE)`, `(SECURITY.md)`...) etaient ecrits comme depuis
+    la racine alors qu'elles vivent dans docs/i18n/ -- 0 mort le 2026-08-30, 231 un
+    mois plus tard, sans qu'aucun test ne crie. Le verificateur existait ; il
+    n'etait branche sur rien."""
+    racine = Path(__file__).resolve().parents[2]
+    rc = verifier(racine / "docs" / "i18n")
+    sortie = capsys.readouterr().out
+    assert rc == 0 and " 0 MORT(S)" in sortie, sortie[-2000:]
+
+
 def test_verifier_compte_les_liens_vus(tmp_path, capsys):
     _doc(tmp_path, "cible.md")
     _doc(tmp_path, "page.md", "[ok](cible.md) et [ko](perdu.md)\n")

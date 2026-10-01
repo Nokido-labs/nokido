@@ -89,8 +89,14 @@ def _demon():
     return mod
 
 
-def test_le_cycle_compte_ses_abstentions_par_dependance(monkeypatch):
+def test_le_cycle_compte_ses_abstentions_par_dependance(monkeypatch, tmp_path):
     d = _demon()
+    # Examen declenche, piliers annonces prets, sandbox/ redirige (2026-09-30) : ce test
+    # garde le COMPTE des abstentions quand un pilier tombe EN COURS d'examen.
+    monkeypatch.setattr(d, "_decision_examen", lambda besoin: "essai")
+    monkeypatch.setattr(d, "_reveiller_piliers", lambda *a, **k: (True, "essai"))
+    monkeypatch.setattr(d, "_marque_dernier_examen", lambda: tmp_path / "soif_dernier_examen")
+    monkeypatch.setattr(d, "_demande_manuelle", lambda: tmp_path / "soif_examen.wanted")
     from nokido_agent.app import forge_active_inference as fai
     monkeypatch.setattr(fai, "observe_signal", lambda *a, **k: {})   # JAMAIS la vraie base
     conn = sqlite3.connect(":memory:")

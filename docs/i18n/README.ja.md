@@ -4,13 +4,13 @@
 
 > **学習し、記憶し、自己調整するシステム — あなたのマシン上で、あなたのハードウェアで、あなたのデータのために。**
 
-[![License](https://img.shields.io/badge/license-AGPLv3-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPLv3-blue)](../../LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14%20%7C%203.14t-blue?logo=python)](https://www.python.org/)
 [![Deno](https://img.shields.io/badge/Deno-2.x-black?logo=deno)](https://deno.land/)
-[![Rust](https://img.shields.io/badge/Rust-ONNX%20%2B%20BM25-orange?logo=rust)](go_services/forge_brain_worker/)
+[![Rust](https://img.shields.io/badge/Rust-ONNX%20%2B%20BM25-orange?logo=rust)](../../go_services/forge_brain_worker/)
 [![snnTorch](https://img.shields.io/badge/snnTorch-spiking%20substrate-8E44AD)](https://snntorch.readthedocs.io/)
 [![Qdrant](https://img.shields.io/badge/Qdrant-vector%20sidecar-DC244C)](https://qdrant.tech/)
-[![Go](https://img.shields.io/badge/Go-dispatcher-00ADD8?logo=go)](go_services/forge_dispatcher/)
+[![Go](https://img.shields.io/badge/Go-dispatcher-00ADD8?logo=go)](../../go_services/forge_dispatcher/)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-9146FF?logo=anthropic&logoColor=white)](#-ecosystem-mcp--multi-llm)
 [![Local-First](https://img.shields.io/badge/Local--First-zero%20telemetry-2EA043)](#-security)
 [![Branch](https://img.shields.io/badge/branch-alpha-orange)](https://github.com/user/Nokido)
@@ -47,7 +47,67 @@
 [![Z.ai GLM](https://img.shields.io/badge/Z.ai%20GLM-cloud-6E56CF)](https://z.ai/)
 [![Moonshot Kimi](https://img.shields.io/badge/Moonshot%20Kimi-cloud-1F1F1F)](https://www.moonshot.cn/)
 
-**Languages:** [English](README.md) · [Français](docs/i18n/README.fr.md) · [Español](docs/i18n/README.es.md) · [简体中文](docs/i18n/README.zh-CN.md) · [Português](docs/i18n/README.pt-BR.md) · [日本語](docs/i18n/README.ja.md) · [Deutsch](docs/i18n/README.de.md) · [العربية](docs/i18n/README.ar.md)
+**Languages:** [English](../../README.md) · [Français](../../docs/i18n/README.fr.md) · [Español](../../docs/i18n/README.es.md) · [简体中文](../../docs/i18n/README.zh-CN.md) · [Português](../../docs/i18n/README.pt-BR.md) · [日本語](../../docs/i18n/README.ja.md) · [Deutsch](../../docs/i18n/README.de.md) · [العربية](../../docs/i18n/README.ar.md)
+
+---
+
+## 🧭 1分でわかる Nokido
+
+Nokido は**人工生命体のためのローカルファーストなランタイム**です。ローカルモデル、クラウドプロバイダー、
+Claude Code・Codex CLI・OpenCode・Antigravity などのコーディングエージェントといった複数の AI が、
+**バラバラなエージェントの寄せ集めにならずに**あなたのマシン上で協調して動くための、神経系と生理機能を提供します。
+
+出発点は三つの観察で、[マニフェスト](../../MANIFESTO.md) で詳しく述べています。
+
+1. **多くの AI は外部にある。** プロンプト、コード、文書が、あなたの所有しないインフラを通ります。
+2. **多くの AI は記憶を持たない。** 記憶は後付けであり、土台ではありません。
+3. **多くの AI は脳が一つしかない。** 一つの巨大なモデルがすべてに答えますが、生物学が示す知能は分散的で専門化されています。
+
+Nokido はエージェントフレームワークをもう一つ増やすのではありません。モデルの周りに**生命体のレイヤー**を加えます。
+
+* 用途に応じたローカル／クラウドモデル間の**ルーティング**（ローカルへのフォールバック付き）
+* **出所付きの長期記憶** — システムが学んだ内容に対する全文検索とベクトル検索
+* CPU・RAM・キュー・プロバイダーの**調整** — ホメオスタシス、反射、概日リズム
+* アクションを囲む**決定論的ゲート** — AST チェック、シークレット検出、RBAC、egress 制御
+* **エージェント間メッセージング**（M2M、スウォーム）と、自身のコードと状態の**内省**
+* クライアントが MCP で接続する**単一のハブ** — クライアントは使い捨て、システムは持続します
+
+### アーキテクチャだけでなく、証明のシステム
+
+Nokido は、多くのプロジェクトが混同する三つのものを区別します。**宣言された**もの、**観測された**もの、
+**検証された**ものです。ポートが応答してもモデルが読み込まれた証明にはならず、受理されたコマンドは到達した
+状態ではなく、確認できないプローブは「いいえ」ではなく `ILLISIBLE`（読み取り不能）と答えます。これらの区別は
+コードと CI で強制されており、この README もそれに従っています。[ステータス表](#-プロジェクトのステータス)は
+各主張をその根拠と並べ、停止中のサービスが稼働中と表示されると CI のコントロールが失敗します。
+
+主権は**アーキテクチャ**であって保証ではありません。Nokido により、データ、記憶、重要な判断を自分のインフラに
+置いたまま、外に出るものを明示的に制御できます。コンプライアンスは引き続き導入の仕方次第です。Nokido が
+主張**しない**ことは、この下に明記しています。
+
+## 🚀 クイックスタート
+
+<!-- PIP:BEGIN nokido-agent version=none -->
+`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
+trusts: a version reaches it only after the install proof on Linux, Windows
+and macOS. Until then, install from a clone.
+<!-- PIP:END -->
+
+**クローンから** — CI 自身が使う手順です（[詳細](#-インストール)）：
+
+```bash
+git clone https://github.com/Nokido-labs/nokido.git
+cd nokido
+python -m venv .venv
+.venv\Scripts\activate          # Linux / macOS: source .venv/bin/activate
+pip install -r requirements.txt
+python tools/nokido_doctor.py   # このマシンにあるもの、足りないもの、読み取れないもの
+python tools/nokido_hub.py
+```
+
+その後、`curl http://localhost:8766/health` が応答するはずです。次のステップ：
+[前提条件と Docker／ネイティブの手順](#-インストール) ·
+[インストールの検証](#-インストールの検証) ·
+[Claude Code・Codex・OpenCode などの接続](#-外部エージェントの接続)。
 
 ---
 
@@ -534,7 +594,7 @@ docker compose \
 ローカルモデルを取得：
 
 ```bash
-docker exec nokido-ollama \
+docker exec laforge-ollama \
   ollama pull qwen2.5-coder:latest
 ```
 
@@ -739,38 +799,58 @@ A2A は、A2A プロトコルを実装したシステム向けのエージェン
 
 # 🔬 プロジェクトのステータス
 
+各行は、**宣言された**成熟度と、それを裏付ける**このリポジトリ内の根拠**（モジュール、サービス、
+CI ゲート）を並べています。引用された根拠はすべて `tools/forge_capability_audit.py`（コントロール
+« tableau de statut »）が再検証します。根拠のない ✅、存在しない引用、稼働中と表示された停止中の
+サービスは CI を失敗させます。
+
+この表は、器官が*いま*脈打っているかどうかは示し**ません**。Nokido は生きた身体であり、README は
+それを凍結することしかできません。あなたのマシンで、身体そのものに尋ねてください：
+
+```bash
+nokido-doctor --vivant          # クローンから: python tools/nokido_doctor.py --vivant
+```
+
+脈拍を宣言するすべての器官について、生存・不確実・もう脈打っていない・ポリシーで停止（故障ではなく
+選択）・読み取り不能のいずれかを、各判定の根拠とともに報告します。
+
 ```text
+                                  DECLARED             EVIDENCE IN THIS REPOSITORY
 ANATOMY / ORGANISM
-  Strict anatomical census        ✅ achieved
-  CI architectural gate           ✅ achieved
-  M2M memory separation           ✅ achieved
-  Emergency homeostasis           ✅ achieved
-  Sleep / circadian regulation    ✅ advanced
+  Strict anatomical census        ✅ achieved          `forge_module_census` --check, 0 unclassified
+  CI architectural gate           ✅ achieved          `anatomie` gate, blocking since 2026-09-06
+  M2M memory separation           ✅ achieved          `forge_db_path`: one switch read by every process
+  Emergency homeostasis           ✅ achieved          `NokidoHomeostasis` + `forge_homeostasis_orchestrator`
+  Sleep / circadian regulation    ✅ advanced          `forge_circadian` + `forge_circadian_loop`
 
 COMMUNICATION
-  MCP                             ✅ operational
-  ACP                             🟡 active development
-  A2A Tier-1                      ✅ operational
-  M2M                             ✅ operational
-  Swarm                           🟡 hardening
+  MCP                             ✅ operational       `NokidoMCP` hub, enabled by default
+  ACP                             🟡 in development    `NokidoAcpWs`, disabled by default
+  A2A Tier-1                      ⏸️ paused            `NokidoA2A`, disabled by default (code present)
+  M2M                             ✅ operational       `forge_m2m_protocol` validator (intents, pointers)
+  Swarm                           🟡 hardening         `forge_swarm` family, several modules without NR yet
 
 COGNITION
-  AMI                             🟡 active
-  Active Inference                🟡 active
-  Neuro-symbolic governance       ✅ operational
-  Autonomous evolution            🟡 guarded / experimental
+  AMI                             🟡 active            `forge_world_model` + `forge_ami_strategist`
+  Active Inference                🟡 active            `forge_active_inference`; homeostat coupling = prototype
+  Neuro-symbolic governance       ✅ operational       `NokidoGateConsumer` + `forge_golden_rules_ast`
+  Autonomous evolution            🟡 guarded           first two effectors, each with its own kill switch
 
 PHYSIOLOGY
-  Endocrine                       ✅ operational
-  Nervous system                  ✅ operational
-  Immune system                   🟡 partial / evolving
-  Cortex ↔ autonomic loop         🟡 next major coupling
+  Endocrine                       ✅ operational       `NokidoHormonesListener` + `forge_endocrine`
+  Nervous system                  ✅ operational       `NokidoAfferent` + `NokidoOrganPulse`
+  Immune system                   🟡 partial           `forge_semantic_firewall` + `forge_sovereign_membrane`
+  Cortex ↔ autonomic loop         🔬 not built yet     no module — the next major coupling
 
 NEURAL SUBSTRATE
-  Software SNN                    ✅ operational / experimental
-  NPU / edge                      🟡 development
-  Neuromorphic hardware           🔬 future
+  Software SNN                    ✅ experimental      `forge_snn_core` + `forge_snn_router`, on demand
+  NPU / edge                      🟡 in development    `NokidoBrainWorker`, disabled by default since 2026-07-24
+  Neuromorphic hardware           🔬 future            —
 ```
+
+応答するサービスが証明するのは**トランスポート**であり、能力ではありません。器官が応答していることを
+示すだけで、その背後のすべてのツールが動作することを示すものではありません。それらはテストによって
+一つずつ証明されます。
 
 ### 有機体であることについて Nokido が学んだこと
 
@@ -817,7 +897,7 @@ Nokido は**アルファ段階の研究開発およびエンジニアリング�
 
 # 🔐 セキュリティ
 
-Nokido を localhost を超えてデプロイする前に、[`SECURITY.md`](SECURITY.md) をお読みください。
+Nokido を localhost を超えてデプロイする前に、[`SECURITY.md`](../../SECURITY.md) をお読みください。
 
 セキュリティ上注意が必要な領域には以下が含まれます：
 
@@ -839,9 +919,9 @@ Nokido は貢献を歓迎しますが、アーキテクチャの変更には厳�
 
 貢献する前に、以下をお読みください：
 
-* [`CONTRIBUTING.md`](CONTRIBUTING.md)
-* [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
-* [`docs/CLA.md`](docs/CLA.md)
+* [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
+* [`CODE_OF_CONDUCT.md`](../../CODE_OF_CONDUCT.md)
+* [`docs/CLA.md`](../../docs/CLA.md)
 
 現在の開発ブランチは以下の通りです：
 
@@ -880,7 +960,7 @@ Nokido は**デュアルライセンスモデル**を採用しています。
 
 **GNU Affero General Public License v3 or later**
 
-[`LICENSE`](LICENSE) を参照してください。
+[`LICENSE`](../../LICENSE) を参照してください。
 
 AGPL の条項に基づいて、Nokido を実行、研究、改変、および再配布することができます。
 
@@ -896,7 +976,7 @@ AGPL の条項に基づいて、Nokido を実行、研究、改変、および�
 * ホワイトラベル配布；
 * プロプライエタリな組み込みデプロイ。
 
-[`COMMERCIAL.md`](COMMERCIAL.md) を参照してください。
+[`COMMERCIAL.md`](../../COMMERCIAL.md) を参照してください。
 
 AGPL に基づいて Nokido を個人利用または内部利用するだけであれば、商用ライセンスは**不要**です。
 
@@ -926,7 +1006,7 @@ CLA は：
 * 特許ライセンスを含みます；
 * バージョン管理されています。
 
-現在の個人向け CLA は [`docs/CLA.md`](docs/CLA.md) に記載されています。
+現在の個人向け CLA は [`docs/CLA.md`](../../docs/CLA.md) に記載されています。
 
 企業からの貢献には、そこに記載されている個別の企業向け契約が必要です。
 
@@ -1014,32 +1094,32 @@ continuous neural substrate
 
 ### ここから始める
 
-* [`docs/wiki/01-Installation.md`](docs/wiki/01-Installation.md) — インストール
-* [`docs/wiki/02-Quick-Start.md`](docs/wiki/02-Quick-Start.md) — 最初の30分
-* [`docs/wiki/03-Architecture.md`](docs/wiki/03-Architecture.md) — システム概要
+* [`docs/wiki/01-Installation.md`](../../docs/wiki/01-Installation.md) — インストール
+* [`docs/wiki/02-Quick-Start.md`](../../docs/wiki/02-Quick-Start.md) — 最初の30分
+* [`docs/wiki/03-Architecture.md`](../../docs/wiki/03-Architecture.md) — システム概要
 
 ### 詳細アーキテクチャ
 
-* [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](MANIFESTO.md)
+* [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md)
 
 ### エージェントプロトコル
 
-* [`docs/ACP_INGRESS.md`](docs/ACP_INGRESS.md)
+* [`docs/ACP_INGRESS.md`](../../docs/ACP_INGRESS.md)
 * A2A 実装 — `tools/forge_a2a_server.py`, `tools/forge_a2a_card.py`
-* スウォームアーキテクチャ — [`docs/roadmap_forge_swarm.md`](docs/roadmap_forge_swarm.md)
+* スウォームアーキテクチャ — [`docs/roadmap_forge_swarm.md`](../../docs/roadmap_forge_swarm.md)
 
 ### 神経 / ハードウェアの方向性
 
-* [`docs/wiki/13-Hardware-Roadmap.md`](docs/wiki/13-Hardware-Roadmap.md)
+* [`docs/wiki/13-Hardware-Roadmap.md`](../../docs/wiki/13-Hardware-Roadmap.md)
 
 ### コミュニティ
 
-* [`CONTRIBUTING.md`](CONTRIBUTING.md)
-* [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
-* [`SECURITY.md`](SECURITY.md)
-* [`docs/CLA.md`](docs/CLA.md)
-* [`COMMERCIAL.md`](COMMERCIAL.md)
+* [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
+* [`CODE_OF_CONDUCT.md`](../../CODE_OF_CONDUCT.md)
+* [`SECURITY.md`](../../SECURITY.md)
+* [`docs/CLA.md`](../../docs/CLA.md)
+* [`COMMERCIAL.md`](../../COMMERCIAL.md)
 
 ---
 
@@ -1061,4 +1141,4 @@ Nokido は、単なるもうひとつのチャットボットになろうとし�
 
 **AGPLv3-or-later** · 商用ライセンスも利用可能
 
-[`LICENSE`](LICENSE) および [`COMMERCIAL.md`](COMMERCIAL.md) を参照してください。
+[`LICENSE`](../../LICENSE) および [`COMMERCIAL.md`](../../COMMERCIAL.md) を参照してください。
