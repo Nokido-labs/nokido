@@ -1,0 +1,19 @@
+# Pack knowledge : la base de connaissances RAG, exportee en int8.
+schema = "nokido-distribution/pack"
+version_schema = 1
+id = "knowledge"
+statut = "PRET"
+plateformes = ["windows-x64", "linux-x64"]
+
+[[composant]]
+id = "rag-pack-int8"
+description = "Knowledge Pack int8 (forge_knowledge_pack.export_pack), zippe"
+source = "construit"
+construit = "rag_pack"
+sha256 = "au_build"
+taille = "au_build"
+# Contenu agrege de sources multiples (veilles, documentation) : aucune licence unique ne
+# peut etre affirmee aujourd'hui. NOASSERTION est le terme SPDX honnete ; le validateur
+# le signale en avertissement.
+licence = "NOASSERTION"
+obligatoire = true

@@ -379,16 +379,18 @@ def _load_env_file(path: str = "Nokido.env") -> None:
     _resolved = next((p for p in _candidates if p.exists()), None)
     if _resolved is None:
         return
+    # SECRETS au coffre, REGLAGES du fichier (decision owner 2026-10-01) : ce chargeur
+    # recopiait tout le .env, secrets compris, EN CLAIR dans os.environ.
     try:
-        with open(str(_resolved), encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and "=" in line and not line.startswith("#"):
-                    k, _, v = line.partition("=")
-                    v = v.strip().strip('"').strip("'")
-                    os.environ.setdefault(k.strip(), v)
+        from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+        _b = injecter_env_depuis_coffre(_resolved)
+        if _b["absentes"] or _b["illisibles"]:
+            print("  ⚠ secrets absents du coffre : %s ; illisibles : %s -> forge_env_to_vault"
+                  % (_b["absentes"], _b["illisibles"]), flush=True)
     except Exception as e:
-        print(f"  ⚠ Lecture {_resolved} : {e}", flush=True)
+        print(f"  ⚠ coffre indisponible ({type(e).__name__}) : rien injecte depuis {_resolved}",
+              flush=True)
 
 
 # =============================================================================
@@ -445,19 +447,11 @@ class Settings:
 
             _injected = [r for r in _sync() if r.get("action") == "injected"]
             if _injected:
-                # Recharger os.environ après injection dans .env
-                from pathlib import Path as _P
+                # Recharger os.environ apres injection dans .env : reglages du fichier,
+                # secrets au coffre (decision owner 2026-10-01).
+                from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
 
-                env_p = _P(__file__).resolve().parent.parent / "Nokido.env"
-                for line in env_p.read_text(encoding="utf-8", errors="ignore").splitlines():
-                    line = line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    k, _, v = line.partition("=")
-                    k = k.strip()
-                    v = v.split("#")[0].strip()
-                    if k and v and k not in os.environ:
-                        os.environ[k] = v
+                injecter_env_depuis_coffre()
         except Exception:
             pass
         missing = []

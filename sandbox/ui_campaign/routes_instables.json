@@ -1,14 +1,16 @@
 {
  "/anatomy": 5,
+ "/design/ui_kits/hub/index.html#souverainete": 3,
  "/forge/feed": 1,
+ "/llm_dashboard": 8,
  "/maison": 3,
  "/ui/auto/critical-events": 2,
  "/ui/auto/services-status": 3,
- "/ui/auto/veille-summary": 1,
+ "/ui/auto/veille-summary": 7,
  "@8766/": 1,
  "@8766/forge/debate": 1,
  "@8766/forge/graph": 1,
- "@8766/forge/network": 3,
+ "@8766/forge/network": 9,
  "@8766/forge/rag-stream": 1,
  "@8766/forge/recon": 1,
  "@8766/gui/sidebar": 1

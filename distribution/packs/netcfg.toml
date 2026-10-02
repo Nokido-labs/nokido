@@ -1,0 +1,12 @@
+# Pack netcfg : le MCP reseau NokidoNetcfgMCP (:8768), depot VOISIN netcfg-agent-mcp.
+# A_EPINGLER : ce depot n'a pas encore de release versionnee et hachee a laquelle se lier.
+schema = "nokido-distribution/pack"
+version_schema = 1
+id = "netcfg"
+statut = "A_EPINGLER"
+plateformes = ["windows-x64", "linux-x64"]
+
+[[a_epingler]]
+id = "netcfg-agent-mcp"
+raison = "depot separe, livre a part ; une release taguee et sa somme sont a fixer"
+attendu_par = "forge_install_prerequis.PREREQUIS[netcfg_agent]"

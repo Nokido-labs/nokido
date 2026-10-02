@@ -416,8 +416,9 @@ def _diffuser(res: dict) -> None:
     except Exception as e:  # noqa: BLE001
         res["postal_err"] = repr(e)
     try:
-        from nokido_agent.app.forge_swarm_blackboard import get_blackboard
-        get_blackboard().propose_fact(
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
+        # `get_blackboard` n'a jamais existe : `blackboard_err` etait systematique.
+        _r = apply_fact_sync(
             "discovered_facts",
             json.dumps({
                 "sujet": "methode_antiregression_recall_mesure",
@@ -425,8 +426,9 @@ def _diffuser(res: dict) -> None:
                 "missed": [m["cas"] for m in r.get("MISSED", [])][:20],
                 "angles_morts": res.get("angles_morts"), "doc": str(OUT_DOC),
             }, ensure_ascii=False),
-            category="methode", trust=0.7, key="methode_antiregression_2026_08_13")
-        res["blackboard"] = "ok"
+            category="methode", trust=0.7, key="methode_antiregression_2026_08_13",
+            source="m2m_debate_antiregression", ring=2)
+        res["blackboard"] = "ok" if _r.get("ok") else str(_r)[:120]
     except Exception as e:  # noqa: BLE001
         res["blackboard_err"] = repr(e)
     try:
@@ -487,13 +489,16 @@ def ssot_ecrire(etat: dict) -> None:
     except Exception:  # noqa: BLE001
         pass
     try:
-        from nokido_agent.app.forge_swarm_blackboard import get_blackboard
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
 
-        get_blackboard().propose_fact(
+        _r = apply_fact_sync(
             "discovered_facts", json.dumps(etat, ensure_ascii=False)[:4000],
-            category="debat", trust=0.6, key="debat_antiregression_ssot")
-    except Exception:  # noqa: BLE001
-        pass
+            category="debat", trust=0.6, key="debat_antiregression_ssot",
+            source="m2m_debate_antiregression", ring=2)
+        if _r.get("ok") is False or _r.get("error"):
+            etat["_blackboard_err"] = str(_r)[:120]
+    except Exception as e:  # noqa: BLE001 - `get_blackboard` absent a ete avale ici des l'origine
+        etat["_blackboard_err"] = f"{type(e).__name__}: {str(e)[:100]}"
     # Un except nu ici avalerait la panne du bus : le debat se croirait
     # evenementiel en ne publiant rien. L'echec est donc INSCRIT dans l'etat.
     try:

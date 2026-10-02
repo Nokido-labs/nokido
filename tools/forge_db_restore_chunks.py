@@ -32,6 +32,8 @@ d.commit()
 
 d.execute("ATTACH ? AS bk", (BK,))
 collist = ",".join(f'"{c}"' for c in common)
+# existence-verifiee : la table vient d'etre VIDEE et ses triggers RETIRES juste
+# au-dessus -- aucun id existant, aucun trigger rag_chunks_fts_bi a armer (2026-10-01).
 d.execute(f"INSERT OR IGNORE INTO rag_chunks ({collist}) SELECT {collist} FROM bk.rag_chunks")
 d.commit()
 n = d.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]

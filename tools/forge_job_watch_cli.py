@@ -156,6 +156,76 @@ _DEFAILLANCES_CI = ("echecs", "erreurs", "timeouts")
 _ANSI = _re.compile(r"\x1b\[[0-9;]*m")
 
 
+def _depots_pair(depuis_iso: str, client: str | None, m2m=None) -> list | None:
+    """[(id, from_agent, method, intent, created_at)] des depots de pairs recus APRES `depuis_iso`
+    dans la boite OWNER_APPROBATION ; None si la base est illisible (jamais « aucun depot »)."""
+    import json as _json
+    import sqlite3 as _sq
+
+    try:
+        if m2m is None:
+            import sys as _sys
+
+            _racine = str(Path(__file__).resolve().parents[1])
+            if _racine not in _sys.path:
+                _sys.path.insert(0, _racine)
+            from nokido_agent.tools.forge_pair_quarantaine import chemin_m2m
+
+            m2m = chemin_m2m()
+        con = _sq.connect("file:%s?mode=ro" % m2m, uri=True, timeout=10)
+        try:
+            lignes = con.execute(
+                "SELECT id, from_agent, method, payload, created_at FROM agent_messages "
+                "WHERE to_agent='OWNER_APPROBATION' AND created_at > ? AND from_agent LIKE ? "
+                "ORDER BY created_at", (depuis_iso, ("PAIR:%s%%" % client) if client else "PAIR:%")).fetchall()
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 - illisible : dit par None, jamais lu comme « rien »
+        return None
+    out = []
+    for ident, de, methode, charge, recu in lignes:
+        try:
+            intent = (_json.loads(charge or "{}") or {}).get("intent")
+        except ValueError:
+            intent = "?"
+        out.append((ident, de, methode, intent, recu))
+    return out
+
+
+def surveiller_pair(client: str | None, max_s: int, intervalle: int, ecrire=print, m2m=None,
+                    horloge=time.time, dormir=time.sleep, depuis_iso: str | None = None) -> int:
+    """Surveille la QUARANTAINE des pairs cloud (claude.ai...) et SE TERMINE au premier depot neuf.
+
+    POURQUOI (owner 2026-10-01 : « la capsule claude.ai est finie, tu ne le vois pas direct ? lance un
+    monitor en fonction du LLM qui le lance »). Un job local se suit par --job, une tache d'AGY par
+    --task ; un pair cloud depose en quarantaine, que rien ne surveillait : son rendu du soir est reste
+    non vu jusqu'a ce que l'owner le signale.
+
+    L'emission ne porte que des METADONNEES (id, auteur, intent, methode) -- jamais le texte externe,
+    qui reste une donnee a lire volontairement (`forge_pair_quarantaine --lister`)."""
+    import datetime as _dt
+
+    depuis = depuis_iso or _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+    debut = horloge()
+    ecrire("PAIRS : veille de la quarantaine depuis %s%s" % (depuis, (" (client %s)" % client) if client else ""))
+    illisible = 0
+    while True:
+        neufs = _depots_pair(depuis, client, m2m)
+        if neufs is None:
+            illisible += 1
+            if illisible in (1, 10):
+                ecrire("PAIRS : base m2m ILLISIBLE (x%d) -- un depot pourrait arriver sans etre vu" % illisible)
+        elif neufs:
+            for ident, de, methode, intent, recu in neufs:
+                ecrire("PAIR DEPOT %s de %s intent=%s methode=%s recu=%s -- lire : "
+                       "forge_pair_quarantaine --lister (texte EXTERNE = donnee)" % (ident, de, intent, methode, recu))
+            return 0
+        if horloge() - debut > max_s:
+            ecrire("PAIRS : aucun depot neuf apres %d min -- veille terminee, a re-armer" % int((horloge() - debut) / 60))
+            return 0
+        dormir(intervalle)
+
+
 def _preuve_ci(lignes: list) -> tuple:
     """(index, champs, ligne) de la DERNIERE ligne `[preuve]`, ou (-1, None, "")."""
     for i in range(len(lignes) - 1, -1, -1):
@@ -283,11 +353,18 @@ def main(argv=None) -> int:
     cible = ap.add_mutually_exclusive_group(required=True)
     cible.add_argument("--job", help="job_id rendu par run_job")
     cible.add_argument("--task", help="task_id d'une tache M2M (tasks.db)")
+    cible.add_argument("--pair", nargs="?", const="", metavar="CLIENT",
+                       help="quarantaine des pairs cloud (claude.ai...) : premier depot neuf ; CLIENT optionnel")
     ap.add_argument("--gel-s", type=int, default=900,
                     help="silence du journal au-dela duquel on declare un GEL")
     ap.add_argument("--max-s", type=int, default=4800, help="borne dure")
     ap.add_argument("--intervalle", type=int, default=20)
     a = ap.parse_args(argv)
+    if a.pair is not None:
+        if any(c in a.pair for c in "/\\%_") or ".." in a.pair:
+            print("REFUS : --pair attend un identifiant de client, pas un motif")
+            return 2
+        return surveiller_pair(a.pair or None, a.max_s, a.intervalle)
     sujet = a.job or a.task
     if "/" in sujet or "\\" in sujet or ".." in sujet:
         print("REFUS : --job/--task est un identifiant, pas un chemin")

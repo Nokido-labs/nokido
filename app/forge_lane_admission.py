@@ -56,6 +56,9 @@ RESERVE_GB = _envf("LAFORGE_LANE_RESERVE_GB", "4")
 # avec UN SEUL coeur sur 16 charge. L'owner l'a vue a 13 %. Les deux etaient
 # vraies : l'une est un pic, l'autre le regime. On decide sur le regime.
 FENETRE_CPU_S = float(_envf("LAFORGE_LANE_FENETRE_CPU_S", "0.6"))
+# Age MAXIMAL du CPU lu dans l'instantane du sampler de forge_resource_manager (tick
+# ~3 s). Au-dela, le sampler est fige ou absent : retour a la mesure directe.
+CPU_SAMPLER_MAX_AGE_S = float(_envf("LAFORGE_LANE_CPU_SAMPLER_MAX_AGE_S", "10"))
 
 
 def _journaliser_refus(motif: str, sante: dict, lane: str = "") -> None:
@@ -99,6 +102,28 @@ def _get_system_health() -> dict:
     si la mesure échoue, on retourne des sentinelles saturées (degraded) -> l'admission
     lourde se replie sur le cloud au lieu d'ouvrir grand. Normalise aussi les clés
     (l'inspecteur peut exposer cpu/cpu_percent/ram_percent...)."""
+    # LE SAMPLER D'ABORD (2026-10-01). Journal de forge_loop_sentinel sur 7 jours : 292 gels,
+    # 567 s de boucle du hub figee -- 77 % du total -- venaient d'ICI, via handle_run :
+    # `_sys_metrics` dort 1 s dans `cpu_percent(interval=1)` puis enumere les sockets, et
+    # jusqu'a 5,5 s quand `_try_reserve` re-mesure. Le sampler de forge_resource_manager
+    # mesure DEJA le CPU sur la fenetre de son tick, hors de toute boucle, et le publie : on
+    # le LIT. Seulement s'il est FRAIS et PORTE un CPU (l'amorce a froid l'exclut expres :
+    # 0.0 au premier appel serait un mensonge). La RAM est lue EN DIRECT (microsecondes,
+    # exacte a l'instant) : la reserve absolue en Go garde sa precision. Sinon : chemin
+    # historique ci-dessous, inchange.
+    try:
+        from nokido_agent.app.forge_resource_manager import get_snapshot as _snap
+        import psutil as _ps
+
+        _s = _snap() or {}
+        _age = time.time() - float(_s.get("ts") or 0.0)
+        if _s.get("cpu_pct") is not None and 0.0 <= _age <= CPU_SAMPLER_MAX_AGE_S:
+            _vm = _ps.virtual_memory()
+            return {"cpu_pct": float(_s["cpu_pct"]), "ram_pct": _vm.percent,
+                    "ram_dispo_gb": _vm.available / 1e9, "source": "sampler",
+                    "fenetre_s": "tick du sampler", "cpu_age_s": round(_age, 1)}
+    except Exception:  # noqa: BLE001  # muet-ok : repli sur la mesure directe juste dessous
+        pass
     # forge_inspector : except LARGE (pas seulement ImportError) — une erreur runtime
     # de l'inspecteur ne doit pas faire crasher acquire/admit, ni passer en silence.
     try:
@@ -318,7 +343,8 @@ def check_ressources(heavy: bool = True) -> dict:
             }
     if health.get("cpu_pct", 0) > MAX_CPU_PCT:
         motif = (f"RISQUE EMBOLIE CPU ({health['cpu_pct']}% > {MAX_CPU_PCT}%, "
-                 f"mesure sur {FENETRE_CPU_S} s via {health.get('source', '?')})")
+                 f"mesure sur {health.get('fenetre_s', '%s s' % FENETRE_CPU_S)} "
+                 f"via {health.get('source', '?')})")
         _journaliser_refus(motif, health)
         return {"ok": False, "reason": motif, "alt": ALT_CLOUD,
                 "source": health.get("source")}

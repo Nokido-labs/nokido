@@ -197,15 +197,15 @@ def _ping(url: str) -> bool:
 
 
 def _load_env():
-    env_file = ROOT / "Nokido.env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                k = k.strip()
-                if k not in os.environ:
-                    os.environ[k] = v.strip().strip('"').strip("'")
+    # SECRETS au coffre, REGLAGES du fichier (decision owner 2026-10-01) : ce chargeur
+    # recopiait tout le .env, secrets compris, EN CLAIR dans os.environ.
+    try:
+        from nokido_agent.app.forge_secrets import injecter_env_ou_dire
+    except ImportError as e:  # dit, jamais avale
+        print("[task_router] forge_secrets introuvable (%s) : rien injecte depuis Nokido.env" % e,
+              flush=True)
+        return
+    injecter_env_ou_dire(ROOT / "Nokido.env", "task_router")
 
 
 _load_env()

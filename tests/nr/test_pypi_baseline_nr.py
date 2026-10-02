@@ -64,6 +64,10 @@ def test_une_baseline_sans_denominateur_n_est_pas_certifiante():
     assert mesure["certifiant"] is False
 
 
+# Timeout 120 s (2026-10-02) : ce test parcourt l'AST de TOUT le depot (base.baseline). Sous charge,
+# il a depasse les 30 s par defaut dans la CI de reference du sha 2acf5a16f -- et pytest-timeout,
+# methode thread, tue alors TOUTE la suite (177 tests executes sur environ 13 000, SUITE_INCOMPLETE).
+@pytest.mark.timeout(120)
 def test_la_baseline_reelle_a_un_denominateur_non_vide():
     mesure = base.baseline()
     assert mesure["certifiant"] is True

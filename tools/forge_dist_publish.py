@@ -1222,6 +1222,42 @@ def _aligner_bloc_pip(dist: Path, paquet: str, servie: str | None) -> None:
         print("[pip] bloc aligne sur %s : %s" % (servie, p.relative_to(dist)))
 
 
+# Cartouches du dist (2026-10-02, owner : « le cartouche CI ne s'affiche plus »). Le README de la
+# SOURCE pointe son cartouche CI vers le workflow self-hosted de la source (bloque hors du dist :
+# une PR publique ferait tourner du code sur le poste owner) et annonce la branche alpha. Sur le
+# dist, ce workflow n'existe pas et la branche est main : GitHub rendait « workflow introuvable ».
+# Le dist montre donc SON workflow (release.yml) -- et jamais le nom du depot prive.
+# Proprietaire quelconque : les traductions portaient encore l'ancien `user/Nokido` (redirige vers
+# le depot prive) -- un motif lie a `Nokido-labs` les laissait passer telles quelles dans le dist.
+_RE_CARTOUCHE_CI = re.compile(
+    r"https://github\.com/[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+/actions/workflows/ci-selfhosted\.yml"
+    r"(?P<badge>/badge\.svg(?:\?branch=[\w.-]+)?)?")
+
+
+def _adapter_cartouches(dist: Path) -> int:
+    """Cartouche CI -> release.yml du dist, badge de branche alpha -> main. Rend le nombre de README
+    modifies ; un README illisible est SAUTE et dit, jamais reecrit a moitie."""
+    def _rempl(m):
+        cible = "https://github.com/%s/actions/workflows/release.yml" % DIST_REPO_GITHUB
+        return cible + ("/badge.svg" if m.group("badge") else "")
+
+    n = 0
+    # Traductions : docs/i18n/README.<langue>.md (le format reel) et docs/i18n/<langue>/README*.md.
+    for p in (sorted(dist.glob("README*.md")) + sorted(dist.glob("docs/i18n/README*.md"))
+              + sorted(dist.glob("docs/i18n/*/README*.md"))):
+        try:
+            texte = p.read_text(encoding="utf-8")
+        except OSError as e:
+            print("[cartouches] %s illisible (%s) : saute" % (p.relative_to(dist), type(e).__name__))
+            continue
+        neuf = _RE_CARTOUCHE_CI.sub(_rempl, texte).replace("badge/branch-alpha-", "badge/branch-main-")
+        if neuf != texte:
+            p.write_text(neuf, encoding="utf-8")
+            n += 1
+            print("[cartouches] %s : CI -> release.yml du dist, branche -> main" % p.relative_to(dist))
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--version", required=True, help="SemVer e.g. 0.1.0")
@@ -1294,6 +1330,7 @@ def main() -> int:
     ensure_dist_repo(dist, remotes)
     sync_snapshot(source_sha, dist)
     _aligner_bloc_pip(dist, paquet, pypi_servie)
+    _adapter_cartouches(dist)
     committed = commit_version(dist, args.version, source_sha)
     tagged = tag_version(dist, args.version)
     # D n'existe qu'APRES le commit : le manifeste est ecrit ENSUITE, avec des

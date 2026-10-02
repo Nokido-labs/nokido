@@ -89,6 +89,7 @@ DRAFT_1B    = "D:/ollama/models/blobs/sha256-29d8c98fa6b098e200069bfb88b9508dc3e
 # ── VAGUE 1 : Tronc Cérébral (réseau & hub principal) ──────────────────
 [[service]]
 name = "NokidoMCP"
+logboot = true  # journal sans pipe (2026-10-01, en dernier) : 0,2-0,5 ligne/s ; jobs = handles fichier propres ; aucun enfant durable
 # INNERVATION (2026-08-25). Le hub tenait son contrat par PALPATION seule — cpu et
 # sockets, mesures du dehors. L'ancetre de tous les jobs ne disait rien de son etat.
 # `emis<600` exige desormais un battement EMIS dans la moelle afferente. Il est pour
@@ -256,6 +257,7 @@ neverSleep = true
 
 [[service]]
 name = "NokidoNetcfgMCP"
+logboot = true  # journal sans pipe (2026-10-01) : -m netcfg_mcp, transport http (stdio_server non utilise)
 # MESURE 2026-08-25 : son /health sur :7500 ne repond pas (URLError) — l'organe est
 # donc MUET, et le contrat le dira au lieu de le couvrir par un pouls CPU. C'est un
 # defaut a instruire, pas un seuil a assouplir.
@@ -289,6 +291,7 @@ essential = true
 # subprocess, aucune sonde GPU (mesuree a 1562 ms — une sonde d'echantillonnage
 # a deja gele cette machine le 2026-07-26), aucun egress.
 name = "NokidoHubBlackbox"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # INNERVE le 2026-08-25 par EMISSION DIRECTE : sans port, il ne pouvait pas temoigner
 # par une interface — il ecrit donc son propre battement. Un organe qui surveille doit
 # etre surveillable, sinon sa disparition ne se voit qu'au trou qu'elle laisse.
@@ -301,6 +304,9 @@ cmd = "${PYTHON}"
 args = ["tools/forge_hub_blackbox.py"]
 cwd = "${ROOT}"
 essential = false
+# JAMAIS endormi par la rafale RAM (2026-10-01) : « le seul organe qui SURVIT a ce qu'il
+# observe » — une pression RAM est precisement ce qu'il doit enregistrer. Eviction CIBLEE possible.
+neverSleep = true
 
 [[service]]
 # NOEUD SINUSAL (owner 2026-09-03) — « le pouls doit emaner du coeur ».
@@ -320,6 +326,7 @@ essential = false
 # contrepartie assumee : un arret cardiaque est releve en 600 s, pendant lesquelles
 # l'echappement tient le corps et le DIT dans chaque afference.
 name = "NokidoCardiacNode"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "regulation:rythme"
 objectif = "hb<600 | periode 15..45s"
 heartbeat = "sandbox/cardiac_node.heartbeat"
@@ -329,6 +336,10 @@ cmd = "${PYTHON}"
 args = ["app/forge_cardiac_node.py", "--daemon"]
 cwd = "${ROOT}"
 essential = false
+# JAMAIS endormi par la rafale RAM (2026-10-01) : REGULATEUR (meme classe que le keeper,
+# decision owner 2026-09-25). Le 01/10 15:54 la rafale l'a endormi avec 42 autres : le pouls
+# ne battait plus pour personne. L'eviction CIBLEE (/supervisor/sleep/<nom>) reste possible.
+neverSleep = true
 
 [[service]]
 # Docker daemon keeper (Phase 4 2026-05-24) — probe `docker info` toutes les
@@ -338,6 +349,7 @@ essential = false
 # rag_warmup, etc.). Aucun container Docker ne devrait depend du daemon
 # sans ce keeper actif en wave 1.
 name = "NokidoDockerKeeper"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 1
 cmd = "${PYTHON}"
 args = ["tools/forge_docker_keeper.py"]
@@ -382,6 +394,7 @@ heartbeat_tier = "fast"   # 5/30/90s — Docker DOWN doit etre detecte vite
 # Il porte son PROPRE heartbeat : l'organe qui recueille les pouls doit etre jugeable
 # par le contrat qu'il sert, sinon il s'exempte de la regle qu'il applique.
 name = "NokidoAfferent"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["app/forge_organ_afferent.py", "--boucle"]
@@ -400,6 +413,7 @@ env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 # sur les llama-server CODER non protégés. Reload on-demand = start_llamacpp_native
 # (:8080) quand RAM <= RELOAD_OK. LlamaNative :8091 reste on-demand via wake --lite.
 name = "NokidoLlamaKeeper"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # 2026-09-05 mode sauvegarde : rallumait le coder (4,8 Go) sur llama.wanted pose en boucle par
 # forge_viable_system -> deadlock documente 19/08. 2026-09-25 (decision owner) : REARME en mode
 # PILIERS SEULS (LAFORGE_LLAMA_KEEPER_PILIERS_ONLY=1, garde tests/nr/test_keeper_piliers_only_nr.py) :
@@ -432,6 +446,7 @@ neverSleep = true
 # LAFORGE_VEC_SIDECAR_PORT=8098 dans l'env du hub + restart (rollback = env). Depend du
 # serveur natif :6333 (a persister aussi, cf NokidoQdrantServer a venir).
 name = "NokidoQdrantSidecar"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "capability:dense_search"
 objectif = "emis<600 | listen"
 wave = 4
@@ -449,6 +464,7 @@ capabilities = ["dense_search"]
 # LAFORGE_QDRANT_BIN (defaut C:\tmp\qdrant_bin — A RELOCALISER hors tmp). wave 3 = demarre
 # AVANT le sidecar :8098 (wave 4) qui en depend. Persiste pour survivre au reboot.
 name = "NokidoQdrantServer"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # Binaire TIERS : il ne peut pas ecrire dans notre moelle, mais il rend SES propres
 # compteurs (points_count, segments_count, status). Temoignage medie, pas palpation.
 intention = "capability:dense_search"
@@ -467,6 +483,7 @@ capabilities = ["dense_search"]
 # Sécurité defense-in-depth post-incident 47GB/OOM : throttle hub + openLog superviseur + CE
 # guard continu (l'openLog ne coupe qu'au spawn ; un log qui enfle en cours de run = ce guard).
 name = "NokidoLogGuard"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_log_guard.py", "--daemon"]
@@ -482,6 +499,7 @@ heartbeat_tier = "slow"
 # + vocab mismatch unverified/queued). Cable ici pour ne plus re-mourir. runAs interactive
 # (SearXNG :8080 via profil user).
 name = "NokidoBiblioWorker"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["app/forge_biblio_worker.py"]
@@ -555,6 +573,8 @@ heartbeat_tier = "slow"
 # (digest intelligent) + INTERPELLE via sandbox/inbox/<agent>.md que le hook d'amorce surface
 # au prochain tour. Passe le swarm de réactif (l'agent doit poll) à proactif (tape sur l'épaule).
 name = "NokidoSecretary"
+# JOURNAL SANS PIPE (2026-10-01, pilote) : tools/forge_logboot.py tient le journal, le superviseur ne pipe pas.
+logboot = true
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_secretary.py"]
@@ -571,6 +591,7 @@ heartbeat_tier = "slow"
 # d'observation TUI + reference pattern pour daemons metier qui veulent
 # reagir aux hormones (router, autonomous_loops, homeostasis).
 name = "NokidoHormonesListener"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_hormones_listener.py"]
@@ -588,6 +609,7 @@ heartbeat_tier = "fast"   # 5/30/90s — reactivite endocrinienne
 # donc DETECTE le wedge au lieu d'en mourir. Pas de deps=[8766] (doit tourner meme hub down).
 # Pouls 600s ; heartbeat 60s (frais malgre le pouls espace -> pas de restart-loop superviseur).
 name = "NokidoOrganPulse"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # MODE SAUVEGARDE 2026-09-06 (P1 au blackboard) : ce pouls recompte le backlog
 # d'embedding par `SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NULL AND
 # embedding_model IS NULL` sur la base de 24,9 Go toutes les 600 s — 107 Mo/s de
@@ -603,6 +625,10 @@ cmd = "${PYTHON}"
 args = ["tools/forge_organ_pulse.py", "--watch", "600"]
 cwd = "${ROOT}"
 essential = false
+# JAMAIS endormi par la rafale RAM (2026-10-01) : la sentinelle surveille la RAM ELLE-MEME
+# (un de ses 8 checks) ; l'endormir sous pression RAM aveugle l'organe qui la voit. ~220 Mo
+# mesures. Regulateur (decision owner 2026-09-25) ; eviction CIBLEE toujours possible.
+neverSleep = true
 env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 heartbeat = "sandbox/organ_pulse.heartbeat"
 # cycle_s PROUVE par DECLARATION du consommateur : add_argument("--watch",
@@ -618,12 +644,16 @@ heartbeat_tier = "slow"
 # SOIGNE). armed=false par defaut (heals risques -> escalade humain, jamais restart solo).
 # Drain 300s ; heartbeat 60s. deps=[8766] (notify facteur).
 name = "NokidoCoagulation"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_coagulation.py", "--watch", "300"]
 cwd = "${ROOT}"
 deps = [8766]
 essential = false
+# JAMAIS endormi par la rafale RAM (2026-10-01) : consomme les evenements critiques que la
+# sentinelle emet — endormie, un incident RAM n'est plus traite par personne. Eviction CIBLEE possible.
+neverSleep = true
 env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 heartbeat = "sandbox/coagulation.heartbeat"
 # cycle_s PROUVE par DECLARATION : add_argument("--watch", metavar="SECONDS")
@@ -638,6 +668,7 @@ heartbeat_tier = "slow"
 # sur tous services GPU-touching (Ollama, Llama*, BrainWorker). Apres quiesce
 # 60s, restore. Evite la cascade TDR -> BSOD 0x119 (incident 2026-05-24, 3 BSODs).
 name = "NokidoTdrSentinel"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 1
 cmd = "${PYTHON}"
 args = ["tools/forge_tdr_sentinel.py"]
@@ -726,6 +757,8 @@ env = { LAFORGE_DENO_HUB_PORT = "8769", LAFORGE_PERSIST_DIR = "${ROOT}/nokido_pe
 # ── VAGUE 3 : Sondes vitales & cervelet ────────────────────────────────
 [[service]]
 name = "NokidoHomeostasis"
+# JOURNAL SANS PIPE (2026-10-01, pilote) : tools/forge_logboot.py tient le journal, le superviseur ne pipe pas.
+logboot = true
 # REACTIVE le 2026-09-06 apres MESURE, l'accusation du 05/09 etant fausse sur son motif
 # principal. Profil de 12 ticks consecutifs (tools/forge_homeostasis_tick_profil.py) :
 # RSS PLAT a 0,337 Go, objets suivis par le ramasse-miettes stables (~294 000, deltas
@@ -803,6 +836,7 @@ essential = false
 # ── VAGUE 4 : Cortex cognitif (Python 3.14 & LLMs lourds) ──────────────
 [[service]]
 name = "NokidoHebbian"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PY314}"
 args = ["app/forge_hebbian_linker.py", "--daemon"]
@@ -878,6 +912,7 @@ heartbeat = "sandbox/ingestion_pipeline.heartbeat"
 # abstention), emet un ressenti sur gap CERTAIN et propose au blackboard. Veille
 # effective desarmee par defaut (LAFORGE_EPISTEMIC_AUTO_VEILLE=1 pour armer).
 name = "NokidoEpistemicSoif"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 disabled = false
 wave = 4
 cmd = "${PYTHON}"
@@ -997,6 +1032,7 @@ env = { PYTHONIOENCODING = "utf-8" }
 # `capabilities = ["embedding"]` : il consomme du reseau, pas l'iGPU, tant que le
 # provider elu est cloud. Le repli local existe mais passe en DERNIER (_PREF).
 name = "NokidoDeportEmbed"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # INNERVE le 2026-08-25 par EMISSION DIRECTE. Il travaille par vagues d'une heure :
 # sans battement, un arret se confond avec une pause, et la regulation ne peut pas
 # distinguer un organe qui digere d'un organe qui est mort. Seuil large en
@@ -1041,6 +1077,7 @@ heartbeat = "sandbox/embed_auto_trigger.heartbeat"
 # doc -> reportee ici, sur le bloc EFFECTIF. Ne PAS re-dupliquer : un doublon est avale
 # sans avertissement, et le bloc perdant a l'air vivant.
 name = "NokidoAutonomousLoops"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PY314}"
 args = ["app/forge_autonomous_loops.py", "--daemon", "--tick", "60"]
@@ -1119,6 +1156,15 @@ cmd = "${LLAMA}"
 # pic de calcul. Un texte plus long est tronque par llama.cpp au contexte : le drain
 # envoie des chunks, pas des documents. A re-mesurer par le meme outil apres tout
 # changement de ces valeurs.
+# BANC 2026-10-01 (owner « c ») -- A, ces valeurs avec --parallel 1 : 17,5 chunks/s, que le
+# client envoie 1 ou 4 requetes a la fois (la place unique serialise tout) ; outil de
+# reference : 1 088 chunks a 0,061 s/chunk, RSS 0,58 -> 0,86 Go (max 1,03) = PLAT ; l'arret
+# RAM 88 % venait d'AUTRES consommateurs (llama-server du routeur 5,7 Go charge pendant la
+# fenetre, fuite de handles mtkbtsvc). B essaye (-c 8192 --parallel 4, lot inchange) :
+# 18,5 / 19,2 chunks/s (+6 a 10 % seulement : c'est le CALCUL de l'iGPU qui borne, pas le
+# nombre de places), RSS 1,11 Go, et un texte reel de 4 400 caracteres rend HTTP 500.
+# REJETE : retour a A. (La comparaison de vecteurs A/B du banc n'est PAS valable : le lot
+# etait choisi relativement a MAX(rowid), qui avait bouge entre les deux passes.)
 args = ["-m", "${ROOT}/data/llm_models/bge-m3-Q8_0.gguf", "--embedding",
         "--pooling", "cls", "-ngl", "99", "--host", "127.0.0.1", "--port", "8099",
         "-c", "2048", "-b", "2048", "--ubatch-size", "512", "--parallel", "1", "--metrics"]
@@ -1213,6 +1259,7 @@ env = { LAFORGE_DENO_WEBHUB_PORT = "7401", LAFORGE_PERSIST_DIR = "${ROOT}/nokido
 
 [[service]]
 name = "NokidoWebHub"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "interface:web"
 objectif = "emis<600 | cpu>0.05 | listen"
 wave = 5
@@ -1237,6 +1284,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 #    controle ; daemons headless (zero popup, contrairement aux schtasks). ──
 [[service]]
 name = "NokidoSSoTMaintainer"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["app/forge_ssot_maintainer.py", "--daemon", "--interval", "300"]
@@ -1259,6 +1307,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 # voir le profil OWNER (~/.gemini, ~/.codex, ~/.claude.json) — invisible en SYSTEM. Ecrit
 # sandbox/comm_watch_status.json que la sentinelle (forge_organ_pulse) LIT (check comm_bricks).
 name = "NokidoCommWatch"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["tools/forge_comm_watch.py", "--daemon", "--interval=900"]
@@ -1285,6 +1334,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 
 [[service]]
 name = "NokidoPhenomBuffer"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["app/forge_phenomenological_buffer.py", "--daemon", "--interval", "300"]
@@ -1303,6 +1353,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 # Validateur gate-consume-log : consomme les intentions 'proposed' du event-log -> gate
 # deterministe -> verdict (raffinement GLM : agents append / validateurs consomment).
 name = "NokidoGateConsumer"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["app/forge_gate_consumer.py", "--daemon", "--interval", "30"]
@@ -1318,6 +1369,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 
 [[service]]
 name = "NokidoOpenAIProxy"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "ingress:openai_compat"
 objectif = "emis<600 | conn>0 | cpu>0.05"
 wave = 5
@@ -1352,6 +1404,7 @@ env = { PYTHONIOENCODING = "utf-8" }
 # relaie vers ce service ; AUCUN port entrant n'est ouvert. Le bridge n'ecoute
 # donc que le loopback, et c'est voulu.
 name = "NokidoGithubBridgeMCP"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "ingress:mcp_chatgpt"
 objectif = "port 8791 ouvert | registre OAuth persiste sur disque"
 wave = 5
@@ -1393,6 +1446,13 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", NO
 # l'owner (NOKIDO_PAIR_OAUTH_APPARIEMENT, au coffre) existent. Secrets lus au coffre par le
 # lanceur, jamais ici (fichier versionne).
 name = "NokidoPairMCP"
+# JAMAIS endormi (2026-10-01) : point d'entree des pairs EXTERIEURS (claude.ai, ChatGPT via
+# Funnel). Endormi a 15:54 par une vague de sommeil, port 8793 ferme -> claude.ai « impossible
+# de s'inscrire aupres du service de connexion ». Un appelant exterieur ne peut pas reveiller
+# un service qui n'ecoute plus.
+neverSleep = true
+# JOURNAL SANS PIPE (2026-10-01, pilote) : tools/forge_logboot.py tient le journal, le superviseur ne pipe pas.
+logboot = true
 intention = "ingress:mcp_pairs_cloud"
 objectif = "port 8793 ouvert | 401 sans jeton | depots en quarantaine"
 wave = 5
@@ -1406,7 +1466,11 @@ runAs = "sandbox-offline"
 # ACTIVE le 2026-09-28 sur go explicite de l'owner (exposition publique via Funnel).
 disabled = false
 # URL : Tailscale Funnel pose par l'owner le 2026-09-28 (`tailscale funnel --bg 8793`, 443 -> 127.0.0.1:8793).
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", NOKIDO_PAIR_PUBLIC_URL = "https://desktop-xxxx.tailf7242.ts.net" }
+# PYTHONUNBUFFERED (2026-10-01) : sans lui, stdout du serveur (enfant du lanceur, sortie en pipe) est
+# bufferise par blocs -- le journal de l'organe montrait les requetes par paquets sous un meme horodatage,
+# une requete publique de 11:29 n'y figurait pas, et un arret dur perdait le tampon. Diagnostiquer le 502
+# du connecteur claude.ai exige de voir chaque requete A L'INSTANT ou elle arrive.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", PYTHONUNBUFFERED = "1", NOKIDO_PAIR_PUBLIC_URL = "https://desktop-xxxx.tailf7242.ts.net" }
 
 [[service]]
 # Relais SORTANT vers le plan de controle OpenAI. Il long-polle en HTTPS et relaie
@@ -1428,6 +1492,10 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", NO
 # Sans cle, le lanceur REFUSE de demarrer en le disant : un relais sans identite
 # echouerait cote plan de controle plus tard, sans rapport visible avec la cause.
 name = "NokidoOpenAITunnel"
+# JAMAIS endormi (2026-10-01) : tunnel du connecteur ChatGPT ; un pair exterieur ne peut pas le
+# reveiller (meme defaut que NokidoPairMCP endormi a 15:54).
+neverSleep = true
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "egress:tunnel_chatgpt"
 objectif = "health 8792 repond | canal MCP relaye vers 8791"
 wave = 6
@@ -1448,6 +1516,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", HOME = "${NOKIDO_BIN
 # ANTHROPIC_BASE_URL. Adaptateur format mince sur app/forge_llm_format_bridge ;
 # switchboard local/cloud = hub ask(provider=auto). Cf docs/biblio_cli_unification_2026-06-10.md.
 name = "NokidoAnthropicIngress"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # CONTRAT (audit 2026-08-25). `intention` dit POURQUOI ce service tourne, `objectif`
 # dit quelle SORTIE MESURABLE prouve qu'il tient son role. Les seuils ci-dessous ne
 # sont pas choisis : ils viennent de ce que l'audit a MESURE sur ce service (3 conn
@@ -1468,6 +1537,7 @@ env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 [[service]]
 # Ingress Gemini generateContent (:7778) — Gemini CLI via GOOGLE_GEMINI_BASE_URL.
 name = "NokidoGeminiIngress"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "ingress:gemini"
 objectif = "emis<600 | conn>0 | cpu>0.05"
 wave = 5
@@ -1481,6 +1551,7 @@ env = { PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 
 [[service]]
 name = "NokidoWebEgress"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 intention = "egress:web"
 objectif = "emis<600 | conn>0 | cpu>0.05"
 wave = 5
@@ -1497,6 +1568,7 @@ env = { PYTHONIOENCODING = "utf-8" }
 
 [[service]]
 name = "NokidoRSSWatcher"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PY314}"
 args = ["app/forge_rss_watcher.py", "--daemon"]
@@ -1515,6 +1587,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NOKIDO_IDENTITE = "S
 
 [[service]]
 name = "NokidoCapture"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["-u", "-m", "cli_tail_capture", "--watch", "--interval", "15", "-v"]
@@ -1525,6 +1598,7 @@ env = { PYTHONIOENCODING = "utf-8" }
 
 [[service]]
 name = "NokidoNetcfgUI"
+logboot = true  # journal sans pipe (2026-10-01) : ${NETCFG_UI} = demo/serve_ui.py, aucune manipulation de stdout
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NETCFG_UI}", "--host", "127.0.0.1", "--port", "7500"]
@@ -1571,6 +1645,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 
 [[service]]
 name = "NokidoTaskExecutor"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_task_executor.py"]
@@ -1602,6 +1677,7 @@ heartbeat = "sandbox/task_executor.heartbeat"
 # disabled=false : c'est le seul chemin d'EXECUTION autonome du code.
 [[service]]
 name = "NokidoTaskExecutorAgy"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 disabled = false
 wave = 5
 cmd = "${PYTHON}"
@@ -1619,6 +1695,7 @@ heartbeat_tier = "slow"
 
 [[service]]
 name = "NokidoTaskExecutorAntigravity"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 disabled = false
 wave = 5
 # CHEMINS ABSOLUS Nokido (2026-08-13) : ${ROOT} resolvait vers laforge-cowork,
@@ -1638,6 +1715,7 @@ heartbeat_tier = "slow"
 
 [[service]]
 name = "NokidoChainExecutor"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["app/forge_chain_executor.py"]
@@ -1712,6 +1790,7 @@ heartbeat_tier = "fast"
 # Skill curator (Phase 6) — execution_traces -> curated_skills RAG (extract/grade/
 # prune/consolidate). Cycle 6h. Câblé services.toml 2026-06-01 (était TODO).
 name = "NokidoSkillCurator"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["app/forge_skill_curator.py", "--daemon", "--interval", "21600"]
@@ -1728,6 +1807,7 @@ heartbeat_tier = "slow"   # cycle 6h
 
 [[service]]
 name = "NokidoTraceSidecar"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 3
 # Pouls 2026-07-28 : ce daemon suit un log en tail, sans port. Il ne lisait que le
 # heartbeat de l'inspector, sans ecrire le sien — sa mort etait donc silencieuse,
@@ -1751,6 +1831,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 # --reencode :8099). Alimente le retrain value/world @1024d. Single-instance guard
 # (cmdline) + heartbeat. CENTRALISE dans le superviseur (remplace le run_job manuel).
 name = "NokidoTraceCollectorRich"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PY314}"
 args = ["tools/forge_trace_collector_rich.py"]
@@ -1767,6 +1848,7 @@ heartbeat_tier = "slow"
 # fichiers + resume leger mailbox = 0 pression mono-writer hub (parade R3). P1 = reversible only
 # (irreversible -> gate _queue_for_approval = P2). Single-instance guard + heartbeat.
 name = "NokidoCowork"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PY314}"
 args = ["app/forge_cowork.py"]
@@ -1779,6 +1861,7 @@ heartbeat_tier = "slow"
 
 [[service]]
 name = "NokidoLogRetention"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 # Rétention tiers des logs : drop embeddings tièdes (7-30j), purge froids (>30j),
 # purge audit.db, prune redaction_vault, VACUUM. Borne execution_traces.db
@@ -1821,6 +1904,7 @@ heartbeat_tier = "slow"   # cycle 1h
 
 [[service]]
 name = "NokidoGraphExplorer"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # ACTIVE le 2026-09-18 sur demande owner : « les declarer au boot, comme les autres
 # services — ils sont la au demarrage, sans qu'aucune page ne declenche quoi que ce soit ».
 # Contexte : le proxy /graph/ demarrait ce service au CHARGEMENT de la page, ce que la
@@ -1862,6 +1946,7 @@ heartbeat_max_s = 180
 
 [[service]]
 name = "NokidoTuiBridge"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # DECLARE le 2026-09-18, meme demande owner. Ce pont n'existait dans AUCUN service :
 # il ne vivait que par le reveil du proxy, c'est-a-dire par l'ouverture d'une page.
 # Retirer ce reveil sans le declarer ici aurait rendu la TUI injoignable apres chaque
@@ -1910,6 +1995,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1" }
 # actifs. NSSM-direct entry doit etre desinstalle apres validation.
 [[service]]
 name = "NokidoQuotaAlertDaemon"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_quota_alert_daemon.py"]
@@ -2029,6 +2115,7 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", A2A_PORT = "7783" }
 # superviseur coordonné. Idle tant qu'aucun job. Requiert user loggé (session console).
 [[service]]
 name = "NokidoHarnessWorker"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 5
 cmd = "${PYTHON}"
 args = ["tools/forge_harness_worker.py", "--watch", "3"]
@@ -2148,6 +2235,7 @@ heartbeat_tier = "slow"
 # infiniment mieux qu'un surveillant absent dont l'absence, elle, ne dit rien.
 # `essential = false` : son echec ne doit pas empecher le reste de demarrer.
 name = "NokidoServiceCrashWatcher"
+logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_service_crash_watcher.py"]

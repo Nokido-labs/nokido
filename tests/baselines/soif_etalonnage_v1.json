@@ -1,0 +1,37 @@
+{
+  "jeu_id": "soif_etalonnage_v1",
+  "cree_le": "2026-10-02",
+  "cible": "forge_epistemic_veille.coverage_dense",
+  "_lisez_moi": [
+    "Jeu d'etalonnage GELE de l'instrument de la soif. Il ne doit plus changer :",
+    "son empreinte sha256 (texte normalise LF) est epinglee dans",
+    "forge_epistemic_veille.ETALONNAGE_SHA256, et un jeu modifie est REFUSE.",
+    "Toute evolution se fait par un NOUVEAU fichier (v2), jamais par edition.",
+    "AUCUNE question ici ne doit rendre gap=True :",
+    "  COUVERT    vocabulaire REEL de Nokido, repris de retrieval_queries_v1 :",
+    "             le corpus le couvre, un gap y est un FAUX gap (cecite) ;",
+    "  HORS_SUJET sujets mesures le 25-07 et le 27-07 (blanquette -5.65, alpagas",
+    "             -8.68) : l'instrument doit s'abstenir, pas declarer une lacune.",
+    "Le taux de faux gaps sur ce jeu est la cecite MESUREE de l'instrument."
+  ],
+  "questions": [
+    {"id": "C01", "attendu": "COUVERT", "q": "rag_chunks_fts"},
+    {"id": "C02", "attendu": "COUVERT", "q": "forge_tier_guard"},
+    {"id": "C03", "attendu": "COUVERT", "q": "NokidoLlamaEmbed 8099"},
+    {"id": "C04", "attendu": "COUVERT", "q": "database is locked"},
+    {"id": "C05", "attendu": "COUVERT", "q": "forge_embed_router.py"},
+    {"id": "C06", "attendu": "COUVERT", "q": "forge_pillar_arbiter"},
+    {"id": "C07", "attendu": "COUVERT", "q": "PURE_TESTS ci_local"},
+    {"id": "C08", "attendu": "COUVERT", "q": "comment reconstruire l index lexical du moteur"},
+    {"id": "C09", "attendu": "COUVERT", "q": "pourquoi l embedder local est rallume en boucle"},
+    {"id": "C10", "attendu": "COUVERT", "q": "comment vectoriser les chunks qui n ont pas d embedding"},
+    {"id": "C11", "attendu": "COUVERT", "q": "comment le keeper decide d eteindre NokidoLlamaEmbed"},
+    {"id": "C12", "attendu": "COUVERT", "q": "difference entre rag_fts et rag_chunks_fts pour la recherche"},
+    {"id": "H01", "attendu": "HORS_SUJET", "q": "recette de la blanquette de veau a l ancienne"},
+    {"id": "H02", "attendu": "HORS_SUJET", "q": "elevage d alpagas en moyenne montagne"},
+    {"id": "H03", "attendu": "HORS_SUJET", "q": "replication de l ADN chez les procaryotes"},
+    {"id": "H04", "attendu": "HORS_SUJET", "q": "regles du cricket et duree d un test match"},
+    {"id": "H05", "attendu": "HORS_SUJET", "q": "taille des rosiers anciens en fin d hiver"},
+    {"id": "H06", "attendu": "HORS_SUJET", "q": "histoire de la dynastie des Ming"}
+  ]
+}

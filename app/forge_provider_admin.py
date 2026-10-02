@@ -656,9 +656,14 @@ _GABARIT = """<!DOCTYPE html>
 
 async def api_list_providers(request):
     """GET /api/providers → JSON list."""
+    import asyncio  # noqa: PLC0415
+
     from starlette.responses import JSONResponse  # noqa: PLC0415
 
-    return JSONResponse({"providers": list_providers()})
+    # Hors de la boucle (2026-10-01) : list_providers sonde le coffre (WCM, imports a
+    # froid) et compte les quotas en SQLite pour chaque provider -- 40 gels, 28 s de
+    # boucle figee en 7 jours (journal de forge_loop_sentinel).
+    return JSONResponse({"providers": await asyncio.to_thread(list_providers)})
 
 
 async def api_get_provider(request):

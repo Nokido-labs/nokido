@@ -118,6 +118,120 @@ def _norm(mat) -> np.ndarray:
     return m / n
 
 
+# ── MESURE DE CAPACITE SUR L'EXAMEN SCELLE (2026-10-01) ──────────────────────────────────
+# Revue claude.ai (mission_rsi_soif, note RSI section 1) : la fitness de l'auto-amelioration ne
+# mesurait aucune capacite. Ce mode mesure le retrieval DENSE (bge-m3) sur l'examen HELD-OUT scelle
+# (tests/baselines/retrieval_heldout_v1.json, zone de l'evaluateur) et ecrit une dimension que la CI
+# rattache a la generation (forge_generation.capturer(capacites=...)). La CLE de la dimension porte
+# l'empreinte de l'examen ET du corpus vectorise : deux generations ne se comparent que sur un examen
+# identique (sinon _verdict_capacites n'a aucune dimension commune et ne conclut rien).
+HELDOUT = ROOT / "tests" / "baselines" / "retrieval_heldout_v1.json"
+CAPACITES = ROOT / "sandbox" / "capacites"
+
+
+def _embed_compatible(texts: list):
+    """(vecteurs, fournisseur) : le MEME modele que le corpus (bge-m3) -- local :8099 s'il vit, puis
+    Cloudflare et Modal (texte masque). Jamais jina/voyage : autre espace vectoriel. (None, None) sinon.
+    Ne DEMARRE rien : une mesure ne relance pas de service."""
+    import sys as _sys
+
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    essais = [("llama8099", _embed)] if _server_up() else []
+    try:
+        from nokido_agent.app.forge_embed_router import _cloudflare_call, _modal_call
+
+        essais += [("cloudflare", lambda t: _cloudflare_call(t, timeout=120.0)),
+                   ("modal", lambda t: _modal_call(t, timeout=180.0))]
+    except Exception as e:  # noqa: BLE001 - dit, pas tu
+        print("[capacite] fournisseurs cloud indisponibles (%s)" % type(e).__name__, flush=True)
+    for nom, appel in essais:
+        try:
+            v = appel(texts)
+        except Exception:  # noqa: BLE001 - fournisseur suivant ; l'echec final est dit par l'appelant
+            v = None
+        if v and len(v) == len(texts) and all(len(x) == DIM for x in v):
+            return v, nom
+    return None, None
+
+
+def mesurer_capacite(embed=None, base=None, ecrire=True) -> dict:
+    """nDCG@10 dense sur le held-out SCELLE ; bruit = max(ecart A/A, 1/n) ; INDECIDABLE dit sinon."""
+    import hashlib
+    import sys as _sys
+
+    if str(ROOT) not in _sys.path:
+        _sys.path.insert(0, str(ROOT))
+    brut = HELDOUT.read_bytes()
+    # Empreinte sur fins de ligne NORMALISEES : git convertit CRLF <-> LF selon la copie de travail ;
+    # sur les octets bruts, le meme examen aurait deux empreintes selon la machine.
+    h_sha = hashlib.sha256(brut.replace(b"\r\n", b"\n")).hexdigest()
+    ex = json.loads(brut)
+    rec = {"heldout_id": ex["heldout_id"], "heldout_sha256": h_sha, "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    sample_ids = [json.loads(l)["id"] for l in (BENCH / "sample.jsonl").open(encoding="utf-8") if l.strip()]
+    if hashlib.sha256("\n".join(sorted(sample_ids)).encode()).hexdigest() != ex["corpus"]["sha256_ids_tries"]:
+        rec.update(verdict="INDECIDABLE", motif="corpus sample.jsonl different de celui que l'examen scelle")
+        return _ecrire_capacite(rec) if ecrire else rec
+    if base is None:
+        from nokido_agent.tools.forge_tier_policy import base_rag
+
+        base = base_rag()
+    vecs = {}
+    con = sqlite3.connect("file:%s?mode=ro" % base, uri=True, timeout=30)
+    try:
+        for i in range(0, len(sample_ids), 900):
+            lot = sample_ids[i:i + 900]
+            for cid, blob in con.execute("SELECT id, embedding FROM rag_chunks WHERE id IN (%s)"
+                                         % ",".join("?" * len(lot)), lot):
+                v = _decode(blob)
+                if v is not None:
+                    vecs[cid] = v
+    finally:
+        con.close()
+    corpus_ids = sorted(vecs)
+    pos = {cid: i for i, cid in enumerate(corpus_ids)}
+    corpus_cle = hashlib.sha256("\n".join(corpus_ids).encode()).hexdigest()
+    questions = [(q, d["texte"], d["qrels"]) for q, d in sorted(ex["heldout"].items())]
+    exploitables = [(q, t, [pos[c] for c in g if c in pos]) for q, t, g in questions]
+    exploitables = [x for x in exploitables if x[2]]
+    rec.update(n_heldout=len(questions), n_exploitables=len(exploitables), n_corpus_vectorise=len(corpus_ids),
+               corpus_cle=corpus_cle)
+    if not exploitables:
+        rec.update(verdict="INDECIDABLE", motif="aucune reponse attendue n'a de vecteur")
+        return _ecrire_capacite(rec) if ecrire else rec
+    embed = embed or _embed_compatible
+    textes = [t for _q, t, _g in exploitables]
+    mat = _norm([vecs[c] for c in corpus_ids])
+    scores = []
+    for _passe in range(2):                      # A/A : le bruit se MESURE, il ne se decrete pas
+        qv, fournisseur = embed(textes)
+        if not qv:
+            rec.update(verdict="INDECIDABLE", motif="aucun fournisseur bge-m3 joignable pour les requetes")
+            return _ecrire_capacite(rec) if ecrire else rec
+        # SANS BLAS (2026-10-01) : `@` sur ces matrices a fait tomber le processus (Windows fatal
+        # exception 0xc06d007f, chargement differe d'une DLL BLAS) sous le compte bac a sable. Le
+        # produit element par element puis la somme ne passent pas par BLAS ; a cette taille (une
+        # cinquantaine de requetes x ~10 000 chunks) c'est l'affaire de quelques secondes.
+        qn = _norm(qv)
+        total = 0.0
+        for i, (_q, _t, gold) in enumerate(exploitables):
+            ordre = np.argsort(-(mat * qn[i]).sum(axis=1))[:10]
+            rang = next((r for r, idx in enumerate(ordre, start=1) if int(idx) in gold), None)
+            total += 1.0 / math.log2(rang + 1) if rang else 0.0
+        scores.append(total / len(exploitables))
+    n = len(exploitables)
+    rec.update(verdict="MESURE", fournisseur=fournisseur, score=round(scores[0], 4),
+               bruit=round(max(abs(scores[0] - scores[1]), 1.0 / n), 4),
+               dimension="retrieval_dense_ndcg10@%s.%s" % (h_sha[:8], corpus_cle[:8]))
+    return _ecrire_capacite(rec) if ecrire else rec
+
+
+def _ecrire_capacite(rec: dict) -> dict:
+    CAPACITES.mkdir(parents=True, exist_ok=True)
+    (CAPACITES / "retrieval_dense.json").write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+    return rec
+
+
 def main() -> None:
     for f in ("sample.jsonl", "queries.jsonl", "qrels.json"):
         if not (BENCH / f).exists():
@@ -224,4 +338,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+
+    if "--capacite" in _sys.argv:
+        print(json.dumps(mesurer_capacite(), ensure_ascii=False, indent=1), flush=True)
+    else:
+        main()

@@ -145,9 +145,11 @@ def _persist_exemplar(user_msg, assistant_msg, topic="general", db_path=None):
     try:
         con = sqlite3.connect(str(db), timeout=10)
         con.execute("PRAGMA journal_mode=WAL")
+        # Forme sans existant (2026-10-01) : n'arme pas le trigger rag_chunks_fts_bi.
         con.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, ingested_at) VALUES (?,?,?,?,?)",
-            (cid, f"dialogue_win/{topic}", text, "dialogue_win", time.strftime("%Y-%m-%dT%H:%M:%S")),
+            "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, ingested_at) SELECT ?,?,?,?,? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (cid, f"dialogue_win/{topic}", text, "dialogue_win", time.strftime("%Y-%m-%dT%H:%M:%S"), cid),
         )
         con.commit()
         con.close()

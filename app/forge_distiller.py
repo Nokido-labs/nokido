@@ -311,7 +311,8 @@ def ring_from_token(token: str) -> int:
         "readonly": 4,
     }
     try:
-        from nokido_agent.app.forge_mcp_security import get_security
+        # Couche reseau restauree le 2026-10-01 : cet import echouait, tout jeton rendait 4.
+        from nokido_agent.app.forge_mcp_securite_reseau import get_security
 
         sec = get_security()
         ok, agent = sec.authenticate_bearer(f"Bearer {token}")

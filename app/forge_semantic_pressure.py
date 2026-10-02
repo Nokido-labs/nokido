@@ -26,7 +26,7 @@ API :
 """
 
 from __future__ import annotations
-import json, logging, math, sqlite3, struct
+import json, logging, math, sqlite3
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -47,12 +47,13 @@ DB = ROOT / "RAG" / "embeddings.db"
 
 
 def _decode_blob(blob: bytes) -> list[float] | None:
-    if not blob:
-        return None
-    n = len(blob) // 4
+    # REGLE UNIQUE (2026-10-01) : delegue au decodeur du routeur, tolerant au JSON (~20 % des
+    # vecteurs en base). Ce doublon depaquetait un blob JSON en floats absurdes.
     try:
-        return list(struct.unpack(f"{n}f", blob))
-    except Exception:
+        from nokido_agent.app.forge_embed_router import decode_blob
+
+        return decode_blob(blob)
+    except Exception:  # noqa: BLE001 - muet-ok : None = vecteur illisible, l'appelant l'ecarte
         return None
 
 

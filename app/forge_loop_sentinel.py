@@ -132,6 +132,44 @@ async def _monitor(threshold_ms: float, interval: float) -> None:
                 except Exception:
                     pass
             _record_lag(lag * 1000.0)
+        _mesurer_pool(fh)
+
+
+# POOL PAR DEFAUT de la boucle (asyncio.to_thread / run_in_executor(None)) -- 2026-10-01.
+# Analogue du pool bloquant de Deno, sature a 64 le meme jour : le hub n'en regle pas la
+# taille (min(32, coeurs + 4) = 20 threads) et 174 sites y deposent du travail. On MESURE
+# avant d'agrandir : sature = tous les threads pris ET des taches qui attendent. Lecture
+# d'attributs a chaque tick (microsecondes), une ligne datee au plus par minute.
+_POOL: dict = {"ticks": 0, "satures": 0, "file_max": 0, "max_workers": None, "threads": 0,
+               "file_fenetre": 0, "journal_ts": 0.0}
+
+
+def _mesurer_pool(fh) -> None:
+    try:
+        ex = asyncio.get_running_loop()._default_executor
+    except Exception:  # noqa: BLE001  # muet-ok : hors boucle, rien a mesurer
+        return
+    _POOL["ticks"] += 1
+    if ex is None:  # pool jamais cree : aucun to_thread encore appele
+        return
+    try:
+        file, threads, plafond = ex._work_queue.qsize(), len(ex._threads), ex._max_workers
+    except Exception:  # noqa: BLE001  # muet-ok : executeur non standard, illisible
+        return
+    _POOL.update(max_workers=plafond, threads=threads)
+    if file > 0 and threads >= plafond:
+        _POOL["satures"] += 1
+        _POOL["file_max"] = max(_POOL["file_max"], file)
+        _POOL["file_fenetre"] = max(_POOL["file_fenetre"], file)
+    now = time.monotonic()
+    if _POOL["file_fenetre"] and fh is not None and now - _POOL["journal_ts"] >= 60:
+        try:
+            fh.write("=== [pool] %s pool to_thread SATURE : %d tache(s) en attente, %d/%d threads ===\n"
+                     % (time.strftime("%Y-%m-%d %H:%M:%S"), _POOL["file_fenetre"], threads, plafond))
+            fh.flush()
+        except Exception:  # noqa: BLE001  # muet-ok : journal best-effort, la mesure reste en memoire
+            pass
+        _POOL["journal_ts"], _POOL["file_fenetre"] = now, 0
 
 
 def start(threshold_ms: float = _DEFAULT_THRESHOLD_MS, interval: float = 0.5):
@@ -235,7 +273,8 @@ def start_kill_watchdog(kill_after_s: float = 60.0, check_every: float = 2.0):
 
 
 def stats() -> dict:
-    return {"lag_events": _events, "max_lag_ms": round(_max_lag_ms, 1), "log": str(_LOG)}
+    return {"lag_events": _events, "max_lag_ms": round(_max_lag_ms, 1), "log": str(_LOG),
+            "pool": {k: v for k, v in _POOL.items() if k not in ("file_fenetre", "journal_ts")}}
 
 
 def _selftest() -> int:

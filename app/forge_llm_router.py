@@ -911,6 +911,18 @@ def _resident_local_model(name: str) -> str:
     return hit[2] if hit and len(hit) > 2 else ""
 
 
+def _capter_capacite(provider: str, source) -> None:
+    """Capacite OBSERVEE du fournisseur (en-tetes x-ratelimit-*, 2026-10-02).
+
+    Observation seule : le routage n'en depend pas. Ne leve jamais -- un capteur ne fait
+    pas echouer un appel LLM (cf. forge_quota_tracker.capturer_reponse)."""
+    try:
+        from nokido_agent.app.forge_quota_tracker import capturer_reponse
+        capturer_reponse(provider, source)
+    except Exception:  # noqa: BLE001  # muet-ok : capturer_reponse journalise ses propres echecs
+        pass
+
+
 class ProviderSlot:
     """État runtime d'un provider — quota tracking + cooldown."""
 
@@ -1603,6 +1615,7 @@ class LLMRouter:
 
                 slot.record_call()
                 resp = litellm.completion(**kwargs)
+                _capter_capacite(slot_name, resp)
                 text = (resp.choices[0].message.content or "").strip()
 
                 if not text:
@@ -1653,6 +1666,7 @@ class LLMRouter:
                 }
 
             except Exception as e:
+                _capter_capacite(slot_name, e)  # une 429 porte AUSSI les en-tetes de limite
                 err = str(e)[:150]
                 attempts.append((slot_name, err))
                 slot.record_failure()
@@ -1789,6 +1803,7 @@ class LLMRouter:
                 kwargs["api_key"] = slot.api_key
 
             resp = litellm.completion(**kwargs)
+            _capter_capacite(slot.name, resp)
             text = resp.choices[0].message.content or ""
             elapsed = round((time.monotonic() - t0) * 1000, 1)
 
@@ -1803,6 +1818,7 @@ class LLMRouter:
             }
 
         except Exception as e:
+            _capter_capacite(slot.name, e)  # une 429 porte AUSSI les en-tetes de limite
             err = str(e)
             elapsed = round((time.monotonic() - t0) * 1000, 1)
 
@@ -1878,6 +1894,7 @@ class LLMRouter:
             if slot.api_key and slot.api_key != "local":
                 kwargs["api_key"] = slot.api_key
             resp = litellm.completion(**kwargs)
+            _capter_capacite(slot.name, resp)
             text = resp.choices[0].message.content or ""
             return {
                 "ok": True,

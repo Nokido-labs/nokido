@@ -54,10 +54,12 @@ async def _llm_forge(description: str, signature: str, timeout: float = 30.0) ->
         f"Write a Python function with this signature:\n{signature}\n\nDescription: {description}\n\nPython function:"
     )
     try:
-        from nokido_agent.app.forge_ollama import ollama_generate
+        # `ollama_generate` n'a jamais existe (2026-10-01) : l'API est ollama_call.
+        from nokido_agent.app.forge_ollama import ollama_call
 
         return await asyncio.wait_for(
-            ollama_generate(prompt + "\n" + _FORGE_SYSTEM, model="qwen2.5-coder:7b-instruct-q4_K_M", max_tokens=400),
+            ollama_call("qwen2.5-coder:7b-instruct-q4_K_M",
+                        [{"role": "user", "content": prompt + "\n" + _FORGE_SYSTEM}], max_tokens=400),
             timeout=timeout,
         )
     except Exception as e:
@@ -282,10 +284,11 @@ def forge_forge_tool(name: str, description: str, signature: str) -> dict:
 
             def _repair_infer(prompt: str) -> str:
                 try:
-                    from nokido_agent.app.forge_ollama import ollama_generate
+                    from nokido_agent.app.forge_ollama import ollama_call
 
                     raw2 = loop.run_until_complete(asyncio.wait_for(
-                        ollama_generate(prompt, model="qwen2.5-coder:7b-instruct-q4_K_M", max_tokens=400),
+                        ollama_call("qwen2.5-coder:7b-instruct-q4_K_M",
+                                    [{"role": "user", "content": prompt}], max_tokens=400),
                         timeout=30.0))
                     return _extract_function(raw2, name) or (raw2 or "")
                 except Exception:

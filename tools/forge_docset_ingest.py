@@ -183,6 +183,26 @@ def ingest(docset_name: str, max_workers: int = 0) -> dict:
         wcon = sqlite3.connect(str(DB), timeout=30)
         wcon.execute("PRAGMA busy_timeout=30000")
         batch: list[tuple] = []
+
+        def _ecrire_nouveaux(lot: list[tuple]) -> int:
+            """Insere les seuls chunks ABSENTS (2026-10-01).
+
+            Le trigger `rag_chunks_fts_bi` (BEFORE INSERT) retire l'entree lexicale
+            de l'id existant AVANT que l'INSERT OR IGNORE soit ignore : re-ingerer un
+            docset sortait du lexical tous ses chunks INCHANGES. On ecarte donc les
+            ids deja presents, en UNE requete par lot. existence-verifiee
+            """
+            ids = [r[0] for r in lot]
+            deja = {r[0] for r in wcon.execute(
+                "SELECT id FROM rag_chunks WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)}
+            neufs = [r for r in lot if r[0] not in deja]
+            if not neufs:
+                return 0
+            cur = wcon.executemany(
+                "INSERT OR IGNORE INTO rag_chunks(id,source,text,domain,ingested_at) VALUES(?,?,?,?,?)",
+                neufs)
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
         with ProcessPoolExecutor(max_workers=workers) as ex:
             futs = [ex.submit(_process_file, (str(docs_dir), p, n, t, docset_name)) for n, t, p in tasks]
             for fut in as_completed(futs):
@@ -195,17 +215,11 @@ def ingest(docset_name: str, max_workers: int = 0) -> dict:
                     seen += 1
                     batch.append((cid, source, chunk, "reference", now))
                     if len(batch) >= 200:  # WRITE sérialisé batch (1 writer, anti-contention)
-                        cur = wcon.executemany(
-                            "INSERT OR IGNORE INTO rag_chunks(id,source,text,domain,ingested_at) VALUES(?,?,?,?,?)",
-                            batch)
-                        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                        inserted += _ecrire_nouveaux(batch)
                         wcon.commit()
                         batch = []
         if batch:
-            cur = wcon.executemany(
-                "INSERT OR IGNORE INTO rag_chunks(id,source,text,domain,ingested_at) VALUES(?,?,?,?,?)",
-                batch)
-            inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+            inserted += _ecrire_nouveaux(batch)
             wcon.commit()
         wcon.close()
     finally:

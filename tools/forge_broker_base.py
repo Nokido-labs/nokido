@@ -293,7 +293,9 @@ class BrokerBase(ABC):
             conn.execute("PRAGMA journal_mode=WAL")
             eid = f"{self.AGENT_ID}_{int(time.time())}_{self._hash(text)}"
             conn.execute(
-                "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,meta,ingested_at) VALUES(?,?,?,?,'AGENT',?,datetime('now'))",
+                "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,meta,ingested_at) "
+                "SELECT ?,?,?,?,'AGENT',?,datetime('now') "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
                 (
                     eid,
                     # 2026-09-12 : borne des 13 896 chunks coupes pile a 2000.
@@ -301,6 +303,7 @@ class BrokerBase(ABC):
                     f"broker_{self.AGENT_ID}",
                     self.AGENT_LABEL,
                     json.dumps({"model": model}),
+                    eid,
                 ),
             )
             conn.commit()

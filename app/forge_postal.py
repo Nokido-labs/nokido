@@ -68,6 +68,17 @@ CREATE INDEX IF NOT EXISTS idx_mail_chan ON mail(recipient_channel, status);
 """
 
 
+# ETATS TRAITES : les SEULS purgeables (decision owner 2026-10-01, repetee : « ne purge QUE ce
+# qui est traite ; l'agent postal doit le savoir »). Le purgeur unique, forge_log_retention,
+# lit ces listes ici. Liste BLANCHE : un etat nouveau ou inconnu est protege par defaut.
+#  - bus M2M (agent_messages) : 'done'. PAS 'read' (lu, pas traite), PAS 'archived' (ici, le
+#    courrier NON LU d'un agent mort, exporte puis marque), ni pending/unread/quarantaine.
+#  - courrier riche (table `mail`) : 'acked' (accuse de traitement par le destinataire). PAS
+#    'dead' : un courrier jamais livre n'a pas ete traite.
+ETATS_M2M_TRAITES = frozenset({"done"})
+ETATS_COURRIER_TRAITES = frozenset({"acked"})
+
+
 def _conn() -> sqlite3.Connection:
     DB.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(DB), timeout=30)
@@ -210,9 +221,10 @@ def _rag_trace(mid: str, sender: str, recipient: str, body: str) -> None:
             con = _sq.connect(str(ROOT / "RAG" / "embeddings.db"), timeout=10)
             con.execute(
                 "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
-                "VALUES(?, ?, ?, ?, ?, datetime('now'))",
+                "SELECT ?, ?, ?, ?, ?, datetime('now') "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
                 (f"collab_postal_{mid}", f"postal:{sender.lower()}", text,
-                 "laforge-memory", sender))
+                 "laforge-memory", sender, f"collab_postal_{mid}"))
             con.commit()
             con.close()
         except Exception:

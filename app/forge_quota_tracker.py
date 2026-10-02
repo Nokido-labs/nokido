@@ -12,6 +12,8 @@ Expose :
   - get_all_quotas() -> dict {provider: quota_info}
   - record_response_headers(provider, headers) -> persiste rate limit headers
   - record_429(provider, retry_after) -> log un rate limit hit
+  - capturer_reponse(provider, reponse|exception|en-tetes) -> capacite OBSERVEE (2026-10-02)
+  - capacite_observee(provider) -> restant, reinitialisation, age ; FRAICHE / PERIMEE / INCONNU
 
 Decision : pas de nouvelle table. Reutilise :
   - token_usage : compteur global par provider/agent
@@ -392,8 +394,161 @@ def quota_summary_text(fetch_live: bool = False) -> str:
     return "\n".join(lines)
 
 
+# =============================================================================
+# CAPACITE OBSERVEE (bb:p2_capacite_fournisseur_observee_0925, retenu le 25/09)
+# =============================================================================
+# Les fournisseurs compatibles OpenAI (Groq en tete) disent dans CHAQUE reponse ce qui
+# reste : x-ratelimit-remaining-tokens / -requests, et quand ca se recharge. Le routeur
+# les recevait deja -- litellm les range dans `reponse._hidden_params["additional_headers"]`
+# (forme OpenAI + `llm_provider-<en-tete>` brut), et une erreur 429 les porte dans
+# `exception.response.headers` -- et personne ne les lisait : `record_response_headers`
+# n'avait AUCUN appelant. La capacite se DEDUISAIT des 429, c'est-a-dire trop tard.
+#
+# Observation seule : le routage ne change pas. Trois etats par champ, jamais deux :
+# CONNU (lu et bien forme), INCONNU (en-tete absent), MAL_FORME (present mais illisible ;
+# la valeur brute est gardee). Une mesure trop vieille, ou dont la reinitialisation est
+# PASSEE (le compteur s'est recharge depuis), est PERIMEE -- jamais presentee comme actuelle.
+# Liste BLANCHE de cles (x-ratelimit-*, retry-after) : aucun autre en-tete, donc aucune
+# cle d'API, ne peut etre stocke.
+CAPACITE_DIR = ROOT / "sandbox" / "capacite_fournisseurs"
+PEREMPTION_S = float(os.environ.get("LAFORGE_CAPACITE_PEREMPTION_S", "300"))
+CONNU, INCONNU, MAL_FORME = "CONNU", "INCONNU", "MAL_FORME"
+FRAICHE, PERIMEE = "FRAICHE", "PERIMEE"
+_CHAMPS = {
+    "restant_requetes": "x-ratelimit-remaining-requests",
+    "restant_tokens": "x-ratelimit-remaining-tokens",
+    "limite_requetes": "x-ratelimit-limit-requests",
+    "limite_tokens": "x-ratelimit-limit-tokens",
+}
+_RESETS = {"reinit_requetes": "x-ratelimit-reset-requests",
+           "reinit_tokens": "x-ratelimit-reset-tokens", "retry_after": "retry-after"}
+
+
+def _slug(provider: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9_.-]+", "_", str(provider or "").lower())[:64] or "inconnu"
+
+
+def extraire_entetes(source) -> dict:
+    """En-tetes de limite d'une reponse litellm, d'une exception HTTP ou d'un dict d'en-tetes.
+
+    Cles en minuscules, prefixe `llm_provider-` retire ; liste blanche x-ratelimit-* et
+    retry-after. Rend {} si rien n'est lisible (jamais d'exception)."""
+    brut = None
+    try:
+        hp = getattr(source, "_hidden_params", None)
+        if isinstance(hp, dict):
+            brut = hp.get("additional_headers")
+        if brut is None:
+            rep = getattr(source, "response", None)
+            brut = getattr(rep, "headers", None)
+        if brut is None and hasattr(source, "items"):
+            brut = source
+        items = dict(brut).items() if brut is not None else ()
+    except Exception:  # noqa: BLE001 - muet-ok : une reponse sans en-tetes lisibles n'en a pas
+        return {}
+    out = {}
+    for k, v in items:
+        kl = str(k).lower()
+        if kl.startswith("llm_provider-"):
+            kl = kl[len("llm_provider-"):]
+        if (kl.startswith("x-ratelimit-") or kl == "retry-after") and kl not in out:
+            out[kl] = str(v)[:64]
+    return out
+
+
+def capturer_reponse(provider: str, source, maintenant: float | None = None) -> dict:
+    """Capte la capacite annoncee par une reponse (ou une erreur) du fournisseur.
+
+    Observation seule, ne leve JAMAIS : un capteur ne fait pas echouer un appel LLM.
+    Sans en-tete de limite, rien n'est ecrit (la derniere capture vieillit et sera dite
+    PERIMEE ; un fournisseur jamais capte reste INCONNU)."""
+    try:
+        h = extraire_entetes(source)
+        if not h:
+            return {"ok": True, "capte": False, "raison": "aucun en-tete de limite"}
+        record_response_headers(provider, h)  # cache memoire existant (get_quota)
+        t = time.time() if maintenant is None else float(maintenant)
+        rec = {"provider": provider, "capture_le": t, "entetes": h,
+               "erreur": isinstance(source, BaseException)}
+        CAPACITE_DIR.mkdir(parents=True, exist_ok=True)
+        f = CAPACITE_DIR / ("%s.json" % _slug(provider))
+        tmp = f.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(rec, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, f)
+        return {"ok": True, "capte": True, "entetes": sorted(h)}
+    except Exception as e:  # noqa: BLE001 - le capteur se tait par construction, mais le DIT
+        logger.debug("[QuotaTracker] capacite non captee pour %s (%s)", provider, type(e).__name__)
+        return {"ok": False, "capte": False, "raison": "%s: %s" % (type(e).__name__, str(e)[:80])}
+
+
+def _duree_s(v: str):
+    """Duree en secondes depuis « 6m0s », « 1m30.5s », « 2.1s », « 120ms », « 1h2m » ou « 30 »."""
+    import re
+    v = (v or "").strip().lower()
+    try:
+        return float(v)
+    except ValueError:  # muet-ok : pas un nombre nu, on essaie la forme « 1m30s »
+        pass
+    morceaux = re.findall(r"(\d+(?:\.\d+)?)(ms|h|m|s)", v)
+    if not morceaux or "".join(n + u for n, u in morceaux) != v:
+        return None
+    facteur = {"h": 3600.0, "m": 60.0, "s": 1.0, "ms": 0.001}
+    return sum(float(n) * facteur[u] for n, u in morceaux)
+
+
+def capacite_observee(provider: str, maintenant: float | None = None) -> dict:
+    """Restant, reinitialisation et age de la derniere capture. FRAICHE / PERIMEE / INCONNU."""
+    t = time.time() if maintenant is None else float(maintenant)
+    f = CAPACITE_DIR / ("%s.json" % _slug(provider))
+    try:
+        rec = json.loads(f.read_text(encoding="utf-8"))
+        capture = float(rec["capture_le"])
+        h = dict(rec.get("entetes") or {})
+    except FileNotFoundError:
+        return {"provider": provider, "etat": INCONNU, "raison": "aucune capture pour ce fournisseur"}
+    except Exception as e:  # noqa: BLE001 - capture illisible : INCONNU, dit
+        return {"provider": provider, "etat": INCONNU,
+                "raison": "capture illisible (%s)" % type(e).__name__}
+    age = max(0.0, t - capture)
+    champs, reinit = {}, {}
+    for nom, cle in _CHAMPS.items():
+        if cle not in h:
+            champs[nom] = {"etat": INCONNU}
+            continue
+        try:
+            champs[nom] = {"etat": CONNU, "valeur": int(float(h[cle]))}
+        except ValueError:
+            champs[nom] = {"etat": MAL_FORME, "brut": h[cle]}
+    for nom, cle in _RESETS.items():
+        if cle not in h:
+            reinit[nom] = {"etat": INCONNU}
+            continue
+        d = _duree_s(h[cle])
+        reinit[nom] = ({"etat": MAL_FORME, "brut": h[cle]} if d is None else
+                       {"etat": CONNU, "dans_s": round(max(0.0, d - age), 3),
+                        "a": round(capture + d, 3)})
+    connus = [c for c in champs.values() if c["etat"] == CONNU]
+    passes = [r for r in reinit.values() if r["etat"] == CONNU and r["a"] <= t]
+    if not connus:
+        etat, raison = INCONNU, "aucun compteur restant lisible dans la capture"
+    elif age > PEREMPTION_S:
+        etat, raison = PERIMEE, "capture vieille de %.0f s (> %.0f s)" % (age, PEREMPTION_S)
+    elif passes:
+        etat, raison = PERIMEE, "une reinitialisation est passee depuis la capture"
+    else:
+        etat, raison = FRAICHE, ""
+    return {"provider": provider, "etat": etat, "raison": raison, "age_s": round(age, 1),
+            "capture_sur_erreur": bool(rec.get("erreur")), "compteurs": champs,
+            "reinitialisation": reinit}
+
+
 if __name__ == "__main__":
     import sys
 
+    if "--capacite" in sys.argv:
+        _p = sys.argv[sys.argv.index("--capacite") + 1] if len(sys.argv) > sys.argv.index("--capacite") + 1 else "groq"
+        print(json.dumps(capacite_observee(_p), ensure_ascii=False, indent=2))
+        raise SystemExit(0)
     fetch_live = "--live" in sys.argv
     print(quota_summary_text(fetch_live=fetch_live))

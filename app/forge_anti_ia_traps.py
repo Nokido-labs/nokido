@@ -194,10 +194,12 @@ async def _ask_local_llm(provider: str, prompt: str, timeout: float = 20.0) -> s
     """Ask ollama ou lmstudio local — sans firewall cloud."""
     try:
         if provider == "ollama":
-            from nokido_agent.app.forge_ollama import ollama_generate
+            # `ollama_generate` n'a jamais existe (2026-10-01) : l'API est ollama_call.
+            from nokido_agent.app.forge_ollama import ollama_call
 
             return await asyncio.wait_for(
-                ollama_generate(prompt, model="qwen2.5-coder:7b-instruct-q4_K_M", max_tokens=200),
+                ollama_call("qwen2.5-coder:7b-instruct-q4_K_M",
+                            [{"role": "user", "content": prompt}], max_tokens=200),
                 timeout=timeout,
             )
         elif provider == "lmstudio":

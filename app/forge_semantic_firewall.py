@@ -229,7 +229,7 @@ _MAX_REDACT_LEN = 262144
 _MAX_REDACTIONS = 5000
 
 
-def redact_tool_output(text: str, outil: str = "?") -> Tuple[str, Dict[str, object]]:
+def redact_tool_output(text: str, outil: str = "?", journal: bool = True) -> Tuple[str, Dict[str, object]]:
     """Redige une SORTIE D'OUTIL avant qu'elle n'atteigne le contexte du modele.
 
     L1 de la veille (`sipeed/picoclaw`, sensitive output filtering). MESURE du
@@ -260,6 +260,10 @@ def redact_tool_output(text: str, outil: str = "?") -> Tuple[str, Dict[str, obje
 
     Rend (texte_redige, bilan). Le bilan DIT ce qui a ete fait : un filtrage muet
     ne se distingue pas d'un filtrage absent.
+
+    `journal=False` (2026-10-01) : pas d'avertissement PAR APPEL -- pour un appelant en lot
+    (envoi d'embedding vers le cloud, des centaines de milliers de textes) qui agrege les
+    bilans et dit UNE ligne par lot. Le bilan reste rendu : rien n'est tu, c'est regroupe.
     """
     texte = text or ""
     if not texte:
@@ -343,7 +347,7 @@ def redact_tool_output(text: str, outil: str = "?") -> Tuple[str, Dict[str, obje
         "quota_atteint": quota_atteint,
         "longueur": len(texte),
     }
-    if total or cles_redigees:
+    if journal and (total or cles_redigees):
         logger.warning(
             "[firewall.outil] %d secret(s) rediges dans la sortie de %s "
             "(%d infra + %d clefs, %d caracteres, %d tranche(s))%s",

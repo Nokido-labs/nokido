@@ -524,8 +524,9 @@ def anchor_error(
                     "deja_connue": True,
                     "note": "erreur identique deja ancree — non dupliquee"}
         cur.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, role_hint, meta) VALUES (?,?,?,?,?,?)",
-            (chunk_id, text, source, domain, "rule", meta),
+            "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, role_hint, meta) SELECT ?,?,?,?,?,? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (chunk_id, text, source, domain, "rule", meta, chunk_id),
         )
         new_id = chunk_id
 
@@ -687,8 +688,9 @@ def anchor_solution(
                     "note": "lecon identique deja ancree — non dupliquee"}
 
         cur.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, role_hint, meta) VALUES (?,?,?,?,?,?)",
-            (chunk_id, text, source, domain, "rule", meta),
+            "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, role_hint, meta) SELECT ?,?,?,?,?,? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (chunk_id, text, source, domain, "rule", meta, chunk_id),
         )
         new_id = chunk_id
 

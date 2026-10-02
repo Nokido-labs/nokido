@@ -178,9 +178,24 @@ def corrigibility_gate(name: str, agent: str, ring: int) -> tuple:
         return (True, "")
 
 
+def _etat_evolution() -> dict:
+    """La porte d'evolution autonome, vue d'ici (decision 2026-10-02) : l'operateur inspecte les
+    interrupteurs d'arret dans `status`, il doit y voir aussi si l'auto-amelioration est ARMEE,
+    DESARMEE ou freinee. La porte reste dans forge_mutation_judge (elle partage deja le verrou humain
+    d'opsec) : la deplacer ne corrigeait rien, la rendre VISIBLE si. Illisible = INCONNU, dit."""
+    try:
+        from nokido_agent.app.forge_mutation_judge import evolution_autorisee
+
+        return evolution_autorisee()
+    except Exception as e:  # noqa: BLE001 - dit, jamais avale
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "porte d'evolution illisible (%s)" % type(e).__name__}
+
+
 def status() -> dict:
     op = _opsec()
     return {
+        "evolution": _etat_evolution(),
         "asl_level": current_asl(),
         "asl_default": DEFAULT_ASL,
         "human_locked": op.is_human_locked(),

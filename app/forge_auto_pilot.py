@@ -448,14 +448,14 @@ def autopilot_status() -> dict:
 # ── Entrée CLI / NSSM ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Charger Nokido.env
-    env_path = ROOT / "Nokido.env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, _, v = line.partition("=")
-                os.environ.setdefault(k.strip(), v.strip())
+    # Secrets : NOMS dans Nokido.env, VALEURS au coffre (decision owner 2026-10-01) ;
+    # le fichier n'est plus recopie en clair dans l'environnement.
+    from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+    _bilan = injecter_env_depuis_coffre(ROOT / "Nokido.env")
+    if _bilan["absentes"] or _bilan["illisibles"]:
+        logger.warning("secrets absents du coffre : %s ; illisibles : %s -> forge_env_to_vault",
+                       _bilan["absentes"], _bilan["illisibles"])
 
     logger.info("AutoPilot lancé en mode STANDALONE (blocking)")
     pilot = AutoPilot()

@@ -670,6 +670,25 @@ def main():
     log.info(f"=== post-commit {sha} — {msg} ===")
     t0 = time.monotonic()
 
+    # 0. QUARANTAINE DES PAIRS (owner 2026-10-01 : « il faut l'automatiser ») : un commit qui CITE
+    # un depot de pair (son id, ou le sha qu'il pointe) le ferme -- traite, preuve = le commit ;
+    # un depot sans decision depuis 14 jours expire. Leger (un git log + quelques lignes de
+    # m2m), non bloquant, et AVANT le retour « aucun fichier eligible » : un commit de pure
+    # documentation peut traiter un depot. L'approbation, elle, reste un geste owner.
+    if not args.dry_run:
+        try:
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            from nokido_agent.tools.forge_pair_quarantaine import entretenir
+
+            _q = entretenir()
+            if _q.get("clotures") or _q.get("expires") or _q.get("git") != "ok":
+                log.info("quarantaine pairs : %d clos (%s), %d expire(s), git=%s",
+                         len(_q["clotures"]), ", ".join(c["id"] for c in _q["clotures"]),
+                         len(_q["expires"]), _q.get("git"))
+        except Exception as _e:  # noqa: BLE001 - non bloquant, mais DIT
+            log.warning("quarantaine pairs : entretien en echec (%s: %s)", type(_e).__name__, _e)
+
     # 1. Fichiers modifiés
     changed = get_changed_files(args.commit)
     log.info(f"Fichiers modifiés: {len(changed)}")

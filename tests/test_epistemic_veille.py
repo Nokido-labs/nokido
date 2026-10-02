@@ -27,24 +27,22 @@ def test_veille_on_gap_spec_deport_par_defaut():
 
 
 def test_coverage_score_failsafe(monkeypatch):
-    # RAG indispo simulé -> gap=True (prudence), jamais d'exception
-    import forge_epistemic_veille as m
+    # RAG indispo simulé -> gap=None (INCONNU), jamais d'exception. Jusqu'au 2026-10-01 ce test
+    # figeait gap=True « par prudence » : une source muette devenait une lacune, et feel_gap
+    # emettait evenement critique + cortisol sur une panne (UNKNOWN != NO, constitution).
+    # La doublure visait aussi le nom NU `forge_self_correction` alors que coverage_score
+    # importe `nokido_agent.app.forge_self_correction` : elle ne mordait pas.
+    from nokido_agent.app import forge_self_correction as sc
 
     def _boom(*a, **k):
         raise RuntimeError("rag down")
 
-    monkeypatch.setattr(m, "preflight_check_verbose", _boom, raising=False)
-    # le module importe la fonction DANS coverage_score ; on force l'échec via un faux module
-    import sys
-    import types
-
-    fake = types.ModuleType("forge_self_correction")
-    fake.preflight_check_verbose = _boom
-    monkeypatch.setitem(sys.modules, "forge_self_correction", fake)
+    monkeypatch.setattr(sc, "preflight_check_verbose", _boom)
     cov = ev.coverage_score("n'importe quoi")
     assert cov["ok"] is False
-    assert cov["gap"] is True
-    assert cov["n_results"] == 0
+    assert cov["gap"] is None
+    assert cov["verdict"] == "rag_indisponible"
+    assert cov["n_results"] is None
 
 
 def test_manifold_error_thresholds():

@@ -42,7 +42,7 @@ rank-bm25==0.2.2
 # 2026-09-07. La 1.96.0 publie litellm-1.96.0-cp314-cp314-win_amd64.whl : installation
 # binaire, aucune toolchain requise. Toute la serie 1.84-1.92 reste hors de portee
 # (requires_python <3.14), la 1.96 declare <3.15,>=3.10.
-litellm==1.96.0
+litellm==1.96.2
 # 2.32.5 -> 2.33.1 le 2026-09-10 : ferme 2 alertes (GHSA-gc5v-m9x4-r6x2, medium).
 # 2.33.1 et non 2.33.0 (la version que l'avis nomme) parce que c'est celle qui
 # tourne deja dans laforge_py314 : on aligne le fichier sur le reel plutot que
@@ -70,7 +70,7 @@ psutil==7.2.2
 # installee dans laforge_py314 et le systeme tourne avec depuis des jours.
 # requires_python `!=3.9.0,!=3.9.1,>=3.9` -- compatible 3.14. Non yanked.
 cryptography==50.0.0
-PyJWT==2.14.0
+PyJWT==2.15.0
 # ⚠️ paramiko RESTE en 4.0.0 — EXCEPTION DOCUMENTEE, pas un oubli.
 #
 #   alertes    GHSA-r374-rxx8-8654 (x2, severite LOW) — SHA-1 dans rsakey.py

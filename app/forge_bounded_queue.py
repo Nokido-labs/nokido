@@ -199,11 +199,16 @@ class EcrivainDiffere:
     - Fil daemon : ce qui reste en file a l'arret brutal du processus est perdu (best-effort).
     """
 
+    # Reprise sur VERROU SQLite (2026-10-01) : meme politique que forge_db_path.write_retry.
+    REPRISES_VERROU = 5
+    RECUL_BASE_S = 0.2
+
     def __init__(self, name: str, capacity: int = 10000):
         self._bq = BoundedQueue(name, capacity=capacity, leptin_release=False)
         self._fil: threading.Thread | None = None
         self._verrou = threading.Lock()
         self.echecs = 0
+        self.reprises = 0
 
     @staticmethod
     def sur_une_boucle() -> bool:
@@ -233,13 +238,37 @@ class EcrivainDiffere:
         while True:
             ecriture = self._bq.get()
             try:
-                ecriture()
+                self._executer(ecriture)
             except Exception as exc:  # noqa: BLE001
                 self.echecs += 1
                 logger.warning("ecrivain %s : ecriture perdue (%s: %s)", self._bq.name,
                                type(exc).__name__, str(exc)[:120])
             finally:
                 self._bq.task_done()
+
+    def _executer(self, ecriture) -> None:
+        """Reprend une ecriture tombee sur un VERROU, jamais sur une autre erreur.
+
+        Mesure du 2026-10-01 : 26 ecritures du profileur PERDUES en une minute, toutes sur
+        `database is locked`, pendant qu'un voisin tenait le verrou au-dela du busy_timeout.
+        Ce fil est HORS de la boucle : y attendre ne fige rien, et l'ordre FIFO tient.
+        Rejouable parce que chaque ecriture soumise est UNE transaction (INSERT + commit) :
+        un verrou leve avant le commit n'a rien ecrit. Recul croissant + gigue (sans gigue,
+        les ecrivains reveilles par le meme verrou repartent ensemble et se rebloquent).
+        """
+        import random
+        import sqlite3
+
+        for i in range(self.REPRISES_VERROU + 1):
+            try:
+                ecriture()
+                return
+            except sqlite3.OperationalError as e:
+                m = str(e).lower()
+                if ("locked" not in m and "busy" not in m) or i == self.REPRISES_VERROU:
+                    raise
+                self.reprises += 1
+                time.sleep(self.RECUL_BASE_S * (2 ** i) + random.uniform(0, 0.15))
 
     def vider(self, timeout: float = 30.0) -> bool:
         """Attend que la file soit ecoulee (tests, arret propre). False si le delai expire."""
@@ -251,7 +280,7 @@ class EcrivainDiffere:
         return False
 
     def stats(self) -> dict[str, Any]:
-        return {**self._bq.stats(), "echecs": self.echecs}
+        return {**self._bq.stats(), "echecs": self.echecs, "reprises": self.reprises}
 
 
 if __name__ == "__main__":

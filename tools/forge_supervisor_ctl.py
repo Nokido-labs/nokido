@@ -152,6 +152,57 @@ def _call(path: str, method: str = "GET") -> tuple[int, str]:
         return r.status, r.read().decode("utf-8", "replace")
 
 
+def _etat_service(service: str):
+    """Etat d'UN service vu par le superviseur ; None si le superviseur est illisible."""
+    import json
+    try:
+        _st, body = _call("/supervisor/status")
+        return (json.loads(body).get("services") or {}).get(service) or {}
+    except Exception:  # noqa: BLE001 — illisible n'est pas « arrete » : None le dit
+        return None
+
+
+def _port_ouvert(port) -> bool:
+    import socket
+    if not port:
+        return False
+    s = socket.socket()
+    s.settimeout(1.0)
+    try:
+        s.connect(("127.0.0.1", int(port)))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _attendre(service: str, atteint, delai_s: float, pas_s: float = 0.5):
+    """Sonde l'etat jusqu'a ce que `atteint(etat)` soit vrai.
+
+    Rend (verdict, dernier etat) avec verdict True (atteint), False (MESURE non atteint
+    a l'echeance) ou None (NON MESURABLE : superviseur illisible 3 sondes d'affilee).
+    UNKNOWN n'est pas NO : un superviseur muet ne fabrique ni un succes ni un echec,
+    et on ne le sonde pas 90 s pour rien.
+    """
+    import time
+    fin = time.monotonic() + delai_s
+    dernier, illisibles = None, 0
+    while True:
+        dernier = _etat_service(service)
+        if dernier is None:
+            illisibles += 1
+            if illisibles >= 3:
+                return None, None
+        else:
+            illisibles = 0
+            if atteint(dernier):
+                return True, dernier
+        if time.monotonic() >= fin:
+            return False, dernier
+        time.sleep(pas_s)
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -188,7 +239,35 @@ def main() -> int:
             print(body[:600])
             if not 200 <= st < 300:
                 return 1
+            # COURSE stop/start (mesure 2026-10-01, NokidoPairMCP) : le start partait
+            # 12 ms apres le stop, pendant que l'ancien process tenait encore son port.
+            # Le superviseur ne relancait rien, l'exit de l'ancien laissait le service
+            # `stopped`, et le garde anti-double-demarrage ignorait les relances ~90 s.
+            # On ATTEND donc l'arret effectif (statut ET port libere) avant de relancer.
+            ok, e = _attendre(args[1], lambda s: s.get("status") in ("stopped", "sleeping")
+                              and not _port_ouvert(s.get("port")), 30)
+            print("[ctl] arret %s : %s" % (
+                {True: "CONSTATE", False: "NON CONSTATE apres 30 s", None: "NON MESURABLE"}[ok],
+                (e or {}).get("status", "superviseur illisible")))
             st, body = _call(f"/supervisor/service/start/{args[1]}", method="POST")
+            print(f"HTTP {st} (start)")
+            print(body[:600])
+            if not 200 <= st < 300:
+                return 1
+            # « starting » est une commande ACCEPTEE, pas un etat ATTEINT : on le mesure.
+            ok, e = _attendre(args[1], lambda s: s.get("status") == "running"
+                              and (not s.get("port") or _port_ouvert(s.get("port"))), 90)
+            if ok:
+                print("[ctl] relance ATTEINTE : running, pid %s" % e.get("pid"))
+                return 0
+            if ok is None:
+                # Demandee et acceptee, mais l'etat n'a pas pu etre LU : ni succes ni
+                # echec prouve. Code 0 (la commande est passee), le texte le DIT.
+                print("[ctl] relance DEMANDEE, etat NON MESURABLE (superviseur illisible)")
+                return 0
+            print("[ctl] relance NON ATTEINTE apres 90 s : %s -- lire laforge-master.log"
+                  % ((e or {}).get("status", "superviseur illisible")))
+            return 1
         elif action in ("sleep", "wake") and len(args) >= 2:
             st, body = _call(f"/supervisor/{action}/{args[1]}", method="POST")
         elif action in ("start", "ensure") and len(args) >= 2:

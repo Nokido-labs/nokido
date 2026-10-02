@@ -121,6 +121,10 @@ def main() -> int:
                     help="RETABLIT dans le .env, depuis le coffre, les cles nommees "
                          "(separees par des virgules). Pour une cle lue par os.environ "
                          "BRUT : la vider casse son consommateur au prochain demarrage.")
+    ap.add_argument("--alias", default=None,
+                    help="NOM_ENV=NOM_COFFRE[,..] : comparer la cle du .env a la valeur rangee au "
+                         "coffre sous un AUTRE nom (ex. password=TESTPYPI_TOKEN). Garde inchangee : "
+                         "empreinte exacte.")
     ap.add_argument("--neutraliser", action="store_true",
                     help="RETIRE du .env la valeur des cles dont l'empreinte est DEJA celle "
                          "du coffre (ligne active -> commentee et videe ; ligne deja "
@@ -131,6 +135,8 @@ def main() -> int:
     from nokido_agent.app.forge_machine_vault import vault_get, vault_set  # noqa: E402
 
     env = lire_env(Path(a.env), inclure_commentees=a.inclure_commentees)
+    alias = dict(p.split("=", 1) for p in (a.alias or "").split(",") if "=" in p)
+    alias = {k.strip(): v.strip() for k, v in alias.items()}
     if a.cles:
         vises = [k.strip() for k in a.cles.split(",") if k.strip()]
     else:
@@ -147,13 +153,13 @@ def main() -> int:
             continue
         nouvelle = env[k]
         try:
-            ancienne = vault_get(k)
+            ancienne = vault_get(alias.get(k, k))
         except Exception:  # noqa: BLE001
             ancienne = None
         if not ancienne:
-            plan.append((k, "NOUVEAU au coffre", nouvelle))
+            plan.append((k, "NOUVEAU au coffre", nouvelle if k not in alias else None))
         elif _emp(ancienne) == _emp(nouvelle):
-            plan.append((k, "IDENTIQUE (rien a faire)", None))
+            plan.append((k, "IDENTIQUE%s (rien a faire)" % (" sous %s" % alias[k] if k in alias else ""), None))
         else:
             plan.append((k, "CONFLIT : coffre=%s / env=%s" % (_emp(ancienne), _emp(nouvelle)),
                          nouvelle if a.force else None))
@@ -176,7 +182,7 @@ def main() -> int:
 
     if a.neutraliser:
         _neutraliser(Path(a.env), vault_get, appliquer=a.appliquer,
-                     limiter_a=set(vises) if a.cles else None)
+                     limiter_a=set(vises) if a.cles else None, alias=alias)
 
     conflits = [k for k, e, _v in plan if e.startswith("CONFLIT")]
     if conflits and not a.force:
@@ -244,7 +250,7 @@ def _restaurer(chemin: Path, vault_get, cles: list, appliquer: bool) -> int:
     return len(remis)
 
 
-def _neutraliser(chemin: Path, vault_get, appliquer: bool, limiter_a=None) -> int:
+def _neutraliser(chemin: Path, vault_get, appliquer: bool, limiter_a=None, alias=None) -> int:
     """Retire du .env la valeur des cles DEJA au coffre avec la MEME empreinte.
 
     POURQUOI. Ecrire au coffre ne reduit AUCUNE surface tant que la valeur reste en clair
@@ -285,7 +291,10 @@ def _neutraliser(chemin: Path, vault_get, appliquer: bool, limiter_a=None) -> in
             sortie.append(ligne)
             continue
         try:
-            coffre = vault_get(cle)
+            # ALIAS (2026-10-01) : un nom GENERIQUE du .env (`password` d'un fragment .pypirc)
+            # dont la valeur est au coffre sous son VRAI nom (TESTPYPI_TOKEN). La garde reste
+            # l'empreinte exacte ; seul le nom lu au coffre change.
+            coffre = vault_get((alias or {}).get(cle, cle))
         except Exception:  # noqa: BLE001
             coffre = None
         if cle in JAMAIS_NEUTRALISER:

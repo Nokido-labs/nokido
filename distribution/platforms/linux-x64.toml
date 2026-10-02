@@ -1,0 +1,79 @@
+# Plateforme linux-x64 : ce que la distribution LIVRE pour linux, et ce qu'elle suppose deja la.
+schema = "nokido-distribution/plateforme"
+version_schema = 1
+id = "linux-x64"
+os = "linux"
+arch = "x64"
+# Cles de forge_install_prerequis.PREREQUIS (REQUIS + ESSENTIEL) : installes AUTOUR de Nokido,
+# jamais embarques (licences, poids, builds par plateforme). Le validateur refuse une cle inconnue.
+prerequis = ["python", "git", "deno", "ollama", "netcfg_agent"]
+
+[[composant]]
+id = "code-source"
+description = "Arbre source du snapshot (git archive, honore export-ignore)"
+source = "construit"
+construit = "code"
+sha256 = "au_build"
+taille = "au_build"
+licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+[[composant]]
+id = "vendor-lock"
+description = "Provenance des bundles front vendorises (composant, version, licence, sha256)"
+source = "construit"
+construit = "vendor_lock"
+sha256 = "au_build"
+taille = "au_build"
+licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+[[composant]]
+id = "installeur"
+description = "Installeur linux en une commande"
+source = "depot"
+chemin = "install.sh"
+sha256 = "f37bddc86ebee9ba5aeafc8c925f7ca9485cae0bf61e9976d462846f351b01d4"
+taille = 20581
+licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+[[composant]]
+id = "dependances-python"
+description = "Dependances Python de base (specification pip ; les roues ne sont pas encore hachees)"
+source = "depot"
+chemin = "requirements.txt"
+sha256 = "9191aa2344c78f78e3156e3069af23aa66fef218a28091cbddd27bcde9d3735c"
+taille = 4098
+licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+[[composant]]
+id = "environnement-conda"
+description = "Environnement conda/miniforge (interpreteur canonique LAFORGE_PYTHON)"
+source = "depot"
+chemin = "environment.yml"
+sha256 = "fa78c22675029488898acb0b545f66fd40d87da155509d99b7872ac19d0721be"
+taille = 524
+licence = "AGPL-3.0-or-later"
+obligatoire = false
+
+[[composant]]
+id = "licence"
+description = "Texte de la licence AGPL-3.0"
+source = "depot"
+chemin = "LICENSE"
+sha256 = "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+taille = 34523
+licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+[[composant]]
+id = "notice"
+description = "Avis de droit d'auteur et attributions"
+source = "depot"
+chemin = "NOTICE"
+sha256 = "6a8d3a1c8f0b14fb844ca9d87d4327433157d79c34d811921ffbe3881c593768"
+taille = 775
+licence = "AGPL-3.0-or-later"
+obligatoire = true

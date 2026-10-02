@@ -139,7 +139,11 @@ _MONITOR_OK = re.compile(
     # et restait hors de portee de `Monitor` -- une capacite morte.
     # La forme reste CLOSE : un identifiant, jamais un chemin, et toujours le
     # meme script git-tracke en lecture seule.
-    r"--(job|task)\s+[A-Za-z0-9_]+"
+    # `--pair [CLIENT]` ajoute le 2026-10-01 (owner : « lance un monitor en fonction du LLM qui le
+    # lance ») : le rendu d'un pair cloud doit reveiller la boucle comme un job ou une tache. Le
+    # client est un identifiant qui COMMENCE par un alphanumerique -- il ne peut donc pas avaler une
+    # option (`--max-s`) ni porter un chemin ; meme script, toujours en lecture seule.
+    r"(?:--(?:job|task)\s+[A-Za-z0-9_]+|--pair(?:\s+[A-Za-z0-9][A-Za-z0-9-]*)?)"
     r"(?:\s+--[a-z-]+\s+\d+)*\s*$"
 )
 
@@ -150,7 +154,7 @@ if (data.get("tool_name") or "").strip() == "Monitor":
             "  Monitor execute du shell natif : une seule forme est sanctionnee,\n"
             "  le CLI de surveillance git-tracke (lecture seule).\n"
             '  Forme : "<LAFORGE_PYTHON>" "<repo>/tools/forge_job_watch_cli.py" '
-            "--job <job_id> | --task <task_id> [--gel-s N] [--max-s N]\n"
+            "--job <job_id> | --task <task_id> | --pair [client] [--gel-s N] [--max-s N] [--intervalle N]\n"
             f"  Cmd : {command[:200]}",
             file=sys.stderr,
         )

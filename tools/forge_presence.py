@@ -75,19 +75,38 @@ def _emit_arrival(agent: str) -> None:
 
     try:
         _sys.path.insert(0, str(ROOT / "app"))
-        from nokido_agent.app.forge_critical_events import emit as _emit  # type: ignore
+        import threading as _th
 
-        _emit(kind="cli_present", severity="info",
-              detail=f"{agent} entre dans la piece (presence inter-CLI)", source="forge_presence")
-    except Exception:  # noqa: BLE001
-        pass
+        # `emit` n'a jamais existe (l'API est `persist`), et le `pass` le taisait.
+        # persist ecrit en SQLite SYNCHRONE : appele depuis la boucle du hub, il part
+        # dans un thread pour ne jamais la figer.
+        from nokido_agent.app.forge_critical_events import persist as _persist  # type: ignore
+
+        def _ecrire() -> None:
+            if not _persist("cli_present", "info", {
+                    "detail": f"{agent} entre dans la piece (presence inter-CLI)",
+                    "source": "forge_presence"}):
+                print(f"[presence] evenement cli_present de {agent} NON persiste",
+                      file=_sys.stderr, flush=True)
+        _th.Thread(target=_ecrire, daemon=True, name="presence-evt").start()
+    except Exception as e:  # noqa: BLE001 - best-effort, mais NE SE TAIT PAS
+        print(f"[presence] evenement cli_present de {agent} NON emis ({type(e).__name__})",
+              file=_sys.stderr, flush=True)
     try:
-        from nokido_agent.app.forge_swarm_blackboard import propose_fact as _pf  # type: ignore
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync  # type: ignore
 
-        _pf(zone_name="discovered_facts", key=f"presence_arrival_{agent}",
-            fact=f"{agent} present (arrived)", trust=0.6, category="presence")
-    except Exception:  # noqa: BLE001
-        pass
+        # `propose_fact` n'a jamais existe et le `pass` ci-dessous taisait l'ImportError :
+        # AUCUNE arrivee n'a atteint le tableau noir. Appele depuis la boucle du hub
+        # (forge_hub_gate.resolve) : apply_fact_sync y pose une tache, sans bloquer.
+        r = apply_fact_sync("discovered_facts", f"{agent} present (arrived)",
+                            category="presence", trust=0.6, key=f"presence_arrival_{agent}",
+                            source="forge_presence", ring=2)
+        if r.get("ok") is False or r.get("error"):
+            print(f"[presence] arrivee de {agent} NON publiee : {str(r)[:160]}",
+                  file=_sys.stderr, flush=True)
+    except Exception as e:  # noqa: BLE001 - best-effort, jamais bloquant, mais NE SE TAIT PAS
+        print(f"[presence] arrivee de {agent} NON publiee ({type(e).__name__}: {str(e)[:120]})",
+              file=_sys.stderr, flush=True)
 
 
 def _read_ts(p: Path) -> float | None:

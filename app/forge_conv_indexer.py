@@ -663,10 +663,13 @@ def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path = RAG_DB) -> int
             text = _caviarde(text)
             cid = _chunk_id(source, text)
             try:
+                # Forme sans existant (2026-10-01) : un id deja present n'arme plus le
+                # trigger rag_chunks_fts_bi, qui le sortait du lexical ; changes() vaut 0.
                 con.execute(
                     "INSERT OR IGNORE INTO rag_chunks "
-                    "(id, source, text, domain, ingested_at, created_at) VALUES (?,?,?,?,?,?)",
-                    (cid, source, text, "conv", ts, ts_msg),
+                    "(id, source, text, domain, ingested_at, created_at) SELECT ?,?,?,?,?,? "
+                    "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                    (cid, source, text, "conv", ts, ts_msg, cid),
                 )
                 # Le compteur d'inserees se lit ICI, avant toute autre ecriture :
                 # `changes()` rend le nombre de lignes de la DERNIERE requete, donc

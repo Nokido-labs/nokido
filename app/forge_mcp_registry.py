@@ -53,7 +53,9 @@ import json
 import logging
 import os
 import sqlite3
-from nokido_agent.app.forge_spike_router import evaluate_intent
+# 2026-10-02 : forge_intent_risk et non forge_spike_router, dont la tete importe torch -- chaque
+# processus qui importait ce registre (le hub compris) chargeait torch, inutile a evaluate_intent.
+from nokido_agent.app.forge_intent_risk import evaluate_intent
 import time
 import base64
 import urllib.request
@@ -667,7 +669,9 @@ class ToolRegistry:
             self._unicode_meta_clean = set()
         if resolved not in self._unicode_meta_clean:
             tool_meta = None
-            for t in self._all_tools():
+            # Hors de la boucle (2026-10-01) : _all_tools relit le registre des outils
+            # forges a chaque appel (~0,9 s, 8 gels mesures par la sentinelle).
+            for t in await asyncio.to_thread(self._all_tools):
                 if t.get("name") == resolved:
                     tool_meta = t
                     break
@@ -3505,6 +3509,16 @@ class ToolRegistry:
         return _j.dumps(verdict, ensure_ascii=False)
 
     async def handle_query(self, args: dict, agent: str, ring: int) -> str:
+        """HORS DE LA BOUCLE (2026-10-01, GO owner) : tout le travail SQLite part dans un fil.
+
+        Journal de forge_loop_sentinel : 5 gels, 45 s de boucle figee ICI (~9 s chacun) --
+        le budget de 20 s protege le hub d'une MORT, pas d'un GEL : pendant que la requete
+        tourne, plus aucun appel n'est servi. Le corps n'a aucun `await` : il est execute
+        tel quel par `_handle_query_sync`, budget et SecretGuard compris.
+        """
+        return await asyncio.to_thread(self._handle_query_sync, args, agent, ring)
+
+    def _handle_query_sync(self, args: dict, agent: str, ring: int) -> str:
         """v3 : SecretGuard bloque les SELECT sur tables sensibles.
 
         action=schema : introspecteur SQLite read-only (proprioception/audit).
@@ -3993,7 +4007,11 @@ class ToolRegistry:
             try:
                 from nokido_agent.app.forge_lane_admission import check_ressources as _check_res
 
-                _resv = _check_res(heavy=True)
+                # HORS DE LA BOUCLE (2026-10-01, GO owner) : appele ici en direct, ce controle
+                # a fige la boucle du hub 567 s en 7 jours (292 gels, jusqu'a 5,5 s -- journal
+                # de forge_loop_sentinel) : mesure CPU dormante, puis `_try_reserve` qui libere
+                # et RE-mesure. Le verdict est le meme ; seul le fil qui attend change.
+                _resv = await asyncio.to_thread(_check_res, heavy=True)
                 if not _resv.get("ok"):
                     return json.dumps({"ok": False, "admit": False, "lane": _lane or "",
                                        "reason": _resv.get("reason"),
@@ -6743,28 +6761,34 @@ class ToolRegistry:
                         "[router] observation shadow impossible (%r)", _rt_e)
                 return _res_bm25
         if action == "distill":
-            try:
-                from nokido_agent.app.forge_distiller import RAGDistiller
-
-                domain = args.get("domain", "general")
-                threshold = float(args.get("threshold", 0.92))
+            # RAPPORT de quasi-doublons d'un domaine (2026-10-01, API reecrite, GO owner).
+            # `RAGDistiller` n'a jamais existe (l'action rendait toujours « distill error ») et
+            # l'ancien rapport aurait compte la coupe top-K comme des « doublons retires ».
+            # Lecture seule, bornee, HORS de la boucle ; rien n'est supprime, et c'est dit.
+            def _rapport_distill() -> str:
                 import sqlite3
 
-                db_path = str(self.root / "RAG" / "embeddings.db")
-                conn = sqlite3.connect(db_path)
-                rows = conn.execute(
-                    "SELECT id,text,embedding,domain FROM rag_chunks "
-                    "WHERE domain=? AND embedding IS NOT NULL LIMIT 2000",
-                    (domain,),
-                ).fetchall()
-                conn.close()
+                from nokido_agent.app.forge_db_path import db_path as _dbp
+                from nokido_agent.app.forge_distiller import get_distiller
+
+                domain = args.get("domain", "general")
+                limite = max(1, min(int(args.get("limit", 2000)), 5000))
+                conn = sqlite3.connect("file:%s?mode=ro" % _dbp(), uri=True, timeout=10)
+                try:
+                    rows = conn.execute(
+                        "SELECT id, text FROM rag_chunks WHERE domain = ? AND +active = 1 LIMIT ?",
+                        (domain, limite)).fetchall()
+                finally:
+                    conn.close()
                 if not rows:
-                    return f"distill: 0 chunks vectorises dans {domain}"
-                results = [{"id": r[0], "text": r[1], "embedding": r[2], "domain": r[3]} for r in rows]
-                d = RAGDistiller(ring=ring)
-                kept = d.distill(results, mode="hybrid", top_k=args.get("top_k", 50))
-                removed = len(results) - len(kept)
-                return f"distill {domain}: {len(results)} -> {len(kept)} chunks ({removed} doublons retires)"
+                    return f"distill: 0 chunk actif dans {domain}"
+                gardes = get_distiller()._deduplicate([{"id": r[0], "text": r[1] or ""} for r in rows])
+                return (f"distill {domain} : {len(rows)} chunks examines (borne {limite}) -> "
+                        f"{len(gardes)} distincts, {len(rows) - len(gardes)} quasi-doublons lexicaux "
+                        f"(Jaccard > 0,65). RAPPORT : rien n'est supprime.")
+
+            try:
+                return await asyncio.to_thread(_rapport_distill)
             except Exception as e:
                 return f"distill error: {e}"
         if action == "stats":
@@ -7561,6 +7585,13 @@ class ToolRegistry:
             out.append(f"[{m['source']}] ({m['domain']}, {mode})\n{(m['text'] or '')[:400]}")
         out = self._reorder_mid(out)
         self._log_query(topic, flt, [ids[i] for i in final], int((_t.time() - _t0) * 1000))
+        try:  # journal d'usage HORS base RAG (LoRA retrieval, 2026-10-02) ; ne bloque jamais
+            from nokido_agent.app.forge_rag_usage_signal import noter as _noter_usage
+            _noter_usage(topic, [ids[i] for i in final],
+                         [x.get("relevance_score") for x in res[:len(final)]] if "+rerank" in mode else None,
+                         source="handle_rag", mode=mode)
+        except Exception:  # noqa: BLE001  # muet-ok : noter() journalise lui-meme ses pertes
+            pass
         return "\n\n".join(out) if out else "Aucun resultat."
 
     def _log_query(self, topic: str, flt: dict, retrieved: list = None, latency_ms: int = 0) -> None:

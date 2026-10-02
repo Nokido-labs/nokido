@@ -5,7 +5,7 @@
 -r requirements.txt
 
 # Embeddings (BGE-M3, MiniLM)
-sentence-transformers==3.3.1
+sentence-transformers==5.6.0
 # 5.10.0 est le correctif annonce, mais il est YANKED sur PyPI -- motif publie par les
 # auteurs : « We pushed from a week old main branch [...] missing a bunch of fixes ».
 # pip l'installe quand meme s'il est epingle : on ne fait donc PAS d'une version retiree

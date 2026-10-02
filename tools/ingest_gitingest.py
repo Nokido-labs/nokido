@@ -79,8 +79,9 @@ def main():
         source = f"gitingest:nokido/{header[:50]}"
         cid = sha256_id(source, chunk)
         cur.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id,text,source,domain,role_hint) VALUES (?,?,?,?,?)",
-            (cid, chunk, source, DOMAIN, "code"),
+            "INSERT OR IGNORE INTO rag_chunks (id,text,source,domain,role_hint) SELECT ?,?,?,?,? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (cid, chunk, source, DOMAIN, "code", cid),
         )
         if cur.rowcount:
             inserted += 1

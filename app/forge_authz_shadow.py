@@ -340,6 +340,11 @@ def decider(route: str, ring: int, agent: str, via: str = "") -> Dict[str, Any]:
 _CACHE_CONN: Dict[str, Any] = {"ts": 0.0, "par_port": {}, "raison": "",
                                "dernier_refresh_miss": 0.0}
 _TTL_CONN = 2.0
+# Chaine d'ancetres par pid (2026-10-01) : sous Windows chaque `parent()` re-enumere
+# TOUS les processus ; 4 niveaux = ~1 s, sur la boucle du hub (7 gels, 7,6 s en 7 jours,
+# journal de forge_loop_sentinel), pour un appelant qui revient avec le MEME pid.
+_CACHE_ANCETRES: Dict[int, Tuple[float, int, List[str]]] = {}
+_TTL_ANCETRES = 15.0
 # Budget de rafraichissement sur echec : `net_connections` coute cher et
 # `/api/resource/should_spawn` arrive ~40 fois par minute. Sans plafond, chaque
 # miss declencherait un balayage complet des sockets.
@@ -578,6 +583,9 @@ def _chaine_ancetres(psutil, pid: int, profondeur: int = 4) -> List[str]:
     remonter jusqu'a la racine : un ancetre illisible (autre compte) arrete la
     chaine, et l'appelant doit savoir que la chaine s'est arretee la.
     """
+    _deja = _CACHE_ANCETRES.get(pid)
+    if _deja and time.time() - _deja[0] < _TTL_ANCETRES and _deja[1] == profondeur:
+        return list(_deja[2])
     chaine: List[str] = []
     try:
         cur = psutil.Process(pid)
@@ -598,6 +606,9 @@ def _chaine_ancetres(psutil, pid: int, profondeur: int = 4) -> List[str]:
             break
     else:
         chaine.append("...")   # tronquee : ne pas la lire comme complete
+    if len(_CACHE_ANCETRES) > 512:  # borne : les pids passent, le cache ne grossit pas
+        _CACHE_ANCETRES.clear()
+    _CACHE_ANCETRES[pid] = (time.time(), profondeur, list(chaine))
     return chaine
 
 

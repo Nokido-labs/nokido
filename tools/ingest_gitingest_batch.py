@@ -78,8 +78,9 @@ def main():
             src = f"gitingest/{repo}"
             cid = sha256_id(src, chunk)
             con.execute(
-                "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,ingested_at) VALUES(?,?,?,?,?,?)",
-                (cid, chunk, src, DOMAIN, "code", time.time()),
+                "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,ingested_at) SELECT ?,?,?,?,?,? "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                (cid, chunk, src, DOMAIN, "code", time.time(), cid),
             )
             if con.execute("SELECT changes()").fetchone()[0]:
                 inserted += 1

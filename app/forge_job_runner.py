@@ -104,6 +104,7 @@ def launch_job(script: str, online: bool = False, lane: str = "",
     rc_f = JOBS_DIR / f"{job_id}.rc"
     wrap_f = JOBS_DIR / f"{job_id}_wrap.py"
     rec_f = JOBS_DIR / f"{job_id}.json"
+    fin_f = JOBS_DIR / f"{job_id}.fin"
     py = sys.executable
     # Liste d'arguments : jamais de shell, donc pas d'injection possible ; shlex
     # respecte les guillemets pour les chemins à espaces (« Script python IA »).
@@ -137,6 +138,7 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         f"_log = r'{log_f}'\n"
         f"_err = r'{err_f}'\n"
         f"_rc = r'{rc_f}'\n"
+        f"_fin = r'{fin_f}'\n"
         # L'enfant herite de l'env : le script du job peut emettre sa progression
         # (forge_job_progress.emit) sous SON id, jointe ensuite par read_job.
         f"os.environ['LAFORGE_JOB_ID'] = '{job_id}'\n"
@@ -157,6 +159,16 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         "            return\n"
         "        except Exception:\n"
         "            pass\n"
+        # Dette D (2026-10-02) : le .fin dit POURQUOI le job a fini, a cote du .rc
+        # qui ne dit que COMMENT. Observation seule ; ne leve jamais (meme regle que
+        # `_dire`) : un capteur qui echoue ne change pas le sort du job.
+        "def _noter_fin(_cause, _code):\n"
+        "    try:\n"
+        "        import json as _j\n"
+        "        open(_fin, 'w', encoding='utf-8').write(_j.dumps(\n"
+        "            {'cause': _cause, 'rc': _code, 'fin_le': time.time()}))\n"
+        "    except Exception:\n"
+        "        pass\n"
         "def _tuer_enfants():\n"
         # `Popen.kill()` ne tue que LE process vise : sous Windows un petit-enfant
         # ne recoit rien. Mesure 2026-09-13 : le pytest du lot pur (8,6 Go) a
@@ -183,13 +195,18 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         "    _dit = False\n"
         "    while _p.poll() is None:\n"
         "        try:\n"
+        # ORDRE SANS COURSE (2026-10-02, CI de reference f340e9ca4) : _tue AVANT le kill (sinon
+        # le thread principal, reveille par la mort du process, ecrivait SON rc), puis .fin et
+        # motif AVANT le .rc -- le .rc est le signal de fin : un lecteur qui le voit doit deja
+        # trouver la cause. Avant, read_job lisait « 137 sans motif » et figeait INCONNU.
         "            if os.path.exists(_log) and os.path.getsize(_log) > LOG_CAP:\n"
-        "                _tuer_enfants()\n"
-        "                _p.kill()\n"
         "                _tue = True\n"
-        "                open(_rc, 'w').write('137')\n"
+        "                _noter_fin('PLAFOND_LOG', 137)\n"
         "                _dire("
         "'\\n[job_runner] TUE : log > %d Mo (boucle probable)\\n' % (LOG_CAP // 1048576))\n"
+        "                open(_rc, 'w').write('137')\n"
+        "                _tuer_enfants()\n"
+        "                _p.kill()\n"
         "                return\n"
         "        except Exception:\n"
         "            pass\n"
@@ -208,13 +225,14 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         "                    except Exception:\n"
         "                        pass\n"
         "                if _rss > RSS_CAP:\n"
-        "                    _tuer_enfants()\n"
-        "                    _p.kill()\n"
         "                    _tue = True\n"
-        "                    open(_rc, 'w').write('137')\n"
+        "                    _noter_fin('PLAFOND_RSS', 137)\n"
         "                    _dire("
         "'\\n[job_runner] TUE : RSS %d Mo > cap %d Mo (fuite memoire)\\n'"
         " % (_rss // 1048576, RSS_CAP // 1048576))\n"
+        "                    open(_rc, 'w').write('137')\n"
+        "                    _tuer_enfants()\n"
+        "                    _p.kill()\n"
         "                    return\n"
         "            except psutil.NoSuchProcess:\n"
         "                pass\n"
@@ -230,6 +248,7 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         # code de sortie du process tue (mesure 2026-08-02 : 1 sous Windows), sinon un
         # kill de regulation devient indistinguable d'une erreur applicative.
         "if not _tue:\n"
+        "    _noter_fin('SORTIE', rc)\n"
         "    open(_rc, 'w').write(str(rc))\n",
         encoding="utf-8",
     )
@@ -262,6 +281,177 @@ def launch_job(script: str, online: bool = False, lane: str = "",
     return {"ok": True, "job_id": job_id, "pid": res.get("pid")}
 
 
+# ══ CAPTEUR DE FIN (dette D, bb:dette_D_sans_capteur_2026-09-20) ══════════════════════
+# Mesure du 20/09 : 1705 fiches, AUCUNE ne portait `timed_out` -- un job tue par un delai
+# ne se distinguait pas d'un job rouge, et la dette « timeout intermittent du bloc pur »
+# n'avait aucun capteur. On OBSERVE (regle « observer avant d'enforcer ») : rien ici ne
+# change le sort d'un job ; on lit ce qu'il a laisse (.rc, .fin, .err, .log, fiche).
+#
+# TROIS etats pour `timed_out`, jamais deux : VRAI (un delai a coupe le job, preuve a
+# l'appui), FAUX (la fin est LISIBLE et ce n'est pas un delai), INCONNU (la fin est
+# illisible, ou la cause est muette : un arret externe, un signal). Une fin qu'on ne sait
+# pas lire n'est JAMAIS FAUX.
+VRAI, FAUX, INCONNU = "VRAI", "FAUX", "INCONNU"
+# Signatures d'un DELAI depasse, en liste BLANCHE. Les deux premieres sont celles de
+# `tools/ci_local._MARQUEURS_TIMEOUT` (bandeau de pytest-timeout : `terminal.sep("+",
+# title="Timeout")`) ; la troisieme, un `subprocess.run(timeout=...)` non rattrape. Un
+# `TimeoutError` reseau n'en est PAS une : il ne dit pas que le JOB a depasse son budget.
+MARQUEURS_DELAI = ("+++ Timeout +++", "Timeout ++++", "subprocess.TimeoutExpired")
+# Marqueurs ecrits par le garde du wrapper (fiches anterieures au .fin).
+_MARQUEURS_GARDE = (("TUE : RSS", "PLAFOND_RSS"), ("TUE : log >", "PLAFOND_LOG"))
+# Fins Windows par arret force (STATUS_CONTROL_C_EXIT, arret de console) : un signal, pas
+# une sortie choisie par le programme.
+_ARRETS_WINDOWS = {3221225786: "STATUS_CONTROL_C_EXIT", 3221225725: "STATUS_STACK_OVERFLOW"}
+_QUEUE_OCTETS = 65536
+
+
+def _queue(chemin) -> str | None:
+    """Les derniers 64 Ko d'un journal, ou None s'il est absent ou illisible."""
+    try:
+        with open(chemin, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - _QUEUE_OCTETS))
+            return fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def qualifier_fin(rec, jobs_dir=None) -> dict:
+    """{timed_out, cause, rc, signal, preuve} d'une fiche de job. Pur : n'ecrit rien.
+
+    Causes : NORMALE · ERREUR · DELAI · PLAFOND_RSS · PLAFOND_LOG · SIGNAL · ARRET_EXTERNE ·
+    TUE_137 · EN_COURS · DISPARU · FICHE_ILLISIBLE · RC_ILLISIBLE · JOURNAL_ILLISIBLE.
+    """
+    def _r(t, cause, rc=None, signal=None, preuve=""):
+        return {"timed_out": t, "cause": cause, "rc": rc, "signal": signal, "preuve": preuve}
+
+    if not isinstance(rec, dict) or not rec.get("job_id"):
+        return _r(INCONNU, "FICHE_ILLISIBLE", preuve="fiche absente, tronquee ou sans job_id")
+    base = Path(jobs_dir) if jobs_dir is not None else JOBS_DIR
+    jid = rec["job_id"]
+    rc_f = Path(rec.get("rc_file") or base / f"{jid}.rc")
+    log_f = Path(rec.get("log") or base / f"{jid}.log")
+    err_f, fin_f = log_f.with_suffix(".err"), log_f.with_suffix(".fin")
+    if rec.get("status") == "killed":
+        # Arrete par kill_job : on sait QUI, pas POURQUOI (un agent peut arreter un job
+        # trop long comme un job errone).
+        return _r(INCONNU, "ARRET_EXTERNE", rc=137, preuve="status killed (kill_job)")
+    if not rc_f.exists():
+        if rec.get("status") == "dead":
+            return _r(INCONNU, "DISPARU", preuve="aucun .rc et process absent (reconcilie)")
+        if rec.get("status") not in (None, "running"):
+            return _r(INCONNU, "RC_ILLISIBLE", preuve="fiche %r mais aucun .rc sur disque"
+                      % rec.get("status"))
+        return _r(INCONNU, "EN_COURS", preuve="aucun .rc : le job n'a pas fini")
+    try:
+        rc = int(rc_f.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return _r(INCONNU, "RC_ILLISIBLE", preuve="%s illisible ou tronque" % rc_f.name)
+    try:
+        fin = json.loads(fin_f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        fin = None  # muet-ok : fiches anterieures au .fin, on retombe sur l'.err
+    if isinstance(fin, dict) and fin.get("cause") in ("PLAFOND_RSS", "PLAFOND_LOG"):
+        return _r(FAUX, fin["cause"], rc=rc, preuve="%s (garde du wrapper)" % fin_f.name)
+    err, log = _queue(err_f), _queue(log_f)
+    if rc == 137 and not isinstance(fin, dict):
+        for marque, cause in _MARQUEURS_GARDE:
+            if err and marque in err:
+                return _r(FAUX, cause, rc=rc, preuve="%r dans %s" % (marque, err_f.name))
+    if rc == 0:
+        return _r(FAUX, "NORMALE", rc=0, preuve="rc 0")
+    if err is None and log is None:
+        return _r(INCONNU, "JOURNAL_ILLISIBLE", rc=rc,
+                  preuve="rc %s mais ni .err ni .log lisibles : la cause ne se voit pas" % rc)
+    for marque in MARQUEURS_DELAI:
+        for nom, texte in ((err_f.name, err), (log_f.name, log)):
+            if texte and marque in texte:
+                return _r(VRAI, "DELAI", rc=rc, preuve="%r dans %s" % (marque, nom))
+    if rc < 0:
+        return _r(INCONNU, "SIGNAL", rc=rc, signal=-rc, preuve="tue par le signal %d" % -rc)
+    if rc in _ARRETS_WINDOWS:
+        return _r(INCONNU, "SIGNAL", rc=rc, signal=_ARRETS_WINDOWS[rc], preuve=_ARRETS_WINDOWS[rc])
+    if rc == 137:
+        return _r(INCONNU, "TUE_137", rc=rc, preuve="rc 137 sans motif du garde ni du lanceur")
+    return _r(FAUX, "ERREUR", rc=rc, preuve="rc %s, aucune signature de delai" % rc)
+
+
+def _annoter(rec: dict) -> dict:
+    """Pose `timed_out` et `fin` sur la fiche (en memoire) pour une fin CONSTATEE."""
+    f = qualifier_fin(rec)
+    if f["cause"] not in ("EN_COURS",):
+        rec["timed_out"] = f["timed_out"]
+        rec["fin"] = f
+    return f
+
+
+def annoter_fiches(apply: bool = False, jobs_dir=None) -> dict:
+    """Rattrapage : pose `timed_out` + `fin` sur les fiches TERMINEES qui ne l'ont pas.
+
+    A blanc par defaut. Ne touche qu'aux fiches lisibles ; une fiche illisible est COMPTEE
+    (INCONNU), jamais reecrite."""
+    base = Path(jobs_dir) if jobs_dir is not None else JOBS_DIR
+    out = {"vues": 0, "annotees": 0, "illisibles": 0, "en_cours": 0, "applique": apply,
+           "par_cause": {}}
+    for rec_f in sorted(base.glob("*.json")):
+        out["vues"] += 1
+        try:
+            rec = json.loads(rec_f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            out["illisibles"] += 1
+            continue
+        if "timed_out" in rec:
+            continue
+        f = qualifier_fin(rec, base)
+        if f["cause"] == "EN_COURS":
+            out["en_cours"] += 1
+            continue
+        out["par_cause"][f["cause"]] = out["par_cause"].get(f["cause"], 0) + 1
+        out["annotees"] += 1
+        if apply:
+            rec["timed_out"], rec["fin"] = f["timed_out"], f
+            try:
+                rec_f.write_text(json.dumps(rec), encoding="utf-8")
+            except OSError:
+                out.setdefault("ecritures_refusees", []).append(rec_f.name)
+    return out
+
+
+def compteur_timeouts(n: int = 20, script: str | None = None, jobs_dir=None) -> dict:
+    """Timeouts des N DERNIERS jobs de chaque script (fenetre, jamais une moyenne depuis
+    toujours : un vieux timeout ne doit ni diluer ni masquer le present).
+
+    Rend {script: {jobs, VRAI, FAUX, INCONNU, taux}} ; `taux` = VRAI / (VRAI + FAUX), None
+    si rien n'est lisible -- les INCONNU ne sont ni des timeouts ni des fins propres.
+    Les fiches illisibles sont comptees a part (elles n'ont pas de script lisible)."""
+    base = Path(jobs_dir) if jobs_dir is not None else JOBS_DIR
+    par_script: dict = {}
+    illisibles = 0
+    for rec_f in base.glob("*.json"):
+        try:
+            rec = json.loads(rec_f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            illisibles += 1
+            continue
+        nom = Path(str(rec.get("script") or "?")).stem
+        if script and nom != script:
+            continue
+        f = rec.get("fin") if isinstance(rec.get("fin"), dict) else qualifier_fin(rec, base)
+        if f.get("cause") == "EN_COURS":
+            continue
+        par_script.setdefault(nom, []).append((str(rec.get("started") or ""), f["timed_out"]))
+    out = {}
+    for nom, lignes in sorted(par_script.items()):
+        fenetre = sorted(lignes, reverse=True)[:max(1, int(n))]
+        c = {VRAI: 0, FAUX: 0, INCONNU: 0}
+        for _, t in fenetre:
+            c[t if t in c else INCONNU] += 1
+        lisibles = c[VRAI] + c[FAUX]
+        out[nom] = {"jobs": len(fenetre), **c,
+                    "taux": round(c[VRAI] / lisibles, 3) if lisibles else None}
+    return {"fenetre": int(n), "scripts": out, "fiches_illisibles": illisibles}
+
+
 def read_job(job_id: str, tail: int = 4000) -> dict:
     """État d'un job : {ok, status(running|done), rc, pid, log_tail, started}.
 
@@ -291,9 +481,13 @@ def read_job(job_id: str, tail: int = 4000) -> dict:
         # alors que leur `.rc` etait deja sur le disque. Tout ce qui balaye le dossier
         # (inventaires, audits) lisait un registre faux, et seul qui appelait read_job
         # voyait juste.
-        if rec.get("status") == "running":
-            rec["status"] = "done"
-            rec["rc"] = rc
+        # Une fin lue INCONNU peut l'avoir ete trop tot (avant le .fin) : on la requalifie au
+        # lieu de figer le premier verdict ; VRAI et FAUX, eux, sont acquis.
+        if rec.get("status") == "running" or rec.get("timed_out") in (None, INCONNU):
+            if rec.get("status") == "running":
+                rec["status"] = "done"
+                rec["rc"] = rc
+            _annoter(rec)
             try:
                 rec_f.write_text(json.dumps(rec), encoding="utf-8")
             except OSError:  # muet-ok: lire un statut ne doit pas echouer sur une ecriture
@@ -338,6 +532,8 @@ def read_job(job_id: str, tail: int = 4000) -> dict:
         "started": rec.get("started"),
         "log_tail": out,
         "progress": progress,
+        "timed_out": rec.get("timed_out", INCONNU),
+        "fin": rec.get("fin"),
     }
 
 
@@ -416,6 +612,7 @@ def reconcile_jobs(apply: bool = False) -> dict:
         rec["status"] = verdict
         rec["reconcilie_le"] = datetime.now().isoformat()
         rec["reconcilie_raison"] = raison
+        _annoter(rec)
         out[verdict] += 1
         detail = {"fiche": rec_f.name, "verdict": verdict, "raison": raison}
         out["details"].append(detail)
@@ -475,6 +672,7 @@ def kill_job(job_id: str, force: bool = False) -> dict:
         if rec:
             rec["status"] = "killed"
             rec["killed_at"] = datetime.now().isoformat()
+            _annoter(rec)
             try:
                 rec_f.write_text(json.dumps(rec), encoding="utf-8")
             except Exception as e:
@@ -489,3 +687,26 @@ def kill_job(job_id: str, force: bool = False) -> dict:
             except Exception as e:
                 res["lane_release_error"] = str(e)[:120]
     return res
+
+
+def _main(argv=None) -> int:
+    """CLI : `--timeouts` (compteur fenetre) et `--annoter` (rattrapage, a blanc par defaut)."""
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Fiches de jobs detaches : capteur de fin")
+    ap.add_argument("--timeouts", action="store_true", help="timeouts des N derniers jobs par script")
+    ap.add_argument("--n", type=int, default=20)
+    ap.add_argument("--script", default=None)
+    ap.add_argument("--annoter", action="store_true", help="poser timed_out/fin sur les fiches finies")
+    ap.add_argument("--appliquer", action="store_true", help="avec --annoter : ecrire (sinon a blanc)")
+    a = ap.parse_args(argv)
+    if a.annoter:
+        r = annoter_fiches(apply=a.appliquer)
+    else:
+        r = compteur_timeouts(n=a.n, script=a.script)
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

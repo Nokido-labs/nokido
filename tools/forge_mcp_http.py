@@ -99,7 +99,9 @@ def construire_app(mcp_server, project_root: Path, cfg: dict | None = None):
     # Importer sécurité
     try:
         sys.path.insert(0, str(project_root))
-        from nokido_agent.app.forge_mcp_security import get_inbound_manager, get_security
+        # Couche reseau restauree le 2026-10-01 : cet import echouait, `has_sec` valait
+        # TOUJOURS False et la detection SSRF ci-dessous n'a jamais tourne.
+        from nokido_agent.app.forge_mcp_securite_reseau import get_inbound_manager, get_security
 
         sec = get_security()
         inbound_mgr = get_inbound_manager()
@@ -174,10 +176,11 @@ def construire_app(mcp_server, project_root: Path, cfg: dict | None = None):
 
         # SSRF detection sur le contenu
         if has_sec and agent not in ("laforge", "claude", ""):
-            from nokido_agent.app.forge_mcp_security import detect_ssrf_beacon as _dsb
+            from nokido_agent.app.forge_mcp_securite_reseau import detect_ssrf_beacon as _dsb
 
             text_to_check = json.dumps(body)
-            ssrf, pat = _dsb(text_to_check)
+            # strict : requete ENTRANTE d'un agent externe -> tout hote interne/prive aussi
+            ssrf, pat = _dsb(text_to_check, strict=True)
             if ssrf:
                 logger.warning(f"[HTTP] SSRF détecté [{agent}]: {pat}")
                 sec.audit.log("SSRF_DETECTED", agent, "http_post", "", pat)

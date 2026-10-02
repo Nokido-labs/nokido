@@ -57,7 +57,7 @@ async def nokido_guard(payload: dict, agent_url: str) -> dict | bool:
 
     # 1. ANALYSE D'INTENTION SÉMANTIQUE (Priorité Absolue pour la Négociation)
     try:
-        from nokido_agent.app.forge_spike_router import evaluate_intent
+        from nokido_agent.app.forge_intent_risk import evaluate_intent
 
         intent_result = evaluate_intent(payload)
         if intent_result.get("status") == "requires_negotiation":

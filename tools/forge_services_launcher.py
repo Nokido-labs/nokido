@@ -73,19 +73,14 @@ SERVICES_TOKEN = get_secret("FORGE_TOKEN_SERVICES") or ""
 
 
 def _load_env_file() -> None:
-    """Charge Nokido.env dans os.environ (sans écraser les vars déjà définies)."""
-    env_file = ROOT / "Nokido.env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        if k and k not in os.environ:
-            os.environ[k] = v
+    """Reglages de Nokido.env et SECRETS du coffre dans os.environ, sans ecraser l'existant.
+
+    Decision owner 2026-10-01 : ce chargeur recopiait tout le .env, secrets compris, en clair.
+    """
+    # forge_secrets est deja importe sans garde en tete de module (get_secret) : pas de try ici.
+    from nokido_agent.app.forge_secrets import injecter_env_ou_dire
+
+    injecter_env_ou_dire(ROOT / "Nokido.env", "launcher")
 
 
 _load_env_file()

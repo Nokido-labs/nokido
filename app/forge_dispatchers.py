@@ -202,9 +202,11 @@ async def _rag_ingest(params: Dict[str, Any]) -> Dict[str, Any]:
             cid = "traj_" + hashlib.sha256(ch.encode()).hexdigest()[:16]
             blob = struct.pack(f"<{len(v)}f", *v) if v else None
             try:
+                # Forme sans existant (2026-10-01) : n'arme pas le trigger rag_chunks_fts_bi.
                 conn.execute(
-                    "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, embedding, ingested_at, author) VALUES (?,?,?,?,?,?,?)",
-                    (cid, ch, "trajectory_dispatch", domain, blob, int(_t.time()), "TRAJ"),
+                    "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, embedding, ingested_at, author) "
+                    "SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                    (cid, ch, "trajectory_dispatch", domain, blob, int(_t.time()), "TRAJ", cid),
                 )
                 conn.execute(
                     # `id` n'est PAS une colonne de rag_fts (chunk_id, text, source,

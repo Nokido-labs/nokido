@@ -38,11 +38,13 @@ def _faux_securite(monkeypatch, identite="GEMINI", ota_ok=False):
         def validate_incoming(token, source_ip="", user_agent=""):
             return (True, "", {"agent_id": "AGENT_OTA", "rights": []}) if ota_ok else (False, "jeton OTA invalide", {})
 
-    mod = types.ModuleType("nokido_agent.app.forge_mcp_security")
+    # 2026-10-01 : la couche reseau vit dans forge_mcp_securite_reseau (restauree) ;
+    # forge_mcp_http l'importe de la et passe `strict=True` a la detection SSRF.
+    mod = types.ModuleType("nokido_agent.app.forge_mcp_securite_reseau")
     mod.get_security = lambda: _Sec()
     mod.get_inbound_manager = lambda: _Inbound()
-    mod.detect_ssrf_beacon = lambda texte: (False, "")
-    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_mcp_security", mod)
+    mod.detect_ssrf_beacon = lambda texte, strict=False: (False, "")
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_mcp_securite_reseau", mod)
 
 
 def _client(cfg):

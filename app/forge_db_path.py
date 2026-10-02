@@ -609,7 +609,7 @@ def ecrire_chunk(conn, source: str, domain: str, texte: str, *,
     """Ecrit UN chunk dans `rag_chunks`, avec sa clef, sans amputer en silence.
 
     DEFAUT CORRIGE le 2026-09-12, mesure sur 2 240 678 chunks. Seize ecrivains
-    faisaient `INSERT OR IGNORE INTO rag_chunks(source,domain,text)` — sans `id`,
+    faisaient une insertion `OR IGNORE` dans `rag_chunks(source,domain,text)` — sans `id`,
     alors que c'est un TEXT PRIMARY KEY (regle d'or n°3) : la clef restait NULLE
     et la deduplication ne pouvait plus operer. Quinze d'entre eux tronquaient en
     prime le texte par une tranche muette (`text[:2000]`, `[:800]`, `[:4000]`...).

@@ -184,22 +184,26 @@ def consult(name: str, query: str = "", *, limit: int = 6) -> list:
 
 
 def announce(name: str, event: str, detail: str = "") -> dict:
-    """INTÉGRATION FACTEUR : annonce un événement keeper (tenue/internalize) aux autres
-    agents via forge_postal, awareness partagée. Fallback blackboard:scratch. Best-effort —
-    dégrade sans lever si messager absent (l'annonce n'est jamais bloquante)."""
+    """Annonce un evenement keeper (tenue/internalize) au tableau noir, zone scratch.
+
+    Le postal n'est PAS le canal (2026-10-01) : `forge_postal.get_postal` n'a jamais existe
+    (cette voie echouait toujours) et son vrai equivalent, `broadcast`, depose le courrier chez
+    les collaborateurs LLM -- dont l'agent autonome qui REPOND a son courrier. Un evenement
+    systeme par demarrage/arret de service y ferait travailler (et facturer) des LLM. Le tableau
+    noir est la memoire de travail partagee faite pour cela. Best-effort, jamais bloquant."""
     msg = f"[KEEPER:{name}] {event} {detail}".strip()
-    for _attempt in ("postal", "blackboard"):
-        try:
-            if _attempt == "postal":
-                from nokido_agent.app.forge_postal import get_postal
-                get_postal().notify(msg, to="ALL")
-                return {"ok": True, "via": "postal", "msg": msg}
-            from nokido_agent.app.forge_swarm_blackboard import get_blackboard
-            get_blackboard().propose_fact("scratch", msg, key=f"keeper_{name}_{event}")
-            return {"ok": True, "via": "blackboard", "msg": msg}
-        except Exception:  # noqa: BLE001 - essaie le fallback suivant
-            continue
-    return {"ok": False, "note": "messager indisponible (annonce différée)", "msg": msg}
+    try:
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
+
+        _r = apply_fact_sync("scratch", msg, key=f"keeper_{name}_{event}",
+                             source=f"keeper_{name}", ring=3)
+        if _r.get("ok") is False or _r.get("error"):
+            return {"ok": False, "note": "tableau noir : %s" % str(_r)[:120], "msg": msg}
+        # ok None = tache posee sur la boucle courante : DEMANDE, pas ATTEINT.
+        return {"ok": _r.get("ok"), "via": "blackboard", "msg": msg,
+                "planifie": bool(_r.get("planifie"))}
+    except Exception as e:  # noqa: BLE001 - l'annonce n'est jamais bloquante, mais elle le dit
+        return {"ok": False, "note": "annonce non publiee (%s)" % type(e).__name__, "msg": msg}
 
 
 def integrate_portier() -> dict:

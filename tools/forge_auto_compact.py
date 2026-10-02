@@ -83,8 +83,9 @@ def compact_batch(chunks: list, conn: sqlite3.Connection, dry_run: bool) -> str:
     source_tag = sources[0] if len(sources) == 1 else f"compacted/{len(chunks)}_chunks"
     new_id = hashlib.sha256((source_tag + summary).encode()).hexdigest()[:16]
     conn.execute(
-        "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, created_at) VALUES (?,?,?,?,?)",
-        (new_id, source_tag, summary, "compacted", int(time.time())),
+        "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, created_at) SELECT ?,?,?,?,? "
+        "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+        (new_id, source_tag, summary, "compacted", int(time.time()), new_id),
     )
     for r in chunks:
         conn.execute("DELETE FROM rag_chunks WHERE id=?", (r["id"],))

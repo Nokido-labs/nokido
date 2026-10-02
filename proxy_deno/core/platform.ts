@@ -96,6 +96,28 @@ export async function memUsagePct(): Promise<number> {
 }
 
 /** True when running on Windows (for the rare branch that still needs it). */
+/**
+ * Physical RAM total in KB, or `null` when unreadable — never an invented value.
+ * Synchronous (no subprocess): the supervisor's resource loop may only await
+ * BOUNDED functions (tests/nr/test_superviseur_boucle_ressources_non_bloquante_nr.py).
+ * Used by the cost-ordered load shedding to estimate what sleeping/waking a
+ * service gives back or takes (2026-10-01).
+ */
+export function totalRamKo(): number | null {
+  try {
+    const d = Deno as unknown as {
+      systemMemoryInfo?: () => { total: number };
+    };
+    if (typeof d.systemMemoryInfo === "function") {
+      const t = d.systemMemoryInfo().total;
+      if (t > 0) return t / 1024;
+    }
+  } catch {
+    // API absente ou instable : illisible, dit par `null`.
+  }
+  return null;
+}
+
 export function isWindows(): boolean {
   return OS === "windows";
 }

@@ -1027,6 +1027,9 @@ PURE_TESTS = [
     "tests/nr/test_ingestion_sans_troncature_muette_nr.py",
     "tests/nr/test_intent_multi_verbe_nr.py",
     "tests/nr/test_router_observation_deux_chemins_nr.py",
+    # Journal d'usage du RAG HORS base (LoRA retrieval, 2026-10-02) : triplets, rotation, appel
+    # unique et garde dans le registre ; le chemin reel saute sans torch, en le disant.
+    "tests/nr/test_journal_usage_rag_nr.py",
     "tests/nr/test_job_watch_bilan_gradue_nr.py",
     "tests/nr/test_rag_lexical_exclut_inactifs_nr.py",
     "tests/nr/test_post_commit_sans_scan_nr.py",
@@ -1072,6 +1075,88 @@ PURE_TESTS = [
     "tests/nr/test_capability_audit_nr.py",
     "tests/nr/test_readme_pip_nr.py",
     "tests/nr/test_doctor_vivant_nr.py",
+    # Ingestion de doc (01/10) : version courante seule a la re-ingestion, agregats
+    # `llms-full.txt` ecartes, entree lexicale gardee pour un chunk inchange. Base
+    # sqlite EN MEMOIRE aux triggers de prod, reseau simule : aucun service.
+    "tests/nr/test_ingest_llms_txt_version_courante_nr.py",
+    # Cliquet golden `laforge-insert-or-ignore-rag-chunks` (01/10) : sources en memoire.
+    "tests/nr/test_golden_insert_or_ignore_rag_nr.py",
+    # Re-ingestion d'un depot (01/10) : le lexical garde les chunks inchanges, chemin
+    # reel `ingest_file` sur un dump gitingest, sqlite en memoire aux triggers de prod.
+    "tests/nr/test_reingestion_garde_le_lexical_nr.py",
+    # Cliquet golden : un fichier ou un dossier NON LU n'est pas un recul (01/10).
+    "tests/nr/test_golden_socle_non_lu_nr.py",
+    # Superviseur (01/10) : ctl restart attend l'arret effectif et mesure l'etat
+    # ATTEINT (superviseur et horloge simules) ; journaux de service hors du pool
+    # bloquant (garde textuel sur supervisor.ts). Aucun service, aucun reseau.
+    "tests/nr/test_ctl_restart_attend_l_arret_nr.py",
+    "tests/nr/test_superviseur_journaux_synchrones_nr.py",
+    # Journal sans pipe (01/10) : un vrai process Python lance par tools/forge_logboot.py,
+    # journal dans tmp_path ; aucun service, aucun reseau.
+    "tests/nr/test_logboot_journal_sans_pipe_nr.py",
+    # 2026-10-01 : comm_watch et presence importaient `propose_fact`, ABSENT du blackboard
+    # (aucun fait publie) ; le NR traverse _alert / _emit_arrival jusqu'a l'ecriture, base
+    # dans tmp_path, evenements et journal d'intentions neutralises.
+    "tests/nr/test_blackboard_fait_synchrone_nr.py",
+    # 2026-10-01 : la porte d'admission dormait 1 s (cpu_percent(interval=1)) sur la boucle
+    # du hub -- 77 % des gels sur 7 jours ; elle lit le CPU du sampler. psutil piege.
+    "tests/nr/test_admission_sans_gel_de_boucle_nr.py",
+    # 2026-10-01 : EcrivainDiffere perdait une ecriture au premier verrou SQLite.
+    "tests/nr/test_ecrivain_differe_reprend_le_verrou_nr.py",
+    # 2026-10-01 : gels de boucle mesures par la sentinelle (handle_query, list_providers,
+    # _all_tools, ancetres authz) + mesure de saturation du pool to_thread.
+    "tests/nr/test_boucle_hub_hors_gels_mesures_nr.py",
+    # 2026-10-01 : cliquet des imports internes vers un nom ABSENT (61 mesures, 53 sous un try
+    # muet) ; socle tests/nr/imports_morts_socle.json, ne peut que descendre.
+    "tests/nr/test_imports_internes_morts_nr.py",
+    # 2026-10-01 : ingesteur llms.txt -- GET paralleles, ecrivain unique ordonne (x4,3 mesure).
+    "tests/nr/test_ingest_llms_txt_parallele_nr.py",
+    # 2026-10-01 (decision owner) : un SECRET de Nokido.env se lit au coffre, jamais dans le
+    # fichier ; cliquet des boucles qui recopient un .env dans os.environ.
+    "tests/nr/test_secrets_noms_env_valeurs_coffre_nr.py",
+    # 2026-10-01 (decision owner) : purge M2M = seulement le TRAITE (liste du postal), base M2M,
+    # mode rapport tant que l'owner ne l'arme pas.
+    "tests/nr/test_purge_m2m_seulement_traites_nr.py",
+    # 2026-10-01 (decision owner) : couche reseau de la securite MCP restauree et corrigee
+    # (SSRF precis, loopback structure, sentinelles, bearer au coffre) ; ne crie pas a faux.
+    "tests/nr/test_securite_reseau_restauree_nr.py",
+    # 2026-10-01 (decision owner) : API reecrites -- pont llama.cpp, keeper au tableau noir,
+    # replis forge_ollama, rapport distill honnete.
+    "tests/nr/test_api_reecrites_nr.py",
+    # 2026-10-01 : forge_env_to_vault --alias (nom generique du .env, valeur au coffre sous
+    # son vrai nom ; garde = empreinte exacte).
+    "tests/nr/test_env_alias_coffre_nr.py",
+    # 2026-10-01 : la rafale RAM du superviseur endormait 43 services d'un coup (regulation
+    # comprise) et ne reveillait que sous 72 % -- delestage PAR COUT, reveil par cout estime,
+    # quatre regulateurs exemptes. Hermetique : lit supervisor.ts / platform.ts / services.toml.
+    "tests/nr/test_delestage_ram_par_cout_nr.py",
+    # 2026-10-01 : soif -- lexical classe (0/30 de recouvrement avec les meilleurs sur 9 questions
+    # reelles), panne RAG != lacune, un seul instrument juge, escalade sur TRANSITION seulement.
+    "tests/nr/test_soif_douleur_transition_nr.py",
+    # 2026-10-01 : le merge gate jugeait un candidat avec SES PROPRES tests (cwd=worktree) ; zone de
+    # l'evaluateur = regle unique (mutable, merge gate, boucle gardee), self-patcher desarme (push).
+    "tests/nr/test_juge_zone_evaluateur_nr.py",
+    # 2026-10-01 : l'embedding Modal recevait le texte BRUT du tier chaud (memoire, code) --
+    # masquage par redact_tool_output (journal=False en lot), refus sans masqueur.
+    "tests/nr/test_modal_envoi_masque_nr.py",
+    # 2026-10-01 : porte UNIQUE de l'evolution autonome (verrou humain, frein evolution.halt,
+    # armement LAFORGE_EVOLUTION_ARMED) sur soumission, fusion appliquee et boucle gardee.
+    "tests/nr/test_porte_evolution_nr.py",
+    # 2026-10-01 : quarantaine des pairs entretenue automatiquement au post-commit (cloture par
+    # preuve de commit, expiration des orphelins), sans jamais livrer un texte externe.
+    "tests/nr/test_pair_quarantaine_entretien_nr.py",
+    # 2026-10-01 : premiere CAPACITE mesuree de la fitness -- retrieval dense sur l'examen held-out
+    # SCELLE (tests/baselines/retrieval_heldout_v1.json), cle examen + corpus, bruit A/A.
+    "tests/nr/test_capacite_retrieval_scellee_nr.py",
+    # 2026-10-01 : veille des pairs cloud (forge_job_watch_cli --pair) -- un rendu de claude.ai
+    # reveille la boucle du client, metadonnees seules, jamais le texte externe.
+    "tests/nr/test_veille_pairs_nr.py",
+    # 2026-10-01 : AGY delegue travaille dans SON worktree (fin des invites de sortie de bac a
+    # sable chez l'owner) et le resultat porte l'effet git observe, pas seulement SUCCESS.
+    "tests/nr/test_agy_worktree_et_effet_nr.py",
+    # 2026-10-01 : decodeur de vecteurs TOLERANT au JSON (~20 % des vecteurs en base), regle
+    # unique (le doublon de forge_semantic_pressure delegue), jamais un vecteur faux.
+    "tests/nr/test_decode_blob_tolerant_nr.py",
     # Routage (21/08). La regle d'abstention de l'etage SNN est testee via la
     # fonction pure decide_from_rates : aucun service, aucun reseau, et les
     # tests qui exigent torch se marquent skip si torch manque -- la CI reste
@@ -1533,6 +1618,9 @@ PURE_TESTS = [
     "tests/nr/test_veille_github_selection_nr.py",
     "tests/nr/test_veille_backfill_un_chunk_nr.py",
     "tests/nr/test_job_runner_garde_et_pdf_cap_nr.py",
+    # Dette D (2026-10-02) : chaque fiche de job porte timed_out (VRAI/FAUX/INCONNU) et sa
+    # cause de fin ; compteur des timeouts sur les N derniers jobs par script.
+    "tests/nr/test_job_fin_capteur_timeout_nr.py",
     "tests/nr/test_m2m_hors_embeddings_nr.py",
     "tests/nr/test_organ_declare_nr.py",
     # Anatomie 06/09 : le lecteur (census) et l'ecrivain (declare) partagent fenetre et
@@ -1711,6 +1799,9 @@ PURE_TESTS = [
     # suite pure. Un NR qui ne tourne pas ici ne protege AUCUNE surface.
     "tests/nr/test_pypi_outils_chantier_nr.py",
     "tests/nr/test_release_pipeline_graphe_nr.py",
+    # Manifeste de distribution (P0 installation complete, 2026-10-02) : schema versionne,
+    # validateur fail-closed, somme manquante = refus, aucun chemin du checkout dans le lot.
+    "tests/nr/test_manifeste_distribution_nr.py",
     "tests/nr/test_wheel_paquets_declares_nr.py",
     "tests/nr/test_version_unique_nr.py",
     "tests/nr/test_ci_dependabot_quarantaine_nr.py",
@@ -1721,6 +1812,20 @@ PURE_TESTS = [
     "tests/nr/test_forge_handoff_worker_nr.py",
     "tests/nr/test_wheel_probe_chemins_nr.py",
     "tests/nr/test_swarm_bus_mirror_nr.py",
+    # Famille swarm (2026-10-02) : NR ecrits par ANTIGRAVITY (branche agent/antigravity), relus et
+    # corriges (coffre jamais lu, imports canoniques), reportes sur alpha. 12 modules sur 13 ont
+    # desormais un NR joue par la CI ; forge_swarm (le module de base) reste sans.
+    "tests/nr/test_forge_swarm_patch_comportement_nr.py",
+    "tests/nr/test_forge_swarm_validator_comportement_nr.py",
+    "tests/nr/test_forge_swarm_context_comportement_nr.py",
+    "tests/nr/test_forge_swarm_telemetry_guard_comportement_nr.py",
+    "tests/nr/test_forge_swarm_worker_comportement_nr.py",
+    "tests/nr/test_forge_swarm_orchestrator_comportement_nr.py",
+    "tests/nr/test_forge_swarm_agents_comportement_nr.py",
+    "tests/nr/test_forge_swarm_debate_comportement_nr.py",
+    "tests/test_forge_swarm_telemetry_guard.py",
+    # Cartouches du dist (2026-10-02) : le CI du README pointe le workflow qui EXISTE sur le dist.
+    "tests/nr/test_dist_cartouches_nr.py",
     "tests/nr/test_capability_gate_sondes_nr.py",
     "tests/nr/test_gate_depense_tokens_nr.py",
     "tests/nr/test_tool_budget_gate_nr.py",
@@ -1987,6 +2092,8 @@ PURE_TESTS = [
     "tests/nr/test_vue_compte_l_ecart_de_ring_nr.py",
     "tests/nr/test_network_history_lecture_bornee_nr.py",
     "tests/nr/test_mcp_servers_ne_relaie_pas_les_preferences_nr.py",
+    # 2026-10-02 : importer le registre MCP ne charge plus torch (evaluate_intent -> forge_intent_risk).
+    "tests/nr/test_registre_sans_torch_nr.py",
     "tests/nr/test_inbox_liaison_identite_nr.py",
     "tests/nr/test_inbox_ownership_cycle_nr.py",
     "tests/nr/test_contrat_credential_routes_forge_nr.py",
@@ -2131,6 +2238,9 @@ PURE_TESTS = [
     "tests/nr/test_veille_modele_vivant_nr.py",
     "tests/nr/test_soif_choisit_son_traitement_nr.py",
     "tests/nr/test_soif_examen_a_la_demande_nr.py",
+    # Soif lot B (2026-10-02) : AVEUGLE_PARTIEL, cycle de vie des lacunes (fermeture par remesure
+    # du meme instrument, IRRESOLUE owner seulement), plafond algedonique par fenetre, etalonnage gele.
+    "tests/nr/test_soif_lot_b_nr.py",
     "tests/nr/test_effecteurs_du_tri_nr.py",
     "tests/nr/test_docs_deportes_hors_audit_nr.py",
     "tests/nr/test_medecin_lit_les_examens_nr.py",
@@ -2162,6 +2272,9 @@ PURE_TESTS = [
     # 2026-09-26 (veille RSI) : le gain d'une generation est un verdict de PARETO -- ajouter des
     # modules sans couverture n'est plus une victoire.
     "tests/nr/test_generation_fitness_pareto_nr.py",
+    # Frein AUTOMATIQUE sur recul de capacite hors bande (meme cle de dimension), abstention dite
+    # sur mesure illisible ; forge_capability_benchmark lit les capacites mesurees (2026-10-02).
+    "tests/nr/test_frein_auto_capacite_nr.py",
     # 2026-09-26 (veille RSI, P7) : le registre d'evolution est CHAINE ; une entree reecrite,
     # supprimee ou inseree se detecte.
     "tests/nr/test_registre_evolution_chaine_nr.py",
@@ -2183,6 +2296,15 @@ PURE_TESTS = [
     "tests/nr/test_sauvegarde_cible_fixe_nr.py",
     # Chaine proposer -> appliquer cablee : reflexe seul, cortical jamais, acte trace.
     "tests/nr/test_pattern_proposal_applier_nr.py",
+    # Capacite OBSERVEE des fournisseurs (x-ratelimit-*) captee au point d'appel litellm du
+    # routeur ; FRAICHE / PERIMEE / INCONNU, MAL_FORME dit, liste blanche (2026-10-02).
+    "tests/nr/test_capacite_fournisseur_observee_nr.py",
+    # Regeneration L1 (2026-10-01, rendu claude.ai relu par CLAUDE) : set_param sur liste blanche,
+    # cortical tant que la porte n'est pas armee, valeur precedente memorisee, retour a l'empreinte.
+    "tests/nr/test_applicateur_set_param_l1_nr.py",
+    # Regeneration : mesure APRES application, revert reel (git revert -m 1) PROUVE par l'arbre et
+    # la bande, frein a deux reverts -- sur un DEPOT TEMPORAIRE (git local seul).
+    "tests/nr/test_controleur_mesure_apres_revert_nr.py",
     # Un depot portant un chemin invalide sous NTFS (searxng `...conf:socket`) se clone
     # quand meme : chemin NOMME et exclu, le reste extrait (2026-09-23).
     "tests/nr/test_veille_clone_chemins_windows_nr.py",
@@ -5948,7 +6070,9 @@ def _inscrire_generation(results, partiel: bool, proof_root=None, target_sha=Non
         from nokido_agent.app import forge_generation as _gen
 
         tests = verdicts_pour_generation(results, _INCONCLUS)
-        r = _gen.capturer_si_absent(tests=tests, agent="CI_LOCAL",
+        # CAPACITES MESUREES (2026-10-01) : sans elles, une generation ne peut plus se dire
+        # meilleure (fitness par capacite, d2ffaf64a). Mesure : forge_bench_beir --capacite.
+        r = _gen.capturer_si_absent(tests=tests, capacites=_gen.capacites_mesurees(), agent="CI_LOCAL",
                                     note="capture auto au verdict vert de ci_local")
         if r.get("skip"):
             print(f"\033[90m  [generation] etat deja capture ({r['skip']})\033[0m")

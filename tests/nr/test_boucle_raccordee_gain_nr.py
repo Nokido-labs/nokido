@@ -49,6 +49,11 @@ class _JugeDouble:
         self.appels_fermes = []
         self.appels_ouverts = []
 
+    def evolution_autorisee(self):
+        # Ces tests exercent le chemin ARME. La porte de l'evolution (2026-10-01) a son
+        # propre NR : test_porte_evolution_nr.
+        return {"autorisee": True, "etat": "ARMEE", "motif": ""}
+
     def juger_module_avec_gain(self, rel, nouveau, tests=None):
         self.appels_fermes.append((rel, list(tests or [])))
         return dict(self.verdict)

@@ -54,6 +54,21 @@ _RE_SECRET_ENV = re.compile(
 _RE_EMBED_DB = re.compile(r"(?i)embeddings\.db")
 _RE_INSERT_COLS = re.compile(r"(?i)INSERT\s+INTO\s+rag_chunks\s*\(([^)]*)\)")
 _RE_LIKE_ON_RAG = re.compile(r"(?i)FROM\s+rag_\w+\b[^;]{0,200}\bLIKE\b")
+# INSERT OR IGNORE dans rag_chunks (2026-10-01, decision owner). Le trigger
+# `rag_chunks_fts_bi` (BEFORE INSERT) retire l'entree lexicale de l'id existant
+# AVANT que l'insertion soit ignoree : un chunk INCHANGE re-vu sort du lexical.
+# Mesure : 15 213 chunks actifs de claude_docs absents de rag_chunks_fts, 37
+# fichiers ecrivains. Exception EXPLICITE et locale : le marqueur
+# `existence-verifiee` dans les lignes qui precedent, la ou l'ecrivain teste
+# l'existence par cle primaire avant d'inserer.
+_RE_INSERT_IGNORE_RAG = re.compile(r"(?i)INSERT\s+OR\s+IGNORE\s+INTO\s+rag_chunks\b(?!_)")
+_MARQUEUR_EXISTENCE = "existence-verifiee"
+# Forme SQL sure (2026-10-01) : `... SELECT ?,... WHERE NOT EXISTS (SELECT 1 FROM
+# rag_chunks WHERE id = ?)`. Id deja present -> le SELECT ne rend AUCUNE ligne -> aucune
+# insertion n'est tentee -> le trigger BEFORE INSERT ne tire pas. Reconnue dans les
+# 600 caracteres qui SUIVENT le motif (la meme instruction).
+_RE_SANS_EXISTANT = re.compile(
+    r"(?i)WHERE\s+NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+rag_chunks\s+WHERE\s+id\s*=")
 
 # ── REGLES APPRISES : la boucle echec -> garde produit des DONNEES ───────────
 # Distiller un garde depuis un correctif reel n'a de valeur que si la boucle
@@ -284,6 +299,17 @@ def _scan_text(rel: str, src: str) -> list[dict]:
                     "path": rel, "line": src.count("\n", 0, m.start()) + 1,
                     "message": "INSERT INTO rag_chunks sans colonne `id` explicite "
                                "(TEXT PRIMARY KEY, sha256(source+text)[:16])"})
+    for m in _RE_INSERT_IGNORE_RAG.finditer(src):
+        if _MARQUEUR_EXISTENCE in src[max(0, m.start() - 600):m.start()]:
+            continue
+        if _RE_SANS_EXISTANT.search(src[m.end():m.end() + 600]):
+            continue
+        out.append({"rule": "laforge-insert-or-ignore-rag-chunks", "severity": "ERROR",
+                    "path": rel, "line": src.count("\n", 0, m.start()) + 1,
+                    "message": "insertion OR IGNORE vers rag_chunks : le trigger rag_chunks_fts_bi "
+                               "desindexe l'id existant AVANT que l'insertion soit ignoree -- "
+                               "tester l'existence par cle primaire (marqueur "
+                               "`existence-verifiee`) ou ecrire par forge_db_path.ecrire_chunk"})
     for m in _RE_LIKE_ON_RAG.finditer(src):
         out.append({"rule": "laforge-raw-sql-like-on-rag", "severity": "WARNING",
                     "path": rel, "line": src.count("\n", 0, m.start()) + 1,
@@ -701,14 +727,26 @@ def _scan_usage_avant_liaison(rel: str, tree: ast.AST) -> list[dict]:
     return out
 
 
+# Dossiers que `os.walk` n'a pas pu ouvrir pendant le dernier `collect` : il les
+# SAUTE en silence par defaut. Rempli par `collect`, lu par `main` (2026-10-01).
+_MURS: list[str] = []
+
+
+def _noter_mur(exc: OSError) -> None:
+    _MURS.append(str(exc))
+
+
 def collect(paths: list[str]) -> list[str]:
     files: list[str] = []
+    _MURS.clear()
     for p in paths:
         target = p if os.path.isabs(p) else os.path.join(ROOT, p)
         if os.path.isfile(target):
             files.append(target)
             continue
-        for dirpath, dirnames, filenames in os.walk(target):
+        # 3e argument positionnel de os.walk : le rappel d'erreur (sans lui, un
+        # dossier illisible disparait du scan sans rien dire).
+        for dirpath, dirnames, filenames in os.walk(target, True, _noter_mur):
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             files += [os.path.join(dirpath, f) for f in filenames
                       if f.endswith(".py") and not _scratch(f)]
@@ -869,7 +907,22 @@ def main() -> int:
         print("ABORT: 0 fichier analyse")
         return 3
 
+    # NON LU n'est pas CONFORME (2026-10-01). Un fichier illisible rend un INFO
+    # « lecture » au lieu de ses ERROR, et un dossier que `os.walk` n'ouvre pas
+    # disparait du scan : le cliquet compterait les deux comme un RECUL. Enquete du
+    # jour sur les 33 entrees en baisse : toutes corrigees dans le code (regle
+    # actuelle rejouee sur la version du gel), 0 illisible -- mais rien ne
+    # l'aurait dit dans le cas contraire.
+    non_lus = sorted({f["path"] for f in findings if f["rule"] == "lecture"})
+    if non_lus or _MURS:
+        print(f"[golden_ast] NON LU : {len(non_lus)} fichier(s) illisible(s) "
+              f"{non_lus[:5]}, {len(_MURS)} dossier(s) non ouvert(s) {_MURS[:3]} — "
+              "leurs violations ne sont PAS comptees")
+
     if args.ecrire_socle:
+        if non_lus or _MURS:
+            print("ABORT: socle NON ecrit -- il gelerait comme un recul ce qui n'a pas ete lu")
+            return 3
         os.makedirs(os.path.dirname(SOCLE), exist_ok=True)
         try:
             with open(SOCLE, encoding="utf-8") as fh:

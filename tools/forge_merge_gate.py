@@ -77,6 +77,27 @@ def evaluer(agent, tests=None):
         return {"agent": agent, "verdict": "RIEN_A_MERGER",
                 "pourquoi": "%s n'a aucun commit au-dela d'alpha" % branch}
 
+    # LE CANDIDAT NE SE JUGE PAS AVEC SES PROPRES TESTS (2026-10-01). `mesurer(tests, cwd=wt)`
+    # execute les tests TELS QU'ILS SONT DANS LE WORKTREE : une branche qui affaiblit tests/nr,
+    # ou glisse un conftest/addopts qui saute tout, passait verte. La zone de l'evaluateur
+    # n'etait appliquee que par `mutable()` (mutation en place). Revue claude.ai
+    # (mission_rsi_soif), verifiee dans le code. Hors zone, les tests du worktree SONT ceux
+    # d'alpha : le candidat est juge par le juge d'alpha. Diff illisible -> on ne juge pas.
+    from nokido_agent.app.forge_mutation_judge import zone_evaluateur_touchee
+
+    rc, noms, err = _git(["diff", "--name-only", "alpha...%s" % branch])
+    if rc != 0:
+        return {"agent": agent, "branch": branch, "ahead": ahead, "verdict": "INDECIDABLE",
+                "pourquoi": "diff alpha...%s illisible (%s) : la zone de l'evaluateur ne peut "
+                            "pas etre verifiee, rien n'est juge" % (branch, (err or "")[:120])}
+    touches = zone_evaluateur_touchee(noms.splitlines())
+    if touches:
+        return {"agent": agent, "branch": branch, "ahead": ahead,
+                "verdict": "REFUSE_ZONE_EVALUATEUR", "zone_touchee": touches,
+                "pourquoi": "le candidat modifie ce qui le juge (%s%s) : il se jugerait avec ses "
+                            "propres tests -- revue OWNER, jamais un merge automatique"
+                            % (", ".join(touches[:5]), " ..." if len(touches) > 5 else "")}
+
     tests = suite_nr(tests)
     baseline = mesurer(tests, cwd=str(WT_CANON))   # alpha (canonique)
     candidat = mesurer(tests, cwd=wt)              # worktree de l'agent
@@ -95,6 +116,14 @@ def merger(agent, tests=None, apply=False):
         return ev
     if not apply:
         ev["decision"] = "AMELIORE -- merge PROPOSE (dry-run ; relancer avec --apply)"
+        return ev
+    # PORTE DE L'EVOLUTION (2026-10-01) : appliquer est une mutation du canonique.
+    from nokido_agent.app.forge_mutation_judge import evolution_autorisee
+
+    porte = evolution_autorisee()
+    if not porte["autorisee"]:
+        ev["porte"] = porte
+        ev["decision"] = "HALTED (%s) : %s -- le wip reste pour revue" % (porte["etat"], porte["motif"])
         return ev
     rc, head, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"])
     if head != "alpha":

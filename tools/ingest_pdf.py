@@ -128,8 +128,9 @@ def main():
         src = f"{args.domain}:{pdf_path.stem}#chunk{i}"
         chunk_id = hashlib.sha256((src + full_text[:80]).encode()).hexdigest()[:16]
         cur = con.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, source, domain, text) VALUES (?,?,?,?)",
-            (chunk_id, src, args.domain, full_text),
+            "INSERT OR IGNORE INTO rag_chunks (id, source, domain, text) SELECT ?,?,?,? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (chunk_id, src, args.domain, full_text, chunk_id),
         )
         if cur.rowcount:
             inserted += 1

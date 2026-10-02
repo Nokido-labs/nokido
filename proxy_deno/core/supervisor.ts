@@ -14,7 +14,7 @@ import {
   loadServices,
   type ServiceDef,
 } from "./service_loader.ts";
-import { memUsagePct } from "./platform.ts";
+import { memUsagePct, totalRamKo } from "./platform.ts";
 
 const ROOT = resolve(Deno.cwd());
 const LOG_DIR = join(ROOT, "logs", "supervisor");
@@ -923,28 +923,35 @@ function log(msg: string) {
   console.log(`[${ts()}] [SUPERVISOR] ${msg}`);
 }
 
+// E/S SYNCHRONES (2026-10-01) : `openLog` et `pipeToLog` etaient asynchrones, donc
+// servis par le pool BLOQUANT de Deno -- sature par les pipes des enfants (un thread
+// par pipe lu, cf. ligne ~107 et _preuveDpopTpm). Mesure du jour : 53 services en
+// marche, AUCUN journal de service ecrit depuis > 10 min, 47 muets depuis > 1 h,
+// tous figes entre 11:04 et 11:14 juste apres le redemarrage de la pile, pendant que
+// le journal du superviseur (console.log, synchrone) continuait. Meme palliatif que
+// l'etat circadien (2364685fd) : les ecritures de journal ne passent plus par le pool.
 async function openLog(name: string): Promise<Deno.FsFile> {
   const path = join(LOG_DIR, `${name}.log`);
   try {
-    const info = await Deno.stat(path);
+    const info = Deno.statSync(path);
     if (info.size > LOG_MAX_BYTES) {
       // FUITE FIX (2026-06-11) : NE PAS readTextFile (un log firehosé à 47GB lu en
       // entier = OOM machine au spawn = la cause des reboots qui OOMaient).
       // >500MB = firehose -> reset sec. Sinon garde la fin via seek (pas tout en RAM).
       if (info.size > 500_000_000) {
-        await Deno.truncate(path, 0);
+        Deno.truncateSync(path, 0);
       } else {
         const KEEP = Math.min(LOG_MAX_BYTES, 2_000_000);
-        const fr = await Deno.open(path, { read: true });
-        await fr.seek(info.size - KEEP, Deno.SeekMode.Start);
+        const fr = Deno.openSync(path, { read: true });
+        fr.seekSync(info.size - KEEP, Deno.SeekMode.Start);
         const buf = new Uint8Array(KEEP);
-        await fr.read(buf);
+        fr.readSync(buf);
         fr.close();
-        await Deno.writeFile(path, buf);
+        Deno.writeFileSync(path, buf);
       }
     }
   } catch { /* new file */ }
-  return await Deno.open(path, { create: true, append: true, write: true });
+  return Deno.openSync(path, { create: true, append: true, write: true });
 }
 
 async function pipeToLog(
@@ -964,7 +971,11 @@ async function pipeToLog(
         `${ts()} ${l.replace(_ANSI, "")}\n`
       ).join("");
       if (lines) {
-        await file.write(enc.encode(lines));
+        // writeSync (hors pool bloquant, cf. openLog) ; il peut ecrire PARTIELLEMENT :
+        // on boucle jusqu'au dernier octet plutot que de perdre la fin d'une ligne.
+        const data = enc.encode(lines);
+        let off = 0;
+        while (off < data.length) off += file.writeSync(data.subarray(off));
         // FUITE FIX (2026-06-11) : NE PLUS console.log chaque chunk de chaque service.
         // Ça réécrivait tout l'output enfant dans le stdout du superviseur, que NSSM ne
         // draine pas assez vite -> buffer mémoire UNBOUNDED (~0.25GB/s observé si un
@@ -983,6 +994,43 @@ async function pipeToLog(
     // cette panne peut etre vue.
     log(`${name}: pipeToLog INTERROMPU (le service ne journalise plus) — ${e}`);
   }
+}
+
+// JOURNAL SANS PIPE (2026-10-01). Sous Windows, chaque pipe d'enfant lu par Deno immobilise un
+// thread du pool BLOQUANT, plafonne a 4 x coeurs logiques (16 -> 64). Mesure du jour : 57 enfants,
+// 114 lectures pour 64 threads, 83 threads au superviseur contre 17-19 a un Deno sans enfant, et
+// 5 journaux sur 56 livres en direct -- le reste par PAQUETS (pair MCP : 4 min 30 de retard).
+// Un service `logboot = true` ecrit lui-meme son journal via tools/forge_logboot.py (horodatage par
+// ligne ; dup2 + SetStdHandle : ses sous-process aussi) et il est lance SANS pipe. L'amorceur tourne
+// sous L'INTERPRETEUR DU SERVICE ; un service runAs est enveloppe AU NIVEAU DU LANCEUR, sous le
+// compte du superviseur qui a le droit d'ecrire logs/supervisor. Commande non Python : ignore, et dit.
+const LOGBOOT = join(ROOT, "tools/forge_logboot.py");
+const _EST_PYTHON = /(^|[\\/])python[0-9.]*(\.exe)?$/i;
+
+function _argsLogboot(
+  def: { name: string; runAs?: string; logboot?: boolean },
+  cmd: string,
+  args: string[],
+): { cmd: string; args: string[]; journal: string } | null {
+  if (!def.logboot) return null;
+  const journal = join(LOG_DIR, `${def.name}.log`);
+  if (def.runAs) {
+    // args = [forge_runas_launcher.py, runAs, cmd du service, ...] sous MINIFORGE : on enveloppe le lanceur.
+    return { cmd, args: [LOGBOOT, "--journal", journal, "--", ...args], journal };
+  }
+  if (!_EST_PYTHON.test(cmd)) {
+    log(`${def.name}: logboot IGNORE -- commande non Python (${cmd}) ; journal par pipe`);
+    return null;
+  }
+  // Drapeaux d'interpreteur (-u, -X utf8, -W ...) AVANT l'amorceur : ils s'appliquent au process.
+  const drapeaux: string[] = [];
+  let i = 0;
+  while (i < args.length && args[i].startsWith("-") && args[i] !== "-m") {
+    drapeaux.push(args[i]);
+    if ((args[i] === "-X" || args[i] === "-W") && i + 1 < args.length) drapeaux.push(args[++i]);
+    i++;
+  }
+  return { cmd, args: [...drapeaux, LOGBOOT, "--journal", journal, "--", ...args.slice(i)], journal };
 }
 
 async function stopProvider(state: ServiceState) {
@@ -1368,14 +1416,22 @@ async function startService(state: ServiceState) {
     log(`${def.name}: runAs=${def.runAs} — via sandbox launcher`);
   }
 
+  // JOURNAL SANS PIPE (2026-10-01) : voir _argsLogboot.
+  const sansPipe = _argsLogboot(def, spawnCmd, spawnArgs);
+  if (sansPipe) {
+    spawnCmd = sansPipe.cmd;
+    spawnArgs = sansPipe.args;
+    log(`${def.name}: journal SANS PIPE (forge_logboot) -> ${sansPipe.journal}`);
+  }
+
   const envMerged = { ...Deno.env.toObject(), ...(def.env ?? {}) };
   try {
     const proc = new Deno.Command(spawnCmd, {
       args: spawnArgs,
       cwd: def.cwd,
       env: envMerged,
-      stdout: "piped",
-      stderr: "piped",
+      stdout: sansPipe ? "null" : "piped",
+      stderr: sansPipe ? "null" : "piped",
     }).spawn();
     state.proc = proc;
     state.pid = proc.pid;
@@ -1420,7 +1476,8 @@ async function startService(state: ServiceState) {
           );
         });
     }
-    const lf = await openLog(def.name);
+    // Sans pipe, le service tient lui-meme son journal : Deno ne l'ouvre pas.
+    const lf = sansPipe ? null : await openLog(def.name);
     state.logFile = lf;
     // On GARDE les promesses : sans elles, `lf.close()` ci-dessous fermait le handle
     // pendant que ces deux boucles drainaient encore les pipes -> `BadResource: Bad
@@ -1428,10 +1485,12 @@ async function startService(state: ServiceState) {
     // Mesure 2026-07-27 : tous les logs de service figes au meme instant (12:25:17),
     // juste avant une vague de POST /supervisor/sleep a 12:26:11 -- une mise en
     // sommeil groupee fermait tous les handles d'un coup, en pleine ecriture.
-    const drained = Promise.allSettled([
-      pipeToLog(proc.stdout, lf, def.name),
-      pipeToLog(proc.stderr, lf, def.name),
-    ]);
+    const drained = lf
+      ? Promise.allSettled([
+        pipeToLog(proc.stdout, lf, def.name),
+        pipeToLog(proc.stderr, lf, def.name),
+      ])
+      : Promise.resolve([]);
 
     proc.status.then(async (s) => {
       const elapsedMs = Date.now() - state.lastStartMs;
@@ -1446,7 +1505,7 @@ async function startService(state: ServiceState) {
         await drained;
       } catch { /* les rejets sont deja absorbes par allSettled */ }
       try {
-        lf.close();
+        lf?.close();
       } catch {}
       // Garde de generation (RCA doom-loop 2026-07-03) : si CE process a ete
       // REMPLACE (restart explicite -> state.proc pointe deja le successeur),
@@ -1610,11 +1669,38 @@ async function getMemUsagePct(): Promise<number> {
 }
 
 const RAM_SLEEP_PCT = 88;
-// Hystérésis large (72..88) + réveil étalé (WAKE_BATCH/cycle) = anti-flap.
+// Hystérésis + réveil étalé (WAKE_BATCH/cycle) = anti-flap.
 // RCA 2026-06-01 : RAM réelle 72-84% collait à l'ancien wake=78 → réveil des ~9
 // non-essentiels d'un coup → re-spike RAM → re-sleep → oscillation 2min.
-const RAM_WAKE_PCT = 72;
+//
+// DELESTAGE PAR COUT (2026-10-01). Mesure du jour (journal du superviseur, 15:54:52) :
+// « RAM 90.5% > 88% » puis 43 « Sleeping » d'un coup — noeud sinusal, sentinelle,
+// boite noire, coagulation, soif, executeurs : la regulation ENTIERE eteinte pour une
+// pression venue d'ailleurs (navigateur, fuite de handles mtkbtsvc ; RSS de l'embedder
+// stable). Puis 27 services encore endormis a 81,5 % : le reveil n'avait lieu que sous
+// 72 %, seuil que ce poste (base 65-80 %) n'atteint presque jamais. Deux defauts :
+//  1. on endormait sans ORDRE ni GAIN : vingt organes de 20-60 Mo rendent moins qu'un
+//     seul gros consommateur. Desormais les plus gros d'abord (RSS lu dans le MEME
+//     tasklist que la vitalite), au plus DELESTAGE_MAX_PAR_CYCLE, jusqu'a RAM_CIBLE_PCT ;
+//     sous RAM_CRITIQUE_PCT, un service dont le gain n'est pas PROUVE (RSS illisible)
+//     ou est derisoire (< DELESTAGE_GAIN_MIN_KO) n'est PAS endormi — et c'est DIT.
+//  2. on reveillait trop tard et a l'aveugle : desormais sous RAM_WAKE_PCT, les moins
+//     couteux d'abord, et seulement si la RAM estimee apres reveil reste sous la cible.
+// L'anti-flap de 2026-06-01 tient : reveil borne par cycle ET par cout estime.
+// NR : tests/nr/test_delestage_ram_par_cout_nr.py.
+const RAM_WAKE_PCT = 82;
 const WAKE_BATCH = 2;
+const RAM_CRITIQUE_PCT = 94;
+// Ni le delestage ne descend plus bas, ni le reveil ne monte plus haut.
+const RAM_CIBLE_PCT = 84;
+const DELESTAGE_MAX_PAR_CYCLE = 3;
+const DELESTAGE_GAIN_MIN_KO = 64 * 1024;
+// Cout PRESUME d'un reveil quand le RSS du service n'a jamais ete lu.
+const RSS_INCONNU_KO = 150 * 1024;
+// RSS (Ko) par PID, relu a chaque passage de vitalite ; RSS au moment de l'endormissement.
+let _rssKoParPid = new Map<number, number>();
+const _rssKoAuSommeil = new Map<string, number>();
+let _pressionMuette = 0;
 // Services qui touchent le GPU/iGPU/NPU. Lors d'un TDR detecte ou GPU > 95%,
 // sleep ces services 10min pour laisser le driver Radeon recuperer. RCA
 // 2026-05-24 BSOD : driver TDR cascade non attrape => video_scheduler crash.
@@ -1679,14 +1765,20 @@ async function livingPids(): Promise<Set<number> | null> {
       stderr: "null",
     }).outputSync();
     const alive = new Set<number>();
+    const rss = new Map<number, number>();
     for (const line of new TextDecoder().decode(out.stdout).split("\n")) {
       // CSV tasklist : "Image","PID","Session","Session#","Mem"
       const cols = line.split('","');
       if (cols.length > 1) {
         const p = Number(cols[1]);
         if (p) alive.add(p);
+        // "12 345 K" / "12 345 Ko" (separateur de milliers selon la langue) : on ne
+        // garde que les chiffres ; rien de lisible = pas d'entree (INCONNU, pas 0).
+        const ko = cols.length > 4 ? Number(cols[4].replace(/[^0-9]/g, "")) : 0;
+        if (p && ko > 0) rss.set(p, ko);
       }
     }
+    if (alive.size > 10) _rssKoParPid = rss;
     // GARDE : un tasklist qui echoue rend une liste vide, ce qui se lirait comme
     // « tous les services sont morts » et declencherait 52 respawns. Distinguer
     // « rien trouve » de « je n'ai pas pu voir » — leçon payee plusieurs fois.
@@ -1743,31 +1835,75 @@ async function resourceLoop() {
     }
 
     const memPct = await getMemUsagePct();
+    const totalKo = totalRamKo();
     if (memPct > RAM_SLEEP_PCT) {
       log(
         `RAM ${
           memPct.toFixed(1)
         }% > ${RAM_SLEEP_PCT}% — sleeping non-essential services`,
       );
-      for (const [, state] of states) {
-        const uptime = Date.now() - state.lastStartMs;
-        if (
-          !state.def.essential && !state.def.neverSleep &&
-          state.status === "running" && state.proc && uptime > 5 * 60_000
-        ) {
-          log(
-            `Sleeping ${state.def.name} (uptime ${Math.round(uptime / 1000)}s)`,
-          );
-          state.proc.kill("SIGTERM");
-          state.status = "sleeping";
+      const candidats = [...states.values()].filter((state) =>
+        !state.def.essential && !state.def.neverSleep &&
+        state.status === "running" && state.proc &&
+        Date.now() - state.lastStartMs > 5 * 60_000
+      ).map((state) => ({
+        state,
+        ko: state.pid ? (_rssKoParPid.get(state.pid) ?? null) : null,
+      })).sort((a, b) => (b.ko ?? -1) - (a.ko ?? -1));
+      const critique = memPct > RAM_CRITIQUE_PCT;
+      let pct = memPct;
+      let endormis = 0;
+      let ecartes = 0;
+      let ecartesKo = 0;
+      for (const { state, ko } of candidats) {
+        if (endormis >= DELESTAGE_MAX_PAR_CYCLE || pct <= RAM_CIBLE_PCT) break;
+        if (!critique && (ko === null || ko < DELESTAGE_GAIN_MIN_KO)) {
+          ecartes++;
+          ecartesKo += ko ?? 0;
+          continue;
         }
+        const uptime = Date.now() - state.lastStartMs;
+        log(
+          `Sleeping ${state.def.name} (uptime ${Math.round(uptime / 1000)}s, ` +
+            `rss ${ko === null ? "ILLISIBLE" : Math.round(ko / 1024) + " Mo"})`,
+        );
+        if (ko !== null) _rssKoAuSommeil.set(state.def.name, ko);
+        state.proc?.kill("SIGTERM");
+        state.status = "sleeping";
+        endormis++;
+        if (totalKo && ko) pct -= (ko / totalKo) * 100;
+      }
+      if (endormis > 0) {
+        _pressionMuette = 0;
+      } else if (_pressionMuette++ % 10 === 0) {
+        // Pression HORS de ce que Nokido peut rendre : endormir vingt organes de 30 Mo
+        // ne soulage pas la machine et eteint la regulation. Dit, pas tu (1 cycle / 10).
+        log(
+          `RAM ${memPct.toFixed(1)}% : rien endormi — ${ecartes} service(s) a gain ` +
+            `derisoire ou illisible (${Math.round(ecartesKo / 1024)} Mo lus au total) ; ` +
+            `pression hors de portee du delestage sous ${RAM_CRITIQUE_PCT}%`,
+        );
       }
     } else if (memPct < RAM_WAKE_PCT) {
-      // Réveil ÉTALÉ : au plus WAKE_BATCH services par cycle (60s). Réveiller
-      // les ~9 non-essentiels d'un coup re-spike la RAM > seuil sleep → flap.
+      _pressionMuette = 0;
+      // Réveil ÉTALÉ : au plus WAKE_BATCH services par cycle (60s), les MOINS couteux
+      // d'abord, et seulement si la RAM estimee apres reveil reste sous RAM_CIBLE_PCT.
+      // Réveiller les ~9 non-essentiels d'un coup re-spike la RAM > seuil sleep → flap.
+      const dormeurs = [...states.values()].filter((s) => s.status === "sleeping")
+        .sort((a, b) =>
+          (_rssKoAuSommeil.get(a.def.name) ?? RSS_INCONNU_KO) -
+          (_rssKoAuSommeil.get(b.def.name) ?? RSS_INCONNU_KO)
+        );
+      let pct = memPct;
       let woken = 0;
-      for (const [, state] of states) {
+      for (const state of dormeurs) {
         if (woken >= WAKE_BATCH) break;
+        const cout = _rssKoAuSommeil.get(state.def.name) ?? RSS_INCONNU_KO;
+        // RAM totale illisible : impossible d'estimer, un seul reveil par cycle.
+        const tropCher = totalKo
+          ? pct + (cout / totalKo) * 100 > RAM_CIBLE_PCT
+          : woken >= 1;
+        if (tropCher) break;
         // GELE = JAMAIS REVEILLE PAR LA RAM (2026-09-24). Un service `disabled`
         // endormi par la regulation se rallumait des que la RAM redescendait :
         // le gel d'un ecrivain RAG (QdrantSync) ne tenait qu'au hasard du seuil.
@@ -1776,11 +1912,13 @@ async function resourceLoop() {
           !state.def.essential && !state.def.llmPool && !state.def.disabled &&
           state.status === "sleeping"
         ) {
-          log(`Waking ${state.def.name} (RAM now ${memPct.toFixed(1)}%)`);
+          log(`Waking ${state.def.name} (RAM now ${pct.toFixed(1)}%, ` +
+            `cout presume ${Math.round(cout / 1024)} Mo)`);
           state.status = "stopped";
           state.backoffIdx = 0;
           startService(state);
           woken++;
+          if (totalKo) pct += (cout / totalKo) * 100;
         }
       }
     }
@@ -1806,6 +1944,8 @@ async function resourceLoop() {
             state.status === "running" && state.proc
           ) {
             log(`GPU quarantine sleep ${name}`);
+            const ko = state.pid ? _rssKoParPid.get(state.pid) : undefined;
+            if (ko) _rssKoAuSommeil.set(name, ko);
             state.proc.kill("SIGTERM");
             state.status = "sleeping";
           }

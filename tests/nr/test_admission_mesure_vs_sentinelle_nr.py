@@ -44,7 +44,9 @@ import pytest
 RACINE = Path(__file__).resolve().parents[2]
 SOURCE = RACINE / "app" / "forge_lane_admission.py"
 
-SOURCES_ATTENDUES = {"inspecteur", "psutil", "indisponible"}
+# "sampler" (2026-10-01) : CPU lu dans l'instantane de forge_resource_manager au lieu
+# d'une mesure dormante sur la boucle du hub (test_admission_sans_gel_de_boucle_nr).
+SOURCES_ATTENDUES = {"sampler", "inspecteur", "psutil", "indisponible"}
 
 
 def _module():

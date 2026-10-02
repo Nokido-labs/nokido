@@ -124,7 +124,9 @@ class GeminiBridge:
         # Sécurité
         try:
             sys.path.insert(0, str(Path(__file__).parent))
-            from nokido_agent.app.forge_mcp_security import (
+            # Couche reseau restauree le 2026-10-01 (retiree de forge_mcp_security le 2026-03-24 :
+            # cet import echouait, la securite du pont n'etait jamais chargee).
+            from nokido_agent.app.forge_mcp_securite_reseau import (
                 create_token_envelope,
                 verify_loopback,
                 wrap_rag_chunk,

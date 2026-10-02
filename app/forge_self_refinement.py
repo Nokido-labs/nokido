@@ -94,11 +94,14 @@ def thought_interceptor(text: str) -> list[str]:
 async def _llm_generate(provider: str, prompt: str, system: str = "", timeout: float = 25.0) -> str:
     try:
         if provider == "ollama":
-            from nokido_agent.app.forge_ollama import ollama_generate
+            # `ollama_generate` n'a jamais existe (2026-10-01) : l'API est ollama_call,
+            # qui porte le system a part au lieu de le coller devant le prompt.
+            from nokido_agent.app.forge_ollama import ollama_call
 
-            full = (f"[SYSTEM]\n{system}\n\n" if system else "") + prompt
             return await asyncio.wait_for(
-                ollama_generate(full, model="qwen2.5-coder:7b-instruct-q4_K_M", max_tokens=512),
+                ollama_call("qwen2.5-coder:7b-instruct-q4_K_M",
+                            [{"role": "user", "content": prompt}], system=system or None,
+                            max_tokens=512),
                 timeout=timeout,
             )
         elif provider == "lmstudio":

@@ -24,26 +24,55 @@ from nokido_agent.app import forge_generation as gen  # noqa: E402
 
 @pytest.fixture
 def prec(monkeypatch):
-    def poser(modules, tests):
-        monkeypatch.setattr(gen, "lister", lambda statut=None: [
-            {"generation": "GEN-00001", "environnement": {"empreinte": {"modules_forge": modules, "tests_nr": tests}}}])
+    def poser(modules, tests, capacites=None):
+        rec = {"generation": "GEN-00001", "environnement": {"empreinte": {"modules_forge": modules, "tests_nr": tests}}}
+        if capacites is not None:
+            rec["capacites"] = capacites
+        monkeypatch.setattr(gen, "lister", lambda statut=None: [rec])
     return poser
 
 
+# 2026-10-01 (revue claude.ai mission_rsi_soif, verifiee) : un compte de fichiers ne prouve JAMAIS un
+# gain -- la table du 26/09 rendait AMELIORE pour un fichier de test VIDE. Sans mesure de capacite :
 @pytest.mark.parametrize("modules, tests, verdict", [
-    (100, 60, "AMELIORE"),                     # plus de couverture, complexite egale
-    (95, 50, "AMELIORE"),                      # allegement a couverture egale
+    (100, 60, "NEUTRE"),                       # des tests en plus : pas une preuve de gain
+    (95, 50, "NEUTRE"),                        # allegement : un cout en moins, pas un gain
     (100, 50, "NEUTRE"),
-    (100, 40, "DEGRADE"),                      # couverture perdue
+    (100, 40, "DEGRADE"),                      # des gardes NR ont disparu
     (90, 40, "DEGRADE"),                       # meme en allegeant
-    (110, 60, "COMPROMIS"),                    # croissance ET couverture : pas une victoire d'office
-    (110, 50, "CROISSANCE_SANS_COUVERTURE"),   # le cas du 20/09
+    (110, 60, "CROISSANCE_SANS_PREUVE"),       # croissance : un cout, aucun gain mesure
+    (110, 50, "CROISSANCE_SANS_PREUVE"),       # le cas du 20/09
 ])
-def test_le_gain_est_un_verdict_de_pareto(prec, modules, tests, verdict):
+def test_sans_mesure_un_compte_de_fichiers_ne_gagne_jamais(prec, modules, tests, verdict):
     prec(100, 50)
     g = gen._gain_vs_precedente({"modules_forge": modules, "tests_nr": tests})
-    assert g["verdict"] == verdict
+    assert g["verdict"] == verdict and g["mesure_de_capacite"] is False
     assert g["modules_forge"] == modules - 100 and g["tests_nr"] == tests - 50   # compteurs conserves
+
+
+@pytest.mark.parametrize("avant, apres, verdict", [
+    ({"ndcg10": 0.50}, {"ndcg10": 0.55}, "AMELIORE"),
+    ({"ndcg10": 0.50}, {"ndcg10": 0.45}, "DEGRADE"),
+    ({"ndcg10": 0.50}, {"ndcg10": 0.50}, "NEUTRE"),
+    ({"ndcg10": {"score": 0.50, "bruit": 0.03}}, {"ndcg10": {"score": 0.52, "bruit": 0.03}}, "NEUTRE"),  # dans le bruit
+    ({"ndcg10": 0.50, "bfcl": 0.70}, {"ndcg10": 0.60, "bfcl": 0.60}, "DEGRADE"),  # un recul suffit
+])
+def test_le_gain_se_lit_dans_les_capacites(prec, avant, apres, verdict):
+    prec(100, 50, capacites=avant)
+    g = gen._gain_vs_precedente({"modules_forge": 100, "tests_nr": 50}, capacites=apres)
+    assert g["verdict"] == verdict and g["mesure_de_capacite"] is True
+
+
+def test_ajouter_seulement_des_fichiers_reste_neutre_meme_mesure(prec):
+    prec(100, 50, capacites={"ndcg10": 0.50})
+    g = gen._gain_vs_precedente({"modules_forge": 100, "tests_nr": 80}, capacites={"ndcg10": 0.50})
+    assert g["verdict"] == "NEUTRE"
+
+
+def test_un_gain_ne_rachete_pas_des_gardes_perdues(prec):
+    prec(100, 50, capacites={"ndcg10": 0.50})
+    g = gen._gain_vs_precedente({"modules_forge": 100, "tests_nr": 40}, capacites={"ndcg10": 0.70})
+    assert g["verdict"] == "DEGRADE"
 
 
 def test_la_premiere_generation_n_a_pas_de_verdict_de_gain(monkeypatch):

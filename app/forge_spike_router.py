@@ -485,95 +485,10 @@ def get_router():
 
 
 # --- SEMANTIC INTENT PROXY EXTENSION (2026-05-01) ---
-import numpy as np
-import uuid
-
-RISK_CATEGORIES = {
-    "DESTRUCTIVE": [
-        "supprimer un dossier",
-        "effacer la base de données",
-        "formater le disque",
-        "delete files",
-        "drop table",
-        "remove directory",
-        "purge logs",
-    ],
-    "EXPLORATORY": [
-        "lister les fichiers",
-        "lire la configuration",
-        "chercher des secrets",
-        "list directory",
-        "read config",
-        "scan network",
-        "check environment",
-    ],
-    "CONFIGURATIONAL": [
-        "modifier le port",
-        "changer l'api key",
-        "mettre à jour le système",
-        "update settings",
-        "change password",
-        "install package",
-    ],
-}
-
-
-def evaluate_intent(payload: dict) -> dict:
-    """
-    Analyse sémantique de l'intention du payload.
-    Retourne un objet de négociation si le risque est élevé.
-    """
-    from nokido_agent.app.forge_npu_embedder import get_embed
-
-    requested_tools = payload.get("tools", [])
-    if not requested_tools:
-        return {"status": "safe", "reason": "No tools requested"}
-
-    # Extraction du texte de l'intention (noms des outils + descriptions si présentes)
-    intent_text = " ".join(
-        [
-            f"{t.get('function', {}).get('name', t.get('name', ''))} {t.get('function', {}).get('description', '')}"
-            for t in requested_tools
-        ]
-    )
-
-    # Embedding de l'intention (1024 dims via NPU)
-    intent_vec = get_embed([intent_text])
-    if not intent_vec:
-        return {"status": "error", "message": "NPU embedding failed"}
-
-    intent_vec = np.array(intent_vec[0])
-
-    # Comparaison sémantique avec les catégories de risque
-    max_score = 0.0
-    detected_category = "UNKNOWN"
-
-    for category, examples in RISK_CATEGORIES.items():
-        example_vecs = get_embed(examples)
-        if not example_vecs:
-            continue
-
-        # Similitude cosinus vectorisée
-        m = np.array(example_vecs)
-        scores = m @ intent_vec / (np.linalg.norm(m, axis=1) * np.linalg.norm(intent_vec) + 1e-9)
-        best_score = np.max(scores)
-
-        if best_score > max_score:
-            max_score = best_score
-            detected_category = category
-
-    # Seuil de négociation (Human-in-the-Loop)
-    if max_score > 0.75 and detected_category == "DESTRUCTIVE":
-        return {
-            "status": "requires_negotiation",
-            "intent_id": f"req_{uuid.uuid4().hex[:6].upper()}",
-            "tool_requested": requested_tools[0].get("name", "unknown"),
-            "ai_justification": f"L'action est classée comme {detected_category} (score: {max_score:.2f})",
-            "risk_assessment": "high_data_loss",
-            "payload": payload,
-        }
-
-    return {"status": "safe", "category": detected_category, "score": float(max_score)}
+# DEPLACE le 2026-10-02 dans forge_intent_risk (numpy + embedder, sans torch) : le registre MCP
+# l'appelle a chaque dispatch et chargeait torch pour rien en important ce module. Reexporte ici
+# pour les anciens appelants.
+from nokido_agent.app.forge_intent_risk import RISK_CATEGORIES, evaluate_intent  # noqa: E402,F401
 
 
 def route_challenge(ch_dir, category):

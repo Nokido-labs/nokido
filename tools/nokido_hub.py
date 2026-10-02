@@ -204,21 +204,20 @@ _boot_probe("db preflight (self-heal embeddings.db)")
 # Parser simple stdlib (pas python-dotenv pour eviter dep). KEY=VAL par ligne,
 # # commentaire, ignore lignes invalides, NE PAS override env deja set.
 def _load_dotenv(path: Path) -> int:
+    # SECRETS au COFFRE, REGLAGES du fichier (decision owner 2026-10-01, GO allow_critical) :
+    # ce chargeur recopiait tout le .env, secrets compris, EN CLAIR dans l'environnement du
+    # hub -- herite par chaque enfant. Rend le nombre de variables posees, comme avant.
     if not path.is_file():
         return 0
     n = 0
     try:
-        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, _, val = line.partition("=")
-            key = key.strip()
-            val = val.strip().strip('"').strip("'")
-            if not key or key in os.environ:
-                continue
-            os.environ[key] = val
-            n += 1
+        from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+        _b = injecter_env_depuis_coffre(path)
+        n = _b["injectees"] + _b["reglages"]
+        if _b["absentes"] or _b["illisibles"]:
+            _boot_probe("secrets absents du coffre : %s ; illisibles : %s -> forge_env_to_vault"
+                        % (_b["absentes"], _b["illisibles"]))
     except Exception as _e_env:
         # Un fichier d'env non charge n'est pas « pas de configuration » :
         # c'est une configuration ABSENTE lue comme une valeur par defaut.
@@ -5301,8 +5300,8 @@ Retourne exactement ce JSON:
                 try:
                     cur.execute(
                         "INSERT OR IGNORE INTO rag_chunks (id,text,source,domain,role_hint) "
-                        "VALUES (?,?,?,?,?)",
-                        (cid, chunk, src, domain, "code"),
+                        "SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                        (cid, chunk, src, domain, "code", cid),
                     )
                     if cur.rowcount:
                         inserted += 1

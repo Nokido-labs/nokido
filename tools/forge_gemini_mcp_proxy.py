@@ -36,16 +36,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# ── Charger Nokido.env ───────────────────────────────────────────────────────
-_env_file = ROOT / "Nokido.env"
-if _env_file.exists():
-    for _line in _env_file.read_text(encoding="utf-8").splitlines():
-        if "=" in _line and not _line.strip().startswith("#"):
-            _k, _, _v = _line.partition("=")
-            if _k.strip() and _v.strip():
-                os.environ.setdefault(_k.strip(), _v.strip())
+# ── Secrets : NOMS dans Nokido.env, VALEURS au coffre (decision owner 2026-10-01) ──
+try:
+    from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre as _injecter
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    _bilan_coffre = _injecter(ROOT / "Nokido.env")
+    if _bilan_coffre["absentes"] or _bilan_coffre["illisibles"]:
+        print("[secrets] absents du coffre : %s ; illisibles : %s -> forge_env_to_vault"
+              % (_bilan_coffre["absentes"], _bilan_coffre["illisibles"]), flush=True)
+except Exception as _e_coffre:  # noqa: BLE001 - dit, jamais avale
+    print("[secrets] coffre indisponible (%s) : aucun secret injecte" % type(_e_coffre).__name__,
+          flush=True)
+
+# La CLE se lit par get_secret (coffre d'abord) : relire l'environnement apres l'injection
+# rouvrait la couche qu'aucune rotation ne met a jour (gate « secrets hors coffre », 2026-10-02).
+try:
+    from nokido_agent.app.forge_secrets import get_secret as _get_secret
+
+    GEMINI_API_KEY = _get_secret("GEMINI_API_KEY") or ""
+except Exception as _e_cle:  # noqa: BLE001 - dit, jamais avale
+    print("[secrets] GEMINI_API_KEY illisible (%s)" % type(_e_cle).__name__, flush=True)
+    GEMINI_API_KEY = ""
 # Préférer 2.5-flash-lite (10 RPM) pour le chat interactif
 # Passer à 2.5-flash (3 RPM) pour les tâches complexes
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")

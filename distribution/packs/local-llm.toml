@@ -1,0 +1,29 @@
+# Pack local-llm : inference et embeddings locaux (llama.cpp + poids GGUF).
+# A_EPINGLER : ni la provenance exacte (depot amont, revision) ni la somme de ces artefacts
+# ne sont etablies dans le depot. Les declarer avec une somme inventee serait pire que de les
+# dire manquants : ce pack ne se compose pas tant qu'ils ne sont pas epingles.
+schema = "nokido-distribution/pack"
+version_schema = 1
+id = "local-llm"
+statut = "A_EPINGLER"
+plateformes = ["windows-x64", "linux-x64"]
+
+[[a_epingler]]
+id = "llama-server"
+raison = "binaire llama.cpp par plateforme et par backend GPU : version et somme de release a fixer"
+attendu_par = "forge_install_prerequis.PREREQUIS[llama_server]"
+
+[[a_epingler]]
+id = "bge-m3-Q8_0.gguf"
+raison = "embeddings :8099 ; depot amont et sha256 a etablir"
+attendu_par = "forge_install_prerequis.MODELES_ATTENDUS (data/llm_models/)"
+
+[[a_epingler]]
+id = "bge-reranker-v2-m3-Q8_0.gguf"
+raison = "reranking ; depot amont et sha256 a etablir"
+attendu_par = "forge_install_prerequis.MODELES_ATTENDUS (data/llm_models/)"
+
+[[a_epingler]]
+id = "bitnet_b1_58.gguf"
+raison = "backend bitnet ; depot amont et sha256 a etablir"
+attendu_par = "forge_install_prerequis.MODELES_ATTENDUS (data/llm_models/)"

@@ -58,16 +58,19 @@ for _p in [str(APP_DIR), str(ROOT / "tools")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-# ── Nokido.env → os.environ ─────────────────────────────────────────────────
-_env_file = ROOT / "Nokido.env"
-if _env_file.exists():
-    for _line in _env_file.read_text(encoding="utf-8").splitlines():
-        _line = _line.strip()
-        if "=" in _line and not _line.startswith("#"):
-            _k, _, _v = _line.partition("=")
-            _v = _v.split("#")[0].strip()
-            if _k.strip() and _v:
-                os.environ.setdefault(_k.strip(), _v)
+# ── Secrets : NOMS dans Nokido.env, VALEURS au coffre (decision owner 2026-10-01) ──
+# Ce bloc recopiait le fichier EN CLAIR dans os.environ (herite par chaque enfant). Le .env
+# ne sert qu'a faire entrer un secret au coffre : tools/forge_env_to_vault.py.
+try:
+    from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre as _injecter
+
+    _bilan_coffre = _injecter(ROOT / "Nokido.env")
+    if _bilan_coffre["absentes"] or _bilan_coffre["illisibles"]:
+        print("[secrets] absents du coffre : %s ; illisibles : %s -> forge_env_to_vault"
+              % (_bilan_coffre["absentes"], _bilan_coffre["illisibles"]), flush=True)
+except Exception as _e_coffre:  # noqa: BLE001 - dit, jamais avale
+    print("[secrets] coffre indisponible (%s) : aucun secret injecte depuis Nokido.env"
+          % type(_e_coffre).__name__, flush=True)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 # Convention UNIQUE d'horodatage : forge_timecode (UTC, ISO-8601, ms, suffixe Z).

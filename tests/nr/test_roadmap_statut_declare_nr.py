@@ -159,3 +159,29 @@ def test_le_doc_tient_son_contrat_QUAND_LE_BLACKBOARD_EST_MUET(monkeypatch):
     assert st.get("OUVERT") == 0, f"attendu OUVERT=0 sur source muette, obtenu {st}"
     assert doc.get("roadmap_clos") == [], f"clos non vide sur source muette : {doc.get('roadmap_clos')}"
     print(f"[roadmap] source muette -> statuts={st}, contrat tenu")
+
+
+def test_un_BLOCKER_clos_ne_bloque_plus(monkeypatch):
+    """2026-10-02 : la regle de statut ne s'appliquait qu'aux items P0-P2. Un
+    « BLOCKER: [CLOS le 2026-10-02 sur remesure] ... » restait affiche parmi les
+    bloqueurs du SSoT. Un bloqueur clos sort de la liste et rejoint roadmap_clos ;
+    un marqueur qui QUALIFIE ([PARTIEL], [INSTRUIT]) le laisse ouvert (liste blanche)."""
+    import types
+
+    faits = [
+        {"key": "b_ouvert", "value": "BLOCKER: le verrou tient encore", "trust": 0.9, "updated_at": 1},
+        {"key": "b_clos", "value": "BLOCKER: [CLOS le 2026-10-02 sur remesure] l organe vit", "trust": 0.9,
+         "updated_at": 2},
+        {"key": "b_partiel", "value": "BLOCKER: [PARTIEL le 2026-10-02] moitie du remede", "trust": 0.9,
+         "updated_at": 3},
+    ]
+    faux = types.ModuleType("nokido_agent.app.forge_swarm_blackboard")
+    faux.read_zone = lambda *a, **kw: list(faits)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_swarm_blackboard", faux)
+
+    doc = M._roadmap_build_doc()
+    bloqueurs = " | ".join(doc["blockers"])
+    assert "le verrou tient encore" in bloqueurs and "moitie du remede" in bloqueurs, bloqueurs
+    assert "l organe vit" not in bloqueurs, "un BLOCKER clos est encore affiche comme bloquant"
+    clos = [c for c in doc["roadmap_clos"] if c.get("priorite") == "BLOCKER"]
+    assert [c["cle"] for c in clos] == ["b_clos"] and clos[0]["etat"] == "CLOS", clos

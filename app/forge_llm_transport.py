@@ -66,9 +66,11 @@ class LLMTransport:
     def _get_mood_factor(self) -> float:
         """Récupère l'énergie système pour adapter la stratégie."""
         try:
-            from nokido_agent.app.forge_system_mood import get_current_mood
+            # `get_current_mood` n'a jamais existe (2026-10-01) : le facteur restait a 0,5
+            # quel que soit l'etat du corps. L'API est get_mood() (lecture non bloquante).
+            from nokido_agent.app.forge_system_mood import get_mood
 
-            return get_current_mood().energy
+            return get_mood().energy
         except:
             return 0.5  # Default neutral
 

@@ -86,6 +86,23 @@ def test_l_empreinte_volatile_couvre_le_texte_ENTIER():
     assert b.meta["fingerprint"] == attendu
 
 
+def _corps_de_la_primitive():
+    """Corps de la primitive de retrait, la ou elle VIT depuis le 2026-10-01
+    (`forge_rag_truth.retirer_versions_anterieures`, partagee avec l'ingesteur de doc),
+    apres avoir verifie que l'ingesteur memoire lui delegue toujours : sans cette
+    verification, les gardes ci-dessous liraient une primitive que personne n'appelle."""
+    wrapper = Path(mi.__file__).read_text(encoding="utf-8", errors="replace")
+    wrapper = wrapper.split("def _superseder_les_anciens", 1)
+    assert len(wrapper) == 2, "fonction de superseding introuvable"
+    assert "retirer_versions_anterieures(" in wrapper[1].split("\ndef ", 1)[0], (
+        "l'ingesteur memoire ne delegue plus a la primitive partagee")
+    truth = Path(mi.__file__).resolve().parents[1] / "app" / "forge_rag_truth.py"
+    corps = truth.read_text(encoding="utf-8", errors="replace").split(
+        "def retirer_versions_anterieures", 1)
+    assert len(corps) == 2, "primitive de retrait introuvable dans forge_rag_truth"
+    return corps[1].split("\ndef ", 1)[0]
+
+
 def test_le_superseding_n_indexe_PAS_sur_une_colonne_constante():
     """Garde executable sur le piege de planification mesure ce jour.
 
@@ -97,10 +114,7 @@ def test_le_superseding_n_indexe_PAS_sur_une_colonne_constante():
     Le piege est qu'un plan `SEARCH ... USING INDEX` a l'air sain : il dit
     « USING INDEX » et balaie quand meme toute la table.
     """
-    src = Path(mi.__file__).read_text(encoding="utf-8", errors="replace")
-    corps = src.split("def _superseder_les_anciens", 1)
-    assert len(corps) == 2, "fonction de superseding introuvable"
-    corps = corps[1].split("\ndef ", 1)[0]
+    corps = _corps_de_la_primitive()
     # On ne regarde que le SQL, pas les commentaires qui CITENT le motif
     # (un detecteur qui se lit lui-meme, defaut deja paye trois fois le 04/09).
     sql = "\n".join(
@@ -121,8 +135,7 @@ def test_le_retrait_du_lexical_accompagne_la_desactivation():
     resterait donc CHERCHABLE. La desactivation doit etre accompagnee du verbe
     'delete' de FTS5 external-content.
     """
-    corps = Path(mi.__file__).read_text(encoding="utf-8", errors="replace")
-    corps = corps.split("def _superseder_les_anciens", 1)[1].split("\ndef ", 1)[0]
+    corps = _corps_de_la_primitive()
     assert "'delete'" in corps, "le retrait du FTS manque : le perime resterait cherchable"
     assert "active = 0" in corps, "la desactivation doit rester tracee (rien n'est supprime)"
     assert "superseded_by" in corps, "un chunk desactive doit nommer ce qui le remplace"

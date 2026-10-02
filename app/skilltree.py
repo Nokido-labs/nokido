@@ -756,8 +756,8 @@ class SkillLearner:
             _src = f"LaForge/skilltree/{sid}"
             conn.execute(
                 "INSERT OR IGNORE INTO rag_chunks (id, text, source, domain, meta) "
-                "VALUES (?,?,?,?,?)",
-                (_cid(_src, text), text, _src, "security", meta),
+                "SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                (_cid(_src, text), text, _src, "security", meta, _cid(_src, text)),
             )
             conn.commit()
             conn.close()

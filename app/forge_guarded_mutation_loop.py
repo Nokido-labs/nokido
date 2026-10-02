@@ -113,6 +113,28 @@ def apply_mutation_with_git_guard(file_path: Path, new_code: str, commit_msg: st
     # Ring 0 : Calcul du hash initial de la suite de tests
     initial_test_hash = calculate_tests_hash()
     
+    # Étape 0 : ZONE DE L'ÉVALUATEUR (2026-10-01). L'empreinte de la suite de tests (plus bas)
+    # ne couvre ni la CI, ni la configuration pytest, ni le juge : une mutation de
+    # tools/ci_local.py ou de pyproject.toml passait. Même règle unique que mutable() et le
+    # merge gate (forge_mutation_judge.zone_evaluateur_touchee).
+    try:
+        from nokido_agent.app.forge_mutation_judge import evolution_autorisee, zone_evaluateur_touchee
+
+        # PORTE DE L'EVOLUTION (2026-10-01) : armement owner, frein, verrou humain.
+        _porte = evolution_autorisee()
+        if not _porte["autorisee"]:
+            _log(f"HALTED ({_porte['etat']}) : {_porte['motif']} -- aucune ecriture", "WARN")
+            return False
+        _rel = Path(file_path).resolve().relative_to(ROOT.resolve()).as_posix()
+    except (ValueError, ImportError) as e:   # zone illisible ou hors depot : on REFUSE (fail-closed)
+        _log(f"ABORTED: zone de l'evaluateur non verifiable pour {file_path} ({type(e).__name__}) "
+             "-- mutation refusee", "ERROR")
+        return False
+    if zone_evaluateur_touchee([_rel]):
+        _log(f"ABORTED: {_rel} est dans la zone de l'evaluateur -- une mutation ne touche "
+             "jamais ce qui la juge", "ERROR")
+        return False
+
     # Étape 1 : Vérification AST pré-écriture
     _log("Phase 1: Validating AST rules against constitution...")
     violations = check_code_violations(file_path, new_code)

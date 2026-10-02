@@ -155,26 +155,32 @@ def _action_rag_warmer() -> dict:
 
 
 def _action_mailbox_purger() -> dict:
-    """Différencié en cellule rénale : purge ciblée agent_messages anciens lus."""
+    """Cellule renale : RAPPORT de ce que la purge M2M viserait. Elle ne supprime RIEN.
+
+    Le purgeur des messages EXISTE et tourne : forge_log_retention (NokidoLogRetention),
+    qui EXPORTE en jsonl.gz rejouable AVANT de supprimer. Faire supprimer aussi cette cellule
+    ferait deux systemes paralleles sur la meme table (2026-10-01). Ici on observe et on dit,
+    sur la base M2M, avec la liste BLANCHE du postal (`ETATS_M2M_TRAITES`, decision owner :
+    « ne purge QUE ce qui est traite »).
+    """
     try:
         sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_renal_clearance import filter_table, FiltrationRule, _conn
+        from pathlib import Path as _P
 
-        rule = FiltrationRule(
-            table="agent_messages",
-            age_column="created_at",
-            max_age_days=30,
-            protect_where="status = 'unread'",
-        )
-        conn = _conn()
-        from nokido_agent.app.forge_renal_clearance import _ensure_schema  # type: ignore
+        from nokido_agent.app.forge_db_path import m2m_path
+        from nokido_agent.app.forge_postal import ETATS_M2M_TRAITES
+        from nokido_agent.app.forge_renal_clearance import _conn
 
-        # _ensure_schema is renal-specific, on skip
-        from dataclasses import asdict
-
-        result = filter_table(conn, rule, dry_run=False)
-        conn.close()
-        return {"role": "mailbox_purger", "ok": True, "result": asdict(result)}
+        traites = sorted(ETATS_M2M_TRAITES)
+        conn = _conn(_P(m2m_path()))
+        try:
+            vises = conn.execute(
+                "SELECT COUNT(*) FROM agent_messages WHERE created_at < datetime('now', '-30 days') "
+                "AND COALESCE(status, '') IN (%s)" % ",".join("?" * len(traites)), traites).fetchone()[0]
+        finally:
+            conn.close()
+        return {"role": "mailbox_purger", "ok": True, "rapport_seulement": True, "vises": vises,
+                "etats_traites": traites, "purgeur": "forge_log_retention (export puis suppression)"}
     except Exception as e:
         return {"role": "mailbox_purger", "ok": False, "err": f"{type(e).__name__}: {e}"}
 

@@ -72,6 +72,14 @@ export interface ServiceDef {
    * D'ou un chemin PAR SERVICE, jamais une sonde unique imposee a tous.
    */
   health_path?: string;
+  /**
+   * JOURNAL SANS PIPE (2026-10-01). Service Python lance par tools/forge_logboot.py : il ecrit
+   * lui-meme son journal horodate, et le superviseur ne le pipe PAS. Le pool bloquant de Deno est
+   * plafonne a 4 x coeurs logiques (16 -> 64) et chaque pipe d'enfant y immobilise un thread :
+   * 114 lectures pour 64 threads mesurees, 51 journaux sur 56 livres par paquets. Ignore -- et dit
+   * dans le journal du superviseur -- pour une commande non Python.
+   */
+  logboot?: boolean;
 }
 
 function resolveVars(s: string, vars: Record<string, string>): string {
@@ -150,6 +158,7 @@ export function loadServices(
       if (typeof s.health_path === "string" && s.health_path.length > 0) {
         svc.health_path = s.health_path;
       }
+      if (s.logboot === true) svc.logboot = true;
       if (typeof s.heartbeat === "string" && s.heartbeat.length > 0) {
         svc.heartbeat = rv(s.heartbeat);
       }

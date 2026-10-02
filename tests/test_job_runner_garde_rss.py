@@ -69,13 +69,18 @@ def _essai(monkeypatch, source, cap_mb, limite_s):
         rc_f = os.path.join(jobs, jid + ".rc")
         err_f = os.path.join(jobs, jid + ".err")
         a_nettoyer += [wrap, rc_f, err_f, os.path.join(jobs, jid + ".log"),
-                       os.path.join(jobs, jid + ".json")]
+                       os.path.join(jobs, jid + ".json"),
+                       os.path.join(jobs, jid + ".fin")]  # cause de fin (dette D, 2026-10-02)
 
         # Le wrapper est du code GENERE : le hook AST du depot ne le valide pas.
         with open(wrap, encoding="utf-8") as fh:
             compile(fh.read(), wrap, "exec")
 
-        proc = subprocess.Popen([sys.executable, wrap])
+        # stderr -> .err, comme le lanceur REEL (spawn_as_sandbox_detached) : sans cette redirection,
+        # `_dire` ecrivait le motif dans le stderr de pytest (avec succes) et jamais dans le .err --
+        # le test echouait sur un montage qui n'existe pas en production (2026-10-02).
+        _err_h = open(err_f, "w", encoding="utf-8")
+        proc = subprocess.Popen([sys.executable, wrap], stderr=_err_h)
         t0 = time.time()
         rc = None
         while time.time() - t0 < limite_s:
@@ -88,6 +93,7 @@ def _essai(monkeypatch, source, cap_mb, limite_s):
             proc.wait(timeout=10)
         except Exception:
             proc.kill()
+        _err_h.close()
         err = ""
         if os.path.exists(err_f):
             with open(err_f, encoding="utf-8", errors="replace") as fh:

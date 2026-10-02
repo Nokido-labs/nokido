@@ -78,9 +78,10 @@ def _rag_trace(msg_id: str, agent: str, sender: str, payload: dict) -> None:
             con = _sq.connect(str(ROOT / "RAG" / "embeddings.db"), timeout=10)
             con.execute(
                 "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
-                "VALUES(?, ?, ?, ?, ?, datetime('now'))",
+                "SELECT ?, ?, ?, ?, ?, datetime('now') "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
                 (f"collab_notify_{msg_id}", f"notify:{str(sender).lower()}", text,
-                 "laforge-memory", str(sender)))
+                 "laforge-memory", str(sender), f"collab_notify_{msg_id}"))
             con.commit()
             con.close()
         except Exception:

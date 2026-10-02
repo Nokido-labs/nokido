@@ -425,8 +425,9 @@ def index_commits(commits: list[CommitIntel], create_adr_if_score_gte: float = 1
             cur.execute(
                 "INSERT OR IGNORE INTO rag_chunks "
                 "(id, text, source, domain, role_hint, meta, author) "
-                "VALUES (?, ?, ?, ?, 'rule', ?, ?)",
-                (chunk_id, text, source, domain, meta, c.author),
+                "SELECT ?, ?, ?, ?, 'rule', ?, ? "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                (chunk_id, text, source, domain, meta, c.author, chunk_id),
             )
             if cur.rowcount > 0:
                 indexed += 1

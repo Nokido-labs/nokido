@@ -51,16 +51,17 @@ except Exception as _exc:  # noqa: BLE001
 def _auto_load_env() -> None:
     if os.environ.get("LLAMACPP_ENABLED"):
         return
-    env_path = Path(__file__).resolve().parent.parent / "Nokido.env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, _, v = line.partition("=")
-            k, v = k.strip(), v.strip()
-            if k and k not in os.environ:
-                os.environ[k] = v
+    # SECRETS au coffre, REGLAGES du fichier (decision owner 2026-10-01) : ce chargeur
+    # recopiait tout le .env, secrets compris, EN CLAIR dans os.environ.
+    try:
+        from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+        injecter_env_depuis_coffre(Path(__file__).resolve().parent.parent / "Nokido.env")
+    except Exception as e:  # noqa: BLE001 - dit, jamais avale
+        import logging as _lg
+
+        _lg.getLogger(__name__).warning("coffre indisponible (%s) : rien injecte depuis Nokido.env",
+                                        type(e).__name__)
 
 
 _auto_load_env()
@@ -413,3 +414,28 @@ class LlamaCppBridge:
             task = f"Contexte:\n{rag_ctx}\n\nTâche:\n{task}"
         msgs.append({"role": "user", "content": task})
         return await llamacpp_call(msgs, system=system or None, max_tokens=max_tokens)
+
+
+_PONT: "LlamaCppBridge | None" = None
+
+
+def get_llamacpp_bridge() -> LlamaCppBridge:
+    """Singleton du pont (2026-10-01). Quatre appelants (forge_ollama x2, forge_rag_warmup,
+    Nokido.py) importaient cet accesseur, ABSENT : leur repli llama.cpp n'a jamais tourne.
+    Singleton parce que __init__ sonde le serveur HTTP : le refaire a chaque appel coute."""
+    global _PONT
+    if _PONT is None:
+        _PONT = LlamaCppBridge()
+    return _PONT
+
+
+def llamacpp_call_sync(messages, system=None, max_tokens: int = 0, temperature: float = -1,
+                       stop=None, schema=None) -> str:
+    """`llamacpp_call` (async) depuis du code SYNCHRONE sans boucle active (forge_swarm_team
+    l'importait, ABSENT). Dans une boucle active : RuntimeError dit -- jamais un blocage."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(llamacpp_call(messages, system=system, max_tokens=max_tokens,
+                                         temperature=temperature, stop=stop, schema=schema))
+    raise RuntimeError("llamacpp_call_sync appele depuis une boucle active : utiliser await llamacpp_call")

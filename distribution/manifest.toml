@@ -1,0 +1,20 @@
+# Manifeste de distribution Nokido -- schema VERSIONNE (lu par tools/forge_release_assets.py).
+#
+# Chantier owner « installation complete par un debutant en une commande » (P0, 2026-10-02) :
+# manifeste -> compositeur unique -> runtime portable. Ce fichier vit dans la SOURCE et part
+# avec le snapshot ; le dist est RECONSTRUIT a chaque promotion.
+#
+# Regles (validateur FAIL-CLOSED, cf. forge_release_assets.valider_manifeste) :
+#   * chaque composant porte : id, source, sha256, taille, licence, obligatoire ;
+#   * source = depot (chemin RELATIF, somme verifiee contre l'arbre, texte normalise LF),
+#              url (https, somme epinglee) ou construit (somme "au_build", verifiee au lot) ;
+#   * une somme absente, un schema inconnu, un chemin absolu : tout le manifeste est refuse ;
+#   * un pack qu'on ne sait pas encore prouver est A_EPINGLER : il dit ce qui manque et ne se
+#     compose pas.
+# Apres modification d'un fichier `depot` : `tools/forge_release_assets.py --sceller-manifeste`.
+
+schema = "nokido-distribution"
+version_schema = 1
+produit = "nokido-agent"
+plateformes = ["windows-x64", "linux-x64"]
+packs = ["knowledge", "ml", "local-llm", "netcfg"]

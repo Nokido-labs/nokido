@@ -171,7 +171,11 @@ def retry_if_rate_limited():
         try:
             import litellm as _ll
 
-            if isinstance(exc, _ll.RateLimitError):
+            # getattr (2026-10-02) : un litellm SANS RateLimitError (version partielle, doublure de
+            # test) faisait sortir une AttributeError du predicat, en plein chemin d'erreur d'un appel
+            # LLM. Classe absente = on retombe sur les autres signatures, jamais une exception.
+            _rle = getattr(_ll, "RateLimitError", None)
+            if isinstance(_rle, type) and isinstance(exc, _rle):
                 return True
         except ImportError:
             pass

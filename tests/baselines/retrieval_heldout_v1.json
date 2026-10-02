@@ -1,0 +1,350 @@
+{
+ "heldout_id": "retrieval_heldout_v1",
+ "cree_le": "2026-10-01",
+ "_lisez_moi": [
+  "Examen retrieval SCELLE de l'auto-amelioration (revue claude.ai mission_rsi_soif, note RSI section 1).",
+  "Ne s'edite JAMAIS : une evolution = un NOUVEAU fichier (v2). Dans la zone de l'evaluateur (tests/) :",
+  "aucune mutation ne peut le toucher (forge_mutation_judge.zone_evaluateur_touchee).",
+  "Le proposeur peut lire le split dev ; le held-out ne sert qu'a JUGER. Son sha256 entre dans la cle de",
+  "la dimension mesuree : deux generations ne se comparent que sur un examen identique."
+ ],
+ "source": "sandbox/rag_bench (forge_bench_questions -> queries.jsonl + qrels.json ; corpus sample.jsonl)",
+ "regle_split": "heldout si int(sha256(qid).hexdigest()[0], 16) est pair, dev sinon",
+ "ecartees": {
+  "n": 12,
+  "ids": [
+   "q0049",
+   "q0050",
+   "q0051",
+   "q0052",
+   "q0053",
+   "q0054",
+   "q0055",
+   "q0076",
+   "q0077",
+   "q0078",
+   "q0079",
+   "q0080"
+  ],
+  "motif": "cible dans la surface separee (consigne owner 2026-09-27) : hors examen"
+ },
+ "corpus": {
+  "fichier": "sandbox/rag_bench/sample.jsonl",
+  "n_ids": 10031,
+  "sha256_ids_tries": "fc34e0db97234d4c27cb96ad72d61ae5da92791fee89523dfb2fad6f7f29353b"
+ },
+ "dev": [
+  "q0004",
+  "q0007",
+  "q0009",
+  "q0012",
+  "q0013",
+  "q0015",
+  "q0016",
+  "q0017",
+  "q0019",
+  "q0020",
+  "q0024",
+  "q0025",
+  "q0031",
+  "q0033",
+  "q0034",
+  "q0035",
+  "q0036",
+  "q0037",
+  "q0041",
+  "q0044",
+  "q0046",
+  "q0058",
+  "q0060",
+  "q0062",
+  "q0063",
+  "q0064",
+  "q0065",
+  "q0066",
+  "q0067",
+  "q0069",
+  "q0070",
+  "q0071",
+  "q0072",
+  "q0073",
+  "q0074",
+  "q0081",
+  "q0083",
+  "q0086",
+  "q0091",
+  "q0092",
+  "q0093",
+  "q0094",
+  "q0095",
+  "q0096",
+  "q0099",
+  "q0101"
+ ],
+ "heldout": {
+  "q0000": {
+   "texte": "Quelle méthode de classe permet de créer une instance de `ServiceEndpoint` à partir d'un dictionnaire ?",
+   "qrels": {
+    "00048f4bd398de1b": 1
+   }
+  },
+  "q0001": {
+   "texte": "Quelle est la méthode utilisée pour déterminer le schéma (http ou https) dans l'URL?",
+   "qrels": {
+    "02f3d5cc19315a33": 1
+   }
+  },
+  "q0002": {
+   "texte": "Quelle est la fonction de calcul de la similarité cosinus entre deux vecteurs présentée dans l'extrait de code?",
+   "qrels": {
+    "06647eb80ae34039": 1
+   }
+  },
+  "q0003": {
+   "texte": "Quelle est l'URL utilisée pour envoyer la requête à Ollama dans la fonction `_llm_local` ?",
+   "qrels": {
+    "0a533a615a8ffe78": 1
+   }
+  },
+  "q0005": {
+   "texte": "Quelle est la contrainte principale définie pour ce script Python ?",
+   "qrels": {
+    "118d4a0696c75fc5": 1
+   }
+  },
+  "q0006": {
+   "texte": "Quelle est la fonction principale de la fonction `estim_run` ?",
+   "qrels": {
+    "1518e02fda69cda9": 1
+   }
+  },
+  "q0008": {
+   "texte": "Est-ce que la fonction `is_human_locked()` vérifie si l'état \"human_locked\" est défini à \"1\" dans la base de données SQLite pour déterminer si l'IA est verrouillée par un humain via l'interface utilisateur ?",
+   "qrels": {
+    "1cbde1a8b5ab5274": 1
+   }
+  },
+  "q0010": {
+   "texte": "Quelle fonction retourne un dictionnaire contenant des informations sur les plugins installés et leur statut ?",
+   "qrels": {
+    "249c83bd461e1313": 1
+   }
+  },
+  "q0011": {
+   "texte": "Quelle action est effectuée lorsque le bouton \"model-close\" est pressé ?",
+   "qrels": {
+    "288cd27478553c4f": 1
+   }
+  },
+  "q0014": {
+   "texte": "Quelle est la fonction de la méthode `get` dans le code fourni ?",
+   "qrels": {
+    "32f5c10ccae17ddb": 1
+   }
+  },
+  "q0018": {
+   "texte": "Quelle est la fonction principale de la fonction `onnx_status()` ?",
+   "qrels": {
+    "3fe26ab42edded3d": 1
+   }
+  },
+  "q0021": {
+   "texte": "Quelle méthode est utilisée pour itérer sur les fichiers Python dans les répertoires spécifiés?",
+   "qrels": {
+    "49ed1afad4df82b0": 1
+   }
+  },
+  "q0022": {
+   "texte": "Quelle méthode est utilisée pour déterminer le statut du test (PASS ou FAIL) et comment est-il affiché dans le résumé ?",
+   "qrels": {
+    "4dfc5835ae60be3d": 1
+   }
+  },
+  "q0023": {
+   "texte": "Quelle fonction est appelée pour analyser chaque commit récupéré par la commande `git log`?",
+   "qrels": {
+    "513985ebcdab8d92": 1
+   }
+  },
+  "q0026": {
+   "texte": "Quelle méthode de la classe `ContinualBackprop` est appelée à la fin de chaque itération de formation pour potentiellement réinitialiser les poids et les biais?",
+   "qrels": {
+    "5b636ba7760f73c0": 1
+   }
+  },
+  "q0027": {
+   "texte": "Quelle est la fonction principale de la fonction `encrypt_private_prompts`?",
+   "qrels": {
+    "5f9bf96e859fd2d2": 1
+   }
+  },
+  "q0028": {
+   "texte": "Quelle est la méthode utilisée pour déterminer le nombre de nouvelles lignes dans une table lors d'une synchronisation incrémentale ?",
+   "qrels": {
+    "63c61d4ad2ad93de": 1
+   }
+  },
+  "q0029": {
+   "texte": "Quelle est la fonction principale de la méthode `_read_env_file` ?",
+   "qrels": {
+    "681a914c863e6a8d": 1
+   }
+  },
+  "q0030": {
+   "texte": "Quelle fonction est appelée pour réinitialiser le singleton du routeur dans le module forge_agents?",
+   "qrels": {
+    "6b4c4d4eb66806cd": 1
+   }
+  },
+  "q0032": {
+   "texte": "Quelle est la fonction de cette méthode `summary` et quels sont les paramètres et la sortie attendue ?",
+   "qrels": {
+    "72191f79653639bc": 1
+   }
+  },
+  "q0038": {
+   "texte": "Quelle fonction est appelée pour enregistrer l'état après la suppression d'un agent ORCHESTRATOR ?",
+   "qrels": {
+    "86818f2a55c073de": 1
+   }
+  },
+  "q0039": {
+   "texte": "Quelle est la fonction de la fonction `verify_frame_token` et quelles sont les principales vérifications effectuées ?",
+   "qrels": {
+    "893e9bdb82db6581": 1
+   }
+  },
+  "q0040": {
+   "texte": "Quelles sont les quatre parades contre le piège sémantique de la Sentinelle mentionnées dans le document ?",
+   "qrels": {
+    "8c59474fe433b94e": 1
+   }
+  },
+  "q0042": {
+   "texte": "Quelle est la valeur initiale du score de base dans la méthode `score`?",
+   "qrels": {
+    "92d70ac125acb0e2": 1
+   }
+  },
+  "q0043": {
+   "texte": "Quelles sont les commandes d'urgence gérées par la fonction `on_input_submitted`?",
+   "qrels": {
+    "95a4e0fe52df7b15": 1
+   }
+  },
+  "q0045": {
+   "texte": "Quelle est la commande utilisée pour lancer l'application avec Uvicorn ?",
+   "qrels": {
+    "40cec4aac6b6b26e": 1
+   }
+  },
+  "q0047": {
+   "texte": "Quelle est la première étape recommandée pour le Chromecast dans le processus de sécurité ?",
+   "qrels": {
+    "a7c910277afa5b61": 1
+   }
+  },
+  "q0048": {
+   "texte": "Quelle est la différence principale entre JavaScript et Java ?",
+   "qrels": {
+    "disco:disco_node_9": 1
+   }
+  },
+  "q0056": {
+   "texte": "Quelle action est réalisée lorsque l'argument \"action\" est égal à \"tail_logs\" ?",
+   "qrels": {
+    "07d803be2a3dc682": 1
+   }
+  },
+  "q0057": {
+   "texte": "Quelle est la fonction principale de ce code ?",
+   "qrels": {
+    "15ea7412db6439a9": 1
+   }
+  },
+  "q0059": {
+   "texte": "Quelle est la fonction principale de PacketFront BECS et BBE ?",
+   "qrels": {
+    "2d77440fc1120f56": 1
+   }
+  },
+  "q0061": {
+   "texte": "Quelle fonction est utilisée pour interpoler les couleurs entre deux valeurs RGB en fonction d'un paramètre t ?",
+   "qrels": {
+    "486e58dee95f51df": 1
+   }
+  },
+  "q0068": {
+   "texte": "Quelle est l'action effectuée par la fonction `_handle_orchestrate_legacy` lorsqu'elle reçoit une requête avec un paramètre `task` ou `prompt` ?",
+   "qrels": {
+    "9d9bc67616bc4a34": 1
+   }
+  },
+  "q0075": {
+   "texte": "Quel est le port par défaut sur lequel le hub web LaForge est démarré ?",
+   "qrels": {
+    "lf_9eea348aed_00": 1
+   }
+  },
+  "q0082": {
+   "texte": "Qu'est-ce que le Traffic Classifier dans le modèle MQC de Huawei VRP ?",
+   "qrels": {
+    "16fbecd93fe9e743": 1
+   }
+  },
+  "q0084": {
+   "texte": "Quelle commande est utilisée pour activer le Spanning Tree Protocol (STP) sur un switch et quel est le mode par défaut ?",
+   "qrels": {
+    "6f1dab9541d42278": 1
+   }
+  },
+  "q0085": {
+   "texte": "Quelle commande est utilisée pour retirer un port physique d'un agrégat de liaison en utilisant la CLI HPE?",
+   "qrels": {
+    "9568ead798e534aa": 1
+   }
+  },
+  "q0087": {
+   "texte": "Quelle est la valeur de la colonne `text` dans l'insertion SQL mentionnée dans l'extrait de documentation technique ?",
+   "qrels": {
+    "ep_auto_GEM_0076_too": 1
+   }
+  },
+  "q0088": {
+   "texte": "Quelle est l'URL utilisée pour envoyer la requête HTTP vers le netcfg-agent-mcp ?",
+   "qrels": {
+    "1c09e7aaea306d75": 1
+   }
+  },
+  "q0089": {
+   "texte": "Quelle méthode est utilisée pour publier un événement dans le système ?",
+   "qrels": {
+    "5f741aacf00eb9b3": 1
+   }
+  },
+  "q0090": {
+   "texte": "Quelle est la fonction de la méthode `_rest_get` et quels sont ses paramètres ?",
+   "qrels": {
+    "9b33dfa074647367": 1
+   }
+  },
+  "q0097": {
+   "texte": "Quel est le but du nettoyage effectué par la méthode `_clean_web_text` ?",
+   "qrels": {
+    "5564f491c02f4ae5": 1
+   }
+  },
+  "q0098": {
+   "texte": "Quelle méthode est utilisée pour calculer le hachage d'un fichier dans la fonction `file_hash` ?",
+   "qrels": {
+    "9f25395a1f3a588c": 1
+   }
+  },
+  "q0100": {
+   "texte": "Quelle est la principale contribution de ce papier en termes de réduction des coûts de recherche dans les solveurs SAT?",
+   "qrels": {
+    "rp_7e9f43f5ca3b": 1
+   }
+  }
+ }
+}

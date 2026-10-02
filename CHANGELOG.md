@@ -3,6 +3,121 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 479480200..cb5c5c906 -->
+## 2026-10-02 — alpha `479480200..cb5c5c906` (2 commits)
+
+### Corrections
+- **agy** : rev-list de l'effet observe avec `--` -- cause CI enfin dite par le rc (`16a33517c`)
+- **nr** : les NR du garde de jobs suivent l'ordre sans course, et ne passent plus a vide (`cb5c5c906`)
+
+<!-- changelog: f72ce48c1..999131679 -->
+## 2026-10-02 — alpha `f72ce48c1..999131679` (10 commits)
+
+### Corrections
+- **nr** : le NR telemetry_guard ne lit plus le vrai coffre (`345515c2b`)
+- **nr** : le NR anti-thrashing du worker teste le garde, plus un double import (`567a96ab6`)
+- **dist** : le cartouche CI du dist vise un workflow qui existe ; NR swarm declares en CI (`999131679`)
+
+### Documentation
+- **readme** : tableau de statut au reel et traductions alignees sur le renommage (`713b6fa62`)
+
+### Autres
+- Test de non-regression pour forge_swarm_patch (`858f3279e`)
+- Test de non-regression pour forge_swarm_context (`6690c98ea`)
+- Test de non-regression pour forge_swarm_orchestrator (`aedc82a4c`)
+- Test de non-regression pour forge_swarm_agents (`a6fa39d92`)
+- Test de non-regression pour forge_swarm_debate (`9d1cea189`)
+- Test de non-regression pour forge_swarm_telemetry_guard (`6d90a6322`)
+
+<!-- changelog: 850270044..f72ce48c1 -->
+## 2026-10-02 — alpha `850270044..f72ce48c1` (67 commits)
+
+### Nouveautés
+- **superviseur** : journal SANS PIPE pour les services Python (forge_logboot), 3 pilotes (`595c8381a`)
+- **superviseur** : journal sans pipe etendu a 44 services Python (47 au total) (`792721c53`)
+- **superviseur** : journal sans pipe pour le hub et netcfg (50 services) (`203103258`)
+- **coffre** : forge_env_to_vault --alias -- neutraliser un nom generique du .env range au coffre sous son vrai nom (`332c7da2a`)
+- **embed** : campagne cloud Modal puis Cloudflare (meme modele bge-m3), masquee, cause d'echec dite (`2ef3bf74f`)
+- **rsi** : porte unique de l'evolution autonome -- armement owner, frein, verrou humain (`7fbba5f8c`)
+- **pairs** : la quarantaine s'entretient seule -- cloture par preuve de commit, expiration des orphelins (`ae9a54df9`)
+- **rsi** : premiere capacite mesuree -- retrieval dense sur un examen held-out SCELLE (`a298f7583`)
+- **veille** : forge_job_watch_cli --pair -- un rendu de pair cloud reveille la boucle du client (`fbb848e17`)
+- **regeneration** : mesure apres application, revert prouve, set_param L1 (rendu claude.ai relu) (`c28886962`)
+- **corrigibilite** : l'etat de l'evolution autonome est visible dans le statut d'arret (`e94e9a936`)
+- **soif** : lot B -- aveuglement partiel, cycle de vie des lacunes, plafond par fenetre, etalonnage gele (`9ec96173d`)
+- **rsi** : frein automatique sur recul de capacite, lecteur des capacites mesurees (`b0d0df72a`)
+- **dist** : manifeste de distribution versionne, validateur fail-closed dans le compositeur (`2ad2a31ee`)
+- **jobs** : capteur de fin -- timed_out VRAI/FAUX/INCONNU et cause de fin par fiche (`88b059c26`)
+- **rag** : journal d'usage HORS base RAG -- recherches, citations, triplets (`59e81506b`)
+- **llm** : capacite OBSERVEE des fournisseurs depuis les en-tetes x-ratelimit-* (`a83dade5a`)
+
+### Corrections
+- **pair** : PYTHONUNBUFFERED pour le journal du pair MCP (`6fdcd2224`)
+- **ingest** : version courante seule, agregats llms-full ecartes, lexical garde (`dd4452fa7`)
+- **rag** : cliquet INSERT OR IGNORE vers rag_chunks + 3 ingesteurs migres (`03922c868`)
+- **golden** : socle resserre sur 33 dettes corrigees, le non-lu n'est plus un recul (`98fca0f74`)
+- **rag** : 24 ecrivains migres hors INSERT OR IGNORE nu, socle 32 -> 1 (`d6c8364a4`)
+- **superviseur** : journaux de service hors pool bloquant ; ctl restart sans course (`f5f725567`)
+- **hub** : dernier INSERT OR IGNORE nu vers rag_chunks migre, cliquet a 0 (`cbd864c85`)
+- **logboot** : un service qui reemballe stdout ne ferme plus le tampon partage (`8b96f26cb`)
+- **blackboard** : six publications vers le tableau noir echouaient depuis toujours (`a83332982`)
+- **evenements** : comm_watch et presence appelaient emit, absent de forge_critical_events (`eff48d288`)
+- **imports** : cliquet des imports internes morts (socle 57 -> 52) et 5 capacites rebranchees (`654a82a4c`)
+- **secrets** : forge_router_gateway ne recopie plus Nokido.env dans l'environnement ; banc embedder conclu (`b7ec112e9`)
+- **secrets** : un secret de Nokido.env se lit au COFFRE, jamais dans le fichier (decision owner) (`1fdbbda10`)
+- **purge** : la purge M2M ne vise que le TRAITE, sur la base M2M, et seulement armee (decision owner) (`7243b0065`)
+- **securite** : la couche reseau MCP est restauree, corrigee, et enfin chargee (decision owner) (`c4b3fde28`)
+- **api** : pont llama.cpp, keeper, replis ollama et rapport distill reecrits (decision owner) (`a598e90b9`)
+- **secrets** : le hub charge ses secrets au COFFRE, plus jamais le .env en clair (GO owner allow_critical) (`6f71e3673`)
+- **purge** : le purgeur unique ne supprime que le TRAITE, defini par le postal (decision owner) (`5b6f39c75`)
+- **superviseur** : les points d'entree des pairs exterieurs ne s'endorment plus (claude.ai ne pouvait plus s'inscrire) (`bd54b4dad`)
+- **superviseur** : la rafale RAM deleste par cout et ne fauche plus la regulation (`d2f9ab6be`)
+- **soif** : lexical classe, panne != lacune, un seul instrument, douleur escaladee sur transition (`b09d2d87c`)
+- **soif** : un oeil lexical ferme n'est pas un gap (aveugle_lexical_abstention) (`75a539562`)
+- **rsi** : un candidat ne se juge plus avec ses propres tests ; aucun chemin ne contourne le juge (`2bf7b96e4`)
+- **embed** : le texte envoye a l'endpoint Modal est masque, rien ne part sans masqueur (`1519b85e4`)
+- **rsi** : un compte de fichiers ne prouve jamais un gain ; le gain se lit dans les capacites mesurees (`d2ffaf64a`)
+- **pairs** : preuve de traitement = trailer « Traite-pair: <id> », plus jamais un sha ni une mention (`2b95645c5`)
+- **gardes** : bash_guard accepte Monitor forge_job_watch_cli --pair, forme toujours fermee (`ae8e33407`)
+- **agy** : la delegation travaille dans le worktree d'AGY ; le resultat porte l'effet observe (`d665c8360`)
+- **agy** : comptage des commits en errors=replace (gate firehose) (`9a0acc943`)
+- **embed** : decodeur de vecteurs tolerant au JSON, regle unique (decision owner) (`10b0afd1b`)
+- **agy** : un rendu NEED_HUMAN_APPROVAL / NEED_CLARIFY / ERR_* n'est plus transmis en OK_DONE (`4e3573a2e`)
+- **agy** : un OK_DONE dont l'artefact declare n'existe pas n'est plus un succes (`3b6e00612`)
+- **secrets** : un seul enrobage pour les chargeurs de demarrage (cliquet de duplication) (`3e054d33b`)
+- **secrets** : GEMINI_API_KEY se lit au coffre dans les deux ponts Gemini MCP (`fc9c1ffe9`)
+- **ssot** : un BLOCKER marque clos ne s'affiche plus parmi les bloqueurs (`88a93efef`)
+- **agy** : la delegation principale refuse aussi un accuse de reception sans compte rendu (`eda65d022`)
+- **jobs** : le garde ecrit la cause AVANT le signal de fin -- deux courses du wrapper supprimees (`1f61ca8d8`)
+- **agy** : un rev-list en echec ne vaut plus « 0 commit » ; git du drain isole des GIT_* heritees (`7b364c23d`)
+
+### Performance
+- **hub** : la porte d'admission ne dort plus sur la boucle ; l'ecrivain differe reprend le verrou (`89afe899b`)
+- **hub** : sortir de la boucle les gels mesures, et mesurer le pool to_thread (`e9deccaae`)
+- **ingest** : llms.txt telecharge a plusieurs, ecrit seul et dans l'ordre (x4,3 mesure) (`17b872694`)
+- **mcp** : importer le registre MCP ne charge plus torch (-159 Mo, -1,7 s par processus) (`17e7afbda`)
+
+### Documentation
+- **agy** : la politique fine existe ; decision owner : garder --sandbox (`7cb421b63`)
+
+### Maintenance
+- **logboot** : subprocess en mode texte avec errors=replace (avertissement du gate) (`66083d340`)
+- Nokido.py (console TUI v13) GELE ; campagne d'embedding Cloudflare d'abord, Modal en relais (decisions owner) (`2d027c53c`)
+- **veille** : sous-processus du garde en errors=replace (gate firehose) (`633cd083d`)
+- churn auto (journal post-commit SKILL.md, horodatages backend, compteurs de routes UI) (`d7df96d03`)
+- **ratchet** : plafond des modules sans docstring abaisse 879 -> 656 (decision tranchee le 02/10) (`e2ad7b561`)
+- **ci** : 120 s pour le NR qui parcourt l'AST du depot entier (pypi baseline) (`3289c0fc2`)
+- **release** : 0.20.7 (`f72ce48c1`)
+
+<!-- changelog: 9180f8db5..798999b44 -->
+## 2026-10-01 — alpha `9180f8db5..798999b44` (2 commits)
+
+### Corrections
+- **deps** : sentence-transformers 5.6.0, litellm 1.96.2, PyJWT 2.15.0 (`0ca4f8fff`)
+
+### Maintenance
+- **release** : 0.20.6 (`798999b44`)
+
 <!-- changelog: fc309c0ab..dbf1ab75d -->
 ## 2026-10-01 — alpha `fc309c0ab..dbf1ab75d` (3 commits)
 

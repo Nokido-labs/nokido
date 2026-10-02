@@ -25,6 +25,7 @@ __FORGE_COLOR__ = "cognition/reasoning epistemique, soif de connaissance (think)
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -105,12 +106,23 @@ def _beat(msg: str) -> None:
     beat_daemon("epistemic_daemon", note=msg)
 
 
-def _propose_gap(query: str, cov: dict) -> None:
-    """Emet le ressenti (feel_gap) et propose le gap au blackboard (M2M)."""
+def _propose_gap(query: str, cov: dict, motif: str = "gap_certain") -> dict:
+    """Emet le ressenti (feel_gap), OUVRE la lacune (lot B) et propose le gap au blackboard (M2M).
+
+    Le ressenti recoit la mesure DEJA faite (`cov`) : la re-sonder avec un autre instrument
+    donnait deux verites sur la meme question. Rend l'issue de l'ouverture de la lacune."""
     try:
-        ev.feel_gap(domain="reference", query=query)  # critical_event + CORTISOL_EPISTEMIC
+        # La mesure DEJA faite par coverage_dense : un seul instrument juge (2026-10-01).
+        # Sans `cov`, feel_gap rejugeait avec coverage_score (preflight), dont la panne
+        # valait lacune -- cortisol et evenement critique sur une source muette.
+        ev.feel_gap(domain="reference", query=query, cov=cov)  # critical_event + CORTISOL_EPISTEMIC
     except Exception:  # noqa: BLE001 - le ressenti ne doit pas tuer le daemon
         pass
+    try:
+        lacune = ev.ouvrir_lacune(query, cov, motif=motif)
+    except Exception as e:  # noqa: BLE001 - registre illisible : on le DIT, on n'ecrase rien
+        lacune = {"ok": False, "refus": "registre des lacunes illisible (%s)" % type(e).__name__}
+        _journal("lacune NON ouverte : %s" % lacune["refus"])
     try:
         sys.path.insert(0, str(ROOT))
         import asyncio
@@ -133,6 +145,51 @@ def _propose_gap(query: str, cov: dict) -> None:
             print(f"[epistemic] gap NON propose au blackboard : {_r}", flush=True)
     except Exception as e:  # noqa: BLE001 - ne tue pas le daemon, mais NE SE TAIT PAS
         print(f"[epistemic] blackboard indisponible ({type(e).__name__}: {e})", flush=True)
+    return lacune
+
+
+# ── PLAFOND ALGEDONIQUE PAR FENETRE (lot B, 2026-10-02) ──────────────────────────
+# L'escalade sur TRANSITION (lot A, self_care_state.json) dit QUAND une douleur merite le
+# canal rapide. Elle ne borne pas COMBIEN de douleurs distinctes peuvent le prendre : dix
+# plaies differentes qui s'ouvrent dans l'heure font dix escalades, et l'owner recoit la meme
+# fatigue d'alerte par un autre chemin. On COMPTE donc les N derniers tirs (jamais une moyenne
+# depuis toujours : un historique ancien ne doit ni diluer ni bloquer le present) ; si les N
+# sont tous dans la fenetre, le tir suivant passe par la VOIE LENTE, et le dit.
+PLAFOND_TIRS = int(os.environ.get("LAFORGE_SOIF_PLAFOND_TIRS", "3"))
+FENETRE_TIRS_S = float(os.environ.get("LAFORGE_SOIF_FENETRE_TIRS_S", 6 * 3600))
+TIRS_ALGEDONIQUES = ROOT / "sandbox" / "algedonique_tirs.json"
+
+
+def _tir_algedonique_autorise(sig: str, sev: str, maintenant: float | None = None) -> tuple:
+    """(autorise, detail). Ne garde que les N derniers tirs ; plafond si les N sont dans la fenetre.
+
+    Registre illisible -> REFUS du canal rapide (la douleur prend la voie lente, rien n'est
+    perdu) : sans historique, on ne sait pas si l'on harcele."""
+    import json as _json
+
+    t = time.time() if maintenant is None else float(maintenant)
+    try:
+        etat = _json.loads(TIRS_ALGEDONIQUES.read_text(encoding="utf-8"))
+        tirs = list(etat.get("tirs") or [])
+    except FileNotFoundError:
+        tirs = []
+    except Exception as e:  # noqa: BLE001 - registre illisible : refus DIT
+        return False, {"motif": "registre des tirs illisible (%s)" % type(e).__name__}
+    recents = [x for x in tirs[-PLAFOND_TIRS:] if t - float(x.get("ts", 0)) < FENETRE_TIRS_S]
+    if PLAFOND_TIRS <= 0 or len(recents) >= PLAFOND_TIRS:
+        return False, {"motif": "plafond algedonique : %d tir(s) sur les %d derniers en %.0f h"
+                       % (len(recents), PLAFOND_TIRS, FENETRE_TIRS_S / 3600),
+                       "tirs_recents": len(recents)}
+    tirs = (tirs + [{"ts": t, "sig": sig, "sev": sev}])[-PLAFOND_TIRS:]
+    try:
+        TIRS_ALGEDONIQUES.parent.mkdir(parents=True, exist_ok=True)
+        tmp = TIRS_ALGEDONIQUES.with_suffix(".json.tmp")
+        tmp.write_text(_json.dumps({"tirs": tirs}, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, TIRS_ALGEDONIQUES)
+    except OSError as e:
+        # Un tir qu'on ne peut pas compter ne part pas : sinon le plafond ne plafonne rien.
+        return False, {"motif": "tir non enregistrable (%s)" % type(e).__name__}
+    return True, {"tirs_recents": len(recents) + 1}
 
 
 # ── Afférence INTÉROCEPTIVE ──────────────────────────────────────────────────
@@ -185,16 +242,48 @@ _SEV_BY_MARK = {"❌": "critical", "⚠": "medium", "~": "low"}
 _SEV_ORDER = ("low", "medium", "high", "critical")
 
 
-def _sev_bump(sev: str, steps: int = 1) -> str:
-    """Une plaie qui ne guérit pas s'AGGRAVE : la chronicité monte d'un cran.
+# LA CHRONICITE N'EST PAS UNE AGGRAVATION (2026-10-01). `_sev_bump` montait d'un cran tout
+# defaut present depuis _CHRONIC_AFTER cycles : un « ⚠ » banal devenait une douleur HIGH au
+# bout de 45 min, et le restait -- deux « DOULEUR high » a chaque cycle, escaladees a l'owner
+# toutes les 15 min (fatigue d'alerte). Ce qui dure signale surtout une ABSENCE DE TRAITEMENT,
+# pas un mal qui s'etend : la severite vient desormais du MARQUEUR du defaut (❌ ⚠ ~), qui
+# monte quand le defaut lui-meme s'aggrave. La duree reste comptee (`cycles`) et continue de
+# promouvoir le defaut en question de SOIF. Revue claude.ai (mission_rsi_soif), verifiee.
+_ETAT_SOIN = Path(__file__).resolve().parent.parent / "sandbox" / "self_care_state.json"
 
-    C'est le même fait clinique que la promotion soin -> soif, vu sous l'angle de
-    l'intensité : ce qui dure cesse d'être bénin.
-    """
+
+def _lire_etat_soin() -> dict:
+    """{sig: {"n": cycles, "sev_emise": severite deja escaladee | None}} ; l'ancien format
+    {sig: n} se lit encore (aucune escalade connue). Illisible -> {} (rien d'escalade connu)."""
     try:
-        return _SEV_ORDER[min(len(_SEV_ORDER) - 1, _SEV_ORDER.index(sev) + steps)]
-    except ValueError:
-        return sev
+        brut = json.loads(_ETAT_SOIN.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(brut, dict):
+        return {}
+    etat = {}
+    for sig, v in brut.items():
+        if isinstance(v, dict):
+            etat[sig] = {"n": int(v.get("n", 0) or 0), "sev_emise": v.get("sev_emise")}
+        else:
+            try:
+                etat[sig] = {"n": int(v or 0), "sev_emise": None}
+            except (TypeError, ValueError):
+                continue
+    return etat
+
+
+def _noter_emission(sig: str, sev: str) -> None:
+    """Retient qu'une douleur a ete escaladee a `sev` : elle ne le sera plus tant qu'elle ne
+    s'aggrave pas (periode refractaire). Une lesion guerie sort de l'etat et, si elle revient,
+    s'ouvre a nouveau -- c'est une nouvelle douleur, elle s'escalade."""
+    etat = _lire_etat_soin()
+    entree = etat.setdefault(sig, {"n": 0, "sev_emise": None})
+    entree["sev_emise"] = sev
+    try:
+        _ETAT_SOIN.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        print(f"[epistemic] escalade NON retenue ({type(e).__name__}) : elle sera redite", flush=True)
 
 
 def _interoceptive_split(limit: int = 8) -> dict:
@@ -219,13 +308,7 @@ def _interoceptive_split(limit: int = 8) -> dict:
             encoding="utf-8", errors="replace"))
     except Exception:  # noqa: BLE001
         return {"soif": [], "soin": []}
-    try:
-        counters = _json.loads((base / "self_care_state.json").read_text(
-            encoding="utf-8", errors="replace"))
-        if not isinstance(counters, dict):
-            counters = {}
-    except Exception:  # noqa: BLE001
-        counters = {}
+    counters = _lire_etat_soin()
 
     soif, soin, live = [], [], {}
     for g in (d.get("gaps") or []):
@@ -234,8 +317,9 @@ def _interoceptive_split(limit: int = 8) -> dict:
         if len(clean) <= 8:
             continue
         sig = _h.sha256(clean.encode()).hexdigest()[:12]
-        n = int(counters.get(sig, 0)) + 1
-        live[sig] = n
+        prec = counters.get(sig) or {"n": 0, "sev_emise": None}
+        n = prec["n"] + 1
+        live[sig] = {"n": n, "sev_emise": prec["sev_emise"]}
         is_know = any(m in g for m in _KNOW_MARKERS)
         is_care = any(m in g for m in _CARE_MARKERS)
         if is_know or (is_care and n >= _CHRONIC_AFTER):
@@ -252,9 +336,8 @@ def _interoceptive_split(limit: int = 8) -> dict:
                 if _mark in g:
                     sev = _s
                     break
-            if n >= _CHRONIC_AFTER:
-                sev = _sev_bump(sev)
-            soin.append({"fault": clean[:180], "cycles": n, "sig": sig, "severity": sev})
+            soin.append({"fault": clean[:180], "cycles": n, "sig": sig, "severity": sev,
+                         "sev_emise": prec["sev_emise"]})
     try:
         (base / "self_care_state.json").write_text(
             _json.dumps(live, ensure_ascii=False), encoding="utf-8")
@@ -270,10 +353,11 @@ def _interoceptive_split(limit: int = 8) -> dict:
 def _propose_care(item: dict) -> None:
     """Route un défaut vers le SOIN, à une intensité PROPORTIONNELLE à sa gravité.
 
-    - high / critical -> canal ALGÉDONIQUE : `forge_critical_events.persist` puis
-      `algedonic_to_police`, qui escalade vers S5. En VSM le signal algédonique
-      SAUTE les niveaux — exactement comme une douleur vive court-circuite la
-      délibération : on retire la main avant d'analyser.
+    - high / critical -> canal ALGÉDONIQUE (`forge_critical_events.persist`, que la
+      coagulation consomme), à l'OUVERTURE et quand la douleur S'AGGRAVE seulement.
+      En VSM le signal algédonique SAUTE les niveaux — exactement comme une douleur
+      vive court-circuite la délibération : on retire la main avant d'analyser. Et
+      AUSSI la voie lente ci-dessous, pour que le soin la voie.
     - medium / low -> proposition au tableau noir, voie lente et délibérative,
       chemin éprouvé de `_propose_gap` (zone discovered_facts, ring=2 obligatoire)
       avec `category="self_care"` pour ne pas se confondre avec une lacune de
@@ -287,22 +371,46 @@ def _propose_care(item: dict) -> None:
     remédiation.
     """
     sev = item.get("severity", "low")
-    if sev in ("high", "critical"):
+    deja = item.get("sev_emise")
+    # ESCALADE SUR TRANSITION SEULEMENT (2026-10-01), patron de `_transition_blocage` :
+    # a l'OUVERTURE d'une douleur grave, puis quand elle S'AGGRAVE -- jamais parce qu'elle
+    # dure. Avant : `persist` a chaque cycle (une ligne neuve sans cle), la coagulation
+    # escaladait, prevenait l'owner, marquait traite, et le cycle suivant recreait
+    # l'evenement : la meme alerte toutes les 15 min.
+    # `algedonic_to_police` n'est plus appele ici : fonction PURE dont le retour
+    # (« reevaluer_perimetre_police ») etait imprime comme une action que rien n'executait.
+    nouvelle = deja not in _SEV_ORDER or _SEV_ORDER.index(sev) > _SEV_ORDER.index(deja)
+    # PLAFOND PAR FENETRE (lot B, claude.ai, 2026-10-02), PAR-DESSUS la transition : meme une
+    # douleur qui s'ouvre ou s'aggrave ne prend la voie rapide que si le registre des N derniers
+    # tirs le permet ; au-dela, voie lente avec le motif (registre illisible -> voie lente, dit).
+    rapide, plafond = False, {}
+    if sev in ("high", "critical") and nouvelle:
+        rapide, plafond = _tir_algedonique_autorise(item.get("sig", ""), sev)
+        if not rapide:
+            _journal("DOULEUR %s sur voie lente -- %s : %s" % (sev, plafond.get("motif"),
+                                                               item.get("fault", "")[:80]))
+    if rapide:
         try:
             sys.path.insert(0, str(ROOT))
             from nokido_agent.app.forge_critical_events import persist
-            from nokido_agent.app.forge_viable_system import algedonic_to_police
 
+            transition = f"{deja or 'ouverture'} -> {sev}"
             rid = persist("self_care", sev, {"fault": item["fault"],
                                              "cycles": item["cycles"],
+                                             "sig": item["sig"],
+                                             "transition": transition,
                                              "source": "epistemic_daemon"})
-            verdict = algedonic_to_police({"severity": sev})
-            print(f"[epistemic] DOULEUR {sev} persistee id={rid} -> algedonique {verdict}",
+            _noter_emission(item["sig"], sev)
+            print(f"[epistemic] DOULEUR {sev} escaladee id={rid} ({transition}, sig {item['sig']})",
                   flush=True)
-            return
-        except Exception as e:  # noqa: BLE001 - on retombe sur la voie lente
+        except Exception as e:  # noqa: BLE001 - la voie lente ci-dessous porte quand meme le soin
             print(f"[epistemic] canal algedonique indisponible "
-                  f"({type(e).__name__}: {e}) -> voie lente", flush=True)
+                  f"({type(e).__name__}: {e}) -> voie lente seule", flush=True)
+    # VOIE LENTE TOUJOURS, graves comprises (2026-10-01). Le `return` apres l'escalade faisait
+    # SAUTER le tableau noir aux douleurs high/critical ; or le seul consommateur du soin
+    # (pat_self_improvement) lit discovered_facts/self_care : il ne voyait que les douleurs
+    # legeres. Le fait est cle par `self_care_{sig}` : une douleur qui dure le met a jour,
+    # elle ne le multiplie pas.
     try:
         sys.path.insert(0, str(ROOT))
         import asyncio
@@ -311,7 +419,9 @@ def _propose_care(item: dict) -> None:
 
         _r = asyncio.run(apply_fact(
             "discovered_facts",
-            f"SOIN requis [{sev}] (persistant {item['cycles']} cycle(s)) : {item['fault']}",
+            f"SOIN requis [{sev}] (persistant {item['cycles']} cycle(s))"
+            + (f" [{plafond['motif']}]" if plafond.get("motif") else "")
+            + f" : {item['fault']}",
             category="self_care", trust=0.6 if sev == "low" else 0.75,
             key=f"self_care_{item['sig']}",
             source="epistemic_daemon", ring=2))
@@ -607,9 +717,21 @@ def run_once(conn: sqlite3.Connection) -> dict:
             intention_gap = {"query": q, "score": score,
                              "sur": len(notes), "deja_vu": _recent,
                              "traitement": "INTERNE" if _internes else "VEILLE"}
-            if not _recent:
+            if cov.get("verdict") in ev.AVEUGLES:
+                # Lot B : l'instrument ne voyait pas tout le corpus. Le rang 1 peut n'etre
+                # qu'un artefact des vecteurs manquants : ni lacune, ni veille -- le soin
+                # revient a l'INSTRUMENT (vectorisation), et la fraction se dit.
+                intention_gap.update(traitement="SOIN_INSTRUMENT", verdict=cov.get("verdict"),
+                                     fraction_sans_vecteur=cov.get("fraction_sans_vecteur"))
+                _journal("gap INTENTION NON traite : %s (fraction sans vecteur %s) -- soin de "
+                         "l'instrument, pas de veille : %s" % (cov.get("verdict"),
+                                                               cov.get("fraction_sans_vecteur"),
+                                                               q[:100]))
+            elif not _recent:
                 gaps += 1
-                _propose_gap(q, dict(cov, verdict="gap_intention_rang"))
+                _lac = _propose_gap(q, dict(cov, verdict="gap_intention_rang"),
+                                    motif="rang_intention")
+                intention_gap["lacune"] = _lac
                 _journal(f"gap INTENTION (rang 1/{len(notes)}, score {score}): {q[:120]}")
                 if _internes:
                     # Le diagnostic choisit le remede (cf. _manque_interne) : on NOMME le bon
@@ -621,6 +743,8 @@ def run_once(conn: sqlite3.Connection) -> dict:
                     try:
                         _spec = ev.veille_on_gap(q, domain="reference", run_now=True, max_rounds=2)
                         veilles += 1
+                        if (_lac or {}).get("cle"):
+                            ev.debuter_enquete(_lac["cle"], "veille")
                         _journal(f"veille lancee sur gap INTENTION: {q[:100]}")
                         _journal(f"veille ISSUE : {_issue_veille(_spec)}")
                     except Exception as e:  # noqa: BLE001
@@ -640,8 +764,11 @@ def run_once(conn: sqlite3.Connection) -> dict:
                     "max_rounds=2 | rang 1/%d score %.3f | deja_vu=%s"
                     % (q[:160], len(notes), score, _recent))
 
+    # Lot B : les lacunes ACTIVES sont remesurees par le MEME instrument, une fois leur
+    # periode refractaire passee. C'est la seule porte de fermeture.
+    _lacunes = _remesurer_lacunes()
     _res = {"examinees": examinees, "gaps": gaps, "veilles": veilles,
-            "hors_variete_ignores": hors_variete,
+            "hors_variete_ignores": hors_variete, "lacunes": _lacunes,
             "soif_intero": len(_split["soif"]), "soif_intention": len(_intention),
             "intention_gap": intention_gap, "soin": len(_split["soin"]),
             "abstentions": abstentions, "examen": examen}
@@ -688,6 +815,56 @@ def run_once(conn: sqlite3.Connection) -> dict:
         _journal(f"serie non persistee: {type(_e).__name__}: {str(_e)[:80]}")
 
     return _res
+
+
+MAX_REMESURES_CYCLE = int(os.environ.get("LAFORGE_SOIF_MAX_REMESURES", "5"))
+REMESURE_DELAI_S = float(os.environ.get("LAFORGE_SOIF_REMESURE_DELAI_S", _INTENTION_TTL_S))
+
+
+def _remesurer_lacunes(maintenant: float | None = None) -> dict:
+    """Remesure les lacunes ACTIVES dont le dernier evenement a passe le delai refractaire.
+
+    Ne FERME rien elle-meme : `ev.remesurer_lacune` porte la regle (meme instrument, couvert).
+    Ne declare JAMAIS une lacune IRRESOLUE : elle releve seulement les propositions a l'owner."""
+    t = time.time() if maintenant is None else float(maintenant)
+    out = {"remesurees": 0, "fermees": 0, "refus": 0, "aveugles": 0, "irresolution_proposee": []}
+    try:
+        lacunes = ev.lire_lacunes()
+    except Exception as e:  # noqa: BLE001 - registre illisible : rien remesure, et DIT
+        _journal("lacunes ILLISIBLES (%s) : aucune remesure" % type(e).__name__)
+        out["illisible"] = type(e).__name__
+        return out
+
+    def _dernier(lac):
+        h = lac.get("historique") or [{}]
+        try:
+            return time.mktime(time.strptime(str(h[-1].get("ts"))[:19], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, TypeError):
+            return 0.0  # date illisible : la lacune est remesurable (rien ne justifie l'attente)
+
+    actives = sorted(((k, lac) for k, lac in lacunes.items() if lac.get("etat") in ev.ACTIVES),
+                     key=lambda kv: _dernier(kv[1]))
+    for cle, lac in actives:
+        if out["remesurees"] >= MAX_REMESURES_CYCLE:
+            break
+        if t - _dernier(lac) < REMESURE_DELAI_S:
+            continue
+        r = ev.remesurer_lacune(cle, ev.coverage_dense(lac.get("question", "")))
+        out["remesurees"] += 1
+        if r.get("etat") == ev.FERMEE_PAR_REMESURE:
+            out["fermees"] += 1
+            _journal("lacune FERMEE par remesure (score %s -> %s) : %s"
+                     % (r.get("avant"), r.get("apres"), lac.get("question", "")[:100]))
+        elif not r.get("ok"):
+            out["refus"] += 1
+        elif r.get("aveugle"):
+            out["aveugles"] += 1
+        if r.get("irresolution_proposee"):
+            out["irresolution_proposee"].append(cle)
+    if out["irresolution_proposee"]:
+        _journal("IRRESOLUTION PROPOSEE a l'owner (jamais prononcee ici) : %s"
+                 % ", ".join(out["irresolution_proposee"][:6]))
+    return out
 
 
 def _journal(msg: str) -> None:
@@ -837,7 +1014,14 @@ def main() -> int:
                     help="demande MANUELLE d'un examen exteroceptif : pose "
                          "sandbox/soif_examen.wanted (valable 6 h) et rend la main ; "
                          "le demon l'execute a son prochain cycle")
+    ap.add_argument("--irresolue", metavar="CLE", default=None,
+                    help="DECISION OWNER : declarer IRRESOLUE la lacune CLE (exige --motif)")
+    ap.add_argument("--motif", default="", help="motif de l'irresolution")
     a = ap.parse_args()
+    if a.irresolue:
+        r = ev.declarer_irresolue(a.irresolue, par=ev.OWNER, motif=a.motif)
+        print(f"[epistemic] {r}", flush=True)
+        return 0 if r.get("ok") else 2
     if a.examiner:
         p = _demande_manuelle()
         p.parent.mkdir(parents=True, exist_ok=True)

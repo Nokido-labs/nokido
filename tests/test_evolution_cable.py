@@ -73,6 +73,7 @@ def test_submit_archive_integral_et_statue(monkeypatch, tmp_path):
     # Ce que ce test protege reste INCHANGE : archivage INTEGRAL du candidat (aucune
     # troncature) et journalisation du couple verdict/status dans le ledger.
     stub = types.SimpleNamespace(
+        evolution_autorisee=lambda: {"autorisee": True, "etat": "ARMEE", "motif": ""},  # chemin ARME
         juger_module_avec_gain=lambda rel, nouveau, tests=None: {
             "verdict": "AMELIORE", "etapes": ["stub"]},
         perimetre_mesure=lambda rel, racine=None, max_tests=8: [])
@@ -96,6 +97,7 @@ def test_submit_survit_sans_gain_n_est_PAS_promu(monkeypatch, tmp_path):
     """
     loops = _loops(monkeypatch, tmp_path)
     stub = types.SimpleNamespace(
+        evolution_autorisee=lambda: {"autorisee": True, "etat": "ARMEE", "motif": ""},  # chemin ARME
         juger_module_avec_gain=lambda rel, nouveau, tests=None: {"verdict": "SURVIT_SANS_GAIN"},
         perimetre_mesure=lambda rel, racine=None, max_tests=8: [])
     _stub(monkeypatch, "forge_mutation_judge", stub)
@@ -107,6 +109,7 @@ def test_submit_gain_indecidable_designe_le_perimetre_manquant(monkeypatch, tmp_
     """Etat TERMINAL de la decision courante : ni promotion, ni echec — un manque NOMME."""
     loops = _loops(monkeypatch, tmp_path)
     stub = types.SimpleNamespace(
+        evolution_autorisee=lambda: {"autorisee": True, "etat": "ARMEE", "motif": ""},  # chemin ARME
         juger_module_avec_gain=lambda rel, nouveau, tests=None: {"verdict": "GAIN_INDECIDABLE"},
         perimetre_mesure=lambda rel, racine=None, max_tests=8: [])
     _stub(monkeypatch, "forge_mutation_judge", stub)
@@ -117,6 +120,7 @@ def test_submit_gain_indecidable_designe_le_perimetre_manquant(monkeypatch, tmp_
 def test_submit_verdict_inconnu_est_indecidable(monkeypatch, tmp_path):
     loops = _loops(monkeypatch, tmp_path)
     stub = types.SimpleNamespace(
+        evolution_autorisee=lambda: {"autorisee": True, "etat": "ARMEE", "motif": ""},  # chemin ARME
         juger_module_avec_gain=lambda rel, nouveau, tests=None: {"panne": True},
         perimetre_mesure=lambda rel, racine=None, max_tests=8: [])
     _stub(monkeypatch, "forge_mutation_judge", stub)

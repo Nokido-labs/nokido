@@ -37,17 +37,26 @@ def _src(rel: str) -> str:
     return p.read_text(encoding="utf-8", errors="replace")
 
 
-def test_le_rc_est_ecrit_avant_le_message_dans_les_deux_gardes():
+def test_le_rc_est_ecrit_avant_le_kill_dans_les_deux_gardes():
+    """Contrat d'origine (2026-09-05) : un message qui echoue ne laisse jamais le job 'running' a
+    vie. Il tient desormais par `_dire` qui ne leve jamais (test_aucune_ouverture_du_err_hors_de_dire).
+
+    Ordre REALIGNE le 2026-10-02 (CI de reference 479480200) sur celui de M4 : message, puis .rc,
+    puis kill de l'arbre. L'ancien ordre (kill, .rc, message) portait une course : le garde est un
+    thread DAEMON ; le kill reveille `rc = _p.wait()`, le principal voit `_tue` et sort sans ecrire,
+    et le wrapper meurt avec son daemon AVANT le .rc -> job 'running' a vie, l'echec meme que ce NR
+    devait empecher. Le message precede le .rc : qui lit le .rc trouve le motif dans le journal.
+    """
     src = _src("app/forge_job_runner.py")
     for motif in ("boucle probable", "fuite memoire"):
         i_msg = src.find(motif)
         assert i_msg > 0, f"message '{motif}' introuvable dans le template"
-        debut = src.rfind("_p.kill()", 0, i_msg)
-        assert debut > 0, f"pas de _p.kill() avant '{motif}'"
-        i_rc = src.find("open(_rc, 'w').write('137')", debut, i_msg)
-        assert i_rc > 0, (
-            f"'{motif}' : le .rc (137) doit etre ecrit ENTRE le kill et le message — "
-            "sinon un message qui echoue laisse le job 'running' a vie"
+        i_rc = src.find("open(_rc, 'w').write('137')", i_msg)
+        i_enf = src.find("_tuer_enfants()", i_rc)
+        i_kill = src.find("_p.kill()", i_enf)
+        assert 0 < i_msg < i_rc < i_enf < i_kill, (motif, i_msg, i_rc, i_enf, i_kill)
+        assert i_kill - i_msg < 600, (
+            f"'{motif}' : le .rc et le kill doivent appartenir au MEME garde que le message"
         )
 
 
@@ -73,10 +82,12 @@ def test_le_garde_tue_l_arbre_et_pas_seulement_le_wrapper():
     for motif in ("boucle probable", "fuite memoire"):
         i_msg = src.find(motif)
         assert i_msg > 0, f"message '{motif}' introuvable dans le template"
-        i_kill = src.rfind("_p.kill()", 0, i_msg)
-        i_enf = src.rfind("_tuer_enfants()", 0, i_kill)
-        assert i_enf > 0, (
-            f"'{motif}' : aucun _tuer_enfants() avant le kill du wrapper"
+        # Le kill SUIT le message dans le garde (ordre sans course, 2026-10-02). L'ancienne lecture
+        # (rfind avant le message) rendait -1 pour le premier garde et passait A VIDE.
+        i_enf = src.find("_tuer_enfants()", i_msg)
+        i_kill = src.find("_p.kill()", i_enf)
+        assert 0 < i_enf < i_kill and i_kill - i_msg < 600, (
+            f"'{motif}' : aucun _tuer_enfants() avant le kill du wrapper", i_msg, i_enf, i_kill
         )
         assert i_kill - i_enf < 400, (
             f"'{motif}' : _tuer_enfants() doit preceder IMMEDIATEMENT le kill du "
@@ -124,9 +135,14 @@ def test_le_wrapper_reellement_genere_compile(tmp_path, monkeypatch):
     for garde in ("LOG_CAP:", "if _rss > RSS_CAP:"):
         i = texte.find(garde)
         assert i > 0, f"garde '{garde}' absent du wrapper genere"
-        suite = texte[i:i + 200]
-        assert suite.find("_tuer_enfants()") < suite.find("_p.kill()"), (
-            f"'{garde}' : les enfants doivent etre tues AVANT le wrapper"
+        # Fenetre = le garde lui-meme (cause, message, .rc, kill) : l'ancienne fenetre de 200
+        # caracteres rendait -1 < -1 des que le kill s'eloignait -- et passait si _tuer_enfants
+        # manquait. Les deux doivent etre TROUVES, dans le garde, enfants d'abord.
+        i_rc = texte.find("write('137')", i)
+        i_enf = texte.find("_tuer_enfants()", i)
+        i_kill = texte.find("_p.kill()", i)
+        assert 0 < i_rc < i_enf < i_kill and i_kill - i < 700, (
+            f"'{garde}' : .rc, puis les enfants, puis le wrapper", i, i_rc, i_enf, i_kill
         )
 
 

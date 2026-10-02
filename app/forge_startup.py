@@ -798,17 +798,15 @@ def _read_env_file(path: str = "Nokido.env") -> None:
     _resolved = next((p for p in _candidates if p.exists()), None)
     if _resolved is None:
         return  # fichier absent → silencieux, Settings utilisera os.environ
-    path = str(_resolved)
+    # NOMS dans le fichier, VALEURS au coffre (decision owner 2026-10-01) : ce helper recopiait
+    # le .env EN CLAIR dans os.environ. Le .env ne sert qu'a faire entrer un secret au coffre
+    # (tools/forge_env_to_vault.py).
     try:
-        with open(path, encoding="utf-8") as _f:
-            for _line in _f:
-                _line = _line.strip()
-                if _line and "=" in _line and not _line.startswith("#"):
-                    _k, _, _v = _line.partition("=")
-                    # Retirer les guillemets éventuels
-                    _v = _v.strip().strip('"').strip("'")
-                    os.environ.setdefault(_k.strip(), _v)
-    except FileNotFoundError:
-        pass
+        from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+        _bilan = injecter_env_depuis_coffre(_resolved)
+        if _bilan["absentes"] or _bilan["illisibles"]:
+            print("  ⚠ secrets absents du coffre : %s ; illisibles : %s -> forge_env_to_vault"
+                  % (_bilan["absentes"], _bilan["illisibles"]), flush=True)
     except Exception as _e:
-        print(f"  ⚠ Lecture {path} : {_e}", flush=True)
+        print(f"  ⚠ coffre indisponible ({type(_e).__name__}) : aucun secret injecte", flush=True)

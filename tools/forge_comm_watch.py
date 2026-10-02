@@ -40,26 +40,36 @@ log = logging.getLogger("forge.comm_watch")
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _existe(p: Path) -> bool:
+    """`Path.exists` LEVE PermissionError sur un profil interdit au compte courant (mesure le
+    2026-10-01 : C:/Users/CodexSandboxOffline/.codex) -- le module ne se chargeait plus du
+    tout sous ce compte. Illisible n'est pas une preuve : le profil est ecarte, pas elu."""
+    try:
+        return p.exists()
+    except OSError:
+        return False
+
+
 def _owner_home() -> Path:
     """Profil de l'OWNER (ou vivent les CLI), PAS le user courant : le watcher peut
     tourner en sandbox/service sous un autre compte -> expanduser(~) serait faux."""
     cand = os.environ.get("LAFORGE_OWNER_HOME")
-    if cand and Path(cand).exists():
+    if cand and _existe(Path(cand)):
         return Path(cand)
     h = Path(os.path.expanduser("~"))
-    if (h / ".gemini").exists() or (h / ".claude.json").exists() or (h / ".codex").exists():
+    if any(_existe(h / n) for n in (".gemini", ".claude.json", ".codex")):
         return h
     drive = (os.environ.get("SystemDrive") or "C:")
     _SKIP = {"default", "default user", "public", "all users", "defaultaccount", "wdagutilityaccount"}
     users = Path(drive + "/Users")
-    if users.exists():
+    if _existe(users):
         for u in sorted(users.iterdir()):
             if u.name.lower() in _SKIP or not u.is_dir():
                 continue
-            if (u / ".gemini").exists() or (u / ".codex").exists() or (u / ".claude.json").exists():
+            if any(_existe(u / n) for n in (".gemini", ".codex", ".claude.json")):
                 return u
     user = Path(drive + "/Users/user")  # owner de cette machine Nokido (override: LAFORGE_OWNER_HOME)
-    return user if user.exists() else h
+    return user if _existe(user) else h
 
 
 HOME = _owner_home()
@@ -150,11 +160,17 @@ def _alert(changes: list[dict]) -> None:
         log.warning("COMM-BRICK %s : %s — %s", ch["brick"], ch["change"], ch["detail"])
     try:
         sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_critical_events import emit  # type: ignore
+        # `emit` n'a jamais existe (l'API est `persist`) : vu en production le 2026-10-01,
+        # premier changement de brique detecte apres le correctif du tableau noir.
+        from nokido_agent.app.forge_critical_events import persist  # type: ignore
 
+        perdus = 0
         for ch in changes:
-            emit(kind="comm_brick_change", severity="warn",
-                 detail=f"{ch['brick']}: {ch['change']} — {ch['detail']}", source="forge_comm_watch")
+            perdus += not persist("comm_brick_change", "warn", {
+                "detail": f"{ch['brick']}: {ch['change']} — {ch['detail']}",
+                "source": "forge_comm_watch"})
+        if perdus:  # persist ne leve jamais : 0 = evenement perdu
+            raise RuntimeError(f"{perdus} evenement(s) non persiste(s)")
     except Exception as e:  # noqa: BLE001
         import logging as _lg
 
@@ -164,11 +180,16 @@ def _alert(changes: list[dict]) -> None:
             "a ete VUE puis perdue, personne n'en sera averti",
             type(e).__name__, str(e)[:90], len(changes))
     try:
-        from nokido_agent.app.forge_swarm_blackboard import propose_fact  # type: ignore
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync  # type: ignore
 
-        propose_fact(zone_name="discovered_facts", key="comm_watch_last",
-                     fact=json.dumps(changes, ensure_ascii=False)[:800], trust=0.6,
-                     category="comm_brick")
+        # `propose_fact` n'a jamais existe : 851 avertissements avant le 2026-10-01, aucun
+        # changement de brique publie. discovered_facts exige ring<=2 ; un refus revient en
+        # {"error": ...} SANS exception, d'ou la levee explicite vers l'avertissement.
+        r = apply_fact_sync("discovered_facts", json.dumps(changes, ensure_ascii=False)[:800],
+                            category="comm_brick", trust=0.6, key="comm_watch_last",
+                            source="comm_watch", ring=2)
+        if r.get("ok") is False or r.get("error"):
+            raise RuntimeError(str(r)[:90])
     except Exception as e:  # noqa: BLE001
         import logging as _lg
 

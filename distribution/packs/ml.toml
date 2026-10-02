@@ -1,0 +1,16 @@
+# Pack ml : dependances lourdes et optionnelles (embeddings, brain_worker, spike router).
+schema = "nokido-distribution/pack"
+version_schema = 1
+id = "ml"
+statut = "PRET"
+plateformes = ["windows-x64", "linux-x64"]
+
+[[composant]]
+id = "dependances-ml"
+description = "Specification pip des dependances ML (torch, etc.) ; les roues se resolvent a l'installation et ne sont pas encore hachees"
+source = "depot"
+chemin = "requirements-ml.txt"
+sha256 = "697a54377743d034454747b4c92e84dea57c651e9059317b800e00ad99bbafb1"
+taille = 2921
+licence = "AGPL-3.0-or-later"
+obligatoire = true

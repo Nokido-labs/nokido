@@ -435,12 +435,18 @@ def _purge_mail(dry: bool) -> dict:
     if not DB.exists():
         return {"skipped": "no postal db"}
     cut = time.time() - MAIL_DAYS * 86400  # mail traité = éphémère -> archive COURTE (pas COLD_DAYS=30)
+    # SEULEMENT LE TRAITE (decision owner 2026-10-01) : 'acked'. 'dead' (jamais livre) etait
+    # supprime SANS export ; il ne l'est plus. La liste vit dans le postal.
+    sys.path.insert(0, str(ROOT))
+    from nokido_agent.app.forge_postal import ETATS_COURRIER_TRAITES
+    _traites = sorted(ETATS_COURRIER_TRAITES)
+    _ph = ",".join("?" * len(_traites))
     con = sqlite3.connect(str(DB), timeout=30)
     try:
-        n = con.execute("SELECT COUNT(*) FROM mail WHERE ts_queued < ? AND status IN ('acked','dead')",
-                        (cut,)).fetchone()[0]
+        n = con.execute("SELECT COUNT(*) FROM mail WHERE ts_queued < ? AND status IN (%s)" % _ph,
+                        (cut, *_traites)).fetchone()[0]
         if not dry and n:
-            con.execute("DELETE FROM mail WHERE ts_queued < ? AND status IN ('acked','dead')", (cut,))
+            con.execute("DELETE FROM mail WHERE ts_queued < ? AND status IN (%s)" % _ph, (cut, *_traites))
             con.commit()
         return {"mail_purged": n, "dry_run": dry}
     except sqlite3.OperationalError as e:
@@ -785,8 +791,14 @@ def _purge_agent_messages(dry: bool) -> dict:
         cols = ("id", "from_agent", "to_agent", "correlation_id", "method",
                 "payload", "status", "created_at")
         base = "SELECT " + ",".join(cols) + " FROM agent_messages WHERE created_at < datetime('now', ?) AND "
-        rows = con.execute(base + "(to_agent='cli_capture' OR status IN ('read','archived'))",
-                           (cut,)).fetchall()
+        # SEULEMENT LE TRAITE (decision owner 2026-10-01) : la liste vit dans le postal, qui
+        # sait ce qui est traite. Avant : 'read' (lu, pas traite) et 'archived' (courrier NON lu
+        # d'un agent mort) etaient supprimes. cli_capture = telemetrie, jamais du courrier.
+        # Toujours EXPORTE (jsonl.gz rejouable) AVANT le DELETE, comme avant.
+        from nokido_agent.app.forge_postal import ETATS_M2M_TRAITES
+        _traites = sorted(ETATS_M2M_TRAITES)
+        rows = con.execute(base + "(to_agent='cli_capture' OR status IN (%s))"
+                           % ",".join("?" * len(_traites)), (cut, *_traites)).fetchall()
         gem = con.execute(base + "to_agent='agt_gemini' AND status='unread'", (cut,)).fetchall()
         if dry:
             return {"deletable": len(rows), "gemini_to_archive": len(gem), "dry_run": True}

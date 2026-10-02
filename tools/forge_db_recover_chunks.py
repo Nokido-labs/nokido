@@ -33,6 +33,8 @@ d.execute("DELETE FROM rag_chunks")  # repart propre (était ~0)
 d.commit()
 
 cols = [r[1] for r in d.execute("PRAGMA table_info(rag_chunks)")]
+# existence-verifiee : la table vient d'etre VIDEE et ses triggers RETIRES juste
+# au-dessus -- aucun id existant, aucun trigger rag_chunks_fts_bi a armer (2026-10-01).
 ins = f'INSERT OR IGNORE INTO rag_chunks VALUES ({",".join("?" * len(cols))})'
 print(f"rag_chunks cols={len(cols)} triggers_dropped={len(trigs)} ; full-scan…", flush=True)
 

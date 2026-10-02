@@ -152,9 +152,9 @@ async def ollama_call(
 
         _lc = _get_lc()
         if _lc.enabled:
-            import asyncio as _aio
-
-            _lc_ok = _aio.get_event_loop().run_until_complete(__import__("forge_llamacpp").is_available())
+            # 2026-10-01 : `run_until_complete` dans une fonction async levait toujours (et
+            # l'accesseur importe n'existait pas) : ce repli n'avait jamais tourne.
+            _lc_ok = _lc.is_available()
             if _lc_ok:
                 _task_lc = next((m["content"] for m in reversed(msgs) if m["role"] == "user"), "")
                 _ctx_lc = next((m["content"] for m in msgs if m["role"] == "system"), "")
@@ -263,15 +263,14 @@ async def ollama_stream(
         from nokido_agent.app.forge_llamacpp import get_llamacpp_bridge as _get_lc2, is_available as _lc_avail
 
         _lc2 = _get_lc2()
-        if _lc2.enabled and await _lc_avail():
+        # 2026-10-01 : `await` sur is_available (synchrone) et `.stream` (inexistant sur le pont)
+        # levaient toujours. Meme forme que les replis LiteLLM / Gemini ci-dessous.
+        if _lc2.enabled and _lc_avail():
             on_token("[llama.cpp] ")
-            _ans_lc2 = await _lc2.stream(
-                messages=messages,
-                on_token=on_token,
-                on_done=on_done,
-                system=_ctx[:500] if _ctx else None,
-            )
+            _ans_lc2 = await _lc2.propose(_task, rag_ctx=_ctx[:500] if _ctx else "", max_tokens=800)
             if _ans_lc2:
+                on_token(_ans_lc2)
+                on_done()
                 return _ans_lc2
     except Exception as _lce2:
         logger.debug(f"[ollama_stream] llama.cpp fallback: {_lce2}")

@@ -249,6 +249,63 @@ def superseder(ancien_id: str, nouveau_id: str, a_partir_de: str = "",
         return {"ok": None, "raison": "ecriture refusee (%s)" % type(e).__name__}
 
 
+def retirer_versions_anterieures(source: str, ids_courants: set, conn=None) -> int:
+    """Desactive tout chunk de `source` qui n'appartient PAS a sa version courante.
+
+    `superseder` ferme UN fait remplace par un autre ; ici c'est une SOURCE entiere
+    re-ingeree (une page, un fichier memoire) dont la version courante est l'ensemble
+    `ids_courants`. Rien n'est supprime (consigne owner du 12/08) : `active=0` +
+    `superseded_by` nomme la source. Le chunk est aussi retire de `rag_chunks_fts` par
+    le verbe 'delete' de FTS5 external-content -- le trigger `rag_chunks_fts_au` ne
+    tire que sur UPDATE OF text/source/domain, un chunk seulement desactive resterait
+    cherchable en lexical. Mesure du 2026-10-01 (base jetable, triggers de prod) : un
+    'delete' d'une entree DEJA absente est accepte et l'index reste integre.
+
+    Deux appelants, une seule primitive : `forge_memory_ingest` (d'ou elle vient,
+    2026-09-04) et `forge_ingest_llms_txt`, qui empilait une version par
+    rafraichissement (`llms-full.txt` de platform.claude.com : 3 lots actifs).
+
+    `conn` : connexion d'ecriture de l'appelant, qu'il garde et ferme ; sans elle on
+    en ouvre une. Rend le nombre de chunks retires, -1 si l'ecrivain manque.
+    """
+    ferme = conn is None
+    if conn is None:
+        try:
+            from nokido_agent.app.forge_db_path import open_writer
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("open_writer indisponible (%s) — anciens NON traites", type(exc).__name__)
+            return -1
+        conn = open_writer()
+    try:
+        # `active = 1` est VOLONTAIREMENT absent du WHERE et filtre en Python.
+        # Mesure 2026-09-04 : avec lui, le planificateur choisit
+        # `idx_rag_chunks_active (active=?)` -- un index sur une colonne quasi
+        # CONSTANTE, sans pouvoir discriminant, qui evince `idx_rag_source`.
+        # Cout : 14,716 s contre 0,000 s pour les 16 memes lignes.
+        anciens = [
+            r for r in conn.execute(
+                "SELECT rowid, id, text, source, domain, active FROM rag_chunks "
+                "WHERE source = ?",
+                (source,),
+            ).fetchall()
+            if r[1] not in ids_courants and r[5] == 1
+        ]
+        for rowid, cid, texte, src, dom, _actif in anciens:
+            conn.execute(
+                "INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, text, source, domain) "
+                "VALUES ('delete', ?, ?, ?, ?)",
+                (rowid, texte, src, dom),
+            )
+            conn.execute(
+                "UPDATE rag_chunks SET active = 0, superseded_by = ? WHERE id = ?",
+                (source, cid),
+            )
+        return len(anciens)
+    finally:
+        if ferme:
+            conn.close()
+
+
 def jaccard_similarity(text_a: str, text_b: str, min_word_len: int = 3) -> float:
     """
     Distance Jaccard sur les n-grammes de mots (longueur ≥ min_word_len).

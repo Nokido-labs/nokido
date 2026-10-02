@@ -136,7 +136,8 @@ def indexer(depot: str, fichiers: list, applique: bool) -> dict:
             if applique:
                 cur.execute(
                     "INSERT OR IGNORE INTO rag_chunks (id,text,source,domain,role_hint)"
-                    " VALUES (?,?,?,?,?)", (cid, morceau, source, DOMAIN, "code"))
+                    " SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                    (cid, morceau, source, DOMAIN, "code", cid))
                 inseres += cur.rowcount
             else:
                 inseres += 1

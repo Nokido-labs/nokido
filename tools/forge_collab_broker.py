@@ -510,9 +510,10 @@ def _rag_index(reply: str, model: str) -> None:
         eid = f"broker_{int(time.time())}_{_hash(reply)}"
         conn.execute(
             "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,meta,ingested_at)"
-            " VALUES(?,?,'forge_collab_broker','collab','GEMINI',?,datetime('now'))",
+            " SELECT ?,?,'forge_collab_broker','collab','GEMINI',?,datetime('now')"
+            " WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
             # 2026-09-12 : borne des 13 896 chunks coupes pile a 2000.
-            (eid, reply, json.dumps({"model": model})),
+            (eid, reply, json.dumps({"model": model}), eid),
         )
         conn.commit()
         conn.close()

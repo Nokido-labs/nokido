@@ -556,6 +556,2510 @@ description: >
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Commit 7cb421b63 — 2026-10-02 01:36
+**docs(agy): la politique fine existe ; decision owner : garder --sandbox**
+
+### Modules Python modifiés
+- `tools/forge_task_executor.py`
+
+
+## Commit 3b6e00612 — 2026-10-01 20:24
+**fix(agy): un OK_DONE dont l'artefact declare n'existe pas n'est plus un succes**
+
+### Modules Python modifiés
+- `tests/nr/test_agy_worktree_et_effet_nr.py`
+- `tools/forge_task_executor.py`
+
+
+## Commit 4e3573a2e — 2026-10-01 20:03
+**fix(agy): un rendu NEED_HUMAN_APPROVAL / NEED_CLARIFY / ERR_* n'est plus transmis en OK_DONE**
+
+### Modules Python modifiés
+- `tests/nr/test_agy_worktree_et_effet_nr.py`
+- `tools/forge_task_executor.py`
+
+
+## Commit 10b0afd1b — 2026-10-01 19:52
+**fix(embed): decodeur de vecteurs tolerant au JSON, regle unique (decision owner)**
+
+### Modules Python modifiés
+- `app/forge_embed_router.py`
+- `app/forge_semantic_pressure.py`
+- `tests/nr/test_decode_blob_tolerant_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 9a0acc943 — 2026-10-01 19:43
+**fix(agy): comptage des commits en errors=replace (gate firehose)**
+
+### Modules Python modifiés
+- `tools/forge_task_executor.py`
+
+
+## Commit d665c8360 — 2026-10-01 19:43
+**fix(agy): la delegation travaille dans le worktree d'AGY ; le resultat porte l'effet observe**
+
+### Modules Python modifiés
+- `tests/nr/test_agy_worktree_et_effet_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_task_executor.py`
+
+
+## Commit c28886962 — 2026-10-01 19:36
+**feat(regeneration): mesure apres application, revert prouve, set_param L1 (rendu claude.ai relu)**
+
+### Modules Python modifiés
+- `app/forge_mutation_controller.py`
+- `app/forge_proposal_applier.py`
+- `tests/nr/test_applicateur_set_param_l1_nr.py`
+- `tests/nr/test_controleur_mesure_apres_revert_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 633cd083d — 2026-10-01 19:33
+**test(veille): sous-processus du garde en errors=replace (gate firehose)**
+
+### Modules Python modifiés
+- `tests/nr/test_veille_pairs_nr.py`
+
+
+## Commit ae8e33407 — 2026-10-01 19:33
+**fix(gardes): bash_guard accepte Monitor forge_job_watch_cli --pair, forme toujours fermee**
+
+### Modules Python modifiés
+- `tests/nr/test_veille_pairs_nr.py`
+- `tools/bash_guard.py`
+
+
+## Commit fbb848e17 — 2026-10-01 19:31
+**feat(veille): forge_job_watch_cli --pair -- un rendu de pair cloud reveille la boucle du client**
+
+### Modules Python modifiés
+- `tests/nr/test_veille_pairs_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_job_watch_cli.py`
+
+
+## Commit a298f7583 — 2026-10-01 19:19
+**feat(rsi): premiere capacite mesuree -- retrieval dense sur un examen held-out SCELLE**
+
+### Modules Python modifiés
+- `app/forge_generation.py`
+- `tests/nr/test_capacite_retrieval_scellee_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_bench_beir.py`
+
+
+## Commit 2b95645c5 — 2026-10-01 19:10
+**fix(pairs): preuve de traitement = trailer « Traite-pair: <id> », plus jamais un sha ni une mention**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_quarantaine_entretien_nr.py`
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit ae9a54df9 — 2026-10-01 19:07
+**feat(pairs): la quarantaine s'entretient seule -- cloture par preuve de commit, expiration des orphelins**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_quarantaine_entretien_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_quarantaine.py`
+- `tools/forge_post_commit.py`
+
+
+## Commit 2d027c53c — 2026-10-01 18:54
+**chore: Nokido.py (console TUI v13) GELE ; campagne d'embedding Cloudflare d'abord, Modal en relais (decisions owner)**
+
+### Modules Python modifiés
+- `app/Nokido.py`
+- `tools/forge_embed_modal_campagne.py`
+
+
+## Commit d2ffaf64a — 2026-10-01 18:51
+**fix(rsi): un compte de fichiers ne prouve jamais un gain ; le gain se lit dans les capacites mesurees**
+
+### Modules Python modifiés
+- `app/forge_generation.py`
+- `tests/nr/test_generation_fitness_pareto_nr.py`
+
+
+## Commit 7fbba5f8c — 2026-10-01 18:48
+**feat(rsi): porte unique de l'evolution autonome -- armement owner, frein, verrou humain**
+
+### Modules Python modifiés
+- `app/forge_autonomous_loops.py`
+- `app/forge_guarded_mutation_loop.py`
+- `app/forge_mutation_judge.py`
+- `tests/nr/test_boucle_raccordee_gain_nr.py`
+- `tests/nr/test_juge_zone_evaluateur_nr.py`
+- `tests/nr/test_porte_evolution_nr.py`
+- `tests/test_evolution_cable.py`
+- `tools/ci_local.py`
+- `tools/forge_merge_gate.py`
+
+
+## Commit 2ef3bf74f — 2026-10-01 18:35
+**feat(embed): campagne cloud Modal puis Cloudflare (meme modele bge-m3), masquee, cause d'echec dite**
+
+### Modules Python modifiés
+- `app/forge_embed_router.py`
+- `tests/nr/test_modal_envoi_masque_nr.py`
+- `tools/forge_embed_modal_campagne.py`
+
+
+## Commit 1519b85e4 — 2026-10-01 18:30
+**fix(embed): le texte envoye a l'endpoint Modal est masque, rien ne part sans masqueur**
+
+### Modules Python modifiés
+- `app/forge_embed_router.py`
+- `app/forge_semantic_firewall.py`
+- `tests/nr/test_modal_envoi_masque_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 2bf7b96e4 — 2026-10-01 18:13
+**fix(rsi): un candidat ne se juge plus avec ses propres tests ; aucun chemin ne contourne le juge**
+
+### Modules Python modifiés
+- `app/forge_guarded_mutation_loop.py`
+- `app/forge_mutation_judge.py`
+- `tests/nr/test_juge_zone_evaluateur_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_merge_gate.py`
+- `tools/forge_self_patcher.py`
+
+
+## Commit 75a539562 — 2026-10-01 18:08
+**fix(soif): un oeil lexical ferme n'est pas un gap (aveugle_lexical_abstention)**
+
+### Modules Python modifiés
+- `app/forge_epistemic_veille.py`
+- `tests/nr/test_soif_douleur_transition_nr.py`
+
+
+## Commit b09d2d87c — 2026-10-01 18:07
+**fix(soif): lexical classe, panne != lacune, un seul instrument, douleur escaladee sur transition**
+
+### Modules Python modifiés
+- `app/forge_epistemic_veille.py`
+- `tests/nr/test_soif_douleur_transition_nr.py`
+- `tests/test_epistemic_veille.py`
+- `tools/ci_local.py`
+- `tools/forge_epistemic_daemon.py`
+
+
+## Commit d2f9ab6be — 2026-10-01 17:52
+**fix(superviseur): la rafale RAM deleste par cout et ne fauche plus la regulation**
+
+### Modules Python modifiés
+- `tests/nr/test_delestage_ram_par_cout_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 5b6f39c75 — 2026-10-01 17:34
+**fix(purge): le purgeur unique ne supprime que le TRAITE, defini par le postal (decision owner)**
+
+### Modules Python modifiés
+- `app/forge_pluripotent_workers.py`
+- `app/forge_postal.py`
+- `tests/nr/test_purge_m2m_seulement_traites_nr.py`
+- `tools/forge_log_retention.py`
+
+
+## Commit 6f71e3673 — 2026-10-01 17:31
+**fix(secrets): le hub charge ses secrets au COFFRE, plus jamais le .env en clair (GO owner allow_critical)**
+
+### Modules Python modifiés
+- `tests/nr/test_secrets_noms_env_valeurs_coffre_nr.py`
+- `tools/nokido_hub.py`
+
+
+## Commit 332c7da2a — 2026-10-01 17:30
+**feat(coffre): forge_env_to_vault --alias -- neutraliser un nom generique du .env range au coffre sous son vrai nom**
+
+### Modules Python modifiés
+- `tests/nr/test_env_alias_coffre_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_env_to_vault.py`
+
+
+## Commit a598e90b9 — 2026-10-01 17:15
+**fix(api): pont llama.cpp, keeper, replis ollama et rapport distill reecrits (decision owner)**
+
+### Modules Python modifiés
+- `app/forge_keeper_base.py`
+- `app/forge_llamacpp.py`
+- `app/forge_mcp_registry.py`
+- `app/forge_ollama.py`
+- `tests/nr/test_api_reecrites_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit c4b3fde28 — 2026-10-01 17:10
+**fix(securite): la couche reseau MCP est restauree, corrigee, et enfin chargee (decision owner)**
+
+### Modules Python modifiés
+- `app/forge_distiller.py`
+- `app/forge_gemini_bridge.py`
+- `app/forge_mcp_securite_reseau.py`
+- `tests/nr/test_mcp_http_identite_nr.py`
+- `tests/nr/test_securite_reseau_restauree_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_mcp_http.py`
+
+
+## Commit 7243b0065 — 2026-10-01 16:59
+**fix(purge): la purge M2M ne vise que le TRAITE, sur la base M2M, et seulement armee (decision owner)**
+
+### Modules Python modifiés
+- `app/forge_pluripotent_workers.py`
+- `app/forge_postal.py`
+- `tests/nr/test_purge_m2m_seulement_traites_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 1fdbbda10 — 2026-10-01 16:59
+**fix(secrets): un secret de Nokido.env se lit au COFFRE, jamais dans le fichier (decision owner)**
+
+### Modules Python modifiés
+- `app/bootstrap.py`
+- `app/forge_auto_pilot.py`
+- `app/forge_llamacpp.py`
+- `app/forge_secrets.py`
+- `app/forge_settings.py`
+- `app/forge_startup.py`
+- `app/forge_task_router.py`
+- `tests/nr/test_secrets_noms_env_valeurs_coffre_nr.py`
+- `tools/forge_auth_debug.py`
+- `tools/forge_gemini_mcp_connector.py`
+- `tools/forge_gemini_mcp_proxy.py`
+- `tools/forge_services_launcher.py`
+
+
+## Commit b7ec112e9 — 2026-10-01 16:47
+**fix(secrets): forge_router_gateway ne recopie plus Nokido.env dans l'environnement ; banc embedder conclu**
+
+### Modules Python modifiés
+- `app/forge_router_gateway.py`
+
+
+## Commit 17b872694 — 2026-10-01 16:24
+**perf(ingest): llms.txt telecharge a plusieurs, ecrit seul et dans l'ordre (x4,3 mesure)**
+
+### Modules Python modifiés
+- `tests/nr/test_ingest_llms_txt_parallele_nr.py`
+- `tests/nr/test_ingest_llms_txt_version_courante_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_ingest_llms_txt.py`
+
+
+## Commit 654a82a4c — 2026-10-01 16:18
+**fix(imports): cliquet des imports internes morts (socle 57 -> 52) et 5 capacites rebranchees**
+
+### Modules Python modifiés
+- `app/forge_anti_ia_traps.py`
+- `app/forge_llm_transport.py`
+- `app/forge_self_refinement.py`
+- `app/forge_tool_forger.py`
+- `tests/nr/test_imports_internes_morts_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit e9deccaae — 2026-10-01 16:12
+**perf(hub): sortir de la boucle les gels mesures, et mesurer le pool to_thread**
+
+### Modules Python modifiés
+- `app/forge_authz_shadow.py`
+- `app/forge_loop_sentinel.py`
+- `app/forge_mcp_registry.py`
+- `app/forge_provider_admin.py`
+- `tests/nr/test_boucle_hub_hors_gels_mesures_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 89afe899b — 2026-10-01 16:00
+**perf(hub): la porte d'admission ne dort plus sur la boucle ; l'ecrivain differe reprend le verrou**
+
+### Modules Python modifiés
+- `app/forge_bounded_queue.py`
+- `app/forge_lane_admission.py`
+- `tests/nr/test_admission_mesure_vs_sentinelle_nr.py`
+- `tests/nr/test_admission_sans_gel_de_boucle_nr.py`
+- `tests/nr/test_ecrivain_differe_reprend_le_verrou_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit eff48d288 — 2026-10-01 15:49
+**fix(evenements): comm_watch et presence appelaient emit, absent de forge_critical_events**
+
+### Modules Python modifiés
+- `tests/nr/test_blackboard_fait_synchrone_nr.py`
+- `tools/forge_comm_watch.py`
+- `tools/forge_presence.py`
+
+
+## Commit a83332982 — 2026-10-01 15:39
+**fix(blackboard): six publications vers le tableau noir echouaient depuis toujours**
+
+### Modules Python modifiés
+- `app/forge_autonomous_loops.py`
+- `app/forge_keeper_base.py`
+- `app/forge_swarm_blackboard.py`
+- `tests/nr/test_blackboard_fait_synchrone_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_comm_watch.py`
+- `tools/forge_m2m_debate_antiregression.py`
+- `tools/forge_presence.py`
+
+
+## Commit 8b96f26cb — 2026-10-01 15:16
+**fix(logboot): un service qui reemballe stdout ne ferme plus le tampon partage**
+
+### Modules Python modifiés
+- `tests/nr/test_logboot_journal_sans_pipe_nr.py`
+- `tools/forge_logboot.py`
+
+
+## Commit 66083d340 — 2026-10-01 14:34
+**test(logboot): subprocess en mode texte avec errors=replace (avertissement du gate)**
+
+### Modules Python modifiés
+- `tests/nr/test_logboot_journal_sans_pipe_nr.py`
+
+
+## Commit 595c8381a — 2026-10-01 14:33
+**feat(superviseur): journal SANS PIPE pour les services Python (forge_logboot), 3 pilotes**
+
+### Modules Python modifiés
+- `tests/nr/test_logboot_journal_sans_pipe_nr.py`
+- `tests/nr/test_superviseur_journaux_synchrones_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_logboot.py`
+
+
+## Commit cbd864c85 — 2026-10-01 14:07
+**fix(hub): dernier INSERT OR IGNORE nu vers rag_chunks migre, cliquet a 0**
+
+### Modules Python modifiés
+- `tools/nokido_hub.py`
+
+
+## Commit f5f725567 — 2026-10-01 13:52
+**fix(superviseur): journaux de service hors pool bloquant ; ctl restart sans course**
+
+### Modules Python modifiés
+- `tests/nr/test_ctl_restart_attend_l_arret_nr.py`
+- `tests/nr/test_superviseur_journaux_synchrones_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_supervisor_ctl.py`
+
+
+## Commit d6c8364a4 — 2026-10-01 13:52
+**fix(rag): 24 ecrivains migres hors INSERT OR IGNORE nu, socle 32 -> 1**
+
+### Modules Python modifiés
+- `app/forge_conv_indexer.py`
+- `app/forge_db_path.py`
+- `app/forge_dialogue_outcome.py`
+- `app/forge_dispatchers.py`
+- `app/forge_extern_patterns.py`
+- `app/forge_git_historian.py`
+- `app/forge_mailbox.py`
+- `app/forge_memory_archival.py`
+- `app/forge_postal.py`
+- `app/forge_self_correction.py`
+- `app/skilltree.py`
+- `tests/nr/test_golden_insert_or_ignore_rag_nr.py`
+- `tools/forge_auto_compact.py`
+- `tools/forge_blind_spot_index.py`
+- `tools/forge_broker_base.py`
+- `tools/forge_collab_broker.py`
+- `tools/forge_cve_nvd_download.py`
+- `tools/forge_db_recover_chunks.py`
+- `tools/forge_db_restore_chunks.py`
+- `tools/forge_deep_doc_enricher.py`
+
+
+## Commit 98fca0f74 — 2026-10-01 12:48
+**fix(golden): socle resserre sur 33 dettes corrigees, le non-lu n'est plus un recul**
+
+### Modules Python modifiés
+- `tests/nr/test_golden_socle_non_lu_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_golden_rules_ast.py`
+
+
+## Commit 03922c868 — 2026-10-01 12:30
+**fix(rag): cliquet INSERT OR IGNORE vers rag_chunks + 3 ingesteurs migres**
+
+### Modules Python modifiés
+- `tests/nr/test_golden_insert_or_ignore_rag_nr.py`
+- `tests/nr/test_reingestion_garde_le_lexical_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_docset_ingest.py`
+- `tools/forge_gitingest_sdk_ingest.py`
+- `tools/forge_golden_rules_ast.py`
+- `tools/forge_ingest_github_repo.py`
+- `tools/forge_ingest_llms_txt.py`
+
+
+## Commit dd4452fa7 — 2026-10-01 12:09
+**fix(ingest): version courante seule, agregats llms-full ecartes, lexical garde**
+
+### Modules Python modifiés
+- `app/forge_rag_truth.py`
+- `tests/nr/test_ingest_llms_txt_version_courante_nr.py`
+- `tests/nr/test_memory_ingest_volatil_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_ingest_llms_txt.py`
+- `tools/forge_memory_ingest.py`
+
+
+## Commit 850270044 — 2026-10-01 10:03
+**docs(changelog): 9180f8db5..798999b44 (0.20.6 : correctifs de securite des dependances)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 798999b44 — 2026-10-01 10:02
+**chore(release): 0.20.6**
+
+### Modules Python modifiés
+- `nokido_agent/__init__.py`
+
+
+## Commit 9180f8db5 — 2026-10-01 02:14
+**docs(changelog): fc309c0ab..dbf1ab75d (0.20.5 : doctor --vivant, statut prouve par le depot)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit dbf1ab75d — 2026-10-01 02:13
+**chore(release): 0.20.5**
+
+### Modules Python modifiés
+- `nokido_agent/__init__.py`
+
+
+## Commit 123b4f7e0 — 2026-10-01 02:13
+**feat(audit): le tableau de statut prouve par le depot, le vivant par le corps**
+
+### Modules Python modifiés
+- `tests/nr/test_capability_audit_nr.py`
+- `tools/forge_capability_audit.py`
+
+### Documentation mise à jour
+- `README.md`
+- `docs/i18n/README.ar.md`
+- `docs/i18n/README.de.md`
+- `docs/i18n/README.es.md`
+- `docs/i18n/README.fr.md`
+- `docs/i18n/README.ja.md`
+- `docs/i18n/README.pt-BR.md`
+- `docs/i18n/README.zh-CN.md`
+
+
+## Commit 1a2a6b273 — 2026-10-01 02:13
+**feat(doctor): nokido-doctor --vivant, ce qui bat organe par organe**
+
+### Modules Python modifiés
+- `tests/nr/test_doctor_vivant_nr.py`
+- `tools/ci_local.py`
+- `tools/nokido_doctor.py`
+
+
+## Commit fc309c0ab — 2026-10-01 00:43
+**docs(changelog): 8c20fd918..95dd496af (README au reel, bloc pip, separation)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 95dd496af — 2026-10-01 00:32
+**feat(dist): le bloc pip du README suit ce que PyPI sert**
+
+### Modules Python modifiés
+- `tests/nr/test_capability_audit_nr.py`
+- `tests/nr/test_forge_docs_relink_nr.py`
+- `tests/nr/test_readme_install_vcs_nr.py`
+- `tests/nr/test_readme_pip_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_capability_audit.py`
+- `tools/forge_dist_publish.py`
+- `tools/forge_readme_pip.py`
+
+
+## Commit 6062a6eed — 2026-10-01 00:32
+**docs(readme): ouverture tiree du MANIFESTO, demarrage rapide en tete**
+
+### Documentation mise à jour
+- `README.md`
+- `docs/i18n/README.ar.md`
+- `docs/i18n/README.de.md`
+- `docs/i18n/README.es.md`
+- `docs/i18n/README.fr.md`
+- `docs/i18n/README.ja.md`
+- `docs/i18n/README.pt-BR.md`
+- `docs/i18n/README.zh-CN.md`
+
+
+## Commit 1ff01415f — 2026-10-01 00:00
+**feat(audit): le tableau de statut du README se confronte a services.toml**
+
+### Modules Python modifiés
+- `tests/nr/test_capability_audit_nr.py`
+- `tools/forge_capability_audit.py`
+
+
+## Commit b18b2d779 — 2026-10-01 00:00
+**docs(readme): tableau de statut au reel, declare a cote de la preuve**
+
+### Documentation mise à jour
+- `MANIFESTO.md`
+- `README.md`
+- `docs/i18n/README.ar.md`
+- `docs/i18n/README.de.md`
+- `docs/i18n/README.es.md`
+- `docs/i18n/README.fr.md`
+- `docs/i18n/README.ja.md`
+- `docs/i18n/README.pt-BR.md`
+- `docs/i18n/README.zh-CN.md`
+
+
+## Commit 22c1c0498 — 2026-09-30 23:35
+**chore(separation): deporte les plans internes hors de l'atelier**
+
+### Modules Python modifiés
+- `app/forge_autonomous_loops.py`
+- `tests/nr/test_docs_deportes_hors_audit_nr.py`
+
+### Documentation mise à jour
+- `docs/nokido_migration_plan.md`
+
+
+## Commit 8c20fd918 — 2026-09-30 23:15
+**docs(changelog): deef0d10c..c0ffcdfae (soif, effecteurs, separation, dist, liveness)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit c0ffcdfae — 2026-09-30 23:15
+**test(liveness): le garde exige un disque PEUPLE de heartbeats declares**
+
+### Modules Python modifiés
+- `tests/nr/test_liveness_registre_organes_nr.py`
+
+
+## Commit d88ab63c4 — 2026-09-30 23:15
+**chore(dist): le promoteur vise la vitrine Nokido-labs/nokido (ex-nokido-dist)**
+
+### Modules Python modifiés
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit c47568f15 — 2026-09-30 23:02
+**fix(separation): l'audit doc/code saute les docs deportes (export-ignore)**
+
+### Modules Python modifiés
+- `app/forge_autonomous_loops.py`
+- `tests/nr/test_docs_deportes_hors_audit_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 4ac75719a — 2026-09-30 22:40
+**feat(evolution): arme les deux effecteurs les plus surs du tri**
+
+### Modules Python modifiés
+- `app/forge_autonomous_loops.py`
+- `tests/nr/test_effecteurs_du_tri_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit f81318822 — 2026-09-30 22:08
+**chore(soif): marquer muet-ok l'absence de demande manuelle**
+
+### Modules Python modifiés
+- `tools/forge_epistemic_daemon.py`
+
+
+## Commit e6eaca6a1 — 2026-09-30 22:07
+**fix(soif): examen exteroceptif a la demande, piliers reclames ensemble**
+
+### Modules Python modifiés
+- `tests/nr/test_soif_bloquee_par_dependance_nr.py`
+- `tests/nr/test_soif_choisit_son_traitement_nr.py`
+- `tests/nr/test_soif_examen_a_la_demande_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_epistemic_daemon.py`
+
+
+## Commit deef0d10c — 2026-09-30 19:59
+**docs(changelog): e30bad076..4d2d06496 (egress, renommage atelier, pont)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 4d2d06496 — 2026-09-30 19:58
+**fix(pont-github): le pont lit l'atelier nokido-private, la description le nomme**
+
+### Modules Python modifiés
+- `tests/nr/test_bridge_habilitation_nr.py`
+- `tests/nr/test_github_bridge_mcp_nr.py`
+- `tests/nr/test_github_bridge_nr.py`
+- `tools/forge_bridge_habilitation.py`
+- `tools/forge_github_bridge.py`
+- `tools/forge_github_bridge_mcp.py`
+
+
+## Commit 458f03a4f — 2026-09-30 19:40
+**docs(changelog): e30bad076..bfcf49c6d (egress par depot, renommage atelier)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit bfcf49c6d — 2026-09-30 19:40
+**chore(repos): outils de dev sur l'atelier nokido-private, liens sur la vitrine**
+
+### Modules Python modifiés
+- `app/forge_delivery_integrity.py`
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_ci_check.py`
+- `tools/forge_ci_github_log.py`
+- `tools/forge_ci_stop_hook.py`
+- `tools/forge_dist_publish.py`
+- `tools/forge_knowledge_pack_import.py`
+- `tools/forge_release_gate.py`
+- `tools/forge_repo_settings_audit.py`
+- `tools/forge_token_probe.py`
+
+### Documentation mise à jour
+- `docs/wiki/16-FAQ.fr.md`
+- `docs/wiki/16-FAQ.md`
+- `docs/wiki/19-Knowledge-Pack.fr.md`
+- `docs/wiki/19-Knowledge-Pack.md`
+- `docs/wiki/Home.fr.md`
+- `docs/wiki/Home.md`
+
+
+## Commit e716b1af1 — 2026-09-30 19:39
+**fix(egress): une cle owner/nom designe UN depot (vitrine vs atelier)**
+
+### Modules Python modifiés
+- `app/forge_git_egress.py`
+- `tests/nr/test_egress_profil_public_atteignable_nr.py`
+
+
+## Commit e30bad076 — 2026-09-30 17:15
+**docs(changelog): section 35c3a011f..4607b0612 (promoteur durci, garde par variable)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 4607b0612 — 2026-09-30 17:15
+**feat(release): l'editeur se designe par la variable NOKIDO_EDITEUR, plus par un nom**
+
+### Modules Python modifiés
+- `tests/nr/test_release_pipeline_graphe_nr.py`
+
+
+## Commit b7d0f4633 — 2026-09-30 16:34
+**fix(dist): nom de machine apres un echappement ou un souligne, SID machine generise**
+
+### Modules Python modifiés
+- `tests/nr/test_dist_generisation_owner_path_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit 6537f925f — 2026-09-30 16:23
+**test(dist): subprocess texte avec errors=replace dans le NR du commit force**
+
+### Modules Python modifiés
+- `tests/nr/test_outils_publication_effet_nr.py`
+
+
+## Commit c229fe6f2 — 2026-09-30 16:23
+**fix(dist): le commit du snapshot n'ecarte plus les fichiers du .gitignore**
+
+### Modules Python modifiés
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit 35c3a011f — 2026-09-30 14:46
+**docs(changelog): section f891c7bea..7a4d6415a (IP_CLEARANCE)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 7a4d6415a — 2026-09-30 14:46
+**feat(publication): IP_CLEARANCE, docs/ip en attente sauf liberation nominative**
+
+### Modules Python modifiés
+- `app/forge_git_egress.py`
+- `tests/nr/test_dist_publish_politique_nr.py`
+- `tests/nr/test_egress_profil_public_atteignable_nr.py`
+- `tests/nr/test_wheel_paquets_declares_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit 11b00d0da — 2026-09-30 14:25
+**docs(changelog): section 52ec03a79..f891c7bea (dist pleinement fonctionnel)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit f891c7bea — 2026-09-30 14:25
+**feat(publication): dist pleinement fonctionnel, bloque seulement securite et vie privee**
+
+### Modules Python modifiés
+- `tests/nr/test_dist_publish_politique_nr.py`
+- `tests/nr/test_egress_profil_public_atteignable_nr.py`
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_dist_publish.py`
+
+### Documentation mise à jour
+- `docs/launch/CHECKLIST.md`
+- `docs/launch/legal_protection.md`
+
+
+## Commit f86ef8b9d — 2026-09-30 14:04
+**docs(changelog): section dda8ed456..52ec03a79 (pseudonyme, garde d'identite)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 52ec03a79 — 2026-09-30 14:04
+**feat(publication): pseudonyme partout, garde de l'identite civile au promoteur**
+
+### Modules Python modifiés
+- `app/forge_dist_storage.py`
+- `app/forge_git_egress.py`
+- `app/forge_watch_agent.py`
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_dist_publish.py`
+- `tools/forge_kaggle_cfg_from_env.py`
+- `tools/forge_knowledge_pack_export.py`
+- `tools/kaggle_push.py`
+- `tools/kaggle_sync.py`
+- `tools/launch_public_mirror.py`
+
+### Documentation mise à jour
+- `CODE_OF_CONDUCT.md`
+- `CONTRIBUTING.md`
+- `MANIFESTO.md`
+- `SECURITY.md`
+- `docs/launch/show_hn.md`
+- `docs/wiki/07-Security-Model.fr.md`
+- `docs/wiki/07-Security-Model.md`
+- `docs/wiki/14-Troubleshooting.fr.md`
+- `docs/wiki/14-Troubleshooting.md`
+- `docs/wiki/16-FAQ.fr.md`
+
+
+## Commit a7aefa27b — 2026-09-30 13:31
+**docs(changelog): section ea51b9316..dda8ed456 (0.20.4 : wheel complete, fuites dist, PyJWT)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 3a24be590 — 2026-09-30 13:27
+**feat(paquet): wheel complete 0.20.4, sans manque ni fuite par les chemins**
+
+### Modules Python modifiés
+- `nokido_agent/__init__.py`
+- `tests/nr/test_dist_generisation_owner_path_nr.py`
+- `tests/nr/test_wheel_paquets_declares_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit ffbe59fba — 2026-09-30 12:44
+**fix(release): l'asset source de la release se tire de D, plus de S**
+
+### Modules Python modifiés
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tools/forge_dist_publish.py`
+- `tools/forge_release_assets.py`
+
+
+## Commit c8d34e209 — 2026-09-30 12:37
+**fix(dist): le nom de machine en minuscules est generise, la defense le voit**
+
+### Modules Python modifiés
+- `tests/nr/test_dist_generisation_owner_path_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit ea51b9316 — 2026-09-30 11:04
+**docs(changelog): section 7028586b4..967418a6a (release 0.20.3, dist editeur TestPyPI)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 967418a6a — 2026-09-30 11:04
+**feat(release): le dist devient l'editeur TestPyPI, en declenchement manuel**
+
+### Modules Python modifiés
+- `tests/nr/test_outils_publication_effet_nr.py`
+- `tests/nr/test_release_pipeline_graphe_nr.py`
+- `tools/forge_dist_publish.py`
+
+
+## Commit cdbb5e667 — 2026-09-30 10:54
+**docs(changelog): section 7028586b4..7a5f495d4 (release 0.20.3)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 7a5f495d4 — 2026-09-30 10:54
+**chore(release): nokido-agent 0.20.3**
+
+### Modules Python modifiés
+- `nokido_agent/__init__.py`
+
+
+## Commit 7028586b4 — 2026-09-29 23:53
+**docs(changelog): section f72859efc..10ebf2dbe (collecte par liste, branches cloud, licences)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 10ebf2dbe — 2026-09-29 23:11
+**docs(audit): licences des modeles mesurees en local, tous providers**
+
+### Documentation mise à jour
+- `mesures/audits/licences_modeles.md`
+
+
+## Commit 898a740b1 — 2026-09-29 22:58
+**fix(handlers): @loop merge lie save_orchestrator avant son checkpoint**
+
+### Modules Python modifiés
+- `app/forge_handlers.py`
+- `tests/nr/test_handlers_loop_merge_checkpoint_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 0194a53b1 — 2026-09-29 22:36
+**fix(ci): suite pure collectee par liste, plus en ~900 arguments**
+
+### Modules Python modifiés
+- `tests/conftest.py`
+- `tests/nr/test_ci_suite_pure_ligne_de_commande_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit f72859efc — 2026-09-29 22:02
+**docs(changelog): section du lot ea3c441d0..ae22cc1c9 (77 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit ae22cc1c9 — 2026-09-29 21:57
+**fix(docstrings): une seule regle de lecture pour le wiki, introspect et les fiches RAG**
+
+### Modules Python modifiés
+- `app/forge_introspect.py`
+- `tests/nr/test_docstrings_trois_lecteurs_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_module_cards.py`
+- `tools/forge_wiki_modules.py`
+
+
+## Commit f44a28bc6 — 2026-09-29 21:51
+**fix(at-dispatch): HAS_IDS/HAS_SNIF lus sur le monolithe, plus par sys.modules**
+
+### Modules Python modifiés
+- `app/forge_at_dispatch.py`
+
+
+## Commit c8333d968 — 2026-09-29 21:49
+**fix(securite): le serveur MCP HTTP refuse sans jeton et ne se laisse plus dicter l'identite**
+
+### Modules Python modifiés
+- `tests/nr/test_mcp_http_identite_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_mcp_http.py`
+
+
+## Commit ad67049ae — 2026-09-29 21:49
+**fix(securite): l'outil anti-fuite d'export compte la phase C et ne recopie plus ce qu'il trouve**
+
+### Modules Python modifiés
+- `tests/nr/test_db_sanitize_verdict_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_db_sanitize.py`
+
+
+## Commit ea3c441d0 — 2026-09-29 18:36
+**docs(changelog): section du push etendue a f9e438d89..b648f5e23 (6 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit b648f5e23 — 2026-09-29 18:34
+**chore(licences): silence voulu du repli sur fichier marque muet-ok**
+
+### Modules Python modifiés
+- `tools/forge_license_guard.py`
+
+
+## Commit 65e36e036 — 2026-09-29 18:33
+**feat(licences): le garde juge les dependances DECLAREES ; inventaire hors portail**
+
+### Modules Python modifiés
+- `tests/nr/test_license_guard_declarees_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_license_guard.py`
+
+### Documentation mise à jour
+- `NOTICE.md`
+
+
+## Commit b092caf85 — 2026-09-29 18:33
+**test(nr): borne 120 s pour les deux derniers tests a vrai git**
+
+### Modules Python modifiés
+- `tests/nr/test_lats_garde_mutation_nr.py`
+- `tests/nr/test_veille_clone_chemins_windows_nr.py`
+
+
+## Commit d9d7a6fd2 — 2026-09-29 17:35
+**docs(changelog): section du push f9e438d89..64f9e793e (3 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 64f9e793e — 2026-09-29 17:33
+**feat(licences): les 22 fichiers tiers du portail declares, epingles, licencies**
+
+### Modules Python modifiés
+- `tests/nr/test_licences_embarquees_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_license_guard.py`
+- `tools/forge_release_assets.py`
+
+### Documentation mise à jour
+- `NOTICE.md`
+- `licenses/README.md`
+- `licenses/alpinejs/LICENSE.md`
+- `licenses/normalize.css/LICENSE.md`
+
+
+## Commit 321aa32b3 — 2026-09-29 17:33
+**docs(wiki): reference des modules en paire EN/FR, generee**
+
+### Modules Python modifiés
+- `tests/nr/test_wiki_modules_bilingue_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_wiki_modules.py`
+
+### Documentation mise à jour
+- `docs/wiki/20-Modules-Reference.fr.md`
+- `docs/wiki/20-Modules-Reference.md`
+- `docs/wiki/Home.fr.md`
+
+
+## Commit d0a365137 — 2026-09-29 17:17
+**test(nr): conversation_log borne a 120 s, un verrou echoue en le disant**
+
+### Modules Python modifiés
+- `tests/nr/test_conversation_log_jamais_purge_nr.py`
+
+
+## Commit f9e438d89 — 2026-09-29 14:17
+**docs(changelog): section du push etendue a 54b641efa..64cd9e692 (32 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 64cd9e692 — 2026-09-29 14:17
+**fix(ci): les deux regressions de la CI de reference 03dab6e22 + boite postale isolee pour TOUS les tests**
+
+### Modules Python modifiés
+- `tests/conftest.py`
+- `tests/nr/test_pair_mcp_nr.py`
+- `tools/forge_pair_mcp.py`
+- `tools/forge_patch_hub_ordres_bureau.py`
+
+
+## Commit 03dab6e22 — 2026-09-29 13:29
+**docs(changelog): section du push etendue a 54b641efa..0758bc5d4 (31 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 0758bc5d4 — 2026-09-29 13:29
+**test(nr): borne de 120 s pour les deux clones de depot local -- ils ont tue la suite pure sous charge**
+
+### Modules Python modifiés
+- `tests/nr/test_veille_intake_autolance_nr.py`
+- `tests/nr/test_veille_substance_nr.py`
+
+
+## Commit 986544878 — 2026-09-29 12:33
+**docs(changelog): section du push etendue a 54b641efa..06fef1c75 (30 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit 06fef1c75 — 2026-09-29 12:33
+**fix(anatomie): forge_changelog declare un organe du lexique (Observabilite/Trace)**
+
+### Modules Python modifiés
+- `tools/forge_changelog.py`
+
+
+## Commit 50f74655a — 2026-09-29 12:22
+**docs(changelog): section du push 54b641efa..e22bf2f7a (29 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit e22bf2f7a — 2026-09-29 12:13
+**feat(pairs): les cinq accuses d'un echange -- envoye, recu, lu, repondu, reponse lue -- sur l'agent postal**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_accuses_nr.py`
+- `tests/nr/test_pair_quarantaine_geste_owner_nr.py`
+- `tests/nr/test_pair_quarantaine_nr.py`
+- `tests/nr/test_pair_reponses_meme_pair_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit d612b8a3f — 2026-09-29 11:03
+**fix(pairs): un pair lit ses reponses quelle que soit l'inscription OAuth qui les recoit**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_reponses_meme_pair_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+
+
+## Commit 7caf00c6e — 2026-09-29 10:46
+**fix(pairs): les renouvellements OAuth survivent au redemarrage -- persistes par leur seule empreinte**
+
+### Modules Python modifiés
+- `tests/nr/test_bridge_oauth_nr.py`
+- `tests/nr/test_oauth_renouvellement_survit_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_bridge_oauth.py`
+
+
+## Commit 462676299 — 2026-09-29 10:40
+**feat(ordres): hub action=demander_ordre -- accord owner par dialogue pour les pairs, Tailscale par le tray**
+
+### Modules Python modifiés
+- `app/forge_mcp_elicitation.py`
+- `app/forge_mcp_registry.py`
+- `app/forge_ordres_bureau.py`
+- `tests/nr/test_demander_ordre_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_quarantaine.py`
+- `tools/nokido_launcher.py`
+- `tools/nokido_tray.py`
+
+
+## Commit 3de3902a6 — 2026-09-29 10:04
+**feat(pairs): `--repondre ... --texte` -- une reponse a un pair porte un compte rendu court**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_repondre_texte_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit 7423b7bb7 — 2026-09-29 10:03
+**fix(design): --ease-in-out et --prov-local-tint alignes sur le hub -- socle de coherence vide**
+
+### Modules Python modifiés
+- `tests/nr/test_tokens_coherence_nr.py`
+
+
+## Commit 56bd065cb — 2026-09-29 09:57
+**fix(design): etape 5 -- un seul .lf-btn--danger, bandeau d'erreur au rouge de la palette, grille documentee a 248px**
+
+### Documentation mise à jour
+- `design_handoff_nokido/DESIGN_GUIDE.md`
+- `design_handoff_nokido/readme.md`
+
+
+## Commit 79754b70b — 2026-09-29 09:56
+**fix(design): un token = une valeur -- hybride, anneau verifie et domaines alignes sur le hub**
+
+### Modules Python modifiés
+- `tests/nr/test_tokens_coherence_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit ad61cf9bf — 2026-09-29 09:26
+**fix(pairs): la description de soumettre_tache dit la route reelle du genre 'deliberer'**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_tache_dit_sa_route_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+
+
+## Commit 2e098ff54 — 2026-09-29 09:07
+**fix(webhub): le journal racine ecrit hors de la boucle -- httpx gelait le portail :7400**
+
+### Modules Python modifiés
+- `tests/nr/test_webhub_logging_non_bloquant_nr.py`
+- `tools/nokido_web_hub.py`
+
+
+## Commit be893b3ca — 2026-09-29 09:04
+**docs(changelog): section du push 54b641efa..ae3eb33e3 (19 commits)**
+
+### Modules Python modifiés
+- `app/brain_worker.py`
+- `app/collab_modes/__init__.py`
+- `app/collab_modes/_arbitration.py`
+- `app/collab_modes/_core.py`
+- `app/collab_modes/_participants.py`
+- `app/collab_modes/dispatch.py`
+- `app/collab_modes/legacy.py`
+- `app/collab_modes/mode_auto.py`
+- `app/collab_modes/mode_chef.py`
+- `app/collab_modes/mode_cline.py`
+- `app/collab_modes/mode_debat.py`
+- `app/collab_modes/mode_ping.py`
+- `app/forge_agent_authority.py`
+- `app/forge_agent_benchmarker.py`
+- `app/forge_agent_hardware.py`
+- `app/forge_agent_proxy.py`
+- `app/forge_agent_roles.py`
+- `app/forge_agentic.py`
+- `app/forge_agentic_engine.py`
+- `app/forge_anti_ia_traps.py`
+
+
+## Commit be893b3ca — 2026-09-29 08:57
+**docs(changelog): section du push 54b641efa..ae3eb33e3 (19 commits)**
+
+### Documentation mise à jour
+- `CHANGELOG.md`
+
+
+## Commit ae3eb33e3 — 2026-09-29 08:57
+**fix(livraison): forge_changelog -- seul docs(changelog) s'exclut, et un refus d'ecriture est dit**
+
+### Modules Python modifiés
+- `tests/nr/test_changelog_nr.py`
+- `tools/forge_changelog.py`
+
+
+## Commit 0fa76dcc0 — 2026-09-29 08:55
+**docs(readme): cartouche OpenCode (MCP HTTP) et sa ligne dans « Connect an external agent »**
+
+### Documentation mise à jour
+- `README.md`
+
+
+## Commit e0c6cda5a — 2026-09-29 08:44
+**docs(docstrings): 3 fichiers CRITIQUES demasques -- commit isole, revertable seul**
+
+### Modules Python modifiés
+- `app/forge_corrigibility.py`
+- `app/forge_mcp_registry.py`
+- `app/forge_mcp_security.py`
+
+
+## Commit d73a7f4ab — 2026-09-29 08:36
+**feat(livraison): forge_changelog -- une section de CHANGELOG par push, tiree des commits**
+
+### Modules Python modifiés
+- `tests/nr/test_changelog_nr.py`
+- `tools/forge_changelog.py`
+- `tools/forge_pre_push_gate.py`
+
+
+## Commit dfde2cd81 — 2026-09-29 08:30
+**fix(qualite): forge_docstring_masquee -- `--limite` borne les ecritures tentees, et chaque refus dit son motif**
+
+### Modules Python modifiés
+- `tools/forge_docstring_masquee.py`
+
+
+## Commit b56fda541 — 2026-09-29 08:29
+**feat(qualite): forge_docstring_masquee rend a Python les docstrings masquees par un `from __future__`**
+
+### Modules Python modifiés
+- `tools/forge_docstring_masquee.py`
+
+
+## Commit 42dbd497a — 2026-09-29 08:26
+**docs(wiki): note de tete reduite a « Mise à jour : date » sur les 52 pages**
+
+### Documentation mise à jour
+- `docs/wiki/01-Installation.fr.md`
+- `docs/wiki/01-Installation.md`
+- `docs/wiki/02-Quick-Start.fr.md`
+- `docs/wiki/02-Quick-Start.md`
+- `docs/wiki/03-Architecture.fr.md`
+- `docs/wiki/03-Architecture.md`
+- `docs/wiki/04-MCP-Clients-Setup.fr.md`
+- `docs/wiki/04-MCP-Clients-Setup.md`
+- `docs/wiki/05-LLM-Providers.fr.md`
+- `docs/wiki/05-LLM-Providers.md`
+
+
+## Commit e8177e685 — 2026-09-29 08:25
+**docs(datation): la note de tete des pages wiki tient en une ligne, « Mise à jour : date »**
+
+### Modules Python modifiés
+- `tests/nr/test_docs_datation_nr.py`
+- `tools/forge_docs_datation.py`
+
+
+## Commit 8f5b835dd — 2026-09-29 08:25
+**docs(wiki): cartes L2 regenerees par l'owner apres le lot docstrings**
+
+### Documentation mise à jour
+- `docs/wiki/20-Modules-Reference.md`
+
+
+## Commit a695e0973 — 2026-09-29 08:06
+**docs(docstrings): API ajoutee depuis le 22/09 decrite dans 38 docstrings de module**
+
+### Modules Python modifiés
+- `app/forge_agent_credential.py`
+- `app/forge_auth_tokens.py`
+- `app/forge_autonomous_loops.py`
+- `app/forge_benchmark_adapter.py`
+- `app/forge_bounded_queue.py`
+- `app/forge_db_path.py`
+- `app/forge_diff_analyzer.py`
+- `app/forge_dpop.py`
+- `app/forge_edge_fleet.py`
+- `app/forge_health_diagnostic.py`
+- `app/forge_hub_client.py`
+- `app/forge_llm_router.py`
+- `app/forge_machine_vault.py`
+- `app/forge_persona_tpm.py`
+- `app/forge_proposal_applier.py`
+- `app/forge_provider_admin.py`
+- `app/forge_provider_alias.py`
+- `app/forge_resource_manager.py`
+- `app/forge_secrets.py`
+- `app/forge_semantic_firewall.py`
+
+
+## Commit b93016ac3 — 2026-09-29 07:17
+**fix(wiki): l'empreinte du corps (L3) ne mesure plus la version de Python**
+
+### Modules Python modifiés
+- `tests/nr/test_empreinte_stable_interpreteur_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_wiki_modules.py`
+
+
+## Commit 0d1455d67 — 2026-09-29 07:10
+**docs(wiki): 25 pages relues datees du jour -- plus aucune page au-dela de 60 j**
+
+### Documentation mise à jour
+- `docs/wiki/01-Installation.fr.md`
+- `docs/wiki/01-Installation.md`
+- `docs/wiki/02-Quick-Start.fr.md`
+- `docs/wiki/02-Quick-Start.md`
+- `docs/wiki/03-Architecture.fr.md`
+- `docs/wiki/03-Architecture.md`
+- `docs/wiki/04-MCP-Clients-Setup.fr.md`
+- `docs/wiki/04-MCP-Clients-Setup.md`
+- `docs/wiki/05-LLM-Providers.fr.md`
+- `docs/wiki/05-LLM-Providers.md`
+
+
+## Commit ceb1f43d5 — 2026-09-29 07:08
+**docs(readme)+feat(docs): README au reel ; datation --relue, le geste explicite de relecture**
+
+### Modules Python modifiés
+- `tests/nr/test_note_apres_frontmatter_nr.py`
+- `tools/forge_docs_datation.py`
+
+### Documentation mise à jour
+- `README.md`
+
+
+## Commit 149f3efe6 — 2026-09-29 06:52
+**docs(wiki): revue des pages > 60 j, lot 3 -- coffre, clients, FR condensees, SearXNG**
+
+### Documentation mise à jour
+- `docs/wiki/04-MCP-Clients-Setup.fr.md`
+- `docs/wiki/04-MCP-Clients-Setup.md`
+- `docs/wiki/06-Hub-API-Reference.fr.md`
+- `docs/wiki/08-Vault-and-Secrets.fr.md`
+- `docs/wiki/08-Vault-and-Secrets.md`
+- `docs/wiki/11-Cross-OS-Notes.fr.md`
+- `docs/wiki/11-Cross-OS-Notes.md`
+- `docs/wiki/SearXNG-Keeper.md`
+
+
+## Commit 7e167536f — 2026-09-29 06:47
+**docs(wiki): revue des pages > 60 j, lot 2 -- TUI, premier lancement, knowledge pack, gouvernance**
+
+### Documentation mise à jour
+- `docs/wiki/07-Security-Model.fr.md`
+- `docs/wiki/09-TUI-Reference.fr.md`
+- `docs/wiki/09-TUI-Reference.md`
+- `docs/wiki/17-First-Launch.fr.md`
+- `docs/wiki/17-First-Launch.md`
+- `docs/wiki/19-Knowledge-Pack.fr.md`
+- `docs/wiki/19-Knowledge-Pack.md`
+- `docs/wiki/22-Governance-Cognition-Safety.fr.md`
+- `docs/wiki/22-Governance-Cognition-Safety.md`
+
+
+## Commit 70b77c985 — 2026-09-29 06:39
+**docs(wiki): revue des pages > 60 j, lot 1 -- ce que le code dit, pas ce que la page croyait**
+
+### Documentation mise à jour
+- `README.md`
+- `docs/wiki/01-Installation.fr.md`
+- `docs/wiki/01-Installation.md`
+- `docs/wiki/02-Quick-Start.fr.md`
+- `docs/wiki/02-Quick-Start.md`
+- `docs/wiki/04-MCP-Clients-Setup.fr.md`
+- `docs/wiki/04-MCP-Clients-Setup.md`
+- `docs/wiki/05-LLM-Providers.fr.md`
+- `docs/wiki/05-LLM-Providers.md`
+- `docs/wiki/07-Security-Model.fr.md`
+
+
+## Commit 6051e6bfd — 2026-09-29 06:26
+**fix(wiki): l'aligneur ne retouche jamais une page generee**
+
+### Modules Python modifiés
+- `tests/nr/test_wiki_align_commandes_nr.py`
+- `tools/forge_wiki_align.py`
+
+
+## Commit c754feec1 — 2026-09-29 06:25
+**feat(wiki): l'aligneur renomme aussi les commandes du cutover, prouvees par pyproject**
+
+### Modules Python modifiés
+- `tests/nr/test_wiki_align_commandes_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_wiki_align.py`
+
+
+## Commit 54b641efa — 2026-09-28 17:40
+**test(nr): errors=replace sur les subprocess texte du NR bilan coffre (gate firehose)**
+
+### Modules Python modifiés
+- `tests/nr/test_superviseur_bilan_coffre_nr.py`
+
+
+## Commit 5cebe5154 — 2026-09-28 17:40
+**test(nr): deux NR du coffre rendus hermetiques (CI 36440801595 : 5 echecs, compte user)**
+
+### Modules Python modifiés
+- `tests/nr/test_release_lock_provenance_nr.py`
+- `tests/nr/test_superviseur_bilan_coffre_nr.py`
+
+
+## Commit 0dc24fb86 — 2026-09-28 17:03
+**fix(bridge): le pont stdio ne lit plus de jeton dans l'environnement**
+
+### Modules Python modifiés
+- `tools/mcp_stdio_bridge.py`
+
+
+## Commit 83b721ab1 — 2026-09-28 16:42
+**docs(wiki): regeneration du 2026-09-28 -- pairs cloud, coffre au repos, resynchro des clients**
+
+### Documentation mise à jour
+- `docs/wiki/01-Installation.fr.md`
+- `docs/wiki/01-Installation.md`
+- `docs/wiki/02-Quick-Start.fr.md`
+- `docs/wiki/02-Quick-Start.md`
+- `docs/wiki/03-Architecture.fr.md`
+- `docs/wiki/03-Architecture.md`
+- `docs/wiki/04-MCP-Clients-Setup.fr.md`
+- `docs/wiki/04-MCP-Clients-Setup.md`
+- `docs/wiki/05-LLM-Providers.fr.md`
+- `docs/wiki/05-LLM-Providers.md`
+
+
+## Commit 49bd0539c — 2026-09-28 16:41
+**fix(docs): une note de doc ne se pose jamais au-dessus d'un frontmatter**
+
+### Modules Python modifiés
+- `tests/nr/test_note_apres_frontmatter_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_docs_datation.py`
+- `tools/forge_docs_port_annotate.py`
+
+
+## Commit 25d7339de — 2026-09-28 16:25
+**refactor(pairs): un seul chemin pour les outils de pair (clone releve par le cliquet duplication)**
+
+### Modules Python modifiés
+- `tools/forge_pair_mcp.py`
+
+
+## Commit 380c62c6e — 2026-09-28 16:02
+**chore(pairs): except voulu de _sid_owner marque muet-ok (profil systeme sans chemin)**
+
+### Modules Python modifiés
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit 5e9a30285 — 2026-09-28 16:02
+**fix(pairs): quarantaine etanche face aux agents locaux -- approbation = owner eleve, intents en liste blanche**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_quarantaine_geste_owner_nr.py`
+- `tests/nr/test_pair_quarantaine_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit 0f54d1c1c — 2026-09-28 15:25
+**fix(pairs): le Host public du tunnel passe la protection DNS-rebinding de FastMCP**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_mcp_hote_public_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+
+
+## Commit 6132f3038 — 2026-09-28 15:02
+**feat(pairs): quarantaine owner + deliberation RecursiveMAS + service NokidoPairMCP (coupe)**
+
+### Modules Python modifiés
+- `tests/nr/test_lanceur_profil_pair_nr.py`
+- `tests/nr/test_pair_quarantaine_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_bridge_launch.py`
+- `tools/forge_pair_quarantaine.py`
+
+
+## Commit 2a30e2923 — 2026-09-28 14:51
+**feat(connecteur): serveur MCP des pairs cloud -- lecture en liste blanche, collaboration en quarantaine M2M**
+
+### Modules Python modifiés
+- `tests/nr/test_pair_mcp_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_pair_mcp.py`
+
+
+## Commit dbdfd620c — 2026-09-28 14:42
+**feat(connecteur): une autorite OAuth parametree par passerelle ; passerelle des pairs cloud**
+
+### Modules Python modifiés
+- `tests/nr/test_oauth_par_passerelle_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_bridge_oauth.py`
+- `tools/forge_passerelle_pair.py`
+
+
+## Commit ce2663508 — 2026-09-28 14:19
+**fix(mcp): la synchro de rotation rafraichit Gemini, Antigravity, VS Code natif et Copilot**
+
+### Modules Python modifiés
+- `tests/nr/test_mcp_json_sync_clients_http_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_mcp_json_sync.py`
+
+
+## Commit 81b6faecf — 2026-09-28 14:13
+**fix(coffre): le provisionnement ne dit plus « NON provisionnees » pour un nom ferme present au coffre reserve**
+
+### Modules Python modifiés
+- `tests/nr/test_provision_source_retiree_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit c5d2eafc3 — 2026-09-28 14:11
+**fix(coffre): le semeur relit la VALEUR ecrite ; plus aucune fin de jeton affichee**
+
+### Modules Python modifiés
+- `tests/nr/test_semeur_relit_la_valeur_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_vault_seed_agent_tokens.py`
+
+
+## Commit 1f59d7d08 — 2026-09-28 13:59
+**feat(at-rest): --rekey-clore efface les sauvegardes d'un changement de cle reussi, sur preuve seulement**
+
+### Modules Python modifiés
+- `tests/nr/test_vc_rekey_scripte_nr.py`
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit 091871aed — 2026-09-28 13:58
+**fix(at-rest): --rekey relit la VALEUR du coffre reserve (fausse alerte en production le 2026-09-28)**
+
+### Modules Python modifiés
+- `tests/nr/test_vc_rekey_scripte_nr.py`
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit 9dc2a2681 — 2026-09-28 13:36
+**feat(demarrage): V: se monte par la tache SYSTEM, la cle ne passe plus par la session owner**
+
+### Modules Python modifiés
+- `tests/nr/test_demarrage_monte_v_par_system_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit b8c4da9ee — 2026-09-28 13:32
+**fix(at-rest): errors='replace' sur l'appel icacls de --rekey (gate anti-regression)**
+
+### Modules Python modifiés
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit 38f43af0f — 2026-09-28 13:31
+**feat(at-rest): changement du fichier-cle de V: SANS interface graphique (--rekey, --rekey-restaurer)**
+
+### Modules Python modifiés
+- `tests/nr/test_vc_rekey_scripte_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit dab7eedd5 — 2026-09-28 13:27
+**chore(at-rest): saut volontaire d'une PRF absente marque muet-ok (gate de recidive)**
+
+### Modules Python modifiés
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit ebdcf1c02 — 2026-09-28 13:27
+**fix(at-rest): en-tete de V: verifie hors VeraCrypt ; voie graphique du changement de cle retiree**
+
+### Modules Python modifiés
+- `tests/nr/test_vc_entete_hors_veracrypt_nr.py`
+- `tests/nr/test_vc_rekey_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit 3b3d42eae — 2026-09-28 13:21
+**fix(mcp): la synchro des jetons couvre les portees utilisateur et locale de ~/.claude.json**
+
+### Modules Python modifiés
+- `tests/nr/test_mcp_json_sync_portees_claude_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_mcp_json_sync.py`
+
+
+## Commit ddfabd32d — 2026-09-28 11:17
+**docs(plans): deroule de la fenetre de maintenance du coffre (rotation, fichier-cle, NSSM, redemarrage)**
+
+### Documentation mise à jour
+- `plans/fenetre-maintenance-coffre.md`
+
+
+## Commit fe791ee8b — 2026-09-28 11:16
+**feat(coffre): outil de ROTATION des secrets exposes (etape 3), sous SYSTEM -- retire aussi les copies des noms fermes**
+
+### Modules Python modifiés
+- `tests/nr/test_coffre_rotation_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_rotation.py`
+
+
+## Commit 28aba5fea — 2026-09-28 11:14
+**feat(superviseur): etape F -- le chargeur de secrets du coffre dit son bilan (noms), prealable au retrait NSSM**
+
+### Modules Python modifiés
+- `tests/nr/test_superviseur_bilan_coffre_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 2f03fea6c — 2026-09-28 11:13
+**fix(hub): /api/login/renouveler porte sa borne d'origine dans le handler (regression de 6808a62de)**
+
+### Modules Python modifiés
+- `tools/nokido_hub.py`
+
+
+## Commit 35edce8c8 — 2026-09-28 11:05
+**feat(at-rest): changement du fichier-cle VeraCrypt en trois phases gardees (--rekey-*)**
+
+### Modules Python modifiés
+- `tests/nr/test_vc_rekey_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_at_rest_veracrypt.py`
+
+
+## Commit 2a6f688f4 — 2026-09-28 11:01
+**fix(secrets): fichier-cle VeraCrypt FERME hors SYSTEM -- chaque lecteur legitime a sa voie**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+- `tests/nr/test_fichier_cle_veracrypt_reserve_nr.py`
+
+
+## Commit 239116a39 — 2026-09-28 10:50
+**feat(rmas): capsule cognitive -- le debat se cristallise en une capsule courte et tracable pour les boites noires**
+
+### Modules Python modifiés
+- `tests/nr/test_capsule_cognitive_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_debate_job.py`
+- `tools/forge_debate_run_job.py`
+
+
+## Commit 7d5e03ef7 — 2026-09-28 10:41
+**fix(secrets): le fichier-cle VeraCrypt de V: devient un nom reserve (en transition), lu au guichet**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+- `tests/nr/test_fichier_cle_veracrypt_reserve_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_at_rest_veracrypt.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit c7b47a756 — 2026-09-28 10:33
+**feat(auth): TaskExecutor relit son jeton a chaque appel et recoit le jeton court du lanceur**
+
+### Modules Python modifiés
+- `tests/nr/test_task_executor_jeton_par_appel_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_runas_launcher.py`
+- `tools/forge_task_executor.py`
+
+
+## Commit a199d43f2 — 2026-09-28 10:25
+**feat(auth): jeton PROJETE -- le lanceur garde vivant le jeton court du service (motif Kubernetes)**
+
+### Modules Python modifiés
+- `app/forge_agent_credential.py`
+- `tests/nr/test_jeton_projete_nr.py`
+- `tests/nr/test_lanceur_runas_environnement_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_runas_launcher.py`
+
+
+## Commit cfd05859d — 2026-09-28 10:17
+**fix(secrets): plus aucune cle de chiffrement derivee du maitre ; FORGE_ENCRYPT_KEY et LAFORGE_DB_KEY refermes hors SYSTEM**
+
+### Modules Python modifiés
+- `app/forge_db_conn.py`
+- `app/forge_encrypt.py`
+- `app/forge_secrets.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+- `tests/nr/test_lectures_reservees_hors_guichet_cliquet_nr.py`
+- `tests/nr/test_pas_de_cle_derivee_du_maitre_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit e44e39a69 — 2026-09-28 10:02
+**fix(ctl): nokido_ensure_service remarche -- ctl lance par le hub ne rappelle plus le hub**
+
+### Modules Python modifiés
+- `tests/nr/test_ctl_sans_boucle_par_le_hub_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_ensure_service.py`
+- `tools/forge_supervisor_ctl.py`
+
+
+## Commit e844c80ff — 2026-09-28 09:55
+**fix(secrets): FORGE_ENCRYPT_KEY et LAFORGE_DB_KEY remis en transition -- repli silencieux sur une cle derivee du maitre**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+
+
+## Commit 175d8e9a7 — 2026-09-28 09:53
+**fix(secrets): LAFORGE_SUPERVISOR_TOKEN remis en transition -- la relance owner du hub prenait 401**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+
+
+## Commit 9278939ae — 2026-09-28 09:45
+**feat(auth): etapes D+E -- le lanceur runAs ne transmet plus les secrets du superviseur ; RSSWatcher recoit son jeton court**
+
+### Modules Python modifiés
+- `tests/nr/test_lanceur_runas_environnement_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_runas_launcher.py`
+
+
+## Commit a0ca3f721 — 2026-09-28 09:33
+**feat(auth): etape B -- auxiliaire du lanceur, assertion TPM d'abord (jeton court injecte)**
+
+### Modules Python modifiés
+- `tests/nr/test_jeton_lanceur_auxiliaire_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_jeton_lanceur.py`
+
+
+## Commit d5a8e50e3 — 2026-09-28 09:30
+**feat(auth): etape C -- un service utilise le jeton court de son lanceur et le renouvelle (RFC 8693)**
+
+### Modules Python modifiés
+- `app/forge_agent_credential.py`
+- `tests/nr/test_jeton_injecte_par_le_lanceur_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 6808a62de — 2026-09-28 09:26
+**fix(auth): le renouvellement des jetons courts devient un echange de jeton RFC 8693**
+
+### Modules Python modifiés
+- `app/forge_auth_tokens.py`
+- `tests/nr/test_renouvellement_jeton_court_nr.py`
+- `tools/nokido_hub.py`
+
+
+## Commit d3ed4036d — 2026-09-28 09:11
+**feat(auth): renouvellement des jetons courts -- etape A du jeton injecte par le superviseur**
+
+### Modules Python modifiés
+- `app/forge_auth_tokens.py`
+- `app/forge_integrity.py`
+- `tests/nr/test_renouvellement_jeton_court_nr.py`
+- `tests/nr/test_revocation_chemins_connus_nr.py`
+- `tools/ci_local.py`
+- `tools/nokido_hub.py`
+
+
+## Commit dff03d084 — 2026-09-28 09:01
+**fix(secrets): 2b-6 -- plus aucun lecteur direct d'un nom reserve au coffre machine**
+
+### Modules Python modifiés
+- `app/forge_grounder.py`
+- `tests/nr/test_lecteurs_directs_reserves_2b6_nr.py`
+- `tests/nr/test_lectures_reservees_hors_guichet_cliquet_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_acp_adapter.py`
+- `tools/forge_ami_strategist.py`
+- `tools/forge_goap_online_launch.py`
+- `tools/forge_mcp_json_sync.py`
+- `tools/forge_swebench_strategy_debate.py`
+- `tools/forge_vscode_mcp_sync.py`
+
+
+## Commit db2343a46 — 2026-09-28 08:53
+**fix(secrets): 2b-6 lot 2 -- HUB_JWT_SECRET et firewall_log_hmac FERMES hors SYSTEM**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+
+
+## Commit 8a32b2cae — 2026-09-28 08:41
+**fix(secrets): 2b-6 lot 1 -- les noms reserves FERMES ne se lisent plus au coffre machine ni dans Nokido.env**
+
+### Modules Python modifiés
+- `app/forge_secrets.py`
+- `app/forge_semantic_firewall.py`
+- `tests/nr/test_fermeture_replis_reserves_2b6_nr.py`
+- `tests/nr/test_secrets_reserves_recensement_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_reindex_deport.py`
+- `tools/forge_supervisor_reconcile.py`
+
+
+## Commit bcefa5139 — 2026-09-28 08:11
+**chore(portail): refus EdDSA volontairement muet, marque muet-ok (pas d'oracle)**
+
+### Modules Python modifiés
+- `app/web_hub/auth.py`
+
+
+## Commit ec0f7310c — 2026-09-28 08:10
+**feat(portail): sessions EdDSA verifiees par la cle ENREGISTREE de WEBHUB ; outil de cle du portail**
+
+### Modules Python modifiés
+- `app/web_hub/auth.py`
+- `tests/nr/test_portail_eddsa_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_portail_cle.py`
+
+
+## Commit dba262032 — 2026-09-28 08:04
+**fix(cles): le registre des cles publiques d'agents quitte sandbox/ (dossier owner, jamais cree)**
+
+### Modules Python modifiés
+- `app/forge_agent_keys.py`
+- `tests/nr/test_registre_cles_hors_sandbox_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 5cd5469f9 — 2026-09-28 07:56
+**fix(secrets): cle HMAC d'integrite partagee, source unique, plus jamais de cle devinable**
+
+### Modules Python modifiés
+- `app/forge_conv_sanitizer.py`
+- `app/forge_secrets.py`
+- `app/forge_state_manager.py`
+- `app/forge_vec_ledger.py`
+- `tests/nr/test_cle_integrite_partagee_nr.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tests/nr/test_maitre_decouple_des_cles_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit 13a8d7383 — 2026-09-28 07:49
+**fix(superviseur): ctl lit son jeton au guichet ; hors SYSTEM, mutations via le hub**
+
+### Modules Python modifiés
+- `tests/nr/test_supervisor_ctl_via_hub_2b5_nr.py`
+- `tests/test_forge_supervisor_ctl.py`
+- `tools/ci_local.py`
+- `tools/forge_supervisor_ctl.py`
+
+
+## Commit 3dcacba79 — 2026-09-28 07:35
+**feat(credential): jeton_hub(identite) pour les clients du hub ; transition maitre pour tout client du pont ; nom de l'owner hors du code**
+
+### Modules Python modifiés
+- `app/forge_agent_credential.py`
+- `app/forge_auth_tokens.py`
+- `tests/nr/test_connexion_persona_et_maitre_2b1_nr.py`
+- `tests/nr/test_jeton_hub_identite_ou_transition_2b5_nr.py`
+- `tests/nr/test_pont_stdio_identite_propre_2b5_nr.py`
+- `tools/ci_local.py`
+- `tools/mcp_stdio_bridge.py`
+- `tools/nokido_tui.py`
+
+
+## Commit 9f468f242 — 2026-09-28 07:11
+**fix(pont): le pont stdio presente l'identite PROPRE de chaque client, plus le maitre**
+
+### Modules Python modifiés
+- `tests/nr/test_pont_stdio_identite_propre_2b5_nr.py`
+- `tools/ci_local.py`
+- `tools/mcp_stdio_bridge.py`
+
+
+## Commit c3ae14f32 — 2026-09-28 06:59
+**feat(coffre): 2b-4 jetons courts emis par le hub hors SYSTEM, HMAC conserve**
+
+### Modules Python modifiés
+- `app/forge_agent_credential.py`
+- `tests/nr/test_cycle_de_vie_jetons_nr.py`
+- `tests/nr/test_jeton_court_emis_par_le_hub_2b4_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit f101c675c — 2026-09-28 06:55
+**feat(coffre): 2b-3 JWT du hub en EdDSA (Ed25519), cle privee reservee, HS256 en transition**
+
+### Modules Python modifiés
+- `app/forge_auth_jwt.py`
+- `app/forge_secrets.py`
+- `tests/nr/test_jwt_hub_ed25519_2b3_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit 7c1decad1 — 2026-09-28 06:48
+**fix(coffre): 2b-2 lot B2 -- le hub rejette les jetons d'une autre famille, proxy MCP sur son jeton propre**
+
+### Modules Python modifiés
+- `app/forge_auth_jwt.py`
+- `tests/nr/test_admin_jeton_propre_organe_nr.py`
+- `tests/nr/test_familles_de_jetons_2b2_nr.py`
+- `tests/nr/test_lectures_reservees_hors_guichet_cliquet_nr.py`
+- `tools/ci_local.py`
+- `tools/nokido_mcp_proxy.py`
+
+
+## Commit ee71572a0 — 2026-09-28 06:42
+**fix(coffre): 2b-2 lot B1 -- quatre noms reserves de plus, lecteurs au guichet, cliquet**
+
+### Modules Python modifiés
+- `app/forge_integrity.py`
+- `app/forge_jwt_router.py`
+- `app/forge_rbac.py`
+- `app/forge_secrets.py`
+- `app/forge_semantic_firewall.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tests/nr/test_guichet_seul_2b2_nr.py`
+- `tests/nr/test_lectures_reservees_hors_guichet_cliquet_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+- `tools/forge_privileged_bridge.py`
+- `tools/nokido_hub.py`
+
+
+## Commit 3272f1da3 — 2026-09-28 06:41
+**fix(governed_edit): trace de derogation critique dans un journal, plus sur stderr (WEDGE KILL du hub)**
+
+### Modules Python modifiés
+- `tests/nr/test_governed_edit_trace_non_bloquante_nr.py`
+- `tools/forge_governed_edit.py`
+
+
+## Commit 49fb8ffe3 — 2026-09-28 06:16
+**fix(coffre): suites de 2b-1 -- cle persona jamais recreee, login_agent sans import du hub, garde a bornes de mot**
+
+### Modules Python modifiés
+- `app/forge_auth_tokens.py`
+- `app/forge_persona_tpm.py`
+- `tests/nr/test_connexion_persona_et_maitre_2b1_nr.py`
+- `tests/test_tool_gate_env_faux_positif.py`
+- `tools/forge_tool_gate.py`
+
+
+## Commit 69b9df82d — 2026-09-28 06:09
+**fix(coffre): 2b-1 cle persona fail-closed, HMAC persona refuse ring<=1, maitre retire comme identite**
+
+### Modules Python modifiés
+- `app/forge_auth_tokens.py`
+- `app/forge_persona_tpm.py`
+- `app/forge_secrets.py`
+- `app/tests/test_persona_tpm.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tests/nr/test_connexion_persona_et_maitre_2b1_nr.py`
+- `tests/test_capability_tokens.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+- `tools/forge_release_lock.py`
+
+
+## Commit a1bbdbb9e — 2026-09-28 05:14
+**feat(secrets): etape 2a du correctif du coffre -- coffre RESERVE lu d'abord, repli conserve (go owner)**
+
+### Modules Python modifiés
+- `app/forge_machine_vault.py`
+- `app/forge_secrets.py`
+- `tests/nr/test_coffre_reserve_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_coffre_reserve_provision.py`
+
+
+## Commit e736322fc — 2026-09-28 03:12
+**feat(secrets): etape 1 du correctif du coffre -- le jeton maitre n'est plus une cle (go owner)**
+
+### Modules Python modifiés
+- `app/forge_auth_jwt.py`
+- `app/forge_conv_sanitizer.py`
+- `app/forge_encrypt.py`
+- `app/forge_secrets.py`
+- `app/forge_snapshot.py`
+- `app/forge_state_manager.py`
+- `app/forge_vec_ledger.py`
+- `tests/nr/test_maitre_decouple_des_cles_nr.py`
+- `tests/test_forge_auth_jwt.py`
+- `tools/ci_local.py`
+
+
+## Commit 1b81b4a50 — 2026-09-28 02:49
+**fix(secrets): un recensement direct impossible se compte au lieu de se taire**
+
+### Modules Python modifiés
+- `app/forge_machine_vault.py`
+- `tests/nr/test_secrets_reserves_recensement_nr.py`
+
+
+## Commit 4e7530049 — 2026-09-28 02:48
+**fix(test): le NR success_oplog suit 5c0044003 -- un test cite n'est rejoue que s'il existe**
+
+### Modules Python modifiés
+- `tests/nr/test_success_oplog_nr.py`
+
+
+## Commit d834b8db8 — 2026-09-28 02:44
+**fix(audit): un chemin vers un secret n'est pas un secret -- `_FILE` et `_DIRECTORY`**
+
+### Modules Python modifiés
+- `tests/nr/test_secret_source_cliquet_nr.py`
+- `tools/forge_secret_source_audit.py`
+
+
+## Commit 54e2c53d0 — 2026-09-28 02:44
+**feat(secrets): etape 0 du correctif du coffre -- recenser qui lit un secret reserve (go owner)**
+
+### Modules Python modifiés
+- `app/forge_machine_vault.py`
+- `app/forge_secrets.py`
+- `tests/nr/test_secrets_reserves_recensement_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit c07a89fc4 — 2026-09-28 01:32
+**docs(plans): .github ferme aux sessions cloud, runner self-hosted arrete pendant la phase**
+
+### Documentation mise à jour
+- `plans/portabilite-linux.md`
+
+
+## Commit b08073348 — 2026-09-28 01:20
+**docs(plans): suite de tests portable sous Linux, decoupee pour sessions cloud (go owner)**
+
+### Documentation mise à jour
+- `plans/portabilite-linux.md`
+
+
+## Commit 8a3ddaa67 — 2026-09-28 01:06
+**docs(plans): connecteur claude.ai en lecture seule -- plan, rien d'expose (owner 28/09)**
+
+### Documentation mise à jour
+- `plans/connecteur-claude-ai-lecture-seule.md`
+
+
+## Commit 5cbb7af49 — 2026-09-28 01:02
+**feat(homeostat): un processus sans jeton superviseur DECLARE son besoin de RAM au hub (go owner)**
+
+### Modules Python modifiés
+- `app/forge_resource_manager.py`
+- `tests/nr/test_delegation_ressources_hub_nr.py`
+- `tests/nr/test_homeostat_soi_non_soi_nr.py`
+- `tests/nr/test_journal_porte_acteur_et_sujet_nr.py`
+- `tests/nr/test_routes_organes_authentifiees_nr.py`
+- `tools/ci_local.py`
+- `tools/nokido_hub.py`
+
+
+## Commit 2cb5200e5 — 2026-09-28 00:20
+**test(garde): NR parite -- subprocess texte avec errors=replace (gate firehose)**
+
+### Modules Python modifiés
+- `tests/nr/test_garde_python_parite_shell_nr.py`
+
+
+## Commit 534ebb5d6 — 2026-09-28 00:19
+**fix(garde): action=python a parite avec run shell sous le compte bac a sable (go owner)**
+
+### Modules Python modifiés
+- `app/forge_mcp_registry.py`
+- `app/forge_workspace_guard.py`
+- `tests/nr/test_garde_python_parite_shell_nr.py`
+- `tests/nr/test_workspace_guard_message_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit cab8b5760 — 2026-09-28 00:13
+**fix(homeostat): dire QUI porte la pression, et nommer un refus de sommeil au lieu d'un noop**
+
+### Modules Python modifiés
+- `app/forge_resource_manager.py`
+- `app/forge_sandbox_exec.py`
+- `tests/nr/test_homeostat_soi_non_soi_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 60e062ef2 — 2026-09-28 00:03
+**fix(edge): le broadcast world-vector ne vise que les noeuds qui le recoivent**
+
+### Modules Python modifiés
+- `app/forge_edge_fleet.py`
+- `tests/nr/test_edge_fleet_liste_blanche_nr.py`
+
+
+## Commit b9681b7d4 — 2026-09-28 00:02
+**fix(rag): plus aucune purge rag_fts par colonne UNINDEXED dans le depot (cliquet)**
+
+### Modules Python modifiés
+- `app/forge_rag_janitor.py`
+- `app/forge_synaptic_plasticity.py`
+- `app/forge_watch_agent.py`
+- `tests/nr/test_fts_delete_conditionnel_nr.py`
+- `tests/nr/test_fts_jamais_purge_par_colonne_unindexed_nr.py`
+- `tests/nr/test_veille_backfill_un_chunk_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_veille_backfill.py`
+- `tools/forge_veille_depollute.py`
+
+
+## Commit 71dc10022 — 2026-09-27 23:44
+**fix(rag): l'audit NREM1 ne balaie plus rag_fts sous verrou (hub fige ~1 h chaque soir a 22 h)**
+
+### Modules Python modifiés
+- `app/forge_db_path.py`
+- `tests/nr/test_audit_regulation_fts_sans_scan_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_body_regulation_audit.py`
+- `tools/forge_post_commit.py`
+
+
+## Commit d52c23cf7 — 2026-09-27 22:58
+**fix(hub): une ecriture SQLite ne fige plus la boucle du hub (1 257 s figees le 27/09)**
+
+### Modules Python modifiés
+- `app/forge_bounded_queue.py`
+- `app/forge_intention_journal.py`
+- `app/forge_promcp_profiler.py`
+- `app/forge_timecode.py`
+- `tests/nr/test_hub_boucle_jamais_figee_par_ecriture_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 18c316780 — 2026-09-27 22:23
+**fix(edge): la flotte ne choisit qu'un noeud PROUVE servir le chat (liste blanche)**
+
+### Modules Python modifiés
+- `app/forge_contract_net.py`
+- `app/forge_edge_fleet.py`
+- `app/tests/test_contract_net.py`
+- `app/web_hub/wired_routes.py`
+- `tests/nr/test_edge_fleet_liste_blanche_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit b8cb74e10 — 2026-09-27 22:00
+**fix(edge): noeud edge durci avant son premier deploiement LAN (VM StackDNS)**
+
+### Modules Python modifiés
+- `app/forge_edge_node.py`
+- `tests/nr/test_edge_node_durci_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 71a91f0f4 — 2026-09-27 21:04
+**chore(jepa_dataset): repli SyntaxError annote muet-ok (voulu, la carte garde le texte brut)**
+
+### Modules Python modifiés
+- `tools/forge_jepa_dataset.py`
+
+
+## Commit d8cfd6e9d — 2026-09-27 21:02
+**fix(superviseur): la rafale RAM n'endort plus le runner CI en plein job**
+
+### Modules Python modifiés
+- `tests/nr/test_runner_ci_pas_endormi_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit 4f06a46a9 — 2026-09-27 20:43
+**feat(jepa_dataset): source oplog -- triplets retrieval tires du journal des succes**
+
+### Modules Python modifiés
+- `tests/nr/test_jepa_dataset_oplog_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_jepa_dataset.py`
+
+
+## Commit acc8cac51 — 2026-09-27 20:18
+**test(swebench): sous-processus du NR en errors='replace'**
+
+### Modules Python modifiés
+- `tests/nr/test_swebench_hors_rag_nr.py`
+
+
+## Commit 243298e65 — 2026-09-27 20:17
+**fix(swebench): dossier de travail HORS de RAG/, un resolveur unique pour tous les runners**
+
+### Modules Python modifiés
+- `app/forge_benchmark_adapter.py`
+- `tests/nr/test_swebench_hors_rag_nr.py`
+- `tools/ci_local.py`
+- `tools/forge_sft_export.py`
+- `tools/forge_swebench_lats_runner.py`
+- `tools/forge_swebench_modal.py`
+- `tools/forge_swebench_repo_cache.py`
+- `tools/forge_swebench_runner.py`
+
+
+## Commit 446730160 — 2026-09-27 19:35
+**test(nr_instables): borne dediee de 120 s pour le chemin reel a sous-processus pytest**
+
+### Modules Python modifiés
+- `tests/nr/test_nr_instables_nr.py`
+
+
+## Commit 5d54e9017 — 2026-09-27 19:03
+**test(harness): NR du contrat hermetique -- plus d'import d'un module non versionne**
+
+### Modules Python modifiés
+- `tests/nr/test_harness_contract_nr.py`
+
+
+## Commit 5c0044003 — 2026-09-27 17:51
+**fix(registry,run_job,invariant): 3 handlers graph morts depuis mai, lane par compte, tests disparus DITS**
+
+### Modules Python modifiés
+- `app/forge_mcp_registry.py`
+- `tests/nr/test_capacites_touchees_tests_absents_nr.py`
+- `tests/nr/test_forge_patch_lane_auto_nr.py`
+- `tests/test_forge_mcp_registry_namespace.py`
+- `tools/ci_local.py`
+- `tools/forge_patch_lane_auto.py`
+- `tools/forge_success_oplog.py`
+
+
+## Commit 344a13eb4 — 2026-09-27 17:26
+**fix(registry): un intent GOAP sans outil MCP n'est plus un succes (fail-closed)**
+
+### Modules Python modifiés
+- `app/forge_mcp_registry.py`
+- `tests/nr/test_goap_outil_inconnu_failclosed_nr.py`
+- `tools/ci_local.py`
+
+
+## Commit b9237c062 — 2026-09-27 17:15
+**feat(harness): contrat d'execution par etape -- schema pur, verdict par liste blanche**
+
+### Modules Python modifiés
+- `app/forge_harness_contract.py`
+- `tests/nr/test_harness_contract_nr.py`
+- `tools/ci_local.py`
+
+
 ## Commit fd80ca15f — 2026-09-26 22:19
 **chore: marqueurs repli-hors-depot + churn auto**
 
@@ -1630,2260 +4134,4 @@ description: >
 ### Modules Python modifiés
 - `tests/nr/test_hub_persona_masquer_nr.py`
 - `tests/nr/test_pages_ui_8766_saines_nr.py`
-- `tests/nr/test_tui_raccourcis_atteignables_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ui_campaign.py`
-- `tools/nokido_hub.py`
-- `tools/nokido_tui.py`
-
-### Documentation mise à jour
-- `design_handoff_nokido/ui_kits/hub/README.md`
-- `docs/tui_user_guide.md`
-- `docs/wiki/02-Quick-Start.fr.md`
-- `docs/wiki/02-Quick-Start.md`
-- `docs/wiki/05-LLM-Providers.fr.md`
-- `docs/wiki/05-LLM-Providers.md`
-- `docs/wiki/09-TUI-Reference.fr.md`
-- `docs/wiki/09-TUI-Reference.md`
-- `docs/wiki/17-First-Launch.fr.md`
-- `docs/wiki/17-First-Launch.md`
-
-
-## Commit b4f1b46bd — 2026-09-24 23:50
-**fix(ui:8766): polices servies, /forge/network sans TypeError, refus MCP dit**
-
-### Modules Python modifiés
-- `tests/nr/test_pages_ui_8766_saines_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ui_campaign.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 2d5a84d7b — 2026-09-24 23:43
-**fix(tui): l'aide F1 et /help ne sont plus effacees en moins d'une seconde**
-
-### Modules Python modifiés
-- `tests/nr/test_tui_aide_reste_visible_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_tui.py`
-
-
-## Commit 946b456ac — 2026-09-24 23:40
-**fix(ui): page /epistemic sans balayage + campagne etendue aux vues hub et a :8766**
-
-### Modules Python modifiés
-- `app/web_hub/epistemic.py`
-- `tests/nr/test_chemin_chaud_sans_balayage_nr.py`
-- `tests/nr/test_epistemic_page_sans_balayage_nr.py`
-- `tests/nr/test_ui_campagne_couvre_les_vues_hub_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ui_campaign.py`
-
-
-## Commit 42adc4148 — 2026-09-24 23:18
-**feat(veilles): usage rendu par Groq enregistre REPORTED, cache compris**
-
-### Modules Python modifiés
-- `app/forge_agent_proxy.py`
-- `tests/nr/test_usage_provider_estime_n_est_pas_rapporte_nr.py`
-
-
-## Commit 38ce17520 — 2026-09-24 23:13
-**fix(veilles): sondes health en parallele + usage fournisseur declare ESTIMATED**
-
-### Modules Python modifiés
-- `app/forge_agent_proxy.py`
-- `app/forge_health_diagnostic.py`
-- `app/forge_sensor_fusion_probe.py`
-- `tests/nr/test_fusion_ports_sondes_en_parallele_nr.py`
-- `tests/nr/test_health_services_http_en_parallele_nr.py`
-- `tests/nr/test_usage_provider_estime_n_est_pas_rapporte_nr.py`
-- `tests/test_sensor_fusion_probe.py`
-- `tools/ci_local.py`
-
-
-## Commit 44d4ec62e — 2026-09-24 22:41
-**fix(veille): GATE_DENIED classe REJETE, pas INCONNU (C_06b-1)**
-
-### Modules Python modifiés
-- `app/forge_rss_watcher.py`
-- `tests/nr/test_rss_watcher_ne_perd_plus_d_alerte_nr.py`
-
-
-## Commit f7642ea3e — 2026-09-24 22:31
-**fix(veille): une alerte n'est plus marquee vue sans ingestion prouvee (C_06b)**
-
-### Modules Python modifiés
-- `app/forge_rss_watcher.py`
-- `tests/nr/test_rss_watcher_ne_perd_plus_d_alerte_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 5614c863d — 2026-09-24 22:17
-**fix(retention): la purge leve l'attribut lecture seule, les refus nomment le fichier**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 5677fa8b3 — 2026-09-24 22:10
-**fix(veille): les scans de code du consommateur comptent les fichiers illisibles**
-
-### Modules Python modifiés
-- `app/forge_diff_analyzer.py`
-- `tests/nr/test_watch_alerts_identite_canonique_nr.py`
-
-
-## Commit d8602993f — 2026-09-24 22:09
-**fix(veille): le consommateur des alertes de version lit enfin les alertes (C_06a, non cable)**
-
-### Modules Python modifiés
-- `app/forge_diff_analyzer.py`
-- `tests/nr/test_watch_alerts_identite_canonique_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 2268a0379 — 2026-09-24 22:04
-**fix(retention): un dossier sans .git n'est supprime que si git worktree list ne le connait plus**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 67d0662fc — 2026-09-24 22:00
-**fix(retention): les dossiers de preuve sans .git sont purges, noms des retires traces**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 4467f2f9c — 2026-09-24 21:34
-**fix(retention): racine importable avant le point unique tmp, la purge des preuves lit enfin la racine de la CI**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 672f3d8b0 — 2026-09-24 21:28
-**fix(providers): la redirection d'un alias refuse est calculee sur la surface presente**
-
-### Modules Python modifiés
-- `app/forge_agent_proxy.py`
-- `app/forge_provider_alias.py`
-- `tests/nr/test_provider_alias_nr.py`
-
-
-## Commit d5dcd38dc — 2026-09-24 21:23
-**fix(providers): pas de substitution silencieuse de modele par alias ; gemini_flash/pro renvoient vers AGY**
-
-### Modules Python modifiés
-- `app/forge_agent_proxy.py`
-- `app/forge_provider_alias.py`
-- `tests/nr/test_provider_alias_nr.py`
-
-
-## Commit 2a42579b3 — 2026-09-24 21:11
-**fix(health): un journal illisible est compte, pas saute en silence**
-
-### Modules Python modifiés
-- `app/forge_health_diagnostic.py`
-
-
-## Commit 260df094c — 2026-09-24 21:10
-**fix(health,retention): phase health hors de ses 90 s, et la purge des preuves CI purge enfin**
-
-### Modules Python modifiés
-- `app/forge_health_diagnostic.py`
-- `tests/nr/test_health_journaux_sans_copies_de_depot_nr.py`
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_log_retention.py`
-- `tools/forge_worktree.py`
-
-
-## Commit 6420a4e93 — 2026-09-24 20:51
-**feat(git-gate): soupape anti-perte etroite, le scan de secrets n'est plus enjambable par conseil**
-
-### Modules Python modifiés
-- `tests/nr/test_aucun_outil_ne_contourne_les_hooks_git_nr.py`
-- `tests/nr/test_git_gate_soupape_etroite_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_git_gate.py`
-
-
-## Commit b2c1c9fd7 — 2026-09-24 20:46
-**fix(nr): subprocess texte avec errors=replace dans le cliquet --no-verify**
-
-### Modules Python modifiés
-- `tests/nr/test_aucun_outil_ne_contourne_les_hooks_git_nr.py`
-
-
-## Commit 8d458a0bf — 2026-09-24 20:45
-**test(nr): aucun outil suivi ne passe --no-verify a git**
-
-### Modules Python modifiés
-- `tests/nr/test_aucun_outil_ne_contourne_les_hooks_git_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 02e8d5e5b — 2026-09-24 20:40
-**test(nr): le bail de mission reprend une fois, garde le checkpoint, abandonne apres plafond**
-
-### Modules Python modifiés
-- `tests/nr/test_tache_bail_expire_reprise_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit a739eca4c — 2026-09-24 20:37
-**feat(qualite): detecteur de NR instables, verdict test par test sur JUnit**
-
-### Modules Python modifiés
-- `tests/nr/test_nr_instables_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_nr_instables.py`
-
-
-## Commit 9f604cbfd — 2026-09-24 20:35
-**test(nr): cliquet des chemins frequents sans balayage de la base RAG**
-
-### Modules Python modifiés
-- `tests/nr/test_chemin_chaud_sans_balayage_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit a573459a8 — 2026-09-24 20:28
-**fix(providers): ask resout les noms du registre du hub par la table d'alias**
-
-### Modules Python modifiés
-- `app/forge_agent_proxy.py`
-- `tests/nr/test_provider_alias_nr.py`
-
-
-## Commit 554f3fc99 — 2026-09-24 20:24
-**feat(services): geler QdrantSync, et un service gele n'est plus reveille par la RAM**
-
-### Modules Python modifiés
-- `tests/nr/test_service_gele_jamais_reveille_par_la_ram_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 6a1f7a1bc — 2026-09-24 19:49
-**fix(superviseur): boucle de vitalite sans promesse pendue sur le pool sature**
-
-### Modules Python modifiés
-- `tests/nr/test_superviseur_boucle_ressources_non_bloquante_nr.py`
-- `tests/nr/test_supervisor_authz_contrat_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 6e8b4f848 — 2026-09-24 19:40
-**fix(services): racine importable AVANT nokido_agent dans 6 points d'entree**
-
-### Modules Python modifiés
-- `app/forge_gate_consumer.py`
-- `app/forge_hebbian_linker.py`
-- `tests/nr/test_points_d_entree_racine_avant_nokido_agent_nr.py`
-- `tools/ci_local.py`
-- `tools/cli_tail_capture.py`
-- `tools/forge_gemini_autonomous_agent.py`
-- `tools/forge_qdrant_sync_daemon.py`
-- `tools/forge_reindex_deport.py`
-
-
-## Commit 0011cebcd — 2026-09-24 19:27
-**fix(veille): la moisson reconnait une VRAIE phrase et l'extrait demarre au corps**
-
-### Modules Python modifiés
-- `tests/nr/test_moisson_page_corps_et_sources_propres_nr.py`
-- `tools/forge_veille_moisson.py`
-
-
-## Commit e7f60efba — 2026-09-24 19:09
-**feat(superviseur): journal des ordres mutants -- qui endort, reveille, demarre**
-
-### Modules Python modifiés
-- `app/forge_resource_manager.py`
-- `tests/nr/test_superviseur_pas_de_double_demarrage_nr.py`
-
-
-## Commit 502f78306 — 2026-09-24 19:06
-**fix(superviseur): plus de double demarrage (orphelins) + purge auto des worktrees de CI**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_worktrees_de_preuve_nr.py`
-- `tests/nr/test_superviseur_pas_de_double_demarrage_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 3695bac17 — 2026-09-24 17:45
-**feat(auto-amelioration): cable l'applicateur de propositions (etage reflexe seul)**
-
-### Modules Python modifiés
-- `app/forge_autonomous_loops.py`
-- `tests/nr/test_pattern_proposal_applier_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 00e7ff03c — 2026-09-24 17:33
-**fix(sauvegarde): cible fixe -- la preparation se fait SUR LA CIBLE, jamais sur C:**
-
-### Modules Python modifiés
-- `tests/nr/test_sauvegarde_cible_fixe_nr.py`
-- `tools/forge_backup_hotswap.py`
-
-
-## Commit 953c21f6d — 2026-09-24 17:26
-**fix(sauvegarde): un journal refuse ne tue plus la sauvegarde a l'import**
-
-### Modules Python modifiés
-- `tests/nr/test_sauvegarde_cible_fixe_nr.py`
-- `tools/forge_backup_hotswap.py`
-
-
-## Commit 3ba0b05bd — 2026-09-24 17:21
-**fix(sauvegarde): cle hors des arguments + cible fixe E: (decision owner)**
-
-### Modules Python modifiés
-- `tests/nr/test_sauvegarde_cible_fixe_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_backup_hotswap.py`
-
-
-## Commit 958fe3f21 — 2026-09-24 17:05
-**feat(auth): arme LAFORGE_ADMIN_TPM_ENFORCE -- preuve TPM exigee sur les routes admin**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_preuve_tpm_nr.py`
-
-
-## Commit 2364685fd — 2026-09-24 16:56
-**fix(superviseur): E/S hors du pool bloquant sature -- etat circadien et preuve TPM**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_preuve_tpm_nr.py`
-- `tools/forge_dpop_tpm_cli.py`
-
-
-## Commit 5e55b698f — 2026-09-24 16:45
-**feat(retention): conversation_log surveille, jamais purge tant que rien n'est distille**
-
-### Modules Python modifiés
-- `tests/nr/test_conversation_log_jamais_purge_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 470150537 — 2026-09-24 16:28
-**fix(superviseur): la preuve TPM est bornee dans le temps -- NREM1 ne se suspend plus en silence**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_preuve_tpm_nr.py`
-
-
-## Commit f2500a597 — 2026-09-24 16:26
-**feat(auth): borne du porteur du maitre, armable par l'owner (LAFORGE_MASTER_BORNE=1)**
-
-### Modules Python modifiés
-- `app/forge_videur.py`
-- `tests/nr/test_maitre_porte_acteur_et_sujet_nr.py`
-
-
-## Commit ce70f4d4e — 2026-09-24 16:24
-**fix(auth): cloture des routes d'organes du hub -- SENSIBLES_CONNUES vide**
-
-### Modules Python modifiés
-- `app/agent_sre_observabilit/agent_core.py`
-- `app/forge_authz_shadow.py`
-- `app/forge_clawhub_bridge.py`
-- `app/forge_dsl.py`
-- `app/forge_hub_client.py`
-- `app/laforge_tui/laforge_tui.py`
-- `tests/nr/test_authz_axes_separes_nr.py`
-- `tests/nr/test_capacite_atteinte_sans_garde_nr.py`
-- `tests/nr/test_decisions_de_chemin_sur_scope_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tests/nr/test_routes_organes_authentifiees_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_dt_router_wire.py`
-- `tools/forge_route_authz_audit.py`
-- `tools/nokido_hub.py`
-
-
-## Commit ccae2830b — 2026-09-24 16:10
-**fix(auth): mutations d'interface fermees par session UI + origine locale (AUTH-3/4/6)**
-
-### Modules Python modifiés
-- `app/forge_authz_http.py`
-- `tests/nr/test_capacite_atteinte_sans_garde_nr.py`
-- `tests/nr/test_garde_ui_mutation_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_route_authz_audit.py`
-- `tools/nokido_hub.py`
-
-
-## Commit da55821be — 2026-09-24 15:44
-**feat(auth): routes admin — un organe doit prouver sa cle TPM (observation, puis applique)**
-
-### Modules Python modifiés
-- `app/forge_dpop.py`
-- `tests/nr/test_admin_preuve_tpm_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_dpop_tpm_cli.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 10611225c — 2026-09-24 15:39
-**feat(auth): preuve DPoP adossee au TPM, prouvee sur materiel reel (6/6)**
-
-### Modules Python modifiés
-- `app/forge_dpop.py`
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_dpop_tpm_autorisation_nr.py`
-- `tests/nr/test_tpm_isolation_nest_pas_non_exportabilite_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit 1af81abd6 — 2026-09-24 15:29
-**fix(auth): #9 — une revue ne s'approuve plus sans separation verifiee (AUTH-6)**
-
-### Modules Python modifiés
-- `app/collab_modes/_participants.py`
-- `app/collab_modes/mode_auto.py`
-- `app/collab_modes/mode_cline.py`
-- `app/forge_task_bus.py`
-- `tests/nr/test_revue_fail_closed_nr.py`
-- `tools/ci_local.py`
-- `tools/mcp_nr.py`
-
-
-## Commit ae1cdec72 — 2026-09-24 15:25
-**fix(auth): le lanceur du bureau ne parle plus au hub anonymement ni sous un nom d'emprunt**
-
-### Modules Python modifiés
-- `tests/nr/test_lanceur_appels_hub_authentifies_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_launcher.py`
-
-
-## Commit 274fad71d — 2026-09-24 15:15
-**feat(auth): le jeton du hub est fourni a la connexion (headersHelper), plus au repos**
-
-### Modules Python modifiés
-- `tests/nr/test_mcp_headers_helper_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_mcp_json_sync.py`
-
-
-## Commit fc800133a — 2026-09-24 15:13
-**fix(scorecard): un echec n'est plus note OPTIMAL 1.0 (veille lot_B_33)**
-
-### Modules Python modifiés
-- `app/forge_mcp_registry.py`
-- `app/forge_scorecard.py`
-- `tests/nr/test_scorecard_echec_pas_optimal_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 19e0c4f44 — 2026-09-24 15:06
-**fix(auth): le hook post-commit porte son propre jeton (P0, AUTH-2)**
-
-### Modules Python modifiés
-- `tests/nr/test_post_commit_jeton_propre_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_post_commit.py`
-
-
-## Commit 399527022 — 2026-09-24 15:05
-**fix(agy): la delegation n'approuve plus tout par defaut**
-
-### Modules Python modifiés
-- `tests/nr/test_agy_delegation_sans_approbation_totale_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_task_executor.py`
-
-
-## Commit a2689185a — 2026-09-24 15:00
-**fix(rag): l'ingestion llms.txt valide par page, elle ne tient plus le verrou d'ecriture**
-
-### Modules Python modifiés
-- `tests/nr/test_ingest_llms_txt_valide_par_page_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ingest_llms_txt.py`
-
-
-## Commit d02edfd09 — 2026-09-24 15:00
-**feat(dlp): la copie RAG des conversations masque TOUTES les donnees personnelles**
-
-### Modules Python modifiés
-- `app/forge_conversation_logger.py`
-- `app/forge_semantic_firewall.py`
-- `tests/nr/test_conversation_log_dlp_rag_nr.py`
-
-
-## Commit b3d27a002 — 2026-09-24 14:44
-**fix(dlp): conversation_log masque aussi les cles d'API ; 5 formes ajoutees au scanner sortant**
-
-### Modules Python modifiés
-- `app/forge_conversation_logger.py`
-- `app/forge_secret_guard.py`
-- `tests/nr/test_conversation_log_dlp_rag_nr.py`
-
-
-## Commit 2b70c6295 — 2026-09-24 14:39
-**fix(securite): decider sur scope[path], jamais sur url.path (CVE-2026-48710)**
-
-### Modules Python modifiés
-- `app/forge_graph_explorer.py`
-- `app/web_hub/app.py`
-- `tests/nr/test_decisions_de_chemin_sur_scope_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_demand_proxy.py`
-
-
-## Commit c033e2f3d — 2026-09-24 14:37
-**perf(contexte): un hook ne reinjecte pas un signal inchange**
-
-### Modules Python modifiés
-- `tests/nr/test_inbox_hook_sans_repetition_nr.py`
-- `tests/nr/test_memoire_hook_sans_repetition_nr.py`
-- `tools/claude_inbox_tick.py`
-- `tools/hub_lifecycle_hooks.py`
-
-
-## Commit 08d71c33b — 2026-09-24 14:37
-**feat(veille): surveiller la doc de Claude Code, pas seulement celle de l'API**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_cli_couvre_claude_code_nr.py`
-- `tools/forge_cli_version_watch.py`
-
-
-## Commit 0426422ce — 2026-09-24 14:00
-**fix(conversation_log): DLP sur la copie RAG des tours, fail-closed, borne dite**
-
-### Modules Python modifiés
-- `app/forge_conversation_logger.py`
-- `tests/nr/test_conversation_log_dlp_rag_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit d8236b85d — 2026-09-24 13:57
-**feat(applicateur): barriere — aucune action ne vise tests, cliquets, gardes ou fichiers critiques**
-
-### Modules Python modifiés
-- `app/forge_proposal_applier.py`
-- `tests/nr/test_applicateur_ne_touche_pas_aux_gardes_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 5be77e031 — 2026-09-24 13:55
-**fix(hub,ollama): protocolVersion negociee, consignes serveur, decisions sur scope[path], cloud Ollama coupe**
-
-### Modules Python modifiés
-- `app/forge_mcp_protocole.py`
-- `tests/nr/test_mcp_protocole_nr.py`
-- `tests/nr/test_ollama_cloud_coupe_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_bridge_oauth.py`
-- `tools/forge_patch_authz_shadow.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 0b8f4ffa9 — 2026-09-24 13:42
-**test(gabarits): cliquet des gabarits de prompt .format() + controle positif du digest 22/07**
-
-### Modules Python modifiés
-- `tests/nr/test_gabarits_prompt_format_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit cc0f85a01 — 2026-09-24 13:39
-**fix(veille_moisson): corps des pages de doc (pas le menu) + sources de l'owner ecartees**
-
-### Modules Python modifiés
-- `tests/nr/test_moisson_page_corps_et_sources_propres_nr.py`
-- `tests/nr/test_veille_moisson_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_moisson.py`
-
-
-## Commit bddb3bc9a — 2026-09-24 13:33
-**fix(key_rotation): verrou inter-processus + temporaire unique sur le ledger de sante**
-
-### Modules Python modifiés
-- `app/forge_key_rotation.py`
-- `tests/nr/test_key_rotation_ledger_concurrent_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 302c57276 — 2026-09-23 22:09
-**fix(embed-backfill): curseur id et borne haute, plus de relecture par lot**
-
-### Modules Python modifiés
-- `tests/nr/test_backfill_sans_relecture_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_embed_backfill_cool.py`
-
-
-## Commit 3ed161478 — 2026-09-23 20:50
-**fix(health): audit RAG sans balayage, echantillon declare, pas de relance**
-
-### Modules Python modifiés
-- `app/forge_health_diagnostic.py`
-- `tests/nr/test_health_audit_rag_sans_scan_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 1960757ad — 2026-09-23 20:00
-**docs(veille): cartographie de couverture du corpus (4 stocks)**
-
-### Documentation mise à jour
-- `docs/veilles/CARTOGRAPHIE_COUVERTURE_2026-09-23.md`
-
-
-## Commit faec21534 — 2026-09-23 19:24
-**docs(veille): registre de substance des veilles (4 etats, mecanismes)**
-
-### Documentation mise à jour
-- `docs/veilles/REGISTRE_SUBSTANCE_2026-09-23.md`
-
-
-## Commit 6d2eff956 — 2026-09-23 19:06
-**fix(cards): ingest_cards ne balaie plus rag_fts par carte (reliquat P0 WAL)**
-
-### Modules Python modifiés
-- `tests/nr/test_module_cards_sans_scan_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_module_cards.py`
-
-
-## Commit c1d3f99f4 — 2026-09-23 18:49
-**fix(post-commit): liveness sans balayage, audit_rag_chunks hors du hook**
-
-### Modules Python modifiés
-- `tests/nr/test_post_commit_sans_scan_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_post_commit.py`
-
-
-## Commit c1d3f99f4 — 2026-09-23 18:49
-**fix(post-commit): liveness sans balayage, audit_rag_chunks hors du hook**
-
-### Modules Python modifiés
-- `tests/nr/test_post_commit_sans_scan_nr.py`
-- `tools/forge_post_commit.py`
-
-
-## Commit 0690e3a84 — 2026-09-23 18:34
-**fix(rag): le repli lexical n'exhume plus les chunks retires (active=0)**
-
-### Modules Python modifiés
-- `app/forge_mcp_registry.py`
-- `tests/nr/test_rag_lexical_exclut_inactifs_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 0690e3a84 — 2026-09-23 18:19
-**fix(rag): le repli lexical n'exhume plus les chunks retires (active=0)**
-
-### Modules Python modifiés
-- `tests/nr/test_job_watch_bilan_gradue_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_job_watch_cli.py`
-
-
-## Commit 26378647d — 2026-09-23 17:55
-**docs(self-audit): capability_contracts porte deja l'echelle de preuve**
-
-### Documentation mise à jour
-- `docs/self_audit_etape0_2026-09-23.md`
-
-
-## Commit 26378647d — 2026-09-23 17:55
-**docs(self-audit): capability_contracts porte deja l'echelle de preuve**
-
-### Documentation mise à jour
-- `docs/self_audit_etape0_2026-09-23.md`
-
-
-## Commit 8bcc4bb5e — 2026-09-23 17:21
-**docs(veille): typesafe - reranker local bge = BM25 sur CLERC**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_typesafe_2026-09-23.md`
-
-
-## Commit be6b295fe — 2026-09-23 17:16
-**docs(veille): typesafe - limites levees (depots lus, 12,2x verifie, BM25 reproduit)**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_typesafe_2026-09-23.md`
-
-
-## Commit 228e652bc — 2026-09-23 17:10
-**docs(veille): fiche de sortie TypeSafe / System One**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_typesafe_2026-09-23.md`
-
-
-## Commit 5123bca1f — 2026-09-23 13:25
-**fix(veille): refuser un chemin relatif au lecteur, enregistrer des chemins absolus**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_refiltrage_local_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 533906af6 — 2026-09-23 13:11
-**fix(veille): une source de re-filtrage absente ou vide n'est plus un succes muet**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_refiltrage_local_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 5ffe93499 — 2026-09-23 12:38
-**feat(veille): re-filtrage LOCAL v3 des dumps v2 sans re-cloner**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_refiltrage_local_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 309207aaa — 2026-09-23 12:28
-**docs(veilles): fiche V6 infrastructure (SQLite 3.51.1 dans le chemin d'ecriture, pas de sauvegarde prouvee)**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_v6_infrastructure_2026-09-23.md`
-
-
-## Commit 309207aaa — 2026-09-23 12:25
-**docs(veilles): fiche V6 infrastructure (SQLite 3.51.1 dans le chemin d'ecriture, pas de sauvegarde prouvee)**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_v2_evaluation_2026-09-23.md`
-
-
-## Commit 80e3a4396 — 2026-09-23 12:18
-**docs(veilles): fiche V3 memoire agentique (reinjection VERIFIED, validite temporelle absente)**
-
-### Documentation mise à jour
-- `docs/veilles/fiche_v1_m2m_2026-09-23.md`
-- `docs/veilles/fiche_v1_observabilite_2026-09-23.md`
-- `docs/veilles/fiche_v1_supervision_agents_longs_2026-09-23.md`
-
-
-## Commit e2bcf20a8 — 2026-09-23 12:12
-**docs(veilles): fiches de sortie V1 (M2M, observabilite, supervision + agents longs)**
-
-### Modules Python modifiés
-- `tests/nr/test_journaux_ecrivains_migres_nr.py`
-- `tests/nr/test_journaux_graphe_acces_nr.py`
-
-
-## Commit 97d552a90 — 2026-09-23 12:00
-**feat(db,rag): WAL qui se retrecit (journal_size_limit), priorite memoire, filtre active**
-
-### Modules Python modifiés
-- `app/forge_db.py`
-- `app/forge_db_path.py`
-- `app/forge_rag_engine.py`
-- `tests/nr/test_rag_respecte_active_nr.py`
-- `tests/nr/test_wal_journal_size_limit_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit fadc6cf45 — 2026-09-23 11:17
-**feat(veille): substance seulement + resume de la moelle (filtre v3)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_substance_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-- `tools/forge_veille_intake_filter.py`
-
-
-## Commit bd48651d3 — 2026-09-23 11:02
-**fix(veille): TRUNCATE a attente courte, un verrou ne tue plus la campagne**
-
-### Modules Python modifiés
-- `app/forge_db_path.py`
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit bd394b5e8 — 2026-09-23 10:47
-**feat(veille): le job cede la priorite I/O et CPU (NVMe a 100 %)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit bd394b5e8 — 2026-09-23 10:46
-**feat(veille): le job cede la priorite I/O et CPU (NVMe a 100 %)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit bd394b5e8 — 2026-09-23 10:43
-**feat(veille): le job cede la priorite I/O et CPU (NVMe a 100 %)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_gitingest_sdk_ingest.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 852edd30b — 2026-09-23 05:23
-**fix(veille): controle securite avant ingestion EN FLUX (job tue a 7 577 Mo)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 5880fe827 — 2026-09-23 05:12
-**fix(ingest): ingerer un dump EN FLUX (job tue a 7 138 Mo) + garde WAL relu**
-
-### Modules Python modifiés
-- `tests/nr/test_gitingest_ingest_flux_nr.py`
-- `tests/nr/test_wal_checkpoint_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_gitingest_sdk_ingest.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 5835a104e — 2026-09-23 04:52
-**fix(veille): rendre le WAL au disque (TRUNCATE) entre depots au-dela de 2 Go**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit c94e5f855 — 2026-09-23 03:48
-**fix(veille): ecrire le dump en flux (job tue a 6 151 Mo de RSS)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_dumps_hors_depot_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-- `tools/forge_veille_registre.py`
-
-
-## Commit 062d9b75e — 2026-09-23 02:32
-**fix(veille): journal du job ligne a ligne (stdout tamponne = faux FIGE)**
-
-### Modules Python modifiés
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 3b588c3d8 — 2026-09-23 02:15
-**chore(veille): marquer muet-ok l'absence normale d'une copie de dump**
-
-### Modules Python modifiés
-- `app/forge_autonomous_loops.py`
-- `tests/nr/test_veille_dumps_hors_depot_nr.py`
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/forge_veille_clone_ingest.py`
-- `tools/forge_veille_registre.py`
-
-
-## Commit 3f7aa7632 — 2026-09-23 02:10
-**fix(veille): refuser les vecteurs d'auto-lancement (ver Shai-Hulud)**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_intake_autolance_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-- `tools/forge_veille_intake_filter.py`
-
-
-## Commit 27b6f2c73 — 2026-09-23 01:52
-**feat(veille): dumps hors depot via resolveur unique (sandbox/veille_dumps.dir)**
-
-### Modules Python modifiés
-- `app/forge_autonomous_loops.py`
-- `tests/nr/test_veille_dumps_hors_depot_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_backlog_github.py`
-- `tools/forge_veille_clone_ingest.py`
-- `tools/forge_veille_registre.py`
-
-
-## Commit ce2c2f1c0 — 2026-09-23 01:35
-**fix(veille): searxng se clone sous Windows ; les depots critiques restent suivis**
-
-### Modules Python modifiés
-- `app/forge_autonomous_loops.py`
-- `tests/nr/test_veille_clone_chemins_windows_nr.py`
-- `tests/nr/test_veille_github_critiques_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit bde5d1bc5 — 2026-09-23 01:27
-**fix(retention): la purge ne tue plus les veilles ratees -- liste BLANCHE**
-
-### Modules Python modifiés
-- `tests/nr/test_purge_veille_epargne_les_ratees_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 3e5576fcb — 2026-09-23 01:13
-**feat(veille): la campagne clone+ingest S'ARRETE sous 30 Go libres**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_clone_garde_disque_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 9a03aa546 — 2026-09-23 00:32
-**feat(mesure): instrument AVANT/APRES du switch journaux, par fenetre**
-
-### Modules Python modifiés
-- `tests/nr/test_mesure_journaux_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_mesure_journaux.py`
-
-
-## Commit da7a90a5f — 2026-09-23 00:25
-**feat(push): --sha pousse EXACTEMENT le sha certifie par la CI**
-
-### Modules Python modifiés
-- `tests/nr/test_push_sovereign_sha_certifie_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_push_sovereign.py`
-
-
-## Commit cd0b67a82 — 2026-09-23 00:10
-**fix(swarm): une erreur ou un vide n'est plus une reponse ; le recenseur tourne en job**
-
-### Modules Python modifiés
-- `tests/nr/test_cli_swarm_faux_succes_nr.py`
-- `tests/nr/test_free_tier_census_importe_ses_cles_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_cli_swarm.py`
-- `tools/forge_free_tier_census.py`
-
-
-## Commit fd499fa24 — 2026-09-22 23:49
-**test(regulation): NR d'effet pour forge_ci_quand_ram_dispo**
-
-### Modules Python modifiés
-- `tests/nr/test_ci_quand_ram_dispo_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 68468556c — 2026-09-22 23:16
-**fix(journaux): conversation_log RETENU par l'accesseur -- la CI avait raison**
-
-### Modules Python modifiés
-- `app/forge_conversation_logger.py`
-- `app/forge_db_path.py`
-- `tests/nr/test_journaux_ecrivains_migres_nr.py`
-- `tests/nr/test_journaux_hors_verrou_rag_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 4d391e829 — 2026-09-22 22:39
-**feat(regulation): attendre la RAM sans bloquer l'humain -- et savoir quel refus on attend**
-
-### Modules Python modifiés
-- `tools/forge_ci_quand_ram_dispo.py`
-
-
-## Commit 869f9de16 — 2026-09-22 21:59
-**feat(rag): le graphe entier partage le point de bascule -- 15 sites sur 15**
-
-### Modules Python modifiés
-- `app/forge_db_path.py`
-- `app/forge_mcp_registry.py`
-- `tests/nr/test_journaux_graphe_acces_nr.py`
-
-
-## Commit 8ddf9d537 — 2026-09-22 21:47
-**feat(rag): dix lecteurs sur onze rejoignent le point de bascule**
-
-### Modules Python modifiés
-- `app/forge_health_diagnostic.py`
-- `app/forge_metabolism.py`
-- `app/forge_quota_tracker.py`
-- `app/forge_tool_efficiency.py`
-- `app/forge_vitals_channels.py`
-- `tests/nr/test_journaux_graphe_acces_nr.py`
-- `tools/forge_broker_base.py`
-
-
-## Commit f37b5695e — 2026-09-22 21:24
-**feat(rag): le GRAPHE lecteurs+ecrivains, pas seulement les ecrivains -- etapes 1 a 3**
-
-### Modules Python modifiés
-- `app/forge_db_path.py`
-- `app/forge_provider_quota.py`
-- `app/forge_token_monitor.py`
-- `tests/nr/test_journaux_graphe_acces_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_broker_probe.py`
-- `tools/forge_token_meter.py`
-
-
-## Commit 8752efca9 — 2026-09-22 21:09
-**feat(rag): les QUATRE ecrivains des journaux suivent l'interrupteur -- cablage, pas bascule**
-
-### Modules Python modifiés
-- `app/forge_conversation_logger.py`
-- `tests/nr/test_journaux_hors_verrou_rag_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_log_retention.py`
-
-
-## Commit 09b4f27dd — 2026-09-22 18:00
-**fix(ci): une ecriture ajoutee dans un chemin deja teste doit etre ISOLABLE**
-
-### Modules Python modifiés
-- `tests/nr/test_wiki_origine_et_peremption_nr.py`
-- `tools/forge_wiki_modules.py`
-
-
-## Commit 42ee49414 — 2026-09-22 17:27
-**fix(securite): le gate avait raison sur la FORME -- un underscore rendait le coffre invisible**
-
-### Modules Python modifiés
-- `app/forge_litellm_connector.py`
-- `tests/nr/test_cle_gemini_passe_par_le_coffre_nr.py`
-
-
-## Commit 10accb244 — 2026-09-22 16:50
-**fix(nr): mon test sondait la MACHINE -- unique echec de la CI sur 11 637 tests**
-
-### Modules Python modifiés
-- `tests/nr/test_roadmap_statut_declare_nr.py`
-
-
-## Commit 71d08ba57 — 2026-09-22 16:41
-**feat(securite): passe 4 -- R7 largement instruit, et une limite de mon instrument de lecture**
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit c28cc21b9 — 2026-09-22 16:34
-**fix(securite): E1 -- la cle Gemini passe par le coffre, et quitte l'environnement apres l'appel**
-
-### Modules Python modifiés
-- `app/forge_litellm_connector.py`
-- `tests/nr/test_cle_gemini_passe_par_le_coffre_nr.py`
-- `tools/ci_local.py`
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit 92b899d54 — 2026-09-22 16:25
-**feat(securite): passe 3 -- une cle qui saute deux echelons du coffre, et le second artefact du skill**
-
-### Modules Python modifiés
-- `tests/nr/test_audit_findings_conformes_au_skill_nr.py`
-- `tools/forge_audit_findings_validate.py`
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit 8c990eaf1 — 2026-09-22 16:10
-**feat(ssot): un item de roadmap declare son ETAT, et l'absence de marqueur vaut OUVERT**
-
-### Modules Python modifiés
-- `app/forge_ssot_maintainer.py`
-- `tests/nr/test_roadmap_statut_declare_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit e65247543 — 2026-09-22 15:42
-**feat(securite): le portage du skill Cloudflare avait decroche -- mesure, reparation, cablage**
-
-### Modules Python modifiés
-- `tests/nr/test_audit_findings_conformes_au_skill_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_audit_findings_validate.py`
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit 09a6d2891 — 2026-09-22 15:26
-**feat(securite): R7 entame, R5 clos -- et le denominateur d'une sonde n'est pas celui du defaut**
-
-### Modules Python modifiés
-- `tests/nr/test_pool_timeout_promesse_non_tenue_nr.py`
-- `tools/ci_local.py`
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit 397617669 — 2026-09-22 15:20
-**fix(nr): subprocess mode-texte sans errors= -- anti-regression incident 47GB**
-
-### Modules Python modifiés
-- `tests/nr/test_forge_dynamique_confinement_nr.py`
-- `tests/nr/test_wiki_openwiki_nr.py`
-- `tools/ci_local.py`
-
-### Documentation mise à jour
-- `docs/AUDIT_SECURITE_REGISTRE.md`
-
-
-## Commit d111db327 — 2026-09-22 14:42
-**feat(m2m): une TACHE reveille la boucle, et son statut ne vaut pas preuve**
-
-### Modules Python modifiés
-- `tests/nr/test_watch_tache_m2m_nr.py`
-- `tools/bash_guard.py`
-- `tools/ci_local.py`
-- `tools/forge_job_watch_cli.py`
-
-
-## Commit 75d633336 — 2026-09-22 14:34
-**feat(service): les DRAINS de taches entrent dans la route gouvernee**
-
-### Modules Python modifiés
-- `tests/nr/test_drains_sont_gouvernes_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ensure_service.py`
-
-
-## Commit 3f6d9dd59 — 2026-09-22 14:15
-**docs(wiki): la reference des modules porte son frontmatter OKF**
-
-### Documentation mise à jour
-- `docs/wiki/20-Modules-Reference.md`
-
-
-## Commit a62d2d0af — 2026-09-22 14:05
-**feat(wiki): OKF v0.2 — une provenance que la MACHINE sait verifier**
-
-### Modules Python modifiés
-- `tests/nr/test_frontmatter_okf_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_wiki_modules.py`
-
-
-## Commit a8e292285 — 2026-09-22 14:00
-**docs(wiki): regenerer la reference des modules — PERIME depuis 5 jours**
-
-### Documentation mise à jour
-- `docs/wiki/20-Modules-Reference.md`
-
-
-## Commit 41725f65e — 2026-09-22 13:57
-**feat(wiki): une docstring est une AFFIRMATION, son code en est la PREUVE**
-
-### Modules Python modifiés
-- `tests/nr/test_docstring_adossee_a_son_code_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_wiki_modules.py`
-
-
-## Commit 9c0b108fb — 2026-09-22 13:46
-**veille(rag): ajouter langchain-ai/openwiki a la cible de clone_ingest**
-
-### Modules Python modifiés
-- `tools/forge_veille_clone_ingest.py`
-
-
-## Commit 5a115defa — 2026-09-22 13:23
-**feat(authz): A2 — /api/recon/run consomme enfin la portee, et le refus EMPECHE l'effet**
-
-### Modules Python modifiés
-- `tests/nr/test_contrat_credential_routes_forge_nr.py`
-- `tests/nr/test_recon_run_consomme_le_scope_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 0b0286816 — 2026-09-22 13:05
-**test(authz): A2 — figer le GAP DE MESURE, ne pas cabler ce qu'on ne saurait certifier**
-
-### Modules Python modifiés
-- `tests/nr/test_contrat_credential_routes_forge_nr.py`
-
-
-## Commit 18c2be921 — 2026-09-22 12:17
-**fix(test): la fixture qui bloquait TOUT push depuis 24 h**
-
-### Modules Python modifiés
-- `tests/nr/test_audit_sortie_bornee_nr.py`
-
-
-## Commit e6aec8baf — 2026-09-22 11:00
-**test(authz): A1 point 7 — reduire la portee ne degrade pas la liaison TPM**
-
-### Modules Python modifiés
-- `tests/nr/test_portee_demandee_et_accordee_nr.py`
-
-
-## Commit 6b0da7830 — 2026-09-22 10:54
-**feat(authz): A1 — une portee se DEMANDE, et l'ecart avec ce qui est accorde se DIT**
-
-### Modules Python modifiés
-- `app/forge_auth_tokens.py`
-- `app/forge_integrity.py`
-- `tests/nr/test_contrat_credential_routes_forge_nr.py`
-- `tests/nr/test_portee_demandee_et_accordee_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit bf8787a35 — 2026-09-22 10:41
-**test(authz): P1-A — figer le contrat d'entree de /api/recon/run et /api/ctf/run**
-
-### Modules Python modifiés
-- `tests/nr/test_contrat_credential_routes_forge_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 5cbd9631b — 2026-09-22 09:15
-**fix(ci): les 11 rouges de l'armement — un defaut d'isolation, deux gardes devenus faux**
-
-### Modules Python modifiés
-- `tests/nr/test_maitre_est_attribuable_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit 4c7346ab0 — 2026-09-22 08:44
-**feat(authz): consommer la boite d'un agent exige desormais d'ETRE cet agent**
-
-### Modules Python modifiés
-- `app/forge_videur.py`
-- `tests/nr/test_inbox_liaison_identite_nr.py`
-- `tests/nr/test_inbox_ownership_cycle_nr.py`
-- `tests/nr/test_inbox_ownership_route_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_rotation_proof.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 3be79a764 — 2026-09-22 06:57
-**fix(test): un NR devenu rouge sans qu'une ligne de code change — il avait fini de pourrir**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_serving_audit_nr.py`
-
-
-## Commit 2d5a097fe — 2026-09-22 06:48
-**test(authz): enregistrer que consommer la boite d'un agent n'exige pas d'ETRE cet agent**
-
-### Modules Python modifiés
-- `tests/nr/test_inbox_liaison_identite_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit bc005a01a — 2026-09-22 06:05
-**fix(hub): /api/mcp/servers cesse de relayer 19 cles de config owner que personne ne lit**
-
-### Modules Python modifiés
-- `tests/nr/test_mcp_servers_ne_relaie_pas_les_preferences_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 9e815686f — 2026-09-22 05:59
-**fix(reseau): une route NUE chargeait 102,8 Mo pour rendre 200 lignes**
-
-### Modules Python modifiés
-- `app/forge_network_logger.py`
-- `tests/nr/test_network_history_lecture_bornee_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 05f7de17e — 2026-09-22 05:54
-**docs(authz): exposition mesuree sur 43 routes — 3 SECRET, 5 CONFIDENTIAL, et 10 retirees du cote rassurant**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 1d62cfa4b — 2026-09-22 05:48
-**feat(authz): classer ce qu'une reponse REVELE — compteurs seuls, aucune valeur lue ni rendue**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit 428a1e02e — 2026-09-22 05:41
-**feat(authz): cabler SECRET ne sort jamais sur les routes — la regle etait ecrite, aucune porte ne la consultait**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit cfbe20c79 — 2026-09-22 05:38
-**docs(authz): classer avec le vocabulaire DU CORPS — trois routes contredisent l'invariant ecrit SECRET ne sort jamais**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 29fd9f8e7 — 2026-09-22 05:31
-**docs(authz): les 10 routes loopback classees A/B/C/D — trois sont en classe D et distribuent un porteur**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 65b8183cc — 2026-09-22 05:28
-**fix(authz): trois routes comptees GARDEES DISTRIBUENT le porteur au lieu de le verifier**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit fa336178c — 2026-09-22 05:24
-**docs(authz): les 37 lectures nues — interne est vrai par CONFINEMENT reseau, et la route la plus grave consomme au lieu de lire**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 3da7123ad — 2026-09-22 05:20
-**fix(authz): une borne loopback est une garde — NU n'est pas VOLONTAIREMENT EXEMPTE, et la primitive existait sans etre appelee**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit 914ebddad — 2026-09-22 05:16
-**fix(docs): mon verdict confused deputy etait FAUX — le superviseur applique une liste blanche, garder la route ne protegerait rien**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 83a3c051d — 2026-09-22 05:13
-**docs(authz): les 2 routes ADMIN nues instruites — une reste nue et c'est justifie, l'autre est un confused deputy bloque par son appelant**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit a0c74e4bc — 2026-09-22 05:07
-**docs(authz): matrice de decision des 8 routes MUTANTE nues — deux ne mutent rien, cinq sont bloquees par leur appelant, une seule est prete**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 4465453f7 — 2026-09-22 05:04
-**fix(authz): l'audit declarait « aucun appelant » sur onze routes que l'interface du hub appelle**
-
-### Modules Python modifiés
-- `app/forge_cognitive_router.py`
-- `app/forge_corrigibility.py`
-- `app/forge_llm_router.py`
-- `app/forge_mcp_rbac.py`
-- `app/forge_proprioception.py`
-- `app/forge_ps_sandbox.py`
-- `app/forge_task_router.py`
-- `app/web_hub/forms/governed_edit_form.py`
-- `app/web_hub/forms/query_form.py`
-- `app/web_hub/forms/run_form.py`
-- `tools/forge_governed_edit.py`
-- `tools/forge_local_pool_wake.py`
-- `tools/forge_ui_vitals_cover.py`
-
-### Documentation mise à jour
-- `README.md`
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-- `docs/roadmap_plan_cognitif_2026-09-13.md`
-- `docs/skills/nokido/SKILL.md`
-
-
-## Commit 4465453f7 — 2026-09-22 05:04
-**fix(authz): l'audit declarait « aucun appelant » sur onze routes que l'interface du hub appelle**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit b2dc38636 — 2026-09-22 04:54
-**docs(authz): etat des routes au 2026-09-22 — 25 des 83 refusent un appel anonyme, et le mot protege recouvrait trois choses differentes**
-
-### Documentation mise à jour
-- `docs/AUTHZ_ROUTES_ETAT_2026-09-22.md`
-
-
-## Commit 55c7675a6 — 2026-09-22 04:45
-**fix(identite): un repli ne doit jamais devenir PERMANENT par mise en cache — 80 % du trafic webhub le prouvait**
-
-### Modules Python modifiés
-- `app/web_hub/wired_routes.py`
-- `tests/nr/test_webhub_porte_son_propre_credential_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 10bb653d5 — 2026-09-21 21:40
-**feat(obs): le cout d'armer le plancher se COMPTE sur trafic reel, au lieu de s'estimer sur une table**
-
-### Modules Python modifiés
-- `app/forge_videur_audit.py`
-- `tests/nr/test_vue_compte_l_ecart_de_ring_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 2a4fe142d — 2026-09-21 20:55
-**feat(authz): durcir master_token — l'ATTRIBUTION maintenant, l'AUTORITE quand l'owner aura le chiffre**
-
-### Modules Python modifiés
-- `app/forge_videur.py`
-- `tests/nr/test_maitre_est_attribuable_nr.py`
-- `tests/nr/test_maitre_porte_acteur_et_sujet_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 976dfb122 — 2026-09-21 20:48
-**fix(gate): il annoncait 12 sites muets, il y en avait 22 — une borne doit dire COMBIEN**
-
-### Modules Python modifiés
-- `tests/nr/test_gate_borne_dit_combien_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_git_gate.py`
-
-
-## Commit 926c74288 — 2026-09-21 20:44
-**fix(obs): chemins d'erreur muets du hub — 6 tracés, 5 marqués, aucun laissé au hasard**
-
-### Modules Python modifiés
-- `tools/nokido_hub.py`
-
-
-## Commit 83cec644d — 2026-09-21 20:31
-**feat(authz): P1-S — la premiere information perdue est la DECISION, et la provenance n'etait comptee nulle part**
-
-### Modules Python modifiés
-- `app/forge_videur_audit.py`
-- `tests/nr/test_vue_audit_porte_la_provenance_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 3095d024d — 2026-09-21 20:07
-**test(authz): la portee d'un garde se MESURE — 36 signalements, 34 faux, et 164 closures jamais regardees**
-
-### Modules Python modifiés
-- `tests/nr/test_trace_refus_admin_ecrit_vraiment_nr.py`
-
-
-## Commit 4c4931551 — 2026-09-21 20:03
-**test(authz): le detecteur de noms non lies criait faux 32 fois sur 36 — reparé avant d'etre arme**
-
-### Modules Python modifiés
-- `tests/nr/test_trace_refus_admin_ecrit_vraiment_nr.py`
-
-
-## Commit 691d02afc — 2026-09-21 19:57
-**fix(authz): la trace des refus admin n'etait JAMAIS ecrite — sept sites morts d'un seul nom**
-
-### Modules Python modifiés
-- `tests/nr/test_trace_refus_admin_ecrit_vraiment_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 8a961c5f6 — 2026-09-21 18:25
-**test(authz): un test qui lit le SYMBOLE casse au refactoring, un test qui lit la PROPRIETE tient**
-
-### Modules Python modifiés
-- `tools/nokido_hub.py`
-
-
-## Commit 67e6e5f95 — 2026-09-21 18:11
-**test(authz): un porteur pose SOUS CONDITION n'est pas un porteur prouve**
-
-### Modules Python modifiés
-- `tools/nokido_hub.py`
-
-
-## Commit 67e6e5f95 — 2026-09-21 18:11
-**test(authz): un porteur pose SOUS CONDITION n'est pas un porteur prouve**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-
-
-## Commit 33989cb60 — 2026-09-21 18:04
-**test(journal): trois formulations pour un contrat — la bonne est la plus courte**
-
-### Modules Python modifiés
-- `tests/nr/test_journal_porte_acteur_et_sujet_nr.py`
-
-
-## Commit 34cf54049 — 2026-09-21 18:01
-**feat(authz): `_admin_tok_ok` trace ses REFUS — et seulement eux**
-
-### Modules Python modifiés
-- `tools/nokido_hub.py`
-
-
-## Commit 4d4e6618f — 2026-09-21 17:46
-**test(provenance): le chemin DEGRADE du maitre n'est pas attribue, et l'attribution n'a pas de lecteur**
-
-### Modules Python modifiés
-- `tests/nr/test_maitre_est_attribuable_nr.py`
-
-
-## Commit a41f2760f — 2026-09-21 17:43
-**test(journal): le garde qui REFUSE est muet, celui qui laisse passer journalise**
-
-### Modules Python modifiés
-- `tests/nr/test_journal_porte_acteur_et_sujet_nr.py`
-
-
-## Commit 6f4173222 — 2026-09-21 17:35
-**test(hub): le garde de la boucle d'evenements tient une deuxieme porte — l'I/O reseau**
-
-### Modules Python modifiés
-- `tests/nr/test_hub_pas_d_io_bloquante_dans_la_boucle_nr.py`
-
-
-## Commit 3192bd2e8 — 2026-09-21 17:20
-**fix(authz): trois instruments corriges — le producteur du vocabulaire est la seule source**
-
-### Modules Python modifiés
-- `tests/nr/test_capacite_atteinte_sans_garde_nr.py`
-- `tests/nr/test_matrice_loopback_credential_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_route_authz_audit.py`
-
-
-## Commit 6e66f7074 — 2026-09-21 16:27
-**fix(hub): une garde armee le matin cassait l'UI — l'appelant vivait dans une chaine JS inline**
-
-### Modules Python modifiés
-- `tests/nr/test_capacite_atteinte_sans_garde_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/nokido_hub.py`
-
-### Documentation mise à jour
-- `docs/skills/forge-android/SKILL.md`
-
-
-## Commit d19862762 — 2026-09-21 12:25
-**test(authz): croiser la GARDE de la route et la CAPACITE du module atteint**
-
-### Modules Python modifiés
-- `tests/nr/test_capacite_atteinte_sans_garde_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 813564443 — 2026-09-21 12:20
-**perf(hub): rag_stats — une colonne portait 87,1 s sur 87,3 s, et ma description etait fausse**
-
-### Modules Python modifiés
-- `tests/nr/test_rag_stats_ne_lit_pas_le_texte_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit b499042ef — 2026-09-21 12:14
-**test(revocation): trois maillons separes — la revocation d'identite n'a qu'un recepteur**
-
-### Modules Python modifiés
-- `tests/nr/test_revocation_chemins_connus_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 4e9eb0792 — 2026-09-21 12:08
-**fix(hub): le journal d'identite porte l'ACTEUR, et le porteur du maitre cesse d'etre anonyme**
-
-### Modules Python modifiés
-- `tests/nr/test_journal_porte_acteur_et_sujet_nr.py`
-- `tests/nr/test_maitre_est_attribuable_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit eb650bd7b — 2026-09-21 11:43
-**test(rag): proteger une URL ne protege pas une CAPACITE — les chemins d'ecriture sont inventories**
-
-### Modules Python modifiés
-- `tests/nr/test_ecriture_rag_chemins_connus_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit e77c304cf — 2026-09-21 10:44
-**fix(integrity): le ledger de cles cesse de juger un JKT dont il n'est pas l'autorite**
-
-### Modules Python modifiés
-- `app/forge_integrity.py`
-- `tools/ci_local.py`
-
-
-## Commit d4c0bc89d — 2026-09-21 10:00
-**fix(hub): six routes MUTANTE de plus exigent un porteur — l'inventaire passe de 18 a 9**
-
-### Modules Python modifiés
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 57b6b6fe1 — 2026-09-21 09:48
-**fix(hub): trois routes ecrivaient dans la base RAG sans demander de porteur**
-
-### Modules Python modifiés
-- `tests/nr/test_ingestion_exige_un_porteur_nr.py`
-- `tests/nr/test_route_authz_inventaire_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 569ddb805 — 2026-09-21 08:26
-**fix(nr): docstring RAW — une figure de mise en page salissait la compilation**
-
-### Modules Python modifiés
-- `tests/nr/test_hub_pas_d_io_bloquante_dans_la_boucle_nr.py`
-
-
-## Commit f2d22f4c0 — 2026-09-21 08:22
-**fix(hub): trois scans d une base de 25 Go tournaient DANS la boucle d evenements**
-
-### Modules Python modifiés
-- `tests/nr/test_hub_pas_d_io_bloquante_dans_la_boucle_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 65ad62093 — 2026-09-21 07:50
-**feat(integrity): le chemin LIE consulte le ledger de cles — et personne n'emprunte encore ce chemin**
-
-### Modules Python modifiés
-- `app/forge_integrity.py`
-- `tests/nr/test_verify_consulte_le_ledger_de_cles_nr.py`
-
-
-## Commit 8ec31bc62 — 2026-09-21 07:37
-**fix(agent-keys): le marqueur s'ancre sur la ligne du `except`, mesure a l'appui**
-
-### Modules Python modifiés
-- `app/forge_agent_keys.py`
-
-
-## Commit 8ec31bc62 — 2026-09-21 07:37
-**fix(agent-keys): le marqueur s'ancre sur la ligne du `except`, mesure a l'appui**
-
-### Modules Python modifiés
-- `app/forge_agent_keys.py`
-
-
-## Commit 4ea9c79ee — 2026-09-21 07:33
-**feat(agent-keys): le niveau CLE de la revocation existe — 24/24, et personne ne l'appelle encore**
-
-### Modules Python modifiés
-- `app/forge_agent_keys.py`
-
-
-## Commit b4ee5cf8c — 2026-09-21 07:22
-**test(agent-keys): figer le maillon `jkt` et le fail-closed — la revocation ne survit pas au restart, c'est MESURE**
-
-### Modules Python modifiés
-- `tests/nr/test_agent_keys_ledger_nr.py`
-
-
-## Commit b7f60cd11 — 2026-09-21 06:57
-**feat(authz): l axe TPM de l observation, et le REFUS de conclure d une forme**
-
-### Modules Python modifiés
-- `app/forge_authz_shadow.py`
-- `tests/nr/test_authz_shadow_axe_tpm_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit aca36f975 — 2026-09-21 06:44
-**fix(integrity): une signature TPM demandee et non obtenue ne part plus en silence**
-
-### Modules Python modifiés
-- `app/forge_integrity.py`
-- `tests/nr/test_tpm_demande_non_obtenue_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 029e2efef — 2026-09-21 06:31
-**feat(tpm): P4.2 — le hub signe avec le TPM, et la privee ne sort pas**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_acl_gouvernee_nr.py`
-- `tests/nr/test_tpm_cycle_hub_reel_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit fedb47f2d — 2026-09-21 06:24
-**feat(tpm): poser une ACE devient un geste GOUVERNE — ecrit, mais rien n est applique**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_acl_gouvernee_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit 3af369ea7 — 2026-09-21 06:18
-**feat(tpm): lire l ACL d une cle TPM, en capturant son etat AVANT toute ecriture**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_descripteur_lecture_seule_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit b48954b1d — 2026-09-21 06:01
-**fix(tpm): ABSENTE et REFUSEE appellent des gestes opposes, le wrapper les fusionnait**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_agent_keys_outil_nr.py`
-- `tests/nr/test_tpm_etat_cle_trois_etats_nr.py`
-- `tests/nr/test_tpm_isolation_nest_pas_non_exportabilite_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit d16fbc4b7 — 2026-09-21 05:53
-**feat(securite): un audit ne peut plus devenir un canal d exfiltration**
-
-### Modules Python modifiés
-- `tests/nr/test_audit_sortie_bornee_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_audit_sortie_bornee.py`
-
-
-## Commit 6b43baa7b — 2026-09-21 05:36
-**test(secrets): mesurer ce que _API_KEYS EST, avant de decider ce qu il devient**
-
-### Modules Python modifiés
-- `tests/nr/test_api_keys_provenance_et_revocation_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 77f1f7177 — 2026-09-21 04:51
-**fix(ci): les deux gates rouges de la CI de reference, et ils avaient raison tous les deux**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_rotation_proof_garde_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 2c5ab5799 — 2026-09-21 04:12
-**fix(nr): un NR qui asserte sur un cas que l horloge tranche, et le garde d emission de secrets**
-
-### Modules Python modifiés
-- `tests/nr/test_revocation_identite_isole_la_cause_nr.py`
-- `tests/nr/test_secret_egress_gate_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_secret_egress_gate.py`
-
-
-## Commit fdefa7161 — 2026-09-21 03:54
-**fix(tpm): l avertissement d usurpation passe du test a la FONCTION, et une sentinelle garde le cablage**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_isolation_nest_pas_non_exportabilite_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit bfaae9292 — 2026-09-21 03:45
-**fix(rotation): une revocation cessait de rendre son env GERE, donc se contournait**
-
-### Modules Python modifiés
-- `app/forge_key_rotation.py`
-- `tests/nr/test_revocation_ne_s_efface_pas_nr.py`
-
-
-## Commit 312f33dac — 2026-09-21 03:34
-**feat(rotation): l outil qui prouve qu une revocation SURVIT AU REDEMARRAGE**
-
-### Modules Python modifiés
-- `tools/forge_rotation_proof.py`
-
-
-## Commit 261b9f80b — 2026-09-21 03:28
-**fix(rotation): un echec d ecriture du ledger cesse d etre muet**
-
-### Modules Python modifiés
-- `app/forge_key_rotation.py`
-- `tests/nr/test_revocation_ne_s_efface_pas_nr.py`
-
-
-## Commit 261b9f80b — 2026-09-21 03:28
-**fix(rotation): un echec d ecriture du ledger cesse d etre muet**
-
-### Modules Python modifiés
-- `app/forge_key_rotation.py`
-- `app/forge_secrets.py`
-- `tests/nr/test_le_guichet_respecte_la_quarantaine_nr.py`
-- `tests/nr/test_revocation_ne_s_efface_pas_nr.py`
-- `tests/nr/test_revocation_secret_chaine_reelle_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit d0c050afe — 2026-09-21 03:17
-**style(nr): le NR d identite passe le gate qualite sans rien perdre de son attaque**
-
-### Modules Python modifiés
-- `tests/nr/test_identite_escalade_par_alias_nr.py`
-
-
-## Commit 96279d4ba — 2026-09-21 03:13
-**fix(identite): le ring se lit sur l IDENTITE resolue, et UNKNOWN cesse d etre un ring**
-
-### Modules Python modifiés
-- `app/forge_postal.py`
-- `tests/nr/test_identite_escalade_par_alias_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 3988b1859 — 2026-09-21 03:00
-**fix(mtls): un jeton lie a un certificat ne passe plus sur un canal sans certificat (RFC 8705)**
-
-### Modules Python modifiés
-- `app/forge_integrity.py`
-- `tests/nr/test_cert_binding_adversarial_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 06c0b3edc — 2026-09-21 02:52
-**fix(pop): un jeton LIE ne passe plus sans preuve -- le volet symetrique de RFC 9449 §7.1**
-
-### Modules Python modifiés
-- `app/forge_integrity.py`
-- `tests/nr/test_pop_preuve_liee_a_la_bonne_cle_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 6d57f0760 — 2026-09-21 02:37
-**test(identite): identite revoquee = DENY, et SEULE l identite change**
-
-### Modules Python modifiés
-- `tests/nr/test_revocation_identite_isole_la_cause_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 29968ed67 — 2026-09-21 02:32
-**test(secrets): la revocation MORD sur la chaine reelle -- et la fenetre vaut 360 s, pas 300**
-
-### Modules Python modifiés
-- `tests/nr/test_revocation_secret_chaine_reelle_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 92fd5dabe — 2026-09-21 02:26
-**fix(circadien): le rythme cesse d appeler NokidoAutoCompact -- dans les DEUX runtimes**
-
-### Modules Python modifiés
-- `app/forge_circadian.py`
-- `tests/nr/test_autocompact_hors_du_rythme_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 716e44b44 — 2026-09-21 01:49
-**test(veille): le lanceur de campagne est ORPHELIN -- son echec ne doit pas devenir silencieux**
-
-### Modules Python modifiés
-- `tests/nr/test_veille_campagne_run_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 44882c095 — 2026-09-21 01:42
-**fix(hub): /admin/run_job passe par le runner gouverne -- et son lecteur cesse de mentir**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_run_job_observable_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit d466527bd — 2026-09-21 01:36
-**feat(jobs): params_depuis_corps -- le raccord testable entre une requete HTTP et le runner gouverne**
-
-### Modules Python modifiés
-- `app/forge_job_runner.py`
-- `tests/nr/test_admin_run_job_comportement_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit a678c2dcf — 2026-09-21 01:18
-**fix(ci): solder MA dette du 20/09 que deux cliquets ont refusee -- et ne pas maquiller celle des autres**
-
-### Modules Python modifiés
-- `tests/nr/test_tpm_agent_keys_outil_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit 0cb9d42b9 — 2026-09-21 00:45
-**chore(ci): declarer le NR de quarantaine -- un test non declare ne tourne nulle part**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_le_guichet_respecte_la_quarantaine_nr.py`
-
-
-## Commit da40fda68 — 2026-09-21 00:41
-**feat(secrets): le guichet sait POUR QUI il delivre -- DEMANDE et DELIVRANCE cessent d etre confondues**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_le_guichet_sait_pour_qui_il_delivre_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 798dea58e — 2026-09-21 00:38
-**fix(secrets): la fenetre de contournement d une revocation etait INFINIE -- elle est bornee et observable**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_un_secret_revoque_cesse_d_etre_servi_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 5222f6e4e — 2026-09-21 00:33
-**fix(dev-mode): le refus annoncait un geste INOPERANT -- et la bascule de debug est verrouillee**
-
-### Modules Python modifiés
-- `app/forge_mcp_registry.py`
-- `app/forge_secret_guard.py`
-- `tests/nr/test_la_bascule_dev_reste_utilisable_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 37eacca5b — 2026-09-21 00:29
-**feat(secrets): la nature COMMANDE le masquage -- le classement cesse d etre une etiquette**
-
-### Modules Python modifiés
-- `tests/nr/test_la_nature_commande_le_masquage_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_secret_audit.py`
-- `tools/forge_secret_source_audit.py`
-
-
-## Commit 8953deb28 — 2026-09-21 00:21
-**test(identite): un NR annonce ROUGE etait en realite SKIPPE -- il ne prouvait rien**
-
-### Modules Python modifiés
-- `tests/nr/test_agent_keys_ledger_nr.py`
-
-
-## Commit 915363fab — 2026-09-21 00:21
-**feat(secrets): chaque cle nomme son organe proprietaire, ou dit pourquoi elle ne peut pas**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_provenance_proprietaire_par_cle_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_secret_source_audit.py`
-
-
-## Commit 06a3632af — 2026-09-21 00:11
-**feat(secrets): un secret n est pas un reglage -- et le motif de detection avait un trou**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_inventaire_cles_demandees_nr.py`
-- `tools/forge_secret_source_audit.py`
-
-
-## Commit 799d3fea9 — 2026-09-21 00:01
-**fix(securite): le breakglass exige une ATTESTATION -- une variable d environnement n ouvre plus cinq gardes**
-
-### Modules Python modifiés
-- `app/forge_mcp_registry.py`
-- `app/forge_mcp_security.py`
-- `app/forge_secret_guard.py`
-- `tests/nr/test_breakglass_exige_une_preuve_nr.py`
-- `tests/test_secret_guard_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit d17830cd9 — 2026-09-21 00:01
-**feat(secrets): le guichet distingue ABSENT d ILLISIBLE, et l audit cesse de ne voir que sa propre liste**
-
-### Modules Python modifiés
-- `app/forge_secrets.py`
-- `tests/nr/test_inventaire_cles_demandees_nr.py`
-- `tests/nr/test_secrets_illisible_nest_pas_absent_nr.py`
-- `tools/forge_secret_source_audit.py`
-
-
-## Commit 41d23f176 — 2026-09-20 23:29
-**docs(vault): audit de mesure — 72 % des cles sont invisibles a l audit du coffre**
-
-### Documentation mise à jour
-- `docs/AUDIT_VAULT_2026-09-20.md`
-
-
-## Commit eaa0f4d64 — 2026-09-20 23:25
-**test(identite): NR ROUGE — le contrat agent_id -> key_id -> public_key -> generation -> status**
-
-### Modules Python modifiés
-- `tests/nr/test_agent_keys_ledger_nr.py`
-
-
-## Commit 352965bd1 — 2026-09-20 23:23
-**feat(identite): outil de provisionnement des cles TPM par agent — le refus DIT la commande qui marche**
-
-### Modules Python modifiés
-- `tools/forge_tpm_agent_keys.py`
-
-
-## Commit 352965bd1 — 2026-09-20 23:20
-**feat(identite): outil de provisionnement des cles TPM par agent — le refus DIT la commande qui marche**
-
-### Modules Python modifiés
-- `app/forge_m2m_protocol.py`
-- `tests/nr/test_registre_identite_unicite_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 639f86a5e — 2026-09-20 22:58
-**feat(identite): le TPM porte UNE CLE PAR AGENT — l attribution cesse d etre une etiquette**
-
-### Modules Python modifiés
-- `app/forge_persona_tpm.py`
-- `tests/nr/test_tpm_cle_par_agent_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit e45d3fdd1 — 2026-09-20 22:50
-**fix(ui): une tuile morte DIT pourquoi — six etats au lieu d un booleen, et une source unique pour les deux renderers**
-
-### Modules Python modifiés
-- `app/web_hub/dashboard_html.py`
-- `tests/nr/test_tile_state_trois_etats_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit c312e825f — 2026-09-20 22:20
-**feat(m2m): un SCEAU d integrite qui DIT ce qu il ne prouve pas**
-
-### Modules Python modifiés
-- `app/forge_m2m_protocol.py`
-- `tests/nr/test_m2m_sceau_integrite_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit e533dff40 — 2026-09-20 22:14
-**feat(m2m): le protocole valide l IDENTITE et porte l INCARNATION — une etiquette n est pas une identite**
-
-### Modules Python modifiés
-- `app/forge_m2m_protocol.py`
-- `tests/nr/test_m2m_identite_et_incarnation_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 051f832d2 — 2026-09-20 22:02
-**fix(apprentissage): le cycle d entrainement DIT qu il s entraine sur du bruit — il annoncait un apprentissage qui n existait pas**
-
-### Modules Python modifiés
-- `tests/nr/test_ami_train_dit_sur_quoi_il_s_entraine_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_ami_train_cycle.py`
-
-
-## Commit 3a2cb19a1 — 2026-09-20 21:56
-**feat(m2m): l inbox DIT l age, le sha cible et la SURFACE de l expediteur — agy autonome n est pas agy CLI**
-
-### Modules Python modifiés
-- `tests/nr/test_inbox_dit_l_age_et_le_sha_nr.py`
-- `tools/ci_local.py`
-- `tools/claude_inbox_tick.py`
-
-
-## Commit 67bbf3f13 — 2026-09-20 21:48
-**fix(raffinage): le CORPS passe devant dans preflight_check_verbose — le chemin que dix appelants empruntent vraiment**
-
-### Modules Python modifiés
-- `app/forge_self_correction.py`
-- `tests/nr/test_preflight_verbose_priorise_le_corps_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 3771eb8fd — 2026-09-20 21:42
-**fix(raffinage): une lecon du corps ne vient jamais d un depot tiers — le retrieval sait enfin dire « je ne sais pas »**
-
-### Modules Python modifiés
-- `app/forge_self_correction.py`
-- `tests/nr/test_preflight_ne_repond_pas_avec_du_code_tiers_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 82b4ebe41 — 2026-09-20 21:32
-**feat(couplage): la differenciation declare ce qu elle lit et ce qu elle fait — QUATRE hormones sortent du silence**
-
-### Modules Python modifiés
-- `app/forge_pluripotent_workers.py`
-- `tests/nr/test_differenciation_declare_son_couplage_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit d978e4def — 2026-09-20 21:23
-**fix(intention): un drapeau CORROMPU se repare, meme sous cooldown — et la synapse rerank se ferme en runtime**
-
-### Modules Python modifiés
-- `app/forge_embed_router.py`
-- `tests/nr/test_drapeau_corrompu_est_reparable_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit b7c47581d — 2026-09-20 21:14
-**feat(couplage): le site qui AGIT sur un pilier constate sa transduction — et correction d un diagnostic que j ai publie deux fois**
-
-### Modules Python modifiés
-- `tests/nr/test_piliers_constatent_leur_transduction_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_llama_keeper.py`
-
-
-## Commit a82bdd683 — 2026-09-20 20:59
-**feat(keeper): un mode qui sert les piliers RAG sans toucher au coder — le degel devient sûr**
-
-### Modules Python modifiés
-- `tests/nr/test_keeper_piliers_only_nr.py`
-- `tools/ci_local.py`
-- `tools/forge_llama_keeper.py`
-
-
-## Commit 3be7814ac — 2026-09-20 20:52
-**fix(services): NokidoEpistemicSoif ne depend plus d un port dont le rallumeur est gele**
-
-### Modules Python modifiés
-- `tests/nr/test_deps_on_demand_ont_un_rallumeur_vivant_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 7c81ff4b1 — 2026-09-20 20:43
-**fix(intention): une intention posee doit etre RELISIBLE — et cinq NR entrent enfin dans la CI**
-
-### Modules Python modifiés
-- `app/forge_embed_router.py`
-- `tests/nr/test_intention_ecriture_verifiee_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit b4715511f — 2026-09-20 20:12
-**feat(memoire): le backlog laisse une trace dans le temps — sans elle, aucun drain n est verifiable**
-
-### Modules Python modifiés
-- `app/forge_memory_availability.py`
-- `tests/nr/test_backlog_serie_temporelle_nr.py`
-
-
-## Commit d70f4b4c0 — 2026-09-20 20:07
-**test(jobs): NR ROUGE — /admin/run_job fabrique des jobs structurellement inobservables**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_run_job_observable_nr.py`
-
-
-## Commit d568937cf — 2026-09-20 19:59
-**fix(hub): /admin reconnait le jeton PROPRE d un organe, et ses 401 deviennent conformes RFC 7235**
-
-### Modules Python modifiés
-- `tests/nr/test_admin_jeton_propre_organe_nr.py`
-- `tools/ci_local.py`
-- `tools/nokido_hub.py`
-
-
-## Commit 7394308b6 — 2026-09-20 19:42
-**docs(registre): quatre maillons fermes, trois ouverts avec leur cause, une regression avouee**
-
-### Documentation mise à jour
-- `docs/REGISTRE_CHANTIERS_2026-09-20.md`
-
-
-## Commit c272981e2 — 2026-09-20 19:38
-**fix(intention): le poseur commun DECLARE ce qu il ecrit — et reparation d une regression que j ai causee**
-
-### Modules Python modifiés
-- `app/forge_embed_router.py`
-- `tests/nr/test_declare_wanted_declare_son_emission_nr.py`
-- `tools/ci_local.py`
-
-
-## Commit 17ec69165 — 2026-09-20 19:23
-**feat(generation): ce qui entre en ATTENTE peut enfin en SORTIR — le pendant du differe**
-
-### Modules Python modifiés
-- `app/forge_generation.py`
-- `tests/nr/test_generation_promotion_nr.py`
-
-
-## Commit fb4477c08 — 2026-09-20 19:16
-**fix(generation): une capture differee par l ACL se declare, et son gain ne se perd plus**
-
-### Modules Python modifiés
-- `app/forge_generation.py`
-- `tests/nr/test_generation_differee_reinjecte_nr.py`
-
-
-## Commit 449fe1a6e — 2026-09-20 18:34
-**docs(registre): la veille SakanaAI se clot, et l interface commune des boucles existait deja**
-
-### Documentation mise à jour
-- `docs/REGISTRE_CHANTIERS_2026-09-20.md`
-
-
-## Commit 890446f74 — 2026-09-20 18:24
-**ci(pure-tests): declarer le NR d auto-reference, et DIRE pourquoi l autre ne l est pas**
-
-### Modules Python modifiés
-- `tools/ci_local.py`
-
-
-## Commit 890446f74 — 2026-09-20 18:22
-**ci(pure-tests): declarer le NR d auto-reference, et DIRE pourquoi l autre ne l est pas**
-
-### Modules Python modifiés
-- `tests/nr/test_symptom_index_auto_reference_nr.py`
-- `tools/forge_symptom_index.py`
-
-
-## Commit 520b3181c — 2026-09-20 18:06
-**docs(registre): READ-CLOSURE mesure par l instrument qui existait deja, et trois de mes verdicts retires**
-
-### Documentation mise à jour
-- `docs/REGISTRE_CHANTIERS_2026-09-20.md`
-
-
-## Commit 8a65023b2 — 2026-09-20 18:00
-**docs(registre): cinq chantiers clos avec leur preuve, six ouverts avec leur cause**
-
-### Documentation mise à jour
-- `docs/REGISTRE_CHANTIERS_2026-09-20.md`
-
-
-## Commit
+- `tests/nr/test_tui_raccourcis_

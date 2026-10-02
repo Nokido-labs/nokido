@@ -1,4 +1,11 @@
-"""
+"""Nokido.py — GELÉ le 2026-10-01 (décision owner). Ne plus réparer, ne pas rebrancher.
+
+Console terminal de la v13 (« La Forge TUI », v0.13.3, mars 2026) : chat LLM local et modes
+multi-agents, RAG, commandes SSH, réseau, code en sandbox, boucle d'auto-amélioration,
+workflows, CI. Tout a été repris par le hub (outils MCP run/rag/task/netcfg...), la page web
+:7400, le tray et les clients (Claude Code, agy). Ce n'est ni un service ni le point d'entrée
+du paquet (`nokido` -> llama_cli). Gelé, pas supprimé : rien ne se supprime dans ce dépôt.
+
 FORGE INTELLIGENCE v3 [GREEN]
 DATE:2026-03-25 | VER:v_20260325_061812_astdocenri
 #FORGE:[score:94|agent:AST-doc-enricher|temp:0.00|risk:0.30|ast:KO|test:KO|lint:KO|color:GREEN|attempt:1]

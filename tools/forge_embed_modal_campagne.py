@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Campagne de vectorisation du backlog FROID via l'endpoint Modal (BGE-M3, 1024D).
+"""Campagne de vectorisation du backlog (tier CHAUD) via le CLOUD : Cloudflare Workers AI
+`@cf/baai/bge-m3` (allocation gratuite quotidienne), puis l'endpoint Modal (BGE-M3, 1024D ; budget
+mensuel) en relais -- le MEME modele (mesure 2026-10-01 : cos 0,9997-1,0000 avec les vecteurs
+locaux deja en base). Texte MASQUE avant envoi (`masquer_pour_cloud`).
 
 Idempotente et REPRENABLE : chaque lot re-interroge `embedding IS NULL`, donc un
 arret (kill, restart, cap RSS) ne perd que le lot en cours. Relancer reprend ou
@@ -51,6 +54,29 @@ def _cible_par_intention() -> int | None:
         return None
 
 
+def premier_qui_rend(textes, essais, dim, actif=None):
+    """(vecteurs, nom, echecs) : le premier fournisseur qui rend len(textes) vecteurs de `dim`.
+
+    FOURNISSEURS COMPATIBLES SEULEMENT (2026-10-01) : Modal et Cloudflare servent le MEME
+    modele que le local (bge-m3, 1024D) -- mesure du 01/10 sur 5 chunks deja vectorises en
+    local : cos(cloudflare, base) = 0,9997 a 1,0000, temoin croise 0,41. Jina / Voyage /
+    OpenRouter servent d'AUTRES modeles : les meler a la colonne `embedding` rendrait les
+    distances incomparables, ils ne figurent donc PAS ici. `actif` (le dernier qui a rendu)
+    est essaye d'abord : on ne repaie pas la panne connue d'un fournisseur a chaque lot."""
+    ordre = sorted(essais, key=lambda e: e[0] != actif)
+    ko = []
+    for nom, appel in ordre:
+        try:
+            vecs = appel(textes)
+        except Exception as e:  # noqa: BLE001 - un fournisseur qui leve est un fournisseur KO, DIT
+            ko.append("%s:%s" % (nom, type(e).__name__))
+            continue
+        if vecs and len(vecs) == len(textes) and all(v and len(v) == dim for v in vecs):
+            return vecs, nom, ko
+        ko.append("%s:%s" % (nom, "vide" if not vecs else "forme"))
+    return None, None, ko
+
+
 def _battre(**champs) -> None:
     # CHEMIN CANONIQUE UNIQUE (`forge_heartbeat.beat_daemon`) : il pose `ts` et le
     # `pid` qui manquait, et ne leve jamais — le battement ne peut pas tuer la
@@ -87,12 +113,20 @@ def main() -> int:
             cible = par_intention
 
     from nokido_agent.app.forge_db_path import checkpoint_wal, write_retry
-    from nokido_agent.app.forge_embed_router import _modal_call, _modal_url, encode_blob
+    from nokido_agent.app.forge_embed_router import _cloudflare_call, _modal_call, _modal_url, encode_blob
     from nokido_agent.tools.forge_tier_policy import base_rag, hot_tier_clause
 
-    if not _modal_url():
-        print("LAFORGE_MODAL_EMBED_URL introuvable (coffre + env) -- abandon", flush=True)
-        return 2
+    # CLOUDFLARE D'ABORD, MODAL EN RELAIS (decision owner 2026-10-01). Les deux servent le meme
+    # modele. Cloudflare Workers AI : allocation gratuite QUOTIDIENNE ; Modal : budget MENSUEL de
+    # l'espace de travail (modal_docs guide/budgets : une fois le budget du cycle atteint, Modal
+    # arrete ce qui facturerait -- c'etait le « workspace disabled » du 01/10, recharge le jour
+    # meme au changement de cycle). On consomme le quotidien, on garde le mensuel en relais.
+    essais = [("cloudflare", lambda t: _cloudflare_call(t, timeout=120.0))]
+    if _modal_url():
+        essais.append(("modal", lambda t: _modal_call(t, timeout=180.0)))
+    else:
+        print("LAFORGE_MODAL_EMBED_URL introuvable (coffre + env) -- Modal ecarte", flush=True)
+    actif = None
 
     db = base_rag()
     ro = sqlite3.connect("file:%s?mode=ro" % db, uri=True, timeout=15.0)
@@ -125,21 +159,21 @@ def main() -> int:
 
         textes = [(r[1] or "")[:8000] for r in lignes]
         t0 = time.time()
-        try:
-            vecs = _modal_call(textes, timeout=180.0)
-        except Exception as e:  # noqa: BLE001
-            print("  lot KO (%s) -- on continue" % type(e).__name__, flush=True)
-            vecs = None
+        vecs, nom, ko = premier_qui_rend(textes, essais, DIM, actif)
         dt = time.time() - t0
 
-        if not vecs or len(vecs) != len(textes):
+        if not vecs:
             echecs += 1
-            print("  lot SANS VECTEUR (%.1fs) echecs=%d" % (dt, echecs), flush=True)
+            print("  lot SANS VECTEUR (%.1fs) echecs=%d -- %s" % (dt, echecs, ", ".join(ko)), flush=True)
             if echecs >= 5:
-                print("5 echecs consecutifs -- arret (endpoint en panne ?)", flush=True)
+                print("5 echecs consecutifs sur TOUS les fournisseurs -- arret "
+                      "(cause de chacun au journal ci-dessus)", flush=True)
                 return 4
             time.sleep(3)
             continue
+        if nom != actif:
+            print("  fournisseur : %s%s" % (nom, (" (KO : %s)" % ", ".join(ko)) if ko else ""), flush=True)
+            actif = nom
         echecs = 0
 
         # ECRITURE PAR `write_retry`, PAS par un `sqlite3.connect()` nu.

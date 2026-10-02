@@ -282,7 +282,7 @@ def _roadmap_build_doc() -> dict:
     try:
         from nokido_agent.app.forge_swarm_blackboard import read_zone as _rz2
         cfacts = _rz2("architecture_rules", category="roadmap", limit=200) or []
-        cur, nxt, blk, nxts = "", "", [], []
+        cur, nxt, blk, nxts, blk_clos = "", "", [], [], []
         # Arbitrage (trust, ts) et non ts SEUL : le jalon courant etait pris au
         # DERNIER fait ecrit, donc n'importe quel detail recent ecrasait un jalon
         # majeur. Mesure 2026-08-10 : un arbitrage Qdrant local a supplante le P0
@@ -314,12 +314,21 @@ def _roadmap_build_doc() -> dict:
                     nxt, best_nxt = _n, (trust, ts)
             elif low.startswith("blocker:"):
                 b = _coupe(txt.split(":", 1)[1].strip(), 160, ref=fref)
+                # Un BLOCKER clos ([CLOS], [RESOLU], [FAIT]...) ne bloque plus : meme regle que
+                # les items P0-P2 (etat_roadmap, liste BLANCHE). Mesure 2026-10-02 : un
+                # « [CLOS le 2026-10-02 sur remesure] » restait affiche parmi les bloqueurs.
+                _etat_b = etat_roadmap(txt)
+                if _etat_b != "OUVERT":
+                    blk_clos.append({"priorite": "BLOCKER", "etat": _etat_b, "cle": fkey, "item": b})
+                    continue
                 if b and b not in blk:
                     blk.append(b)
         doc["current_milestone"] = cur
         doc["next_milestone"] = nxt
         doc["next_items"] = _plafonne(nxts, 12)
         doc["blockers"] = _plafonne(blk, 10)
+        if blk_clos:
+            doc["roadmap_clos"] = list(doc.get("roadmap_clos") or []) + blk_clos
     except Exception as exc:  # noqa: BLE001
         # PAS muet : un echec ici laisse current/next/blockers aux valeurs de
         # l'ancien doc — donc un jalon PERIME passe pour l'etat courant.

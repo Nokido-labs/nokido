@@ -13,8 +13,8 @@
 [![Go](https://img.shields.io/badge/Go-dispatcher-00ADD8?logo=go)](../../go_services/forge_dispatcher/)
 [![MCP](https://img.shields.io/badge/MCP-2025--03--26-9146FF?logo=anthropic&logoColor=white)](#-ecosystem-mcp--multi-llm)
 [![Local-First](https://img.shields.io/badge/Local--First-zero%20telemetry-2EA043)](#-security)
-[![Branch](https://img.shields.io/badge/branch-alpha-orange)](https://github.com/user/Nokido)
-[![CI](https://github.com/user/Nokido/actions/workflows/ci-selfhosted.yml/badge.svg?branch=alpha)](https://github.com/user/Nokido/actions/workflows/ci-selfhosted.yml)
+[![Branch](https://img.shields.io/badge/branch-main-orange)](https://github.com/Nokido-labs/nokido)
+[![CI](https://github.com/Nokido-labs/nokido/actions/workflows/release.yml/badge.svg)](https://github.com/Nokido-labs/nokido/actions/workflows/release.yml)
 
 **MCP clients & runtimes :**
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-server%20%26%20native-orange?logo=llama)](https://github.com/ggml-org/llama.cpp)
@@ -579,7 +579,7 @@ observation
 موصى به لأسرع اختبار معزول.
 
 ```bash
-git clone https://github.com/user/Nokido.git
+git clone https://github.com/Nokido-labs/nokido.git
 cd Nokido
 
 cp Nokido.env.example Nokido.env
@@ -624,7 +624,7 @@ curl http://localhost:8766/health
 ## 🐧 الخيار ب — التثبيت الأصيل على Linux / macOS
 
 ```bash
-git clone https://github.com/user/Nokido.git
+git clone https://github.com/Nokido-labs/nokido.git
 cd Nokido
 
 bash install.sh
@@ -655,7 +655,7 @@ source .venv/bin/activate
 ## 🪟 الخيار ج — التثبيت الأصيل على Windows
 
 ```powershell
-git clone https://github.com/user/Nokido.git
+git clone https://github.com/Nokido-labs/nokido.git
 cd Nokido
 
 .\install.ps1
@@ -818,26 +818,26 @@ ANATOMY / ORGANISM
   CI architectural gate           ✅ achieved          `anatomie` gate, blocking since 2026-09-06
   M2M memory separation           ✅ achieved          `forge_db_path`: one switch read by every process
   Emergency homeostasis           ✅ achieved          `NokidoHomeostasis` + `forge_homeostasis_orchestrator`
-  Sleep / circadian regulation    ✅ advanced          `forge_circadian` + `forge_circadian_loop`
+  Sleep / circadian regulation    🟡 partial           `forge_circadian` beats; 7 of 9 phase targets disabled or undeclared
 
 COMMUNICATION
   MCP                             ✅ operational       `NokidoMCP` hub, enabled by default
   ACP                             🟡 in development    `NokidoAcpWs`, disabled by default
   A2A Tier-1                      ⏸️ paused            `NokidoA2A`, disabled by default (code present)
   M2M                             ✅ operational       `forge_m2m_protocol` validator (intents, pointers)
-  Swarm                           🟡 hardening         `forge_swarm` family, several modules without NR yet
+  Swarm                           🟡 hardening         `forge_swarm` family: NR in CI for 12 of 13 modules (not the base one)
 
 COGNITION
   AMI                             🟡 active            `forge_world_model` + `forge_ami_strategist`
   Active Inference                🟡 active            `forge_active_inference`; homeostat coupling = prototype
   Neuro-symbolic governance       ✅ operational       `NokidoGateConsumer` + `forge_golden_rules_ast`
-  Autonomous evolution            🟡 guarded           first two effectors, each with its own kill switch
+  Autonomous evolution            🟡 guarded           `forge_mutation_judge`: one gate (owner arming, brake, human lock) + auto-brake on capability regression
 
 PHYSIOLOGY
   Endocrine                       ✅ operational       `NokidoHormonesListener` + `forge_endocrine`
   Nervous system                  ✅ operational       `NokidoAfferent` + `NokidoOrganPulse`
   Immune system                   🟡 partial           `forge_semantic_firewall` + `forge_sovereign_membrane`
-  Cortex ↔ autonomic loop         🔬 not built yet     no module — the next major coupling
+  Cortex ↔ autonomic loop         🟡 first piece       `forge_epistemic_daemon`: epistemic drive (gap → inquiry); full coupling not built
 
 NEURAL SUBSTRATE
   Software SNN                    ✅ experimental      `forge_snn_core` + `forge_snn_router`, on demand
@@ -927,7 +927,7 @@ alpha
 مسار عمل المساهم النموذجي:
 
 ```bash
-git clone https://github.com/user/Nokido.git
+git clone https://github.com/Nokido-labs/nokido.git
 cd Nokido
 
 git checkout -b feat/my-change alpha

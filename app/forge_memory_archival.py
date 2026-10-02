@@ -418,7 +418,8 @@ class ArchivalMemory:
                 """
                 INSERT OR IGNORE INTO rag_chunks
                     (id, text, source, domain, role_hint, author, ingested_at, meta)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)
             """,
                 (
                     chunk_id,
@@ -430,6 +431,7 @@ class ArchivalMemory:
                     self.agent_id,
                     now,
                     _meta_verite(msg.role, now),
+                    chunk_id,  # WHERE NOT EXISTS : n'arme pas le trigger rag_chunks_fts_bi
                 ),
             )
 

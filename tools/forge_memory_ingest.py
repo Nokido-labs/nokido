@@ -138,7 +138,7 @@ def _stabiliser(chunks, source: str) -> list:
     return chunks
 
 
-def _superseder_les_anciens(source: str, ids_courants: set) -> int:
+def _superseder_les_anciens(source: str, ids_courants: set, conn=None) -> int:
     """Desactive tout chunk de `source` qui n'appartient PAS a la version courante.
 
     Couvre deux cas d'un seul geste, la ou un filtre sur l'indice de chunk n'en
@@ -155,45 +155,21 @@ def _superseder_les_anciens(source: str, ids_courants: set) -> int:
     external-content, la forme qu'emploient les triggers eux-memes.
 
     Rend le nombre de chunks retires, ou -1 si la primitive d'ecriture manque.
+
+    La primitive vit desormais dans `forge_rag_truth.retirer_versions_anterieures`
+    (2026-10-01), partagee avec `forge_ingest_llms_txt` : une seule regle de retrait
+    pour les deux ingesteurs, pas deux qui divergent. Le plan d'execution (pas de
+    `active = 1` dans le WHERE, mesure du 2026-09-04) y est documente.
     """
     try:
-        from nokido_agent.app.forge_db_path import open_writer
+        from nokido_agent.app.forge_rag_truth import retirer_versions_anterieures
     except Exception as exc:
-        print("   [!] open_writer indisponible (%s) — anciens NON traites" % type(exc).__name__)
+        print("   [!] forge_rag_truth indisponible (%s) — anciens NON traites" % type(exc).__name__)
         return -1
-    conn = open_writer()
-    try:
-        # `active = 1` est VOLONTAIREMENT absent du WHERE et filtre en Python.
-        # Mesure 2026-09-04 : avec lui, le planificateur choisit
-        # `idx_rag_chunks_active (active=?)` — un index sur une colonne
-        # CONSTANTE (2 035 609 lignes a 1, zero autre valeur), donc sans aucun
-        # pouvoir discriminant, qui evince `idx_rag_source`. Cout : 14,716 s
-        # contre 0,000 s pour les 16 memes lignes.
-        #
-        # Le piege est qu'un plan `SEARCH ... USING INDEX` a l'air sain : ici il
-        # dit « USING INDEX » et balaie quand meme toute la table. Verifier le
-        # plan ne suffit pas — il faut verifier que la colonne indexee VARIE.
-        anciens = [
-            r for r in conn.execute(
-                "SELECT rowid, id, text, source, domain, active FROM rag_chunks "
-                "WHERE source = ?",
-                (source,),
-            ).fetchall()
-            if r[1] not in ids_courants and r[5] == 1
-        ]
-        for rowid, cid, texte, src, dom, _actif in anciens:
-            conn.execute(
-                "INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, text, source, domain) "
-                "VALUES ('delete', ?, ?, ?, ?)",
-                (rowid, texte, src, dom),
-            )
-            conn.execute(
-                "UPDATE rag_chunks SET active = 0, superseded_by = ? WHERE id = ?",
-                (source, cid),
-            )
-        return len(anciens)
-    finally:
-        conn.close()
+    n = retirer_versions_anterieures(source, ids_courants, conn=conn)
+    if n < 0:
+        print("   [!] open_writer indisponible — anciens NON traites")
+    return n
 
 
 def _verifier_le_plan(db_path) -> tuple:

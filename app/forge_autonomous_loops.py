@@ -575,6 +575,19 @@ def submit_candidate_to_judge(ref_exp: str, rel: str, nouveau: str,
     _sys.path.insert(0, str(ROOT / "app"))
     from nokido_agent.app import forge_mutation_judge as juge
 
+    # PORTE DE L'EVOLUTION (2026-10-01) : armement owner, frein evolution.halt, verrou
+    # humain -- verifiee AVANT toute ecriture (juger_module ecrit dans l'arbre vivant).
+    # Le refus est CONSIGNE au registre : une soumission arretee n'est pas une soumission
+    # qui n'a jamais eu lieu.
+    porte = juge.evolution_autorisee()
+    if not porte["autorisee"]:
+        exp_id = record_evolution_experience({
+            "kind": "candidate_verdict", "ref_exp": ref_exp, "target": rel,
+            "verdict": "HALTED", "status": "HALTED", "porte": porte,
+        })
+        log.warning(f"[evolution] {rel}: HALTED ({porte['etat']} : {porte['motif']}) exp={exp_id}")
+        return {"exp_id": exp_id, "status": "HALTED", "verdict": "HALTED", "porte": porte}
+
     sha = hashlib.sha256(nouveau.encode("utf-8")).hexdigest()[:16]
     _EVOLUTION_CANDIDATES.mkdir(parents=True, exist_ok=True)
     (_EVOLUTION_CANDIDATES / f"{sha}.py").write_text(nouveau, encoding="utf-8")
@@ -2936,9 +2949,10 @@ def pat_m2m_debate_relay() -> dict:
     # Le postal est LIVRE mais PAS LU par ce pair (4 tours, 0 accuse de reception) :
     # la reponse part donc AUSSI sur le tableau noir, seul canal ou il a lu et repondu.
     try:
-        from nokido_agent.app.forge_swarm_blackboard import get_blackboard
+        from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
 
-        get_blackboard().propose_fact(
+        # `get_blackboard` n'a jamais existe : ce relai finissait toujours en "echec".
+        _r = apply_fact_sync(
             "discovered_facts",
             json.dumps({"de": "CLAUDE", "pour": _M2M_PAIR, "tour": "relai autonome",
                         "mesures": chiffres,
@@ -2946,8 +2960,9 @@ def pat_m2m_debate_relay() -> dict:
                                 "les commits RATE sont les regressions qu aucun axe ne voit"},
                        ensure_ascii=False),
             category="debat", trust=0.8,
-            key=f"debat_relai_auto_{int(time.time())}")
-        out["blackboard"] = "poste"
+            key=f"debat_relai_auto_{int(time.time())}", source="autonomous_loops", ring=2)
+        out["blackboard"] = ("poste" if _r.get("ok") else "planifie (demande, pas atteint)"
+                             if _r.get("planifie") else f"echec: {str(_r)[:90]}")
     except Exception as e:  # noqa: BLE001
         out["blackboard"] = f"echec: {str(e)[:90]}"
     try:

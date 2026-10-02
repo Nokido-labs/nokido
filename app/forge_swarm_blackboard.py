@@ -223,6 +223,49 @@ async def apply_fact(zone: str, fact: str, *, category: str = "", trust: float =
     return {"ok": True, "zone": zone, "key": k, "trust": float(trust)}
 
 
+# Taches posees par apply_fact_sync sur une boucle deja active : la reference forte
+# empeche le ramasse-miettes de les detruire avant la fin de l'ecriture.
+_TACHES_FOND: set = set()
+
+
+def apply_fact_sync(zone: str, fact: str, **kw: Any) -> dict:
+    """`apply_fact` depuis du code SYNCHRONE, qu'une boucle asyncio tourne ou non.
+
+    `propose_fact` n'a jamais existe dans ce module : deux appelants synchrones
+    (forge_comm_watch, forge_presence) l'importaient et l'ImportError tombait dans leur
+    except -- aucun de leurs faits n'a jamais atteint le tableau noir (851 avertissements
+    de comm_watch le 2026-10-01). Les memes parametres que `apply_fact`, `ring` compris :
+    discovered_facts exige ring<=2, le defaut 4 rend {"error": "ACL..."} sans exception.
+
+    Sans boucle (script, daemon) : asyncio.run, le resultat revient tel quel.
+    Dans une boucle (hub, gate) : asyncio.run leverait RuntimeError, et une ecriture
+    synchrone figerait la boucle -- la tache est posee sur la boucle courante (meme verrou
+    que les autres ecritures du hub) et le retour est {"ok": None, "planifie": True} :
+    DEMANDE, pas ATTEINT. Un refus ulterieur est ecrit sur stderr, jamais avale.
+    """
+    try:
+        boucle = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(apply_fact(zone, fact, **kw))
+    tache = boucle.create_task(apply_fact(zone, fact, **kw))
+    _TACHES_FOND.add(tache)
+    tache.add_done_callback(_fin_tache_fond)
+    return {"ok": None, "planifie": True, "zone": zone}
+
+
+def _fin_tache_fond(tache: "asyncio.Task") -> None:
+    _TACHES_FOND.discard(tache)
+    if tache.cancelled():
+        r: Any = {"error": "tache annulee avant l'ecriture"}
+    elif tache.exception() is not None:
+        e = tache.exception()
+        r = {"error": f"{type(e).__name__}: {e}"}
+    else:
+        r = tache.result()
+    if not (r or {}).get("ok"):
+        print(f"[blackboard] fait planifie NON ecrit : {str(r)[:200]}", file=sys.stderr, flush=True)
+
+
 def read_zone(zone: str, *, category: Optional[str] = None,
               min_trust: Optional[float] = None, limit: int = 200) -> list[dict]:
     """Lecture condensée d'UNE zone (anti lost-in-the-middle)."""

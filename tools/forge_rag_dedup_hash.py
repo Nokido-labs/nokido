@@ -90,7 +90,8 @@ def restaurer() -> dict:
         n = conn.execute(f"SELECT COUNT(*) FROM {ARCHIVE}").fetchone()[0]
         cols = ",".join(r[1] for r in conn.execute("PRAGMA table_info(rag_chunks)"))
         write_retry(lambda c: c.execute(
-            f"INSERT OR IGNORE INTO rag_chunks ({cols}) SELECT {cols} FROM {ARCHIVE}"))
+            f"INSERT OR IGNORE INTO rag_chunks ({cols}) SELECT {cols} FROM {ARCHIVE} a "
+            f"WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = a.id)"))
         return {"ok": True, "restaures": n,
                 "note": "l'archive est CONSERVEE ; la supprimer est une decision distincte"}
 

@@ -288,8 +288,11 @@ def _modal_call(texts: list[str], timeout: float = 20.0) -> list[list[float]] | 
     url = _modal_url()
     if not url:
         return None
+    propres = masquer_pour_cloud(texts, "modal_embed")
+    if propres is None:
+        return None
     try:
-        body = json.dumps({"texts": [t[:8000] for t in texts]}).encode()
+        body = json.dumps({"texts": propres}).encode()
         req = urllib.request.Request(
             url,
             data=body,
@@ -302,9 +305,46 @@ def _modal_call(texts: list[str], timeout: float = 20.0) -> list[list[float]] | 
             data = json.loads(r.read())
         emb = data.get("embeddings")
         return emb if isinstance(emb, list) else None
-    except Exception as e:
-        logger.debug(f"Modal batch KO: {e}")
+    except Exception as e:  # noqa: BLE001 - la cause se DIT (2026-10-01)
+        # Etait `logger.debug` : le 01/10 la campagne ne disait que « lot SANS VECTEUR »
+        # pendant que Modal repondait HTTP 404 « workspace ... is disabled » -- une cause
+        # de COMPTE, invisible depuis le journal. Meme forme que `_cloudflare_call`.
+        _corps = ""
+        _lire = getattr(e, "read", None)
+        if callable(_lire):
+            try:
+                _corps = _lire().decode("utf-8", "replace")[:220]
+            except Exception:  # noqa: BLE001
+                _corps = ""
+        logger.warning("[embed:modal] appel KO (%s %s) %s", type(e).__name__,
+                       getattr(e, "code", ""), _corps.strip())
         return None
+
+
+def masquer_pour_cloud(texts: list[str], outil: str) -> list[str] | None:
+    """Texte a envoyer a un fournisseur d'embedding CLOUD : masque, ou None (= ne rien envoyer).
+
+    LE CLOUD RECOIT FILTRE (2026-10-01). Modal et Cloudflare recevaient le texte BRUT des
+    chunks -- or le tier qu'on vectorise est le contenu PROPRE de Nokido (laforge-memory,
+    laforge-code : forge_tier_policy.HOT_ORIGINS). Porteur existant `redact_tool_output`
+    (infrastructure ET clefs d'API), `journal=False` + UNE ligne par lot. Le vecteur represente
+    le texte masque ; la recherche LEXICALE garde l'original. Masqueur indisponible -> None :
+    le fournisseur se comporte comme indisponible et le local prend le relais (fail-closed)."""
+    try:
+        from nokido_agent.app.forge_semantic_firewall import redact_tool_output
+    except Exception as e:  # noqa: BLE001 - fail-closed, dit
+        logger.warning("[embed:%s] REFUSE : masqueur indisponible (%s) -- rien n'est envoye",
+                       outil, type(e).__name__)
+        return None
+    propres, masques = [], 0
+    for t in texts:
+        r, bilan = redact_tool_output((t or "")[:8000], outil=outil, journal=False)
+        propres.append(r)
+        masques += int(bilan.get("secrets_rediges") or 0)
+    if masques:
+        logger.info("[embed:%s] %d donnee(s) sensible(s) masquee(s) avant envoi (%d texte(s))",
+                    outil, masques, len(texts))
+    return propres
 
 
 def _embed_modal(text: str, timeout: float = 10.0) -> list[float] | None:
@@ -690,9 +730,12 @@ def _cloudflare_call(texts: list[str], timeout: float = 30.0) -> list[list[float
         logger.warning("[embed:cloudflare] non configure (account_id=%s, api_key=%s)",
                        bool(acc), bool(key))
         return None
+    propres = masquer_pour_cloud(texts, "cloudflare_embed")
+    if propres is None:
+        return None
     req = _u.Request(
         "https://api.cloudflare.com/client/v4/accounts/%s/ai/run/@cf/baai/bge-m3" % acc,
-        data=_j.dumps({"text": texts}).encode("utf-8"),
+        data=_j.dumps({"text": propres}).encode("utf-8"),
         headers={"Authorization": "Bearer %s" % key, "Content-Type": "application/json"},
     )
     try:
@@ -1190,11 +1233,29 @@ def encode_blob(vec: list[float]) -> bytes:
     return struct.pack(f"{len(vec)}f", *vec)
 
 
-def decode_blob(blob: bytes) -> list[float] | None:
+def decode_blob(blob) -> list[float] | None:
+    """Vecteur stocke -> liste de floats ; None si illisible (jamais un vecteur faux).
+
+    TOLERANT AU JSON (decision owner 2026-10-01). Recensement du soir : 359 005 vecteurs (~20 %)
+    sont stockes en JSON -- 321 758 en TEXT (lecons de session) et 37 247 en BLOB (web-crawl) --
+    a cote de 1 459 808 binaires float32. L'ancienne forme les depaquetait comme du binaire :
+    un BLOB JSON de 20 Ko devenait ~5 100 floats ABSURDES (des octets ASCII lus comme float32),
+    un TEXT levait TypeError. Le binaire reste la forme canonique ; sa conversion en base est un
+    chantier owner a part. Une longueur binaire non multiple de 4 rend None, sans lever."""
     if not blob:
         return None
-    n = len(blob) // 4
-    return list(struct.unpack(f"{n}f", blob))
+    if isinstance(blob, str) or bytes(blob[:1]) == b"[":
+        try:
+            v = json.loads(blob if isinstance(blob, str) else bytes(blob).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return None
+        if isinstance(v, list) and v and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
+            return [float(x) for x in v]
+        return None
+    b = bytes(blob)
+    if len(b) % 4:
+        return None
+    return list(struct.unpack(f"{len(b) // 4}f", b))
 
 
 # --- CLI test ---

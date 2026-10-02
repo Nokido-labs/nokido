@@ -779,6 +779,99 @@ def get_secret(key: str, required: bool = False) -> Optional[str]:
     return None
 
 
+_MARQUES_SECRET = ("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "PRIVATE",
+                   "AUTH", "COOKIE", "SESSION")
+
+
+def est_un_secret(nom: str) -> bool:
+    """Un nom de Nokido.env est-il un SECRET (valeur au coffre seulement) ou un REGLAGE ?
+
+    Le .env porte les deux par conception : forge_env_sync y ecrit des reglages surveilles
+    (et envoie les secrets au coffre). Un nom reserve est toujours un secret ; sinon, une
+    marque dans le nom. Un reglage classe secret a tort n'est pas perdu en silence :
+    `injecter_env_depuis_coffre` le rend dans `absentes`, par son nom.
+    """
+    n = (nom or "").upper()
+    return nom in NOMS_RESERVES or any(m in n for m in _MARQUES_SECRET)
+
+
+def injecter_env_ou_dire(chemin=None, qui: str = "?", environ=None):
+    """`injecter_env_depuis_coffre` pour un CHARGEUR de demarrage : un echec se DIT (une ligne,
+    le type d'erreur, jamais une valeur) et ne fait pas tomber le processus. Rend le bilan, ou
+    None si l'injection a leve.
+
+    Enrobage UNIQUE (2026-10-02) : forge_task_router et forge_services_launcher en portaient
+    chacun une copie, que le cliquet de duplication a refusee."""
+    try:
+        return injecter_env_depuis_coffre(chemin, environ)
+    except Exception as e:  # noqa: BLE001 - dit, jamais avale
+        print("[%s] coffre indisponible (%s) : rien injecte depuis %s"
+              % (qui, type(e).__name__, Path(chemin).name if chemin else "Nokido.env"), flush=True)
+        return None
+
+
+def injecter_env_depuis_coffre(chemin=None, environ=None) -> dict:
+    """SECRETS de Nokido.env : NOMS du fichier, VALEURS du coffre (decision owner 2026-10-01).
+
+    « Le .env ne doit servir qu'a charger de nouveaux secrets sans les taper » : il fait
+    ENTRER un secret au coffre (tools/forge_env_to_vault.py) et n'est JAMAIS une source de
+    valeur a l'execution. Six chargeurs recopiaient le fichier, en clair, dans os.environ
+    (herite par chaque enfant) ; ils passent par ici.
+
+    Pour chaque cle ACTIVE du fichier : deja posee dans l'environnement -> intacte (meme
+    contrat que les anciens chargeurs) ; trouvee au coffre (reserve, machine, WCM -- l'ordre
+    de get_secret SANS son repli dotenv) -> injectee ; sinon ABSENTE ou ILLISIBLE, nommee et
+    jamais remplacee par la valeur du fichier. Un REGLAGE (`est_un_secret` faux) garde sa
+    valeur du fichier, comme avant. Rend des NOMS et des comptes, jamais une valeur.
+    """
+    env = os.environ if environ is None else environ
+    chemin = Path(chemin) if chemin else Path(__file__).resolve().parent.parent / "Nokido.env"
+    bilan = {"injectees": 0, "reglages": 0, "deja_posees": 0, "absentes": [], "illisibles": [],
+             "fichier": str(chemin)}
+    try:
+        lignes = chemin.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        bilan["fichier_illisible"] = True  # absent ou refuse : rien a injecter, et on le dit
+        return bilan
+    noms = {}
+    for ligne in lignes:
+        ligne = ligne.strip()
+        if not ligne or ligne.startswith("#") or "=" not in ligne:
+            continue
+        k, v = ligne.split("=", 1)
+        k = k.strip()
+        # meme coupe que forge_env_to_vault : la valeur s'arrete au commentaire de fin de ligne
+        v = v.split(" #", 1)[0].strip().strip('"').strip("'")
+        if k.replace("_", "").isalnum() and v:
+            noms[k] = v
+    for k, v_fichier in noms.items():
+        if env.get(k):
+            bilan["deja_posees"] += 1
+            continue
+        if not est_un_secret(k):
+            env[k] = v_fichier
+            bilan["reglages"] += 1
+            continue
+        ferme = k in NOMS_RESERVES and k not in RESERVES_EN_TRANSITION
+        sources = (["coffre_reserve"] if k in NOMS_RESERVES else []) + \
+                  ([] if ferme else ["coffre"]) + ["wcm"]
+        val, illisible = None, False
+        for source in sources:
+            v, ill = _sonder(source, k)
+            if ill:
+                illisible = True
+                continue
+            if v:
+                val = v
+                break
+        if val:
+            env[k] = val
+            bilan["injectees"] += 1
+        else:
+            bilan["illisibles" if illisible else "absentes"].append(k)
+    return bilan
+
+
 def invalidate_cache(key: Optional[str] = None) -> None:
     """Invalide le cache (après rotation de clé)."""
     if key:

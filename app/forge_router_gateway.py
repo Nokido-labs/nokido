@@ -49,22 +49,12 @@ APP = ROOT / "app"
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-# Charger secrets — keyring d abord, .env en fallback
-try:
-    from nokido_agent.app.forge_secrets import load_secrets as _load_secrets
-
-    _load_secrets()
-except Exception:
-    # Fallback direct .env si forge_secrets indisponible
-    _env = ROOT / "Nokido.env"
-    if _env.exists():
-        for _line in _env.read_text(encoding="utf-8").splitlines():
-            _line = _line.strip()
-            if _line and not _line.startswith("#") and "=" in _line:
-                _k, _, _v = _line.partition("=")
-                _k, _v = _k.strip(), _v.strip()
-                if _k and _v:
-                    os.environ[_k] = _v
+# SECRETS : LE COFFRE, JAMAIS LE .env A L'EXECUTION (decision owner 2026-10-01).
+# Ici, `forge_secrets.load_secrets` n'a jamais existe : l'ImportError tombait dans un repli
+# qui recopiait TOUT Nokido.env, en clair, dans os.environ -- herite ensuite par chaque
+# processus enfant. Les cles sont lues a la demande par forge_llm_router via le coffre
+# (forge_secrets.get_secret). Le .env ne sert qu'a FAIRE ENTRER un nouveau secret au
+# coffre sans le taper : tools/forge_env_to_vault.py (plan par defaut, --appliquer).
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.responses import JSONResponse

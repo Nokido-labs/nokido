@@ -131,8 +131,9 @@ def process_documents():
             domain = meta.get("domain", "doc")
 
             conn.execute(
-                "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain) VALUES (?,?,?,?)",
-                (chunk_id, source, chunk, domain),
+                "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain) SELECT ?,?,?,? "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                (chunk_id, source, chunk, domain, chunk_id),
             )
             conn.execute(
                 "INSERT OR IGNORE INTO rag_meta (id, summary, keywords, domain) VALUES (?,?,?,?)",

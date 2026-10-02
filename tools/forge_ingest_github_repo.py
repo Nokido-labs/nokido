@@ -178,6 +178,13 @@ def index(fichiers: list[tuple[str, str]], slug: str, domain: str) -> dict:
     def _op(conn):
         inserted = skipped = 0
         for cid, source, chunk in lignes:
+            # DEJA PRESENT -> rien a ecrire (2026-10-01) : le trigger
+            # `rag_chunks_fts_bi` (BEFORE INSERT) retirait l'entree lexicale de l'id
+            # existant AVANT que l'insertion soit ignoree, si bien qu'une re-ingestion
+            # sortait du lexical tous les chunks INCHANGES. existence-verifiee
+            if conn.execute("SELECT 1 FROM rag_chunks WHERE id = ?", (cid,)).fetchone():
+                skipped += 1
+                continue
             conn.execute(
                 "INSERT OR IGNORE INTO rag_chunks "
                 "(id, source, text, domain, created_at) VALUES (?, ?, ?, ?, ?)",

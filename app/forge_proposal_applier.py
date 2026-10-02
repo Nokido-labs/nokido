@@ -52,6 +52,9 @@ Usage :
 
 API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) :
 - `cible_protegee` — Premiere cible protegee visee par l'action, ou None. Chemin normalise en `/`.
+- `porte_evolution` — Etat de la porte UNIQUE d'evolution, lu a chaque appel. Fail-closed.
+- `empreinte_l1` — sha256 de l'etat L1 canonique. L'« arbre » du niveau L1 : un retour arriere est
+- `valeur_l1` — Lecteur pour les organes : valeur L1 courante, sinon le defaut DECLARE, sinon `defaut`.
 """
 
 from __future__ import annotations
@@ -74,6 +77,22 @@ DB = ROOT / "RAG" / "embeddings.db"
 
 REFLEXE = {"reclaim_cache", "unload_idle"}
 CORTICAL = {"stop_service", "topology_change"}
+
+# ── L1 `set_param` (mission regeneration du 2026-10-01, note RSI §2.2) ─────────────
+# Le premier niveau de la boucle proposer -> verifier -> appliquer -> mesurer est le plus
+# reversible : un PARAMETRE, pas du code. Trois conditions avant qu'un reglage parte seul :
+#   1. le parametre est DECLARE ici (liste BLANCHE, vide par defaut : declarer un reglage
+#      est une decision owner -- un nom absent reste CORTICAL, jamais execute) ;
+#   2. il porte une MESURE (`mesure` = "module:fonction" rendant {dimension: score}, plus
+#      haut = mieux) et sa bande de BRUIT par dimension : un reglage qu'on ne sait pas
+#      mesurer ne s'applique pas seul, et sans bruit declare on ne sait pas dire « revenu » ;
+#   3. la porte d'evolution est ARMEE (`forge_mutation_judge.evolution_autorisee`).
+# Schema : {"nom": {"type": "float"|"int"|"bool"|"str", "min": x, "max": y, "defaut": v,
+#                   "mesure": "module:fonction", "bruit": {"dimension": 0.01}}}
+PARAMS_L1: dict[str, dict] = {}
+# Valeurs COURANTES des reglages L1. Chaque entree garde l'entree qu'elle remplace
+# (`precedente`) : un process qui meurt entre l'acte et la mesure laisse de quoi revenir.
+PARAMS_L1_FICHIER = ROOT / "sandbox" / "parametres_l1.json"
 
 # Seuil de confiance de l'etage reflexe (AGY tour 1) : au-dessous, meme une action
 # reversible attend un arbitrage. Ce n'est pas un chiffre invente ici -- c'est celui
@@ -133,6 +152,166 @@ def arme() -> bool:
     """L'owner a-t-il arme l'auto-application ? Defaut : NON."""
     return str(os.environ.get("LAFORGE_APPLIER_ARMED", "")).strip().lower() in (
         "1", "true", "yes", "on")
+
+
+def porte_evolution() -> dict:
+    """Etat de la porte UNIQUE d'evolution, lu a chaque appel. Fail-closed.
+
+    `forge_mutation_judge.evolution_autorisee()` porte le verrou humain, le frein
+    `sandbox/evolution.halt` et l'armement. Une porte ABSENTE (version du juge qui ne la
+    connait pas) ou qui LEVE rend `INCONNU`, donc non autorisee : je ne peux pas voir
+    n'est pas « tout va bien ».
+    """
+    try:
+        from nokido_agent.app import forge_mutation_judge as _juge
+        f = getattr(_juge, "evolution_autorisee", None)
+        if f is None:
+            return {"autorisee": False, "etat": "INCONNU",
+                    "motif": "porte absente de forge_mutation_judge (version anterieure)"}
+        r = f() or {}
+        return {"autorisee": r.get("autorisee") is True, "etat": r.get("etat") or "INCONNU",
+                "motif": r.get("motif") or ""}
+    except Exception as exc:  # noqa: BLE001 - porte illisible = fermee, et le DIRE
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "porte illisible (%s: %s)" % (type(exc).__name__, str(exc)[:120])}
+
+
+# ── Magasin L1 : lecture, ecriture canonique, empreinte ──────────────────────────
+def _lire_l1() -> dict:
+    """Valeurs L1 courantes. Fichier absent = {} ; fichier ILLISIBLE leve : ecrire par-dessus
+    effacerait des reglages qu'on n'a pas su lire."""
+    try:
+        brut = PARAMS_L1_FICHIER.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    d = json.loads(brut)
+    if not isinstance(d, dict):
+        raise ValueError("magasin L1 non conforme (attendu un objet JSON)")
+    return d
+
+
+def _ecrire_l1(d: dict) -> None:
+    """Ecriture CANONIQUE (cles triees) et atomique : deux etats egaux ont les memes octets,
+    ce qui rend l'empreinte comparable avant et apres un retour arriere."""
+    PARAMS_L1_FICHIER.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PARAMS_L1_FICHIER.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(d, sort_keys=True, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(tmp, PARAMS_L1_FICHIER)
+
+
+def empreinte_l1() -> str:
+    """sha256 de l'etat L1 canonique. L'« arbre » du niveau L1 : un retour arriere est
+    PROUVE quand cette empreinte redevient celle d'avant l'acte."""
+    import hashlib
+    canon = json.dumps(_lire_l1(), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def valeur_l1(nom: str, defaut=None):
+    """Lecteur pour les organes : valeur L1 courante, sinon le defaut DECLARE, sinon `defaut`.
+
+    Un magasin illisible rend le defaut declare, et ne leve pas : le reglage courant est
+    perdu pour ce lecteur, l'organe ne doit pas l'etre."""
+    decl = PARAMS_L1.get(nom) or {}
+    try:
+        e = _lire_l1().get(nom)
+    except Exception:  # noqa: BLE001 - muet-ok : le defaut declare reste une valeur sure
+        e = None
+    if isinstance(e, dict) and "valeur" in e:
+        return e["valeur"]
+    return decl.get("defaut", defaut)
+
+
+def _valeur_conforme(nom: str, valeur) -> str | None:
+    """None si `valeur` est conforme a la declaration de `nom`, sinon le motif du refus."""
+    decl = PARAMS_L1.get(nom)
+    if decl is None:
+        return "parametre %r hors liste blanche L1" % nom
+    typ = decl.get("type")
+    if typ == "bool":
+        ok = isinstance(valeur, bool)
+    elif typ == "int":
+        ok = isinstance(valeur, int) and not isinstance(valeur, bool)
+    elif typ == "float":
+        ok = isinstance(valeur, (int, float)) and not isinstance(valeur, bool)
+    elif typ == "str":
+        ok = isinstance(valeur, str)
+    else:
+        return "type declare inconnu %r pour %r" % (typ, nom)
+    if not ok:
+        return "valeur %r n'est pas du type %s" % (valeur, typ)
+    if typ in ("int", "float"):
+        if "min" in decl and valeur < decl["min"]:
+            return "valeur %r sous le minimum %r" % (valeur, decl["min"])
+        if "max" in decl and valeur > decl["max"]:
+            return "valeur %r au-dessus du maximum %r" % (valeur, decl["max"])
+    return None
+
+
+def _etage_set_param(action: dict, conf: float, porte: dict) -> tuple[str, str]:
+    """(etage, motif) d'un `set_param`. CORTICAL tant que la porte n'est pas armee."""
+    nom = action.get("param")
+    if nom not in PARAMS_L1:
+        return "CORTICAL", ("parametre %r hors liste blanche L1 — le declarer reglable est "
+                            "une decision owner" % nom)
+    if "valeur" not in action:
+        return "REFUSE", "set_param sans `valeur` — jamais execute"
+    refus = _valeur_conforme(nom, action["valeur"])
+    if refus:
+        return "REFUSE", refus + " — jamais executee"
+    decl = PARAMS_L1[nom]
+    if not decl.get("mesure") or not isinstance(decl.get("bruit"), dict):
+        return "CORTICAL", ("aucune mesure (ou bande de bruit) declaree pour %r : un reglage "
+                            "qu'on ne sait pas mesurer ne s'applique pas seul" % nom)
+    if not porte.get("autorisee"):
+        return "CORTICAL", "porte d'evolution %s : %s" % (porte.get("etat"), porte.get("motif"))
+    if float(conf or 0) < CONF_REFLEXE:
+        return "CORTICAL", "L1 reversible mais confiance %.2f < %.2f" % (float(conf or 0), CONF_REFLEXE)
+    return "REFLEXE", ("L1 reversible : valeur precedente memorisee, mesure declaree, porte %s"
+                       % porte.get("etat"))
+
+
+def _set_param(action: dict) -> dict:
+    """Pose la valeur ; rend la TRACE qui permet d'y revenir a l'octet pres.
+
+    La trace porte l'entree REMPLACEE entiere (ou son absence) : la restaurer redonne
+    exactement l'etat d'avant, metadonnees comprises -- donc la meme empreinte.
+    """
+    nom = action["param"]
+    refus = _valeur_conforme(nom, action.get("valeur"))
+    if refus:
+        return {"ok": False, "detail": refus}
+    d = _lire_l1()
+    ancienne = d.get(nom)
+    d[nom] = {"valeur": action["valeur"], "precedente": ancienne,
+              "pose_le": time.strftime("%Y-%m-%dT%H:%M:%S"),
+              "exp_id": action.get("exp_id")}
+    _ecrire_l1(d)
+    return {"ok": True, "param": nom, "nouvelle": action["valeur"],
+            "existait": ancienne is not None, "ancienne_entree": ancienne}
+
+
+def _restaurer_param(trace: dict) -> dict:
+    """Retour arriere L1 : remet l'entree remplacee, ou retire la cle si elle n'existait pas."""
+    nom = trace["param"]
+    d = _lire_l1()
+    if trace.get("existait"):
+        d[nom] = trace.get("ancienne_entree")
+    else:
+        d.pop(nom, None)
+    _ecrire_l1(d)
+    return {"ok": True, "param": nom}
+
+
+def _mesure_declaree(nom: str):
+    """La fonction de mesure declaree pour `nom` ("module:fonction"), resolue a l'appel."""
+    import importlib
+    mod, _, fn = str(PARAMS_L1[nom]["mesure"]).partition(":")
+    try:
+        m = importlib.import_module("nokido_agent.app." + mod)
+    except ImportError:
+        m = importlib.import_module(mod)
+    return getattr(m, fn)
 
 
 def _conn_ro() -> sqlite3.Connection:
@@ -246,6 +425,7 @@ def plan() -> list[dict]:
         return [{"erreur": "propositions ILLISIBLES: %s" % type(exc).__name__}]
 
     out = []
+    porte = None  # lue au plus UNE fois par plan, et seulement si un set_param la demande
     for rid, param, conf, ev, reason in rows:
         action = _action_de(ev)
         typ = (action or {}).get("type")
@@ -256,6 +436,10 @@ def plan() -> list[dict]:
         elif not action:
             etage, motif = "DIAGNOSTIC", ("aucune action machine declaree — remede en prose, "
                                           "lecture humaine")
+        elif typ == "set_param":
+            if porte is None:
+                porte = porte_evolution()
+            etage, motif = _etage_set_param(action, conf, porte)
         elif typ in REFLEXE and float(conf or 0) >= CONF_REFLEXE:
             etage, motif = "REFLEXE", "reversible pur et confiance %.2f >= %.2f" % (
                 float(conf or 0), CONF_REFLEXE)
@@ -294,6 +478,9 @@ def appliquer(dry_run: bool | None = None) -> dict:
         if x.get("etage") != "REFLEXE":
             continue
         action = x["action"]
+        if action.get("type") == "set_param":
+            res["actes"].append(_appliquer_set_param(x))
+            continue
         obs_av = _observable(action)
         sante_av = _sante_globale()
         if sante_av is None:
@@ -347,6 +534,42 @@ def appliquer(dry_run: bool | None = None) -> dict:
             "detail": fait.get("detail"),
         })
     return res
+
+
+def _appliquer_set_param(x: dict) -> dict:
+    """Un `set_param` REFLEXE : la boucle complete passe par le CONTROLEUR de mutation.
+
+    L'applicateur pose et sait defaire ; le controleur relit la porte juste avant l'acte,
+    mesure avant et apres sur la MESURE DECLAREE, garde ou revient en arriere, et le
+    PROUVE (empreinte L1 egale a celle d'avant ET mesure revenue dans la bande). Le
+    marquage `rolled_back_at` suit le verdict du controleur, pas l'absence d'erreur.
+    """
+    from nokido_agent.app.forge_mutation_controller import appliquer_et_mesurer
+
+    action = dict(x["action"])
+    nom = action["param"]
+    trace: dict = {}
+
+    def _appliquer():
+        trace.update(_set_param(action))
+        return trace
+
+    def _reverter():
+        return _restaurer_param(trace) if trace.get("ok") else {"ok": False,
+                                                                  "detail": "rien a defaire"}
+
+    r = appliquer_et_mesurer(
+        niveau="L1", cible="param:%s" % nom, exp_id=action.get("exp_id"),
+        # Resolue A L'APPEL : une mesure introuvable echoue DANS le controleur (qui s'abstient
+        # alors d'appliquer), au lieu d'interrompre la boucle de l'applicateur.
+        appliquer=_appliquer, reverter=_reverter, mesurer=lambda: _mesure_declaree(nom)(),
+        empreinte=empreinte_l1, bruit=dict(PARAMS_L1[nom].get("bruit") or {}))
+    applique = bool(r.get("applique"))
+    if applique:
+        _marquer(x["id"], "forge_proposal_applier", rolled_back=r.get("verdict") != "CONSERVE")
+    return {"id": x["id"], "fait": applique, "succes": r.get("verdict") == "CONSERVE",
+            "niveau": "L1", "param": nom, "verdict": r.get("verdict"),
+            "exp_id": r.get("exp_id"), "preuve": r.get("preuve"), "frein": r.get("frein")}
 
 
 def _main(argv=None) -> int:

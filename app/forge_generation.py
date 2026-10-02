@@ -216,21 +216,57 @@ def _empreinte_capacites() -> dict:
 
 
 def _verdict_pareto(d_modules: int, d_tests: int) -> str:
-    """Les modules sont un COUT (complexite), les tests une COUVERTURE (benefice). Seul un
-    deplacement sur la frontiere de Pareto est un gain (veille RSI 26/09 : openevolve
-    `complexity`, awesome-self-evolving primer « Pareto frontier »)."""
+    """Verdict SANS mesure de capacite : un compte de fichiers ne prouve JAMAIS un gain.
+
+    Version du 26/09 : les tests etaient une « couverture » (benefice) -- un fichier de test VIDE
+    rendait AMELIORE, le Goodhart avait seulement change de compteur (revue claude.ai du
+    2026-10-01, mission_rsi_soif, verifiee). Desormais : perdre des tests NR est une
+    DEGRADATION (des gardes disparaissent), ajouter des modules est un COUT sans preuve,
+    tout le reste est NEUTRE. Le gain se lit dans `_verdict_capacites`."""
     if d_tests < 0:
-        return "DEGRADE"                       # couverture perdue, meme en allegeant
-    if d_modules <= 0 and (d_tests > 0 or d_modules < 0):
-        return "AMELIORE"                      # plus de couverture et/ou moins de complexite
-    if d_modules > 0 and d_tests > 0:
-        return "COMPROMIS"                     # croissance ET couverture : pas une victoire d'office
+        return "DEGRADE"                       # des gardes de non-regression ont disparu
     if d_modules > 0:
-        return "CROISSANCE_SANS_COUVERTURE"    # le cas mesure du 20/09
+        return "CROISSANCE_SANS_PREUVE"        # complexite ajoutee, aucun gain mesure
     return "NEUTRE"
 
 
-def _gain_vs_precedente(empreinte: dict) -> dict:
+def _score_et_bruit(v) -> tuple:
+    """Une dimension de capacite : nombre, ou {"score": x, "bruit": b}. (None, 0) si illisible."""
+    if isinstance(v, dict):
+        v, b = v.get("score"), v.get("bruit", 0)
+    else:
+        b = 0
+    try:
+        return float(v), abs(float(b or 0))
+    except (TypeError, ValueError):
+        return None, 0.0
+
+
+def _verdict_capacites(cour: dict, prec: dict) -> dict | None:
+    """Delta SIGNE par dimension de capacite mesuree des deux cotes ; None si aucune commune.
+
+    Un delta compte seulement au-dela de la bande de bruit DECLAREE par la mesure (la plus
+    large des deux) : |delta| <= bruit = NEUTRE, « pas de gain » et non « echec ». Une seule
+    dimension qui recule au-dela du bruit suffit a DEGRADE (garde de non-regression)."""
+    deltas = {}
+    for dim in sorted(set(cour or {}) & set(prec or {})):
+        a, ba = _score_et_bruit(cour[dim])
+        b, bb = _score_et_bruit(prec[dim])
+        if a is None or b is None:
+            continue
+        deltas[dim] = {"delta": round(a - b, 6), "bruit": max(ba, bb)}
+    if not deltas:
+        return None
+    if any(d["delta"] < -d["bruit"] for d in deltas.values()):
+        verdict = "DEGRADE"
+    elif any(d["delta"] > d["bruit"] for d in deltas.values()):
+        verdict = "AMELIORE"
+    else:
+        verdict = "NEUTRE"
+    return {"verdict": verdict, "capacites_delta": deltas}
+
+
+def _gain_vs_precedente(empreinte: dict, capacites: dict | None = None) -> dict:
     """Delta d'empreinte vs la derniere generation STABLE deja inscrite, et son VERDICT.
 
     Avant le 2026-09-26, tout delta positif etait une VICTOIRE : ajouter des fichiers etait
@@ -246,8 +282,162 @@ def _gain_vs_precedente(empreinte: dict) -> dict:
     pe = (prev.get("environnement", {}) or {}).get("empreinte") or {}
     dm = empreinte.get("modules_forge", 0) - pe.get("modules_forge", 0)
     dt = empreinte.get("tests_nr", 0) - pe.get("tests_nr", 0)
+    # LE GAIN SE LIT DANS LES CAPACITES (2026-10-01). Les compteurs de fichiers restent
+    # (retrocompatibles, et un recul de tests NR reste une degradation) ; un gain ne peut
+    # venir que d'une capacite MESUREE des deux cotes. Sans mesure : jamais AMELIORE.
+    cap = _verdict_capacites(capacites or {}, prev.get("capacites") or {})
+    if cap is None:
+        return {"vs": prev.get("generation"), "modules_forge": dm, "tests_nr": dt,
+                "verdict": _verdict_pareto(dm, dt), "mesure_de_capacite": False}
+    verdict = cap["verdict"]
+    if verdict != "DEGRADE" and dt < 0:
+        verdict = "DEGRADE"                    # des gardes NR ont disparu : le gain ne les rachete pas
     return {"vs": prev.get("generation"), "modules_forge": dm, "tests_nr": dt,
-            "verdict": _verdict_pareto(dm, dt)}
+            "verdict": verdict, "mesure_de_capacite": True,
+            "capacites_delta": cap["capacites_delta"]}
+
+
+# ── FREIN AUTOMATIQUE SUR RECUL DE CAPACITE (mission rsi-frein-auto, 2026-10-02) ──────
+# La porte d'evolution sait s'ARRETER ; rien ne la fermait quand une capacite MESUREE
+# reculait entre deux generations. Ce bloc compare la generation courante a la derniere
+# STABLE, dimension par dimension, et serre le frein sur un recul hors bande.
+# Trois regles, chacune un refus de mentir :
+#   * MEME CLE seulement : la cle porte l'examen (ex. `retrieval_dense_ndcg10@<sha>`) ; un
+#     examen change n'est pas comparable, il ne freine ni ne rassure ;
+#   * la bande est le BRUIT DECLARE (le plus large des deux) : sans bruit, pas de bande, donc
+#     ABSTENTION ;
+#   * une mesure ILLISIBLE n'est ni un frein ni un feu vert : abstention DITE, et le verdict
+#     global n'est jamais « dans la bande » s'il reste une dimension non jugee.
+PAR_FREIN_AUTO = "auto:capacite"
+
+
+def _nombre(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def _age_s(e: dict, maintenant: float):
+    if _nombre(e.get("age_s")) is not None:
+        return float(e["age_s"])
+    for k in ("measured_at", "mesure_le", "ts", "cree_le"):
+        v = e.get(k)
+        if _nombre(v) is not None:
+            return max(0.0, maintenant - float(v))
+        if isinstance(v, str) and v:
+            try:
+                return max(0.0, maintenant - datetime.fromisoformat(v).timestamp())
+            except ValueError:
+                continue  # muet-ok : une autre cle de date peut suffire ; sinon age None, dit
+    return None
+
+
+def capacites_normalisees(brut, maintenant: float | None = None) -> dict:
+    """{dimension: {score, bruit, n, age_s, lisible, motif}} depuis les formes connues.
+
+    Formes acceptees : {dim: score} ; {dim: {score, bruit, n, ...}} ; {"capacites": ...} ;
+    [{dimension, score, bruit, ...}]. Une entree dont le score n'est pas un nombre fini est
+    gardee ILLISIBLE (avec son motif) : la retirer la ferait passer pour absente.
+    """
+    import time as _t
+
+    t = _t.time() if maintenant is None else float(maintenant)
+    if isinstance(brut, dict) and isinstance(brut.get("capacites"), (dict, list)):
+        brut = brut["capacites"]
+    if isinstance(brut, list):
+        brut = {str(x.get("dimension")): x for x in brut
+                if isinstance(x, dict) and x.get("dimension")}
+    if not isinstance(brut, dict):
+        return {}
+    out = {}
+    for dim, e in brut.items():
+        e = e if isinstance(e, dict) else {"score": e}
+        score = _nombre(e.get("score"))
+        bruit = _nombre(e.get("bruit"))
+        n = e.get("n")
+        out[str(dim)] = {"score": score, "bruit": None if bruit is None else abs(bruit),
+                         "n": int(n) if _nombre(n) is not None else None,
+                         "age_s": _age_s(e, t), "lisible": score is not None,
+                         "motif": "" if score is not None else "score illisible : %r" % (e.get("score"),)}
+    return out
+
+
+def verdict_recul(courantes, precedentes) -> dict:
+    """Compare deux jeux de capacites. Pur, sans effet. Verdicts :
+    RECUL · DANS_LA_BANDE · ABSTENTION · AUCUNE_DIMENSION_COMMUNE."""
+    cur, prev = capacites_normalisees(courantes), capacites_normalisees(precedentes)
+    communes = sorted(set(cur) & set(prev))
+    reculs, dans_bande, abstentions = [], [], []
+    for dim in communes:
+        a, b = prev[dim], cur[dim]
+        if not (a["lisible"] and b["lisible"]):
+            abstentions.append({"dimension": dim, "motif": a["motif"] or b["motif"]})
+            continue
+        bruits = [x for x in (a["bruit"], b["bruit"]) if x is not None]
+        if not bruits:
+            abstentions.append({"dimension": dim,
+                                "motif": "bruit non declare : la bande est inconnue"})
+            continue
+        bande = max(bruits)
+        delta = b["score"] - a["score"]
+        ligne = {"dimension": dim, "avant": a["score"], "apres": b["score"],
+                 "delta": round(delta, 6), "bande": bande}
+        (reculs if delta < -bande else dans_bande).append(ligne)
+    if reculs:
+        verdict = "RECUL"
+    elif abstentions:
+        verdict = "ABSTENTION"
+    elif dans_bande:
+        verdict = "DANS_LA_BANDE"
+    else:
+        verdict = "AUCUNE_DIMENSION_COMMUNE"
+    return {"verdict": verdict, "reculs": reculs, "dans_bande": dans_bande,
+            "abstentions": abstentions,
+            "non_comparees": sorted(set(cur) ^ set(prev))}
+
+
+def _precedente_avec_capacites() -> dict | None:
+    """La derniere generation STABLE qui porte des capacites : la reference saine."""
+    for g in lister("STABLE"):
+        if g.get("capacites"):
+            return g
+    return None
+
+
+def _poser_frein_auto(motif: str) -> dict:
+    """Serre le frein d'evolution par le juge (qui re-exporte la porte, ou qu'elle vive)."""
+    try:
+        from nokido_agent.app import forge_mutation_judge as _juge
+        f = getattr(_juge, "poser_frein_evolution", None)
+        if f is None:
+            return {"pose": False, "motif": motif,
+                    "pourquoi": "poser_frein_evolution absent de forge_mutation_judge"}
+        return {"pose": True, "motif": motif, "retour": f(motif, par=PAR_FREIN_AUTO)}
+    except Exception as exc:  # noqa: BLE001 - un frein rate se DIT ; la capture continue
+        return {"pose": False, "motif": motif,
+                "pourquoi": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
+
+
+def frein_si_recul(capacites: dict, precedente: dict | None = None) -> dict:
+    """Compare a la derniere STABLE ; serre le frein sur un recul hors bande, motif CHIFFRE.
+
+    Rend le verdict (et le frein, s'il a ete serre). N'agit sur rien d'autre."""
+    prec = precedente if precedente is not None else _precedente_avec_capacites()
+    if not prec:
+        return {"verdict": "SANS_REFERENCE", "frein": None,
+                "note": "aucune generation STABLE portant des capacites : rien a comparer"}
+    v = verdict_recul(capacites, prec.get("capacites") or {})
+    v["vs"] = prec.get("generation")
+    v["frein"] = None
+    if v["verdict"] == "RECUL":
+        motif = "recul de capacite hors bande vs %s : %s" % (v["vs"], " ; ".join(
+            "%s %.4f -> %.4f (delta %+.4f, bande %.4f)"
+            % (r["dimension"], r["avant"], r["apres"], r["delta"], r["bande"])
+            for r in v["reculs"]))
+        v["frein"] = _poser_frein_auto(motif)
+    return v
 
 
 def _append_oplog(entry: dict) -> None:
@@ -284,7 +474,10 @@ def capturer(tests: dict | None = None, capacites: dict | None = None,
 
     _lock_val = _lock()
     _empr = _empreinte_capacites()
-    _gain = _gain_vs_precedente(_empr) if statut == "STABLE" else None
+    _gain = _gain_vs_precedente(_empr, capacites) if statut == "STABLE" else None
+    # Frein automatique AVANT l'ecriture : un recul mesure se signale meme si l'inscription
+    # est ensuite differee par l'ACL -- la mesure, elle, a bien eu lieu.
+    _frein_auto = frein_si_recul(dict(capacites)) if capacites else None
     sha = _git("rev-parse", "HEAD")
     if not sha:
         raise RuntimeError("sha HEAD illisible : refus d'inscrire une generation "
@@ -324,6 +517,8 @@ def capturer(tests: dict | None = None, capacites: dict | None = None,
         "capacites": dict(capacites or {}),
         "metriques": dict(metriques or {}),
     }
+    if _frein_auto is not None:
+        gen["frein_auto"] = _frein_auto
 
     DOSSIER.mkdir(parents=True, exist_ok=True)
     chemin = DOSSIER / ("%s.json" % gen["generation"])
@@ -390,6 +585,29 @@ def _sha_deja_capture(sha: str) -> str | None:
         if g.get("depot", {}).get("sha") == sha:
             return g["generation"]
     return None
+
+
+def capacites_mesurees(dossier: Path | None = None, age_max_s: float = 7 * 86400) -> dict:
+    """{dimension: {"score", "bruit"}} des mesures de capacite RECENTES (`sandbox/capacites/*.json`).
+
+    Producteur (2026-10-01) : `forge_bench_beir.mesurer_capacite` -- retrieval dense sur l'examen
+    held-out SCELLE. Seul un verdict `MESURE` entre ; INDECIDABLE ne se lit jamais comme un score.
+    La dimension porte deja la cle de l'examen et du corpus : ici on ne fait que la transporter.
+    Illisible ou perime -> absent (et `_gain_vs_precedente` le traite comme « sans mesure »)."""
+    import json as _json
+    import time as _time
+
+    base = dossier or (Path(__file__).resolve().parents[1] / "sandbox" / "capacites")
+    out = {}
+    for f in sorted(base.glob("*.json")) if base.is_dir() else []:
+        try:
+            rec = _json.loads(f.read_text(encoding="utf-8"))
+            ts = _time.mktime(_time.strptime(rec["ts"], "%Y-%m-%dT%H:%M:%S"))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        if rec.get("verdict") == "MESURE" and rec.get("dimension") and _time.time() - ts <= age_max_s:
+            out[rec["dimension"]] = {"score": rec.get("score"), "bruit": rec.get("bruit", 0)}
+    return out
 
 
 def capturer_si_absent(tests: dict | None = None, capacites: dict | None = None,

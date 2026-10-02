@@ -1,7 +1,7 @@
 {
   "_doc": "Plafond du nombre de modules SANS docstring. Ne remonte jamais : `--ratchet` echoue si le vide grandit. S'abaisse explicitement par `--ratchet --abaisser`.",
-  "plafond_sans_docstring": 879,
-  "total_au_gel": 2394,
-  "observe_le": "2026-09-16T21:51:46Z",
-  "sha": "06ad1be0b621b8befc4c6c23f907a47762b26cc3"
+  "plafond_sans_docstring": 656,
+  "total_au_gel": 2452,
+  "observe_le": "2026-10-02T00:37:11Z",
+  "sha": "d9d3d54a4940a76e48844019fb67dde6520e7f34"
 }

@@ -367,25 +367,16 @@ def _run_tests(target_rel: str) -> tuple[bool, str]:
 
 
 def _git_commit(files: list[str], description: str) -> bool:
-    env = {
-        **os.environ,
-        "GIT_CONFIG_COUNT": "1",
-        "GIT_CONFIG_KEY_0": "safe.directory",
-        "GIT_CONFIG_VALUE_0": str(ROOT),
-    }
-    try:
-        subprocess.run(["git", "add"] + files, cwd=ROOT, check=True, capture_output=True, env=env)
-        msg = f"fix(self-patcher): {description}\n\nAuto-patched by forge_self_patcher.py"
-        subprocess.run(
-            ["git", "commit", "-m", msg], cwd=ROOT, check=True, capture_output=True, env=env
-        )
-        subprocess.run(
-            ["git", "push", "origin", "alpha"], cwd=ROOT, check=True, capture_output=True, env=env
-        )
-        return True
-    except subprocess.CalledProcessError as e:
-        logger.warning(f"[patcher] git commit fail: {e.stderr.decode(errors='replace')[-200:]}")
-        return False
+    """DESARME le 2026-10-01 (revue claude.ai mission_rsi_soif, verifiee) : faisait `git add`,
+    `git commit` puis `git push origin alpha` DIRECTEMENT dans l'arbre partage -- sans juge, sans
+    claim, et publiait. Aucun appelant ce jour-la. Un patch autonome passe par un worktree et le
+    merge gate (`forge_merge_gate.merger`, zone de l'evaluateur appliquee) ; publier est une
+    decision OWNER (push global), jamais un geste d'organe. Le corps d'origine est dans git
+    (avant ce commit). Refus DIT, jamais un faux succes."""
+    logger.warning("[patcher] _git_commit DESARME : %d fichier(s) NON commites (%s) -- passer par "
+                   "le merge gate en worktree ; le push reste une decision owner",
+                   len(files or []), (description or "")[:80])
+    return False
 
 
 # ── Deterministic batch scan ───────────────────────────────────────────────

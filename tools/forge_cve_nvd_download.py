@@ -146,8 +146,9 @@ def ingest_to_rag(entries: list[dict], db_path: Path = RAG_DB) -> int:
         text = f"{e['cve_id']} [cvss={e['cvss_score']}] {e['description']}"
         chunk_id = sha256((source + text).encode()).hexdigest()[:16]
         cur = con.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, source, text) VALUES (?, ?, ?)",
-            (chunk_id, source, text),
+            "INSERT OR IGNORE INTO rag_chunks (id, source, text) SELECT ?, ?, ? "
+            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+            (chunk_id, source, text, chunk_id),
         )
         inserted += cur.rowcount
     con.commit()

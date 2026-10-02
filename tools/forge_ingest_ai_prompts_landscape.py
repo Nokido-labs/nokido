@@ -279,9 +279,15 @@ def ingest(dry_run: bool = False) -> dict:
                     f"ON CONFLICT({pk_col}) DO UPDATE SET {assigns}"
                 )
             else:
-                sql = f"INSERT OR IGNORE INTO rag_chunks ({','.join(keys)}) VALUES ({placeholders})"
+                # Forme sans existant (2026-10-01) : un id deja present n'arme plus le
+                # trigger rag_chunks_fts_bi, qui le sortait du lexical.
+                sql = (f"INSERT OR IGNORE INTO rag_chunks ({','.join(keys)}) SELECT {placeholders} "
+                       "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)")
+            params = [payload[k] for k in keys]
+            if not assigns:
+                params.append(payload.get("id"))
             try:
-                conn.execute(sql, [payload[k] for k in keys])
+                conn.execute(sql, params)
                 n_inserted += 1
                 per_source[source] = per_source.get(source, 0) + 1
             except Exception as e:

@@ -1,6 +1,7 @@
 """
 tools/forge_gitingest_sdk_ingest.py — Ingest gitingest SDK dumps into Nokido RAG.
-Reads docs/gitingest_*.txt, chunks, INSERT OR IGNORE into rag_chunks domain=sdk_gitingest.
+Reads docs/gitingest_*.txt, chunks, writes NEW chunks into rag_chunks domain=sdk_gitingest
+(an id already present is skipped BEFORE any insert -- see ingest_file).
 """
 
 import glob
@@ -196,6 +197,14 @@ def ingest_file(path: Path, conn: sqlite3.Connection, pendant=None,
                 continue
             source = filename or path.name
             chunk_id = hashlib.sha256((source + chunk).encode()).hexdigest()[:16]
+            # DEJA PRESENT -> rien a ecrire (2026-10-01). Le trigger `rag_chunks_fts_bi`
+            # (BEFORE INSERT) retirait l'entree lexicale de l'id existant AVANT que
+            # l'INSERT OR IGNORE soit ignore : chaque re-ingestion d'un depot sortait ses
+            # chunks inchanges de `rag_chunks_fts` (echantillon 1/500 : 38 % des chunks
+            # de septembre absents, 40/40 sources touchees re-ingerees). existence-verifiee
+            if conn.execute("SELECT 1 FROM rag_chunks WHERE id = ?", (chunk_id,)).fetchone():
+                skipped += 1
+                continue
             conn.execute(
                 "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, created_at) "
                 "VALUES (?, ?, ?, 'sdk_gitingest', ?)",

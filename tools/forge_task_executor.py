@@ -905,6 +905,16 @@ def _agy_permission_args(env=None) -> list:
     terminal est restreint, et une permission restee sans reponse en mode --print se
     termine au lieu de pendre. `LAFORGE_AGY_PERMISSIONS=legacy` restaure l'ancien
     comportement : repli EXPLICITE, jamais implicite.
+
+    Correction 2026-10-02 : « aucune politique fine » etait FAUX -- l'aide ne la montre pas,
+    mais la doc agy (antigravity.google/docs/cli/features) en decrit une, persistante, dans
+    `settings.json` : `"permissions": {"allow": ["command(git)", ...], "deny": [...]}`.
+    Cout mesure de `--sandbox` sous Windows : une invite UAC « ExeBox Admin Broker » A CHAQUE
+    lancement (le bac est un AppContainer ; une acceptation UAC n'est jamais memorisee).
+    DECISION OWNER 2026-10-02 : on GARDE `--sandbox` et l'invite par delegation, plutot que
+    d'echanger le confinement du terminal contre une liste allow/deny. Ne pas reproposer sans
+    fait nouveau. Consequence connue : sous AppContainer, le `.git` du worktree (dans
+    Nokido/.git/worktrees) est hors du bac -- AGY s'arrete en NEED_HUMAN_APPROVAL pour committer.
     """
     import os as _os
     env = _os.environ if env is None else env
@@ -912,6 +922,144 @@ def _agy_permission_args(env=None) -> list:
         return ["--dangerously-skip-permissions"]
     borne = max(60, int(RELAY_TIMEOUT_S) - 30)
     return ["--sandbox", "--mode", "accept-edits", "--print-timeout", "%ds" % borne]
+
+
+def _workdir_agy() -> str:
+    """Repertoire de travail d'AGY : LAFORGE_AGY_WORKDIR > son worktree dedie > racine partagee (DIT).
+
+    2026-10-01 : l'owner a recu deux fois des invites d'approbation venant d'AGY. Cause etablie
+    (reponse d'AGY + ce code) : AGY tourne en `--sandbox` confine a `--add-dir <workdir>` =
+    la racine PARTAGEE, alors que la mission lui demandait son worktree
+    (nokido_worktrees/antigravity) -- hors de son bac a sable, chaque commande exigeait un
+    « BypassSandbox » que l'owner devait approuver. Le worktree dedie est aussi la convention
+    du depot (RULES_SHARED : « le worktree protege la MESURE »)."""
+    import os as _os
+    env = _os.environ.get("LAFORGE_AGY_WORKDIR")
+    if env:
+        return env
+    wt = ROOT.parent / "nokido_worktrees" / "antigravity"
+    if (wt / ".git").exists():
+        return str(wt)
+    log.warning(f"  DELEGATE worktree AGY absent ({wt}) -- repli sur la racine PARTAGEE")
+    return str(ROOT)
+
+
+def _env_git() -> dict:
+    """L'environnement SANS les variables GIT_* heritees (GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE...),
+    que posent les hooks git ou des tests voisins : elles detournent `git -C <workdir>` vers un AUTRE
+    depot. Mesure 2026-10-02 (CI de reference f340e9ca4) : HEAD avait bouge, rev-list rendait vide."""
+    import os as _os
+    # GIT_CEILING_DIRECTORIES est GARDEE : elle ne detourne rien, elle borne la recherche du depot.
+    return {k: v for k, v in _os.environ.items()
+            if not k.upper().startswith("GIT_") or k.upper() == "GIT_CEILING_DIRECTORIES"}
+
+
+def _etat_git(workdir: str) -> tuple:
+    """(HEAD, nb de fichiers modifies ou non suivis) du workdir ; (None, None) si illisible."""
+    import subprocess as _sp
+    try:
+        h = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-parse", "HEAD"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20,
+                    env=_env_git())
+        s = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "status", "--porcelain"],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                    env=_env_git())
+    except Exception:  # noqa: BLE001 - illisible : dit par (None, None)
+        return None, None
+    if h.returncode != 0 or s.returncode != 0:
+        return None, None
+    return h.stdout.strip(), len([ligne for ligne in s.stdout.splitlines() if ligne.strip()])
+
+
+def _effet_observe(workdir: str, avant: tuple) -> str:
+    """Ce que la delegation a PRODUIT dans le workdir, a cote de ce qu'AGY DECLARE.
+
+    2026-10-01 : AGY a rendu OK_DONE/SUCCESS sur une mission de trois NR sans en committer
+    aucun (ACCEPTED declare, ACHIEVED absent). L'emetteur lit desormais l'effet dans le
+    resultat lui-meme : commits produits (HEAD avant -> apres) et fichiers non commites."""
+    import subprocess as _sp
+    h_av, _n_av = avant
+    h_ap, n_ap = _etat_git(workdir)
+    if h_av is None or h_ap is None:
+        return "[effet observe] git ILLISIBLE dans %s : rien n'est prouve" % workdir
+    pourquoi = ""
+    if h_av == h_ap:
+        n = 0
+    else:
+        try:
+            # `--` (2026-10-02, CI de reference 479480200, cause enfin DITE par le rc) : sans lui git
+            # teste aussi la plage comme CHEMIN ; sous un worktree profond (CI), <workdir>/<a>..<b>
+            # depasse MAX_PATH et le stat rend ENAMETOOLONG -- fatal, au lieu d'ENOENT -- d'ou
+            # « failed to stat '<a>..<b>': Filename too long », rc 128.
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-list", "--count",
+                         "%s..%s" % (h_av, h_ap), "--"], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=20, env=_env_git())
+            # rc VERIFIE (2026-10-02, CI de reference f340e9ca4) : `int(stdout or 0)` faisait d'un
+            # rev-list en ECHEC « 0 commit » -- HEAD avait bouge, l'effet etait annonce nul.
+            if r.returncode == 0 and r.stdout.strip().isdigit():
+                n = int(r.stdout.strip())
+            else:
+                n, pourquoi = -1, " [rev-list rc=%s : %s]" % (r.returncode, (r.stderr or "").strip()[:160])
+        except Exception as e:  # noqa: BLE001 - illisible, dit
+            n, pourquoi = -1, " [rev-list : %s]" % type(e).__name__
+    return "[effet observe] commits produits : %s (%s..%s) ; fichiers non commites : %s%s" % (
+        n if n >= 0 else "ILLISIBLE", h_av[:9], h_ap[:9], n_ap, pourquoi)
+
+
+_INTENTS_NON_FAITS = ("NEED_HUMAN_APPROVAL", "NEED_CLARIFY", "BUDGET_EXCEEDED")
+
+
+def _intent_rendu(reponse: str) -> str | None:
+    """Dernier intent M2M que l'agent DECLARE dans sa reponse (`"intent": "X"`), s'il dit « pas fait ».
+
+    2026-10-01 : AGY s'est arrete -- a bon droit -- en rendant `{"intent": "NEED_HUMAN_APPROVAL"}`
+    (git hors de son bac a sable), et la delegation l'a transmis en OK_DONE / SUCCESS parce que
+    l'enveloppe du CLI disait `status: SUCCESS` (le CLI a REPONDU, pas la tache FAITE)."""
+    import re as _re
+    trouves = _re.findall(r'"intent"\s*:\s*"([A-Z_]+)"', reponse or "")
+    if not trouves:
+        return None
+    dernier = trouves[-1]
+    return dernier if (dernier in _INTENTS_NON_FAITS or dernier.startswith("ERR_")) else None
+
+
+def _artefact_declare_absent(reponse: str, workdir: str) -> str | None:
+    """L'artefact que l'agent DECLARE (dernier `"pointer_ref"`) et qui n'existe PAS ; None sinon.
+
+    2026-10-01 : AGY a rendu `{"intent": "OK_DONE", "pointer_ref": "sandbox/swarm/reponse_agy_adddir_
+    2026-10-01.md"}` -- fichier absent du worktree comme de l'arbre partage, aucun fichier ecrit (l'effet
+    observe le montrait), et la delegation l'a transmis en SUCCESS. Seuls se jugent un chemin de fichier
+    et un `<branche>@<sha>` ; un pointeur d'un autre type (tasks.db:, URL, cle de blackboard) n'est pas
+    juge, et une verification ILLISIBLE n'accuse pas (None) : une sonde muette ne fabrique pas d'echec."""
+    import subprocess as _sp
+    refs = re.findall(r'"pointer_ref"\s*:\s*"([^"]+)"', reponse or "")
+    if not refs:
+        return None
+    ref = refs[-1].strip()
+    if not ref or ref.startswith("tasks.db:") or "://" in ref:
+        return None
+    m = re.search(r"@([0-9a-fA-F]{7,40})$", ref)
+    if m:
+        try:
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-parse", "--verify", "--quiet",
+                         m.group(1) + "^{commit}"], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=20, env=_env_git())
+        except Exception:  # noqa: BLE001 - illisible : n'accuse pas
+            return None
+        if r.returncode == 0:
+            return None
+        # rc 1 = objet inconnu du depot ; tout autre code (pas un depot, git absent) = ILLISIBLE
+        return "commit declare introuvable : %s" % ref if r.returncode == 1 else None
+    if not re.search(r"[\\/]", ref) and not re.search(r"\.[A-Za-z0-9]{1,6}$", ref):
+        return None     # ni chemin ni nom de fichier : pointeur d'un autre type
+    p = Path(ref)
+    candidats = [p] if p.is_absolute() else [Path(workdir) / p, ROOT / p]
+    try:
+        if any(c.exists() for c in candidats):
+            return None
+    except OSError:  # illisible : n'accuse pas
+        return None
+    return "fichier declare absent : %s" % ref
 
 
 def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
@@ -925,12 +1073,13 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     task_id = task["id"]
     desc = _extract_message(task["description"] or "") or (task["description"] or "")
 
-    def _fin(ok: bool, detail: str) -> None:
+    def _fin(ok: bool, detail: str, intent: str | None = None) -> None:
         conn = _db(); _mark_done(conn, task_id, _borner(detail), ok); conn.close()
-        intent = "OK_DONE" if ok else "ERR_INTERNAL"
+        intent = intent or ("OK_DONE" if ok else "ERR_INTERNAL")
         try:
             _hub_call("task", {"action": "result", "task_id": task_id, "intent": intent,
-                      "result": json.dumps({"intent": intent, "status_code": "SUCCESS" if ok else "FAILURE",
+                      "result": json.dumps({"intent": intent, "status_code": "SUCCESS" if ok else (
+                          "NEEDS_HUMAN" if intent == "NEED_HUMAN_APPROVAL" else "FAILURE"),
                       "pointer_ref": f"tasks.db:{task_id}", "detail": detail[:220]}, ensure_ascii=False)},
                       token, timeout=30)
         except Exception:  # noqa: BLE001
@@ -939,7 +1088,7 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     agy_bin = _os.environ.get("LAFORGE_AGY_BIN", r"%USERPROFILE%\AppData\Local\agy\bin\agy.exe")
     if not _os.path.exists(agy_bin):
         return _fin(False, f"agy introuvable: {agy_bin}")
-    workdir = _os.environ.get("LAFORGE_AGY_WORKDIR", str(ROOT))
+    workdir = _workdir_agy()
     # B1 (2026-09-12) — VERROU DE RESSOURCE REELLE, pas d'identite.
     # agy est lance ici avec --add-dir <workdir> + --dangerously-skip-permissions :
     # il ECRIT dans ce repertoire. Deux agy concurrents sur le MEME repertoire
@@ -996,6 +1145,7 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
         cmd.append("--continue")
         log.info(f"  DELEGATE {task_id[:24]} -> LOT_CONTINU : session reprise (--continue)")
     log.info(f"  DELEGATE {task_id[:24]} -> AGY agent (add-dir={workdir})")
+    _avant = _etat_git(workdir)
     try:
         r = _sp.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                     timeout=RELAY_TIMEOUT_S, env=env, cwd=workdir,
@@ -1012,8 +1162,26 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
         detail = d.get("response") or d.get("error") or raw[:400]
     except Exception:  # noqa: BLE001
         ok, detail = False, raw[:400] or "agy: sortie vide"
-    log.info(f"  DELEGATE {task_id[:24]} -> AGY {'OK' if ok else 'KO'} ({len(str(detail))} chars)")
-    _fin(bool(ok), str(detail))
+    effet = _effet_observe(workdir, _avant)
+    rendu = _intent_rendu(str(detail))
+    if rendu:
+        ok = False      # l'agent dit lui-meme « pas fait » : son intent prime sur l'enveloppe du CLI
+    absent = None if rendu else _artefact_declare_absent(str(detail), workdir)
+    if absent:
+        ok = False      # DECLARE n'est pas ACHIEVED : l'artefact pointe n'existe pas
+        effet = "%s ; [artefact ABSENT] %s" % (effet, absent)
+    # Garde d'ACCUSE DE RECEPTION portee sur le chemin principal (2026-10-02, bb:delegate_agy_sans_
+    # garde_accuse) : le repli _relay_to_agy refusait deja de clore sur « je vais chercher... ». Ici
+    # `agy --print` ne rend qu'UNE reponse, rien a attendre : une promesse sans compte rendu est un
+    # echec NOMME. Une reponse qui pointe un artefact est jugee par le controle ci-dessus, pas ici.
+    if (not rendu and not absent and '"pointer_ref"' not in str(detail)
+            and _est_accuse_reception(str(detail))):
+        ok = False
+        effet = "%s ; [ACCUSE DE RECEPTION] promesse sans compte rendu" % effet
+    log.info(f"  DELEGATE {task_id[:24]} -> AGY {'OK' if ok else 'KO'}{(' ' + rendu) if rendu else ''} "
+             f"({len(str(detail))} chars) {effet}")
+    # L'effet passe EN TETE : `_fin` tronque le detail a 220 caracteres pour le M2M.
+    _fin(bool(ok), "%s | %s" % (effet, detail), intent=rendu)
 
 
 def _marquer_accuse(task_id: str, texte: str) -> None:

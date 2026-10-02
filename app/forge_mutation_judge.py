@@ -139,15 +139,90 @@ def perimetre_immuable(profondeur: int = 4) -> dict:
 # son `prepare.py` ; rsiagent `core/checks.py:41` a MESURE des agents qui apprenaient a ecrire des
 # verifications plus faibles). La cloture d'IMPORTS ci-dessous ne couvre ni tests/, ni la CI, ni les
 # socles : une mutation pouvait affaiblir le test qui la juge. Liste BLANCHE de zones interdites.
+# Elargie le 2026-10-01 (revue claude.ai mission_rsi_soif, verifiee) : la CONFIGURATION de pytest
+# (conftest.py racine, pyproject.toml, pytest.ini, setup.cfg, tox.ini) decide de ce que le juge
+# execute -- un `addopts`, un conftest qui saute tout, et la suite verte ne prouve plus rien ; et
+# le merge gate et le held-out font partie du juge.
 _ZONE_EVALUATEUR = ("tests/", "tools/ci_local.py", "config/constitution.toml", "sandbox/evolution/",
                     "sandbox/mutation_ledger.jsonl", "app/forge_mutation_judge.py",
-                    "app/forge_guarded_mutation_loop.py")
+                    "app/forge_guarded_mutation_loop.py",
+                    "conftest.py", "pyproject.toml", "pytest.ini", "setup.cfg", "tox.ini",
+                    "tools/forge_merge_gate.py", "tools/forge_heldout_gate.py")
+
+
+def zone_evaluateur_touchee(chemins) -> list:
+    """Chemins (relatifs au depot) qui tombent dans la zone de l'evaluateur, dans l'ordre recu.
+    Point UNIQUE de la regle : `mutable()` (mutation en place) et le merge gate (candidat en
+    worktree) la lisent ici, pour qu'aucun chemin ne juge avec une zone differente."""
+    out = []
+    for c in chemins or ():
+        rel = str(c).strip().replace("\\", "/").lstrip("./")
+        if rel and any(rel == z or rel.startswith(z) for z in _ZONE_EVALUATEUR):
+            out.append(rel)
+    return out
+
+
+# ── PORTE DE L'ÉVOLUTION AUTONOME (2026-10-01) ────────────────────────────────────────
+# Revue claude.ai (mission_rsi_soif, verifiee) : la boucle proposer -> verifier -> appliquer
+# n'avait ni ARMEMENT ni FREIN propres. Les points d'entree AUTONOMES qui modifient le code
+# (soumission d'un candidat, fusion appliquee, boucle de mutation gardee) consultent cette
+# porte UNIQUE avant d'agir -- un interrupteur global lu a chaque appel, jamais site par site.
+# Elle vit ICI, dans la zone de l'evaluateur : aucune mutation ne peut l'affaiblir (et
+# forge_corrigibility, son domicile naturel, est un CRITICAL_FILE : a y deplacer sur GO owner).
+#   - verrou humain (kill-switch opsec)    : priorite absolue, deja existant, IMPORTE ;
+#   - frein `sandbox/evolution.halt`       : N'IMPORTE QUEL organe le pose, seul l'owner le
+#                                            retire (supprimer le fichier) ;
+#   - armement `LAFORGE_EVOLUTION_ARMED=1` : absent par defaut, geste OWNER.
+# Mesure du jour : aucune mutation autonome ne tournait (registre : triage a blanc et constats
+# en attente seulement) -- la porte desarmee ne coupe rien qui vivait. FAIL-CLOSED : un etat
+# illisible n'autorise pas une mutation. Le juge lance A LA MAIN (owner, CLI) n'y est pas soumis.
+_FREIN_EVOLUTION = ROOT / "sandbox" / "evolution.halt"
+
+
+def evolution_autorisee() -> dict:
+    """{"autorisee": bool, "etat": ARMEE|DESARMEE|HALTED|VERROU_HUMAIN|INCONNU, "motif": str}."""
+    try:
+        from nokido_agent.app.forge_opsec import human_lock_state
+
+        _etat, _motif = human_lock_state()
+    except Exception as e:  # noqa: BLE001 - illisible : on ne mute pas, et on le dit
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "verrou humain illisible (%s) : aucune mutation" % type(e).__name__}
+    if _etat == "VERROUILLE":
+        return {"autorisee": False, "etat": "VERROU_HUMAIN", "motif": "kill-switch humain actif (%s)" % _motif}
+    if _etat == "ILLISIBLE":
+        return {"autorisee": False, "etat": "INCONNU", "motif": "verrou humain ILLISIBLE (%s)" % _motif}
+    try:
+        if _FREIN_EVOLUTION.exists():
+            raison = _FREIN_EVOLUTION.read_text(encoding="utf-8", errors="replace").strip()[:200]
+            return {"autorisee": False, "etat": "HALTED",
+                    "motif": "frein %s pose (%s) -- seul l'owner le retire" % (_FREIN_EVOLUTION.name, raison or "?")}
+    except OSError as e:
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "frein illisible (%s) : aucune mutation" % type(e).__name__}
+    if os.environ.get("LAFORGE_EVOLUTION_ARMED", "").strip().lower() not in ("1", "true", "yes", "oui"):
+        return {"autorisee": False, "etat": "DESARMEE",
+                "motif": "LAFORGE_EVOLUTION_ARMED absent : l'armement est un geste owner"}
+    return {"autorisee": True, "etat": "ARMEE", "motif": ""}
+
+
+def poser_frein_evolution(motif: str, par: str = "?") -> dict:
+    """Pose `sandbox/evolution.halt` (n'importe quel organe). Le retirer est un geste OWNER.
+    Un frein deja pose garde ses raisons et ACCUMULE les suivantes."""
+    ligne = "%s %s : %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"), par, (motif or "?")[:300])
+    try:
+        _FREIN_EVOLUTION.parent.mkdir(parents=True, exist_ok=True)
+        with open(_FREIN_EVOLUTION, "a", encoding="utf-8") as fh:
+            fh.write(ligne)
+        return {"ok": True, "frein": str(_FREIN_EVOLUTION)}
+    except OSError as e:
+        return {"ok": False, "erreur": "%s: %s" % (type(e).__name__, e)}
 
 
 def mutable(rel: str, perim: dict | None = None) -> dict:
     """Ce fichier peut-il etre mute par CETTE instance ? Refus motive sinon."""
     rel = str(rel).replace("\\", "/").lstrip("./")
-    if any(rel == z or rel.startswith(z) for z in _ZONE_EVALUATEUR):
+    if zone_evaluateur_touchee([rel]):
         return {"mutable": False,
                 "raison": "zone de l'evaluateur (tests, CI, constitution, registre, juge) : une "
                           "mutation ne touche jamais ce qui la juge"}

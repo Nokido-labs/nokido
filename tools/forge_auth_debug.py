@@ -24,21 +24,16 @@ from nokido_agent.app.forge_secrets import get_secret
 
 
 def _load_dotenv(path: Path) -> int:
+    """Reglages du fichier, SECRETS du coffre (decision owner 2026-10-01) ; rend le nombre
+    de variables posees. Ce chargeur recopiait tout le .env, secrets compris, en clair."""
     if not path.is_file():
         return 0
-    n = 0
-    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        k = k.strip()
-        v = v.strip().strip('"').strip("'")
-        if not k or k in os.environ:
-            continue
-        os.environ[k] = v
-        n += 1
-    return n
+    from nokido_agent.app.forge_secrets import injecter_env_depuis_coffre
+
+    b = injecter_env_depuis_coffre(path)
+    if b["absentes"] or b["illisibles"]:
+        print("secrets absents du coffre : %s ; illisibles : %s" % (b["absentes"], b["illisibles"]))
+    return b["injectees"] + b["reglages"]
 
 
 def main() -> int:

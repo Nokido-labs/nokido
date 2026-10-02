@@ -23,6 +23,7 @@ import asyncio
 import datetime
 import importlib.util
 import json
+import re
 import secrets
 import sqlite3
 import subprocess
@@ -375,6 +376,109 @@ def _debat_capsule(resultat, fichier) -> str:
     return _debat().ecrire_capsule(resultat, fichier)
 
 
+# ── ENTRETIEN AUTOMATIQUE (owner 2026-10-01 : « il faut l'automatiser ») ──────────────────
+# Le 01/10, un rendu de claude.ai lu et APPLIQUE (cinq commits) restait « quarantaine » : son
+# etat mentait. L'entretien ferme ce qui est PROUVE traite et expire ce qui n'a jamais ete
+# decide. Il ne fait JAMAIS entrer un texte externe dans une boite : l'approbation reste un
+# geste owner (console elevee, ou dialogue `hub action=demander_ordre ordre=pair-approuver`).
+# Rien n'est supprime : `done` / `rejete`, motif et preuve inscrits dans l'EtapeContrat.
+JOURS_EXPIRATION = 14
+
+
+TRAILER_TRAITE = "Traite-pair"
+
+
+def _cite(ident: str, message: str) -> bool:
+    """PREUVE = une ligne `Traite-pair: <id>` dans le message du commit, et rien d'autre.
+
+    Premiere version (2026-10-01, meme soir) : un sha POINTE par le depot valait preuve. Faux
+    positif mesure des le premier passage reel : une tache du 29/09 citait `alpha@54b641e` --
+    sa BASE de lecture, pas un rendu -- et un commit de changelog citant la plage
+    54b641efa..64cd9e692 l'a « close ». Une simple MENTION de l'identifiant ne vaut pas mieux :
+    le commit qui corrige ou rouvre un depot le nomme aussi. Seule une declaration explicite,
+    sur le modele d'un trailer git, dit « ce commit TRAITE ce depot »."""
+    motif = r"(?im)^\s*%s\s*:\s*%s\s*$" % (re.escape(TRAILER_TRAITE), re.escape(ident))
+    return re.search(motif, message or "") is not None
+
+
+def _commits_alpha_depuis(iso: str):
+    """[(sha, message)] des commits d'alpha depuis `iso`, ou None si git est illisible."""
+    import subprocess
+
+    try:
+        r = subprocess.run(["git", "-c", "safe.directory=*", "log", "alpha", "--since=%s" % iso,
+                            "--format=%H%x1f%B%x1e"], cwd=str(ROOT), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    out = []
+    for bloc in r.stdout.split("\x1e"):
+        if "\x1f" in bloc:
+            sha, msg = bloc.split("\x1f", 1)
+            out.append((sha.strip(), msg))
+    return out
+
+
+def entretenir(jours: int = JOURS_EXPIRATION, maintenant=None, commits=None) -> dict:
+    """Ferme les depots PROUVES traites (trailer `Traite-pair: <id>` d'un commit d'alpha), expire les orphelins.
+
+    - quarantaine + cite  -> `done`, « traite HORS CANAL » (lu comme donnee, jamais livre) :
+      verdict ACCEPTED et non ACHIEVED -- l'owner n'a rien autorise, on ne le pretend pas ;
+    - approuve + cite     -> accuse de lecture du destinataire, puis `done` ;
+    - quarantaine depuis `jours` sans decision -> `rejete` (DENY, rien livre), motif dit.
+    git illisible -> AUCUNE cloture (on ne conclut pas d'une source muette), l'expiration reste."""
+    now = maintenant or datetime.datetime.now(datetime.timezone.utc)
+    bilan = {"clotures": [], "lus": [], "expires": [], "en_attente": [], "git": "ok"}
+    with _con() as con:
+        lignes = con.execute("SELECT id, created_at, status, payload, method FROM agent_messages "
+                             "WHERE to_agent=? AND status IN ('quarantaine', 'approuve')", (BOITE,)).fetchall()
+    if not lignes:
+        return bilan
+    plus_ancien = min(str(r[1]) for r in lignes)
+    if commits is None:
+        commits = _commits_alpha_depuis(plus_ancien)
+    if commits is None:
+        bilan["git"] = "ILLISIBLE : aucune cloture par preuve ce passage"
+        commits = []
+    for ident, recu, statut, brut, methode in lignes:
+        try:
+            charge = json.loads(brut or "{}")
+        except ValueError:
+            bilan["en_attente"].append(ident)
+            continue
+        preuves = [sha[:12] for sha, msg in commits if _cite(ident, msg)]
+        if preuves and statut == "approuve":
+            # Meme aiguillage qu'`approuver` : un fait va a CLAUDE, un message a son destinataire.
+            vers = "CLAUDE" if methode == "pair.proposer_fait" else (charge.get("destinataire") or "OWNER")
+            accuser_lecture(ident, str(vers))
+            bilan["lus"].append(ident)
+        if preuves:
+            with _con() as con:
+                _suivre(con, ident, charge, "done",
+                        observation={"ok": True, "retour": "traite%s : cite par %s" % (
+                            " HORS CANAL (lu comme donnee, jamais livre)" if statut == "quarantaine" else "",
+                            ", ".join(preuves[:5]))},
+                        effet_observe="EFFECT_OBSERVED", preuve="commit:" + preuves[0], etat_apres="TRAITE")
+                con.commit()
+            bilan["clotures"].append({"id": ident, "commits": preuves[:5]})
+            continue
+        try:
+            age_j = (now - datetime.datetime.fromisoformat(str(recu))).total_seconds() / 86400
+        except ValueError:
+            age_j = None
+        if statut == "quarantaine" and age_j is not None and age_j >= jours:
+            with _con() as con:
+                _suivre(con, ident, charge, "rejete", autorisation="DENY", effet_observe="EFFECT_BLOCKED",
+                        observation={"ok": False, "retour": "expire : %d jour(s) sans decision owner" % int(age_j)})
+                con.commit()
+            bilan["expires"].append(ident)
+        else:
+            bilan["en_attente"].append(ident)
+    return bilan
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     g = ap.add_mutually_exclusive_group(required=True)
@@ -385,6 +489,9 @@ def main(argv=None) -> int:
     g.add_argument("--deliberer", metavar="ID", help=argparse.SUPPRESS)
     g.add_argument("--suivi", metavar="ID", help="les cinq accuses d'un depot")
     g.add_argument("--lu", metavar="ID", help="accuser la LECTURE d'un depot livre (agent : --agent)")
+    g.add_argument("--entretien", action="store_true",
+                   help="fermer les depots PROUVES traites (trailer « Traite-pair: <id> » d'un commit "
+                        "d'alpha), expirer les orphelins")
     ap.add_argument("--agent", default="CLAUDE")
     ap.add_argument("--motif", default="")
     ap.add_argument("--pointer", default="")
@@ -403,6 +510,9 @@ def main(argv=None) -> int:
         res = suivi(a.suivi)
     elif a.lu:
         res = accuser_lecture(a.lu, a.agent)
+    elif a.entretien:
+        res = entretenir()
+        res["ok"] = True
     else:
         res = deliberer(a.deliberer)
     print(json.dumps(res, ensure_ascii=False, indent=1))

@@ -381,8 +381,9 @@ def ingest_ast_nodes_to_rag(
             conn.execute(
                 """INSERT OR IGNORE INTO rag_chunks
                    (id, text, source, domain, meta, quality_score)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (chunk_id, text, source, "extern_pattern", meta_json, 0.85),
+                   SELECT ?, ?, ?, ?, ?, ?
+                   WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)""",
+                (chunk_id, text, source, "extern_pattern", meta_json, 0.85, chunk_id),
             )
             # sync FTS5
             conn.execute(
