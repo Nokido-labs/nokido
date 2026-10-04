@@ -90,10 +90,14 @@ verlässt. Ihre eigene Compliance hängt weiterhin davon ab, wie Sie es einsetze
 
 ## 🚀 Schnellstart
 
-<!-- PIP:BEGIN nokido-agent version=none -->
-`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
-trusts: a version reaches it only after the install proof on Linux, Windows
-and macOS. Until then, install from a clone.
+<!-- PIP:BEGIN nokido-agent version=0.20.8 -->
+**From PyPI** — [`nokido-agent 0.20.8`](https://pypi.org/project/nokido-agent/0.20.8/), published after the
+install proof on Linux, Windows and macOS:
+
+```bash
+pip install nokido-agent==0.20.8
+nokido-doctor                   # what this machine has, lacks, or cannot read
+```
 <!-- PIP:END -->
 
 **Aus einem Klon** — der Weg, den auch die CI nimmt ([Details](#-installation)):
