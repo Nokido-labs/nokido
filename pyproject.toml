@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.7"
+version = "0.20.8"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"

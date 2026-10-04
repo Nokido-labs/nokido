@@ -446,12 +446,24 @@ def test_sur_le_dist_TestPyPI_est_MANUEL_et_prouve_sur_les_trois_OS():
         "un declenchement manuel sur le dist atteint PyPI ou cree une Release")
 
 
-def test_sur_le_dist_le_tag_de_PROMOTION_ne_publie_RIEN():
-    """Le promoteur pousse `v*` sur le dist : ce push ne doit rien publier
-    (choix owner 2026-09-30 : TestPyPI se lance a la main). PyPI reel reste
-    donc inatteignable partout tant que l'owner ne rouvre pas ce chemin."""
+def test_sur_le_dist_le_tag_publie_TestPyPI_PUIS_PyPI():
+    """Chemin PyPI ROUVERT par l'owner le 2026-10-02. Du 30/09 au 02/10, le tag de
+    promotion ne publiait RIEN -- `build` ne tournait que par dispatch et `publish`
+    exigeait un push : PyPI etait inatteignable par construction (0.20.5 et 0.20.7,
+    tags pousses, tous les jobs sautes). Desormais le tag `v*` du dist traverse
+    toute la chaine, et PyPI reste DERRIERE les preuves TestPyPI."""
     tournent = _jobs_executes(DEPOT_DIST, "push")
-    assert not tournent, f"le tag de promotion declenche : {sorted(tournent)}"
+    attendus = {"build", "publish-testpypi", "verify-testpypi", "publish", "create-release", "readme-pypi"}
+    assert attendus <= tournent, f"le tag du dist ne publie pas tout : manquent {sorted(attendus - tournent)}"
+    jobs = _graphe()
+    amont, a_voir = set(), list(_besoins(jobs["publish"]))
+    while a_voir:
+        n = a_voir.pop()
+        if n not in amont:
+            amont.add(n)
+            a_voir.extend(_besoins(jobs[n]))
+    assert {"publish-testpypi", "verify-testpypi"} <= amont, (
+        "PyPI doit rester DERRIERE TestPyPI et ses preuves d'installation", sorted(amont))
 
 
 def test_l_evaluateur_de_gardes_MORD():

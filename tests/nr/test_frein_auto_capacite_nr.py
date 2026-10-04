@@ -39,6 +39,18 @@ def gen(tmp_path, monkeypatch):
         halt.write_text(motif, encoding="utf-8")
         return {"ok": True}
     monkeypatch.setattr(juge, "poser_frein_evolution", _poser, raising=False)
+    # Hermetique (2026-10-02, CI GitHub de f85c19b03) : `capturer` sondait le VRAI depot -- glob de
+    # tests/nr, git status complet, paquets, sous-modules -- et a consomme les 120 s du timeout sur un
+    # poste charge ; avec un gain calcule il ecrivait aussi dans l'op-log REEL. Le frein se juge sans
+    # ces sondes : on fige leur reponse, le statut et le frein restent calcules par le vrai code.
+    monkeypatch.setattr(fg, "_empreinte_capacites", lambda: {"modules_forge": 1, "tests_nr": 1})
+    monkeypatch.setattr(fg, "_paquets", lambda: {})
+    monkeypatch.setattr(fg, "_lock", lambda: {})
+    monkeypatch.setattr(fg, "_submodules", lambda: {})
+    monkeypatch.setattr(fg, "_append_oplog", lambda *a, **k: None)
+    _faux_git = {("rev-parse", "HEAD"): "f" * 40, ("rev-parse", "--abbrev-ref", "HEAD"): "alpha",
+                 ("log", "-1", "--format=%s"): "sujet NR"}
+    monkeypatch.setattr(fg, "_git", lambda *args, cwd=None: _faux_git.get(tuple(args), ""))
     return {"dossier": d, "freins": freins, "halt": halt}
 
 

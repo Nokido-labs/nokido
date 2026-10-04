@@ -3,6 +3,16 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: f85c19b03..151a1c3e7 -->
+## 2026-10-02 — alpha `f85c19b03..151a1c3e7` (3 commits)
+
+### Corrections
+- **nr** : le NR du frein auto ne sonde plus le vrai depot ni n'ecrit l'op-log reel (`cf024c8c6`)
+
+### Maintenance
+- **release** : chemin PyPI rouvert -- le tag du dist publie TestPyPI, puis PyPI (`a9af5178d`)
+- **release** : 0.20.8 (`151a1c3e7`)
+
 <!-- changelog: 479480200..cb5c5c906 -->
 ## 2026-10-02 — alpha `479480200..cb5c5c906` (2 commits)
 

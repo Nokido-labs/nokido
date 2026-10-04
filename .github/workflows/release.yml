@@ -7,9 +7,12 @@
 # ⚠️ EDITEUR = le depot dist depuis le 2026-09-30 (owner) : le paquet publie est
 # le contenu FILTRE du dist. Les jobs de publication ne tournent que la ou la
 # variable de depot NOKIDO_EDITEUR vaut 'true' (Settings > Secrets and variables
-# > Actions > Variables), et seulement par workflow_dispatch. Les
-# prerequis ci-dessous valent donc avec repo=nokido-dist ; l'env `testpypi` du
-# dist admet la branche `main`.
+# > Actions > Variables). Sur l'editeur (owner 2026-10-02, chemin PyPI ROUVERT) :
+# le tag `v*` pousse par la promotion publie TestPyPI -> preuves 3 OS -> PyPI ->
+# Release ; un workflow_dispatch reste un essai a blanc (TestPyPI seul). Une
+# version PyPI ne se re-uploade JAMAIS : pousser un tag sur le dist EST publier.
+# Les prerequis ci-dessous valent avec repo=nokido (ex nokido-dist) ; l'env
+# `testpypi` du dist admet la branche `main` et le tag `v*`.
 #
 # PRÉREQUIS (une fois) — canonique owner 2026-09-16 : release depuis Nokido-labs/nokido.
 #   1. Sur pypi.org : projet `nokido-agent` (= pyproject.name, PAS `laforge-agent`
@@ -70,16 +73,17 @@ jobs:
     name: Build sdist + wheel (uv)
     # EDITEUR = le depot DIST (owner 2026-09-30). Ce fichier vit dans les DEUX
     # depots : le promoteur (`tools/forge_dist_publish.py`) l'embarque dans le
-    # snapshot dist. Sur le dist, seul le declenchement MANUEL construit : le tag
-    # `v*` que pousse la promotion ne publie rien, et comme `publish` exige un
-    # `push`, PyPI reel est inatteignable partout tant que l'owner ne rouvre pas
-    # ce chemin. Sur la source, `build` tourne toujours (verification du paquet).
+    # snapshot dist. Du 2026-09-30 au 2026-10-02, seul le declenchement MANUEL
+    # construisait sur le dist : `publish` exigeant un `push`, PyPI reel etait
+    # inatteignable par construction (0.20.5 et 0.20.7 : tag pousse, tout saute).
+    # L'owner a ROUVERT ce chemin le 2026-10-02 : `build` tourne partout, et la
+    # publication reste tenue par NOKIDO_EDITEUR (TestPyPI) et par l'evenement
+    # `push` d'un tag (PyPI, Release). Sur la source, rien ne publie.
     # L'editeur se designe par la VARIABLE de depot NOKIDO_EDITEUR == 'true' (posee
     # sur lui seul), jamais par un NOM : au renommage prevu (nokido ->
     # nokido-private, nokido-dist -> nokido), le nom `nokido` change de proprietaire
     # et une garde par nom ferait publier la SOURCE pendant la fenetre. La variable
     # suit le depot quand on le renomme.
-    if: vars.NOKIDO_EDITEUR != 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # UNE SEULE CONSTRUCTION, et ce qu'elle a produit voyage vers les jobs de
     # preuve. Ceux-ci ne relisent JAMAIS `pyproject.toml` : ils valideraient
