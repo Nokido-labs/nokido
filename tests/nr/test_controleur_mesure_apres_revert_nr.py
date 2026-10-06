@@ -23,6 +23,13 @@ from nokido_agent.app import forge_mutation_controller as mc
 from nokido_agent.app import forge_mutation_judge as juge
 from nokido_agent.tools import forge_merge_gate as mg
 
+# Timeout 120 s (CI GitHub de 741c65341, 2026-10-02, accord owner 2026-10-06) -- risque : pytest IMBRIQUE
+#   (test_cycle_sans_baseline_mesuree_ne_conserve_pas_par_vide passe par `forge_mutation_judge.mesurer`,
+#   qui lance un vrai pytest en sous-processus ; sous E/S disque chargees, son demarrage depassait le
+#   timeout par defaut et tuait TOUTE la session : SUITE_INCOMPLETE, 0 echec).
+# Au-dela de 30 s, pytest-timeout (methode thread) tue TOUTE la session pytest sous Windows.
+pytestmark = pytest.mark.timeout(120)
+
 BRUIT = {"score": 0.5}
 
 

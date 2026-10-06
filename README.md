@@ -652,7 +652,10 @@ Heavy ML extras require substantially more disk space because they install packa
 
 <!-- DIST:nokido-agent -->
 
-> **Alpha: run from a cloned repository. `pip install` is not supported yet.**
+> **Alpha.** The package published on PyPI installs with pip (see the block at the top), and
+> each release is proven to install on Linux, Windows and macOS before PyPI serves it. The
+> **cloned repository remains the reference path for the full organism** — services, Deno
+> supervisor, local models — until the one-command full install is delivered.
 
 `pyproject.toml` declares the distribution name `nokido-agent` with five console
 entry points, and as of 2026-09-10 the package builds under a dedicated

@@ -3,6 +3,49 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: bc0f4d8b5..47a99f2b9 -->
+## 2026-10-06 — alpha `bc0f4d8b5..47a99f2b9` (1 commit)
+
+### Corrections
+- **nr** : plafond 300 s pour le test aux deux pytest imbriques (`47a99f2b9`)
+
+<!-- changelog: cca1008e0..c3038d1a5 -->
+## 2026-10-06 — alpha `cca1008e0..c3038d1a5` (1 commit)
+
+### Corrections
+- **dist** : manifestes rescelles apres la montee de requirements.txt (`c3038d1a5`)
+
+<!-- changelog: 7003e2e7d..bb8cb79ea -->
+## 2026-10-06 — alpha `7003e2e7d..bb8cb79ea` (1 commit)
+
+### Maintenance
+- **ci** : environnement certifie et audit archives apres la montee de securite (`bb8cb79ea`)
+
+<!-- changelog: bc1c517c5..af8eb6581 -->
+## 2026-10-06 — alpha `bc1c517c5..af8eb6581` (1 commit)
+
+### Corrections
+- **nr** : le statut alpha reste DIT sans exiger la phrase qui niait pip (`af8eb6581`)
+
+<!-- changelog: 741c65341..ae79058e8 -->
+## 2026-10-06 — alpha `741c65341..ae79058e8` (8 commits)
+
+### Nouveautés
+- **regulation** : bail de priorite -- la tache prioritaire prend le dessus et rend ce qu'elle a pris (`b5dd8db69`)
+
+### Corrections
+- **nr** : timeout 120 s sur le NR du controleur de mutation (pytest imbrique) (`e3c5570ea`)
+- **pair** : chaque capsule porte sa regle de depot -- travail sur nokido-private, jamais le public (`eb55e50e5`)
+- **deps** : pypdf 6.19.0 et GitPython 3.1.62 (avis hauts du depot public) (`ac8a10910`)
+- **readme** : le README ne nie plus pip quand PyPI sert, et la contradiction bloque la promotion (`403851d03`)
+- **regulation** : le bail en observation s'ouvre a tout organe authentifie (`9dad8c77c`)
+
+### Performance
+- **tests** : l'isolation des organes ne cree plus un repertoire temporaire par test (`b58f8faca`)
+
+### Maintenance
+- **release** : 0.20.9 (`ae79058e8`)
+
 <!-- changelog: f85c19b03..151a1c3e7 -->
 ## 2026-10-02 — alpha `f85c19b03..151a1c3e7` (3 commits)
 

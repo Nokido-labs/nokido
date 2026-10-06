@@ -103,6 +103,68 @@ def test_une_commande_pip_HORS_du_bloc_est_une_divergence():
     assert statut == m.DIVERGE and "hors du bloc" in note
 
 
+# --- une phrase qui nie pip, alors que PyPI sert (owner 2026-10-06) ------------------------------
+_NEGATION = "\n> **Alpha: run from a cloned repository. `pip install` is not supported yet.**\n"
+
+
+def test_une_negation_de_pip_contredit_une_version_servie():
+    """Le README publie de 0.20.8 : « From PyPI » en tete, « not supported yet » plus bas."""
+    m = _mod()
+    statut, note = m.coherence(_readme(m, "0.20.8") + _NEGATION, "nokido-agent")
+    assert statut == m.DIVERGE and "nie encore pip" in note and "not supported" in note
+    fr = _readme(m, "0.20.8") + "\n`pip install` n'est pas encore pris en charge.\n"
+    assert m.coherence(fr, "nokido-agent")[0] == m.DIVERGE
+
+
+def test_sans_version_servie_la_negation_reste_permise():
+    """Tant que PyPI ne sert rien, dire « pas encore » est JUSTE : le gate ne crie pas a faux."""
+    m = _mod()
+    assert m.coherence(_readme(m, m.AUCUNE) + _NEGATION, "nokido-agent")[0] == m.ALIGNE
+
+
+def test_le_bloc_lui_meme_n_est_pas_une_negation():
+    """Le bloc genere dit « not on PyPI yet » quand aucune version n'est servie : hors champ."""
+    m = _mod()
+    assert m._negations_hors_bloc(_readme(m, m.AUCUNE)) == []
+
+
+def test_le_promoteur_refuse_une_negation_AVANT_toute_mutation(monkeypatch):
+    """Le bloc de la source reste a `none` : la contradiction n'apparait qu'apres alignement. Le
+    promoteur la juge avant d'ecrire quoi que ce soit, sur le README lu au sha promu."""
+    import pytest
+    import subprocess as sp
+    spec = importlib.util.spec_from_file_location("promoteur_pip_nr", ROOT / "tools" / "forge_dist_publish.py")
+    p = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(p)
+    m = _mod()
+    fichiers = {"README.md": _readme(m, m.AUCUNE) + _NEGATION}
+
+    def faux_run(cmd, capture=True, check=False):
+        if "ls-tree" in cmd:
+            return sp.CompletedProcess(cmd, 0, "\n".join(fichiers), "")
+        chemin = cmd[-1].split(":", 1)[1]
+        return sp.CompletedProcess(cmd, 0, fichiers[chemin], "")
+    monkeypatch.setattr(p, "run", faux_run)
+    with pytest.raises(SystemExit) as e:
+        p._verifier_negations_pip("a" * 40, "nokido-agent", "0.20.8")
+    assert "README.md" in str(e.value) and "0.20.8" in str(e.value)
+    p._verifier_negations_pip("a" * 40, "nokido-agent", None)          # rien de servi : rien a juger
+    fichiers["README.md"] = _readme(m, m.AUCUNE)
+    p._verifier_negations_pip("a" * 40, "nokido-agent", "0.20.8")       # aucune negation : passe
+    src = (ROOT / "tools" / "forge_dist_publish.py").read_text(encoding="utf-8")
+    corps = src[src.index("def main()"):]
+    assert corps.index("_verifier_negations_pip(") < corps.index("ensure_dist_repo(")
+
+
+def test_le_README_du_depot_ne_nie_pas_pip_une_fois_aligne():
+    """Le chemin reel : le README versionne, bloc simule a une version servie, reste coherent."""
+    m = _mod()
+    texte = (ROOT / "README.md").read_text(encoding="utf-8")
+    simule = m._RE_BLOC.sub(lambda _x: m.bloc("nokido-agent", "0.20.8"), texte, count=1)
+    statut, note = m.coherence(simule, "nokido-agent")
+    assert statut == m.ALIGNE, note
+
+
 def test_un_autre_nom_de_paquet_est_une_divergence():
     m = _mod()
     statut, _ = m.coherence(_readme(m, "0.21.0").replace("nokido-agent", "laforge-agent"),

@@ -55,4 +55,4 @@ stevedore==5.9.0
 tomli==2.4.1
 tomli-w==1.2.0
 typing-extensions==4.15.0
-urllib3==2.7.0
+urllib3==2.8.0

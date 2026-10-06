@@ -1214,6 +1214,44 @@ def _version_pypi_servie(paquet: str, hors_ligne: bool) -> str | None:
     return servie
 
 
+def _verifier_negations_pip(source_sha: str, paquet: str, servie: str | None) -> None:
+    """Refuse la promotion si un README de la source NIE `pip install` alors que PyPI sert une version.
+
+    Owner 2026-10-06 : le README publie de 0.20.8 annoncait « From PyPI » en tete et « `pip install`
+    is not supported yet » plus bas. Le bloc de la source reste a `version=none` (c'est le promoteur
+    qui l'aligne sur PyPI) : le gate de la CI ne pouvait donc PAS voir la contradiction, qui n'existe
+    qu'apres alignement. On la juge ici, AVANT toute mutation, sur les README lus au sha promu avec
+    le bloc simule a la version servie. Illisible = refus dit, jamais un vert."""
+    if servie is None:
+        return
+    mod = _module_readme_pip()
+    r = run(["git", "-c", "safe.directory=*", "-C", str(ROOT), "ls-tree", "-r", "--name-only",
+             source_sha, "--", "README.md", "docs/i18n"], capture=True, check=False)
+    if r.returncode != 0:
+        raise SystemExit("[pip] arbre de %s illisible : README non verifies, promotion refusee"
+                         % source_sha[:12])
+    fautes = []
+    for chemin in (r.stdout or "").split():
+        if not re.search(r"(^|/)README[^/]*\.md$", chemin):
+            continue
+        s = run(["git", "-c", "safe.directory=*", "-C", str(ROOT), "show", "%s:%s" % (source_sha, chemin)],
+                capture=True, check=False)
+        if s.returncode != 0:
+            fautes.append("%s : illisible" % chemin)
+            continue
+        texte = s.stdout or ""
+        if mod.lire(texte) is None:
+            continue
+        simule = mod._RE_BLOC.sub(lambda _m: mod.bloc(paquet, servie), texte, count=1)
+        statut, note = mod.coherence(simule, paquet)
+        if statut == mod.DIVERGE:
+            fautes.append("%s : %s" % (chemin, note))
+    if fautes:
+        raise SystemExit("[pip] PyPI sert %s %s, mais des README de la source le contredisent :\n  %s"
+                         % (paquet, servie, "\n  ".join(fautes)))
+    print("[pip] aucun README ne nie pip une fois aligne sur %s" % servie)
+
+
 def _aligner_bloc_pip(dist: Path, paquet: str, servie: str | None) -> None:
     """Regenere le bloc pip de chaque README du dist sur la version servie."""
     if servie is None:
@@ -1317,6 +1355,7 @@ def main() -> int:
     print("[certification] %s" % certification.get("etat"))
     paquet = _nom_du_paquet(source_sha) or "nokido-agent"
     pypi_servie = _version_pypi_servie(paquet, args.pip_hors_ligne)
+    _verifier_negations_pip(source_sha, paquet, pypi_servie)
 
     dist = Path(args.dist_path)
     remotes = {"github": args.github_url}

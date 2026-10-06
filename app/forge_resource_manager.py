@@ -41,6 +41,7 @@ API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbo
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import socket
@@ -1003,7 +1004,15 @@ def _supervisor_wake_non_essential() -> None:
         import urllib.request as _ur
 
         _h = _supervisor_auth_headers()
+        # Un service endormi par un BAIL DE PRIORITE actif n'est pas rendu par la RAM qui redescend :
+        # la tache prioritaire en a encore besoin, et c'est sa liberation (ou son expiration) qui le rend.
+        try:
+            _tenus = services_tenus_par_un_bail()
+        except Exception:  # noqa: BLE001 - registre des baux illisible : comportement d'avant
+            _tenus = set()
         for svc in reversed(_SUPERVISOR_WAKE_ON_RECOVERY):
+            if svc in _tenus:
+                continue
             try:
                 req = _ur.Request(f"{_SUPERVISOR_URL}/wake/{svc}", method="POST", headers=_h)
                 with _ur.urlopen(req, timeout=3):
@@ -1760,6 +1769,19 @@ def _sampler_loop() -> None:
             except Exception as _e:  # noqa: BLE001
                 logging.getLogger(__name__).debug(
                     "[arbitrage] tick declenchement ignore (%s)", type(_e).__name__)
+
+            # BAUX DE PRIORITE : une tache prioritaire morte sans liberer ne garde pas le corps
+            # endormi -- tout bail echu est libere. Cadence 60 s, en THREAD (le reveil attend le
+            # superviseur) ; le registre des baux est un repertoire, lu sans verrou global.
+            try:
+                global _BAUX_DERNIER
+                if time.time() - _BAUX_DERNIER >= 60.0:
+                    _BAUX_DERNIER = time.time()
+                    threading.Thread(target=expirer_baux, name="forge_baux_expiration",
+                                     daemon=True).start()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "[bail] tick d'expiration ignore (%s)", type(_e).__name__)
 
             ram_pct = float(new.get("ram_pct") or 0.0)
             now = time.time()
@@ -3658,6 +3680,8 @@ def decider_demande_deleguee(principal: str, ring: int, corps: Any) -> tuple[int
     if not isinstance(corps, dict):
         return 400, {"ok": False, "error": "invalid_request",
                      "detail": "corps JSON objet attendu"}, {}
+    if "bail" in corps:
+        return _decider_bail(principal, ring, corps.get("bail"))
     try:
         besoin = float(corps.get("needed_ram_gb"))
     except (TypeError, ValueError):
@@ -3708,6 +3732,347 @@ def _resultat_sans_action(needed: float, motif: str, etat: str) -> dict:
     return {"ok": libre >= needed, "action": [motif], "delegue": etat, "freed_gb": 0.0,
             "before_free": libre, "after_free": libre,
             "missing_gb": round(max(0.0, needed - libre), 2)}
+
+
+# ── Bail de priorite (owner 2026-10-06) ──────────────────────────────────────────────────────────
+# Owner : « les taches prioritaires doivent prendre le dessus, tout en gardant a l'esprit qu'une fois
+# finies elles ne doivent pas empecher le redemarrage de ce qui a ete interrompu a tort ; les
+# intentions doivent etre conservees, avec une notion de travail long / travail court ». Mesure du
+# 2026-10-04 : la CI GitHub de 0.20.8 tuee deux fois par des timeouts d'E/S disque tant que
+# NokidoDeportEmbed lisait ~76 Mo/s ; endormi a la main par un agent, l'essai suivant etait vert.
+# Le bail rend ce geste au CORPS. La tache prioritaire DECLARE (motif, court|long, ttl) ; le hub
+# CHOISIT qui cede -- jamais l'appelant --, INSCRIT chaque interrompu avec son intention et son
+# travail, et le REVEILLE a la liberation, ou a l'EXPIRATION si la tache meurt sans liberer.
+# OBSERVATION par defaut (journaliser ce qui aurait cede) : armer = `sandbox/bail_priorite.switch`
+# contenant « arme », ou LAFORGE_BAIL_PRIORITE=1. Observer avant d'enforcer.
+_BAUX_DIR = Path(__file__).resolve().parent.parent / "sandbox" / "baux_priorite"
+_BAIL_SWITCH = Path(__file__).resolve().parent.parent / "sandbox" / "bail_priorite.switch"
+_SERVICES_TOML = Path(__file__).resolve().parent.parent / "proxy_deno" / "core" / "services.toml"
+_BAIL_TTL_MAX_S = {"court": 3600.0, "long": 4 * 3600.0}
+_BAIL_LONG_SILENCE_MAX_S = 900.0  # un bail long qui ne se renouvelle pas en 15 min expire
+_BAIL_SEUIL_IO_MBS = float(os.environ.get("LAFORGE_BAIL_SEUIL_IO_MBS", "5"))
+_BAIL_SEUIL_CPU_PCT = float(os.environ.get("LAFORGE_BAIL_SEUIL_CPU_PCT", "20"))
+_BAIL_FENETRE_COUT_S = 3.0
+# Travail des interrompus. LONG : un travail de fond qui reprend ou il en etait -- a reveiller ET a
+# verifier. COURT : un passage periodique qui se rattrape au tick suivant. Listes curatees, MESUREES ;
+# tout autre service est INCONNU, jamais range « court » par defaut (INCONNU != NON), et il est
+# reveille comme un long.
+_TRAVAIL_LONG = frozenset({"NokidoDeportEmbed", "NokidoIngestDaemon"})
+_TRAVAIL_COURT = frozenset({"NokidoRSSWatcher", "NokidoCapture"})
+_BAUX_VERROU = threading.Lock()
+_BAUX_DERNIER = 0.0
+
+
+def _bail_arme() -> bool:
+    if os.environ.get("LAFORGE_BAIL_PRIORITE") == "1":
+        return True
+    try:
+        return _BAIL_SWITCH.read_text(encoding="utf-8").strip().lower() == "arme"
+    except OSError:
+        return False
+
+
+def _travail(service: str) -> str:
+    return "long" if service in _TRAVAIL_LONG else "court" if service in _TRAVAIL_COURT else "INCONNU"
+
+
+def _services_du_toml() -> dict | None:
+    """{nom: declaration} de services.toml ; None si illisible (jamais {} : vide != illisible)."""
+    try:
+        import tomllib
+
+        d = tomllib.loads(_SERVICES_TOML.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - illisible, dit par l'appelant
+        return None
+    brut = d.get("services") or d.get("service") or []
+    liste = brut.values() if isinstance(brut, dict) else brut
+    return {v["name"]: v for v in liste if isinstance(v, dict) and v.get("name")}
+
+
+def _statut_superviseur() -> dict | None:
+    """{service: etat} du registre du superviseur ; None si illisible."""
+    import json as _j
+    import urllib.request as _ur
+
+    try:
+        with _ur.urlopen(f"{_SUPERVISOR_URL}/status", timeout=5) as r:
+            return (_j.loads(r.read()) or {}).get("services") or {}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cout_des_pids(pids: dict) -> dict:
+    """{service: (E/S Mo/s, CPU %)} mesures sur une fenetre, enfants compris ; absent = illisible."""
+    if not _PSUTIL_OK:
+        return {}
+
+    def _arbre(pid):
+        try:
+            p = psutil.Process(pid)
+            return [p] + p.children(recursive=True)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _releve(procs):
+        io = cpu = 0.0
+        for p in procs:
+            try:
+                c = p.io_counters()
+                io += c.read_bytes + c.write_bytes
+                t = p.cpu_times()
+                cpu += t.user + t.system
+            except Exception:  # noqa: BLE001
+                continue
+        return io, cpu
+
+    arbres = {svc: _arbre(pid) for svc, pid in pids.items()}
+    avant = {svc: _releve(a) for svc, a in arbres.items() if a}
+    time.sleep(_BAIL_FENETRE_COUT_S)
+    out = {}
+    for svc, (io0, cpu0) in avant.items():
+        io1, cpu1 = _releve(arbres[svc])
+        out[svc] = ((io1 - io0) / _BAIL_FENETRE_COUT_S / 2 ** 20,
+                    100.0 * (cpu1 - cpu0) / _BAIL_FENETRE_COUT_S)
+    return out
+
+
+def _candidats_bail() -> tuple[list | None, str]:
+    """Qui CEDERAIT a une tache prioritaire : (liste, motif). Liste None = illisible, et dit pourquoi.
+
+    Non essentiel ET sans neverSleep au TOML, jamais un porteur de capacite critique
+    (`forge_service_capabilities`, la garde deja opposee au sommeil RAM), vivant au registre du
+    superviseur, et COUTEUX maintenant (E/S ou CPU mesures au-dessus du seuil) : on n'endort pas
+    un service qui ne gene pas la tache prioritaire."""
+    toml = _services_du_toml()
+    if toml is None:
+        return None, "services.toml ILLISIBLE"
+    etat = _statut_superviseur()
+    if etat is None:
+        return None, "registre du superviseur ILLISIBLE"
+    try:
+        from nokido_agent.app.forge_service_capabilities import is_critical
+    except Exception:  # noqa: BLE001 - sans la garde des capacites, on s'abstient
+        return None, "forge_service_capabilities INDISPONIBLE : aucune garde des capacites critiques"
+    pids = {}
+    for nom, decl in toml.items():
+        if decl.get("essential") is not False or decl.get("neverSleep") or decl.get("disabled"):
+            continue
+        pid = ((etat.get(nom) or {}).get("pid"))
+        if not pid:
+            continue
+        try:
+            if is_critical(nom):
+                continue
+        except Exception:  # noqa: BLE001 - verdict indisponible = on s'abstient pour ce service
+            continue
+        pids[nom] = int(pid)
+    couts = _cout_des_pids(pids)
+    out = []
+    for nom, (io, cpu) in sorted(couts.items(), key=lambda kv: -(kv[1][0] + kv[1][1] / 10.0)):
+        if io < _BAIL_SEUIL_IO_MBS and cpu < _BAIL_SEUIL_CPU_PCT:
+            continue
+        decl = toml.get(nom) or {}
+        out.append({"service": nom, "pid": pids[nom], "io_mbs": round(io, 1), "cpu_pct": round(cpu, 1),
+                    "intention": decl.get("intention"), "objectif": decl.get("objectif"),
+                    "travail": _travail(nom)})
+    return out, "%d candidat(s) sur %d non-essentiel(s) vivant(s), %d sans cout mesurable" % (
+        len(out), len(pids), len(pids) - len(couts))
+
+
+def _lire_baux() -> list:
+    import json as _j
+
+    out = []
+    try:
+        fichiers = sorted(_BAUX_DIR.glob("bail_*.json"))
+    except OSError:
+        return out
+    for f in fichiers:
+        try:
+            out.append(_j.loads(f.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001 - un bail illisible ne s'invente pas
+            continue
+    return out
+
+
+def _ecrire_bail(bail: dict) -> None:
+    import json as _j
+
+    _BAUX_DIR.mkdir(parents=True, exist_ok=True)
+    cible = _BAUX_DIR / ("%s.json" % bail["id"])
+    tmp = cible.with_suffix(".tmp")
+    tmp.write_text(_j.dumps(bail, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, cible)
+
+
+def _expire_le(bail: dict) -> float:
+    fin = bail["cree_le"] + bail["ttl_s"]
+    if bail.get("classe") == "long":
+        fin = min(fin, bail.get("renouvele_le", bail["cree_le"]) + _BAIL_LONG_SILENCE_MAX_S)
+    return fin
+
+
+def services_tenus_par_un_bail(sauf: str | None = None) -> set:
+    """Services endormis par un bail ACTIF (autre que `sauf`) : ni le reveil RAM ni la liberation
+    d'un autre bail ne doivent les rendre pendant qu'une tache prioritaire en a besoin."""
+    return {s["service"] for b in _lire_baux() if b.get("etat") == "ACTIF" and b.get("id") != sauf
+            for s in b.get("interrompus", []) if s.get("endormi")}
+
+
+def acquerir_bail(principal: str, motif: str, classe: str = "court", ttl_s: float = 3600.0) -> dict:
+    """La tache prioritaire declare ; le hub choisit, inscrit et (arme) endort. Rend le bail."""
+    candidats, note = _candidats_bail()
+    arme = _bail_arme()
+    maintenant = time.time()
+    bail = {"id": "bail_%d_%s" % (int(maintenant), os.urandom(3).hex()), "principal": principal,
+            "motif": str(motif)[:200], "classe": classe, "ttl_s": float(ttl_s), "cree_le": maintenant,
+            "renouvele_le": maintenant, "mode": "ARME" if arme else "OBSERVATION", "etat": "ACTIF",
+            "selection": note, "interrompus": []}
+    if candidats is None:
+        bail.update(etat="ILLISIBLE", interrompus=[])
+        _audit_lifecycle("bail_illisible", "priorite", "%s : %s" % (principal, note), target=principal)
+        return bail
+    with _BAUX_VERROU:
+        for c in candidats:
+            if arme:
+                ok, pourquoi = _sleep_service_verdict(c["service"])
+                c.update(endormi=bool(ok), motif_sommeil=pourquoi)
+            else:
+                c.update(endormi=False, motif_sommeil="OBSERVATION : aurait cede")
+            bail["interrompus"].append(c)
+        bail["expire_le"] = _expire_le(bail)
+        _ecrire_bail(bail)
+    _audit_lifecycle("bail_acquis", "priorite", "%s (%s, %s) : %s" % (
+        principal, classe, bail["mode"], [c["service"] for c in bail["interrompus"]]),
+        target=principal, bail=bail["id"])
+    return bail
+
+
+def renouveler_bail(principal: str, ident: str) -> tuple[int, dict]:
+    with _BAUX_VERROU:
+        bail = next((b for b in _lire_baux() if b.get("id") == ident), None)
+        if bail is None or bail.get("etat") != "ACTIF":
+            return 404, {"ok": False, "error": "bail_inconnu_ou_clos", "id": ident}
+        if bail.get("principal") != principal:
+            return 403, {"ok": False, "error": "bail_d_un_autre", "id": ident}
+        bail["renouvele_le"] = time.time()
+        bail["expire_le"] = _expire_le(bail)
+        _ecrire_bail(bail)
+    return 200, {"ok": True, "bail": bail}
+
+
+def liberer_bail(ident: str, raison: str = "LIBERE", principal: str | None = None) -> tuple[int, dict]:
+    """Rend ce qui a ete interrompu : reveille chaque service ENDORMI par ce bail, sauf s'il est
+    tenu par un autre bail actif, et VERIFIE qu'il vit (accepte != atteint)."""
+    with _BAUX_VERROU:
+        bail = next((b for b in _lire_baux() if b.get("id") == ident), None)
+        if bail is None or bail.get("etat") != "ACTIF":
+            return 404, {"ok": False, "error": "bail_inconnu_ou_clos", "id": ident}
+        if principal is not None and bail.get("principal") != principal:
+            return 403, {"ok": False, "error": "bail_d_un_autre", "id": ident}
+        tenus = services_tenus_par_un_bail(sauf=ident)
+        for s in bail.get("interrompus", []):
+            if not s.get("endormi"):
+                continue
+            if s["service"] in tenus:
+                s["reprise"] = "TENU_PAR_UN_AUTRE_BAIL"
+                continue
+            accepte = _wake_service(s["service"])
+            s["reprise"] = "VIVANT" if _service_est_vivant(s["service"]) else (
+                "ACCEPTE_NON_VERIFIE" if accepte else "REFUSE")
+        bail.update(etat=raison, clos_le=time.time())
+        _ecrire_bail(bail)
+    _audit_lifecycle("bail_" + raison.lower(), "priorite", "%s : %s" % (
+        bail.get("principal"), [(s["service"], s.get("reprise")) for s in bail.get("interrompus", [])
+                                if s.get("endormi")]), target=bail.get("principal"), bail=ident)
+    return 200, {"ok": True, "bail": bail}
+
+
+def expirer_baux() -> list:
+    """Une tache prioritaire morte ne garde pas le corps endormi : tout bail echu est libere."""
+    echus = [b["id"] for b in _lire_baux() if b.get("etat") == "ACTIF" and time.time() > _expire_le(b)]
+    for ident in echus:
+        liberer_bail(ident, raison="EXPIRE")
+    return echus
+
+
+def _decider_bail(principal: str, ring: int, demande) -> tuple[int, dict, dict]:
+    """Decision de `POST /api/resource/request` avec un corps `{"bail": {...}}`."""
+    if not isinstance(demande, dict) or demande.get("action") not in ("acquerir", "renouveler", "liberer", "etat"):
+        return 400, {"ok": False, "error": "invalid_request",
+                     "detail": "bail.action attendu : acquerir | renouveler | liberer | etat"}, {}
+    action = demande["action"]
+    if action == "etat":
+        return 200, {"ok": True, "arme": _bail_arme(),
+                     "actifs": [b for b in _lire_baux() if b.get("etat") == "ACTIF"]}, {}
+    if action in ("renouveler", "liberer"):
+        ident = str(demande.get("id") or "")
+        code, corps = (renouveler_bail(principal, ident) if action == "renouveler"
+                       else liberer_bail(ident, "LIBERE", principal=principal))
+        return code, corps, {}
+    if "services" in demande or "victimes" in demande:
+        return 400, {"ok": False, "error": "invalid_request",
+                     "detail": "le demandeur ne nomme jamais qui cede : le hub choisit"}, {}
+    classe = demande.get("classe", "court")
+    if classe not in _BAIL_TTL_MAX_S:
+        return 400, {"ok": False, "error": "invalid_request", "detail": "classe : court | long"}, {}
+    try:
+        ttl = float(demande.get("ttl_s", _BAIL_TTL_MAX_S[classe]))
+    except (TypeError, ValueError):
+        ttl = float("nan")
+    if not 0 < ttl <= _BAIL_TTL_MAX_S[classe]:
+        return 400, {"ok": False, "error": "invalid_request",
+                     "detail": "ttl_s hors de ]0, %g] pour un bail %s" % (_BAIL_TTL_MAX_S[classe], classe)}, {}
+    # En OBSERVATION le bail n'endort rien : tout organe authentifie peut mesurer qui AURAIT cede.
+    # Mesure du 2026-10-06 : un job detache (identite d'organe sans nom) recevait 403, donc la CI de
+    # reference -- lancee en job -- ne pouvait meme pas OBSERVER. Arme, le ring <= 3 reste exige.
+    if _bail_arme() and ring > _DELEGATION_RING_MAX_EVICTION:
+        return 403, {"ok": False, "error": "insufficient_scope",
+                     "detail": "bail ARME reserve au ring <= %d (%s est ring %d)"
+                               % (_DELEGATION_RING_MAX_EVICTION, principal, ring)}, {
+            "WWW-Authenticate": 'Bearer realm="nokido-hub", error="insufficient_scope", '
+                                'error_description="priority lease requires ring <= %d"'
+                                % _DELEGATION_RING_MAX_EVICTION}
+    bail = acquerir_bail(principal, demande.get("motif") or "?", classe, ttl)
+    return (200 if bail.get("etat") == "ACTIF" else 503), {"ok": bail.get("etat") == "ACTIF", "bail": bail}, {}
+
+
+def demander_bail(action: str, **champs) -> dict:
+    """Cote tache prioritaire : envoie la demande au hub. Ne leve jamais ; une tache prioritaire ne
+    doit pas echouer parce que la regulation est injoignable -- elle le DIT et continue."""
+    import json as _json
+    import urllib.error as _ue
+    import urllib.request as _ur
+
+    try:
+        from nokido_agent.app import forge_hub_client as _hc
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": "CLIENT_HUB_INDISPONIBLE(%s)" % type(e).__name__}
+    nom = os.environ.get("LAFORGE_AGENT_NAME") or os.environ.get("FORGE_AGENT_NAME") or ""
+    req = _ur.Request(_hc._BASE_URL + "/api/resource/request", method="POST",
+                      data=_json.dumps({"bail": dict(champs, action=action)}).encode(),
+                      headers=_hc.entetes_organe(nom))
+    try:
+        with _ur.urlopen(req, timeout=60) as r:
+            return _json.loads(r.read().decode("utf-8", "replace") or "{}")
+    except _ue.HTTPError as e:
+        return {"ok": False, "error": "HTTP_%d" % e.code}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": "HUB_INJOIGNABLE(%s)" % type(getattr(e, "reason", e)).__name__}
+
+
+@contextlib.contextmanager
+def bail_priorite(motif: str, classe: str = "court", ttl_s: float = 3600.0):
+    """`with bail_priorite("CI de reference 741c65341"):` -- acquiert, rend la main, LIBERE toujours.
+
+    Si la tache meurt sans passer par le `finally`, le bail expire et le hub rend ce qu'il avait pris."""
+    res = demander_bail("acquerir", motif=motif, classe=classe, ttl_s=ttl_s)
+    ident = ((res or {}).get("bail") or {}).get("id")
+    try:
+        yield res
+    finally:
+        if ident:
+            demander_bail("liberer", id=ident)
 
 
 def _deleguer_au_hub(needed: float):

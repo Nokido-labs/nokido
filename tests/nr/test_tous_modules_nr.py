@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import functools
 import sys
 from pathlib import Path
 
@@ -99,14 +100,29 @@ MODULES = _modules()
 assert MODULES, "aucun module trouve — le test se croirait vert sur un vide"
 
 
+@functools.lru_cache(maxsize=None)
+def _analyse(module: Path) -> tuple[str | None, tuple[str, ...]]:
+    """(erreur de parse ou None, noms definis au premier niveau) -- UNE lecture et UN parse par module.
+
+    Mesure CI de reference 741c65341 (2026-10-06) : ce fichier coutait 52,7 s, le plus lent de la suite,
+    parce que chaque module (~2 300) etait lu et parse DEUX fois, une par test parametre. Seul ce petit
+    resultat est garde en cache, jamais l'arbre : 2 300 AST pesaient sur la memoire de la machine.
+    """
+    src = module.read_text(encoding="utf-8", errors="replace")
+    try:
+        arbre = ast.parse(src)
+    except SyntaxError as e:
+        return str(e), ()
+    return None, tuple(n.name for n in arbre.body
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)))
+
+
 @pytest.mark.parametrize("module", MODULES, ids=lambda p: p.stem)
 def test_module_parse(module: Path):
     """Le module doit rester analysable. Sans cela il est mort pour tout appelant."""
-    src = module.read_text(encoding="utf-8", errors="replace")
-    try:
-        ast.parse(src)
-    except SyntaxError as e:
-        pytest.fail(f"{module.name} ne parse plus : {e}")
+    erreur, _ = _analyse(module)
+    if erreur is not None:
+        pytest.fail(f"{module.name} ne parse plus : {erreur}")
 
 
 @pytest.mark.parametrize("module", MODULES, ids=lambda p: p.stem)
@@ -116,13 +132,9 @@ def test_module_sans_definition_ecrasee(module: Path):
     La seconde definition ecrase la premiere a l'import, sans un mot. Le piege
     est qu'on corrige alors du code qui ne s'execute jamais.
     """
-    src = module.read_text(encoding="utf-8", errors="replace")
-    try:
-        arbre = ast.parse(src)
-    except SyntaxError:
+    erreur, noms = _analyse(module)
+    if erreur is not None:
         pytest.skip("ne parse pas — signale par test_module_parse")
-    noms = [n.name for n in arbre.body
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
     doublons = {k for k, v in collections.Counter(noms).items() if v > 1}
     toleres = DOUBLONS_TOLERES.get(module.name, {}).get("noms", set())
     restants = doublons - toleres
@@ -197,9 +209,7 @@ def test_la_dette_declaree_existe_encore():
     for fichier, info in DOUBLONS_TOLERES.items():
         p = next((c for c in _modules() if c.name == fichier), None)
         assert p is not None, f"{fichier} tolere mais introuvable — retirer l'entree"
-        arbre = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
-        noms = [n.name for n in arbre.body
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))]
+        _, noms = _analyse(p)
         vus = {k for k, v in collections.Counter(noms).items() if v > 1}
         perimes = info["noms"] - vus
         assert not perimes, (

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.8"
+version = "0.20.9"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -120,7 +120,7 @@ ml = [
 
 # Git ingestion + monitoring
 git = [
-    "gitpython>=3.1.0",
+    "gitpython>=3.1.62",
     "pygithub>=2.3.0",
 ]
 

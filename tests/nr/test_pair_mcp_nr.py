@@ -78,6 +78,19 @@ def test_la_surface_exposee_est_exactement_la_liste_figee(pair):
         assert interdit not in source, interdit
 
 
+def test_chaque_capsule_porte_la_regle_de_depot_prive(pair):
+    """Owner 2026-10-06 : le depot de distribution est PUBLIC ; claude.ai y poussait ses branches
+    (commits signes Claude, un Co-Authored-By). La regle voyage avec CHAQUE capsule, meme une
+    capsule qui ne nomme aucun depot."""
+    m, sandbox, _ = pair
+    (sandbox / "capsules_pair" / "mission.capsule.json").write_text(
+        json.dumps({"missions": [{"branche": "claude/x"}]}), encoding="utf-8")
+    r = m.lire_derniere_capsule()
+    assert r["ok"] and r["regle_de_depot"]["depot_de_travail"] == "Nokido-labs/nokido-private"
+    assert "Nokido-labs/nokido " in r["regle_de_depot"]["interdit"]
+    assert "Co-Authored-By" in r["regle_de_depot"]["commits"]
+
+
 def test_recherche_rag_ne_rend_que_les_sources_exposables(pair):
     m, _s, _db = pair
     r = m.rechercher_rag("routeur local", 10)

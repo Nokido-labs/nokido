@@ -49,6 +49,8 @@ if _env.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 # ── Fixtures partagées ─────────────────────────────────────────────────────
+import itertools
+
 import pytest
 
 # ── Collecte PAR LISTE (suite pure de la CI locale) ──────────────────────────
@@ -117,8 +119,31 @@ def nokido_db():
     """Chemin embeddings.db."""
     return ROOT / "RAG" / "embeddings.db"
 
+@pytest.fixture(scope="session")
+def _bac_des_organes(tmp_path_factory):
+    """UN repertoire pour toute la session, ou vivent les bases isolees des organes.
+
+    Mesure du 2026-10-06 (CI de reference 741c65341) : les deux isolations autouse ci-dessous
+    demandaient `tmp_path`, donc un REPERTOIRE NEUF pour chacun des ~13 600 tests -- pour
+    calculer le chemin d'une base que presque aucun test n'ecrit. `test_tous_modules_nr`
+    (5 079 tests triviaux, aucun au-dela de 0,3 s) coutait 42 s, ~8 ms de surcout par test,
+    avec ou sans pytest-timeout. L'isolation reste PAR TEST : un nom de fichier unique par
+    test dans ce repertoire, et le fichier n'existe que si le test ecrit.
+    """
+    return tmp_path_factory.mktemp("organes_isoles")
+
+
+_COMPTEUR_DE_TESTS = itertools.count()
+
+
+@pytest.fixture
+def _numero_de_test():
+    """Un numero par test, commun aux deux bases isolees du meme test."""
+    return next(_COMPTEUR_DE_TESTS)
+
+
 @pytest.fixture(autouse=True)
-def _isolate_endocrine_blood(tmp_path, monkeypatch):
+def _isolate_endocrine_blood(_bac_des_organes, _numero_de_test, monkeypatch):
     """AUCUN test n'ecrit dans le SANG DE PRODUCTION.
 
     Mesure le 2026-07-16 : la table `endocrine_signals` de la vraie base portait
@@ -142,11 +167,11 @@ def _isolate_endocrine_blood(tmp_path, monkeypatch):
         import forge_endocrine as fe
     except Exception:
         return  # module absent de ce contexte de test -> rien a isoler
-    monkeypatch.setattr(fe, "DB", tmp_path / "endocrine_test.db", raising=False)
+    monkeypatch.setattr(fe, "DB", _bac_des_organes / ("endocrine_%d.db" % _numero_de_test), raising=False)
 
 
 @pytest.fixture(autouse=True)
-def _isolate_postal(tmp_path, monkeypatch):
+def _isolate_postal(_bac_des_organes, _numero_de_test, monkeypatch):
     """AUCUN test n'ecrit dans la VRAIE boite postale.
 
     Mesure le 2026-09-29 : depuis que l'approbation d'un depot de pair et la releve de
@@ -162,7 +187,7 @@ def _isolate_postal(tmp_path, monkeypatch):
             module = __import__(nom, fromlist=["DB"])
         except Exception:
             continue  # module absent de ce contexte de test -> rien a isoler
-        monkeypatch.setattr(module, "DB", tmp_path / "postal_test.db", raising=False)
+        monkeypatch.setattr(module, "DB", _bac_des_organes / ("postal_%d.db" % _numero_de_test), raising=False)
 
 
 # ---------------------------------------------------------------------------

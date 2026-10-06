@@ -183,6 +183,19 @@ def lire_journal_commits(n: int = 10) -> dict:
     return {"ok": True, "branche": "origin/alpha (publie)", "commits": p.stdout.splitlines()}
 
 
+# Regle de depot JOINTE a chaque capsule (owner 2026-10-06, apres le passage public de Nokido-labs/nokido) :
+# les capsules ne nommaient pas de depot, et claude.ai poussait ses branches `claude/*` -- commits signes
+# Claude, un trailer Co-Authored-By malgre la consigne -- sur le depot de DISTRIBUTION, devenu public.
+# La consigne voyage desormais avec CHAQUE capsule, quelle que soit la mission ; et le ruleset
+# « aucune autre branche » du depot public refuse de toute facon une branche poussee par l'app.
+REGLE_DE_DEPOT = {
+    "depot_de_travail": "Nokido-labs/nokido-private",
+    "interdit": "Nokido-labs/nokido (public, distribution) : aucune branche, aucun push ; seule la "
+                "promotion de l'owner y ecrit",
+    "commits": "aucun trailer Co-Authored-By, d'aucun auteur ; un commit qui en porte est refuse a la relecture",
+}
+
+
 def lire_derniere_capsule() -> dict:
     try:
         fichiers = sorted(dossier_capsules().glob("*.capsule.json"),
@@ -195,7 +208,7 @@ def lire_derniere_capsule() -> dict:
         capsule = json.loads(fichiers[0].read_text(encoding="utf-8"))
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "etat": "ILLISIBLE", "motif": type(e).__name__}
-    return {"ok": True, "capsule": capsule, "fichier": fichiers[0].name}
+    return {"ok": True, "capsule": capsule, "fichier": fichiers[0].name, "regle_de_depot": REGLE_DE_DEPOT}
 
 
 # ── Collaboration (quarantaine) ─────────────────────────────────────────────

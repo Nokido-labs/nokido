@@ -1826,6 +1826,8 @@ PURE_TESTS = [
     "tests/test_forge_swarm_telemetry_guard.py",
     # Cartouches du dist (2026-10-02) : le CI du README pointe le workflow qui EXISTE sur le dist.
     "tests/nr/test_dist_cartouches_nr.py",
+    # Bail de priorite (2026-10-06) : la tache prioritaire prend le dessus et rend ce qu'elle a pris.
+    "tests/nr/test_bail_priorite_nr.py",
     "tests/nr/test_capability_gate_sondes_nr.py",
     "tests/nr/test_gate_depense_tokens_nr.py",
     "tests/nr/test_tool_budget_gate_nr.py",

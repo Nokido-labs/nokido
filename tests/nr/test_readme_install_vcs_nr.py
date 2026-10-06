@@ -109,8 +109,15 @@ def test_le_statut_alpha_de_l_installation_est_DIT():
     ailleurs : une absence se NOMME.
     """
     texte = _readme().lower()
-    assert "not supported yet" in texte or "non supporte" in texte, (
-        "le README doit DIRE que `pip install` n'est pas encore supporte")
+    # Realigne le 2026-10-06 (accord owner) : depuis que PyPI sert nokido-agent (0.20.8), dire
+    # « pip install is not supported yet » CONTREDISAIT le bloc pip du meme README -- et le
+    # promoteur refuse desormais cette contradiction (forge_readme_pip, _verifier_negations_pip).
+    # L'intention reste la meme : le statut alpha est DIT, et le README nomme ce que pip ne
+    # couvre pas -- l'organisme complet, dont le chemin de reference reste le clone.
+    assert "alpha" in texte, "le README doit DIRE que Nokido est en alpha"
+    assert "full organism" in texte and "reference path" in texte, (
+        "le README doit nommer ce que l'installation par pip ne couvre pas (l'organisme complet) "
+        "et son chemin de reference")
     assert "git clone" in texte, (
         "le chemin reellement supporte doit etre documente, pas seulement l'absence "
         "de l'autre")

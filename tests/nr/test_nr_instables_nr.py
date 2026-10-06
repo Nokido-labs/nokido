@@ -51,7 +51,10 @@ def test_lecture_junit(tmp_path):
 # la borne globale de 30 s ; pytest-timeout en methode `thread` arrete alors le PROCESSUS entier,
 # et tout le bloc sortait sans preuve (SUITE_INCOMPLETE, 0 echec) : CI GitHub 36335602193 et
 # ci_local du meme jour. 120 s couvre la charge, un vrai blocage reste attrape.
-@pytest.mark.timeout(120)
+# Releve a 300 s le 2026-10-06 : CI de reference bc0f4d8b5 coupee (SUITE_INCOMPLETE, 0 echec) sur ce test
+# au-dela de 120 s, alors qu'il prend 10,4 s SEUL le meme jour (mesure, aucune regression) : sous la charge
+# de la suite complete, le demarrage de ses deux pytest imbriques (tous plugins) est plus de 12x plus lent.
+@pytest.mark.timeout(300)
 def test_chemin_reel_nomme_le_test_qui_alterne(tmp_path, monkeypatch, capsys):
     compteur = tmp_path / "compteur.txt"
     t = tmp_path / "test_alterne_temoin.py"

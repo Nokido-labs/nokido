@@ -107,6 +107,23 @@ def _commandes_hors_bloc(texte: str, paquet: str) -> list[str]:
     return re.findall(r"pip3? install[^\n]*\b%s\b[^\n]*" % re.escape(paquet), code)
 
 
+# Une phrase qui NIE l'installation par pip, hors du bloc genere (owner 2026-10-06). Le README publie de
+# 0.20.8 annoncait « From PyPI -- nokido-agent 0.20.8 » en tete ET « `pip install` is not supported yet »
+# plus bas : la phrase datait d'avant la publication, aucun controle ne la confrontait au bloc, et une
+# lecture externe en a conclu que le clone etait le seul chemin. Une contradiction ne se corrige pas une
+# fois : des que le bloc annonce une version servie, la negation fait diverger le gate.
+_RE_NEGATION_PIP = re.compile(
+    r"pip3?\s+install[^.\n]{0,60}?\b(?:is\s+)?(?:not\s+(?:yet\s+)?supported|unsupported|not\s+available)\b"
+    r"|pip3?\s+install[^.\n]{0,60}?n['’]est\s+pas\s+(?:encore\s+)?(?:pris\s+en\s+charge|support[ée]e?)",
+    re.I)
+
+
+def _negations_hors_bloc(texte: str) -> list[str]:
+    """Les phrases qui nient `pip install`, HORS du bloc genere (celui-ci dit lui-meme « not on PyPI
+    yet » quand aucune version n'est servie, et c'est alors juste)."""
+    return [m.group(0) for m in _RE_NEGATION_PIP.finditer(_RE_BLOC.sub("", texte))]
+
+
 def coherence(texte: str, paquet: str = PAQUET) -> tuple[str, str]:
     """Hors ligne : le bloc est-il exactement celui que sa declaration genere ?"""
     d = lire(texte)
@@ -123,6 +140,11 @@ def coherence(texte: str, paquet: str = PAQUET) -> tuple[str, str]:
     hors = _commandes_hors_bloc(texte, paquet)
     if hors:
         return DIVERGE, "commande pip hors du bloc genere : %r" % hors
+    if d["version"] != AUCUNE:
+        nie = _negations_hors_bloc(texte)
+        if nie:
+            return DIVERGE, ("le bloc annonce %s %s sur PyPI, mais le texte nie encore pip : %r"
+                             % (paquet, d["version"], nie[0]))
     return ALIGNE, "version declaree : %s (PyPI non interroge hors ligne)" % d["version"]
 
 
