@@ -28,7 +28,7 @@ rank-bm25>=0.2.2         # Index BM25 pour la recherche hybride (optionnel)
 
 # ── Lecture de documents ──────────────────────────────────────────────────────
 pdfplumber>=0.10.0       # Extraction texte PDF — tableaux inclus
-pypdf>=4.0.0             # Lecture PDF basique (2e fallback)
+pypdf>=6.19.0             # Lecture PDF basique (2e fallback)
 # marker-pdf>=0.2.0      # PDF → Markdown haute qualité (optionnel, lourd ~2 Go)
 
 # ── Terminal virtuel ──────────────────────────────────────────────────────────
