@@ -60,7 +60,7 @@ networkx==3.4.2
 # Web scraping / ingest
 markdownify==1.2.2
 beautifulsoup4==4.14.3
-pypdf==6.16.1
+pypdf==6.19.0
 
 # System / security
 psutil==7.2.2
@@ -94,7 +94,7 @@ netmiko==4.7.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), ti
 # Dev / UX
 rich==14.3.2
 tqdm==4.67.3
-GitPython==3.1.60
+GitPython==3.1.62
 
 # AMI cognitive stack — Liquid NN (forge_lnn_monitor) + DSPy router (forge_dspy_router)
 ncps==1.0.1
