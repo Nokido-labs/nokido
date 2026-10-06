@@ -88,13 +88,13 @@ PyJWT==2.15.0
 #     netmiko 4.7.0 has requirement paramiko<5.0, but you have paramiko 5.0.0
 # La montee a ete faite en local sans que rien ne le signale. Ce manifeste
 # revient donc a 4.0.0 : il decrit ce qui DOIT etre installe, pas ce qui l'est.
-paramiko==4.0.0
+paramiko==5.0.0
 netmiko==4.7.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), tire pynacl/bcrypt
 
 # Dev / UX
 rich==14.3.2
 tqdm==4.67.3
-GitPython==3.1.62
+GitPython==3.2.0
 
 # AMI cognitive stack — Liquid NN (forge_lnn_monitor) + DSPy router (forge_dspy_router)
 ncps==1.0.1
