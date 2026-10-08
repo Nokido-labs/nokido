@@ -4218,12 +4218,25 @@ for(const a of document.querySelectorAll('a[href^="http://127.0.0.1:"]'))a.href=
         if not q:
             return JSONResponse({"error": "q requis"}, status_code=400)
 
+        # La question de l'utilisateur n'est JAMAIS passee brute a FTS5 : `?`, `"`, `-`, AND/OR/NEAR y sont de la
+        # syntaxe. Mesure du 2026-10-07 (test d'installation sur runners) : « How do I install Nokido with pip? »
+        # rendait « fts5: syntax error near "?" ». Echappement existant reutilise (mots cites, relies par OR).
+        # Modification d'un CRITICAL_FILE sur GO owner du 2026-10-07.
+        try:
+            from nokido_agent.tools.forge_knowledge_overlap import requete_fts as _requete_fts
+        except ImportError:
+            from forge_knowledge_overlap import requete_fts as _requete_fts
+        fts = _requete_fts(q)
+
         async def gen():
+            if not fts:
+                yield f"data: {_js.dumps({'done': True, 'total': 0, 'note': 'aucun mot exploitable dans la question'})}\n\n"
+                return
             try:
                 _db = Path(__file__).resolve().parent.parent / "RAG" / "embeddings.db"
                 conn = _sq.connect(str(_db), timeout=5)
                 clause = "AND domain=?" if domain else ""
-                params = (q, domain, limit) if domain else (q, limit)
+                params = (fts, domain, limit) if domain else (fts, limit)
                 rows = conn.execute(
                     f"SELECT bm25(rag_fts) as rank, source, substr(text,1,400), domain "
                     f"FROM rag_fts WHERE rag_fts MATCH ? {clause} ORDER BY rank LIMIT ?",

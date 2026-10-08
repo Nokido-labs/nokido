@@ -24,6 +24,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import struct
 import sys
 import time
@@ -555,6 +556,103 @@ def _role_embed_local_autorise() -> bool:
         return True
 
 
+# LIMITE de l'embedder :8099, APPRISE de lui et jamais supposee (owner 08/10 : « adaptatif selon
+# l'embedder »). En embedding, llama.cpp ne TRONQUE PAS : une entree de plus de `n_ubatch` jetons
+# rend HTTP 500 « input (N tokens) is too large to process. increase the physical batch size
+# (current batch size: B) ». Mesure 2026-10-08 : 703, 1 912 et 3 615 jetons refuses au journal de
+# l'organe, chaque refus ecartant le repli local de l'election. Le serveur n'expose pas n_ubatch
+# (/props ne rend que n_ctx) mais son refus le NOMME : borne initiale = n_ctx, ramenee a B au
+# premier refus, et la requete est rejouee une fois. Le lot physique reste un choix de RAM du
+# poste (services.toml) que le routeur suit sans constante a tenir en accord. Au-dela, on TRONQUE
+# en jetons et on le DIT : mesure du 08/10, la troncature approche le vecteur du texte entier mieux
+# qu'une moyenne de fenetres (cos moyen 0,971 contre 0,962, 24 textes de 600-1000 jetons). Le
+# texte complet reste chez l'appelant (lexical) ; une revectorisation native des textes tronques
+# (« voie longue ») est un chantier suivant.
+_LIMITE_8099: dict = {"jetons": None, "le": 0.0}
+_LIMITE_8099_TTL_S = 600.0  # l'embedder peut etre relance avec un autre lot : on reapprend
+_JETONS_SPECIAUX_8099 = 4  # CLS + SEP ajoutes par le serveur, plus une marge
+_RE_LOT_8099 = re.compile(r"current batch size:\s*(\d+)")
+
+
+def _appel_8099(chemin: str, corps: dict | None, timeout: float) -> dict:
+    req = urllib.request.Request("http://127.0.0.1:8099" + chemin,
+                                 data=None if corps is None else json.dumps(corps).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def _limite_8099(timeout: float = 10.0) -> int:
+    """Limite courante en jetons : apprise d'un refus, sinon n_ctx de /props ; illisible -> 512, dit."""
+    if _LIMITE_8099["jetons"] is None or time.time() - _LIMITE_8099["le"] > _LIMITE_8099_TTL_S:
+        try:
+            n = int(_appel_8099("/props", None, timeout)["default_generation_settings"]["n_ctx"])
+        except Exception as exc:  # noqa: BLE001 - /props illisible : plus petit lot courant, dit
+            n = 512
+            logger.warning("[llama8099] /props illisible (%s) : limite supposee %d jetons",
+                           type(exc).__name__, n)
+        _LIMITE_8099.update(jetons=n, le=time.time())
+    return _LIMITE_8099["jetons"]
+
+
+def _apprendre_limite_8099(exc: urllib.error.HTTPError) -> bool:
+    """Un refus « too large » nomme le lot physique : le retenir. True si la limite a baisse."""
+    try:
+        corps = exc.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - corps illisible : rien a apprendre
+        return False
+    m = _RE_LOT_8099.search(corps)
+    if not m or int(m.group(1)) >= _limite_8099():
+        return False
+    _LIMITE_8099.update(jetons=int(m.group(1)), le=time.time())
+    logger.warning("[llama8099] lot physique appris de l'embedder : %s jetons (refus « too large ») "
+                   "| entrees suivantes bornees a cette limite", m.group(1))
+    return True
+
+
+def _post_embeddings_8099(texts: list[str], timeout: float) -> dict:
+    """POST /v1/embeddings borne a la limite de l'embedder ; un refus « too large » est appris
+    et la requete rejouee UNE fois, bornee a ce que le serveur a nomme."""
+    for essai in (1, 2):
+        envoyes = _borner_textes_8099(texts, _limite_8099())
+        try:
+            return _appel_8099("/v1/embeddings", {"input": envoyes}, timeout)
+        except urllib.error.HTTPError as e:
+            if essai == 2 or e.code != 500 or not _apprendre_limite_8099(e):
+                raise
+    raise RuntimeError("inatteignable")
+
+
+def _borner_textes_8099(texts: list[str], limite: int, timeout: float = 10.0) -> list[str]:
+    """Borne en jetons chaque texte envoye a :8099 ; dit combien ont ete tronques.
+
+    Un texte d'au plus `borne` caracteres part tel quel, sans aller-retour : un jeton couvre au
+    moins un caractere (hors expansion de normalisation, rarissime). Au-dela : /tokenize puis,
+    s'il depasse, /detokenize des `borne` premiers jetons. /tokenize injoignable : repli sur
+    `borne` caracteres, sur mais plus court -- dit lui aussi."""
+    borne = limite - _JETONS_SPECIAUX_8099
+    out, tronques, maxi, repli = [], 0, 0, 0
+    for t in texts:
+        if len(t) <= borne:
+            out.append(t)
+            continue
+        try:
+            jetons = _appel_8099("/tokenize", {"content": t}, timeout)["tokens"]
+            if len(jetons) > borne:
+                t = _appel_8099("/detokenize", {"tokens": jetons[:borne]}, timeout)["content"]
+                tronques, maxi = tronques + 1, max(maxi, len(jetons))
+        except Exception:  # noqa: BLE001 - tokenizer injoignable : borne sure, dite plus bas
+            t, repli = t[:borne], repli + 1
+        out.append(t)
+    if tronques:
+        logger.warning("[llama8099] %d texte(s) au-dela de %d jetons TRONQUE(S) pour le vecteur "
+                       "(max vu %d jetons) | le texte complet reste chez l'appelant", tronques, borne, maxi)
+    if repli:
+        logger.warning("[llama8099] /tokenize injoignable : %d texte(s) bornes a %d caracteres "
+                       "(borne sure, plus courte que %d jetons)", repli, borne, borne)
+    return out
+
+
 def _embed_llama8099(text: str, timeout: float = 30.0) -> list[float] | None:
     """LOCAL BGE-M3 via NokidoLlamaEmbed :8099 (GGUF llama.cpp GPU). 1024d, gratuit, pas
     d'egress, urllib pur (zéro litellm). Remplace brain_worker :5557 (ONNX 'bad allocation'
@@ -562,13 +660,7 @@ def _embed_llama8099(text: str, timeout: float = 30.0) -> list[float] | None:
     if not _role_embed_local_autorise():
         return None
     try:
-        req = urllib.request.Request(
-            "http://127.0.0.1:8099/v1/embeddings",
-            data=json.dumps({"input": text}).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            d = json.loads(r.read())
+        d = _post_embeddings_8099([text], timeout)
         emb = d.get("data", [{}])[0].get("embedding") if "data" in d else d.get("embedding")
         if emb and isinstance(emb[0], list):
             emb = emb[0]
@@ -585,13 +677,7 @@ def _llama8099_call(texts: list[str], timeout: float = 60.0) -> list[list[float]
     if not _role_embed_local_autorise():
         return None
     try:
-        req = urllib.request.Request(
-            "http://127.0.0.1:8099/v1/embeddings",
-            data=json.dumps({"input": texts}).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            d = json.loads(r.read())
+        d = _post_embeddings_8099(texts, timeout)
         data = d.get("data")
         if not data or len(data) != len(texts):
             # TROIS causes rendaient le MEME None, et l'appelant n'annoncait qu'une
@@ -967,15 +1053,7 @@ def embed_batch(texts: list, timeout: float = 60.0, prefer: str | None = None) -
         # appel), jamais a N appels unitaires qui couteraient N aller-retours.
         return [v if v else [] for v in embed_batch_fast(texts, batch_size=32)]
     try:
-        import json as _j
-        import urllib.request as _u
-
-        body = _j.dumps({"input": texts}).encode()
-        req = _u.Request(
-            "http://127.0.0.1:8099/v1/embeddings", data=body,
-            headers={"Content-Type": "application/json"}, method="POST")
-        with _u.urlopen(req, timeout=timeout) as r:
-            data = _j.loads(r.read())["data"]
+        data = _post_embeddings_8099(texts, timeout)["data"]
         vecs = [d["embedding"] for d in sorted(data, key=lambda x: x.get("index", 0))]
         if len(vecs) == len(texts):
             return vecs

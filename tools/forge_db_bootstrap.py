@@ -23,6 +23,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "RAG" / "embeddings.db"
 SEED_DIR = ROOT / "seed"
+# Schema d'une installation NEUVE, copie de la base de reference (2026-10-07). Avant lui, cet outil renvoyait vers
+# « forge_rag_warmup ou demarrer le hub », et sur machine vierge NI l'un NI l'autre ne creait rag_chunks (test
+# d'installation sur runners GitHub : Linux « base absente », Windows fichier vide, pack refuse).
+SCHEMA = SEED_DIR / "schema_base.sql"
+
+
+def creer_schema(c) -> list[str]:
+    """Applique seed/schema_base.sql (tout en IF NOT EXISTS : rejouable). Rend les tables presentes ensuite."""
+    c.executescript(SCHEMA.read_text(encoding="utf-8"))
+    return sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'"))
 
 
 def _table_exists(c, table: str) -> bool:
@@ -119,20 +129,25 @@ def main() -> int:
         except Exception:
             pass
 
-    if not DB.exists():
-        print(
-            f"WARN: DB absent ({DB}). Forge la schema d'abord via "
-            f"forge_rag_warmup ou démarrer le hub."
-        )
+    if not SCHEMA.exists():
+        print(f"ERR: schema de base absent ({SCHEMA}) : impossible de creer la base")
         return 1
+    neuve = not DB.exists()
+    if neuve and args.dry_run:
+        print(f"DRY RUN : la base {DB} serait CREEE avec {SCHEMA.name}")
+        return 0
 
-    print(f"DB     : {DB}")
+    print(f"DB     : {DB}{' (creee)' if neuve else ''}")
     print(f"SEED   : {seed_dir}")
     print(f"DRY RUN: {args.dry_run}")
-    print()
 
+    DB.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(DB), timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
+    if not args.dry_run:
+        tables = creer_schema(c)
+        print(f"SCHEMA : {SCHEMA.name} applique, rag_chunks {'PRESENTE' if 'rag_chunks' in tables else 'ABSENTE'}")
+    print()
 
     # Pour chaque .jsonl, deviner la table (préfixe avant __ ou tout le nom)
     files = sorted(seed_dir.glob("*.jsonl"))

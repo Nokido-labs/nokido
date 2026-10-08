@@ -723,8 +723,9 @@ def test_le_snapshot_dist_EMBARQUE_release_yml_du_sha_promu(monkeypatch, tmp_pat
     workflow de publication. `.gitattributes` exclut `.github/workflows/` de
     `git archive` ; le promoteur le rapporte donc lui-meme — depuis le SHA
     PROMU (jamais le worktree), et AVANT la politique publique, qui doit pouvoir
-    le juger comme tout autre fichier. Seul `release.yml` part : la CI
-    self-hosted reste hors du dist.
+    le juger comme tout autre fichier. Seuls les workflows de `WORKFLOWS_DIST`
+    partent (release.yml, puis installation-complete.yml depuis le 2026-10-07) :
+    la CI self-hosted reste hors du dist.
 
     Hermetique : `git archive` et `git show` sont simules, aucun reseau.
     """
@@ -768,8 +769,10 @@ def test_le_snapshot_dist_EMBARQUE_release_yml_du_sha_promu(monkeypatch, tmp_pat
     assert not (dist / ".github" / "workflows" / "ci-selfhosted.yml").exists()
     assert (dist / "app" / "forge_x.py").is_file() and not (dist / "perime.txt").exists()
     shows = [c for c in appels if "show" in c]
-    assert shows and all(c[-1] == "abc1234:.github/workflows/release.yml" for c in shows), (
-        f"le workflow doit venir du SHA promu : {shows}")
+    assert {c[-1] for c in shows} == {"abc1234:" + w for w in m.WORKFLOWS_DIST}, (
+        f"chaque workflow embarque doit venir du SHA promu, et eux seuls : {shows}")
+    assert "abc1234:.github/workflows/release.yml" in {c[-1] for c in shows}
+    assert not any("ci-selfhosted" in w for w in m.WORKFLOWS_DIST), "la CI self-hosted ne part jamais"
     assert vu_par_la_politique == [True], (
         "la politique publique doit juger le workflow embarque, donc passer APRES")
 

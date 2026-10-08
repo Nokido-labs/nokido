@@ -9,13 +9,17 @@ empreinte: INCONNUE
 
 # Wiki Nokido
 
-<!-- revu-le: 2026-08-14 -->
-> Mise à jour : 2026-08-14
+<!-- revu-le: 2026-10-07 -->
+> Mise à jour : 2026-10-07
 
 > 🌐 [English](Home.md) · **Français**
 
-Bienvenue sur le wiki **Nokido**. Nokido est un système d'exploitation IA
-autonome, local-first, avec gouvernance neuro-symbolique.
+Bienvenue sur le wiki **Nokido**. Nokido est un **runtime local-first pour un
+organisme artificiel** : le système nerveux et la physiologie qui permettent à
+plusieurs IA — modèles locaux, fournisseurs cloud, agents de code — de
+travailler ensemble sur votre machine sans devenir un tas d'agents
+indépendants. Le [README](../i18n/README.fr.md) donne la vue d'ensemble et
+l'état réel de chaque partie.
 
 Ce wiki est le **manuel opérateur** — installation, configuration, workflows
 quotidiens, troubleshooting. Pour le *pourquoi* derrière la conception,

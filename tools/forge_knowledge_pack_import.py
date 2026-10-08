@@ -55,13 +55,57 @@ DB = ROOT / "RAG" / "embeddings.db"
 DEFAULT_REPO = "Nokido-labs/nokido"  # vitrine publique (ex-nokido-dist) : releases + Knowledge Pack
 
 
+FORMAT = "nokido-knowledge-pack/2"
+
+
+def _purger_fts():
+    """forge_db_path.purger_fts, sous ses deux noms d'import (wheel installee d'abord, depot en repli)."""
+    try:
+        from nokido_agent.app.forge_db_path import purger_fts
+    except ImportError:
+        if str(ROOT / "app") not in sys.path:
+            sys.path.insert(0, str(ROOT / "app"))
+        from forge_db_path import purger_fts
+    return purger_fts
+
+
+def _derniere_version(repo: str) -> str:
+    """Version de la derniere release : GitHub redirige /releases/latest vers /releases/tag/v<version>.
+    (L'ancienne URL `latest/download/nokido_knowledge_pack.npz` visait un asset que personne ne produit.)"""
+    with urllib.request.urlopen(f"https://github.com/{repo}/releases/latest", timeout=30) as r:
+        final = r.geturl()
+    if "/tag/v" not in final:
+        raise RuntimeError(f"derniere release illisible (redirection vers {final})")
+    return final.rsplit("/tag/v", 1)[1].strip("/")
+
+
+def lire_pack(pack_path: Path) -> dict:
+    """Lit un pack au format 2 SANS pickle : un fichier telecharge ne doit jamais pouvoir executer de code.
+
+    Le format 1 (tableaux d'objets, `allow_pickle=True`) est REFUSE (2026-10-07) : il n'a jamais ete publie.
+    """
+    with np.load(pack_path, allow_pickle=False) as data:
+        if "meta" not in data.files:
+            raise ValueError("format de pack ancien (objets pickle) : refuse, re-exporter au format 2")
+        meta = json.loads(bytes(data["meta"]).decode("utf-8"))
+        texts = json.loads(bytes(data["texts"]).decode("utf-8"))
+        embeddings = np.asarray(data["embeddings"], dtype=np.float32)
+    manifest = meta.get("manifest") or {}
+    if manifest.get("format") != FORMAT:
+        raise ValueError(f"format inconnu : {manifest.get('format')!r} (attendu {FORMAT})")
+    n = len(meta.get("chunk_ids") or [])
+    if not (len(texts) == len(meta.get("sources") or []) == len(meta.get("domains") or []) == n
+            and embeddings.shape == (n, int(manifest.get("dim") or 0))):
+        raise ValueError("pack incoherent : longueurs ou dimensions qui ne se correspondent pas")
+    return {"manifest": manifest, "chunk_ids": meta["chunk_ids"], "texts": texts, "sources": meta["sources"],
+            "domains": meta["domains"], "embeddings": embeddings}
+
+
 def _download_pack(repo: str, version: str | None, dest: Path) -> Path:
     """Download knowledge pack NPZ from GitHub Releases."""
     base = f"https://github.com/{repo}/releases"
-    if version:
-        url = f"{base}/download/v{version}/nokido_knowledge_pack_v{version}.npz"
-    else:
-        url = f"{base}/latest/download/nokido_knowledge_pack.npz"
+    version = version or _derniere_version(repo)
+    url = f"{base}/download/v{version}/nokido_knowledge_pack_v{version}.npz"
 
     print(f"[info] downloading from {url}")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -103,15 +147,15 @@ def import_pack(
     sha = _verify_sha256(pack_path, expect_sha256)
     print(f"[info] SHA256 = {sha}")
 
-    data = np.load(pack_path, allow_pickle=True)
-    manifest = json.loads(str(data["manifest"][0]))
+    pack = lire_pack(pack_path)
+    manifest = pack["manifest"]
     print(f"[info] manifest = {json.dumps(manifest, indent=2)}")
 
-    chunk_ids = data["chunk_ids"]
-    texts = data["texts"]
-    sources = data["sources"]
-    domains = data["domains"]
-    embeddings = data["embeddings"]
+    chunk_ids = pack["chunk_ids"]
+    texts = pack["texts"]
+    sources = pack["sources"]
+    domains = pack["domains"]
+    embeddings = pack["embeddings"]
 
     n = len(chunk_ids)
     print(f"[info] {n} chunks in pack")
@@ -134,6 +178,11 @@ def import_pack(
             raise RuntimeError("Table rag_chunks missing — run forge_db_bootstrap.py first")
 
         cur = conn.cursor()
+        # Regle d'or (CLAUDE.md) : toute insertion dans rag_chunks se synchronise dans rag_fts. Les triggers du schema
+        # alimentent rag_chunks_fts, PAS rag_fts -- que lit la route /api/rag/stream du hub. 3e passe du test
+        # d'installation (07/10) : pack importe, rag_fts vide, la recherche du hub n'aurait rien trouve.
+        a_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE name='rag_fts'").fetchone() is not None
+        stats["rag_fts"] = "synchronise" if a_fts else "ABSENT (schema sans rag_fts : recherche lexicale du hub vide)"
         for i in range(n):
             chunk_id = str(chunk_ids[i])
             text = str(texts[i])
@@ -143,7 +192,7 @@ def import_pack(
 
             try:
                 existing = cur.execute(
-                    "SELECT embedding FROM rag_chunks WHERE id=?", (chunk_id,)
+                    "SELECT embedding, text FROM rag_chunks WHERE id=?", (chunk_id,)
                 ).fetchone()
 
                 if existing is None:
@@ -152,6 +201,9 @@ def import_pack(
                         "VALUES (?, ?, ?, ?, ?)",
                         (chunk_id, text, source, domain, embedding),
                     )
+                    if a_fts:
+                        cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
+                                    (chunk_id, text, source, domain))
                     stats["inserted"] += 1
                 elif existing[0] is None:
                     cur.execute(
@@ -164,6 +216,15 @@ def import_pack(
                         "UPDATE rag_chunks SET text=?, source=?, domain=?, embedding=? WHERE id=?",
                         (text, source, domain, embedding, chunk_id),
                     )
+                    if a_fts:
+                        # Le texte change : l'entree lexicale aussi. Jamais une purge par colonne UNINDEXED (balayage
+                        # complet de l'index sous verrou d'ecriture -- hub fige le 27/09) : purger_fts restreint par
+                        # une phrase de l'ANCIEN texte, lu par cle primaire ci-dessus. Une ligne qu'il laisse est DITE.
+                        _, laissees = _purger_fts()(conn, [(chunk_id, existing[1] or "")])
+                        if laissees:
+                            stats.setdefault("rag_fts_laissees", []).extend(laissees)
+                        cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
+                                    (chunk_id, text, source, domain))
                     stats["updated_embedding"] += 1
                 else:
                     stats["skipped_overwrite_forbidden"] += 1

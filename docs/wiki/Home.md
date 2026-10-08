@@ -9,13 +9,16 @@ empreinte: INCONNUE
 
 # Nokido Wiki
 
-<!-- revu-le: 2026-08-30 -->
-> Updated: 2026-08-30
+<!-- revu-le: 2026-10-07 -->
+> Updated: 2026-10-07
 
 > 🌐 **English** · [Français](Home.fr.md)
 
-Welcome to the **Nokido** wiki. Nokido is an autonomous, local-first AI
-Operating System with neuro-symbolic governance.
+Welcome to the **Nokido** wiki. Nokido is a **local-first runtime for an
+artificial organism**: the nervous system and the physiology that let several
+AIs — local models, cloud providers, coding agents — work together on your
+machine without becoming a heap of independent agents. The
+[README](../../README.md) gives the overview and the current status of each part.
 
 This wiki is the **operator manual** — installation, configuration, day-to-day
 workflows, troubleshooting. For the *why* behind Nokido's design, read

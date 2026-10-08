@@ -8,20 +8,51 @@ id = "local-llm"
 statut = "A_EPINGLER"
 plateformes = ["windows-x64", "linux-x64"]
 
-[[a_epingler]]
-id = "llama-server"
-raison = "binaire llama.cpp par plateforme et par backend GPU : version et somme de release a fixer"
-attendu_par = "forge_install_prerequis.PREREQUIS[llama_server]"
+# llama.cpp publie une build par commit. Epingle le 2026-10-07 : b11461, builds CPU (les builds GPU dependent de la
+# carte et du pilote de chaque machine : ils restent un choix d'installation, pas un composant fixe). Sommes = digest
+# sha256 publie par GitHub pour l'asset. Le nom porte la plateforme : le schema n'a pas de champ plateforme.
+[[composant]]
+id = "llama-server-windows-x64-cpu"
+description = "llama.cpp b11461, build CPU Windows x64 (llama-server, embeddings :8099)"
+source = "url"
+url = "https://github.com/ggml-org/llama.cpp/releases/download/b11461/llama-b11461-bin-win-cpu-x64.zip"
+sha256 = "e283199134e74405a3684cfaa3911708ca7d051a8c2a8dcb10b3dfa1678913c3"
+taille = 19437105
+licence = "MIT"
+obligatoire = false
 
-[[a_epingler]]
+[[composant]]
+id = "llama-server-linux-x64-cpu"
+description = "llama.cpp b11461, build CPU Linux x64 (llama-server, embeddings :8099)"
+source = "url"
+url = "https://github.com/ggml-org/llama.cpp/releases/download/b11461/llama-b11461-bin-ubuntu-x64.tar.gz"
+sha256 = "9462d9b8243df6de8b6bf1baded7008a97e57d9f88611705a535b64d0682d87a"
+taille = 17732768
+licence = "MIT"
+obligatoire = false
+
+# Epingles le 2026-10-07 : sha256 du fichier LOCAL (data/llm_models/) egal a l'oid LFS servi par le depot
+# Hugging Face, a une revision FIXE (pas `main`, qui peut bouger). Licence lue dans la fiche du depot.
+# bge-m3 est OBLIGATOIRE : les vecteurs du Knowledge Pack sont des vecteurs bge-m3 1024 d.
+[[composant]]
 id = "bge-m3-Q8_0.gguf"
-raison = "embeddings :8099 ; depot amont et sha256 a etablir"
-attendu_par = "forge_install_prerequis.MODELES_ATTENDUS (data/llm_models/)"
+description = "embeddings :8099 (BAAI/bge-m3, quantifie Q8_0 par gpustack)"
+source = "url"
+url = "https://huggingface.co/gpustack/bge-m3-GGUF/resolve/2d48f1737679ad900d5c26c5aad5410e9c70fdca/bge-m3-Q8_0.gguf"
+sha256 = "950f4a8e5e19477a6d3c26d2f162233c20002c601f75e4b002e3239997821167"
+taille = 634553760
+licence = "MIT"
+obligatoire = true
 
-[[a_epingler]]
+[[composant]]
 id = "bge-reranker-v2-m3-Q8_0.gguf"
-raison = "reranking ; depot amont et sha256 a etablir"
-attendu_par = "forge_install_prerequis.MODELES_ATTENDUS (data/llm_models/)"
+description = "reranking (BAAI/bge-reranker-v2-m3, quantifie Q8_0 par gpustack)"
+source = "url"
+url = "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/3093af03b1a635e67b084b1d8c03c5f5e020fd05/bge-reranker-v2-m3-Q8_0.gguf"
+sha256 = "a43c7c9b11a4c1517e5bf95151960e1621d1b72f7a493364b01e386cf1aaa1d3"
+taille = 635676416
+licence = "Apache-2.0"
+obligatoire = false
 
 [[a_epingler]]
 id = "bitnet_b1_58.gguf"

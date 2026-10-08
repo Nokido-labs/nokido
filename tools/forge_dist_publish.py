@@ -529,7 +529,8 @@ def _generiser_chemins_owner(dist: Path) -> None:
 # `.github/workflows/` : le dist est l'EDITEUR TestPyPI (owner 2026-09-30), il
 # doit donc porter son workflow de publication. Liste BLANCHE : la CI
 # self-hosted et le reste de `.github/workflows/` restent hors du dist.
-WORKFLOWS_DIST = (".github/workflows/release.yml",)
+# installation-complete.yml (2026-10-07) : acceptation de l'installation complete sur runners heberges vierges.
+WORKFLOWS_DIST = (".github/workflows/release.yml", ".github/workflows/installation-complete.yml")
 
 
 def _embarquer_workflows_dist(rev: str, dist: Path) -> None:
@@ -1181,6 +1182,25 @@ def build_assets(version: str, rev: str, out_dir, skip_pack=False, depot=None) -
     run(cmd)
 
 
+def _construire_wiki(dist: Path) -> None:
+    """Le wiki GitHub lit un AUTRE depot (`<depot>.wiki.git`) : il se reconstruit ici, depuis le COMMIT
+    du dist, dans un clone local du wiki. Rien n'est pousse (canal git de la session). Un echec se DIT
+    et n'annule pas la promotion : le dist est deja commite, le wiki n'en est qu'une vue."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "forge_wiki_github", Path(__file__).with_name("forge_wiki_github.py"))
+    mod = importlib.util.module_from_spec(spec)
+    sortie = TMP / "nokido-wiki-build"
+    try:
+        spec.loader.exec_module(mod)
+        rc = mod.main(["--dist", str(dist), "--sortie", str(sortie)])
+    except (SystemExit, OSError, subprocess.SubprocessError) as e:
+        print("[wiki] NON construit : %s -- le wiki public garde sa version precedente" % e)
+        return
+    if rc:
+        print("[wiki] construit AVEC des defauts (voir ci-dessus) : relire avant de publier")
+
+
 def _module_readme_pip():
     """tools/forge_readme_pip.py, charge a cote du promoteur (stdlib seule)."""
     import importlib.util
@@ -1403,6 +1423,7 @@ def main() -> int:
         profil=_version_declaree(".git-publish-rules.json",
                                  r'"default_profile"\s*:\s*"([^"]+)"'))
     push_remotes(dist, remotes, args.version, args.push)
+    _construire_wiki(dist)
     if args.push and args.with_assets:
         if "codeberg" in remotes:
             codeberg_release(args.version, TMP / "nokido-release" / f"v{args.version}",

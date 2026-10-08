@@ -1,0 +1,72 @@
+# Installation COMPLETE sur machine vierge -- runners GitHub heberges (une VM neuve a chaque execution).
+#
+# Demande owner du 2026-10-07 : prouver l'installation avec la suite complete (protheses, modeles epingles,
+# embedder, Knowledge Pack, recherche RAG, hub, interface) ailleurs que sur le poste de developpement.
+# Le detail des etapes est dans tools/forge_install_acceptance.py : chaque etape rend PASS / FAIL / ILLISIBLE /
+# NON_TESTE avec sa raison, et un echec n'arrete pas les suivantes -- le rapport dit tout l'ecart en un passage.
+#
+# Ce workflow ne publie RIEN et ne lit AUCUN secret : permissions en lecture seule. Il tourne sur les runners
+# HEBERGES de GitHub, jamais sur le runner auto-heberge du poste owner (du code public n'y entre pas).
+name: Installation complete
+
+on:
+  # Repetition generale : le promoteur produit un snapshot (memes gardes qu'une release : generisation, scan de
+  # secrets, identite), pousse sur une branche `essai/**` du depot public ; ce push lance le test. Jamais `main`,
+  # jamais un tag : une repetition ne publie rien. (workflow_dispatch n'existe que sur la branche par defaut.)
+  push:
+    branches: ["essai/**"]
+  workflow_dispatch:
+    inputs:
+      pack_version:
+        description: "Version de la release dont importer le Knowledge Pack"
+        required: false
+        default: "0.20.9"
+
+permissions:
+  contents: read
+
+jobs:
+  installation:
+    name: Installation complete ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      # La commande d'installation que nokido-doctor donne a l'utilisateur, dans le shell qu'il utiliserait.
+      # 3e passe (07/10) : lance depuis bash sous Windows, install.ps1 prenait le tar de Git Bash
+      # (« Cannot connect to C: resolve failed »), n'extrayait rien, et affichait « installed successfully ».
+      - name: Deno (Windows, PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://deno.land/install.ps1 | iex
+          "$env:USERPROFILE\.deno\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Deno (Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+      - name: Acceptation de l'installation complete
+        env:
+          NOKIDO_PACK_VERSION: ${{ inputs.pack_version || '0.20.9' }}
+          # dans le dossier de travail : `~` n'est pas developpe par upload-artifact sous Windows (1er passage, 07/10)
+          NOKIDO_RUNTIME: ${{ github.workspace }}/_runtime
+          PYTHONUTF8: "1"
+        run: python tools/forge_install_acceptance.py
+      - name: Rapport et journaux
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: installation-${{ matrix.os }}
+          path: |
+            rapport_installation.json
+            _runtime/logs/
+          if-no-files-found: warn

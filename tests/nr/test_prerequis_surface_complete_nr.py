@@ -261,5 +261,104 @@ def test_les_modeles_de_poids_sont_declares():
         assert m["etat"] in (P.PRESENT, P.ABSENT, P.ILLISIBLE), m
 
 
+# ── profils d'installation (decision owner du 2026-10-07) ────────────────────────────────────
+def _ligne(cle, niveau, etat):
+    return {"cle": cle, "niveau": niveau, "etat": etat, "detail": "d", "capacite": "c",
+            "absent_alors": "a", "install": "i"}
+
+
+def _machine_vierge_de_dev(monkeypatch, bge_present):
+    """Le premier passage sur runner vierge : Ollama et netcfg absents, le reste du profil dev present."""
+    faux = [_ligne("python", P.REQUIS, P.PRESENT), _ligne("git", P.REQUIS, P.PRESENT),
+            _ligne("deno", P.ESSENTIEL, P.PRESENT), _ligne("llama_server", P.OPTIONNEL, P.PRESENT),
+            _ligne("ollama", P.ESSENTIEL, P.ABSENT), _ligne("netcfg_agent", P.ESSENTIEL, P.ABSENT)]
+    modeles = [{"cle": "data/llm_models/bge-m3-Q8_0.gguf", "usage": "embeddings :8099", "detail": "",
+                "etat": P.PRESENT if bge_present else P.ABSENT},
+               {"cle": "data/llm_models/bitnet_b1_58.gguf", "usage": "bitnet", "detail": "", "etat": P.ABSENT}]
+    monkeypatch.setattr(P, "verifier", lambda inclure_optionnels=True: faux)
+    monkeypatch.setattr(P, "verifier_modeles", lambda: modeles)
+
+
+def test_profil_dev_ne_bloque_ni_sur_ollama_ni_sur_netcfg(monkeypatch):
+    _machine_vierge_de_dev(monkeypatch, bge_present=True)
+    b = P.bilan(profil="dev")
+    assert b["profil"] == "dev" and b["bloquants"] == []
+    assert {"ollama", "netcfg_agent"} <= {l["cle"] for l in b["lignes"] if l["etat"] == P.ABSENT}, (
+        "le profil change ce qui BLOQUE, pas ce qui se voit")
+
+
+def test_profil_dev_bloque_sans_le_modele_des_vecteurs_du_pack(monkeypatch):
+    _machine_vierge_de_dev(monkeypatch, bge_present=False)
+    assert P.bilan(profil="dev")["bloquants"] == ["modele:bge-m3-Q8_0.gguf"]
+
+
+def test_profil_complet_garde_le_comportement_d_avant(monkeypatch):
+    _machine_vierge_de_dev(monkeypatch, bge_present=True)
+    assert P.bilan(profil="complet")["bloquants"] == ["ollama", "netcfg_agent"]
+    assert P.bilan()["bloquants"] == ["ollama", "netcfg_agent"], "les autres appelants de bilan() restent en complet"
+
+
+def test_chaque_modele_dit_ou_le_prendre_depuis_le_manifeste_epingle():
+    lignes = {m["cle"].rsplit("/", 1)[-1]: m["telecharger"] for m in P.verifier_modeles()}
+    assert "huggingface.co/gpustack/bge-m3-GGUF/resolve/" in lignes["bge-m3-Q8_0.gguf"]
+    assert "950f4a8e5e19477a6d3c26d2f162233c20002c601f75e4b002e3239997821167" in lignes["bge-m3-Q8_0.gguf"]
+    assert lignes["bitnet_b1_58.gguf"].startswith("NON EPINGLE"), "un modele non epingle n'a pas de lien invente"
+
+
+def test_chaque_image_dit_comment_l_obtenir():
+    assert P.commande_image("ollama/ollama:latest", "tierce") == "docker pull ollama/ollama:latest"
+    assert P.commande_image("nokido:latest", "construite", {"nokido:latest": ["docker-compose.yml"]}) == (
+        "docker compose -f docker-compose.yml build")
+    assert P.commande_image("netcfg-agent-mcp:latest", "construite", {}).startswith("construite hors")
+
+
+def _hote():
+    try:
+        from nokido_agent.app import forge_host_capabilities as H
+    except ImportError:
+        from app import forge_host_capabilities as H
+    return H
+
+
+def test_chaque_modele_suggere_est_epingle_et_permissif():
+    import re
+    H = _hote()
+    assert H.CATALOGUE_SUGGESTIONS, "catalogue vide"
+    for m in H.CATALOGUE_SUGGESTIONS:
+        assert re.match(r"^https://huggingface\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/[^/]+\.gguf$", m["gguf"]), (
+            "revision FIXE, jamais `main` : %s" % m["gguf"])
+        assert re.fullmatch(r"[0-9a-f]{64}", m["sha256"]) and m["licence"] == "Apache-2.0"
+        assert ":" in m["ollama"] and "/" in m["lmstudio"] and m["role"] in ("code", "chat")
+
+
+def test_la_suggestion_suit_la_memoire_de_la_machine():
+    H = _hote()
+    s = H.suggerer_modeles({"effective_inference_ram_gb": 8})
+    assert [m["nom"] for m in s["suggestions"]["code"]] == ["Qwen2.5-Coder 7B"]
+    assert [m["nom"] for m in s["suggestions"]["chat"]] == ["Qwen3 8B", "Qwen3 4B"], "les plus gros qui tiennent d'abord"
+    petite = H.suggerer_modeles({"effective_inference_ram_gb": 2})
+    assert petite["trop_petite"] and petite["suggestions"] == {"code": [], "chat": []}
+
+
+def test_le_cli_modeles_donne_les_trois_commandes(monkeypatch, capsys):
+    H = _hote()
+    faux = type("H", (), {"suggerer_modeles": staticmethod(lambda: H.suggerer_modeles({"effective_inference_ram_gb": 16}))})
+    monkeypatch.setattr(nokido_doctor, "_capacites_hote", lambda: faux)
+    assert nokido_doctor.main(["--modeles"]) == 0
+    out = capsys.readouterr().out
+    assert "ollama pull qwen2.5-coder:14b" in out and "lms get qwen/qwen2.5-coder-14b" in out
+    assert "huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF/resolve/" in out
+
+
+def test_le_cli_choisit_le_profil_dev_par_defaut(monkeypatch, capsys):
+    _machine_vierge_de_dev(monkeypatch, bge_present=True)
+    cible = nokido_doctor.P
+    monkeypatch.setattr(cible, "verifier", P.verifier)
+    monkeypatch.setattr(cible, "verifier_modeles", P.verifier_modeles)
+    assert nokido_doctor.main([]) == 0
+    assert "PROFIL dev" in capsys.readouterr().out
+    assert nokido_doctor.main(["--profil", "complet"]) == 1
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

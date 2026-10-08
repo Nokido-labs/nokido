@@ -166,7 +166,7 @@ VERSION_SCHEMA = 1
 AU_BUILD = "au_build"
 SOURCES = ("depot", "url", "construit")
 BUILDERS = {"code": "nokido-{version}-src.tar.gz", "vendor_lock": "vendor.lock",
-            "rag_pack": "rag_pack_int8.zip"}
+            "rag_pack": "nokido_knowledge_pack_v{version}.npz"}
 STATUTS_PACK = ("PRET", "A_EPINGLER")
 _CLES_COMPOSANT = {"id", "description", "source", "chemin", "url", "construit", "sha256",
                    "taille", "licence", "obligatoire"}
@@ -500,18 +500,24 @@ def build_code_tarball(out_dir: Path, version: str, branch: str, repo: Path | No
     return dest
 
 
-def build_rag_pack(out_dir: Path, version: str) -> Path:
-    """Export int8 Knowledge Pack (all embedded chunks) -> zip."""
-    from nokido_agent.tools import forge_knowledge_pack as kp
+def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
+    """Knowledge Pack ESSENTIEL : fragments PROUVES publics, prouves contre le clone du dist.
 
-    pack_db = out_dir / "rag_pack_int8.db"
-    print(f"[rag] export_pack -> {pack_db.name} (this can take a few minutes)")
-    kp.export_pack(out_db=str(pack_db))
-    dest = out_dir / "rag_pack_int8.zip"
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-        z.write(pack_db, arcname="rag_pack_int8.db")
-    pack_db.unlink()
-    print(f"[rag] zipped -> {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)")
+    Historique (2026-10-07) : ce constructeur appelait `forge_knowledge_pack.export_pack`, qui exporte TOUS les
+    fragments vectorises de la base (8,6 M dans 423 domaines) : sessions, memoire de l'owner, veilles sous droits
+    d'auteur. Refuse le jour meme (ff0f31bd6), jamais publie. Il n'appelle plus que
+    `forge_knowledge_pack_export.export_pack`, dont le critere exige que chaque texte se retrouve mot pour mot dans
+    un fichier publie du DEPOT PUBLIC -- d'ou `depot` obligatoire : sans clone du dist, rien a prouver, refus.
+    """
+    if depot is None:
+        raise SystemExit("[rag] pack refuse : il se prouve contre le clone du dist (--repo), absent ici. "
+                         "Relancer avec --repo <clone du dist>, ou --skip-pack.")
+    from nokido_agent.tools import forge_knowledge_pack_export as kpe
+
+    dest = out_dir / BUILDERS["rag_pack"].format(version=version)
+    print(f"[rag] pack essentiel -> {dest.name} (fragments prouves publics contre {Path(depot).name})")
+    stats = kpe.export_pack(dist=Path(depot), output=dest, version=version)
+    print(f"[rag] {stats['retenus']} fragments, {dest.stat().st_size / 1e6:.1f} MB, sha256 {stats['sha256'][:12]}")
     return dest
 
 
@@ -643,7 +649,7 @@ def main() -> int:
     # alors qu'un fichier ecrit a cote n'en aurait aucune.
     assets.append(write_vendor_lock(out_dir / "vendor.lock"))
     if not args.skip_pack:
-        assets.append(build_rag_pack(out_dir, args.version))
+        assets.append(build_rag_pack(out_dir, args.version, args.repo))
     write_sha256sums(out_dir, assets)
     write_manifest(out_dir, args.version, args.branch, assets)
     lot = verifier_lot(out_dir, args.version, man)

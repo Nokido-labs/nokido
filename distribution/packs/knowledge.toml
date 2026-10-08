@@ -6,14 +6,14 @@ statut = "PRET"
 plateformes = ["windows-x64", "linux-x64"]
 
 [[composant]]
-id = "rag-pack-int8"
-description = "Knowledge Pack int8 (forge_knowledge_pack.export_pack), zippe"
+id = "knowledge-pack"
+description = "Knowledge Pack essentiel (forge_knowledge_pack_export) : fragments PROUVES publics, vecteurs bge-m3"
 source = "construit"
 construit = "rag_pack"
 sha256 = "au_build"
 taille = "au_build"
-# Contenu agrege de sources multiples (veilles, documentation) : aucune licence unique ne
-# peut etre affirmee aujourd'hui. NOASSERTION est le terme SPDX honnete ; le validateur
-# le signale en avertissement.
-licence = "NOASSERTION"
+# Depuis le 2026-10-07, le pack ne contient que des fragments dont le texte se retrouve mot pour mot
+# dans un fichier publie du depot public (au commit promu) : son contenu EST le depot, sous sa licence.
+# L'ancien export (toute la base : veilles tierces, memoire de l'owner) etait NOASSERTION -- et refuse.
+licence = "AGPL-3.0-or-later"
 obligatoire = true

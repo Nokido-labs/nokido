@@ -1828,6 +1828,19 @@ PURE_TESTS = [
     "tests/nr/test_dist_cartouches_nr.py",
     # Bail de priorite (2026-10-06) : la tache prioritaire prend le dessus et rend ce qu'elle a pris.
     "tests/nr/test_bail_priorite_nr.py",
+    # Wiki GitHub du depot public (2026-10-07) : construit au commit du dist, clone garde, pages mortes retirees.
+    "tests/nr/test_wiki_github_nr.py",
+    # Pack RAG (2026-10-07) : la release refuse l'export NON FILTRE (sessions, memoire, veilles).
+    "tests/nr/test_pack_rag_non_filtre_refuse_nr.py",
+    "tests/nr/test_pack_rag_essentiel_nr.py",
+    # Installation complete sur runners vierges (2026-10-07) : etapes, manifeste epingle, runners heberges seuls.
+    "tests/nr/test_install_acceptance_nr.py",
+    # Amorcage sur machine vierge (2026-10-07) : schema de base, import du pack, index plein texte par triggers.
+    "tests/nr/test_db_bootstrap_schema_nr.py",
+    # Recherche lexicale du hub (2026-10-07) : jamais la question brute dans MATCH.
+    "tests/nr/test_rag_stream_requete_sure_nr.py",
+    # Embedder :8099 (2026-10-08) : lot physique = contexte, borne en jetons sur les 3 portes.
+    "tests/nr/test_embedder_8099_textes_longs_nr.py",
     "tests/nr/test_capability_gate_sondes_nr.py",
     "tests/nr/test_gate_depense_tokens_nr.py",
     "tests/nr/test_tool_budget_gate_nr.py",

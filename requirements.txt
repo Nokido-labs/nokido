@@ -71,30 +71,33 @@ psutil==7.2.2
 # requires_python `!=3.9.0,!=3.9.1,>=3.9` -- compatible 3.14. Non yanked.
 cryptography==50.0.0
 PyJWT==2.15.0
-# ⚠️ paramiko RESTE en 4.0.0 — EXCEPTION DOCUMENTEE, pas un oubli.
+# paramiko 5.0.0 — l'exception « reste en 4.0.0 » est LEVEE le 2026-10-07.
 #
-#   alertes    GHSA-r374-rxx8-8654 (x2, severite LOW) — SHA-1 dans rsakey.py
-#   plage      <= 4.0.0   donc 4.0.0 EST vulnerable
-#   correctif  aucune version nommee par l'avis, mais toute version > 4.0.0 en sort
-#   BLOCAGE    `netmiko 4.7.0`, DERNIERE version publiee, exige `paramiko<5.0`
+#   alertes    GHSA-r374-rxx8-8654 (x2, severite LOW) — SHA-1 dans rsakey.py,
+#              plage <= 4.0.0 : 5.0.0 en sort (le SHA-1 y est retire)
+#   deblocage  `netmiko 4.8.0` (2026-09-21, PR amont #3886 « Support paramiko5 »)
+#              exige `paramiko>=3.5.1` ; le plafond `<5.0` ne vit plus que dans
+#              son extra `par4`. Verifie sur les metadonnees PyPI : netmiko est
+#              le SEUL paquet de ce manifeste qui contraint paramiko.
 #
-# Aucune version de netmiko n'accepte paramiko 5.0.0. Monter paramiko fermerait
-# deux alertes LOW et casserait le SSH multi-vendor de netcfg — une correction
-# qui detruit une capacite annoncee se refuse. Classee B (remediable seulement
-# apres deblocage amont), a rouvrir des que netmiko elargira sa contrainte.
+# ⚠️ CE QUE paramiko 5 RETIRE, et que netcfg peut rencontrer sur un vieux parc :
+# l'echange de cles SHA-1 (diffie-hellman-group1/group14/group-exchange-sha1),
+# les signatures RSA en SHA-1 (`ssh-rsa` comme algorithme), GSSAPI, et un module
+# DH group-exchange < 2048 bits. Un equipement qui ne parle QUE ces algorithmes
+# ne se connectera plus. Repli documente par netmiko lui-meme : installer
+# `netmiko[par4]` (paramiko 4.x) sur le poste qui gere ce parc — au prix des
+# deux alertes LOW ci-dessus.
 #
-# ⚠️ ET L'ENVIRONNEMENT REEL PORTE DEJA CETTE RUPTURE, en silence. Mesure du
-# 2026-09-10 dans laforge_py314 :
-#     netmiko 4.7.0 has requirement paramiko<5.0, but you have paramiko 5.0.0
-# La montee a ete faite en local sans que rien ne le signale. Ce manifeste
-# revient donc a 4.0.0 : il decrit ce qui DOIT etre installe, pas ce qui l'est.
-paramiko==4.0.0
-netmiko==4.7.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), tire pynacl/bcrypt
+# L'environnement reel tournait deja avec paramiko 5.0.0 et netmiko 4.7.0
+# (mesure du 2026-09-10, contrainte violee en silence) : cette montee rend le
+# manifeste et l'environnement de nouveau coherents.
+paramiko==5.0.0
+netmiko==4.8.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), tire pynacl/bcrypt
 
 # Dev / UX
 rich==14.3.2
 tqdm==4.67.3
-GitPython==3.1.62
+GitPython==3.2.0
 
 # AMI cognitive stack — Liquid NN (forge_lnn_monitor) + DSPy router (forge_dspy_router)
 ncps==1.0.1

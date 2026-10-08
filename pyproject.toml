@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.9"
+version = "0.20.10"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -120,7 +120,7 @@ ml = [
 
 # Git ingestion + monitoring
 git = [
-    "gitpython>=3.1.62",
+    "gitpython>=3.2.0",
     "pygithub>=2.3.0",
 ]
 
@@ -133,7 +133,7 @@ docker = [
 # Net config (netcfg-agent — multi-vendor SSH, parse Visio)
 netcfg = [
     "asyncssh>=2.14.0",
-    "paramiko>=3.4.0",
+    "paramiko>=5.0.0",
     "lxml>=5.0.0",
     "pyte>=0.8.0",
 ]

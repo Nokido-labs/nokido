@@ -63,6 +63,66 @@ MODEL_FOOTPRINT_GB = {
 # Marge securite (% RAM/VRAM totale a garder libre pour OS + autres process)
 SAFETY_MARGIN_PCT = 25
 
+# Catalogue des modeles SUGGERES a l'installation (2026-10-07, demande owner : llama.cpp, Ollama, LM Studio).
+# Chaque entree est VERIFIEE sur ses trois sources avant d'entrer ici (C:/tmp/corrections/verifier_catalogue_modeles
+# + passe 2) : fichier GGUF exact a revision FIXE (sha256 = oid LFS, taille), nom servi par le registre Ollama, page
+# LM Studio servie. Licence Apache-2.0 seulement par defaut. Une entree ajoutee sans cette verification est un lien
+# invente : trois l'auraient ete a la 1re passe (fichier gpt-oss mal nomme, cles LM Studio de Qwen2.5-Coder fausses,
+# depot GGUF Qwen3-Coder inexistant chez Qwen).
+_HF = "https://huggingface.co/%s/resolve/%s/%s"
+CATALOGUE_SUGGESTIONS: tuple[dict, ...] = (
+    {"role": "chat", "nom": "Qwen3 4B", "taille_go": 2.5, "licence": "Apache-2.0", "ollama": "qwen3:4b",
+     "lmstudio": "qwen/qwen3-4b", "gguf": _HF % ("Qwen/Qwen3-4B-GGUF", "bc640142c66e1fdd12af0bd68f40445458f3869b",
+                                                   "Qwen3-4B-Q4_K_M.gguf"),
+     "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5"},
+    {"role": "chat", "nom": "Qwen3 8B", "taille_go": 5.0, "licence": "Apache-2.0", "ollama": "qwen3:8b",
+     "lmstudio": "qwen/qwen3-8b", "gguf": _HF % ("Qwen/Qwen3-8B-GGUF", "7c41481f57cb95916b40956ab2f0b139b296d974",
+                                                   "Qwen3-8B-Q4_K_M.gguf"),
+     "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785"},
+    {"role": "chat", "nom": "Qwen3 14B", "taille_go": 9.0, "licence": "Apache-2.0", "ollama": "qwen3:14b",
+     "lmstudio": "qwen/qwen3-14b", "gguf": _HF % ("Qwen/Qwen3-14B-GGUF", "530227a7d994db8eca5ab5ced2fb692b614357fd",
+                                                    "Qwen3-14B-Q4_K_M.gguf"),
+     "sha256": "500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0"},
+    {"role": "chat", "nom": "gpt-oss 20B", "taille_go": 12.1, "licence": "Apache-2.0", "ollama": "gpt-oss:20b",
+     "lmstudio": "openai/gpt-oss-20b", "gguf": _HF % ("ggml-org/gpt-oss-20b-GGUF",
+                                                       "ef9b12f2ff56c69cf32153a02784e7a3c88bf524", "gpt-oss-20b-MXFP4.gguf"),
+     "sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901"},
+    {"role": "code", "nom": "Qwen2.5-Coder 7B", "taille_go": 4.7, "licence": "Apache-2.0", "ollama": "qwen2.5-coder:7b",
+     "lmstudio": "qwen/qwen2.5-coder-7b", "gguf": _HF % ("Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
+                                                          "13fb94bfda8c8cf22497dc57b78f391a9acb426a",
+                                                          "qwen2.5-coder-7b-instruct-q4_k_m.gguf"),
+     "sha256": "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c"},
+    {"role": "code", "nom": "Qwen2.5-Coder 14B", "taille_go": 9.0, "licence": "Apache-2.0",
+     "ollama": "qwen2.5-coder:14b", "lmstudio": "qwen/qwen2.5-coder-14b",
+     "gguf": _HF % ("Qwen/Qwen2.5-Coder-14B-Instruct-GGUF", "d0a692ef765eefbf2fabb130b3cb2e8917e3d225",
+                    "qwen2.5-coder-14b-instruct-q4_k_m.gguf"),
+     "sha256": "c1e659736d89ac1065fb495330fb824d94001974a4bfa78e7270e43476a8d940"},
+    {"role": "code", "nom": "Qwen3-Coder 30B-A3B", "taille_go": 18.6, "licence": "Apache-2.0",
+     "ollama": "qwen3-coder:30b", "lmstudio": "qwen/qwen3-coder-30b",
+     "gguf": _HF % ("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", "b17cb02dd882d5b6ab62fc777ad2995f19668350",
+                    "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf"),
+     "sha256": "fadc3e5f8d42bf7e894a785b05082e47daee4df26680389817e2093056f088ad"},
+)
+
+
+def suggerer_modeles(host_info: Optional[dict] = None, par_role: int = 2) -> dict:
+    """Les modeles du catalogue qui TIENNENT dans la memoire d'inference de cet hote, les plus gros d'abord.
+
+    Tenir = taille du GGUF x 1,2 (contexte et tampons) + la marge de securite <= `effective_inference_ram_gb`
+    (VRAM si GPU, sinon la moitie de la RAM). Une machine trop petite pour tout le catalogue recoit une liste vide
+    par role, DITE : elle n'est pas « sans suggestion », elle est sous le plus petit modele verifie.
+    """
+    info = host_info or get_host_info()
+    dispo = float(info.get("effective_inference_ram_gb") or 0)
+    besoin = lambda m: m["taille_go"] * 1.2 * (1 + SAFETY_MARGIN_PCT / 100)  # noqa: E731
+    out = {}
+    for role in ("code", "chat"):
+        tient = [m for m in CATALOGUE_SUGGESTIONS if m["role"] == role and besoin(m) <= dispo]
+        out[role] = sorted(tient, key=lambda m: -m["taille_go"])[:par_role]
+    plus_petit = min(besoin(m) for m in CATALOGUE_SUGGESTIONS)
+    return {"memoire_inference_go": dispo, "suggestions": out,
+            "trop_petite": dispo < plus_petit, "minimum_go": round(plus_petit, 1)}
+
 
 def _detect_cpu() -> dict:
     """CPU info via psutil + platform."""

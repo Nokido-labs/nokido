@@ -82,6 +82,10 @@ PREREQUIS: tuple[dict, ...] = (
         "absent_alors": "le webhub et les proxies ne demarrent pas (3 services essentiels)",
         "install": {"windows": "irm https://deno.land/install.ps1 | iex",
                     "*": "curl -fsSL https://deno.land/install.sh | sh"},
+        # L'installeur officiel pose Deno dans ~/.deno/bin, mais n'ajoute ce dossier au PATH qu'aux NOUVEAUX
+        # terminaux : sur runner Windows, doctor le declarait absent juste apres l'installation (07/10).
+        "chemins_usuels": (str(Path.home() / ".deno" / "bin" / "deno.exe"),
+                           str(Path.home() / ".deno" / "bin" / "deno")),
     },
     {
         "cle": "ollama",
@@ -90,7 +94,7 @@ PREREQUIS: tuple[dict, ...] = (
         "capacite": "inference LLM locale :11434 (service NokidoOllama, marque essential)",
         "absent_alors": "plus d'inference locale par defaut ; la cascade retombe sur "
                         "llama-server ou sur un provider distant s'il est configure",
-        "install": {"*": "https://ollama.com/download — puis `ollama pull qwen2.5-coder:latest`"},
+        "install": {"*": "https://ollama.com/download — puis un modele adapte a la machine : `nokido-doctor --modeles`"},
     },
     {
         "cle": "llama_server",
@@ -99,7 +103,14 @@ PREREQUIS: tuple[dict, ...] = (
         "capacite": "backends llama.cpp : natif :8091, embeddings :8099, reranker, bitnet, router",
         "absent_alors": "embeddings et reranking locaux ; l'ingestion RAG retombe sur "
                         "un embedder distant ou reste en attente",
-        "install": {"*": "https://github.com/ggml-org/llama.cpp — build avec le backend GPU de la machine"},
+        "install": {"*": "build CPU epinglee (llama.cpp b11461, sha256 dans distribution/packs/local-llm.toml) a "
+                         "extraire dans runtime/llama/ ; une build GPU se prend sur "
+                         "https://github.com/ggml-org/llama.cpp/releases selon la carte"},
+        # Emplacement STANDARD d'une installation Nokido (2026-10-07) : le test d'installation y extrait la build
+        # epinglee, doctor l'y cherche. Avant, un llama-server installe hors PATH etait annonce absent.
+        "chemins_usuels": (str(ROOT / "runtime" / "llama" / "llama-server.exe"),
+                           str(ROOT / "runtime" / "llama" / "llama-server"),
+                           str(ROOT / "runtime" / "llama" / "build" / "bin" / "llama-server")),
     },
     {
         "cle": "lmstudio",
@@ -487,9 +498,27 @@ def _sonde_dossier_netcfg() -> tuple[str, str]:
         return ILLISIBLE, "%s: %s" % (type(e).__name__, e)
 
 
+def epinglages_modeles() -> dict:
+    """{nom de fichier: {url, sha256, taille, licence}} des modeles EPINGLES dans distribution/packs/local-llm.toml.
+
+    Source unique des liens de telechargement (2026-10-07) : doctor ne recopie aucune URL, il lit le manifeste que
+    le test d'installation sur runners vierges utilise aussi. Manifeste illisible (installation par paquet sans
+    `distribution/`) : dict vide, et la ligne du modele le DIT au lieu d'inventer un lien.
+    """
+    import tomllib
+    try:
+        with open(ROOT / "distribution" / "packs" / "local-llm.toml", "rb") as fh:
+            composants = tomllib.load(fh).get("composant", [])
+    except (OSError, tomllib.TOMLDecodeError):  # muet-ok : vide = « epinglage illisible », dit par verifier_modeles
+        return {}
+    return {c["id"]: {k: c.get(k) for k in ("url", "sha256", "taille", "licence")}
+            for c in composants if c.get("source") == "url" and str(c.get("id", "")).endswith(".gguf")}
+
+
 def verifier_modeles() -> list[dict]:
-    """Presence des poids GGUF. Absents = a telecharger, jamais une panne."""
+    """Presence des poids GGUF. Absents = a telecharger, jamais une panne : chaque ligne dit OU les prendre."""
     out = []
+    pins = epinglages_modeles()
     for rel, usage in MODELES_ATTENDUS:
         p = ROOT / rel
         etat = _verdict_chemin(p)
@@ -497,8 +526,22 @@ def verifier_modeles() -> list[dict]:
             detail = ("%.1f Go" % (p.stat().st_size / 1e9)) if etat == PRESENT else str(p)
         except OSError as e:
             detail = "%s: %s" % (type(e).__name__, e)
-        out.append({"cle": rel, "usage": usage, "etat": etat, "detail": detail})
+        pin = pins.get(Path(rel).name)
+        telecharger = ("%s (sha256 %s, %s)" % (pin["url"], pin["sha256"], pin["licence"]) if pin
+                       else "NON EPINGLE dans distribution/packs/local-llm.toml : source et somme a etablir")
+        out.append({"cle": rel, "usage": usage, "etat": etat, "detail": detail, "telecharger": telecharger})
     return out
+
+
+def commande_image(image: str, origine: str, par_image: dict | None = None) -> str:
+    """Comment OBTENIR une image : une image tierce se tire, une image construite se batit depuis le compose qui la
+    declare (sinon on le DIT : elle vient d'ailleurs, p. ex. du depot voisin netcfg-agent-mcp)."""
+    if origine == "tierce":
+        return "docker pull %s" % image
+    fichiers = (par_image or {}).get(image) or []
+    if fichiers:
+        return "docker compose -f %s build" % fichiers[0]
+    return "construite hors des fichiers compose de ce depot : voir sa capacite"
 
 
 def exes_declares_dans_services() -> dict[str, list[str]]:
@@ -597,17 +640,44 @@ def images_non_couvertes() -> dict[str, list[str]]:
     return {k: v for k, v in images_declarees_dans_compose().items() if k not in connues}
 
 
-def bilan(inclure_optionnels: bool = True) -> dict:
+# Profils d'installation (decision owner du 2026-10-07). Ce qu'une installation EXIGE depend de l'offre servie :
+#   dev     : l'offre « hub d'agents pour devs » -- Python, Git, Deno, llama-server et le modele bge-m3 (vecteurs du
+#             Knowledge Pack). Ollama et netcfg-agent sont SIGNALES, jamais bloquants.
+#   complet : l'organisme du poste de reference -- REQUIS + ESSENTIEL (services `essential` du TOML), comme avant.
+# Une cle absente d'un profil reste listee et signalee : le profil change ce qui BLOQUE, pas ce qui se voit.
+PROFILS = {
+    "dev": {"prerequis": {"python", "git", "deno", "llama_server"},
+            "modeles": {"data/llm_models/bge-m3-Q8_0.gguf"}},
+    "complet": {"prerequis": None, "modeles": set()},
+}
+
+
+def bilan(inclure_optionnels: bool = True, profil: str = "complet") -> dict:
     """Agregat. Classe par liste BLANCHE : n'est sain que ce qui est PROUVE present."""
+    if profil not in PROFILS:
+        raise ValueError("profil inconnu %r (connus : %s)" % (profil, sorted(PROFILS)))
     lignes = verifier(inclure_optionnels)
     critique = (REQUIS, ESSENTIEL)
+    exiges = PROFILS[profil]["prerequis"]
+
+    def _bloque(l):
+        return l["cle"] in exiges if exiges is not None else l["niveau"] in critique
+
     # Deux listes, jamais une. Classer un ILLISIBLE parmi les manquants
     # inventerait une panne ; le classer parmi les sains masquerait un trou.
     # La liste BLANCHE reste la regle (n'est sain que ce qui est PROUVE present),
     # mais un doute se nomme « indetermine », pas « bloquant ».
-    manquants = [l for l in lignes if l["etat"] == ABSENT and l["niveau"] in critique]
+    manquants = [l for l in lignes if l["etat"] == ABSENT and _bloque(l)]
     indetermines = [l for l in lignes if l["etat"] == ILLISIBLE]
+    modeles = verifier_modeles()
+    try:
+        par_image = images_declarees_dans_compose()
+    except OSError:  # muet-ok : inventaire compose illisible -> commande_image le dit ligne par ligne
+        par_image = {}
+    modeles_manquants = ["modele:" + Path(m["cle"]).name for m in modeles
+                         if m["cle"] in PROFILS[profil]["modeles"] and m["etat"] == ABSENT]
     return {
+        "profil": profil,
         "os": _cle_os(),
         "compte": _compte(),
         "toml_services": etat_toml_services(),
@@ -616,11 +686,11 @@ def bilan(inclure_optionnels: bool = True) -> dict:
         "present": sum(1 for l in lignes if l["etat"] == PRESENT),
         "absent": sum(1 for l in lignes if l["etat"] == ABSENT),
         "illisible": len(indetermines),
-        "bloquants": [l["cle"] for l in manquants],
-        "indetermines_critiques": [l["cle"] for l in indetermines if l["niveau"] in critique],
+        "bloquants": [l["cle"] for l in manquants] + modeles_manquants,
+        "indetermines_critiques": [l["cle"] for l in indetermines if _bloque(l)],
         "lignes": lignes,
-        "modeles": verifier_modeles(),
-        "images": [{"image": i, "origine": o, "capacite": c}
+        "modeles": modeles,
+        "images": [{"image": i, "origine": o, "capacite": c, "obtenir": commande_image(i, o, par_image)}
                    for i, o, c in IMAGES_DOCKER_ATTENDUES],
         "fichier_env": _etat_fichier_env(),
     }

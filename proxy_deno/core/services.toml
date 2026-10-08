@@ -1152,10 +1152,20 @@ cmd = "${LLAMA}"
 # service par lots plutot que compter sur un plafond.
 # Le contexte et le lot sont donc bornes a ce que le corpus demande REELLEMENT : les
 # chunks en attente font 701 a 800 caracteres (~250 jetons), donc 2048 jetons de
-# contexte suffisent et un lot logique de 2048 couvre 8 textes ; --ubatch 512 abaisse le
-# pic de calcul. Un texte plus long est tronque par llama.cpp au contexte : le drain
-# envoie des chunks, pas des documents. A re-mesurer par le meme outil apres tout
-# changement de ces valeurs.
+# contexte suffisent et un lot logique de 2048 couvre 8 textes. A re-mesurer par le meme
+# outil apres tout changement de ces valeurs.
+# CORRIGE 2026-10-08 : « un texte plus long est tronque par llama.cpp au contexte » etait
+# FAUX. En embedding, llama.cpp exige n_ubatch >= jetons de l'entree et rend sinon HTTP 500
+# « input (N tokens) is too large to process ». Avec --ubatch-size 512, tout texte de plus de
+# 512 jetons etait refuse (journal de l'organe : 703, 1 912, 3 615 jetons le 08/10), et le
+# refus ecartait le repli local de l'election. Le lot physique est un CHOIX DE RAM, mesure le
+# 08/10 (banc_embed_2026-10-01.py, 1 024 chunks, debit identique ~18 chunks/s) : RSS eveille
+# 512 -> 0,59 Go · 1024 -> 1,48 Go · 2048 -> 2,13 Go, plat sous charge ; vecteurs inchanges
+# (cos 0,999 aux vecteurs stockes). Retenu 1024 (owner 08/10) : couvre les chunks longs du pack.
+# Le routeur APPREND la limite de l'embedder (n_ctx de /props, puis le lot que nomme son refus)
+# et borne en jetons ce qu'il envoie, en le disant (`forge_embed_router._post_embeddings_8099`,
+# trois portes) : changer cette valeur ne demande aucune modification de code.
+# Cliquet : tests/nr/test_embedder_8099_textes_longs_nr.py (ubatch <= -c, borne apprise).
 # BANC 2026-10-01 (owner « c ») -- A, ces valeurs avec --parallel 1 : 17,5 chunks/s, que le
 # client envoie 1 ou 4 requetes a la fois (la place unique serialise tout) ; outil de
 # reference : 1 088 chunks a 0,061 s/chunk, RSS 0,58 -> 0,86 Go (max 1,03) = PLAT ; l'arret
@@ -1163,11 +1173,12 @@ cmd = "${LLAMA}"
 # fenetre, fuite de handles mtkbtsvc). B essaye (-c 8192 --parallel 4, lot inchange) :
 # 18,5 / 19,2 chunks/s (+6 a 10 % seulement : c'est le CALCUL de l'iGPU qui borne, pas le
 # nombre de places), RSS 1,11 Go, et un texte reel de 4 400 caracteres rend HTTP 500.
-# REJETE : retour a A. (La comparaison de vecteurs A/B du banc n'est PAS valable : le lot
+# REJETE : retour a A. (Ce 500 n'etait PAS propre a B : A le rend aussi, banc U512 du 08/10 --
+# la sonde du texte long n'avait ete ajoutee qu'apres la passe A.) (La comparaison de vecteurs A/B du banc n'est PAS valable : le lot
 # etait choisi relativement a MAX(rowid), qui avait bouge entre les deux passes.)
 args = ["-m", "${ROOT}/data/llm_models/bge-m3-Q8_0.gguf", "--embedding",
         "--pooling", "cls", "-ngl", "99", "--host", "127.0.0.1", "--port", "8099",
-        "-c", "2048", "-b", "2048", "--ubatch-size", "512", "--parallel", "1", "--metrics"]
+        "-c", "2048", "-b", "2048", "--ubatch-size", "1024", "--parallel", "1", "--metrics"]
 cwd = "${ROOT}"
 port = 8099
 capabilities = ["embedding"]

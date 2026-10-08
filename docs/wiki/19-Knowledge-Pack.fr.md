@@ -9,13 +9,14 @@ empreinte: INCONNUE
 
 # 19 — Knowledge Pack
 
-<!-- revu-le: 2026-09-29 -->
-> Mise à jour : 2026-09-29
+<!-- revu-le: 2026-10-07 -->
+> Mise à jour : 2026-10-07
 
 > 🌐 [English](19-Knowledge-Pack.md) · **Français**
 
-> **État (2026-09-29)** : les outils d'export / import existent et fonctionnent sur un
-> fichier local ; **aucun pack n'a encore été publié** (aucune GitHub Release n'en porte).
+> **État (2026-10-07)** : les outils d'export / import fonctionnent sur un fichier local et le
+> constructeur de release produit désormais le pack ; **aucun pack n'a encore été publié**
+> (aucune GitHub Release n'en porte).
 
 Le **Nokido Knowledge Pack** est un instantané optionnel, pré-vectorisé, des chunks du code
 source de Nokido (modules `forge_*.py`, docs, skills sélectionnés), livré en un seul fichier
@@ -49,41 +50,41 @@ Schéma (archive NPZ) :
 
 | Champ | Type | Description |
 |---|---|---|
-| `chunk_ids` | str[N] | Identifiants déterministes (préfixe SHA) |
-| `texts` | str[N] | Chunks texte assainis (~500-1500 caractères) |
-| `sources` | str[N] | Chemin source (`app/forge_*.py`, `docs/wiki/*.md`, …) |
-| `domains` | str[N] | Domaine RAG (`nokido_code`, `nokido_docs`, `curated_skills`, `policy_rules`) |
-| `embeddings` | float32[N, 1024] | Vecteurs denses BGE-M3, normalisés L2 |
-| `manifest` | json | version, git_sha, exported_at, count, dim, model, license |
+| `embeddings` | float16[N, 1024] | Vecteurs denses BGE-M3 (relus en float32) |
+| `meta` | uint8 (JSON UTF-8) | manifeste, `chunk_ids`, `sources` (chemin publié), `domains` |
+| `texts` | uint8 (JSON UTF-8) | les textes des chunks, tels quels |
 
-**Assainissement appliqué** avant l'export :
+**Une seule règle décide de ce qui entre** : un chunk n'est retenu que si son texte (espaces
+normalisés) se retrouve **mot pour mot dans un fichier publié du dépôt public**, lu au commit
+promu. Son contenu est donc déjà public : rien de privé ne peut fuir, même si l'étiquette de source
+d'un chunk est fausse, et rien de périmé n'entre. En plus, un chunk est écarté s'il porte un motif
+de secret, une identité privée, ou un signal ROUGE du gate egress (profil public). Le pack est sous
+la licence du dépôt, AGPL-3.0-or-later.
 
-- Écarte les chunks contenant de vrais motifs de secret (sk-…, ghp_…, gsk_…, Bearer hex64).
-- Remplace les chemins personnels (`C:/Users/<qui>`, chemins home Unix) par `<redacted>`.
-- Remplace les adresses e-mail (gmail/proton/outlook/etc.) par `<redacted>`.
-- Remplace les pseudonymes personnels connus par `<redacted>`.
+Format `nokido-knowledge-pack/2` : archive NPZ **sans objet pickle** (l'importeur la charge avec
+`allow_pickle=False` : un pack téléchargé ne peut jamais exécuter de code). Domaines lus :
+`nokido_doc`, `doctrine`, `forge_core`, `nokido_code`, `docs`, `policy_rules`, `policy_roles`,
+`policy_security`. La mémoire, les sessions, les documentations tierces et les veilles ne sont
+jamais lues.
 
-L'assainissement est conservateur — dans le doute, le chunk est écarté, pas édité.
+## 📊 Taille du pack (mesurée le 2026-10-07)
 
-## 📊 Taille attendue
-
-La première estimation de cette page (3-5k chunks, 5-10 Mo) valait pour ~200 modules
-forge ; il y en a 1 426 au 2026-09-29 (586 dans `app/`, 840 dans `tools/`) plus ~50 pages
-wiki. Attendre plusieurs fois cette taille. Ne pas deviner :
-`forge_knowledge_pack_export.py --dry-run` imprime le vrai compte (lus / gardés / écartés
-par catégorie) avant d'écrire quoi que ce soit. Chaque vecteur pèse `1024 × 4 octets` brut,
-avant la compression zlib du NPZ.
+Contre le dépôt public à `51d10ef` : **29 695 chunks**, 27,8 Mo de texte et environ 30 Mo de
+vecteurs float16 avant compression. `forge_knowledge_pack_export.py --dry-run` imprime le vrai
+compte par domaine (lus / gardés / écartés par motif) avant d'écrire quoi que ce soit. Les
+vecteurs sont des vecteurs BGE-M3 : le pack a besoin de l'embedder épinglé `bge-m3-Q8_0.gguf`
+(pack `local-llm`) pour répondre aux requêtes.
 
 ## 🚀 Export (côté mainteneur)
 
 ```bash
 # 1. Vérifier que la base RAG locale est peuplée et vectorisée
 #    (autrement dit : Nokido sert depuis un moment)
-python tools/forge_knowledge_pack_export.py --verbose --dry-run
-# Affiche : lus / gardés / écartés par catégorie
+python tools/forge_knowledge_pack_export.py --dist <clone du dépôt public> --verbose --dry-run
+# Affiche : lus / gardés / écartés par motif, par domaine
 
-# 2. Générer le pack
-python tools/forge_knowledge_pack_export.py --version 0.1.0
+# 2. Générer le pack (le constructeur de release le fait avec --with-assets)
+python tools/forge_knowledge_pack_export.py --dist <clone du dépôt public> --version 0.1.0
 # → écrit data/nokido_knowledge_pack_v0.1.0.npz
 # → imprime le SHA256 (le noter !)
 

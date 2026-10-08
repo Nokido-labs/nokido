@@ -3,6 +3,78 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 0e8d772c6..9ff0cd12e -->
+## 2026-10-08 — alpha `0e8d772c6..9ff0cd12e` (1 commit)
+
+### Maintenance
+- **release** : 0.20.10 (`9ff0cd12e`)
+
+<!-- changelog: 30f9613f7..ca64e9a34 -->
+## 2026-10-08 — alpha `30f9613f7..ca64e9a34` (1 commit)
+
+### Corrections
+- **embed** : :8099 n'est plus ecarte pour un texte long -- limite apprise de l'embedder, lot 1024 mesure (`ca64e9a34`)
+
+<!-- changelog: 65f6b0f93..6d3512c99 -->
+## 2026-10-07 — alpha `65f6b0f93..6d3512c99` (1 commit)
+
+### Corrections
+- **rag** : l'import ecrase son entree rag_fts par purger_fts, jamais par une purge qui balaie l'index (`6d3512c99`)
+
+<!-- changelog: c91ec2527..68bf7d241 -->
+## 2026-10-07 — alpha `c91ec2527..68bf7d241` (2 commits)
+
+### Corrections
+- **rag** : la recherche lexicale du hub ne plante plus sur une question, et le pack alimente rag_fts (`8aae63924`)
+- **dist** : quatrieme passe du test d'installation -- Deno sous PowerShell, recherche de soi-meme (`68bf7d241`)
+
+<!-- changelog: 663d0452d..28add6024 -->
+## 2026-10-07 — alpha `663d0452d..28add6024` (3 commits)
+
+### Nouveautés
+- **doctor** : liens d'installation epingles et modeles suggeres selon la machine (llama.cpp, Ollama, LM Studio) (`243feedd4`)
+
+### Corrections
+- **install** : l'amorcage cree la base et son schema sur machine vierge (`5d5569c39`)
+- **doctor** : llama-server et Deno trouves la ou l'installation les pose ; troisieme passe du test (`28add6024`)
+
+<!-- changelog: 0c17e2786..2df9d9074 -->
+## 2026-10-07 — alpha `0c17e2786..2df9d9074` (2 commits)
+
+### Nouveautés
+- **doctor** : profil d'installation -- dev (defaut) ne bloque que sur Python, Git, Deno, llama-server et bge-m3 (`4ce5ecea7`)
+
+### Corrections
+- **dist** : deuxieme passe du test d'installation -- chemin documente, doctor final, journaux sous Windows (`2df9d9074`)
+
+<!-- changelog: e3c63ebe3..19e7520d9 -->
+## 2026-10-07 — alpha `e3c63ebe3..19e7520d9` (1 commit)
+
+### Corrections
+- **nr** : le snapshot du dist embarque chaque workflow de WORKFLOWS_DIST depuis le SHA promu (`19e7520d9`)
+
+<!-- changelog: 753693199..f399013ae -->
+## 2026-10-07 — alpha `753693199..f399013ae` (1 commit)
+
+### Nouveautés
+- **dist** : repetition generale -- le test d'installation se lance sur une branche essai/** du depot public (`f399013ae`)
+
+<!-- changelog: 750b39314..f47cd57e4 -->
+## 2026-10-07 — alpha `750b39314..f47cd57e4` (7 commits)
+
+### Nouveautés
+- **dist** : le wiki GitHub du depot public se reconstruit a chaque promotion (`3e4764b49`)
+- **dist** : Knowledge Pack essentiel -- fragments prouves publics ; bge-m3, reranker et llama.cpp epingles (`aa6b7472e`)
+- **dist** : acceptation de l'installation complete sur runners GitHub vierges (`f47cd57e4`)
+
+### Corrections
+- **deps** : paramiko 5.0.0, netmiko 4.8.0, GitPython 3.2.0 (`badb3daae`)
+- **dist** : la release refuse le pack RAG non filtre (`ff0f31bd6`)
+
+### Documentation
+- **produit** : offre 1 -- le hub d'agents pour developpeurs (`731078ca1`)
+- **wiki** : accueil aligne sur le positionnement du README (`d55911d60`)
+
 <!-- changelog: bc0f4d8b5..47a99f2b9 -->
 ## 2026-10-06 — alpha `bc0f4d8b5..47a99f2b9` (1 commit)
 

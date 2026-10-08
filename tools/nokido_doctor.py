@@ -21,9 +21,13 @@ Les confondre est le defaut le plus courant du diagnostic d'installation : un
 `ollama.exe` present ne prouve aucun runner charge, et un port qui repond ne
 prouve pas qu'un modele est en memoire.
 
-Code de retour : 1 seulement si un prerequis REQUIS ou ESSENTIEL est ABSENT et
+Code de retour : 1 seulement si un prerequis EXIGE PAR LE PROFIL est ABSENT et
 PROUVE absent. Un `ILLISIBLE` n'echoue pas — il s'affiche et il s'explique,
 parce qu'un outil qui echoue sur ce qu'il n'a pas pu lire se fait desarmer.
+
+Profils (decision owner du 2026-10-07) : `dev` (defaut, l'offre « hub d'agents pour
+devs » : Python, Git, Deno, llama-server et le modele bge-m3) ; `complet` (l'organisme
+du poste de reference : REQUIS + services `essential` du TOML, dont Ollama et netcfg).
 """
 from __future__ import annotations
 
@@ -86,6 +90,8 @@ def rendre_texte(b: dict, verbeux: bool = False) -> str:
     out.append("  declarerait absents a tort. Presence reelle : `docker images`.")
     for im in b["images"]:
         out.append("  %-9s %-32s %s" % ("[" + im["origine"] + "]", im["image"], im["capacite"]))
+        if im.get("obtenir"):
+            out.append("            obtenir : %s" % im["obtenir"])
     out.append("")
 
     env = b["fichier_env"]
@@ -101,8 +107,11 @@ def rendre_texte(b: dict, verbeux: bool = False) -> str:
     for m in mods:
         out.append("  %s %-46s %s  (%s)"
                    % (_MARQUE[m["etat"]], m["cle"], m["detail"], m["usage"]))
+        if m["etat"] != P.PRESENT and m.get("telecharger"):
+            out.append("       telecharger : %s" % m["telecharger"])
     out.append("")
 
+    out.append("PROFIL %s (--profil complet pour l'organisme du poste de reference)" % b.get("profil", "?"))
     if b["bloquants"]:
         out.append("BLOQUANT — absent et prouve absent : " + ", ".join(b["bloquants"]))
     else:
@@ -176,6 +185,37 @@ def rendre_vivant(a: dict) -> str:
     return "\n".join(out)
 
 
+def _capacites_hote():
+    """`forge_host_capabilities`, sous ses deux noms d'import (wheel installee d'abord, depot en repli)."""
+    try:
+        from nokido_agent.app import forge_host_capabilities as H  # type: ignore
+    except ImportError:
+        from app import forge_host_capabilities as H  # noqa: E402
+    return H
+
+
+def rendre_modeles(s: dict) -> str:
+    out = ["MODELES SUGGERES pour cette machine (memoire d'inference : %.1f Go)" % s["memoire_inference_go"],
+           "  Verifies sur Hugging Face, le registre Ollama et LM Studio ; licence Apache-2.0.", ""]
+    if s["trop_petite"]:
+        out.append("  Aucun modele du catalogue ne tient : il faut au moins %.1f Go de memoire d'inference."
+                   % s["minimum_go"])
+    for role, titre in (("code", "Pour le code"), ("chat", "Pour la conversation")):
+        if not s["suggestions"].get(role):
+            continue
+        out.append(titre)
+        for m in s["suggestions"][role]:
+            out.append("  %s  (%.1f Go, %s)" % (m["nom"], m["taille_go"], m["licence"]))
+            out.append("     llama.cpp : %s" % m["gguf"])
+            out.append("                 sha256 %s" % m["sha256"])
+            out.append("     Ollama    : ollama pull %s" % m["ollama"])
+            out.append("     LM Studio : lms get %s" % m["lmstudio"])
+        out.append("")
+    out.append("Les embeddings (bge-m3) et le reranker sont epingles a part : ils sont exiges par le RAG,"
+               " voir MODELES DE POIDS dans `nokido-doctor`.")
+    return "\n".join(out)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="nokido-doctor",
@@ -188,7 +228,21 @@ def main(argv: list[str] | None = None) -> int:
                     help="ignore les prerequis optionnels")
     ap.add_argument("-v", "--verbeux", action="store_true",
                     help="detaille aussi les prerequis presents")
+    ap.add_argument("--profil", choices=sorted(P.PROFILS), default="dev",
+                    help="ce qui BLOQUE : dev (defaut, hub d'agents pour devs) ou complet (organisme entier)")
+    ap.add_argument("--modeles", action="store_true",
+                    help="les modeles verifies qui tiennent sur CETTE machine, avec la commande llama.cpp / Ollama / LM Studio")
     a = ap.parse_args(argv)
+
+    if a.modeles:
+        try:
+            s = _capacites_hote().suggerer_modeles()
+        except Exception as exc:  # noqa: BLE001 - mesure de l'hote illisible : le DIRE, rc 2
+            print("ILLISIBLE : la memoire de cette machine n'a pas pu etre mesuree (%s: %s)"
+                  % (type(exc).__name__, exc))
+            return 2
+        print(json.dumps(s, indent=2, ensure_ascii=False) if a.json else rendre_modeles(s))
+        return 0
 
     if a.vivant:
         try:
@@ -201,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
               else rendre_vivant(etat))
         return 0
 
-    b = P.bilan(inclure_optionnels=not a.requis_seulement)
+    b = P.bilan(inclure_optionnels=not a.requis_seulement, profil=a.profil)
     if a.json:
         print(json.dumps(b, indent=2, ensure_ascii=False))
     else:
