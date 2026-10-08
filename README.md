@@ -104,12 +104,12 @@ down further below.
 
 ## 🚀 Quick start
 
-<!-- PIP:BEGIN nokido-agent version=0.20.9 -->
-**From PyPI** — [`nokido-agent 0.20.9`](https://pypi.org/project/nokido-agent/0.20.9/), published after the
+<!-- PIP:BEGIN nokido-agent version=0.20.10 -->
+**From PyPI** — [`nokido-agent 0.20.10`](https://pypi.org/project/nokido-agent/0.20.10/), published after the
 install proof on Linux, Windows and macOS:
 
 ```bash
-pip install nokido-agent==0.20.9
+pip install nokido-agent==0.20.10
 nokido-doctor                   # what this machine has, lacks, or cannot read
 ```
 <!-- PIP:END -->
