@@ -3,7 +3,7 @@
 # Cross-OS bootstrap : detect Python 3.12+, create venv, install via pyproject.toml extras.
 #
 # Usage:
-#   bash install.sh                              # default: hub + rag + llm + docs
+#   bash install.sh                              # default: hub + rag + llm + docs + organisme
 #   EXTRAS=full bash install.sh                  # tout sauf ML lourd
 #   EXTRAS=all bash install.sh                   # vraiment tout (~5 GB)
 #   EXTRAS=hub bash install.sh                   # juste hub serveur (~450 MB)
@@ -22,7 +22,8 @@ set -euo pipefail
 LAFORGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_MIN_MINOR=12
 VENV_DIR="$LAFORGE_DIR/.venv"
-EXTRAS="${EXTRAS:-hub,rag,llm,docs}"  # default modular stack
+# organisme (2026-10-09) : ce que les services du superviseur importent au demarrage -- owner : aucune concession.
+EXTRAS="${EXTRAS:-hub,rag,llm,docs,organisme}"  # default modular stack
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
@@ -93,6 +94,13 @@ ok "Venv ready"
 # ── Install via pyproject.toml extras ─────────────────────────────────────────
 info "Installing 'laforge-agent[$EXTRAS]' from local pyproject..."
 "$PIP" install --quiet --upgrade pip wheel
+# Sous Linux, la roue PyPI de torch tire CUDA (plusieurs Go) : torch d'abord depuis l'index CPU de PyTorch, a la
+# version epinglee de requirements-organisme.txt ; l'extra la trouve ensuite deja satisfaite (X+cpu satisfait ==X).
+if [[ "$OS" == "Linux" && ",$EXTRAS," =~ ,(organisme|ml|all), ]]; then
+    TORCH_PIN="$(grep -E '^torch==' requirements-organisme.txt | head -n1)"
+    info "torch CPU (${TORCH_PIN:-torch}) depuis download.pytorch.org/whl/cpu..."
+    "$PIP" install --quiet "${TORCH_PIN:-torch}" --index-url https://download.pytorch.org/whl/cpu
+fi
 "$PIP" install --quiet -e ".[${EXTRAS}]"
 ok "Installed: laforge-agent[$EXTRAS]"
 

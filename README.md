@@ -698,10 +698,14 @@ pip install -r requirements.txt
 python tools/nokido_hub.py
 ```
 
-`pyproject.toml` declares **15 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
-`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `rag`, `security`, `ui` —
+`pyproject.toml` declares **16 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
+`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `organisme`, `rag`, `security`, `ui` —
 plus two aggregate bundles, `all` and `full`, which are not counted among them.
 They apply to the layout above, not to a published wheel.
+
+`organisme` is what the supervisor's services import at startup beyond the core; from a clone,
+`pip install -r requirements-organisme.txt` installs the same set with exact versions (on Linux,
+install `torch` from the PyTorch CPU index first: the PyPI Linux wheel pulls CUDA).
 
 ---
 

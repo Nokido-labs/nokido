@@ -37,6 +37,7 @@ FICHIERS_GLOBAUX = (
     "tox.ini",
     "requirements.txt",
     "requirements-ml.txt",
+    "requirements-organisme.txt",
     "tools/ci_local.py",
     "tools/forge_ci_selection.py",
 )

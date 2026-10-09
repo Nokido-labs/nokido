@@ -118,6 +118,18 @@ ml = [
     "snntorch>=0.9.0",
 ]
 
+# Organisme complet : ce que les services du superviseur importent AU DEMARRAGE en plus du coeur (releve du
+# 2026-10-09, etape `imports` de tools/forge_install_acceptance.py ; versions exactes : requirements-organisme.txt).
+# Sous Linux, poser torch d'abord depuis https://download.pytorch.org/whl/cpu : la roue PyPI Linux tire CUDA.
+organisme = [
+    "nokido-agent[hub,rag]",
+    "pywin32>=311; sys_platform == 'win32'",
+    "qdrant-client>=1.18.0",
+    "textual>=8.2.4",
+    "textual-serve>=1.1.3",
+    "torch>=2.6.0",
+]
+
 # Git ingestion + monitoring
 git = [
     "gitpython>=3.2.0",
@@ -183,7 +195,7 @@ full = [
 
 # Bundle "all" — vraiment tout (gros téléchargement : torch + jax + semgrep ~5 GB)
 all = [
-    "nokido-agent[hub,rag,llm,cloud,ui,ml,git,docker,netcfg,docs,ami,bench,security]",
+    "nokido-agent[hub,rag,llm,cloud,ui,ml,organisme,git,docker,netcfg,docs,ami,bench,security]",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────

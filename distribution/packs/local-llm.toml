@@ -1,4 +1,5 @@
-# Pack local-llm : inference et embeddings locaux (llama.cpp + poids GGUF).
+# Pack local-llm : inference et embeddings locaux (llama.cpp + poids GGUF), et le serveur vectoriel Qdrant qui range
+# ces embeddings (RAG dense).
 # A_EPINGLER : ni la provenance exacte (depot amont, revision) ni la somme de ces artefacts
 # ne sont etablies dans le depot. Les declarer avec une somme inventee serait pire que de les
 # dire manquants : ce pack ne se compose pas tant qu'ils ne sont pas epingles.
@@ -29,6 +30,71 @@ url = "https://github.com/ggml-org/llama.cpp/releases/download/b11461/llama-b114
 sha256 = "9462d9b8243df6de8b6bf1baded7008a97e57d9f88611705a535b64d0682d87a"
 taille = 17732768
 licence = "MIT"
+obligatoire = false
+
+# macOS (2026-10-08) : la mesure de l'organisme sur VM macOS rendait `llama-server-macos-arm64-cpu absent de
+# local-llm.toml`. Meme release b11461, digest sha256 publie par GitHub pour chaque asset.
+[[composant]]
+id = "llama-server-macos-arm64-cpu"
+description = "llama.cpp b11461, build macOS arm64 (llama-server, embeddings :8099)"
+source = "url"
+url = "https://github.com/ggml-org/llama.cpp/releases/download/b11461/llama-b11461-bin-macos-arm64.tar.gz"
+sha256 = "6cbf2bcbfe616e9e14f1e326fe34d15fbe127846ad4275f076b36694101ff2c1"
+taille = 12007683
+licence = "MIT"
+obligatoire = false
+
+[[composant]]
+id = "llama-server-macos-x64-cpu"
+description = "llama.cpp b11461, build macOS x64 (llama-server, embeddings :8099)"
+source = "url"
+url = "https://github.com/ggml-org/llama.cpp/releases/download/b11461/llama-b11461-bin-macos-x64.tar.gz"
+sha256 = "a7a535031f6d54418ff8f34f29cdc53d5aa3bce3a5225ed19088b136a74ee1d5"
+taille = 11525318
+licence = "MIT"
+obligatoire = false
+
+# Qdrant (2026-10-09) : serveur vectoriel natif :6333 du RAG dense (NokidoQdrantServer), extrait dans runtime/qdrant.
+# Version 1.18.2 = celle du poste de reference (sha256 de son archive Windows EGAL au digest publie par GitHub).
+# Sommes = digest sha256 publie par GitHub pour chaque asset de la release v1.18.2.
+[[composant]]
+id = "qdrant-windows-x64"
+description = "Qdrant 1.18.2, serveur vectoriel Windows x64 (NokidoQdrantServer :6333)"
+source = "url"
+url = "https://github.com/qdrant/qdrant/releases/download/v1.18.2/qdrant-x86_64-pc-windows-msvc.zip"
+sha256 = "b2b262cba6f78cf4fa794ae78d73a8f70a221c93c76c75ac8fd6fe95d809b142"
+taille = 28772797
+licence = "Apache-2.0"
+obligatoire = false
+
+[[composant]]
+id = "qdrant-linux-x64"
+description = "Qdrant 1.18.2, serveur vectoriel Linux x64 glibc (NokidoQdrantServer :6333)"
+source = "url"
+url = "https://github.com/qdrant/qdrant/releases/download/v1.18.2/qdrant-x86_64-unknown-linux-gnu.tar.gz"
+sha256 = "cd619c61d8d32dd176af88cf498714ecb765b7df9021d691862478d6ac35392c"
+taille = 31238659
+licence = "Apache-2.0"
+obligatoire = false
+
+[[composant]]
+id = "qdrant-macos-arm64"
+description = "Qdrant 1.18.2, serveur vectoriel macOS arm64 (NokidoQdrantServer :6333)"
+source = "url"
+url = "https://github.com/qdrant/qdrant/releases/download/v1.18.2/qdrant-aarch64-apple-darwin.tar.gz"
+sha256 = "859f487e316ae1bda3b5d7c1e129a0a7344424d992503c188979ca6ac1b47253"
+taille = 27933712
+licence = "Apache-2.0"
+obligatoire = false
+
+[[composant]]
+id = "qdrant-macos-x64"
+description = "Qdrant 1.18.2, serveur vectoriel macOS x64 (NokidoQdrantServer :6333)"
+source = "url"
+url = "https://github.com/qdrant/qdrant/releases/download/v1.18.2/qdrant-x86_64-apple-darwin.tar.gz"
+sha256 = "d395eb3d96c2196bbb8c611b800842928fb8b4997924b585bf42ce0ceb90fa1f"
+taille = 30053808
+licence = "Apache-2.0"
 obligatoire = false
 
 # Epingles le 2026-10-07 : sha256 du fichier LOCAL (data/llm_models/) egal a l'oid LFS servi par le depot

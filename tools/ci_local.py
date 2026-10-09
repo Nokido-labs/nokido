@@ -1841,6 +1841,11 @@ PURE_TESTS = [
     "tests/nr/test_rag_stream_requete_sure_nr.py",
     # Embedder :8099 (2026-10-08) : lot physique = contexte, borne en jetons sur les 3 portes.
     "tests/nr/test_embedder_8099_textes_longs_nr.py",
+    # Chemins machine du superviseur (2026-10-08) : 0/60 services sur VM neuve, [vars] generises jamais developpes.
+    "tests/nr/test_vars_machine_superviseur_nr.py",
+    # Comptes runAs crees par l'installeur (2026-10-09) : f-strings d'icacls cassees, interpreteur hors miniforge,
+    # install.ps1 ASCII et delegue a forge_sandbox_setup, organisme installe depuis un clone.
+    "tests/nr/test_comptes_installeur_nr.py",
     "tests/nr/test_capability_gate_sondes_nr.py",
     "tests/nr/test_gate_depense_tokens_nr.py",
     "tests/nr/test_tool_budget_gate_nr.py",

@@ -1,4 +1,4 @@
-# Nokido — install.ps1 (Windows)
+# Nokido -- install.ps1 (Windows)
 # Run: Set-ExecutionPolicy Bypass -Scope Process; .\install.ps1
 # Optional flags:
 #   -ML                 install heavy ML deps (torch, sentence-transformers)
@@ -28,12 +28,12 @@ function Warn { param($msg) Write-Host "  [!]  $msg" -ForegroundColor Yellow }
 function Die  { param($msg) Write-Host "  [X]  $msg" -ForegroundColor Red; exit 1 }
 
 Write-Host ""
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
-Write-Host " Nokido — Sovereign AI Orchestrator"      -ForegroundColor Cyan
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Nokido -- Sovereign AI Orchestrator"      -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ── Python ────────────────────────────────────────────────────────────────────
+# -- Python --------------------------------------------------------------------
 $Python = $null
 foreach ($candidate in @("python3.12","python3","python")) {
     try {
@@ -53,12 +53,18 @@ if (-not $Python) {
 }
 Ok "Python: $Python ($( & $Python --version))"
 
-# ── Pip install ───────────────────────────────────────────────────────────────
+# -- Pip install ---------------------------------------------------------------
 $ReqFile = Join-Path $NokidoDir "requirements.txt"
 Write-Host "  Installing core dependencies..."
 & $Python -m pip install --quiet --upgrade pip
 & $Python -m pip install --quiet -r $ReqFile
 Ok "Core deps installed"
+# Organisme complet (2026-10-09) : ce que les services du superviseur importent au demarrage en plus du coeur
+# (pywin32 du lanceur runAs, qdrant-client, textual-serve, torch). Owner : aucune concession sur les services.
+Write-Host "  Installing organism dependencies (requirements-organisme.txt)..."
+& $Python -m pip install --quiet -r (Join-Path $NokidoDir "requirements-organisme.txt")
+if ($LASTEXITCODE -eq 0) { Ok "Organism deps installed" }
+else { Warn "Organism deps NOT installed (rc=$LASTEXITCODE) : some supervisor services will not start." }
 
 if ($ML) {
     Write-Host "  Installing ML deps (torch, sentence-transformers)..."
@@ -66,7 +72,7 @@ if ($ML) {
     Ok "ML deps installed"
 }
 
-# ── Nokido.env ───────────────────────────────────────────────────────────────
+# -- Nokido.env ---------------------------------------------------------------
 $EnvFile = Join-Path $NokidoDir "Nokido.env"
 if (-not (Test-Path $EnvFile)) {
     Copy-Item (Join-Path $NokidoDir "Nokido.env.example") $EnvFile
@@ -78,43 +84,43 @@ if (-not (Test-Path $EnvFile)) {
     Ok "Nokido.env already exists"
 }
 
-# ── Docker ────────────────────────────────────────────────────────────────────
+# -- Docker --------------------------------------------------------------------
 $DockerOk = $false
 try {
     docker info 2>$null | Out-Null
     $DockerOk = $true
     Ok "Docker available"
 } catch {
-    Warn "Docker not found — install: https://www.docker.com/products/docker-desktop"
+    Warn "Docker not found -- install: https://www.docker.com/products/docker-desktop"
 }
 
-# ── Ollama ────────────────────────────────────────────────────────────────────
+# -- Ollama --------------------------------------------------------------------
 $OllamaOk = (Get-Command ollama -ErrorAction SilentlyContinue) -ne $null
 if ($OllamaOk) {
     Ok "Ollama: $(ollama --version 2>$null)"
 } elseif ($DockerOk) {
-    Warn "Ollama not installed locally — Docker will provide it"
+    Warn "Ollama not installed locally -- Docker will provide it"
 } else {
     Warn "Ollama not found. Install: https://ollama.com/download"
 }
 
-# ── Bootstrap RAG seeds (fresh clones only) ──────────────────────────────────
+# -- Bootstrap RAG seeds (fresh clones only) ----------------------------------
 $RagDb = Join-Path $NokidoDir "RAG\embeddings.db"
 if (-not (Test-Path $RagDb) -or (Get-Item $RagDb).Length -lt 1MB) {
-    Write-Host "  Fresh DB detected — bootstrapping from seed/*.jsonl..." -ForegroundColor Cyan
+    Write-Host "  Fresh DB detected -- bootstrapping from seed/*.jsonl..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Path (Join-Path $NokidoDir "RAG") -Force | Out-Null
     try {
         & $Python (Join-Path $NokidoDir "tools\forge_db_bootstrap.py")
         Ok "RAG seeds imported (~3k chunks bootstrap)"
-        Warn "Embeddings are generated lazily by brain_worker — first searches may be slow"
+        Warn "Embeddings are generated lazily by brain_worker -- first searches may be slow"
     } catch {
-        Warn "Seed bootstrap failed — run manually: python tools/forge_db_bootstrap.py"
+        Warn "Seed bootstrap failed -- run manually: python tools/forge_db_bootstrap.py"
     }
 } else {
-    Ok "RAG/embeddings.db already populated — skipping bootstrap"
+    Ok "RAG/embeddings.db already populated -- skipping bootstrap"
 }
 
-# ── .mcp.json bootstrap (Claude Code / Cline / VSCode MCP clients) ──────────
+# -- .mcp.json bootstrap (Claude Code / Cline / VSCode MCP clients) ----------
 # .mcp.json.example ships with placeholder bearers. forge_mcp_json_sync.py
 # reads vault DPAPI -> writes the real Bearer tokens per agent.
 $McpJson    = Join-Path $NokidoDir ".mcp.json"
@@ -126,13 +132,13 @@ if (-not (Test-Path $McpJson) -and (Test-Path $McpExample)) {
         & $Python (Join-Path $NokidoDir "tools\forge_mcp_json_sync.py") --path $McpJson
         Ok ".mcp.json bootstrapped (Bearer tokens read from vault DPAPI)"
     } catch {
-        Warn ".mcp.json created but vault tokens missing — run vault seed first:"
+        Warn ".mcp.json created but vault tokens missing -- run vault seed first:"
         Warn "  $Python tools/forge_vault_seed_agent_tokens.py --from-env-file Nokido.env"
         Warn "  $Python tools/forge_mcp_json_sync.py --path $McpJson"
     }
 }
 
-# ── Propagate MCP to ALL installed CLIs (.mcp.json above = Claude Code/Cline/VSCode only) ──
+# -- Propagate MCP to ALL installed CLIs (.mcp.json above = Claude Code/Cline/VSCode only) --
 # forge_client_bootstrap propagates to the OTHERS: Gemini/agy, Codex, Claude Desktop.
 $propMcp = $true
 if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
@@ -146,89 +152,32 @@ if ($propMcp) {
     else { Warn "Bootstrap partiel - relance: $Python tools/forge_client_bootstrap.py --apply" }
 } else { Write-Host "  Propagation MCP CLI sautee." }
 
-# ── Sandbox user accounts (optional, requires admin) ─────────────────────────
-# LaForgeSbxOnline   — network egress allowed, sandboxed exec
-# LaForgeSbxOffline  — offline-only sandbox (no network)
-# LaForgeTrustedRunners — privileged group for trusted_script / git push
-# All have ACLs scoped to the Nokido directory + machine vault (read-only).
-function Ensure-SandboxUser {
-    param([string]$Name, [string]$Desc)
-    $u = Get-LocalUser -Name $Name -ErrorAction SilentlyContinue
-    if (-not $u) {
-        $pwd = ConvertTo-SecureString -String ([System.Web.Security.Membership]::GeneratePassword(24,4)) -AsPlainText -Force
-        New-LocalUser -Name $Name -Password $pwd -PasswordNeverExpires `
-            -AccountNeverExpires -Description $Desc -UserMayNotChangePassword | Out-Null
-        Ok "Created local user: $Name"
-    } else {
-        Ok "User exists: $Name"
-    }
-}
-
-function Ensure-LocalGroup {
-    param([string]$Name, [string]$Desc)
-    $g = Get-LocalGroup -Name $Name -ErrorAction SilentlyContinue
-    if (-not $g) {
-        New-LocalGroup -Name $Name -Description $Desc | Out-Null
-        Ok "Created local group: $Name"
-    } else {
-        Ok "Group exists: $Name"
-    }
-}
-
-if ($WithSandboxUsers) {
-    $isAdmin = ([Security.Principal.WindowsPrincipal] `
-        [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-            [Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $isAdmin) {
-        Warn "WithSandboxUsers requires admin. Re-run PowerShell as Administrator and retry."
-    } else {
-        Write-Host "  Provisioning sandbox accounts + ACLs..." -ForegroundColor Cyan
-
-        # Required for password generator
-        Add-Type -AssemblyName System.Web -ErrorAction SilentlyContinue
-
-        Ensure-SandboxUser -Name "LaForgeSbxOnline" `
-            -Desc "Nokido sandbox account — online (network egress for cloud calls)"
-        Ensure-SandboxUser -Name "LaForgeSbxOffline" `
-            -Desc "Nokido sandbox account — offline (no network)"
-        Ensure-LocalGroup  -Name "LaForgeTrustedRunners" `
-            -Desc "Nokido trusted runners group — allowed to run trusted_script"
-
-        # Add main user to trusted runners group
-        $me = $env:USERNAME
-        $current = (Get-LocalGroupMember "LaForgeTrustedRunners" -ErrorAction SilentlyContinue).Name
-        if (-not ($current -like "*\$me")) {
-            Add-LocalGroupMember -Group "LaForgeTrustedRunners" -Member $me
-            Ok "Added $me to LaForgeTrustedRunners"
-        }
-
-        # ACL: grant Nokido dir read to sandbox accounts, write to sandbox/ only
-        $acl = Get-Acl $NokidoDir
-        foreach ($sbx in @("LaForgeSbxOnline","LaForgeSbxOffline")) {
-            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                $sbx, "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")
-            $acl.AddAccessRule($rule)
-        }
-        Set-Acl $NokidoDir $acl
-        Ok "ACLs: ReadAndExecute granted to LaForgeSbxOnline / LaForgeSbxOffline on Nokido dir"
-
-        # Network deny rule for Offline (Windows Firewall outbound block)
-        try {
-            New-NetFirewallRule -DisplayName "Nokido_Sbx_Offline_BlockOut" `
-                -Direction Outbound -Action Block -Profile Any -Enabled True `
-                -LocalUser "O:LSD:(D;;CC;;;LaForgeSbxOffline)" `
-                -ErrorAction SilentlyContinue | Out-Null
-            Ok "Firewall: outbound block for LaForgeSbxOffline"
-        } catch {
-            Warn "Firewall rule already exists or insufficient privileges"
-        }
-        Write-Host ""
-    }
+# -- Comptes d'execution des services runAs (admin) ---------------------------
+# Decision owner du 2026-10-08 : l'INSTALLEUR cree les comptes, jamais de repli sous le compte courant.
+# LaForgeSbxOffline (loopback seul), LaForgeSbxOnline (sortie reseau), LaForgeTrusted (tier trusted), leurs groupes,
+# le droit d'ouverture en batch, les ACL du depot et de l'interpreteur, le pare-feu, et les mots de passe scelles
+# en DPAPI machine (sandbox\.sandbox_creds) que le lanceur runAs relit.
+# Une seule implementation : tools\forge_sandbox_setup.py (idempotent). La version qui vivait ici perdait les mots
+# de passe (aucun compte n'etait ouvrable par le lanceur), ne creait ni LaForgeTrusted ni le droit batch, et passait
+# un NOM la ou le SDDL du pare-feu attend un SID, erreur avalee (2026-10-09). -WithSandboxUsers reste accepte.
+$isAdmin = ([Security.Principal.WindowsPrincipal] `
+    [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($isAdmin) {
+    Write-Host "  Comptes d'execution + ACL (forge_sandbox_setup)..." -ForegroundColor Cyan
+    & $Python (Join-Path $NokidoDir "tools\forge_sandbox_setup.py")
+    if ($LASTEXITCODE -eq 0) { Ok "Comptes LaForgeSbxOffline / LaForgeSbxOnline / LaForgeTrusted et ACL poses." }
+    else { Warn "Provisionnement des comptes en echec (rc=$LASTEXITCODE) : les services runAs ne demarreront pas." }
+    # Superviseur en tache planifiee SYSTEM au demarrage (decision owner du 2026-10-09) : seul SYSTEM peut lancer un
+    # service sous un autre compte (CreateProcessAsUser). Refuse si le service NSSM LaForge-Master existe deja.
+    & $Python (Join-Path $NokidoDir "tools\install_boot_hook.py") --installer
+    if ($LASTEXITCODE -eq 0) { Ok "Superviseur LaForge-Master : tache planifiee SYSTEM enregistree et demarree." }
+    else { Warn "Tache du superviseur NON enregistree (rc=$LASTEXITCODE) : voir le message ci-dessus." }
 } else {
-    Warn "Sandbox users NOT provisioned. To enable per-account isolation, re-run as admin with -WithSandboxUsers"
+    Warn "Comptes d'execution NON crees : relancer install.ps1 en administrateur. Sans eux, les services runAs ne demarrent pas."
 }
 
-# ── Optional: bring up the Docker stack (containers by profile) — opt-in / proposed ──
+# -- Optional: bring up the Docker stack (containers by profile) -- opt-in / proposed --
 $ComposeFile = Join-Path $NokidoDir "docker\nokido\docker-compose.yml"
 $dcProfile = $DockerProfile
 $dcUp = [bool]$DockerUp -or [bool]$dcProfile
@@ -249,7 +198,7 @@ if (-not $dcUp -and $DockerOk -and (Test-Path $ComposeFile) -and [Environment]::
 if ($dcUp) {
     if (-not $dcProfile) { $dcProfile = "core" }
     if (-not $DockerOk) {
-        Warn "Docker indisponible — installe Docker Desktop puis relance avec -DockerUp -DockerProfile $dcProfile."
+        Warn "Docker indisponible -- installe Docker Desktop puis relance avec -DockerUp -DockerProfile $dcProfile."
     } elseif (-not (Test-Path $ComposeFile)) {
         Warn "Compose introuvable : $ComposeFile"
     } else {
@@ -259,12 +208,12 @@ if ($dcUp) {
         if ($LASTEXITCODE -eq 0) {
             Ok "Stack Docker '$dcProfile' demarree."
             Write-Host "  Modele LLM : docker exec laforge-ollama ollama pull qwen2.5-coder:latest"
-        } else { Warn "docker compose a renvoye une erreur — verifie 'docker compose ... up -d' a la main." }
+        } else { Warn "docker compose a renvoye une erreur -- verifie 'docker compose ... up -d' a la main." }
         Warn "  exegol (offensif) n'est PAS dans cette stack : il vient avec laforge-redteam (opt-in ci-dessous)."
     }
 }
 
-# ── Optional: at-rest encryption (VeraCrypt container for RAG/embeddings.db) — opt-in / proposed ──
+# -- Optional: at-rest encryption (VeraCrypt container for RAG/embeddings.db) -- opt-in / proposed --
 $vcInstall = [bool]$WithAtRest
 if (-not $vcInstall -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     Write-Host ""
@@ -297,7 +246,7 @@ if ($vcInstall) {
     }
 }
 
-# ── Optional: laforge-redteam (OFFENSIVE / dual-use) — opt-in / proposed ────────
+# -- Optional: laforge-redteam (OFFENSIVE / dual-use) -- opt-in / proposed --------
 $rtInstall = [bool]$WithRedteam
 if (-not $rtInstall -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     Write-Host ""
@@ -307,15 +256,15 @@ if (-not $rtInstall -and [Environment]::UserInteractive -and -not [Console]::IsI
 }
 if ($rtInstall) {
     Write-Host ""
-    Warn "=== laforge-redteam — OFFENSIVE / DUAL-USE MODULE ==="
-    Warn "  exegol / CTF / exploit dev / recon / CVE — separate PRIVATE repo, dedicated MCP (LAFORGE_REDTEAM_MCP_PORT)."
+    Warn "=== laforge-redteam -- OFFENSIVE / DUAL-USE MODULE ==="
+    Warn "  exegol / CTF / exploit dev / recon / CVE -- separate PRIVATE repo, dedicated MCP (LAFORGE_REDTEAM_MCP_PORT)."
     Warn "  * AUTHORIZED USE ONLY: systems you own, with explicit written authorization,"
-    Warn "    CTF, or security research. Unauthorized scanning/exploitation is ILLEGAL —"
+    Warn "    CTF, or security research. Unauthorized scanning/exploitation is ILLEGAL --"
     Warn "    you assume FULL legal responsibility."
     Warn "  * LLM POLICY: many providers (cloud + some local) REFUSE or degrade offensive"
     Warn "    requests. Redteam features routed to such models may be BLOCKED at the model"
-    Warn "    layer — prefer local uncensored models or expect refusals."
-    Warn "  * NOT bundled by default — installing it is your explicit choice."
+    Warn "    layer -- prefer local uncensored models or expect refusals."
+    Warn "  * NOT bundled by default -- installing it is your explicit choice."
     $consent = Read-Host "  Type EXACTLY 'I-UNDERSTAND' to install laforge-redteam"
     if ($consent -ceq "I-UNDERSTAND") {
         $repo = if ($env:LAFORGE_REDTEAM_REPO) { $env:LAFORGE_REDTEAM_REPO } else { "git@github.com:user/laforge-redteam.git" }
@@ -329,19 +278,19 @@ if ($rtInstall) {
     }
 }
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# -- Summary -------------------------------------------------------------------
 Write-Host ""
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Installation complete."
 Write-Host ""
-Write-Host " Option A — Docker (recommended):"
+Write-Host " Option A -- Docker (recommended):"
 Write-Host "   cd docker\nokido"
 Write-Host "   docker compose up -d"
 Write-Host "   docker exec laforge-ollama ollama pull qwen2.5-coder:latest"
 Write-Host ""
-Write-Host " Option B — Native (Windows):"
+Write-Host " Option B -- Native (Windows):"
 Write-Host "   ollama serve"
 Write-Host "   $Python tools\nokido_hub.py"
 Write-Host ""
 Write-Host " Hub: http://localhost:8766"
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan

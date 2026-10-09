@@ -101,7 +101,7 @@ def rapport_courant():
         return cands[0]
     defaut = ROOT / "sandbox" / "pip_audit.json"
     return defaut if defaut.exists() else None
-MANIFESTES = ("requirements.txt", "requirements-ml.txt")
+MANIFESTES = ("requirements.txt", "requirements-ml.txt", "requirements-organisme.txt")
 
 # Montees qui cassent l'outillage ou la stack : elles ne partagent jamais la fenetre des
 # autres, sinon un echec ne se rattache a aucune cause.

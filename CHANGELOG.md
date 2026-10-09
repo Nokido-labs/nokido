@@ -3,6 +3,34 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: ecfa26709..9fb00aa9e -->
+## 2026-10-09 — alpha `ecfa26709..9fb00aa9e` (2 commits)
+
+### Nouveautés
+- **installation** : organisme complet sur machine neuve -- dependances, base, Qdrant epingle (`e61dbf03b`)
+- **installation** : comptes runAs crees par l'installeur, superviseur en tache SYSTEM (`9fb00aa9e`)
+
+<!-- changelog: 7fe6d52e7..4418d11bc -->
+## 2026-10-08 — alpha `7fe6d52e7..4418d11bc` (1 commit)
+
+### Corrections
+- **superviseur** : les services runAs, AGY et le runner CI demarrent (ou se taisent a raison) sur une machine neuve (`4418d11bc`)
+
+<!-- changelog: 8b8113840..6c7e880b6 -->
+## 2026-10-08 — alpha `8b8113840..6c7e880b6` (1 commit)
+
+### Corrections
+- **superviseur** : l'organisme complet trouve ses chemins sur une machine neuve -- vars machine, deno verifie, llama.cpp macOS (`6c7e880b6`)
+
+<!-- changelog: 03903060a..0787a3b0d -->
+## 2026-10-08 — alpha `03903060a..0787a3b0d` (2 commits)
+
+### Nouveautés
+- **dist** : mesure de l'organisme COMPLET sur machine vierge -- Windows, Linux, macOS (`1fc4da412`)
+
+### Corrections
+- **dist** : l'arret incomplet des services de la mesure organisme se dit (`0787a3b0d`)
+
 <!-- changelog: 0e8d772c6..9ff0cd12e -->
 ## 2026-10-08 — alpha `0e8d772c6..9ff0cd12e` (1 commit)
 

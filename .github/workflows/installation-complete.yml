@@ -70,3 +70,57 @@ jobs:
             rapport_installation.json
             _runtime/logs/
           if-no-files-found: warn
+
+  # Organisme COMPLET (owner 2026-10-08 : « aucune concession sur les services ») : sur une VM neuve des trois systemes,
+  # le superviseur demarre TOUS les services declares actifs ; on releve, service par service, ce qui tourne et pourquoi
+  # le reste echoue, et la RAM. Etat MESURE, non bloquant : observer avant d'enforcer. Job separe : rien n'y est lance
+  # a la main avant le superviseur (le hub, l'embedder et l'interface sont SES services).
+  organisme:
+    name: Organisme complet ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Deno (Windows, PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://deno.land/install.ps1 | iex
+          "$env:USERPROFILE\.deno\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Deno (Linux, macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL https://deno.land/install.sh | sh
+          echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+      - name: Superviseur -- typage et chargeur
+        shell: bash
+        run: |
+          set -e
+          deno check proxy_deno/core/supervisor.ts proxy_deno/core/service_loader_test.ts
+          deno test -A proxy_deno/core/service_loader_test.ts
+      - name: Mesure de l'organisme complet
+        if: always()
+        env:
+          NOKIDO_RUNTIME: ${{ github.workspace }}/_runtime
+          PYTHONUTF8: "1"
+        run: python tools/forge_install_acceptance.py --organisme
+      - name: Rapport et journaux
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: organisme-${{ matrix.os }}
+          path: |
+            rapport_organisme.json
+            _runtime/organisme.json
+            _runtime/logs/
+            logs/supervisor/
+            config/vars.local.toml
+          if-no-files-found: warn

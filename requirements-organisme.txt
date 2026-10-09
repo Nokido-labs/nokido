@@ -1,0 +1,23 @@
+# Nokido — dependances de l'ORGANISME COMPLET (tous les services declares au superviseur)
+# Install : pip install -r requirements-organisme.txt
+#
+# Ce que les services importent AU DEMARRAGE en plus du coeur (requirements.txt). Releve le 2026-10-09 par l'etape
+# `imports` de tools/forge_install_acceptance.py, apres la mesure 3 de l'organisme sur VM neuve (run 37846238481) :
+# 10 services runAs morts sur « No module named 'win32event' », QdrantSidecar sur qdrant_client, TuiBridge sur
+# textual_serve, GraphExplorer sur torch. Versions = celles de l'interpreteur ${PYTHON} du poste de reference (3.12).
+-r requirements.txt
+
+# Lanceur runAs (tools/forge_runas_launcher.py) et services Windows : win32event, win32process, win32profile...
+pywin32==311; sys_platform == "win32"
+
+# NokidoQdrantSidecar
+qdrant-client==1.18.0
+
+# NokidoTuiBridge (interface texte servie dans le navigateur)
+textual==8.2.4
+textual-serve==1.1.3
+
+# NokidoGraphExplorer. Sous Linux, la roue PyPI de torch tire CUDA (plusieurs Go) : l'installation pose d'abord
+# torch depuis l'index CPU de PyTorch (https://download.pytorch.org/whl/cpu), et cette ligne le constate
+# (2.11.0+cpu satisfait ==2.11.0). Windows et macOS : la roue PyPI est deja sans CUDA.
+torch==2.11.0

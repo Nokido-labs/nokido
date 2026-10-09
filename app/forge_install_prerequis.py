@@ -113,6 +113,17 @@ PREREQUIS: tuple[dict, ...] = (
                            str(ROOT / "runtime" / "llama" / "build" / "bin" / "llama-server")),
     },
     {
+        "cle": "qdrant",
+        "binaires": ("qdrant", "qdrant.exe"),
+        "niveau": OPTIONNEL,
+        "capacite": "serveur vectoriel natif :6333 du RAG dense (NokidoQdrantServer, puis le sidecar :8098)",
+        "absent_alors": "la recherche dense par Qdrant ; le RAG garde le plein texte et l'embedder",
+        "install": {"*": "build epinglee (Qdrant 1.18.2, sha256 dans distribution/packs/local-llm.toml) a extraire "
+                         "dans runtime/qdrant/, puis `nokido-doctor --ecrire-vars`"},
+        "chemins_usuels": (str(ROOT / "runtime" / "qdrant" / "qdrant.exe"),
+                           str(ROOT / "runtime" / "qdrant" / "qdrant")),
+    },
+    {
         "cle": "lmstudio",
         "binaires": ("lms", "lms.cmd", "lms.exe"),
         "niveau": OPTIONNEL,
@@ -437,6 +448,121 @@ def _sonde_binaire(noms: tuple[str, ...], usuels: tuple[str, ...] = ()) -> tuple
         return ILLISIBLE, ("chemin declare mais NON VERIFIABLE sous le compte %s "
                            "(dossier hors ACL) : %s" % (_compte(), vus_illisibles[0]))
     return ABSENT, "ni PATH, ni chemin declare, ni emplacement usuel: " + ", ".join(noms)
+
+
+# --- Chemins MACHINE des [vars] du superviseur (2026-10-08) ----------------------------------------------------------
+# Mesure sur VM neuve (Windows, Linux, macOS ; run 37816375828) : 0 des 60 services actifs ne tournait. Le dist publie
+# `[vars]` avec des chemins generises (`%USERPROFILE%/miniforge3/envs/laforge_py314/python.exe`) que personne ne
+# developpait, sans variante Linux/macOS : le hub ne demarrait pas et 33 services l'attendaient. Le poste de reference
+# marche parce que SES chemins existent. On DECOUVRE donc a l'installation ce que ce poste a en dur, avec la sonde a
+# trois voies -- et on ne remplace JAMAIS une variable dont le chemin existe, ni une qu'on n'a pas pu regarder
+# (ILLISIBLE n'autorise pas a ecraser : seul un ABSENT prouve ouvre la place).
+VARS_LOCAL = ROOT / "config" / "vars.local.toml"
+_VARS_INTERPRETEUR = ("PYTHON", "PY314", "PY314T", "PY312_RYZEN")
+_EXE = ".exe" if os.name == "nt" else ""
+
+
+def _developpe(v) -> str:
+    """`%NOM%` (forme generisee du dist) -> valeur de l'environnement ; USERPROFILE retombe sur le dossier personnel
+    hors Windows. Une variable inconnue reste VISIBLE telle quelle, jamais remplacee par du vide."""
+    import re
+
+    # Memes defauts que le chargeur Deno : la racine et le dossier de travail se deduisent du depot.
+    defauts = {"USERPROFILE": str(Path.home()), "NOKIDO_ROOT": ROOT.as_posix(), "NOKIDO_WORKSPACE": ROOT.parent.as_posix()}
+
+    def _rep(m):
+        return os.environ.get(m.group(1)) or defauts.get(m.group(1)) or m.group(0)
+    return re.sub(r"%([A-Za-z_][A-Za-z0-9_]*)%", _rep, str(v))
+
+
+def _chemin_tient(s: str) -> bool:
+    """Le chemin declare existe (fichier ou dossier), ou n'a pas pu etre regarde : dans les deux cas on n'y touche pas."""
+    p = Path(s)
+    if "%" in s or "${" in s or not p.is_absolute():
+        return False
+    try:
+        if p.is_dir():
+            return True
+    except OSError:
+        return True
+    return _verdict_chemin(p) != ABSENT
+
+
+def _depuis_sonde(noms, usuels) -> dict:
+    etat, detail = _sonde_binaire(tuple(noms), tuple(str(u) for u in usuels))
+    valeur = detail.rsplit(": ", 1)[1].replace("\\", "/") if etat == PRESENT and ": " in detail else None
+    return {"valeur": valeur, "etat": etat if (valeur or etat != PRESENT) else ILLISIBLE, "detail": detail}
+
+
+def vars_machine() -> dict:
+    """Pour chaque variable de `[vars]` dont le chemin declare n'existe pas sur CETTE machine : la valeur decouverte
+    (`etat` PRESENT) ou l'aveu qu'elle est introuvable (ABSENT / ILLISIBLE, `valeur` None)."""
+    home = Path.home()
+    sondes = {
+        "DENO": (("deno",), [home / ".deno" / "bin" / ("deno" + _EXE)]),
+        "LLAMA": (("llama-server",), [ROOT / "runtime" / "llama" / ("llama-server" + _EXE)]),
+        "OLLAMA_EXE": (("ollama",), []),
+        "LMS_EXE": (("lms",), [home / ".lmstudio" / "bin" / ("lms" + _EXE)]),
+    }
+    voisins = {"NETCFG_DIR": ROOT.parent / "netcfg-agent-mcp",
+               "NETCFG_UI": ROOT.parent / "netcfg-agent-web" / "demo" / "serve_ui.py"}
+    # Dossiers de binaires tiers : retenus seulement s'ils CONTIENNENT le binaire (2026-10-09, Qdrant extrait dans
+    # runtime/qdrant depuis la build epinglee de local-llm.toml).
+    dossiers = {"QDRANT_BIN": ROOT / "runtime" / "qdrant" / ("qdrant" + _EXE)}
+    out = {}
+    for cle, val in _vars_du_toml().items():
+        if cle in ("ROOT", "PROXY_DIR") or _chemin_tient(_developpe(val)):
+            continue
+        if cle in _VARS_INTERPRETEUR:
+            out[cle] = {"valeur": sys.executable.replace("\\", "/"), "etat": PRESENT,
+                        "detail": "interpreteur ou Nokido est installe"}
+        elif cle in sondes:
+            out[cle] = _depuis_sonde(*sondes[cle])
+        elif cle in dossiers:
+            exe = dossiers[cle]
+            out[cle] = ({"valeur": exe.parent.as_posix(), "etat": PRESENT, "detail": "build epinglee extraite"}
+                        if exe.is_file() else
+                        {"valeur": None, "etat": ABSENT, "detail": "binaire absent : %s" % exe.as_posix()})
+        elif cle in voisins:
+            p = voisins[cle]
+            out[cle] = ({"valeur": p.as_posix(), "etat": PRESENT, "detail": "depot voisin"} if p.exists()
+                        else {"valeur": None, "etat": ABSENT, "detail": "depot voisin absent : %s" % p.as_posix()})
+        else:
+            out[cle] = {"valeur": None, "etat": ABSENT, "detail": "aucune sonde pour cette variable : chemin a fournir"}
+    # Les dossiers se deduisent de LEUR binaire trouve, jamais au juge.
+    for dossier, exe, niveau in (("OLLAMA_DIR", "OLLAMA_EXE", 0), ("LMS_DIR", "LMS_EXE", 1)):
+        if dossier in out and (out.get(exe) or {}).get("valeur"):
+            out[dossier] = {"valeur": Path(out[exe]["valeur"]).parents[niveau].as_posix(), "etat": PRESENT,
+                            "detail": "deduit de %s" % exe}
+    return out
+
+
+def ecrire_vars_local(chemin=None) -> dict:
+    """Ecrit `config/vars.local.toml` : les chemins de CETTE machine, lus par le chargeur du superviseur par-dessus
+    `[vars]`. N'ecrit RIEN quand il n'y a rien a ecrire (poste dont les chemins existent). Les introuvables sont DITS
+    en commentaire. Rend le bilan : ecrit, chemin, ecrites, absentes."""
+    import datetime
+    import json
+
+    cible = Path(chemin) if chemin else VARS_LOCAL
+    vm = vars_machine()
+    ecrites = {k: v["valeur"] for k, v in vm.items() if v.get("valeur")}
+    absentes = sorted(k for k, v in vm.items() if not v.get("valeur"))
+    bilan = {"ecrit": False, "chemin": str(cible), "ecrites": sorted(ecrites), "absentes": absentes}
+    if not ecrites:
+        return bilan
+    lignes = ["# Ecrit par `nokido-doctor --ecrire-vars` le %s : chemins de CETTE machine pour les [vars]"
+              % datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+              "# du superviseur. Propre a la machine : jamais versionne. Une variable absente d'ici garde la valeur",
+              "# de proxy_deno/core/services.toml.", "", "[vars]"]
+    lignes += ["%s = %s" % (k, json.dumps(ecrites[k], ensure_ascii=False)) for k in sorted(ecrites)]
+    if absentes:
+        lignes += ["", "# INTROUVABLES sur cette machine (les services qui en dependent ne demarreront pas) :"]
+        lignes += ["#   %s -- %s" % (k, vm[k]["detail"]) for k in absentes]
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    bilan["ecrit"] = True
+    return bilan
 
 
 def _sonde_python() -> tuple[str, str]:

@@ -11,7 +11,7 @@
  */
 
 import { parse } from "https://deno.land/std@0.224.0/toml/mod.ts";
-import { fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
+import { dirname, fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 export interface ServiceDef {
   name: string;
@@ -100,6 +100,84 @@ function resolveVars(s: string, vars: Record<string, string>): string {
 // L'intention d'origine (relire le toml pour prendre les editions a chaud) est
 // conservee : on garde un statSync (quelques microsecondes) et on ne relit +
 // reparse QUE si le fichier a change.
+// CHEMINS MACHINE (2026-10-08). Mesure sur VM neuve (Windows, Linux, macOS ; run 37816375828) : 0 des 60 services
+// actifs ne tournait, parce que le dist publie `[vars]` avec des chemins generises (`%USERPROFILE%/...`) que rien ne
+// developpait (`launch failed -- NotFound`, puis 33 services en attente du hub). `${ROOT}/config/vars.local.toml`,
+// ecrit par `nokido-doctor --ecrire-vars` et jamais versionne, porte les chemins de CETTE machine et passe par-dessus
+// `[vars]` ; `%NOM%` est developpe depuis l'environnement ; un chemin reste non resolu est DIT au journal au lieu
+// d'etre lance a l'aveugle dix fois. Sans le fichier, le poste de reference est inchange.
+function _varsLocales(root: string): { vars: Record<string, string>; empreinte: string } {
+  const p = `${root}/config/vars.local.toml`;
+  try {
+    const st = Deno.statSync(p);
+    // deno-lint-ignore no-explicit-any
+    const doc = parse(Deno.readTextFileSync(p)) as any;
+    return { vars: doc.vars ?? {}, empreinte: `${st.mtime?.getTime() ?? 0}:${st.size}` };
+  } catch (e) {
+    if (e instanceof Deno.errors.NotFound) return { vars: {}, empreinte: "absent" };
+    console.error(`[supervisor] ${p} ILLISIBLE (${e}) : chemins machine ignores`);
+    return { vars: {}, empreinte: "illisible" };
+  }
+}
+
+// `%NOKIDO_ROOT%` / `%NOKIDO_WORKSPACE%` (forme generisee du dist pour la racine et le dossier de travail) se
+// deduisent de la racine quand l'environnement ne les donne pas (2e mesure VM du 08/10 : un cwd `%NOKIDO_ROOT%`).
+function _defautsEnv(root?: string): Record<string, string> {
+  return root ? { NOKIDO_ROOT: root, NOKIDO_WORKSPACE: dirname(root) } : {};
+}
+
+function _developperEnv(v: string, defauts: Record<string, string> = {}): string {
+  return v.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (m, n) => {
+    const val = Deno.env.get(n) ?? defauts[n] ?? (n === "USERPROFILE" ? Deno.env.get("HOME") : undefined);
+    return val ? val : m;
+  });
+}
+
+function _fusionner(
+  base: Record<string, unknown>,
+  locales: Record<string, string>,
+  runtimeVars: Record<string, string>,
+  defauts: Record<string, string>,
+): Record<string, string> {
+  const vars: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ ...base, ...locales, ...runtimeVars })) {
+    vars[k] = _developperEnv(String(v), defauts);
+  }
+  return vars;
+}
+
+/** Les [vars] telles que le chargeur les applique : services.toml, puis config/vars.local.toml, puis les variables
+ *  d'execution, `%NOM%` developpe. Le superviseur y prend l'interpreteur de ses lanceurs runAs (2e mesure VM du
+ *  08/10 : le litteral du poste de reference faisait echouer les 10 services runAs ailleurs que sur lui).
+ *  Rend null si le TOML est illisible : l'appelant garde son repli. */
+export function resoudreVars(
+  tomlPath: string,
+  runtimeVars: Record<string, string> = {},
+): Record<string, string> | null {
+  try {
+    // deno-lint-ignore no-explicit-any
+    const doc = parse(Deno.readTextFileSync(tomlPath)) as any;
+    const locales = _varsLocales(runtimeVars.ROOT ?? ".").vars;
+    return _fusionner(doc.vars ?? {}, locales, runtimeVars, _defautsEnv(runtimeVars.ROOT));
+  } catch {
+    return null;
+  }
+}
+
+const _RE_NON_RESOLU = /%[A-Za-z_][A-Za-z0-9_]*%/;
+const _RE_ABSOLU = /^([A-Za-z]:[\\/]|\/)/;
+
+// Un chemin absent est prouve par NotFound ; tout autre refus (droits, verrou) laisse le doute : on ne desactive
+// rien sur un « je n'ai pas pu regarder » (UNKNOWN n'est pas NO).
+function _absent(p: string): boolean {
+  try {
+    Deno.statSync(p);
+    return false;
+  } catch (e) {
+    return e instanceof Deno.errors.NotFound;
+  }
+}
+
 let _cacheEmpreinte = "";
 let _cacheServices: ServiceDef[] | null = null;
 
@@ -108,12 +186,14 @@ export function loadServices(
   runtimeVars: Record<string, string> = {},
 ): ServiceDef[] | null {
   try {
+    const _locales = _varsLocales(runtimeVars.ROOT ?? ".");
     const _st = Deno.statSync(tomlPath);
     const _empreinte = [
       tomlPath,
       _st.mtime?.getTime() ?? 0,
       _st.size,
       JSON.stringify(runtimeVars),
+      _locales.empreinte,
     ].join("|");
     if (_empreinte === _cacheEmpreinte && _cacheServices) {
       return _cacheServices;
@@ -121,11 +201,9 @@ export function loadServices(
     const raw = Deno.readTextFileSync(tomlPath);
     // deno-lint-ignore no-explicit-any
     const doc = parse(raw) as any;
-    const vars: Record<string, string> = {
-      ...(doc.vars ?? {}),
-      ...runtimeVars,
-    };
-    const rv = (x: unknown) => resolveVars(String(x ?? ""), vars);
+    const _defauts = _defautsEnv(runtimeVars.ROOT);
+    const vars = _fusionner(doc.vars ?? {}, _locales.vars, runtimeVars, _defauts);
+    const rv = (x: unknown) => _developperEnv(resolveVars(String(x ?? ""), vars), _defauts);
 
     const out: ServiceDef[] = [];
     for (const s of (doc.service ?? [])) {
@@ -144,6 +222,17 @@ export function loadServices(
       if (Array.isArray(s.deps)) svc.deps = s.deps.map(Number);
       if (s.port != null) svc.port = Number(s.port);
       if (s.disabled) svc.disabled = true;
+      // `propre_au_poste` (owner 2026-10-08) : un service propre au poste de reference (son runner CI) ne demarre
+      // pas sur une machine ou son dossier ou son executable absolu n'existe pas -- dit, jamais compte en echec.
+      if (s.propre_au_poste === true && !svc.disabled) {
+        const manque = [svc.cwd, svc.cmd].find((p) => _RE_ABSOLU.test(p) && _absent(p));
+        if (manque) {
+          svc.disabled = true;
+          console.error(
+            `[supervisor] ${svc.name} : propre au poste de reference (${manque} absent ici) -- non demarre, sans echec`,
+          );
+        }
+      }
       if (s.type === "provider" || s.type === "process") svc.type = s.type;
       if (Array.isArray(s.startCmd)) svc.startCmd = s.startCmd.map(rv);
       if (Array.isArray(s.stopCmd)) svc.stopCmd = s.stopCmd.map(rv);
@@ -178,6 +267,17 @@ export function loadServices(
       out.push(svc);
     }
     if (out.length === 0) throw new Error("no [[service]] entries");
+    const _nonResolus = out.filter((s) =>
+      !s.disabled && _RE_NON_RESOLU.test([s.cmd, s.cwd ?? "", ...s.args].join(" "))
+    );
+    if (_nonResolus.length) {
+      console.error(
+        `[supervisor] chemins NON RESOLUS pour ${_nonResolus.length} service(s) actif(s) : ` +
+          _nonResolus.slice(0, 12).map((s) => s.name).join(", ") +
+          (_nonResolus.length > 12 ? " ..." : "") +
+          " -- `nokido-doctor --ecrire-vars` ecrit les chemins de cette machine (config/vars.local.toml)",
+      );
+    }
     _cacheEmpreinte = _empreinte;
     _cacheServices = out;
     return out;

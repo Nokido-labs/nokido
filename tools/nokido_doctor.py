@@ -232,7 +232,24 @@ def main(argv: list[str] | None = None) -> int:
                     help="ce qui BLOQUE : dev (defaut, hub d'agents pour devs) ou complet (organisme entier)")
     ap.add_argument("--modeles", action="store_true",
                     help="les modeles verifies qui tiennent sur CETTE machine, avec la commande llama.cpp / Ollama / LM Studio")
+    ap.add_argument("--ecrire-vars", action="store_true",
+                    help="ecrit config/vars.local.toml : les chemins de CETTE machine pour les services du superviseur "
+                         "(remede quand il ne trouve pas ses binaires ; un chemin existant n'est jamais remplace)")
     a = ap.parse_args(argv)
+
+    if a.ecrire_vars:
+        try:
+            b = P.ecrire_vars_local()
+        except Exception as exc:  # noqa: BLE001 - ecriture impossible : le DIRE, rc 2
+            print("ECHEC : les chemins de cette machine n'ont pas pu etre ecrits (%s: %s)" % (type(exc).__name__, exc))
+            return 2
+        if b["ecrit"]:
+            print("chemins de cette machine ecrits dans %s : %s" % (b["chemin"], ", ".join(b["ecrites"])))
+        else:
+            print("aucun chemin a ecrire : ceux de services.toml existent deja sur cette machine")
+        if b["absentes"]:
+            print("INTROUVABLES (les services qui en dependent ne demarreront pas) : %s" % ", ".join(b["absentes"]))
+        return 0
 
     if a.modeles:
         try:

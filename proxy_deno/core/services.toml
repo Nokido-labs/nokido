@@ -76,6 +76,10 @@ OLLAMA_EXE  = "%USERPROFILE%/AppData/Local/Programs/Ollama/ollama.exe"
 OLLAMA_DIR  = "%USERPROFILE%/AppData/Local/Programs/Ollama"
 LMS_EXE     = "%USERPROFILE%/.lmstudio/bin/lms.exe"
 LMS_DIR     = "%USERPROFILE%/.lmstudio"
+# Dossier du serveur Qdrant natif (binaire + config.yaml). Valeur du poste de reference, IDENTIQUE au defaut que
+# forge_qdrant_server.py prenait sans variable (2026-10-09). Sur une machine neuve, nokido-doctor --ecrire-vars le
+# pose sur runtime/qdrant, ou s'extrait la build 1.18.2 epinglee dans distribution/packs/local-llm.toml.
+QDRANT_BIN  = "C:/tmp/qdrant_bin"
 # NETCFG_EXE : binaire compile ABSENT du disque (verifie 2026-07-24) et reference
 # par AUCUN service — NokidoNetcfgMCP tourne via Python, seul NETCFG_DIR sert (cwd).
 # Laissee commentee plutot que supprimee : une variable morte qui a l'air vivante
@@ -85,6 +89,10 @@ NETCFG_DIR  = "%NOKIDO_WORKSPACE%/netcfg-agent-mcp"
 NETCFG_UI   = "%NOKIDO_WORKSPACE%/netcfg-agent-web/demo/serve_ui.py"
 MODEL_7B    = "D:/ollama/models/blobs/sha256-60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463"
 DRAFT_1B    = "D:/ollama/models/blobs/sha256-29d8c98fa6b098e200069bfb88b9508dc3e85586d20cba59f8dda9a808165104"
+# Le depot Nokido EPINGLE (2026-10-08, owner : « variables »). Distinct de ${ROOT} (le cwd du superviseur), qui a
+# deja resolu vers une copie divergente (laforge-cowork, 13/08). Generise en %NOKIDO_ROOT% dans le dist, que le
+# chargeur developpe en racine sur une machine neuve.
+NOKIDO_DEPOT = "%NOKIDO_ROOT%"
 
 # ── VAGUE 1 : Tronc Cérébral (réseau & hub principal) ──────────────────
 [[service]]
@@ -461,8 +469,8 @@ capabilities = ["dense_search"]
 [[service]]
 # Serveur Qdrant natif (:6333 REST / :6334 gRPC, chantier RAG 2026-07-06) — HNSW Rust,
 # collection nokido_sovereign_rag ~544k pts INT8, storage %NOKIDO_DATA%\qdrant_server. Binaire via
-# LAFORGE_QDRANT_BIN (defaut C:\tmp\qdrant_bin — A RELOCALISER hors tmp). wave 3 = demarre
-# AVANT le sidecar :8098 (wave 4) qui en depend. Persiste pour survivre au reboot.
+# LAFORGE_QDRANT_BIN = ${QDRANT_BIN} ([vars], 2026-10-09 : le chemin n'est plus code en dur).
+# wave 3 = demarre AVANT le sidecar :8098 (wave 4) qui en depend. Persiste pour survivre au reboot.
 name = "NokidoQdrantServer"
 logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 # Binaire TIERS : il ne peut pas ecrire dans notre moelle, mais il rend SES propres
@@ -474,7 +482,7 @@ cmd = "${PYTHON}"
 args = ["tools/forge_qdrant_server.py"]
 cwd = "${ROOT}"
 essential = false
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_QDRANT_BIN = "${QDRANT_BIN}" }
 port = 6333
 capabilities = ["dense_search"]
 
@@ -1713,9 +1721,11 @@ wave = 5
 # une COPIE divergente du fichier sans le routage ANTIGRAVITY->vrai agy -> les
 # taches retombaient sur groq. On epingle le repo Nokido explicitement.
 # PYTHONDONTWRITEBYTECODE=1 : evite qu'un .pyc perime masque une edition du .py.
-cmd = "%USERPROFILE%/miniforge3/python.exe"
-args = ["%NOKIDO_ROOT%/tools/forge_task_executor.py", "--agent", "ANTIGRAVITY"]
-cwd = "%NOKIDO_ROOT%"
+# 2026-10-08 (owner) : memes chemins par VARIABLES -- ${PYTHON} vaut exactement l'ancien litteral, ${NOKIDO_DEPOT}
+# le depot epingle (pas ${ROOT}, pour ne pas rouvrir le piege laforge-cowork) ; demarrable hors du poste de reference.
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "ANTIGRAVITY"]
+cwd = "${NOKIDO_DEPOT}"
 runAs = "interactive"
 deps = [8766]
 essential = false
@@ -2185,6 +2195,9 @@ name = "NokidoCIRunner"
 # activite reelle — mieux vaut le dire que produire un faux manquement.
 intention = "launcher:ci"
 objectif = "aucun"
+# Propre au poste de reference (owner 2026-10-08) : c'est le runner GitHub de SA CI. Ailleurs, son dossier ou son
+# executable absolu n'existe pas -> le chargeur ne le demarre pas et le DIT, sans le compter comme un echec.
+propre_au_poste = true
 wave = 5
 cmd = "C:\\Windows\\System32\\cmd.exe"
 args = ["/c", "C:\\laforge-runner\\run.cmd"]

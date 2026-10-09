@@ -96,23 +96,65 @@ def _icacls_subtrees_parallel(
             sys.stdout.flush()
 
 
-def _miniforge_subtrees() -> list[str]:
-    """Liste les sous-arbres miniforge3 à couvrir explicitement par icacls /T.
-    = sous-dossiers base canoniques + tous les envs/<name>."""
+def _sous_arbres(racine: str) -> list[str]:
+    """Sous-arbres d'une racine d'interpreteur a couvrir explicitement par icacls /T :
+    sous-dossiers canoniques + tous les envs/<name> (conda)."""
     import os as _os
 
     paths: list[str] = []
     for name in _MINIFORGE_SUBTREE_NAMES:
-        p = _os.path.join(MINIFORGE_ROOT, name)
+        p = _os.path.join(racine, name)
         if _os.path.isdir(p):
             paths.append(p)
-    envs_dir = _os.path.join(MINIFORGE_ROOT, "envs")
+    envs_dir = _os.path.join(racine, "envs")
     if _os.path.isdir(envs_dir):
         for entry in sorted(_os.listdir(envs_dir)):
             full = _os.path.join(envs_dir, entry)
             if _os.path.isdir(full):
                 paths.append(full)
     return paths
+
+
+def _miniforge_subtrees() -> list[str]:
+    """Liste les sous-arbres miniforge3 à couvrir explicitement par icacls /T.
+    = sous-dossiers base canoniques + tous les envs/<name>."""
+    return _sous_arbres(MINIFORGE_ROOT)
+
+
+def racines_python() -> list[str]:
+    """Racines des interpreteurs que les services lancent, sans doublon : celle de l'interpreteur qui provisionne
+    (`sys.base_prefix` : sur une machine cliente, celui ou Nokido est installe, que `nokido-doctor --ecrire-vars`
+    inscrit en [vars].PYTHON), puis miniforge3 s'il existe (poste de reference : base + envs)."""
+    import os as _os
+
+    out: list[str] = []
+    for p in (sys.base_prefix, MINIFORGE_ROOT):
+        if p and _os.path.isdir(p) and _os.path.normcase(_os.path.abspath(p)) not in {
+                _os.path.normcase(_os.path.abspath(x)) for x in out}:
+            out.append(p)
+    return out
+
+
+def ancetres_a_traverser(chemin: str) -> list[str]:
+    """Dossiers parents a TRAVERSER (droit X seul, sans heritage) pour atteindre `chemin`, racine du lecteur exclue :
+    un interpreteur installe dans un profil (C:\\Users\\<nom>\\miniforge3) est invisible d'un autre compte sans X
+    sur le profil -- python.exe echoue alors au chargement (STATUS_DLL_NOT_FOUND)."""
+    p = Path(chemin)
+    return [str(a) for a in p.parents if a.parent != a]
+
+
+def _acls_python(principal: str, label: str, en_plus: tuple = ()) -> None:
+    """Traversee des parents, lecture+execution heritable sur chaque racine d'interpreteur, puis /T sur ses
+    sous-arbres lourds. Avant le 2026-10-09, la traversee et la racine passaient a icacls le TEXTE
+    `__import__("os").path.expanduser("~")` (reste d'un decodage automatique ecrit DANS une f-string) : icacls
+    echouait, `check=False` taisait l'echec, et ces droits n'etaient jamais poses sur une machine neuve."""
+    subs: list[str] = []
+    for racine in racines_python():
+        for a in ancetres_a_traverser(racine):
+            ps(f'icacls "{a}" /grant "{principal}:(X)" /C', check=False)
+        ps(f'icacls "{racine}" /grant "{principal}:(OI)(CI)(RX)" /C', check=False)
+        subs += _sous_arbres(racine)
+    _icacls_subtrees_parallel(subs + list(en_plus), principal=principal, perm="(OI)(CI)(RX)", label=label)
 
 
 # ── PowerShell bridge ────────────────────────────────────────────────────
@@ -294,11 +336,7 @@ def set_acls() -> None:
     # SANS /T — /T sur ~12 GB d'arbre conda dépasse le timeout 120s par défaut.
     # Les sous-arbres lourds (envs/* + pkgs + Lib) reçoivent /T séparément
     # avec timeout=600 — couvre les fichiers EXISTANTS qui ne re-héritent pas.
-    ps(f'icacls __import__("os").path.expanduser("~") /grant "{GROUP}:(X)" /C', check=False)
-    ps(f'icacls __import__("os").path.expanduser("~\\miniforge3") /grant "{GROUP}:(OI)(CI)(RX)" /C', check=False)
-    _icacls_subtrees_parallel(
-        _miniforge_subtrees(), principal=GROUP, perm="(OI)(CI)(RX)", label="sandbox"
-    )
+    _acls_python(GROUP, "sandbox")
 
 
 def ensure_trusted_group() -> None:
@@ -360,16 +398,8 @@ def set_trusted_acls() -> None:
 
     print(f"  ACLs trusted: {ROOT.name}=modify, miniforge+llama=read")
     ps(f'icacls "{ROOT}" /grant "{TRUSTED_USER}:(OI)(CI)(M)" /T /C', check=False, timeout=600)
-    ps(f'icacls __import__("os").path.expanduser("~") /grant "{TRUSTED_USER}:(X)" /C', check=False)
-    # miniforge3 root : OI/CI sans /T (cf. set_acls). /T scopé sous-arbres.
-    ps(
-        f'icacls __import__("os").path.expanduser("~\\miniforge3") /grant "{TRUSTED_USER}:(OI)(CI)(RX)" /C',
-        check=False,
-    )
-    subs = list(_miniforge_subtrees())
-    if _os.path.isdir(LLAMA_DIR):
-        subs.append(LLAMA_DIR)
-    _icacls_subtrees_parallel(subs, principal=TRUSTED_USER, perm="(OI)(CI)(RX)", label="trusted")
+    # racines d'interpreteur : OI/CI sans /T (cf. set_acls), /T scope aux sous-arbres.
+    _acls_python(TRUSTED_USER, "trusted", (LLAMA_DIR,) if _os.path.isdir(LLAMA_DIR) else ())
 
 
 def set_firewall() -> None:

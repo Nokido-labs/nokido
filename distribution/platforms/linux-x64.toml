@@ -33,8 +33,8 @@ id = "installeur"
 description = "Installeur linux en une commande"
 source = "depot"
 chemin = "install.sh"
-sha256 = "f37bddc86ebee9ba5aeafc8c925f7ca9485cae0bf61e9976d462846f351b01d4"
-taille = 20581
+sha256 = "5cd927a05836bbb76cf33f2258d0f582f231bead297859d56b566f3ec7b78182"
+taille = 21277
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 
