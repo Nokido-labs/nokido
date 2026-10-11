@@ -11,7 +11,7 @@ path = "src/main.rs"
 # ONNX Runtime with DirectML (Windows GPU/NPU acceleration)
 ort = { version = "2.0.0-rc.12", features = ["directml", "half"] }
 # HuggingFace tokenizers — the original Rust implementation
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 # ZMQ
 zmq = "0.10"
 # Msgpack
