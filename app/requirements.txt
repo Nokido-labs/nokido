@@ -8,41 +8,41 @@
 # =============================================================================
 
 # ── Interface TUI ─────────────────────────────────────────────────────────────
-textual>=0.70.0          # Interface graphique TUI (OBLIGATOIRE)
-rich>=13.0.0             # Rendu couleur/markup dans la TUI
+textual>=8.2.8          # Interface graphique TUI (OBLIGATOIRE)
+rich>=15.0.0             # Rendu couleur/markup dans la TUI
 
 # ── Réseau / SSH ──────────────────────────────────────────────────────────────
-aiohttp>=3.9.0           # Requêtes HTTP async (Ollama API)
-asyncssh>=2.14.0         # Connexion SSH async vers l'hôte cible
-httpx>=0.27.0            # HTTP/2 client (fetch web, déjà présent)
+aiohttp>=3.14.4           # Requêtes HTTP async (Ollama API)
+asyncssh>=2.24.1         # Connexion SSH async vers l'hôte cible
+httpx>=0.28.1            # HTTP/2 client (fetch web, déjà présent)
 
 # ── Recherche web ─────────────────────────────────────────────────────────────
-duckduckgo-search>=6.0.0 # Recherche DDG sans API key (OBLIGATOIRE pour @web)
-trafilatura>=1.8.0       # Extraction contenu HTML propre (remplace newspaper3k)
-beautifulsoup4>=4.12.0   # Fallback parsing HTML (déjà présent via httpx)
+duckduckgo-search>=8.1.1 # Recherche DDG sans API key (OBLIGATOIRE pour @web)
+trafilatura>=2.3.1       # Extraction contenu HTML propre (remplace newspaper3k)
+beautifulsoup4>=4.15.0   # Fallback parsing HTML (déjà présent via httpx)
 
 # ── RAG / Vectorisation ───────────────────────────────────────────────────────
-numpy>=1.26.0            # Calculs vectoriels (embeddings FAISS)
-faiss-cpu>=1.7.4         # Index vectoriel FAISS (optionnel mais recommandé)
+numpy>=2.5.3            # Calculs vectoriels (embeddings FAISS)
+faiss-cpu>=1.15.1         # Index vectoriel FAISS (optionnel mais recommandé)
 rank-bm25>=0.2.2         # Index BM25 pour la recherche hybride (optionnel)
 
 # ── Lecture de documents ──────────────────────────────────────────────────────
-pdfplumber>=0.10.0       # Extraction texte PDF — tableaux inclus
-pypdf>=4.0.0             # Lecture PDF basique (2e fallback)
+pdfplumber>=0.11.10       # Extraction texte PDF — tableaux inclus
+pypdf>=6.19.0             # Lecture PDF basique (2e fallback)
 # marker-pdf>=0.2.0      # PDF → Markdown haute qualité (optionnel, lourd ~2 Go)
 
 # ── Terminal virtuel ──────────────────────────────────────────────────────────
-pyte>=0.8.0              # Émulateur terminal PTY (rendu SSH dans la TUI)
+pyte>=0.8.2              # Émulateur terminal PTY (rendu SSH dans la TUI)
 
 # ── Presse-papier ─────────────────────────────────────────────────────────────
-pyperclip>=1.8.0         # Copier/coller cross-platform
+pyperclip>=1.11.0         # Copier/coller cross-platform
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-pydantic-settings>=2.0.0 # Chargement Nokido.env
+pydantic-settings>=2.15.0 # Chargement Nokido.env
 
 # ── Sentinelle tree-sitter ────────────────────────────────────────────────────
-tree-sitter>=0.23.0        # Parser incrémental CST (brain_worker.py)
-tree-sitter-python>=0.23.0 # Grammaire Python
+tree-sitter>=0.26.0        # Parser incrémental CST (brain_worker.py)
+tree-sitter-python>=0.25.0 # Grammaire Python
 
 # ── Backend ONNX local (optionnel — forge_runtime.py) ────────────────────────
 # Décommentez pour embeddings locaux MiniLM / génération Phi-3.5
