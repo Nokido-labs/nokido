@@ -8,13 +8,13 @@
 -r requirements.txt
 
 # Lanceur runAs (tools/forge_runas_launcher.py) et services Windows : win32event, win32process, win32profile...
-pywin32==311; sys_platform == "win32"
+pywin32==312; sys_platform == "win32"
 
 # NokidoQdrantSidecar
-qdrant-client==1.18.0
+qdrant-client==1.19.1
 
 # NokidoTuiBridge (interface texte servie dans le navigateur)
-textual==8.2.4
+textual==8.2.8
 textual-serve==1.1.3
 
 # NokidoGraphExplorer. Sous Linux, la roue PyPI de torch tire CUDA (plusieurs Go) : l'installation pose d'abord
@@ -22,17 +22,17 @@ textual-serve==1.1.3
 # (2.13.0+cpu satisfait ==2.13.0). Windows et macOS : la roue PyPI est deja sans CUDA.
 # 2.11.0 -> 2.13.0 le 2026-10-12 : alerte Dependabot #281 (GHSA-rrmf-rvhw-rf47, corruption memoire par
 # torch.jit.script, vulnerable <= 2.12.1), installee d'abord sur le poste de reference avec torchvision 0.28.0.
-torch==2.13.0
+torch==2.14.1
 # NokidoGraphExplorer importe aussi torch_geometric (mesure 4, run 37917879256 : « No module named 'torch_geometric' »
 # sur les 3 OS -- importe sous try puis sortie, donc invisible a l'etape `imports`). Version du poste de reference.
-torch-geometric==2.7.0
+torch-geometric==2.8.0.post1
 
 # NokidoGithubBridgeMCP et NokidoPairMCP : SDK MCP officiel (mesure 5, run 38162661913 : « No module named 'mcp' »
 # sur Linux et macOS). Importe par le script que forge_bridge_launch.py lance en SOUS-PROCESSUS : l'etape `imports`
 # ne le voyait pas avant de suivre les lanceurs delegants. Version du poste de reference.
 # 1.27.2 -> 1.28.1 le 2026-10-12 : alerte Dependabot #282 (controle Host/Origin du transport WebSocket),
 # installee d'abord sur le poste de reference.
-mcp==1.28.1
+mcp==2.3.0
 
 # NokidoNetcfgMCP et NokidoNetcfgUI : netcfg livre en paquets PyPI (decision owner du 2026-10-08, publication du
 # 2026-10-11). Plus de depot voisin : `-m netcfg_mcp` et `-m netcfg.demo.serve_ui`. [complet] = terminal, tui,

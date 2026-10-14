@@ -5,7 +5,7 @@
 -r requirements.txt
 
 # Embeddings (BGE-M3, MiniLM)
-sentence-transformers==5.6.0
+sentence-transformers==6.1.0
 # 5.10.0 est le correctif annonce, mais il est YANKED sur PyPI -- motif publie par les
 # auteurs : « We pushed from a week old main branch [...] missing a bunch of fixes ».
 # pip l'installe quand meme s'il est epingle : on ne fait donc PAS d'une version retiree
@@ -17,7 +17,7 @@ sentence-transformers==5.6.0
 # 5.10.1 est la premiere SAINE >= 5.10.0 sur les 15 mesurees, requires_python >=3.10.0.
 # Pas la derniere publiee (5.16.1) : fermer une CVE n'est pas traverser six mineures.
 # Borne inscrite dans forge_deps_reconcilier.INCOMPATIBLES_PYTHON.
-transformers==5.10.1
+transformers==5.19.0
 
 # PyTorch (CPU build — GPU/NPU via platform-specific install)
 # Windows NPU: pip install torch --index-url https://download.pytorch.org/whl/cpu
