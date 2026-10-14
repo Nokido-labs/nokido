@@ -84,14 +84,19 @@ Nokido 区分大多数项目混为一谈的三件事：**声明的**、**观测�
 
 ## 🚀 快速开始
 
-<!-- PIP:BEGIN nokido-agent version=0.20.10 -->
-**From PyPI** — [`nokido-agent 0.20.10`](https://pypi.org/project/nokido-agent/0.20.10/), published after the
-install proof on Linux, Windows and macOS:
+<!-- PIP:BEGIN nokido-agent version=0.20.11 -->
+**From PyPI** — [`nokido-agent 0.20.11`](https://pypi.org/project/nokido-agent/0.20.11/), published after the
+install proof on Linux, Windows and macOS. The complete organism, its pinned components
+(checksums verified), then the hub:
 
 ```bash
-pip install nokido-agent==0.20.10
-nokido-doctor                   # what this machine has, lacks, or cannot read
+pip install "nokido-agent[organisme]==0.20.11"
+nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token
+nokido-doctor                     # what this machine has, lacks, or cannot read
+nokido-hub                        # then: curl http://localhost:8766/health
 ```
+
+Client only (talks to an existing hub): `pip install nokido-agent==0.20.11`.
 <!-- PIP:END -->
 
 **从克隆安装** —— 即 CI 自身使用的路径（[详情](#-安装指南)）：
