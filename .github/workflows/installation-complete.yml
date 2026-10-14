@@ -67,7 +67,7 @@ jobs:
         run: python tools/forge_install_acceptance.py
       - name: Rapport et journaux
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: installation-${{ matrix.os }}
           path: |
@@ -112,7 +112,7 @@ jobs:
           python tools/forge_install_acceptance.py "--paquet=$SPEC_PAQUET"
       - name: Rapport et journaux
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: paquet-${{ matrix.os }}
           path: |
@@ -163,7 +163,7 @@ jobs:
         run: python tools/forge_install_acceptance.py --organisme
       - name: Rapport et journaux
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: organisme-${{ matrix.os }}
           path: |
