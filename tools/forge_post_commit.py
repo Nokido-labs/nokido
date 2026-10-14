@@ -55,8 +55,9 @@ _handlers = [logging.StreamHandler(sys.stderr)]
 try:
     _handlers.insert(0, RotatingFileHandler(str(LOG), encoding="utf-8",
                                             maxBytes=10485760, backupCount=5))
-except Exception:  # noqa: BLE001 - droits, disque plein, chemin absent
-    pass
+except Exception as _exc_journal:  # noqa: BLE001 - droits, disque plein, chemin absent : stderr seul, et on le DIT
+    print("[post-commit] journal fichier %s indisponible (%s) : sortie sur stderr seulement"
+          % (LOG, type(_exc_journal).__name__), file=sys.stderr)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -229,8 +230,9 @@ def _hub_token() -> str:
                   "--generate-missing --from-registre --ring-max 4 --agents POST_COMMIT",
                   file=_sys.stderr)
             return tok
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 - jeton derive illisible : le repli sur le MAITRE ne doit pas etre muet
+        print("[post-commit] jeton derive POST_COMMIT illisible (%s) : repli sur le jeton maitre"
+              % type(exc).__name__, file=_sys.stderr)
     return get_secret("FORGE_MCP_TOKEN") or ""
 
 
@@ -533,7 +535,10 @@ def update_skill_md(changed_files: list[Path], dry_run: bool = False):
     # n'est suivi par personne. Mesure du 2026-08-15 : docs/skills/nokido/SKILL.md
     # fige au 11/08 15:54 depuis quatre jours pendant que 90 commits
     # s'empilaient dans le doublon fantome -- les IAs lisaient une carte perimee.
-    skill_path = ROOT / "docs" / "skills" / "nokido" / "SKILL.md"
+    # Decision owner du 14/10 : le journal vit dans un fichier ANNEXE non versionne (.gitignore). Ecrit dans SKILL.md
+    # (suivi), il resalissait l'arbre partage apres CHAQUE commit -- la CI refusait alors de rattacher son verdict a
+    # un SHA. SKILL.md reste la carte statique et cite ce journal ; `git log` fait foi pour l'historique.
+    skill_path = ROOT / "docs" / "skills" / "nokido" / "JOURNAL_COMMITS.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
 
     sha = _get_commit_sha()
@@ -575,18 +580,28 @@ def update_skill_md(changed_files: list[Path], dry_run: bool = False):
         log.info(f"[DRY] SKILL.md update: {len(new_py)} py + {len(new_md)} md")
         return
 
-    # Chercher le premier bloc ## Commit pour insérer avant lui
+    # Chercher le premier bloc ## Commit pour insérer avant lui. `rstrip` : chaque insertion ajoutait un saut de
+    # ligne devant, et l'en-tete de SKILL.md avait accumule des centaines de lignes vides (mesure du 14/10).
     insert_marker = "\n## Commit "
     if insert_marker in existing:
         idx = existing.find(insert_marker)
-        new_content = existing[:idx] + "\n" + entry + existing[idx:]
+        new_content = existing[:idx].rstrip("\n") + "\n\n" + entry.strip("\n") + "\n" + existing[idx:]
     else:
-        # Créer le fichier depuis un template
-        header = _skill_header()
-        new_content = header + "\n" + entry
+        new_content = ("# Journal des commits (post-commit, NON versionne)\n\nEcrit par tools/forge_post_commit.py. "
+                       "L'historique qui fait foi est `git log`.\n\n" + entry.strip("\n") + "\n")
 
-    skill_path.write_text(new_content[:100000], encoding="utf-8")  # cap 100KB
-    log.info(f"SKILL.md mis à jour: {skill_path}")
+    # Plafond 100 Ko, coupe a une FRONTIERE d'entree, et on DIT combien d'entrees anciennes sont retirees : la
+    # coupe d'origine (`[:100000]`) tranchait au milieu d'une entree sans rien dire.
+    if len(new_content) > 100000:
+        garde = new_content[:100000]
+        fin = garde.rfind(insert_marker)
+        garde = garde[:fin] if fin > 0 else garde
+        retirees = new_content.count(insert_marker) - garde.count(insert_marker)
+        log.warning("journal des commits : %d entree(s) anciennes retirees au plafond de 100 Ko "
+                    "(git log les garde toutes)", retirees)
+        new_content = garde + "\n"
+    skill_path.write_text(new_content, encoding="utf-8")
+    log.info(f"journal des commits mis à jour: {skill_path}")
 
 
 def _skill_header() -> str:

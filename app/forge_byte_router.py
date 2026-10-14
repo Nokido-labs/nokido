@@ -233,6 +233,17 @@ class ByteRouterMiddleware:
                 log.debug("[ByteRouter] anticipation skip: %s", _e)
         # ─────────────────────────────────────────────────────────────────────
 
+        # Sonde PASSIVE du chemin chaud (roadmap P2) : debit par (agent, outil), AVANT le rate-limit,
+        # pour mesurer aussi les appels qu'il refuserait. Eteinte ou absente = rien ne change.
+        try:
+            from nokido_agent.app.forge_hotpath_probe import sonde_active as _sonde_hotpath
+
+            _p = _sonde_hotpath()
+        except Exception:  # noqa: BLE001 -- muet-ok : sans sonde, le routage est inchange
+            _p = None
+        if _p is not None:
+            _p.on_tool_call(agent, tool_name)
+
         # Rate-limit optionnel
         limit = _RATE_LIMITS.get(tool_name)
         if limit and _CALL_COUNTS.get(key, 0) > limit:

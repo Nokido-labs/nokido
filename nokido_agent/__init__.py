@@ -50,7 +50,7 @@ from importlib.abc import Loader as _Loader
 from importlib.abc import MetaPathFinder as _Finder
 from pathlib import Path as _Path
 
-__version__ = "0.20.10"
+__version__ = "0.20.11"
 
 _RACINE = _Path(__file__).resolve().parent.parent
 _ZONES = ("app", "tools")
@@ -153,3 +153,13 @@ if any((_RACINE / _z).is_dir() for _z in _ZONES):
             setattr(_sys.modules[__name__], _nom, _module)
 
     del _nom, _dossier, _cle
+else:
+    # INSTALLE (pip) : les donnees sortent du paquet AVANT tout ecrivain -- chantier 3, decision owner du 13/10.
+    # RAG, data, logs, sandbox, runtime deviennent des liens vers le dossier de donnees de l'utilisateur
+    # (forge_db_path.rediriger_donnees). Un import ne casse jamais le paquet : l'etat reste LISIBLE ici.
+    try:
+        from nokido_agent.app.forge_db_path import rediriger_donnees as _rediriger
+
+        ETAT_DONNEES = _rediriger()
+    except Exception as _exc:  # noqa: BLE001
+        ETAT_DONNEES = {"mode": "ECHEC", "raison": "%s: %s" % (type(_exc).__name__, _exc)}

@@ -13,7 +13,11 @@ Contrats :
   5. une ecriture au coffre machine ne laisse jamais une copie reservee perimee ;
   6. l'outil de provisionnement refuse hors SYSTEM, n'ecrit rien sans --appliquer,
      n'ecrase jamais une valeur differente, n'affiche jamais une valeur, et ses cles
-     dediees valent celles que les modules utilisent.
+     dediees valent celles que les modules utilisent ;
+  7. hors Windows et hors root, un trousseau qui refuse (mesure du 2026-10-14 : parcours
+     paquet Ubuntu et macOS, semis du jeton EDITOR « NON ECRIT », CLI en ring 3) bascule
+     sur un fichier 0600 de l'utilisateur, DIT une fois, jamais par-dessus un fichier
+     illisible, et une ecriture reussie au trousseau en retire la copie de repli.
 """
 from __future__ import annotations
 
@@ -254,6 +258,216 @@ def test_une_ecriture_au_coffre_machine_ne_laisse_pas_une_copie_reservee_perimee
     monkeypatch.setattr(mv, "reserve_list", lambda: ([], mv.RESERVE_ACCES_REFUSE))
     assert not mv.vault_set(NOM, "quatrieme")
     assert mv.vault_set(ORDINAIRE, "libre")
+
+
+# --- 8. hors Windows (decision owner du 2026-10-09, « Fichier root 0600 ») -----------------
+
+@pytest.fixture
+def posix(mv, monkeypatch):
+    modes = []
+    vrai = mv._ecrire_posix
+
+    def espion(chemin, texte, mode, groupe=None):
+        modes.append((chemin.name, mode, groupe))
+        vrai(chemin, texte, mode, None)  # le groupe n'existe pas sur l'hote de test
+    monkeypatch.setattr(mv, "_IS_WIN", False)
+    monkeypatch.setattr(mv, "_dossier_posix_ferme", lambda d: True)
+    monkeypatch.setattr(mv, "_ecrire_posix", espion)
+    return mv, modes
+
+
+def test_posix_le_coffre_reserve_est_un_fichier_root_0600_encode_pas_chiffre(posix):
+    mv, modes = posix
+    assert mv.reserve_set(NOM, "valeur-posix-0001")
+    assert mv.reserve_lire(NOM) == ("valeur-posix-0001", mv.RESERVE_TROUVE)
+    assert ("coffre_reserve.dat", 0o600, None) in modes, "mode 0600 pose A LA CREATION"
+    stocke = json.loads(mv.RESERVE_PATH.read_text(encoding="utf-8"))[NOM]
+    import base64
+    assert base64.b64decode(stocke) == b"valeur-posix-0001", "encodage, pas DPAPI : la protection est le mode"
+
+
+def test_posix_un_dossier_ouvert_refuse_toute_ecriture(posix, monkeypatch, capsys):
+    mv, _modes = posix
+    monkeypatch.setattr(mv, "_dossier_posix_ferme", lambda d: False)
+    assert not mv.reserve_set(NOM, "jamais")
+    assert "0700" in capsys.readouterr().out and not mv.RESERVE_PATH.exists()
+
+
+def test_posix_root_vaut_system_pour_sceller(mv, monkeypatch):
+    monkeypatch.undo()  # le vrai _sid_courant, pas celui de la fixture
+    m = importlib.import_module(MV)
+    monkeypatch.setattr(m, "_IS_WIN", False)
+    monkeypatch.setattr(m.os, "geteuid", lambda: 0, raising=False)
+    assert m._sid_courant() == SYSTEM
+    monkeypatch.setattr(m.os, "geteuid", lambda: 1000, raising=False)
+    assert m._sid_courant() == "uid:1000"
+
+
+def test_posix_le_coffre_machine_root_est_0640_au_groupe_des_bacs(posix, monkeypatch, tmp_path):
+    mv, modes = posix
+    monkeypatch.setattr(mv, "RESERVE_DIR", tmp_path / "coffre")
+    monkeypatch.setattr(mv.os, "geteuid", lambda: 0, raising=False)
+    assert mv.vault_set(ORDINAIRE, "jeton-agent-0001")
+    assert ("coffre_machine.json", 0o640, mv.GROUPE_BACS_POSIX) in modes
+    assert mv._vault_get_brut(ORDINAIRE) == "jeton-agent-0001"
+
+
+class _TrousseauSansSession(Exception):
+    """Ce que rend `keyring` sans Secret Service ni Keychain deverrouille."""
+
+
+def _faux_keyring(marche: dict):
+    import types
+    k = types.ModuleType("keyring")
+    stock: dict = {}
+
+    def _refuse():
+        if not marche["ok"]:
+            raise _TrousseauSansSession("aucun trousseau")
+
+    def set_password(service, cle, valeur):
+        _refuse()
+        stock[cle] = valeur
+
+    def get_password(service, cle):
+        _refuse()
+        return stock.get(cle)
+
+    def delete_password(service, cle):
+        _refuse()
+        del stock[cle]
+    k.set_password, k.get_password, k.delete_password = set_password, get_password, delete_password
+    return k
+
+
+@pytest.fixture
+def utilisateur(posix, monkeypatch, tmp_path):
+    """Process NON root hors Windows, sans coffre machine, fichier utilisateur dans tmp_path."""
+    mv, modes = posix
+    monkeypatch.setattr(mv.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(mv, "_coffre_machine_posix", lambda: tmp_path / "absent" / "coffre_machine.json")
+    fichier = tmp_path / "home" / "nokido" / "coffre_utilisateur.json"
+    monkeypatch.setattr(mv, "_coffre_utilisateur_posix", lambda: fichier)
+    monkeypatch.setattr(mv, "_REPLI_DIT", set())
+    marche = {"ok": False}
+    monkeypatch.setitem(sys.modules, "keyring", _faux_keyring(marche))
+    return mv, modes, fichier, marche
+
+
+def test_posix_trousseau_refuse_repli_fichier_utilisateur_0600_dit_une_fois(utilisateur, capsys):
+    mv, modes, fichier, _marche = utilisateur
+    assert mv.vault_set(ORDINAIRE, "jeton-editor-0001"), "le semis du jeton ne doit plus etre NON ECRIT"
+    assert ("coffre_utilisateur.json", 0o600, None) in modes, "mode 0600 pose A LA CREATION"
+    out = capsys.readouterr().out
+    assert "_TrousseauSansSession" in out and "coffre utilisateur 0600" in out, out
+    assert "jeton-editor-0001" not in out, "jamais une valeur dans un message"
+    assert mv._vault_get_brut(ORDINAIRE) == "jeton-editor-0001"
+    assert ORDINAIRE in mv.vault_list()
+    assert mv.vault_set(ORDINAIRE + "_2", "jeton-editor-0002")
+    assert "repli" not in capsys.readouterr().out, "le repli se dit UNE fois, pas a chaque cle"
+    assert mv.vault_delete(ORDINAIRE) and mv._vault_get_brut(ORDINAIRE) is None
+    assert mv._vault_get_brut(ORDINAIRE + "_2") == "jeton-editor-0002"
+
+
+def test_posix_une_ecriture_au_trousseau_retire_la_copie_de_repli(utilisateur):
+    mv, _modes, fichier, marche = utilisateur
+    assert mv.vault_set(ORDINAIRE, "ancienne-0001")
+    assert ORDINAIRE in json.loads(fichier.read_text(encoding="utf-8"))
+    marche["ok"] = True
+    assert mv.vault_set(ORDINAIRE, "neuve-0002")
+    assert ORDINAIRE not in json.loads(fichier.read_text(encoding="utf-8")), "copie perimee laissee au fichier"
+    assert mv._vault_get_brut(ORDINAIRE) == "neuve-0002"
+
+
+def test_posix_un_coffre_utilisateur_illisible_n_est_jamais_ecrase(utilisateur, capsys):
+    mv, _modes, fichier, _marche = utilisateur
+    fichier.parent.mkdir(parents=True)
+    fichier.write_text("{pas du json", encoding="utf-8")
+    assert not mv.vault_set(ORDINAIRE, "jamais-0001")
+    assert fichier.read_text(encoding="utf-8") == "{pas du json"
+    out = capsys.readouterr().out
+    assert "ILLISIBLE" in out and "REFUSE" in out, out
+
+
+# --- 7. machine NEUVE (decision owner du 2026-10-09, « Go, coffre reserve ») -----------
+
+def test_planifier_machine_neuve_ne_genere_que_ce_qui_manque_partout():
+    o = _outil()
+    plan = {"FORGE_MCP_TOKEN": o.SOURCE_ABSENTE, "LAFORGE_ADMIN_TOKEN": o.IDENTIQUE,
+            "LAFORGE_VC_KEYFILE_B64": o.SOURCE_ABSENTE, "FORGE_PERSONA_HMAC_KEY": o.A_GENERER,
+            "LAFORGE_JWT_SECRET": o.EN_PLACE_SOURCE_RETIREE}
+    neuf = o.planifier_machine_neuve(plan, lire_machine=lambda n: (None, "absente"))
+    assert neuf["FORGE_MCP_TOKEN"] == o.A_GENERER_NEUF and neuf["FORGE_PERSONA_HMAC_KEY"] == o.A_GENERER_NEUF
+    assert neuf["LAFORGE_ADMIN_TOKEN"] == o.IDENTIQUE and neuf["LAFORGE_JWT_SECRET"] == o.EN_PLACE_SOURCE_RETIREE
+    assert neuf["LAFORGE_VC_KEYFILE_B64"] == o.SOURCE_ABSENTE, "pas de volume chiffre : jamais invente"
+    # presente au coffre machine, la cle persona regeneree serait une ROTATION : jamais ici
+    assert o.planifier_machine_neuve({"FORGE_PERSONA_HMAC_KEY": o.A_GENERER},
+                                     lire_machine=lambda n: ("x", "copie"))["FORGE_PERSONA_HMAC_KEY"] == o.A_GENERER
+
+
+@WIN
+def test_machine_neuve_genere_au_coffre_reserve_sans_rien_afficher_ni_toucher_le_coffre_machine(
+        mv, fs, monkeypatch, capsys):
+    o = _outil()
+    monkeypatch.setattr(o, "_lire_coffre_machine", lambda n: (None, "ABSENTE du coffre machine"))
+    monkeypatch.setattr(o, "_fernet_en_service", lambda: (None, "aucune"))
+    monkeypatch.setattr(o, "_db_en_service", lambda: (None, "aucune"))
+    monkeypatch.setattr(o, "creer_dossier_reserve", lambda appliquer: "PRESENT_ACL_FERMEE")
+    monkeypatch.setattr(o, "amorcer_identites_et_appariements", lambda appliquer: {})
+    ecrits_machine = []
+    monkeypatch.setattr(mv, "vault_set", lambda k, v: ecrits_machine.append(k))
+    assert o.main(["--machine-neuve", "--appliquer"]) == 0
+    sortie = capsys.readouterr().out
+    attendus = (set(o.COPIES) | set(o.DEDIEES) | set(o.NOUVELLES)) - set(o.HORS_MACHINE_NEUVE)
+    valeurs = {}
+    for nom in attendus:
+        v, etat = mv.reserve_lire(nom)
+        assert etat == mv.RESERVE_TROUVE and v, nom
+        assert v not in sortie, "une valeur n'est jamais affichee"
+        valeurs[nom] = v
+    assert ecrits_machine == [], "aucun nom reserve n'est ecrit au coffre machine (faille du 28/09)"
+    assert mv.reserve_lire("LAFORGE_VC_KEYFILE_B64")[1] != mv.RESERVE_TROUVE
+    from cryptography.fernet import Fernet
+    Fernet(valeurs["FORGE_ENCRYPT_KEY"].encode())  # une cle Fernet VALIDE, pas un jeton quelconque
+    assert len(set(valeurs.values())) == len(valeurs), "chaque secret a sa propre valeur"
+    assert o.main(["--machine-neuve", "--appliquer"]) == 0
+    assert all(mv.reserve_lire(n)[0] == v for n, v in valeurs.items()), "rien n'est jamais regenere"
+
+
+@WIN
+def test_codes_d_appariement_generes_scelles_et_poses_une_fois_a_noter(mv, fs, monkeypatch, tmp_path):
+    import re
+    _s, machine = fs
+    o = _outil()
+    monkeypatch.setattr(o, "A_NOTER", tmp_path / "Nokido" / "appariement_a_noter.txt")
+    monkeypatch.setattr(o, "dossier_ferme",
+                        lambda d, appliquer: (d.mkdir(parents=True, exist_ok=True), "PRESENT_ACL_FERMEE")[1])
+    tpm = importlib.import_module("nokido_agent.app.forge_persona_tpm")
+    monkeypatch.setattr(tpm, "ensure_persona_key", lambda: False)
+    monkeypatch.setattr(mv, "vault_set", lambda k, v: machine.__setitem__(k, v))
+    b = o.amorcer_identites_et_appariements(True)
+    assert b["persona_tpm"].startswith("TPM_INDISPONIBLE")
+    texte = o.A_NOTER.read_text(encoding="utf-8")
+    for nom in o.APPARIEMENTS:
+        assert b[nom] == o.ECRITE and re.fullmatch(r"[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}", machine[nom])
+        assert machine[nom] in texte
+    assert o.amorcer_identites_et_appariements(True)[o.APPARIEMENTS[0]] == o.DEJA_EN_PLACE, "jamais regenere"
+
+
+def test_un_dossier_de_secrets_a_l_acl_ouverte_est_refuse(monkeypatch, tmp_path):
+    import subprocess
+    o = _outil()
+
+    class R:
+        def __init__(self, out):
+            self.stdout, self.returncode = out, 0
+    monkeypatch.setattr(subprocess, "run", lambda a, **k: R("d BUILTIN\\Users:(RX)\n"))
+    assert o.dossier_ferme(tmp_path, True).startswith("ACL_OUVERTE")
+    monkeypatch.setattr(subprocess, "run",
+                        lambda a, **k: R("d NT AUTHORITY\\SYSTEM:(OI)(CI)(F)\n BUILTIN\\Administrators:(OI)(CI)(F)\n"))
+    assert o.dossier_ferme(tmp_path, True) == "PRESENT_ACL_FERMEE"
+    neuf = tmp_path / "neuf"
+    assert o.dossier_ferme(neuf, False) == "A_CREER" and not neuf.exists(), "en plan, rien n'est cree"
 
 
 # --- 6. l'outil de provisionnement ----------------------------------------------

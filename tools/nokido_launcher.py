@@ -13,6 +13,9 @@ Fonctions :
   [6] Status rapide (hub + mode + agents)
   [Q] Quitter
 
+Icone unique « Nokido » du Bureau (owner 2026-10-13) : `--action lancer` = la stack si
+elle dort, puis le tray ; hub deja debout = seul le tray est assure, rien n'est relance.
+
 Style : terminal dark, couleurs ANSI, ASCII art Nokido
 """
 
@@ -401,8 +404,8 @@ def _tray_python() -> str:
     return sys.executable
 
 
-def _start_tray():
-    """Lance l'icone tray et VERIFIE qu'elle survit.
+def _start_tray() -> bool:
+    """Lance l'icone tray et VERIFIE qu'elle survit (True : vivant ou deja actif).
 
     L'ancienne version envoyait stdout/stderr dans DEVNULL puis annoncait
     « ✓ Tray lancé » sans rien verifier : un tray qui mourait aussitot — le
@@ -413,7 +416,7 @@ def _start_tray():
     tray = ROOT / "tools" / "nokido_tray.py"
     if not tray.exists():
         print(f"  {YE}  ⚠ tray introuvable : {tray}{R}")
-        return
+        return False
     log_path = ROOT / "logs" / "tray.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     exe = _tray_python()
@@ -441,12 +444,12 @@ def _start_tray():
     time.sleep(2.0)
     if proc.poll() is None:
         print(f"  {GR}✓ Tray lancé (pid {proc.pid}){R}")
-        return
+        return True
     if proc.returncode == 3:
         # nokido_tray.TRAY_DEJA_ACTIF (instance unique, 2026-09-26) : un tray tourne deja --
         # cas d'un restart lance DEPUIS le tray, que le stop epargne. Ce n'est pas une mort.
         print(f"  {GR}✓ Tray déjà actif (instance unique){R}")
-        return
+        return True
     print(f"  {RE}✗ Tray mort aussitôt (code {proc.returncode}){R}")
     print(f"  {DIM}    python : {exe}{R}")
     try:
@@ -457,6 +460,7 @@ def _start_tray():
         if line.strip():
             print(f"  {DIM}    {line}{R}")
     print(f"  {DIM}    log : {log_path}{R}")
+    return False
 
 
 def _action_start():
@@ -468,6 +472,42 @@ def _action_start():
     if _wait_hub("start"):
         _start_tray()
     input(f"\n  {DIM}[Entrée pour continuer]{R} ")
+
+
+def _action_lancer() -> bool:
+    """Icone unique « Nokido » du Bureau (owner 2026-10-13) : la stack si elle dort, puis le tray.
+
+    Hub debout = stack debout : on ne relance RIEN (ni UAC, ni restart d'une stack saine), on
+    s'assure seulement du tray (une seconde instance sort en code 3 = deja actif). Hub absent =
+    nokido_start.ps1 (fenetre dediee, UAC), attente du hub, puis le tray. Rend True seulement si
+    le hub est UP ET le tray vivant. Succes : la console se ferme seule ; echec : elle reste
+    ouverte sur le motif. Stop / Restart / Statut vivent dans le menu du tray."""
+    try:
+        hs = _hub_status()
+        if hs.get("up"):
+            print(f"\n  {GR}Nokido est déjà debout (hub v{hs.get('version')}) — rien à relancer.{R}")
+            ok = _start_tray()
+        else:
+            print(f"\n  {GR}Démarrage Nokido — full-stack (nokido_start.ps1) puis tray...{R}")
+            print(f"  {DIM}Boot dans une fenêtre dédiée (UAC) : Master Tier-0 → flotte.{R}")
+            # 5 min, pas les 90 s de _action_start : un boot complet les depasse souvent, et sans
+            # hub le tray n'est pas lance -- l'icone aurait l'air de n'avoir rien fait.
+            ok = (_run_stack_script("nokido_start.ps1") and _wait_hub("start", tries=150)
+                  and _start_tray())
+    except Exception as exc:  # la console doit DIRE l'echec, pas se fermer avec lui
+        print(f"  {RE}✗ {type(exc).__name__}: {exc}{R}")
+        ok = False
+    if ok:
+        print(f"\n  {GR}✓ Nokido prêt : stack + tray. Cette fenêtre se ferme.{R}")
+        time.sleep(4)
+    else:
+        print(f"\n  {RE}✗ Lancement incomplet — motif ci-dessus. Hub monté plus tard : "
+              f"un nouveau clic sur l'icône lance le tray.{R}")
+        try:
+            _input_builtin(f"\n  {DIM}[Entrée pour fermer]{R} ")
+        except (EOFError, KeyboardInterrupt):  # muet-ok : pas de console a attendre, le motif est deja affiche
+            pass
+    return bool(ok)
 
 
 def _action_stop():
@@ -588,7 +628,8 @@ def _action_restart_hub():
         cause = "jeton refuse" if jeton else "aucun jeton lisible dans le coffre"
         print(f"  {RE}Superviseur :8765 a REFUSE '{etape}' (HTTP {code}) : {cause}.{R}")
         if etape == "start":
-            print(f"  {RE}Le hub est ARRETE et n'a pas ete relance : 'Nokido - Restart stack'.{R}")
+            print(f"  {RE}Le hub est ARRETE et n'a pas ete relance : menu du tray 'Restart full-stack', "
+                  f"ou icone 'Nokido' du Bureau.{R}")
         input(f"\n  {DIM}[Entree pour continuer]{R} ")
         return
 
@@ -599,7 +640,7 @@ def _action_restart_hub():
         # (collision :8766, crash-loop documentee dans CLAUDE.md regle 10). Superviseur
         # muet = la stack est a relancer par le lanceur du Bureau, on le DIT.
         print(f"  {RE}Superviseur :8765 muet : le hub ne se relance pas seul. "
-              f"Relancer la stack par 'Nokido - Restart stack' (Bureau owner).{R}")
+              f"Relancer la stack : menu du tray 'Restart full-stack', ou icone 'Nokido' du Bureau.{R}")
         input(f"\n  {DIM}[Entree pour continuer]{R} ")
         return
 
@@ -715,21 +756,22 @@ ACTIONS = {
     "restart-hub": lambda: _action_restart_hub(),
     "wake": lambda: _wake_daemons(),
     "start": lambda: _action_start(),
+    "lancer": lambda: _action_lancer(),
     "stop": lambda: _action_stop(),
     "restart": lambda: _action_restart(),
     "tailscale-statut": lambda: _action_tailscale_statut(),
     "funnel-ouvrir": lambda: _action_funnel(True),
     "funnel-fermer": lambda: _action_funnel(False),
 }
-ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart")
+ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart", "lancer")
 
 
 def _cli(action: str) -> int:
-    """Mode non interactif : 0 fait, 2 action inconnue, 3 refuse (droits)."""
+    """Mode non interactif : 0 fait, 1 echec constate, 2 action inconnue, 3 refuse (droits)."""
     global INTERACTIF
     INTERACTIF = False
     if action in ("list", "--list", "help"):
-        print("actions : " + ", ".join(ACTIONS) + " (start/stop/restart = Bureau owner seulement)")
+        print("actions : " + ", ".join(ACTIONS) + " (start/stop/restart/lancer = Bureau owner seulement)")
         return 0
     fn = ACTIONS.get(action)
     if fn is None:
@@ -738,10 +780,10 @@ def _cli(action: str) -> int:
     if action in ACTIONS_BUREAU_SEULEMENT and _compte_de_service():
         print(f"REFUS : '{action}' lance un script qui s'auto-eleve (UAC) ; depuis le compte "
               f"{os.environ.get('USERNAME', '?')} il n'y a pas de bureau pour repondre. "
-              "Geste owner : raccourci 'Nokido START/STOP/Restart stack' du Bureau.")
+              "Geste owner : icone 'Nokido' du Bureau, ou le menu du tray.")
         return 3
-    fn()
-    return 0
+    # Une action qui CONSTATE son echec rend False (lancer) : rc 1, jamais un faux 0.
+    return 1 if fn() is False else 0
 
 
 def _console_couleurs(titre: str):

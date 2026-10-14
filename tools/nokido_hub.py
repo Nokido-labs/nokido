@@ -781,7 +781,7 @@ def _sse_broadcast(event: dict):
         for q in dead:
             try:
                 _SSE_CLIENTS.remove(q)
-            except ValueError:
+            except ValueError:  # muet-ok : client SSE deja retire par un autre chemin
                 pass
 
 
@@ -866,7 +866,11 @@ def _agents_a_charger() -> tuple:
             "recevra 401 et comptera comme trafic anonyme",
             registre.name, type(exc).__name__, str(exc)[:80], len(noms))
         return tuple(noms)
-    ajoutes = [a for a in declarees if a not in noms]
+    # `jeton_direct: false` (OWNER_PORTAIL, decision owner 2a du 13/10) : sujet joignable SEULEMENT par
+    # delegation -- meme si un jeton existait au coffre, le charger ouvrirait son ring sans delegateur.
+    sans_jeton = {a for a, m in declarees.items() if isinstance(m, dict) and m.get("jeton_direct") is False}
+    noms = [a for a in noms if a not in sans_jeton]
+    ajoutes = [a for a in declarees if a not in noms and a not in sans_jeton]
     if ajoutes:
         _logging.getLogger("forge.hub").info(
             "[identite] %d identite(s) chargee(s) depuis le registre en plus du "
@@ -1100,6 +1104,16 @@ def _exiger_identite(request):
     return None
 
 
+_DEJA_DIT: set = set()
+
+
+def _dire_une_fois(cle: str, message: str) -> None:
+    """Avertir UNE fois par cause : un silence cachait un effet reel, un journal inonde le cacherait autant (14/10)."""
+    if cle not in _DEJA_DIT:
+        _DEJA_DIT.add(cle)
+        logger.warning(message)
+
+
 def _resolve_ring(request) -> tuple[int, str]:
     auth = request.headers.get("Authorization", "")
     # LaForge-Agent-Name = canonique ORG-SCOPÉ (RFC 6648 §3 anti-collision, directive
@@ -1110,7 +1124,10 @@ def _resolve_ring(request) -> tuple[int, str]:
     local = client in ("127.0.0.1", "::1", "localhost")
 
     if not HUB_TOKEN:
-        return _ring_local_sans_preuve() if local else (-1, "no_token")
+        # Installation neuve : pas de maitre, mais un jeton d'agent DERIVE se prouve sans lui (parcours
+        # paquet 3 OS du 13/10 : EDITOR seme et charge, chaque requete au ring 3). Sans preuve : inchange.
+        from nokido_agent.app.forge_auth_tokens import ring_sans_maitre
+        return ring_sans_maitre(auth, local, _AGENT_TOKENS, _agent_ring, _ring_local_sans_preuve)
 
     if not auth.lower().startswith("bearer "):
         return -1, "no_auth"
@@ -1153,8 +1170,10 @@ def _resolve_ring(request) -> tuple[int, str]:
             try:
                 from nokido_agent.app.forge_videur import capture as _vcapture
                 _vcapture(_ident, "_resolve_ring")
-            except Exception:
-                pass
+            except Exception as _exc_cap:
+                _dire_une_fois("videur_cap_%s" % type(_exc_cap).__name__,
+                               "[videur] trace d'identite chiffree NON journalisee (%s) -- jeton de capacite"
+                               % type(_exc_cap).__name__)
             return int(cap_token.ring), cap_token.sub
         except Exception as e:
             logger.warning(f"CapabilityToken verification failed: {e}")
@@ -1214,8 +1233,9 @@ def _resolve_ring(request) -> tuple[int, str]:
                         "sujet": _ident.get("agent"),
                         "sujet_prouve": False}
             _vcapture(_ident, "_resolve_ring", _sup or None)  # log crypté dynamique
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _exc_vc:  # noqa: BLE001
+            _dire_une_fois("videur_%s" % type(_exc_vc).__name__,
+                           "[videur] trace d'identite chiffree NON journalisee (%s)" % type(_exc_vc).__name__)
         return int(_ident["ring"]), _ident["agent"]
     except Exception as _ve:  # noqa: BLE001 - videur indispo -> fallback legacy
         logger.warning(f"[videur] fallback resolution legacy: {_ve}")
@@ -1357,7 +1377,7 @@ async def _tool_call(name: str, args: dict, ring: int, agent: str = "HUB", token
         _fl = _route_flow(name)
         if _fl.get("role") and _fl["role"] != "aiguilleur":
             logger.debug(f"[flux] {name} -> {_fl['role']} ({_fl.get('organ', '')})")
-    except Exception:
+    except Exception:  # muet-ok : flux = observabilite, voir ci-dessous
         # muet-ok : le flux est observabilite, jamais un point de blocage ;
         # et il alimente deja `logger.debug` juste au-dessus.
         pass
@@ -1405,8 +1425,8 @@ NETWORK_HTML = r"""<!DOCTYPE html>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>Nokido Hub</title>
 <link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- Inter vient de laforge-tokens.css (@font-face -> /static/fonts/*.woff2) : aucune
+     feuille Google, qui sortait vers fonts.googleapis.com a chaque ouverture. -->
 <!-- Portage design system (passe 1, surface hub :8766) : tokens plats servables
      en 1 segment (la route /static/{fname} refuse l'imbriqué). Liés AVANT le
      <style> inline -> inline gagne, look préservé, tokens design dispos. -->
@@ -2455,7 +2475,7 @@ async def watch_stream_api(request):
             with _WATCH_SSE_LOCK:
                 try:
                     _WATCH_SSE_CLIENTS.remove(q)
-                except ValueError:
+                except ValueError:  # muet-ok : client SSE deja retire par un autre chemin
                     pass
                 _restants = len(_WATCH_SSE_CLIENTS)
             _sse_trace("close", _restants, flux="watch")
@@ -3031,7 +3051,7 @@ async def _build_app():
                 with _SSE_LOCK:
                     try:
                         _SSE_CLIENTS.remove(q)
-                    except ValueError:
+                    except ValueError:  # muet-ok : client SSE deja retire par un autre chemin
                         pass
                     _restants = len(_SSE_CLIENTS)
                 _sse_trace("close", _restants)
@@ -3102,7 +3122,7 @@ async def _build_app():
             # appels rapprochés d'une même session/agent en un flow corrélé.
             _explicit = extract_headers(dict(request.headers))
             set_trace_id(_explicit or session_trace_id(session_id or agent_hdr or ""))
-        except Exception:
+        except Exception:  # muet-ok : correlation de trace = observabilite, jamais bloquante
             pass
         # ActorContext (#7) : identité PRÉCISE agent×canal×transport posée pour CE
         # request -> lue SANS param par l'audit DB read/write (#8) + tous les sinks.
@@ -3111,7 +3131,7 @@ async def _build_app():
 
             _ach, _atr, _amc = _agent_meta(agent_hdr)
             set_actor(agent_hdr, ring=ring, channel=_ach, transport=_atr, machine=_amc)
-        except Exception:
+        except Exception:  # muet-ok : contexte d'acteur = observabilite, jamais bloquant
             pass
         _write_agent_presence(agent_hdr, ring)
 
@@ -3154,7 +3174,7 @@ async def _build_app():
         if method == "tools/call":
             try:
                 _in_tool = body.get("params", {}).get("name")
-            except Exception:
+            except Exception:  # muet-ok : corps non-dict, aucun nom d'outil a lire
                 pass
         _log_network(
             "IN",
@@ -3288,7 +3308,7 @@ async def _build_app():
                     from nokido_agent.app.forge_mcp_elicitation import sse_requis as _sse_requis
 
                     use_sse = _sse_requis(name, args)
-                except Exception:  # noqa: BLE001 - sans le module : liste historique
+                except Exception:  # noqa: BLE001 - muet-ok : sans le module, liste historique
                     pass
             if use_sse:
 
@@ -3708,7 +3728,6 @@ async def _build_app():
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nokido Hub :8766</title>
 <link rel="icon" type="image/svg+xml" href="/static/nokido-favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <!-- Design system Nokido (claude design) - source unique de tokens. -->
 <link rel="stylesheet" href="/static/laforge-tokens.css">
 <link rel="stylesheet" href="/static/laforge-components.css">
@@ -4008,7 +4027,7 @@ for(const a of document.querySelectorAll('a[href^="http://127.0.0.1:"]'))a.href=
                     _d = json.loads(out)
                     if isinstance(_d, dict) and "text" in _d:
                         out = str(_d.get("text") or "")
-                except Exception:
+                except Exception:  # muet-ok : sortie non JSON, gardee telle quelle
                     pass
             except Exception as e:
                 out, err = f"ERR: {type(e).__name__}: {e}", True
@@ -4859,8 +4878,9 @@ Retourne exactement ce JSON:
                     src = h.get("source", "")
                     rag_hits.append(src)
                     rag_ctx += f"[RAG:{src}]\n{h.get('preview', '')[:300]}\n\n"
-            except Exception:
-                pass
+            except Exception as _exc_rag:
+                _dire_une_fois("rag_ctx_%s" % type(_exc_rag).__name__,
+                               "[ask] contexte RAG indisponible (%s) : reponse SANS contexte" % type(_exc_rag).__name__)
 
             context = f"Task: {task}\n"
             if rag_ctx:
@@ -5487,8 +5507,8 @@ Retourne exactement ce JSON:
                     return True
                 _journaliser_refus_admin(request, tok, "jwt_scope", required_scope)
                 return False
-            except Exception:
-                pass  # fallback raw bearer
+            except Exception as _exc_jwt:  # repli sur le porteur brut : DIT, plus jamais silencieux
+                logger.info("[admin] verification JWT en erreur (%s) : repli sur le porteur brut", type(_exc_jwt).__name__)
         # Path 2 : bearer raw (Phase 23A backward-compat)
         if not expected and not expected_env:
             no_auth = _os.environ.get("LAFORGE_NO_AUTH", "0") == "1"
@@ -5830,7 +5850,7 @@ Retourne exactement ce JSON:
                     _n_mod += 1
                     try:
                         _vars = vars(_m)
-                    except Exception:  # noqa: BLE001
+                    except Exception:  # noqa: BLE001 - muet-ok : module charge sans __dict__ lisible, ignore
                         continue
                     for _nom, _val in list(_vars.items()):
                         if isinstance(_val, _cls) and hasattr(_val, "chunks"):
@@ -5973,7 +5993,7 @@ Retourne exactement ce JSON:
                 from nokido_agent.app.forge_audit_log import build_traceparent
 
                 _headers["traceparent"] = build_traceparent(trace_id)
-            except Exception:
+            except Exception:  # muet-ok : en-tete de trace = observabilite, jamais bloquante
                 pass
         for _rang, _sup_tok in enumerate(_candidats or [""]):
             _h = dict(_headers)
@@ -6737,8 +6757,9 @@ Retourne exactement ce JSON:
                             client_ip=client_ip,
                         )
                     )
-                except Exception:
-                    pass
+                except Exception as _exc_trace:
+                    _dire_une_fois("trace_http_%s" % type(_exc_trace).__name__,
+                                   "[trace] requetes HTTP NON persistees (%s)" % type(_exc_trace).__name__)
 
     app.add_middleware(_TraceCtxMW)
     return app
@@ -7058,8 +7079,10 @@ async def _battement_de_service(periode_s: float = 60.0) -> None:
 
                 beat_daemon("hub", uptime_s=int(time.time() - debut), tours=tours,
                             port=HUB_PORT, health="ok")
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as _exc_pouls:  # noqa: BLE001
+                _dire_une_fois("pouls_%s" % type(_exc_pouls).__name__,
+                               "[pouls] battement du hub NON ecrit (%s) : le superviseur peut le croire mort"
+                               % type(_exc_pouls).__name__)
             # Trace dans le MEME journal que le boot : la derniere ligne du fichier
             # devient « ou en etait le hub », meme s'il est detruit sans preavis.
             if tours % 10 == 0:      # ~10 min : lisible sans noyer le journal

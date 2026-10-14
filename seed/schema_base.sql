@@ -150,6 +150,26 @@ CREATE TABLE IF NOT EXISTS biblio_topics (
 CREATE INDEX IF NOT EXISTS idx_topics_entry ON biblio_topics(entry_id);
 CREATE INDEX IF NOT EXISTS idx_topics_topic ON biblio_topics(topic);
 
+-- biblio_link : liens (dont hebbiens) entre fragments. Le seed l'exporte (manifest.json) mais le schema ne la
+-- creait pas : sur machine vierge, NokidoHebbian tombait sur « no such table: biblio_link » (mesure organisme 3,
+-- run 37846238481). Schema RELEVE tel quel dans la base de reference le 2026-10-09 (cles etrangeres comprises :
+-- SQLite ne les applique pas sans PRAGMA foreign_keys, comme chez l'owner).
+CREATE TABLE IF NOT EXISTS biblio_link (
+    src_id   TEXT NOT NULL,
+    dst_id   TEXT NOT NULL,
+    kind     TEXT NOT NULL,
+    weight   REAL DEFAULT 1.0,
+    source   TEXT DEFAULT 'manual',
+    created_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (src_id, dst_id, kind),
+    FOREIGN KEY (src_id) REFERENCES biblio_raw(id) ON DELETE CASCADE,
+    FOREIGN KEY (dst_id) REFERENCES biblio_raw(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_link_src ON biblio_link(src_id);
+CREATE INDEX IF NOT EXISTS idx_link_dst ON biblio_link(dst_id);
+CREATE INDEX IF NOT EXISTS idx_link_kind ON biblio_link(kind);
+CREATE INDEX IF NOT EXISTS idx_biblio_link_source ON biblio_link(source);
+
 CREATE TABLE IF NOT EXISTS forge_entities (
     entity_id TEXT PRIMARY KEY,
     entity_type TEXT NOT NULL CHECK(entity_type IN ('human','llm','worker','system')),

@@ -303,6 +303,53 @@ def _probe_exempt(command: str) -> bool:
     return True
 
 
+def _ram_directe() -> tuple | None:
+    """(% RAM, Go disponibles) mesures A L'INSTANT par psutil : microsecondes, aucun subprocess.
+    None = ILLISIBLE, jamais 0 (un capteur muet lu comme « charge nulle » ouvrirait le garde)."""
+    try:
+        import psutil
+
+        vm = psutil.virtual_memory()
+        return round(vm.percent, 1), round(vm.available / 1024 ** 3, 2)
+    except Exception:  # noqa: BLE001 -- muet-ok : None = ILLISIBLE, dit par les appelants
+        return None
+
+
+def _temoins_ram(snap: dict) -> str:
+    """Ce que le refus doit DIRE de sa propre mesure : age et source de l'instantane, et la mesure directe."""
+    import time  # local : `time` n'est pas importe au niveau du module
+
+    age = time.time() - float(snap.get("ts") or 0.0)
+    directe = _ram_directe()
+    return "instantane age %.0f s, source %s ; mesure directe %s" % (
+        age, snap.get("sampler") or "?",
+        "ILLISIBLE" if directe is None else "%s%% (%s Go dispo)" % directe)
+
+
+def _ram_dementie(snap: dict) -> str | None:
+    """Motif si l'instantane accuse la RAM mais que la mesure DIRECTE le contredit, et que RIEN d'autre ne justifie
+    le refus. None sinon -- y compris si la mesure directe est illisible : on ne la remplace jamais par 0.
+
+    Owner 2026-10-13 : « ton erreur de mesure est recurrente ». Le gate a refuse un spawn sur « RAM 97,6 % (libre
+    0,58 Go) » quand la boite noire du hub n'a JAMAIS depasse 85,4 % sur 13:00-13:40 ; le 24/07 deja, « gate a
+    87,8 % pendant que resource_state lisait 68,3 % ». Une decision couteuse ne se prend pas sur un signal unique
+    quand un second observateur gratuit existe (constitution)."""
+    seuil = float(os.environ.get("LAFORGE_RAM_THRESHOLD", 85.0))
+    if float(snap.get("ram_pct") or 0.0) < seuil:
+        return None  # le refus ne vient pas de la RAM
+    if float(snap.get("cpu_pct") or 0.0) >= float(os.environ.get("LAFORGE_CPU_THRESHOLD", 90.0)):
+        return None
+    if float(snap.get("disk_pct") or 0.0) >= float(os.environ.get("LAFORGE_DISK_THRESHOLD", 95.0)):
+        return None
+    gpu = snap.get("gpu_pct")
+    if gpu is not None and float(gpu) >= float(os.environ.get("LAFORGE_GPU_THRESHOLD", 95.0)):
+        return None
+    directe = _ram_directe()
+    if directe is None or directe[0] >= seuil:
+        return None
+    return "instantane %s%% DEMENTI par la mesure directe : %s" % (snap.get("ram_pct"), _temoins_ram(snap))
+
+
 def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, user: str | None = None,
                      env_extra: dict[str, str] | None = None) -> dict:
     """Run `command` as the sandbox user. Returns
@@ -342,7 +389,18 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
             # ici = spawns geles en permanence. Le cortisol reste consomme par
             # l'orchestration_gate (escalade), sa place. TDR GPU sans rapport
             # avec un spawn cmd.exe.
-            if should_throttle(cortisol_threshold=1.01, tdr_quarantine=False):
+            _trop = should_throttle(cortisol_threshold=1.01, tdr_quarantine=False)
+            if _trop:
+                # SECOND OBSERVATEUR (2026-10-13) : voir _ram_dementie. Journal seulement -- jamais de print ici.
+                from nokido_agent.app.forge_resource_manager import get_snapshot as _gs_p1
+
+                _dementi = _ram_dementie(_gs_p1())
+                if _dementi:
+                    import logging as _lg_p1
+
+                    _lg_p1.getLogger("Nokido.Sandbox").warning("[p1] refus RAM ANNULE : %s", _dementi)
+                    _trop = False
+            if _trop:
                 # Nommer le glouton dans le refus. L'echelle d'eviction de
                 # request_resources n'a que 3 leviers (ollama / llama-server /
                 # docker) : face a un process python tiers elle tire a vide,
@@ -440,7 +498,7 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
                         "stderr": (
                             "THROTTLED: pression RAM/CPU (P1 homeostat) — spawn differe, "
                             f"retry plus tard. RAM {snap.get('ram_pct')}% "
-                            f"(libre {snap.get('ram_free_gb')} GB) | top: {top}"
+                            f"(libre {snap.get('ram_free_gb')} GB ; {_temoins_ram(snap)}) | top: {top}"
                             f"{_why_no_evict}"
                         ),
                         "exit_code": -9,

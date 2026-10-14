@@ -16,7 +16,7 @@ Usage manual :
 
 Install schtasks :
     schtasks /Create /SC MONTHLY /D 1 /TN LaForge-WheelProbe ^
-        /TR __import__("os").path.expanduser("~/miniforge3/python.exe %NOKIDO_WORKSPACE%/LaForge/tools/forge_wheel_probe_monthly.py") ^
+        /TR "~/miniforge3/python.exe %NOKIDO_WORKSPACE%/LaForge/tools/forge_wheel_probe_monthly.py" ^
         /ST 03:00 /RU SYSTEM /RL HIGHEST
 """
 

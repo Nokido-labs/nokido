@@ -80,7 +80,9 @@ def test_repli_direct_quand_le_hub_refuse(tmp_path, monkeypatch):
     f = src / "un_module.py"
     f.write_text("# " + ("code " * 60), encoding="utf-8")
 
-    assert pc.vectorise_file(f, dry_run=False) is True, "le repli doit sauver l'indexation"
+    # vectorise_file rend la VOIE empruntee ("hub" / "direct" / "fail"), plus un booleen (constat 13/10 : ce test
+    # attendait True et etait rouge hors CI) ; le repli doit sauver l'indexation par la voie directe.
+    assert pc.vectorise_file(f, dry_run=False) == "direct", "le repli doit sauver l'indexation"
 
     con = sqlite3.connect(str(db))
     rows = con.execute("SELECT source FROM rag_chunks").fetchall()

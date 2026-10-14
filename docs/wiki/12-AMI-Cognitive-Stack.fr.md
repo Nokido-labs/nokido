@@ -56,7 +56,7 @@ Plus réseaux **policy** et **value** style DeepMind pour sampling actions + est
 | MPC Planner | `app/forge_mpc.py` | Model-Predictive Control sur horizons N. |
 | Policy / Value | `forge_policy_net.py`, `forge_value_net.py` | DeepMind-style. |
 | MCTS | `app/forge_mcts_engine.py` | Monte-Carlo Tree Search sur world model. |
-| Pre-train self-supervised | `app/forge_jepa.py` | JEPA (LeCun 2023). |
+| Pre-train self-supervised | `app/forge_world_model.py` (branche JEPA), `app/forge_sigreg.py` | JEPA (LeCun 2023). |
 
 Tous modules built **continual-learning ready** — voir `app/forge_continual_backprop.py`.
 
@@ -114,7 +114,7 @@ Pour **télémétrie CPU/RAM/NPU** en temps continu. Pourquoi :
 
 ## 🧬 JEPA — Joint Embedding Predictive Architecture
 
-`app/forge_jepa.py` implémente JEPA (LeCun 2023) :
+La branche JEPA de `app/forge_world_model.py` implémente JEPA (LeCun 2023), avec SIGReg dans `app/forge_sigreg.py` :
 - Deux encodeurs (target + predictor) sur différentes vues data.
 - Prédire l'**embedding** de la vue target depuis vue predictor, PAS les pixels/texte raw.
 - Anti-collapse via **SIGReg** (LeCun 2026).
@@ -156,8 +156,7 @@ La pile AMI est la *raison* pour laquelle Nokido consomme 5-15× moins de tokens
 | `forge_scorecard` | `test_forge_scorecard.py` | 51 tests |
 | `forge_active_inference_agent` | `test_forge_active_inference.py` | 6/6 |
 | `forge_lnn_monitor` | `test_forge_lnn_monitor.py` | 4/4 |
-| `forge_goap` | `test_forge_goap.py` | partiel |
-| `forge_ami_strategist` | `test_ami_e2e.py` | E2E PASS |
+| `forge_goap` | `test_goap_execution.py`, `nr/test_appui_forge_goap_nr.py` | partiel |
 
 ## 📚 Lectures
 

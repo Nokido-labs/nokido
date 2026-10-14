@@ -3,7 +3,7 @@
 """forge_connect_clients.py — branche les 7 clients MCP au hub Nokido (direct, par-agent).
 
 À LANCER EN OWNER (lit le vault DPAPI + écrit les configs client) :
-    & __import__("os").path.expanduser("~/miniforge3/python.exe") "...tools/forge_connect_clients.py"
+    & "~/miniforge3/python.exe" "...tools/forge_connect_clients.py"
     ... --dry-run   # montre sans écrire
 
 Pour CHAQUE client : MERGE (jamais overwrite aveugle) l'entrée serveur Nokido dans sa

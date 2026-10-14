@@ -544,7 +544,7 @@ def _importateurs(r: Path) -> dict[str, list[str]]:
                 try:
                     txt = p.read_text(encoding="utf-8", errors="replace")
                 except OSError:
-                    continue  # illisible : compte comme absent, jamais comme couvrant
+                    continue  # muet-ok : illisible = compte comme absent, jamais comme couvrant
                 relt = str(p.relative_to(r)).replace("\\", "/")
                 for m in _IMPORT_TEST.finditer(txt):
                     nom = (m.group(1) or m.group(2)).split(".")[0]
@@ -673,6 +673,46 @@ def juger_gain(baseline: dict, candidat: dict, marge_duree: float = 0.10) -> dic
             "baseline": baseline, "candidat": candidat}
 
 
+# HELD-OUT (debat swarm RSI du 2026-10-13, Q1 ; panel gemini-2.5-pro, gpt-oss-120b, command-r, nemotron ;
+# sorties sandbox/debat_auto_amelioration/rsi_2026-10-13_*). Baseline et candidat etaient mesures sur LES
+# MEMES tests -- ceux qui guident la mutation : le juge pouvait etre sur-ajuste. Un jeu DISJOINT, jamais
+# fourni au producteur, est mesure avant et apres ; une perte sur ce jeu REJETTE, quel que soit le gain.
+# Taille BORNEE en nombre, pas en pourcentage : 10 % des 2 376 NR = ~238 fichiers mesures deux fois par
+# mutation (~25 min) ; le swarm a lui-meme classe ces 10 % UNKNOWN. 24 = a re-mesurer, jamais un acquis.
+HELD_OUT_N = 24
+
+
+def held_out(selection: list[str] | None = None, n: int = HELD_OUT_N, racine: Path | None = None) -> dict:
+    """Jeu HELD-OUT : `n` NR ordonnes par sha256(sel + chemin), DISJOINTS des tests de selection.
+
+    Deterministe (meme depot + meme sel = meme jeu). Le sel vient de LAFORGE_HELD_OUT_SEL ; absent, le jeu
+    est previsible par qui lit ce code, et le resultat le DIT (`sel: absent`). Vit dans la zone de
+    l'evaluateur : aucune mutation ne peut le deplacer.
+    """
+    import hashlib
+
+    r = Path(racine) if racine else ROOT
+    sel = os.environ.get("LAFORGE_HELD_OUT_SEL", "")
+    exclus = {str(t).split("::", 1)[0].replace("\\", "/").lstrip("./") for t in (selection or [])}
+    nr = sorted(p.relative_to(r).as_posix() for p in (r / "tests" / "nr").glob("test_*.py"))
+    candidats = [t for t in nr if t not in exclus]
+    candidats.sort(key=lambda t: hashlib.sha256((sel + t).encode("utf-8")).hexdigest())
+    return {"tests": candidats[:n], "sel": "present" if sel else "absent", "candidats": len(candidats)}
+
+
+def juger_held_out(baseline: dict, candidat: dict) -> dict:
+    """Non-regression PAR TEST sur le held-out. La duree n'y juge pas : sur un petit jeu elle est du bruit,
+    et un faux rejet serait paye par une bonne mutation."""
+    if not baseline.get("tests_total"):
+        return {"verdict": "INDECIDABLE", "pourquoi": "held-out vide : rien n'a ete mesure"}
+    perdus = sorted(set(baseline.get("tests_passes") or []) - set(candidat.get("tests_passes") or []))
+    if perdus:
+        return {"verdict": "DEGRADE", "pourquoi": "held-out : %d test(s) qui passai(en)t ne passe(nt) plus : %s"
+                % (len(perdus), ", ".join(perdus[:5]))}
+    return {"verdict": "TENU", "pourquoi": "aucune perte sur %d test(s) jamais vus par le producteur"
+            % baseline["tests_total"]}
+
+
 def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = None) -> dict:
     """Juge FERME : SURVIT (non-regression) PUIS AMELIORE (gain vs baseline).
 
@@ -686,7 +726,9 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
     candidat(tests) -> juger_gain -> garde si AMELIORE, sinon RESTAURE git HEAD.
     """
     tests = tests or []
+    ho = held_out(tests)
     baseline = mesurer(tests)
+    baseline_ho = mesurer(ho["tests"])  # AVANT la mutation : reference du jeu jamais vu
     r = juger_module(rel, nouveau, tests)
     if r.get("verdict") != "SURVIT":
         r = {**r, "gain": None, "baseline": baseline}
@@ -696,8 +738,21 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
     g = juger_gain(baseline, candidat)
     r = {**r, "gain": g, "baseline": baseline, "candidat": candidat}
     if g["verdict"] == "AMELIORE":
-        r["verdict"] = "AMELIORE"
-        r["note"] = "mutation CONSERVEE : survit ET ameliore (%s)" % g["pourquoi"]
+        jho = juger_held_out(baseline_ho, mesurer(ho["tests"]))
+        r["held_out"] = {"tests": len(ho["tests"]), "sel": ho["sel"], **jho}
+        if jho["verdict"] != "DEGRADE":
+            r["verdict"] = "AMELIORE"
+            r["note"] = "mutation CONSERVEE : survit, ameliore (%s), held-out %s" % (g["pourquoi"], jho["verdict"])
+            _journaliser(rel, r)
+            return r
+        # REJET immediat (debat swarm Q1) : le gain mesure sur la selection est CONTREDIT par le jeu
+        # jamais vu -- sur-ajustement. Restaure, consigne ; pas de revue humaine, pas de moyenne.
+        pat = patron_sain(rel)
+        if pat.get("ok"):
+            (ROOT / str(rel).replace("\\", "/").lstrip("./")).write_text(pat["contenu"], encoding="utf-8")
+            r["restaure_sans_gain"] = True
+        r["verdict"] = "REJETE_HELD_OUT"
+        r["note"] = "gain sur la selection CONTREDIT par le held-out : %s" % jho["pourquoi"]
         _journaliser(rel, r)
         return r
     # Pas de gain PROUVE : on REVERTE, tests verts ou non. Le geste est le meme dans
@@ -749,14 +804,15 @@ def tableau_de_bord(entrees: list[dict] | None = None, n: int = 500) -> dict:
     morts, regressions (DEGRADE), recidives rappelees (memoire), gain median (duree).
     `entrees` injectable pour le test ; sinon lit le ledger (n dernieres).
     """
+    illisibles = 0
     if entrees is None:
         entrees = []
         if _LEDGER.exists():
             for _ln in _LEDGER.read_text(encoding="utf-8", errors="replace").splitlines()[-n:]:
                 try:
                     entrees.append(json.loads(_ln))
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:  # noqa: BLE001 - une ligne corrompue est COMPTEE, pas avalee
+                    illisibles += 1
     tot = len(entrees)
 
     def _c(v):
@@ -777,6 +833,8 @@ def tableau_de_bord(entrees: list[dict] | None = None, n: int = 500) -> dict:
         "acceptees_AMELIORE": ameliore,
         "taux_acceptation": round(ameliore / tot, 3) if tot else 0.0,
         "rejets_sans_gain": _c("SURVIT_SANS_GAIN"),
+        "rejets_held_out": _c("REJETE_HELD_OUT"),
+        "lignes_illisibles": illisibles,
         "morts_MEURT": _c("MEURT"),
         "regressions_DEGRADE": sum(1 for e in entrees if e.get("gain") == "DEGRADE"),
         "recidives_rappelees": sum(1 for e in entrees if e.get("cause") == "recidive"),

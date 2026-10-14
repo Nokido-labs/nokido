@@ -50,6 +50,35 @@ def test_tous_presents_absents_vide(tmp_path):
     assert cap[0]["tests_absents"] == []
 
 
+def test_un_test_retire_par_un_commit_connu_sort_de_l_alerte(tmp_path):
+    """Un test supprime par un commit LISIBLE n'est plus crie comme absent : il est DIT dans tests_retires avec son
+    commit. Un absent jamais suivi reste dans l'alerte. Hermetique (depot git temporaire) : la premiere version lisait
+    l'historique du depot reel et a rougi la CI du 13/10, dont le clone ne porte pas le commit de retrait."""
+    import subprocess
+
+    def _git(*args):
+        return subprocess.run(["git", "-c", "safe.directory=*", "-c", "user.name=nr", "-c", "user.email=nr@local",
+                               "-C", str(tmp_path), *args], capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", check=True).stdout.strip()
+
+    (tmp_path / "tests" / "nr").mkdir(parents=True)
+    retire = tmp_path / "tests" / "nr" / "test_retire_nr.py"
+    retire.write_text("def test_x():\n    pass\n", encoding="utf-8")
+    _git("init", "-q")
+    _git("add", "tests/nr/test_retire_nr.py")
+    _git("commit", "-q", "-m", "ajout")
+    _git("rm", "-q", "tests/nr/test_retire_nr.py")
+    _git("commit", "-q", "-m", "retrait motive")
+    sha = _git("rev-parse", "--short", "HEAD")
+
+    log = _journal(tmp_path, ["tests/nr/test_retire_nr.py", "tests/nr/test_qui_n_existe_pas_nr.py"])
+    cap = oplog.capacites_touchees(["tools/ci_local.py"], log=log, root=tmp_path)
+    assert cap[0]["tests_absents"] == ["tests/nr/test_qui_n_existe_pas_nr.py"]
+    retires = cap[0]["tests_retires"]
+    assert [r["test"] for r in retires] == ["tests/nr/test_retire_nr.py"]
+    assert retires[0]["retire_par"].startswith(sha[:7])
+
+
 def test_racine_par_defaut_est_le_depot(tmp_path):
     # Chemin reel : sans `root`, la racine est le depot ; un test versionne y est vu present.
     log = _journal(tmp_path, ["tests/nr/test_capacites_touchees_tests_absents_nr.py",

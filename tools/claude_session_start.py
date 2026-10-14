@@ -116,13 +116,17 @@ def rappel_audit(etat, modele, version):
     if not ecarts:
         return None, etat
     return ("[audit-prompts] %s.\n"
-            "  -> LANCE-LE TOI-MEME, sans attendre l'owner : skill claude-api, argument prompt-audit "
+            "  -> lance-le toi-meme, sans attendre l'owner : skill claude-api, argument prompt-audit "
             "(CLAUDE.md, RULES_SHARED.md, descriptions MCP du registre, messages des hooks, MEMORY.md) ; "
             "rapport + diff proposes, application sur accord owner.\n"
-            "  -> ce qui a change : changelog ingere, source "
-            "claude_code_docs:code.claude.com/docs/en/changelog.md.\n"
+            # 13/10 : ce texte disait « changelog ingere » alors que l'ingestion (26/09) s'arretait
+            # avant la version vue -- une source qui ne contient pas la version ne dit pas « rien ».
+            "  -> ce qui a change dans le CLI %s : le LIRE dans le changelog ingere (source "
+            "claude_code_docs:code.claude.com/docs/en/changelog.md) ; s'il ne contient pas cette "
+            "version, ce qui a change est INCONNU (pas 'rien') : re-ingerer la page avant de conclure.\n"
             "  -> audit fait : LAFORGE_PYTHON tools/claude_session_start.py --audit-fait "
-            "(sinon ce rappel revient a chaque demarrage)." % " ; ".join(ecarts)), etat
+            "(sinon ce rappel revient a chaque demarrage)."
+            % (" ; ".join(ecarts), vu.get("version") or "?")), etat
 
 
 def _lire_etat_audit(chemin):
@@ -328,8 +332,9 @@ def _save_seen(seen: set) -> None:
     try:
         SEEN_FILE.parent.mkdir(exist_ok=True)
         SEEN_FILE.write_text(json.dumps({"seen": list(seen)[-500:]}, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        print("[inbox] messages vus NON memorises (%s) : ils reapparaitront au prochain demarrage"
+              % type(exc).__name__)
 
 
 def fetch_tasks_inbox(limit: int = 8) -> list:
@@ -577,8 +582,9 @@ def main() -> int:
             summary_text = SUMMARY.read_text(encoding="utf-8", errors="replace").strip()
             if summary_text:
                 print(f"\n{summary_text}")
-        except Exception:
-            pass
+        except Exception as exc:
+            print("\n[resume] resume de la session precedente ILLISIBLE (%s) : absent n'est pas vide"
+                  % type(exc).__name__)
 
     lessons = recent_lessons(1200)
     if lessons:

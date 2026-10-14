@@ -43,8 +43,8 @@ def main() -> int:
     try:
         from nokido_agent.app.forge_heartbeat import demarrer_pouls_service_http
 
-        demarrer_pouls_service_http("graph_server", "http://127.0.0.1:%d/" % port,
-                                    intervalle_s=60.0)
+        # Pas d'intervalle propre : le pouls suit le rythme du coeur (owner 2026-10-13).
+        demarrer_pouls_service_http("graph_server", "http://127.0.0.1:%d/" % port)
     except Exception as exc:  # noqa: BLE001 — un pouls absent ne doit pas tuer le porteur
         print(f"[Graph Studio] pouls non arme ({type(exc).__name__}) : "
               f"le superviseur ne verra pas sa mort")

@@ -116,6 +116,34 @@ def test_l_enveloppe_echappe_les_guillemets_de_l_appelant():
     assert '"cle"suite"' not in out, "l'attribut id est ferme prematurement"
 
 
+def _sql_module(nom):
+    """Valeur d'une constante de chaine du module, lue par l'AST (meme principe : pas de FastAPI a charger)."""
+    arbre = ast.parse(SRC.read_text(encoding="utf-8", errors="replace"))
+    for n in arbre.body:
+        if isinstance(n, ast.Assign) and any(getattr(c, "id", None) == nom for c in n.targets):
+            return ast.literal_eval(n.value)
+    raise AssertionError("constante %s introuvable dans %s" % (nom, SRC.name))
+
+
+def test_veille_summary_montre_les_veilles_qui_ont_ingere_quel_que_soit_leur_statut():
+    """Campagne UI 13/10 : `/ui/auto/veille-summary` vide 3 passes sur 3 (« aucune donnee ») alors que la veille
+    avait ingere 594, 351, 89 fragments le jour meme -- jobs restes `en_cours`, jamais clos, et le filtre
+    `status='completed'` les cachait tous. Et `n_ingested` est du TEXTE en base : sans CAST, '0' > 0 est VRAI."""
+    import sqlite3
+
+    c = sqlite3.connect(":memory:")
+    c.execute("CREATE TABLE watch_jobs (theme TEXT, status TEXT, n_ingested TEXT, updated_at TEXT)")
+    c.executemany("INSERT INTO watch_jobs VALUES (?,?,?,?)", [
+        ("veille du jour", "en_cours", "594", "2026-10-13T11:10"),
+        ("veille close sans rien", "completed", "0", "2026-10-13T12:00"),
+        ("veille ancienne", "completed", "12", "2026-08-28T11:58"),
+        ("veille sans compte", "running", None, "2026-10-13T13:00"),
+    ])
+    lignes = c.execute(_sql_module("_SQL_VEILLES_RECENTES")).fetchall()
+    assert [(t, n, s) for t, n, s in lignes] == [("veille du jour", 594, "en_cours"),
+                                                 ("veille ancienne", 12, "completed")]
+
+
 def test_la_borne_de_generation_n_est_PAS_rabotee():
     """Regression interdite : 25 s est une MESURE (20,2 / 18,6 / 4,0 s), pas un
     reglage. La rabaisser couperait des generations qui aboutissent."""

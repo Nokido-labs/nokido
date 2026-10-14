@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-forge_conv_indexer.py — Indexation conversations CLI (Claude + Gemini) dans RAG
-================================================================================
+forge_conv_indexer.py — Indexation conversations CLI (Claude, Gemini, AGY, Codex) dans RAG
+==========================================================================================
 Transforme les sessions JSONL/JSON des CLIs en chunks RAG searchables.
 Sources:
   - Claude CLI : ~/.claude/projects/<project>/*.jsonl
-  - Gemini CLI : ~/.gemini/tmp/<project>/chats/session-*.json
+  - Gemini CLI : ~/.gemini/tmp/<project>/chats/session-*.json et session-*.jsonl (TOUS les projets)
+  - Codex CLI  : ~/.codex/sessions/AAAA/MM/JJ/rollout-<horodatage>-<uuid>.jsonl
+  - AGY CLI    : ~/.gemini/antigravity-cli/brain/<uuid>/.system_generated/logs/transcript.jsonl
+  - Swarm      : ABSENT (reconnaissance 2026-10-13 : pas de journaux de conversation continus)
 
 Chunks produits: source = conv_claude/<session_id>/<turn_idx>
                           conv_gemini/<session_id>/<turn_idx>
+                          conv_codex/<session_id>/<turn_idx>
+                          conv_agy/<session_id>/<turn_idx>
 Dedup: INSERT OR IGNORE sur id = sha256(source+text)[:16]
 """
 
@@ -18,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import re as _re
 import sqlite3
 import sys
 import time
@@ -55,6 +61,7 @@ OWNER_HOME = Path(os.environ.get("LAFORGE_OWNER_HOME") or ROOT.parent.parent)
 # Dossiers sources
 CLAUDE_HISTORY = OWNER_HOME / ".claude" / "projects"
 GEMINI_HISTORY = OWNER_HOME / ".gemini" / "tmp"
+CODEX_HISTORY = OWNER_HOME / ".codex"
 # AGY / Antigravity CLI : un dossier par session (UUID), transcript sous
 # <uuid>/.system_generated/logs/transcript.jsonl. 150 sessions mesurees le
 # 2026-08-12, ZERO ingeree -- cette source n'existait tout simplement pas ici.
@@ -81,6 +88,8 @@ GEMINI_WEB_DEFAULT = ROOT.parent / "SessionGeminiWeb"
 SOURCES: list[dict] = [
     {"nom": "claude_cli", "prefixe": "conv_claude", "motif": "**/*.jsonl"},
     {"nom": "gemini_cli", "prefixe": "conv_gemini", "motif": "*/chats/session-*.json"},
+    {"nom": "gemini_cli_jsonl", "prefixe": "conv_gemini", "motif": "*/chats/session-*.jsonl"},
+    {"nom": "codex_cli", "prefixe": "conv_codex", "motif": "sessions/**/*.jsonl"},
     {"nom": "agy_antigravity", "prefixe": "conv_agy",
      "motif": "*/.system_generated/logs/transcript.jsonl"},
     {"nom": "claude_desktop", "prefixe": "conv_claude_desktop", "motif": "conversations.json"},
@@ -93,6 +102,8 @@ def racines_couvertes() -> dict[str, Path]:
     return {
         "claude_cli": CLAUDE_HISTORY,
         "gemini_cli": GEMINI_HISTORY,
+        "gemini_cli_jsonl": GEMINI_HISTORY,
+        "codex_cli": CODEX_HISTORY,
         "agy_antigravity": AGY_HISTORY,
         "claude_desktop": CLAUDE_DESKTOP_DEFAULT,
         "gemini_web": GEMINI_WEB_DEFAULT,
@@ -110,7 +121,7 @@ def fichiers_couverts() -> set[Path]:
         try:
             couverts.update(p.resolve() for p in racine.glob(s["motif"]) if p.is_file())
         except OSError:
-            continue  # racine illisible : non couverte, le detecteur le dira
+            continue  # muet-ok : racine illisible = non couverte, le detecteur de couverture le dit
     return couverts
 
 
@@ -185,6 +196,117 @@ def _ts_epoch(val) -> "int | None":
         return None
 
 
+def _lignes_json(lignes: list[str], chemin: Path) -> Iterator[dict]:
+    """Objets JSON d'une session JSONL. Une ligne non JSON (ecriture coupee, corruption) ou qui n'est
+    pas un objet est ECARTEE ET COMPTEE : le total est dit en WARNING, jamais avale en silence (gate
+    recidive, 2026-10-13). Un objet non-dict faisait aussi planter `msg.get` sur la session entiere."""
+    ecartees = 0
+    for ligne in lignes:
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        try:
+            msg = json.loads(ligne)
+        except json.JSONDecodeError:
+            ecartees += 1
+            continue
+        if isinstance(msg, dict):
+            yield msg
+        else:
+            ecartees += 1
+    if ecartees:
+        log.warning("[conv_indexer] %s : %d ligne(s) non JSON ou non objet ecartee(s)", chemin, ecartees)
+
+
+# ── DIGESTION (owner 14/10 : « ne garder que la substantifique moelle, sinon la base va exploser ») ──────────
+# Mesure du 14/10 (session 7f39f6bd) : 2 146 tool_result, 2 488 rappels systeme, 4 970 entrees meta/reflexion/
+# piece jointe/systeme pour quelques dizaines de messages humains ; `_extract_text` descendait dans `content` et
+# indexait chaque sortie d'outil comme un tour « user » (2 203 segments user pour 1 017 assistant en base).
+_RAPPEL = _re.compile(r"<system-reminder>.*?</system-reminder>", _re.S)
+_ENVELOPPES = _re.compile(r"</?(command-name|command-message|command-args|local-command-stdout|"
+                          r"local-command-stderr|bash-input|bash-stdout|bash-stderr)>")
+PREFIXE_EPURE = "conv_claude_m"              # un fragment par message retenu, identite stable
+MOTIF_GEL = "affinage:conv_epure_v2"          # motif des fenetres anciennes gelees (reversible)
+
+
+def _nettoyer(texte: str) -> str:
+    return _ENVELOPPES.sub("", _RAPPEL.sub("", texte)).strip()
+
+
+def tours_epures(entrees) -> tuple[list, dict]:
+    """ETAGE 1 : humain = `content` chaine ; tool_result, thinking, tool_use, isMeta, attachment ecartes ; resume
+    de compaction garde. Rend ([(role, texte, horodatage)], compte PAR MOTIF d'ecart)."""
+    tours, vus = [], set()
+    compte = {"humain": 0, "assistant": 0, "resume": 0, "sortie_outil": 0, "reflexion_ou_appel": 0,
+              "meta": 0, "trivial": 0, "doublon": 0}
+    for e in entrees:
+        if not isinstance(e, dict):
+            continue
+        t = e.get("type")
+        if t not in ("user", "assistant") or e.get("isMeta"):
+            compte["meta"] += 1
+            continue
+        contenu = (e.get("message") or {}).get("content")
+        role = "resume" if e.get("isCompactSummary") else ("humain" if t == "user" else "assistant")
+        textes = []
+        if isinstance(contenu, str):
+            textes.append(contenu)
+        elif isinstance(contenu, list):
+            for b in contenu:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "text":
+                    textes.append(str(b.get("text") or ""))
+                elif b.get("type") == "tool_result":
+                    compte["sortie_outil"] += 1
+                else:
+                    compte["reflexion_ou_appel"] += 1
+        texte = _nettoyer("\n".join(textes))
+        if len(texte) < CHUNK_MIN:
+            if textes:
+                compte["trivial"] += 1
+            continue
+        cle = (role, _re.sub(r"\s+", " ", texte).lower())
+        if cle in vus:
+            compte["doublon"] += 1
+            continue
+        vus.add(cle)
+        compte[role] += 1
+        tours.append((role, texte, e.get("timestamp")))
+    return tours, compte
+
+
+def moelle(tours: list) -> tuple[list, int]:
+    """ETAGE 2 : par tour de parole, l'humain + le DERNIER texte assistant (celui qui conclut) ; resumes gardes ;
+    la narration intermediaire est ecartee (le transcript reste sur disque). Rend (gardes, narrations ecartees)."""
+    gardes, attente, ecartees = [], None, 0
+    for role, texte, ts in tours:
+        if role == "assistant":
+            ecartees += attente is not None
+            attente = (role, texte, ts)
+            continue
+        if attente is not None:
+            gardes.append(attente)
+            attente = None
+        gardes.append((role, texte, ts))
+    if attente is not None:
+        gardes.append(attente)
+    return gardes, ecartees
+
+
+def _decouper_sans_perte(texte: str, taille: int) -> list:
+    """ETAGE 3 : un message long est DECOUPE (fin de ligne ou d'espace si possible), jamais tronque."""
+    out, reste = [], texte
+    while len(reste) > taille:
+        coupe = max(reste.rfind("\n", 0, taille), reste.rfind(" ", 0, taille))
+        coupe = coupe if coupe > taille // 2 else taille
+        out.append(reste[:coupe])
+        reste = reste[coupe:].lstrip()
+    if reste:
+        out.append(reste)
+    return out
+
+
 def iter_claude_chunks(jsonl_path: Path) -> Iterator[tuple]:
     """
     Génère (source, text) pour chaque tour utilisateur/assistant.
@@ -199,15 +321,7 @@ def iter_claude_chunks(jsonl_path: Path) -> Iterator[tuple]:
         log.warning("Impossible de lire %s: %s", jsonl_path, e)
         return
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
+    for msg in _lignes_json(lines, jsonl_path):
         mtype = msg.get("type", "")
         if mtype not in ("user", "assistant"):
             continue
@@ -246,6 +360,54 @@ def iter_claude_chunks(jsonl_path: Path) -> Iterator[tuple]:
         idx += 1
 
 
+def iter_claude_epure(jsonl_path: Path, motifs: dict) -> Iterator[tuple]:
+    """(source, texte, horodatage) par message RETENU (etages 1 a 3). Source = conv_claude_m/<session>/<id12>[.k] :
+    l'identite depend du message, pas d'une fenetre -- un transcript qui grandit re-produit les memes fragments.
+    `motifs` additionne les ecarts PAR MOTIF : c'est la mesure que la base n'avait pas."""
+    sid = jsonl_path.stem
+    try:
+        lignes = jsonl_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as e:
+        log.warning("[conv_indexer] %s illisible (%s) : session NON digeree", jsonl_path.name, type(e).__name__)
+        motifs["sessions_illisibles"] = motifs.get("sessions_illisibles", 0) + 1
+        return
+    tours, compte = tours_epures(_lignes_json(lignes, jsonl_path))
+    gardes, narrations = moelle(tours)
+    compte["narration_intermediaire"] = narrations
+    for k, v in compte.items():
+        motifs[k] = motifs.get(k, 0) + v
+    yield from _fragments_claude(sid, gardes)
+
+
+def _fragments_claude(sid: str, gardes: list) -> Iterator[tuple]:
+    """Formatage UNIQUE des fragments epures (passe complete ET incrementale) : meme message = meme identite."""
+    for role, texte, ts_iso in gardes:
+        ident = hashlib.sha256("|".join(["claude", sid, role, str(ts_iso or ""),
+                                         _re.sub(r"\s+", " ", texte).lower()]).encode()).hexdigest()[:12]
+        entete = "[%s] %s\n" % (role, str(ts_iso or "date ?")[:10])
+        parts = _decouper_sans_perte(texte, CHUNK_MAX - len(entete))
+        for k, p in enumerate(parts):
+            yield ("%s/%s/%s%s" % (PREFIXE_EPURE, sid, ident, ".%d" % k if len(parts) > 1 else ""),
+                   entete + p, _ts_epoch(ts_iso))
+
+
+def geler_ancien(session_id: str, db_path: Path | None = None) -> int:
+    """Gele (active=0 + MOTIF_GEL, reversible, jamais supprime) les fenetres de l'ANCIEN schema de CETTE session.
+    Plage de source indexee (idx_rag_source) : `conv_claude/<id>/` <= source < `conv_claude/<id>0` ('0' suit '/')
+    -- jamais LIKE ; `+active` pour ne pas partir sur l'index peu selectif d'active."""
+    db_path = db_path or RAG_DB
+    bas = "conv_claude/%s/" % session_id
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.execute("UPDATE rag_chunks SET active=0, retraction_status=? "
+                    "WHERE source >= ? AND source < ? AND +active = 1", (MOTIF_GEL, bas, bas[:-1] + "0"))
+        n = con.execute("SELECT changes()").fetchone()[0]
+        con.commit()
+        return n
+    finally:
+        con.close()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Extraction AGY / Antigravity CLI (transcript.jsonl)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,17 +438,7 @@ def iter_agy_chunks(jsonl_path: Path) -> Iterator[tuple[str, str]]:
         log.warning("Impossible de lire %s: %s", jsonl_path, e)
         return
 
-    for ligne in lignes:
-        ligne = ligne.strip()
-        if not ligne:
-            continue
-        try:
-            msg = json.loads(ligne)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(msg, dict):
-            continue
-
+    for msg in _lignes_json(lignes, jsonl_path):
         role = str(msg.get("source") or msg.get("type") or "agy")[:20]
         texte = _extract_text(msg.get("content", ""))
 
@@ -348,11 +500,76 @@ def index_agy_sessions(brain_dir: Path | None = None, limit_sessions: int = 0) -
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def iter_gemini_chunks(json_path: Path) -> Iterator[tuple[str, str]]:
+def _fenetres_sans_perte(turns: list, prefixe: str, session_id: str) -> Iterator[tuple[str, str, int | None]]:
+    """Fenetres (source, texte, ts) d'une source NEUVE : deux tours se groupent s'ils tiennent dans
+    CHUNK_MAX ; une fenetre plus longue est DECOUPEE en suites au lieu d'etre coupee a CHUNK_MAX (owner
+    2026-10-13 : le retenu ne se tronque pas). Les sources deja en base (Claude, AGY, Gemini .json)
+    gardent leur `window[:CHUNK_MAX]` : changer leur fenetrage renumeroterait leurs morceaux."""
+    idx = 0
+    i = 0
+    while i < len(turns):
+        role, text, ts = turns[i]
+        if i + 1 < len(turns) and len(text) + len(turns[i + 1][1]) < CHUNK_MAX:
+            fenetre = f"[{role}] {text}\n[{turns[i + 1][0]}] {turns[i + 1][1]}"
+            i += 2
+        else:
+            fenetre = f"[{role}] {text}"
+            i += 1
+        for k in range(0, len(fenetre), CHUNK_MAX):
+            yield f"{prefixe}/{session_id}/{idx}", fenetre[k:k + CHUNK_MAX], ts
+            idx += 1
+
+
+def iter_gemini_jsonl_chunks(jsonl_path: Path) -> Iterator[tuple[str, str, int | None]]:
     """
-    Génère (source, text) pour chaque message user/gemini significatif.
+    Génère (source, text, ts_epoch|None) pour chaque message d'une session Gemini CLI au format JSONL.
+    source = conv_gemini/<session_id>/<idx>
+
+    Forme mesuree le 2026-10-13 (44 sessions) : 1re ligne = en-tete `{"sessionId", ...}`, puis un tour
+    par ligne `{"timestamp", "type": "user"|"gemini"|"info", "content": [{"text"}]}`. L'identifiant vient
+    de `sessionId` : `stem[:16]` vaut `session-2026-07-` pour toutes les sessions d'un meme mois.
+    """
+    session_id = ""
+    turns: list[tuple[str, str, int | None]] = []
+
+    try:
+        lines = jsonl_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as e:
+        log.warning("Impossible de lire %s: %s", jsonl_path, e)
+        return
+
+    for msg in _lignes_json(lines, jsonl_path):
+        if not session_id and msg.get("sessionId"):
+            session_id = str(msg["sessionId"])[:16]
+
+        mtype = str(msg.get("type") or msg.get("role") or msg.get("source") or "")
+        raw_content = msg.get("content") or msg.get("parts") or msg.get("message") or msg.get("text") or ""
+        if isinstance(raw_content, dict):
+            mtype = str(raw_content.get("role") or raw_content.get("type") or mtype)
+            content = raw_content.get("content") or raw_content.get("text") or ""
+        else:
+            content = raw_content
+
+        if mtype not in ("user", "gemini", "model", "assistant"):
+            continue
+
+        text = _extract_text(content)
+        if len(text) >= CHUNK_MIN:
+            ts_epoch = _ts_epoch(msg.get("timestamp") or msg.get("created_at") or msg.get("time"))
+            turns.append((mtype, text, ts_epoch))
+
+    yield from _fenetres_sans_perte(turns, "conv_gemini", session_id or jsonl_path.stem)
+
+
+def iter_gemini_chunks(json_path: Path) -> Iterator[tuple[str, str, int | None]]:
+    """
+    Génère (source, text, ts_msg) pour chaque message user/gemini significatif (.json ou .jsonl).
     source = conv_gemini/<session_id>/<idx>
     """
+    if json_path.suffix == ".jsonl":
+        yield from iter_gemini_jsonl_chunks(json_path)
+        return
+
     try:
         data = json.loads(json_path.read_text(encoding="utf-8", errors="replace"))
     except Exception as e:
@@ -361,7 +578,7 @@ def iter_gemini_chunks(json_path: Path) -> Iterator[tuple[str, str]]:
 
     session_id = data.get("sessionId", json_path.stem)[:16]
     messages = data.get("messages", [])
-    turns: list[tuple[str, str]] = []
+    turns: list[tuple[str, str, int | None]] = []
 
     for msg in messages:
         mtype = msg.get("type", "")
@@ -370,12 +587,13 @@ def iter_gemini_chunks(json_path: Path) -> Iterator[tuple[str, str]]:
         content = msg.get("content", "")
         text = _extract_text(content)
         if len(text) >= CHUNK_MIN:
-            turns.append((mtype, text))
+            ts_epoch = _ts_epoch(msg.get("timestamp") or msg.get("created_at") or msg.get("time"))
+            turns.append((mtype, text, ts_epoch))
 
     idx = 0
     i = 0
     while i < len(turns):
-        role, text = turns[i]
+        role, text, ts_msg = turns[i]
         window = text
         if i + 1 < len(turns) and len(text) + len(turns[i + 1][1]) < CHUNK_MAX:
             window = f"[{role}] {text}\n[{turns[i + 1][0]}] {turns[i + 1][1]}"
@@ -386,15 +604,13 @@ def iter_gemini_chunks(json_path: Path) -> Iterator[tuple[str, str]]:
 
         window = window[:CHUNK_MAX]
         source = f"conv_gemini/{session_id}/{idx}"
-        yield source, window
+        yield source, window, ts_msg
         idx += 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Extraction Gemini Web (NousSave exporter — *.txt Markdown + YAML frontmatter)
 # ─────────────────────────────────────────────────────────────────────────────
-
-import re as _re
 
 
 def _parse_gemini_web_frontmatter(text: str) -> dict:
@@ -603,6 +819,103 @@ def index_desktop_sessions(data_dir: Path | None = None) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Extraction Codex CLI (~/.codex/sessions/AAAA/MM/JJ/rollout-<horodatage>-<uuid>.jsonl)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_UUID = _re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", _re.IGNORECASE)
+CODEX_ROLES = ("user", "assistant", "system", "human", "bot", "model", "codex")
+
+
+def _codex_message(msg: dict):
+    """(role, contenu, horodatage) d'une ligne de session Codex, ou None si ce n'est pas un tour.
+
+    Forme REELLE, mesuree le 2026-10-13 sur les 26 sessions du poste : chaque tour est ENVELOPPE,
+    `{"timestamp", "type": "response_item", "payload": {"type": "message", "role", "content": [{"type":
+    "input_text"|"output_text", "text"}]}}`. Les `event_msg` repetent les memes tours (ignores, sinon
+    doublons) ; `session_meta` et `turn_context` ne sont pas des tours ; le role `developer` (consignes
+    du harnais) non plus. La forme plate (`role`/`content`, ou `message: {...}`) reste lue. Ne lire que
+    la forme plate rendait ZERO morceau des vraies sessions."""
+    payload = msg.get("payload")
+    if isinstance(payload, dict):
+        if msg.get("type") != "response_item" or payload.get("type") != "message":
+            return None
+        return str(payload.get("role") or ""), payload.get("content"), msg.get("timestamp")
+    raw = msg.get("message")
+    if isinstance(raw, dict):
+        return (str(raw.get("role") or msg.get("role") or msg.get("type") or ""),
+                raw.get("content") or raw.get("text"), msg.get("timestamp") or raw.get("timestamp"))
+    return (str(msg.get("role") or msg.get("type") or msg.get("source") or ""),
+            msg.get("content") or msg.get("text") or raw, msg.get("timestamp") or msg.get("created_at"))
+
+
+def _codex_session_id(jsonl_path: Path) -> str:
+    """UUID de la session, lu dans le nom (`rollout-<horodatage>-<uuid>`) ; a defaut le nom entier.
+    Jamais `stem[:16]` : il vaut `rollout-2026-09-` pour TOUTES les sessions d'un meme mois."""
+    m = _UUID.search(jsonl_path.stem)
+    if m:
+        return m.group(0).lower()
+    if jsonl_path.stem in ("transcript", "session", "log"):
+        return jsonl_path.parent.name
+    return jsonl_path.stem
+
+
+def iter_codex_chunks(jsonl_path: Path) -> Iterator[tuple[str, str, int | None]]:
+    """
+    Génère (source, text, ts_msg) pour chaque tour utilisateur/assistant d'une session Codex CLI.
+    Source = conv_codex/<uuid de session>/<idx>
+    """
+    turns: list[tuple[str, str, int | None]] = []
+    try:
+        lines = jsonl_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception as e:
+        log.warning("Impossible de lire %s: %s", jsonl_path, e)
+        return
+
+    for msg in _lignes_json(lines, jsonl_path):
+        tour = _codex_message(msg)
+        if tour is None:
+            continue
+        role, content, ts = tour
+        if role not in CODEX_ROLES:
+            continue
+        text = _extract_text(content)
+        if len(text) >= CHUNK_MIN:
+            turns.append((role, text, _ts_epoch(ts)))
+
+    yield from _fenetres_sans_perte(turns, "conv_codex", _codex_session_id(jsonl_path))
+
+
+def index_codex_sessions(sessions_dir: Path | None = None, limit_sessions: int = 0) -> dict:
+    """Indexe les sessions Codex CLI (~/.codex/sessions/**/*.jsonl). `limit_sessions=0` = TOUTES."""
+    if sessions_dir is None:
+        sessions_dir = CODEX_HISTORY / "sessions"
+    if not sessions_dir.exists():
+        return {"ok": False, "error": f"dossier Codex CLI introuvable: {sessions_dir}"}
+
+    tous = sorted(sessions_dir.rglob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    fichiers = tous if limit_sessions <= 0 else tous[:limit_sessions]
+    if not fichiers:
+        return {"ok": False, "error": f"aucun .jsonl sous {sessions_dir}"}
+
+    total: list[tuple[str, str, int | None]] = []
+    stats: dict[str, int] = {}
+    for f in fichiers:
+        morceaux = list(iter_codex_chunks(f))
+        total.extend(morceaux)
+        stats[f.name] = len(morceaux)
+
+    inserted = _insert_chunks(total)
+    log.info("[conv_indexer] Codex: %d sessions, %d chunks, %d inserted", len(fichiers), len(total), inserted)
+    return {
+        "ok": True,
+        "sessions": len(fichiers),
+        "chunks": len(total),
+        "inserted": inserted,
+        "per_file": stats,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Insertion RAG
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -642,8 +955,10 @@ def _caviarde(texte: str) -> str:
     return texte
 
 
-def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path = RAG_DB) -> int:
+def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path | None = None) -> int:
     """INSERT OR IGNORE dans rag_chunks + rag_fts. Retourne nb insérés."""
+    if db_path is None:
+        db_path = RAG_DB
     if not db_path.exists():
         log.warning("RAG DB introuvable: %s", db_path)
         return 0
@@ -698,8 +1013,9 @@ def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path = RAG_DB) -> int
                             "VALUES ((SELECT rowid FROM rag_chunks WHERE id=?), ?, ?, ?)",
                             (cid, cid, source, text),
                         )
-                    except Exception:
-                        pass
+                    except Exception as e_fts:
+                        # Le morceau est en base mais INVISIBLE a la recherche lexicale : le dire.
+                        log.warning("[conv_indexer] %s absent de rag_fts : %s", cid, e_fts)
                     inserted += 1
             except Exception as e:
                 log.debug("Insert skip %s: %s", cid, e)
@@ -763,35 +1079,50 @@ def index_claude_sessions(project_dir: Path | None = None, limit_sessions: int =
             )
         jsonl_files.extend(_garde)
     log.info("[conv_indexer] projets indexes: %s", par_projet)
-    total_chunks = []
-    stats = {}
-
+    # DIGESTION (14/10) : chaine epuree, insertion SESSION PAR SESSION (memoire bornee a une session) ; l'ancien
+    # schema d'une session n'est gele que si son remplacant epure existe (une session vide ne gele rien).
+    stats, motifs = {}, {}
+    total, inserted, geles = 0, 0, 0
     for jf in jsonl_files:
-        chunks = list(iter_claude_chunks(jf))
-        total_chunks.extend(chunks)
+        chunks = list(iter_claude_epure(jf, motifs))
         stats[jf.name] = len(chunks)
-
-    inserted = _insert_chunks(total_chunks)
-    log.info(
-        "[conv_indexer] Claude: %d sessions, %d chunks, %d inserted", len(jsonl_files), len(total_chunks), inserted
-    )
+        total += len(chunks)
+        if chunks:
+            inserted += _insert_chunks(chunks)
+            geles += geler_ancien(jf.stem)
+    log.info("[conv_indexer] Claude: %d sessions, %d fragments epures, %d inseres, %d anciens geles, ecarts %s",
+             len(jsonl_files), total, inserted, geles, motifs)
     return {
         "ok": True,
         "sessions": len(jsonl_files),
-        "chunks": len(total_chunks),
+        "chunks": total,
         "inserted": inserted,
+        "anciens_geles": geles,
+        "motifs_ecartes": motifs,
         "per_file": stats,
     }
 
 
-def index_gemini_sessions(project_name: str = "laforge", limit_sessions: int = 0) -> dict:
-    """Indexe les sessions Gemini CLI d'un projet. `limit_sessions=0` = TOUTES."""
-    chats_dir = GEMINI_HISTORY / project_name / "chats"
-    if not chats_dir.exists():
-        return {"ok": False, "error": f"dossier Gemini CLI introuvable: {chats_dir}"}
+def index_gemini_sessions(project_name: str | Path | None = "laforge", limit_sessions: int = 0) -> dict:
+    """Indexe les sessions Gemini CLI (.json et .jsonl). `project_name=None` = TOUS les projets
+    (`index_all` : mesure 2026-10-13, 44 sessions .jsonl reparties sur 7 projets dont `laforge` n'en
+    porte qu'une). Un nom de projet absent retombe sur tous les projets. `limit_sessions=0` = TOUTES."""
+    if isinstance(project_name, Path):
+        chats_dirs = [project_name] if project_name.exists() else []
+    elif project_name and (GEMINI_HISTORY / project_name / "chats").exists():
+        chats_dirs = [GEMINI_HISTORY / project_name / "chats"]
+    elif GEMINI_HISTORY.exists():
+        chats_dirs = sorted(p for p in GEMINI_HISTORY.glob("*/chats") if p.is_dir())
+    else:
+        chats_dirs = []
+    if not chats_dirs:
+        return {"ok": False, "error": f"dossier Gemini CLI introuvable: {GEMINI_HISTORY} (projet {project_name})"}
 
-    _tous = sorted(chats_dir.glob("session-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-    json_files = _tous if limit_sessions <= 0 else _tous[:limit_sessions]
+    fichiers_candidats: list[Path] = []
+    for cd in chats_dirs:
+        fichiers_candidats.extend(list(cd.glob("session-*.json")) + list(cd.glob("session-*.jsonl")))
+    fichiers_candidats.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    json_files = fichiers_candidats if limit_sessions <= 0 else fichiers_candidats[:limit_sessions]
     total_chunks = []
     stats = {}
 
@@ -801,7 +1132,8 @@ def index_gemini_sessions(project_name: str = "laforge", limit_sessions: int = 0
         stats[jf.name] = len(chunks)
 
     inserted = _insert_chunks(total_chunks)
-    log.info("[conv_indexer] Gemini: %d sessions, %d chunks, %d inserted", len(json_files), len(total_chunks), inserted)
+    log.info("[conv_indexer] Gemini: %d sessions (%d json/jsonl, %d projets), %d chunks, %d inserted",
+             len(json_files), len(fichiers_candidats), len(chats_dirs), len(total_chunks), inserted)
     return {
         "ok": True,
         "sessions": len(json_files),
@@ -812,24 +1144,27 @@ def index_gemini_sessions(project_name: str = "laforge", limit_sessions: int = 0
 
 
 def index_all(limit_sessions: int = 0) -> dict:
-    """Indexe Claude CLI + Gemini CLI + AGY + Claude Desktop + Gemini Web."""
+    """Indexe Claude CLI + Gemini CLI (tous projets) + AGY + Claude Desktop + Gemini Web + Codex CLI."""
     r_claude = index_claude_sessions(limit_sessions=limit_sessions)
-    r_gemini = index_gemini_sessions(limit_sessions=limit_sessions)
+    r_gemini = index_gemini_sessions(project_name=None, limit_sessions=limit_sessions)
     r_agy = index_agy_sessions(limit_sessions=limit_sessions)
     r_desktop = index_desktop_sessions()
     r_gemini_web = index_gemini_web_sessions()
+    r_codex = index_codex_sessions(limit_sessions=limit_sessions)
     return {
         "claude": r_claude,
         "gemini": r_gemini,
         "agy": r_agy,
         "desktop": r_desktop,
         "gemini_web": r_gemini_web,
+        "codex": r_codex,
         "total_inserted": (
             r_claude.get("inserted", 0)
             + r_gemini.get("inserted", 0)
             + r_agy.get("inserted", 0)
             + r_desktop.get("inserted", 0)
             + r_gemini_web.get("inserted", 0)
+            + r_codex.get("inserted", 0)
         ),
     }
 
@@ -850,6 +1185,19 @@ def index_latest_session(agent: str = "claude") -> dict:
         return index_claude_sessions(limit_sessions=1)
 
 
+def _etat_racine(racine: Path) -> str:
+    """OK / ABSENT / ILLISIBLE. Un dossier qu'on ne peut pas LISTER n'est pas un dossier vide : `glob`
+    y rend [] sans erreur. Mesure 2026-10-13 sous LaForgeTrusted : Gemini et Codex sortaient `n: 0`
+    alors que 44 + 26 sessions existent (ACL du profil owner) -- UNKNOWN pris pour NO."""
+    try:
+        with os.scandir(racine):
+            return "OK"
+    except FileNotFoundError:
+        return "ABSENT"
+    except OSError:
+        return "ILLISIBLE"
+
+
 def couverture() -> dict:
     """Depuis QUAND chaque source est-elle couverte ?
 
@@ -867,27 +1215,41 @@ def couverture() -> dict:
 
     def _fenetre(fichiers: list) -> dict:
         ts = []
+        illisibles = 0
         for f in fichiers:
             try:
                 ts.append(f.stat().st_mtime)
             except OSError:
-                continue
+                illisibles += 1  # compte, pas avale : `n` ne doit pas sous-compter en silence
         if not ts:
-            return {"n": 0}
-        return {"n": len(ts),
+            return {"n": 0, "illisibles": illisibles} if illisibles else {"n": 0}
+        return {"n": len(ts), **({"illisibles": illisibles} if illisibles else {}),
                 "plus_ancien": _dt.datetime.fromtimestamp(min(ts)).strftime("%Y-%m-%d"),
                 "plus_recent": _dt.datetime.fromtimestamp(max(ts)).strftime("%Y-%m-%d")}
 
+    def _source(racine: Path, motif: str) -> dict:
+        etat = _etat_racine(racine)
+        if etat == "ILLISIBLE":
+            return {"n": None, "etat": "ILLISIBLE", "racine": str(racine)}
+        if etat == "ABSENT":
+            return {"n": 0, "etat": "ABSENT"}
+        return _fenetre(list(racine.glob(motif)))
+
     out: dict = {}
-    if CLAUDE_HISTORY.exists():
+    etat_claude = _etat_racine(CLAUDE_HISTORY)
+    if etat_claude == "OK":
         for d in sorted(p for p in CLAUDE_HISTORY.iterdir() if p.is_dir()):
             out[f"claude:{d.name}"] = _fenetre(list(d.rglob("*.jsonl")))
-    out["agy"] = _fenetre(list(AGY_HISTORY.glob("*/.system_generated/logs/transcript.jsonl"))
-                          if AGY_HISTORY.exists() else [])
-    out["gemini_cli"] = _fenetre(list(GEMINI_HISTORY.glob("*/chats/session-*.json"))
-                                 if GEMINI_HISTORY.exists() else [])
+    else:
+        out["claude"] = {"n": None if etat_claude == "ILLISIBLE" else 0, "etat": etat_claude}
+    out["agy"] = _source(AGY_HISTORY, "*/.system_generated/logs/transcript.jsonl")
+    out["gemini_cli"] = _source(GEMINI_HISTORY, "*/chats/session-*.json")
+    out["gemini_cli_jsonl"] = _source(GEMINI_HISTORY, "*/chats/session-*.jsonl")
+    out["codex_cli"] = _source(CODEX_HISTORY, "sessions/**/*.jsonl")
     out["_note"] = ("mtime = derniere modification du fichier, PAS la date de la "
-                    "conversation ; borne inferieure de couverture uniquement")
+                    "conversation ; borne inferieure de couverture uniquement. n=None + "
+                    "ILLISIBLE = racine non listable par CE compte, pas une source vide ; un "
+                    "sous-dossier illisible sous une racine lisible reste invisible a glob")
     return out
 
 
@@ -927,13 +1289,196 @@ def installer_tache_nocturne(heure: str = "03:00") -> dict:
             "sortie": ((r.stdout or "") + (r.stderr or "")).strip()[:400]}
 
 
+# ── DIGESTION INCREMENTALE ET AUTOREGULEE (owner 14/10 : « 03:00 n'est que tres rarement atteint, un cycle plus
+# court, toujours autoregule sans saturer le poste ») : une passe toutes les 15 min ne coute que le DELTA. ─────
+ETAT_INCREMENTAL = ROOT / "logs" / "conv_indexer_etat.json"
+INACTIF_S = 1800              # fichier immobile depuis 30 min : session close, le dernier tour est solde
+BUDGET_OCTETS = 64 << 20      # au plus 64 Mo lus par fichier et par passe (le reste attend, et le DIT)
+
+
+def doit_differer(jobs_dir: Path | None = None, mesure=None, seuil_ram: float = 85.0,
+                  seuil_disque_mbs: float = 40.0) -> tuple[bool, str]:
+    """(differer, raison). Differer coute 15 min, jamais une donnee. Ordre : CI/job lourd VIVANT (pid verifie,
+    jamais un statut declare), bail prioritaire ACTIF, pression RAM/disque mesuree. Une sonde ILLISIBLE est DITE
+    et ne bloque pas seule (ni feu vert silencieux, ni blocage perpetuel)."""
+    illisibles = []
+    try:
+        import psutil
+        for j in (jobs_dir or ROOT / "sandbox" / "jobs").glob("job_*.json"):
+            if j.with_suffix(".rc").exists():
+                continue
+            try:
+                meta = json.loads(j.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                illisibles.append("%s ILLISIBLE (%s)" % (j.name, type(e).__name__))
+                continue
+            lourd = any(m in str(meta.get("script", "")) for m in ("ci_local.py", "forge_reindex", "run_swarm"))
+            if lourd and meta.get("pid") and psutil.pid_exists(int(meta["pid"])):
+                return True, "job lourd vivant %s (%s)" % (meta.get("job_id"), Path(str(meta.get("script"))).name)
+    except Exception as e:  # noqa: BLE001 - dit dans la raison rendue
+        illisibles.append("jobs ILLISIBLES (%s)" % type(e).__name__)
+    try:
+        from nokido_agent.app import forge_resource_manager as _rm
+        actifs = [b for b in _rm._lire_baux() if b.get("etat") == "ACTIF"]
+        if actifs:
+            return True, "bail prioritaire actif (%s)" % actifs[0].get("motif", "?")
+    except Exception as e:  # noqa: BLE001 - dit dans la raison rendue
+        illisibles.append("baux ILLISIBLES (%s)" % type(e).__name__)
+    try:
+        ram, disque = (mesure or _mesure_pression)()
+        if ram >= seuil_ram:
+            return True, "RAM %.0f %% >= %.0f %%" % (ram, seuil_ram)
+        if disque >= seuil_disque_mbs:
+            return True, "disque %.0f Mo/s >= %.0f Mo/s" % (disque, seuil_disque_mbs)
+    except Exception as e:  # noqa: BLE001 - dit dans la raison rendue
+        illisibles.append("pression ILLISIBLE (%s)" % type(e).__name__)
+    return False, "aucun motif" + (" ; " + " ; ".join(illisibles) if illisibles else "")
+
+
+def _mesure_pression(fenetre_s: float = 2.0) -> tuple[float, float]:
+    import psutil
+    a = psutil.disk_io_counters()
+    time.sleep(fenetre_s)
+    b = psutil.disk_io_counters()
+    mbs = ((b.read_bytes - a.read_bytes) + (b.write_bytes - a.write_bytes)) / fenetre_s / 1e6
+    return psutil.virtual_memory().percent, mbs
+
+
+def _lignes_depuis(chemin: Path, position: int, budget: int = BUDGET_OCTETS) -> tuple[list, int, bool]:
+    """([(position_debut, objet)], position_fin, tronque_par_budget) -- seules les lignes COMPLETES comptent."""
+    with open(chemin, "rb") as fh:
+        fh.seek(position)
+        brut = fh.read(budget + 1)
+    tronque = len(brut) > budget
+    brut = brut[:budget]
+    fin = brut.rfind(b"\n")
+    if fin < 0:
+        return [], position, tronque
+    sortie, curseur = [], position
+    for ligne in brut[:fin + 1].split(b"\n")[:-1]:
+        debut = curseur
+        curseur += len(ligne) + 1
+        try:
+            o = json.loads(ligne.decode("utf-8", "replace"))
+        except ValueError:  # muet-ok : ligne illisible ecartee, comptee dans les motifs par l'appelant
+            continue
+        if isinstance(o, dict):
+            sortie.append((debut, o))
+    return sortie, curseur, tronque
+
+
+def passe_claude(jf: Path, etat: dict | None, motifs: dict, maintenant: float | None = None) -> tuple[list, dict]:
+    """(fragments a inserer, nouvel etat du fichier). Seuls les tours FERMES (suivis d'une parole humaine) entrent ;
+    le tour ouvert est retenu (position = son debut), ou solde quand le fichier est immobile depuis INACTIF_S."""
+    st = jf.stat()
+    e = dict(etat or {})
+    if e.get("taille") == st.st_size and e.get("mtime") == int(st.st_mtime) and not e.get("ouvert"):
+        return [], e
+    lus, fin, tronque = _lignes_depuis(jf, int(e.get("position", 0)))
+    inactif = ((maintenant or time.time()) - st.st_mtime) >= INACTIF_S
+    humains = [i for i, (_p, o) in enumerate(lus)
+               if o.get("type") == "user" and isinstance((o.get("message") or {}).get("content"), str)]
+    if inactif or not humains or tronque:
+        fermes, reprise, ouvert = lus, fin, False
+    else:
+        fermes, reprise, ouvert = lus[:humains[-1]], lus[humains[-1]][0], True
+    tours, compte = tours_epures([o for _p, o in fermes])
+    gardes, narrations = moelle(tours)
+    compte["narration_intermediaire"] = narrations
+    for k, v in compte.items():
+        motifs[k] = motifs.get(k, 0) + v
+    e.update(position=reprise, taille=st.st_size, mtime=int(st.st_mtime), ouvert=ouvert, tronque=tronque)
+    return list(_fragments_claude(jf.stem, gardes)), e
+
+
+DERNIER_PASSAGE = ROOT / "logs" / "conv_indexer_dernier.json"
+
+
+def ecrire_dernier_passage(resultat: dict, chemin: Path | None = None) -> bool:
+    """Ecrit le dernier passage d'`index_all` (fin, compte, resultat). La tache nocturne tourne sous
+    pythonw, sans console : desactivee le 25/08, elle a fige le corpus conv 7 semaines sans que RIEN
+    ne le dise. Ce fichier est la preuve datee qu'un passage a eu lieu -- son absence aussi parle."""
+    import getpass
+
+    chemin = chemin or DERNIER_PASSAGE
+    try:
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        chemin.write_text(json.dumps({"fin": time.strftime("%Y-%m-%dT%H:%M:%S"), "compte": getpass.getuser(),
+                                      "resultat": resultat}, ensure_ascii=False, indent=1, default=str),
+                          encoding="utf-8")
+        return True
+    except OSError as e:
+        log.warning("[conv_indexer] dernier passage NON ecrit (%s) : %s", chemin, e)
+        return False
+
+
+def index_incremental(etat_path: Path | None = None, racine: Path | None = None) -> dict:
+    """Une passe COURTE : la porte d'abord ; puis le DELTA des sessions Claude (positions par fichier) ; les sources
+    peu actives (Gemini, AGY, Codex) en passe complete une fois par jour. Enumeration LEGERE (`*/*.jsonl` et
+    `*/*/subagents/*.jsonl`) : le rglob des dossiers de resultats d'outils a coute 68 s le 14/10."""
+    differer, raison = doit_differer()
+    if differer:
+        log.info("[conv_indexer] passe DIFFEREE : %s", raison)
+        return {"ok": True, "verdict": "DIFFERE", "raison": raison}
+    etat_path = etat_path or ETAT_INCREMENTAL
+    racine = racine or CLAUDE_HISTORY
+    try:
+        etat = json.loads(etat_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        etat = {}
+    except (OSError, ValueError) as e:
+        log.warning("[conv_indexer] etat incremental ILLISIBLE (%s) : positions repartent de zero (dedup)",
+                    type(e).__name__)
+        etat = {}
+    fichiers = (sorted(list(racine.glob("*/*.jsonl")) + list(racine.glob("*/*/subagents/*.jsonl")))
+                if racine.exists() else [])
+    motifs, inseres, geles, avec_nouveau = {}, 0, 0, 0
+    for jf in fichiers:
+        cle = str(jf)
+        try:
+            frags, nouvel = passe_claude(jf, etat.get(cle), motifs)
+        except OSError as e:
+            log.warning("[conv_indexer] %s illisible (%s) : non digere cette passe", jf.name, type(e).__name__)
+            continue
+        if frags:
+            avec_nouveau += 1
+            inseres += _insert_chunks(frags)
+            if not (etat.get(cle) or {}).get("ancien_gele"):
+                geles += geler_ancien(jf.stem)
+                nouvel["ancien_gele"] = True
+        etat[cle] = nouvel
+    autres = None
+    if time.time() - float(etat.get("_derniere_complete", 0)) > 86400:
+        autres = {"gemini": index_gemini_sessions(project_name=None), "agy": index_agy_sessions(),
+                  "codex": index_codex_sessions()}
+        etat["_derniere_complete"] = time.time()
+    tmp = etat_path.with_suffix(".tmp")
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, etat_path)
+    res = {"ok": True, "verdict": "PASSE", "porte": raison, "fichiers": len(fichiers),
+           "fichiers_avec_nouveau": avec_nouveau, "inserted": inseres, "anciens_geles": geles,
+           "motifs_ecartes": motifs, "autres_sources": autres}
+    log.info("[conv_indexer] incremental : %s", {k: v for k, v in res.items() if k != "autres_sources"})
+    return res
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    # Sous pythonw (tache nocturne) stderr vaut None : sans fichier, le passage ne laisse aucune trace.
+    _handlers: list = [logging.StreamHandler()] if sys.stderr is not None else []
+    if "--coverage" not in sys.argv and "--install-nightly" not in sys.argv:
+        try:
+            _handlers.append(logging.FileHandler(ROOT / "logs" / "conv_indexer.log", encoding="utf-8"))
+        except OSError as _e:
+            if sys.stderr is not None:
+                print(f"[conv_indexer] journal fichier impossible : {_e}", file=sys.stderr)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", handlers=_handlers)
     if "--install-nightly" in sys.argv:
         print(json.dumps(installer_tache_nocturne(), indent=2, ensure_ascii=False))
         raise SystemExit(0)
     if "--coverage" in sys.argv:
         print(json.dumps(couverture(), indent=2, ensure_ascii=False))
         raise SystemExit(0)
-    result = index_all()
+    result = index_incremental() if "--incremental" in sys.argv else index_all()
+    ecrire_dernier_passage(result)
     print(f"[conv_indexer] Résultat: {json.dumps(result, indent=2, ensure_ascii=False)}")

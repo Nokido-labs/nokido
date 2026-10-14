@@ -73,17 +73,27 @@ def test_get_rag_builds_once_under_concurrency(fresh_singleton):
 
 
 def test_no_module_constructs_rag_engine_directly():
-    """Anti-regression : un nouveau RAGEngine() par appel reintroduit le cold-wedge."""
+    """Anti-regression : un nouveau RAGEngine() par appel reintroduit le cold-wedge.
+    Controle par AST pour ne pas lever sur les mentions en docstring (ex: forge_rag_via_hub)."""
+    import ast
+
     offenders = []
     for path in (ROOT / "app").glob("*.py"):
         if path.name in _ALLOWED:
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for lineno, line in enumerate(text.splitlines(), 1):
-            code = line.split("#", 1)[0]  # ignore les mentions en commentaire
-            # `RAGEngine(` colle : les docstrings ecrivent "RAGEngine (optionnel)" (espace)
-            if re.search(r"(?<![\w.])RAGEngine\(", code):
-                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"), filename=str(path))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                name = ""
+                if isinstance(node.func, ast.Name):
+                    name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    name = node.func.attr
+                if name == "RAGEngine":
+                    offenders.append(f"{path.name}:{getattr(node, 'lineno', '?')}")
     assert not offenders, "utiliser get_rag() (singleton) au lieu de RAGEngine() :\n" + "\n".join(offenders)
 
 

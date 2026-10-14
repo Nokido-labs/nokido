@@ -34,7 +34,8 @@ if _APP not in sys.path:
 from nokido_agent.app.forge_secrets import get_secret  # noqa: E402 - apres le bootstrap de sys.path
 
 LLAMA_BASE = "http://127.0.0.1:8091"
-HUB_BASE = "http://127.0.0.1:8766"
+# Le port suit LAFORGE_HUB_PORT, comme le hub lui-meme (un CLI fige sur 8766 parlait a un AUTRE hub, 13/10).
+HUB_BASE = "http://127.0.0.1:%s" % os.environ.get("LAFORGE_HUB_PORT", "8766")
 MODEL = "laforge-coder"
 MAX_TOK = 4096
 OLLAMA_BASE = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
@@ -69,6 +70,12 @@ def _hub_token() -> str:
 def _hub_headers() -> dict:
     h = {"Content-Type": "application/json", "X-Agent-Name": "LAFORGE_CLI"}
     tok = _hub_token()
+    if not tok:
+        # Installation neuve (decision owner 13/10) : pas de jeton maitre ; le jeton DERIVE du premier client humain,
+        # seme par `nokido-composants` (poseur jetons), presente sous SON identite -- jamais un passe-partout.
+        tok = get_secret("FORGE_TOKEN_EDITOR") or ""
+        if tok:
+            h["X-Agent-Name"] = "EDITOR"
     if tok:
         h["Authorization"] = f"Bearer {tok}"
     return h
@@ -112,7 +119,7 @@ def _ensure_llama_up(timeout: int = 30) -> bool:
     try:
         with urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=2) as _:
             return True
-    except Exception:
+    except OSError:  # muet-ok : :8091 injoignable est le cas ATTENDU ici, le reveil qui suit le traite
         pass
     tok = _hub_token()
     if not tok:
@@ -137,7 +144,7 @@ def _ensure_llama_up(timeout: int = 30) -> bool:
             with urllib.request.urlopen(f"{LLAMA_BASE}/health", timeout=2) as _:
                 print("\033[1;32m[wake] :8091 UP\033[0m", flush=True)
                 return True
-        except Exception:
+        except OSError:  # muet-ok : pas encore pret, on re-sonde ; au bout du delai, False le dit
             continue
     return False
 
@@ -167,7 +174,7 @@ def _stream(messages: list[dict]) -> str:
                     if delta:
                         print(delta, end="", flush=True)
                         buf.append(delta)
-                except Exception:
+                except (ValueError, KeyError, IndexError, TypeError, AttributeError):  # muet-ok : SSE sans delta
                     pass
     except urllib.error.URLError as e:
         print(f"\033[1;31m[erreur réseau] {e}\033[0m")
@@ -183,9 +190,31 @@ def _pp(obj):
         print(obj)
 
 
+def decoder_reponse_mcp(texte: str) -> dict:
+    """Reponse MCP en JSON simple OU en flux SSE (`data: {...}` ; le hub emet d'abord des evenements de progression) :
+    rend le DERNIER message portant `result` ou `error`. Parcours paquet 13/10 : le CLI ne lisait que le JSON brut et
+    le premier usage mourait en traceback sur un flux SSE."""
+    try:
+        return json.loads(texte)
+    except ValueError:  # muet-ok : pas du JSON simple -- le flux SSE est lu ci-dessous
+        pass
+    dernier = None
+    for ligne in texte.splitlines():
+        if ligne.startswith("data:"):
+            try:
+                d = json.loads(ligne[5:].strip())
+            except ValueError:  # muet-ok : evenement sans JSON (progression) -- le suivant est lu
+                continue
+            if isinstance(d, dict) and ("result" in d or "error" in d):
+                dernier = d
+    return dernier if dernier is not None else {"error": "reponse MCP illisible : %r" % texte[:200]}
+
+
 def _hub_call(tool: str, params: dict, timeout: int = 60) -> dict:
     body = json.dumps(
         {
+            "jsonrpc": "2.0",
+            "id": 1,
             "method": "tools/call",
             "params": {"name": tool, "arguments": params},
         }
@@ -193,12 +222,12 @@ def _hub_call(tool: str, params: dict, timeout: int = 60) -> dict:
     req = urllib.request.Request(
         f"{HUB_BASE}/mcp",
         data=body,
-        headers=_hub_headers(),
+        headers=dict(_hub_headers(), Accept="application/json, text/event-stream"),
         method="POST",
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
+            return decoder_reponse_mcp(r.read().decode("utf-8", "replace"))
     except urllib.error.URLError as e:
         return {"error": str(e)}
 
@@ -223,11 +252,11 @@ def _hub_tools(timeout: int = 15) -> list[dict]:
             try:
                 with open(_TOOLS_CACHE, "w", encoding="utf-8") as f:
                     json.dump(tools, f)
-            except Exception:
-                pass
+            except OSError as e:
+                print(f"[outils] liste non mise en cache ({type(e).__name__}: {e})", file=sys.stderr)
         return tools
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - le hub injoignable bascule sur le cache, et le DIT
+        print(f"[outils] liste live illisible ({type(e).__name__}) : cache local utilise", file=sys.stderr)
     # Cache fallback
     try:
         with open(_TOOLS_CACHE, encoding="utf-8") as f:
@@ -301,7 +330,7 @@ def _send_ollama(history: list[dict]) -> str:
                     if c:
                         print(c, end="", flush=True)
                         buf.append(c)
-                except Exception:
+                except (ValueError, AttributeError):  # muet-ok : ligne NDJSON vide ou sans message
                     pass
     except Exception as e:
         print(f"\033[1;31m[ollama erreur] {e}\033[0m — modèle '{STATE['model']}' chargé ? (/models)")
@@ -344,7 +373,7 @@ def _send_smart(history: list[dict]) -> str:
                 ok = inner.get("ok", True)
                 txt = str(inner.get("text") or "")
                 err = str(inner.get("error") or "")
-        except Exception:
+        except (ValueError, TypeError):  # muet-ok : resultat en texte brut, pas du JSON -- rendu tel quel plus bas
             pass
         if ok and txt.strip():
             print(txt)

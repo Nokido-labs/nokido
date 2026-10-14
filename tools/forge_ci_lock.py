@@ -177,16 +177,117 @@ def reconcilier(lock, installe) -> tuple:
     return "CONFORME", details
 
 
+def runtime(dists=None) -> dict:
+    """TOUT l'environnement de l'interpreteur courant -- le runtime certifiant, pas la seule fermeture des outils.
+
+    2026-10-13 : `requirements.nokido_py314.lock`, ecrit a la main le 22/05, ne decrivait plus le runtime (18
+    versions differentes, 104 paquets absents, ResolutionImpossible dans un env neuf) ; la CI le disait deja
+    (« NON CERTIFIANT : environnement DIVERGENT »). Une installation EDITABLE (PEP 610, `dir_info.editable`)
+    pointe un dossier de CETTE machine : exclue du lock et DITE. Un paquet pose par conda garde `nom==version`."""
+    import importlib.metadata as md
+    paquets, exclus, groupes = {}, [], {}
+    for d in (md.distributions() if dists is None else dists):
+        nom = d.metadata.get("Name") if d.metadata else None
+        if not nom:
+            continue
+        try:
+            direct = json.loads(d.read_text("direct_url.json") or "{}")
+        except (OSError, ValueError):
+            direct = {}
+        if (direct.get("dir_info") or {}).get("editable"):
+            # Le chemin source n'est PAS ecrit : ce lock part au depot public.
+            exclus.append((normaliser(nom), "installation editable locale (dossier de cette machine)"))
+            continue
+        groupes.setdefault(normaliser(nom), []).append(d)
+    # DOUBLONS (mesure 2026-10-13 : 14 paires dans laforge_py314, restes de montees) : pip freeze lit l'ANCIEN
+    # dist-info, le code charge est le RECENT. On garde la copie dont le RECORD correspond au disque ; sans
+    # copie unique en tete, la version est DOUTEUSE et aucun lock ne doit s'ecrire.
+    doublons, douteux = [], []
+    for nom, ds in sorted(groupes.items()):
+        if len(ds) == 1:
+            paquets[nom] = ds[0].version
+            continue
+        notes = sorted(((_conformite(d), d.version) for d in ds), key=lambda x: -1 if x[0] is None else x[0],
+                       reverse=True)
+        if all(s is not None for s, _v in notes) and notes[0][0] > notes[1][0]:
+            paquets[nom] = notes[0][1]
+            doublons.append((nom, notes[0][1], [v for _s, v in notes[1:]]))
+        else:
+            douteux.append((nom, [(v, s) for s, v in notes]))
+    return {"paquets": paquets, "exclus": sorted(exclus), "doublons": doublons, "douteux": douteux}
+
+
+def _conformite(d):
+    """Part des fichiers du RECORD d'une distribution dont le sha256 correspond au disque ; None si illisible."""
+    import base64
+    import csv
+    import hashlib
+    try:
+        lignes = list(csv.reader((d.read_text("RECORD") or "").splitlines()))
+    except (OSError, csv.Error):
+        return None
+    base = Path(d.locate_file(""))
+    ok = tot = 0
+    for ligne in lignes:
+        if len(ligne) < 2 or not ligne[1].startswith("sha256=") or ".dist-info/" in ligne[0]:
+            continue
+        tot += 1
+        try:
+            dig = base64.urlsafe_b64encode(hashlib.sha256((base / ligne[0]).read_bytes()).digest())
+        except OSError:
+            continue
+        ok += dig.rstrip(b"=").decode() == ligne[1][7:]
+    return ok / tot if tot else None
+
+
+def rendu_runtime(r: dict, interpreteur: str) -> str:
+    import datetime as _dt
+    tete = [
+        "# requirements.nokido_py314.lock -- GENERE par `tools/forge_ci_lock.py --runtime --ecrire`, ne pas editer.",
+        "# Etat de l'env du hub (runtime certifiant), releve dans l'env : %s" % Path(interpreteur).parent.name,
+        "# Releve le %s : %d paquet(s) epingle(s)." % (_dt.date.today().isoformat(), len(r["paquets"])),
+        "# Installer tel quel (versions exactes, sans resolution) : python -m pip install --no-deps -r <ce fichier>",
+        "# ROLLBACK d'un env casse : laforge_py314/python.exe -m pip install --no-deps -r requirements.nokido_py314.lock",
+        "# Discipline : apres tout changement de deps, re-figer ce fichier (et resceller les manifestes s'ils le citent).",
+    ]
+    for nom, raison in r["exclus"]:
+        tete.append("# EXCLU %s : %s" % (nom, raison))
+    for nom, garde, restes in r.get("doublons", []):
+        tete.append("# DOUBLON %s : %s garde (RECORD conforme au disque) ; dist-info orphelin(s) %s"
+                    % (nom, garde, ", ".join(restes)))
+    return "\n".join(tete + [""] + ["%s==%s" % (n, v) for n, v in sorted(r["paquets"].items())]) + "\n"
+
+
 def _main(argv=None) -> int:
     import argparse
     import sys
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ecrire", action="store_true", help="(re)generer le lock")
     ap.add_argument("--verifier", action="store_true", help="reconcilier avec l'installe")
-    ap.add_argument("--fichier", default=str(Path(__file__).resolve().parents[1]
-                                             / "requirements-ci.lock"))
+    ap.add_argument("--runtime", action="store_true",
+                    help="TOUT l'env de cet interpreteur (requirements.nokido_py314.lock), pas la fermeture CI")
+    ap.add_argument("--fichier", default=None)
     a = ap.parse_args(argv)
-    rapport = fermeture()
+    if a.fichier is None:
+        a.fichier = str(Path(__file__).resolve().parents[1]
+                        / ("requirements.nokido_py314.lock" if a.runtime else "requirements-ci.lock"))
+    if a.runtime:
+        rapport = runtime()
+        if a.ecrire and rapport["douteux"]:
+            for nom, notes in rapport["douteux"]:
+                print("   DOUTEUX %s : %s" % (nom, notes))
+            print("[lock] AUCUN lock ecrit : %d paquet(s) sans copie prouvee (doublons dist-info)"
+                  % len(rapport["douteux"]))
+            return 2
+        if a.ecrire:
+            Path(a.fichier).write_text(rendu_runtime(rapport, sys.executable), encoding="utf-8")
+            print("[lock] runtime : %d paquet(s), %d exclu(s) -> %s"
+                  % (len(rapport["paquets"]), len(rapport["exclus"]), a.fichier))
+            for nom, raison in rapport["exclus"]:
+                print("   EXCLU %s : %s" % (nom, raison))
+            return 0
+    else:
+        rapport = fermeture()
     if a.ecrire:
         Path(a.fichier).write_text(rendu(rapport), encoding="utf-8")
         print("[lock] %d paquet(s) -> %s" % (len(rapport["paquets"]), a.fichier))

@@ -21,6 +21,9 @@ import forge_resource_manager as rm  # noqa: E402
 def test_request_resources_sans_evict_ne_fait_aucun_effet_de_bord(monkeypatch):
     """allow_evict=False doit rester une simple CONSTATATION."""
     monkeypatch.setattr(rm, "get_snapshot", lambda: {"ram_free_gb": 0.5, "ram_total_gb": 24.0})
+    # request_resources mesure la RAM libre EN DIRECT (_free_now), pas dans l'instantane publie : sans ce patch le test
+    # lisait la RAM du poste (rouge des que >= 4 Go libres, constat 13/10).
+    monkeypatch.setattr(rm, "_free_now", lambda: 0.5)
     appels = []
     monkeypatch.setattr(rm, "ollama_loaded_models", lambda: appels.append("ollama") or [])
     monkeypatch.setattr(rm, "docker_pause_all", lambda: appels.append("docker") or 0)
@@ -33,6 +36,7 @@ def test_request_resources_sans_evict_ne_fait_aucun_effet_de_bord(monkeypatch):
 
 def test_request_resources_noop_si_ram_suffisante(monkeypatch):
     monkeypatch.setattr(rm, "get_snapshot", lambda: {"ram_free_gb": 9.0, "ram_total_gb": 24.0})
+    monkeypatch.setattr(rm, "_free_now", lambda: 9.0)  # mesure directe simulee : independant du poste
     r = rm.request_resources(4.0, allow_evict=True)
     assert r["ok"] is True and r["action"] == "noop"
 

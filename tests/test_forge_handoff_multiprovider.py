@@ -7,7 +7,7 @@ Verifies the 3-branch dispatch in _llm_round() :
                               with quota gate + fallback chain on error.
 
 Run :
-    PYTHONNOUSERSITE=1 __import__("os").path.expanduser("~/miniforge3/python.exe") -m pytest \
+    PYTHONNOUSERSITE=1 "~/miniforge3/python.exe" -m pytest \
         tests/test_forge_handoff_multiprovider.py -v
 """
 from __future__ import annotations

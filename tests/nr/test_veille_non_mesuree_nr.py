@@ -33,6 +33,9 @@ def _faux_watch_agent(searxng, academic, ensure=False):
     mod._ensure_searxng = lambda: ensure
     mod._searxng = searxng
     mod._academic_search = academic
+    # Source GitHub (2026-10-13) : branchee dans `_call_search`, elle suit le sort de l'academique -- injoignable
+    # quand elle l'est, « rien » quand elle repond rien -- pour que chaque scenario garde son sens.
+    mod._github_search = lambda q, n=4, leve=False: academic(q, n)
     return mod
 
 

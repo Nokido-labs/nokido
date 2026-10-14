@@ -23,7 +23,7 @@ import forge_service_capabilities as sc  # noqa: E402
     "NokidoQdrantServer",    # dense_search
     "NokidoQdrantSidecar",   # dense_search
     "NokidoLlamaReranker",   # reranking
-    "LaForgeMCP",            # hub
+    "NokidoMCP",             # hub (LaForgeMCP avant 7e27ca5ee, 2026-08-17)
 ])
 def test_les_organes_endormis_le_24_07_sont_desormais_critiques(service):
     """Les trois piliers du RAG (+ le hub) doivent etre reconnus intouchables."""

@@ -687,11 +687,29 @@ _RAM_PLAFOND_PCT = 85.0
 _REVEILS = ROOT / "sandbox" / "ensure_reveils.json"
 
 
+# Base de la derniere lecture d'admission, citee dans le refus : un refus sur un INSTANT et un refus sur une pression
+# TENUE ne se lisent pas pareil (mesure 13/10 : refus a 87,7 % sur un pic, dementi 20 s plus tard).
+_RAM_BASE = "instant"
+
+
 def _ram_pct() -> float:
-    """% de RAM utilisee ; 0.0 si illisible (on n'invente pas un chiffre)."""
+    """% de RAM sur lequel DECIDER : plancher des 60 dernieres secondes publie par le sampler du gestionnaire de
+    ressources (forge_resource_manager.ram_pct_decision) ; a defaut, l'instant psutil. 0.0 si illisible (on
+    n'invente pas un chiffre)."""
+    global _RAM_BASE
+    try:
+        from nokido_agent.app.forge_resource_manager import ram_pct_decision
+
+        valeur, _RAM_BASE = ram_pct_decision()
+        if valeur > 0.0:
+            return float(valeur)
+    except Exception as e:  # noqa: BLE001 -- gestionnaire illisible : on retombe sur l'instant, et on le dit
+        _RAM_BASE = "instant (gestionnaire illisible : %s)" % type(e).__name__
     try:
         import psutil
 
+        if not _RAM_BASE.startswith("instant"):
+            _RAM_BASE = "instant"
         return float(psutil.virtual_memory().percent)
     except Exception as e:  # noqa: BLE001
         print(f"[admission] RAM ILLISIBLE ({type(e).__name__}: {str(e)[:60]}) | "
@@ -727,7 +745,7 @@ def _admission(s: str, st: str) -> dict | None:
     if ram >= _RAM_PLAFOND_PCT:
         return {"service": s, "desired": st, "success": False,
                 "refus": "ram_saturee",
-                "detail": f"RAM a {ram:.1f} % (plafond {_RAM_PLAFOND_PCT:.0f} %) : "
+                "detail": f"RAM a {ram:.1f} % [{_RAM_BASE}] (plafond {_RAM_PLAFOND_PCT:.0f} %) : "
                           f"un reveil ici produit un boot lent juge KO, donc une "
                           f"boucle de relance. Liberer d'abord (stopped) ou attendre."}
     try:

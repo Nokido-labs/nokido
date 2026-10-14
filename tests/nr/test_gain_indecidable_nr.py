@@ -103,7 +103,10 @@ def test_le_juge_ferme_conserve_toujours_sur_ameliore(monkeypatch):
     """Le chemin nominal n'est pas touche par la distinction."""
     base = {"tests_ok": 2, "tests_total": 3, "duree_s": 10.0}
     cand = {"tests_ok": 3, "tests_total": 3, "duree_s": 10.0}
-    etats = [base, cand]
+    # Ordre des mesures depuis le held-out (2026-10-13) : selection avant, held-out avant, selection apres,
+    # held-out apres. Le held-out TIENT ici : le chemin nominal reste AMELIORE.
+    ho = {"tests_ok": 1, "tests_total": 1, "tests_passes": ["tests/nr/h.py"], "duree_s": 1.0}
+    etats = [base, dict(ho), cand, dict(ho)]
     monkeypatch.setattr(MJ, "mesurer", lambda tests=None, cwd=None: etats.pop(0))
     monkeypatch.setattr(MJ, "juger_module", lambda rel, nouveau, tests: {"verdict": "SURVIT"})
     monkeypatch.setattr(MJ, "_journaliser", lambda rel, r: None)

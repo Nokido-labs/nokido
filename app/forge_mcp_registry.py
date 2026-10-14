@@ -56,6 +56,7 @@ import sqlite3
 # 2026-10-02 : forge_intent_risk et non forge_spike_router, dont la tete importe torch -- chaque
 # processus qui importait ce registre (le hub compris) chargeait torch, inutile a evaluate_intent.
 from nokido_agent.app.forge_intent_risk import evaluate_intent
+import threading
 import time
 import base64
 import urllib.request
@@ -4913,7 +4914,38 @@ class ToolRegistry:
             return f"OK broadcast envoye a {len(_targets)} agents: {', '.join(_targets)}" + _m2m_note
         return "OK notification envoyee" + _m2m_note
 
+    # Comptes de rag_chunks par domaine : un GROUP BY sur ~10 M lignes, 10 a 18 s. Mesure du 2026-10-13
+    # (logs/loop_lag.log) : execute a chaque whoami SUR la boucle du hub, il l'a gelee 6 fois dans la journee,
+    # 74 s cumules, max 17,9 s -- plus que les 42 autres gels reunis. Un compte qui bouge a l'echelle de l'heure
+    # ne se recalcule pas a chaque appel : cache de 10 min, UN seul comptage a la fois, absence de valeur DITE.
+    _WHOAMI_DOMAINES: dict = {"ts": 0.0, "val": None}
+    _WHOAMI_DOMAINES_VERROU = threading.Lock()
+    _WHOAMI_DOMAINES_TTL_S = 600.0
+
+    def _whoami_domaines(self, conn):
+        cache = ToolRegistry._WHOAMI_DOMAINES
+        if cache["val"] is not None and time.time() - cache["ts"] < ToolRegistry._WHOAMI_DOMAINES_TTL_S:
+            return cache["val"]
+        if not ToolRegistry._WHOAMI_DOMAINES_VERROU.acquire(blocking=False):
+            # un autre appel compte deja : rendre la valeur perimee plutot que lancer un second scan concurrent
+            return cache["val"] if cache["val"] is not None else "EN_CALCUL (premier comptage en cours)"
+        try:
+            rows = conn.execute(
+                "SELECT domain, COUNT(*) as n FROM rag_chunks "
+                "WHERE domain NOT LIKE 'beir%' GROUP BY domain ORDER BY n DESC LIMIT 8"
+            ).fetchall()
+            cache["val"] = [{"domain": d["domain"], "chunks": d["n"]} for d in rows]
+            cache["ts"] = time.time()
+            return cache["val"]
+        finally:
+            ToolRegistry._WHOAMI_DOMAINES_VERROU.release()
+
     async def handle_whoami(self, args: dict, agent: str, ring: int) -> str:
+        """Etat de l'agent. Le corps est SYNCHRONE (sqlite, urlopen :8765, compteur de jetons) : il tourne HORS de
+        la boucle du hub, comme `query` -- execute dessus, il la gelait (voir _WHOAMI_DOMAINES)."""
+        return await asyncio.to_thread(self._handle_whoami_sync, args, agent, ring)
+
+    def _handle_whoami_sync(self, args: dict, agent: str, ring: int) -> str:
         """
         Retourne l etat complet de l agent depuis la DB en temps reel.
         UNE seule requete au boot — remplace GEMINI.md statique.
@@ -4987,10 +5019,7 @@ class ToolRegistry:
                     _ac.close()
             else:
                 _tools = _conn.execute(_sql_tools, (ring,)).fetchall()
-            _domains = _conn.execute(
-                "SELECT domain, COUNT(*) as n FROM rag_chunks "
-                "WHERE domain NOT LIKE 'beir%' GROUP BY domain ORDER BY n DESC LIMIT 8"
-            ).fetchall()
+            _domains = self._whoami_domaines(_conn)
             # 6.bis Présence — agents ayant émis un message < 15 min (proxy d'activité ;
             # Phase 1b = présence par-appel via post_dispatch pour du live exact).
             _online = _m2m.execute(
@@ -5102,7 +5131,9 @@ class ToolRegistry:
                         {"model": p["provider"], "ttft_ms": p["ttft_ms"], "grade": p["grade"]} for p in _providers
                     ],
                     "tools_available": [t["tool_name"] for t in _tools],
-                    "rag_domains": [{"domain": d["domain"], "chunks": d["n"]} for d in _domains],
+                    "rag_domains": _domains,
+                    "rag_domains_age_s": (round(time.time() - ToolRegistry._WHOAMI_DOMAINES["ts"])
+                                          if ToolRegistry._WHOAMI_DOMAINES["ts"] else None),
                     "ring": ring,
                 },
                 "next_actions": _health_actions

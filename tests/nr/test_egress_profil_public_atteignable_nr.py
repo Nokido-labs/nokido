@@ -62,6 +62,7 @@ _DOIT_ETRE_BLOQUE = [
     "docs/AUDIT_SECURITE_REGISTRE.md",                           # failles non corrigees
     "docs/AUDIT_VAULT_2026-09-20.md",
     ".github/workflows/ci-selfhosted.yml",                       # PR publique -> code sur le poste owner
+    ".forgejo/workflows/eco-shield.yml",                         # faux vert (`|| true`), gele au prive (owner 2026-10-14)
     "sandbox/.ngrok_pid",                                        # etat volatil
     "sandbox/pids/registry.json",
     "sandbox/_phantoms_backup/x",

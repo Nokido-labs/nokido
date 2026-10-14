@@ -22,9 +22,9 @@ Règle : PAS de scan hardware en boucle. PAS de subprocess répété.
 Tout le code Nokido lit sandbox/hardware.json — jamais detect_hardware() directement.
 
 NSSM config :
-  nssm install NokidoHardware __import__("os").path.expanduser("~/miniforge3/python.exe")
+  nssm install NokidoHardware "~/miniforge3/python.exe"
   nssm set NokidoHardware AppParameters "-u app/hardware_monitor.py"
-  nssm set NokidoHardware AppDirectory __import__("os").path.expanduser("~/Script python IA/LaForge")
+  nssm set NokidoHardware AppDirectory "~/Script python IA/LaForge"
   nssm set NokidoHardware Start SERVICE_DEMAND_START
   nssm set NokidoHardware AppExit 0 Exit
   nssm set NokidoHardware AppRestartDelay 86400000

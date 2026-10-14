@@ -33,8 +33,8 @@ id = "installeur"
 description = "Installeur linux en une commande"
 source = "depot"
 chemin = "install.sh"
-sha256 = "f37bddc86ebee9ba5aeafc8c925f7ca9485cae0bf61e9976d462846f351b01d4"
-taille = 20581
+sha256 = "8f7747827f5ad45a8eb27a8155d97ba79456630eae89a55a4f510527cce91a45"
+taille = 22924
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 
@@ -43,8 +43,8 @@ id = "dependances-python"
 description = "Dependances Python de base (specification pip ; les roues ne sont pas encore hachees)"
 source = "depot"
 chemin = "requirements.txt"
-sha256 = "425c13065751407eb041362568829f8b4a3f40134e3486dffe062f01ef3b2ae0"
-taille = 4322
+sha256 = "11ad04ef87a4ee0d13b378b4aac4928ecba814b104066bbd5e17a5ac6a25dec1"
+taille = 4632
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 

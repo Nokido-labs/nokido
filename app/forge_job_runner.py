@@ -510,6 +510,15 @@ def read_job(job_id: str, tail: int = 4000) -> dict:
             out = log_f.read_text(encoding="utf-8", errors="replace")[-tail:]
         except Exception:
             out = ""
+    # STDERR du job (2026-10-13, owner : « capte-le et branche-le »). Un Traceback part sur `.err`, pas dans le
+    # `.log` : job_status rendait rc=1 avec un log_tail VIDE, la cause etant ailleurs sur le disque.
+    err_f = log_f.with_suffix(".err") if str(log_f) else None
+    err = ""
+    if err_f is not None and err_f.exists():
+        try:
+            err = err_f.read_text(encoding="utf-8", errors="replace")[-tail:]
+        except OSError as e:
+            err = "(.err ILLISIBLE : %s)" % type(e).__name__
     # Jointure PROGRESSION (forge_job_progress) : la barre vit dans un etat
     # partage dedie ; la joindre ici donne la MEME verite a tous les clients
     # (Claude/Gemini/Codex/Web) sans canal ni polling supplementaire.
@@ -531,6 +540,8 @@ def read_job(job_id: str, tail: int = 4000) -> dict:
         "pid": rec.get("pid"),
         "started": rec.get("started"),
         "log_tail": out,
+        "err_tail": err,
+        "err_fichier": str(err_f) if err_f is not None else None,
         "progress": progress,
         "timed_out": rec.get("timed_out", INCONNU),
         "fin": rec.get("fin"),

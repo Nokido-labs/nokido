@@ -325,7 +325,7 @@ def _broadcast(event: dict):
         for q in dead:
             try:
                 _SSE_CLIENTS.remove(q)
-            except:
+            except ValueError:  # muet-ok : client deja retire par un desabonnement concurrent
                 pass
 
 
@@ -348,7 +348,7 @@ def net_unsubscribe_sse(q: queue.Queue):
     with _SSE_LOCK:
         try:
             _SSE_CLIENTS.remove(q)
-        except:
+        except ValueError:  # muet-ok : client deja retire (file pleine, purge par _broadcast)
             pass
 
 
@@ -550,6 +550,33 @@ def log_cloud_out(provider: str, model: str, agent: str, message: str, session_i
     )
 
 
+# `(?![\d.])` : jamais le premier octet d'une adresse (`http://127.0.0.1` n'est pas un code 127).
+_CODE_HTTP = re.compile(r"(?:error code|http|status(?:_code)?|code)\D{0,4}([1-5]\d\d)(?![\d.])", re.IGNORECASE)
+_CAUSES_TEXTE = (("insufficient balance", "402"), ("quota", "429"), ("rate limit", "429"),
+                 ("rate_limit", "429"), ("timed out", "timeout"), ("timeout", "timeout"),
+                 ("connection", "connexion"), ("indisponible", "indisponible"), ("unavailable", "indisponible"))
+
+
+def statut_erreur_cloud(response: str) -> str:
+    """`ERR:<classe>` d'un echec cloud -- 402, 403, 429, 5xx, timeout, connexion, indisponible ; `ERR` seul
+    si la cause est illisible.
+
+    Mesure 2026-10-13 : 3 fournisseurs a 0 % de succes (credit epuise 402, modele hors palier 403) etaient
+    traces `ERR` SANS cause : le motif vit dans la charge, que le journal d'audit tronque vers 150 car.
+    avant le statut. Le statut, lui, survit, et le capteur de traces lit deja `ERR:<code>` -- c'est la que
+    la cause doit vivre pour qu'une boucle (tri RSI, routeur) puisse la traiter.
+    """
+    texte = str(response or "")
+    m = _CODE_HTTP.search(texte)
+    if m:
+        return "ERR:" + m.group(1)
+    bas = texte.lower()
+    for mot, classe in _CAUSES_TEXTE:
+        if mot in bas:
+            return "ERR:" + classe
+    return "ERR"
+
+
 def log_cloud_in(
     provider: str,
     model: str,
@@ -567,7 +594,7 @@ def log_cloud_in(
         model=model,
         agent=agent,
         latency_ms=latency_ms,
-        status="ERR" if is_err else "OK",
+        status=statut_erreur_cloud(response) if is_err else "OK",
         payload_out=str(response)[:400],
         meta={"tokens": tokens} if tokens else None,
         session_id=session_id,

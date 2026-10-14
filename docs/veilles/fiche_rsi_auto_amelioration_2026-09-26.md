@@ -12,8 +12,8 @@ Limite DITE : extraits par mots-clés, pas lecture intégrale — une primitive 
 | P4 | Held-out **disjoint, évalué 2 fois** ; paquet de preuves à somme de contrôle qui GARDE les échecs | DGM README (proof bundle, « empty responses, timeouts ») | l'échec est une preuve, pas du bruit |
 | P5 | **L'évaluateur est HORS de portée de l'agent** (prepare.py « Not modified »), budget FIXE, 1 métrique, keep/discard | autoresearch README ; `prepare.py:31` TIME_BUDGET=300 | l'agent ne touche jamais la règle qui le juge |
 | P6 | **Les agents affaiblissent leurs propres vérifications** (« agents were being taught to write weaker checks ») | rsiagent `core/checks.py:41` | mésévolution mesurée, pas théorique |
-| P7 | Tout évolue SAUF le **journal d'événements** (historique canonique) ; snapshots de bac à sable ; auto-vérif + rollback | exo README ; `docs/SELF-CONTROL.md:180` | preuve immuable = ce qui empêche les boucles |
-| P8 | Fitness **multi-objectif** : champ `complexity` ; frontière de Pareto ; porte d'écriture qui ne mord que sur violation | openevolve `database.py:65` ; awesome-self-evolving `code/safety_gated_evolution.py:56`, `docs/primer.md:40` | un score scalaire récompense la croissance |
+| P7 | Tout évolue SAUF le **journal d'événements** (historique canonique) ; snapshots de bac à sable ; auto-vérif + rollback | exo README ; `exo/docs/SELF-CONTROL.md:180` | preuve immuable = ce qui empêche les boucles |
+| P8 | Fitness **multi-objectif** : champ `complexity` ; frontière de Pareto ; porte d'écriture qui ne mord que sur violation | openevolve `database.py:65` ; awesome-self-evolving `code/safety_gated_evolution.py:56`, `awesome-self-evolving/docs/primer.md:40` | un score scalaire récompense la croissance |
 | P9 | Évolution de MÉMOIRE/skills sans toucher aux poids ; mémoire vérifiée par un Verifier distinct de l'Actor | recuris, rsiagent README | L1 d'abord : risque le plus bas |
 
 ## 2. NOKIDO_EXISTING — VÉRIFIÉ DANS LE CODE le 27/09

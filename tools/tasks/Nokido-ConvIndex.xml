@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Digestion INCREMENTALE et AUTOREGULEE des historiques agents (Claude, AGY, Gemini, Codex) dans le RAG, domaine conv (app/forge_conv_indexer.py --incremental). Demande owner du 14/10 : « 03:00 n'est que tres rarement atteint, un cycle plus court, toujours autoregule sans saturer le poste ». Chaque passe ne lit que les lignes NOUVELLES (etat logs\conv_indexer_etat.json), ne garde que la moelle (humain + conclusion, sorties d'outils ecartees) et DIFFERE si une CI, un job lourd, un bail prioritaire ou une pression RAM/disque est mesuree. Toutes les 15 min + a l'ouverture de session ; IgnoreNew : jamais deux passes a la fois ; priorite basse. Tourne sous l'owner : seul compte qui lit tous les historiques. pythonw : trace = logs\conv_indexer.log + logs\conv_indexer_dernier.json. Pose (console ADMINISTRATEUR, la tache existante refuse la reecriture non elevee) : schtasks /create /tn Nokido-ConvIndex /xml "%NOKIDO_ROOT%\tools\tasks\Nokido-ConvIndex.xml" /f</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT5M</Delay>
+      <Repetition>
+        <Interval>PT15M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+    </LogonTrigger>
+    <CalendarTrigger>
+      <StartBoundary>2026-10-15T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+      <Repetition>
+        <Interval>PT15M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <ScheduleByDay>
+        <DaysInterval>1</DaysInterval>
+      </ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT30M</ExecutionTimeLimit>
+    <Priority>8</Priority>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%USERPROFILE%\miniforge3\pythonw.exe</Command>
+      <Arguments>"%NOKIDO_ROOT%\app\forge_conv_indexer.py" --incremental</Arguments>
+      <WorkingDirectory>%NOKIDO_ROOT%</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

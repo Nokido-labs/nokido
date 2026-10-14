@@ -154,8 +154,20 @@ def _lock() -> asyncio.Lock:
     return _write_lock
 
 
+# Zones de GOUVERNANCE : ce sont des registres (roadmap/SSoT, mission, bugs suivis), pas du travail jetable.
+# INCIDENT du 2026-10-13 : une ecriture banale a declenche le prune amorti sur architecture_rules et le TTL de 14 j
+# a supprime 81 faits roadmap sur 103 (P0, BLOCKER, P1 encore OUVERTS) -- restaures depuis une copie prise avant.
+# Le SSoT (forge_ssot_maintainer) se derive de cette zone : la soumettre au TTL effacait la roadmap par l'age.
+# « Geler, jamais supprimer » : ces zones ne sont ni elaguees par TTL ni plafonnees ; on clot un fait par un
+# marqueur ([CLOS]/[RESOLU]...), on ne le detruit pas.
+_ZONES_PERENNES = frozenset({"architecture_rules", "mission", "active_bugs"})
+
+
 def _prune(conn: sqlite3.Connection, zone: str) -> None:
-    """Borne la zone à l'écriture : TTL + cap des N plus récents (travail ≠ archive)."""
+    """Borne la zone à l'écriture : TTL + cap des N plus récents (travail ≠ archive).
+    Les zones de gouvernance (_ZONES_PERENNES) sont des archives : jamais elaguees."""
+    if zone in _ZONES_PERENNES:
+        return
     conn.execute("DELETE FROM swarm_blackboard WHERE zone=? AND updated_at < ?",
                  (zone, time.time() - _FACT_TTL_S))
     conn.execute(
@@ -353,6 +365,11 @@ def gc(zone: str | None = None, max_age_days: float | None = None,
         cond.append("trust < ?"); args.append(float(min_trust))
     if not cond:
         return {"deleted": 0, "note": "aucun critère"}
+    if zone in _ZONES_PERENNES:
+        return {"deleted": 0, "note": "zone perenne (%s) : jamais purgee, clore par marqueur" % zone}
+    # Sans zone explicite, la purge par age ou confiance epargne les zones de gouvernance (incident du 2026-10-13).
+    cond.append("zone NOT IN (%s)" % ",".join("?" * len(_ZONES_PERENNES)))
+    args.extend(sorted(_ZONES_PERENNES))
     c = _conn()
     try:
         before = c.execute("SELECT COUNT(*) FROM swarm_blackboard").fetchone()[0]

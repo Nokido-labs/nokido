@@ -73,8 +73,9 @@ def test_la_cle_n_atteint_aucun_journal(monkeypatch, caplog):
     """La valeur postee ne doit apparaitre ni dans le journal, ni dans la reponse."""
     vues = {}
 
-    async def _faux_hub(methode, chemin, *, json_corps=None, delai=None):
+    async def _faux_hub(methode, chemin, *, json_corps=None, delai=None, sujet=""):
         vues["corps"] = json_corps
+        vues["sujet"] = sujet          # requete sans session : jamais le sujet owner (2a, 13/10)
         return 200, {"ok": True, "vault_key": "GROQ_API_KEY", "preview": "***6789"}
 
     monkeypatch.setattr(PV, "_vers_hub", _faux_hub)
@@ -88,6 +89,7 @@ def test_la_cle_n_atteint_aucun_journal(monkeypatch, caplog):
 
     # La cle DOIT atteindre le hub, sinon la fonctionnalite ne marche pas.
     assert vues["corps"]["api_key"] == CLE_TEMOIN, "la cle n'est pas transmise au coffre"
+    assert vues["sujet"] == "", "une requete sans session verifiee a declare le sujet owner"
 
     journal = "\n".join(r.getMessage() for r in caplog.records)
     assert CLE_TEMOIN not in journal, "la cle a ete journalisee"

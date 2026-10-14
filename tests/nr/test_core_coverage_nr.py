@@ -589,14 +589,25 @@ class TestEvolutionaryEngineCoverage:
 class TestEvolutionaryStack:
     """Tests EvolutionaryStack."""
 
+    @pytest.fixture(autouse=True)
+    def _isole_shadow_mutation(self, tmp_path, monkeypatch):
+        """Isole tout acces disque sous tmp_path : supprime l'echec de droits sur ROOT/shadow_mutation."""
+        import forge_evolutionary_stack as fes
+        monkeypatch.setattr(fes, "VAULT_DIR", tmp_path / "vault")
+        monkeypatch.setattr(fes, "RAG_JSONL", tmp_path / "rag_index" / "experience_memory.jsonl")
+        monkeypatch.setattr(fes, "RULES_DIR", tmp_path / "standards")
+        (tmp_path / "vault").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "rag_index").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "standards").mkdir(parents=True, exist_ok=True)
+
     def test_instantiation(self):
         """EvolutionaryStack instanciable."""
         from forge_evolutionary_stack import EvolutionaryStack
         stack = EvolutionaryStack()
         assert stack is not None
 
-    def test_on_success_returns_version_id(self):
-        """on_success retourne un version_id string."""
+    def test_on_success_returns_version_id(self, tmp_path):
+        """on_success retourne un version_id string et ecrit sous tmp_path, pas dans ROOT."""
         from forge_evolutionary_stack import EvolutionaryStack
         stack = EvolutionaryStack()
         vid = stack.on_success(
@@ -608,6 +619,10 @@ class TestEvolutionaryStack:
         )
         assert isinstance(vid, str)
         assert len(vid) > 0
+        # La version de CET appel (vid unique) n'est pas dans ROOT : un dossier test_module laisse par
+        # d'anciennes executions non isolees existe deja sur le poste et ne dit rien de cet appel.
+        assert not (ROOT / "shadow_mutation" / "vault" / "test_module" / vid).exists()
+        assert (tmp_path / "vault" / "test_module" / vid / "code.py").exists()
 
     def test_on_failure_records(self):
         """on_failure enregistre sans crash."""

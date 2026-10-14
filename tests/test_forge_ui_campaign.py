@@ -4,11 +4,44 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 import tools.forge_ui_campaign as ui_campaign
+
+
+@pytest.fixture(autouse=True)
+def _registre_isole(tmp_path, monkeypatch):
+    """Le registre des routes instables est calcule a l'IMPORT depuis OUT : patcher OUT ne le redirige pas. Mesure du
+    14/10 : ces tests incrementaient les compteurs du VRAI registre (146 -> 174 en deux lancements)."""
+    monkeypatch.setattr(ui_campaign, "_REGISTRE_INSTABLES", tmp_path / "routes_instables.json")
+    monkeypatch.setattr(ui_campaign, "_COMPTEURS_INSTABLES", tmp_path / "routes_instables_compteurs.json")
+
+
+def _page_simulee():
+    """Page Playwright simulee : ses methodes attendues (await) sont asynchrones ; `on` reste synchrone, comme la vraie."""
+    page = MagicMock()
+    for nom in ("add_init_script", "evaluate", "wait_for_load_state", "wait_for_function"):
+        setattr(page, nom, AsyncMock(return_value=None))
+    return page
+
+
+class _MethodesRecentes:
+    """Les methodes que la campagne appelle depuis le 31/07 (date du dernier passage sur ce test) : sans elles, la
+    doublure PLANTAIT, et le test VIOLE obtenait son rouge par ce plantage, pas par le contrat qu'il pretend juger."""
+
+    async def count_interactive_document(self):
+        return 0
+
+    async def eval_js(self, expr):
+        return None
+
+    async def fill(self, selector, text, timeout_ms=5000):
+        return None
+
+    async def click(self, selector, timeout_ms=5000):
+        return None
 
 
 @pytest.mark.asyncio
@@ -46,9 +79,9 @@ async def test_ui_gate_state_viole_and_named_route(tmp_path: Path, monkeypatch: 
     mock_opener.open.return_value = mock_res
 
     # Mock PlaywrightBrowser context
-    class MockBrowser:
+    class MockBrowser(_MethodesRecentes):
         def __init__(self, **kwargs):
-            self.page = MagicMock()
+            self.page = _page_simulee()
 
         async def __aenter__(self):
             return self
@@ -100,9 +133,9 @@ async def test_ui_gate_state_conforme(tmp_path: Path, monkeypatch: pytest.Monkey
     mock_res.status = 200
     mock_opener.open.return_value = mock_res
 
-    class MockBrowser:
+    class MockBrowser(_MethodesRecentes):
         def __init__(self, **kwargs):
-            self.page = MagicMock()
+            self.page = _page_simulee()
 
         async def __aenter__(self):
             return self
@@ -120,7 +153,8 @@ async def test_ui_gate_state_conforme(tmp_path: Path, monkeypatch: pytest.Monkey
             return str(path)
 
         async def dom_text(self):
-            return "nokido hub web hub"
+            # > 40 caracteres : depuis le 29/08 la campagne juge VIDE une page plus courte (signal « page vide »).
+            return "nokido hub web hub -- portail : services, agents, memoire et veille du poste"
 
         async def url(self):
             return "http://127.0.0.1:7400/dashboard"

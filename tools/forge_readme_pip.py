@@ -74,8 +74,31 @@ def version_servie(paquet: str = PAQUET, ouvrir=urllib.request.urlopen, delai: f
     return version if isinstance(version, str) and _RE_VERSION.match(version) else ILLISIBLE
 
 
+# Premiere version qui DECLARE l'extra `organisme` et la commande `nokido-composants` (parcours paquet du 13/10 :
+# 0.20.10 ne les declarait pas -- `pip install "nokido-agent[organisme]"` n'installait que le noyau, hub mort).
+# Une version anterieure garde le bloc d'avant : le README n'annonce que ce que la version servie sait faire.
+PREMIERE_VERSION_ORGANISME = (0, 20, 11)
+
+
+def _organisme_servi(version: str) -> bool:
+    try:
+        return tuple(int(x) for x in version.split(".")[:3]) >= PREMIERE_VERSION_ORGANISME
+    except ValueError:
+        return False
+
+
 def rendre(paquet: str, version: str) -> str:
     """Le corps du bloc pour cet etat de l'index."""
+    if version not in (AUCUNE, ILLISIBLE) and _organisme_servi(version):
+        return ("**From PyPI** — [`%s %s`](https://pypi.org/project/%s/%s/), published after the\n"
+                "install proof on Linux, Windows and macOS. The complete organism, its pinned components\n"
+                "(checksums verified), then the hub:\n\n"
+                "```bash\npip install \"%s[organisme]==%s\"\n"
+                "nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token\n"
+                "nokido-doctor                     # what this machine has, lacks, or cannot read\n"
+                "nokido-hub                        # then: curl http://localhost:8766/health\n```\n\n"
+                "Client only (talks to an existing hub): `pip install %s==%s`.\n"
+                % (paquet, version, paquet, version, paquet, version, paquet, version))
     if version == AUCUNE:
         return ("`pip install %s` — **not on PyPI yet.** PyPI is the only index this README\n"
                 "trusts: a version reaches it only after the install proof on Linux, Windows\n"

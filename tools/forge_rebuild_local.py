@@ -11,9 +11,9 @@ cloud -> local : ne re-embedde pas ce qui est deja fait).
 
 Run :
   # Sequential (legacy)
-  __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_rebuild_local.py
+  "~/miniforge3/python.exe" tools/forge_rebuild_local.py
   # Parallel 3.14t nogil (WORKERS=4, llama-server --parallel 4)
-  __import__("os").path.expanduser("~/miniforge3/envs/laforge_py314t/python.exe") tools/forge_rebuild_local.py 4
+  "~/miniforge3/envs/laforge_py314t/python.exe" tools/forge_rebuild_local.py 4
 Relancer reprend au checkpoint.
 """
 

@@ -48,6 +48,8 @@ SERVICES_TOML = ROOT / "proxy_deno" / "core" / "services.toml"
 PRESENT = "PRESENT"
 ABSENT = "ABSENT"
 ILLISIBLE = "ILLISIBLE"
+# Valeur par defaut d'un programme (dossier qu'il cree a la demande) : ni PRESENT (rien n'est prouve), ni ABSENT.
+DEFAUT = "DEFAUT"
 
 REQUIS = "REQUIS"          # sans lui, rien ne tourne
 ESSENTIEL = "ESSENTIEL"    # porte un service marque `essential` dans le TOML
@@ -94,7 +96,10 @@ PREREQUIS: tuple[dict, ...] = (
         "capacite": "inference LLM locale :11434 (service NokidoOllama, marque essential)",
         "absent_alors": "plus d'inference locale par defaut ; la cascade retombe sur "
                         "llama-server ou sur un provider distant s'il est configure",
-        "install": {"*": "https://ollama.com/download — puis un modele adapte a la machine : `nokido-doctor --modeles`"},
+        "install": {"*": "https://ollama.com/download, ou la build epinglee (Ollama 0.32.14, local-llm.toml) extraite "
+                         "dans runtime/ollama/ — puis un modele adapte a la machine : `nokido-doctor --modeles`"},
+        "chemins_usuels": (str(ROOT / "runtime" / "ollama" / "ollama.exe"), str(ROOT / "runtime" / "ollama" / "ollama"),
+                           str(ROOT / "runtime" / "ollama" / "bin" / "ollama")),
     },
     {
         "cle": "llama_server",
@@ -111,6 +116,17 @@ PREREQUIS: tuple[dict, ...] = (
         "chemins_usuels": (str(ROOT / "runtime" / "llama" / "llama-server.exe"),
                            str(ROOT / "runtime" / "llama" / "llama-server"),
                            str(ROOT / "runtime" / "llama" / "build" / "bin" / "llama-server")),
+    },
+    {
+        "cle": "qdrant",
+        "binaires": ("qdrant", "qdrant.exe"),
+        "niveau": OPTIONNEL,
+        "capacite": "serveur vectoriel natif :6333 du RAG dense (NokidoQdrantServer, puis le sidecar :8098)",
+        "absent_alors": "la recherche dense par Qdrant ; le RAG garde le plein texte et l'embedder",
+        "install": {"*": "build epinglee (Qdrant 1.18.2, sha256 dans distribution/packs/local-llm.toml) a extraire "
+                         "dans runtime/qdrant/, puis `nokido-doctor --ecrire-vars`"},
+        "chemins_usuels": (str(ROOT / "runtime" / "qdrant" / "qdrant.exe"),
+                           str(ROOT / "runtime" / "qdrant" / "qdrant")),
     },
     {
         "cle": "lmstudio",
@@ -135,7 +151,10 @@ PREREQUIS: tuple[dict, ...] = (
         "niveau": OPTIONNEL,
         "capacite": "terminaison TLS :8443 (service NokidoCaddyTLS)",
         "absent_alors": "l'acces HTTPS ; le loopback en clair continue de fonctionner",
-        "install": {"*": "https://caddyserver.com/docs/install"},
+        "install": {"*": "build epinglee (Caddy 2.11.3, sha256 dans distribution/packs/local-llm.toml) a poser dans "
+                         "sandbox/, puis tools/forge_gen_tls_cert.py et tools/forge_tls_caddy.py --write-config"},
+        # sandbox/caddy[.exe] : emplacement que services.toml et tools/forge_tls_caddy.py attendent (2026-10-09).
+        "chemins_usuels": (str(ROOT / "sandbox" / "caddy.exe"), str(ROOT / "sandbox" / "caddy")),
     },
     {
         "cle": "chiffrement_at_rest",
@@ -155,14 +174,13 @@ PREREQUIS: tuple[dict, ...] = (
     },
     {
         "cle": "netcfg_agent",
-        "binaires": (),  # sonde dediee : c'est un DEPOT voisin, pas un binaire
+        "binaires": (),  # sonde dediee : ce sont des PAQUETS Python (netcfg_mcp, netcfg), pas un binaire
         "niveau": ESSENTIEL,
-        "capacite": "NokidoNetcfgMCP :8768 — service marque essential, dont le cwd "
-                    "pointe HORS du depot (${NETCFG_DIR})",
-        "absent_alors": "le MCP netcfg ne demarre pas ; c'est un depot separe, "
-                        "il n'est donc PAS livre avec le paquet nokido-agent",
-        "install": {"*": "cloner netcfg-agent-mcp a cote du depot Nokido, "
-                         "ou pointer ${NETCFG_DIR} vers son emplacement"},
+        "capacite": "NokidoNetcfgMCP :8768 (essential) et NokidoNetcfgUI :7500 -- paquets PyPI "
+                    "netcfg-agent-mcp et netcfg-agent depuis le 2026-10-11, plus de depot voisin",
+        "absent_alors": "le MCP netcfg et son UI ne demarrent pas",
+        "install": {"*": "pip install -r requirements-organisme.txt  "
+                         "(netcfg-agent[complet], netcfg-agent-mcp)"},
     },
     {
         "cle": "toolchain_rust",
@@ -439,6 +457,132 @@ def _sonde_binaire(noms: tuple[str, ...], usuels: tuple[str, ...] = ()) -> tuple
     return ABSENT, "ni PATH, ni chemin declare, ni emplacement usuel: " + ", ".join(noms)
 
 
+# --- Chemins MACHINE des [vars] du superviseur (2026-10-08) ----------------------------------------------------------
+# Mesure sur VM neuve (Windows, Linux, macOS ; run 37816375828) : 0 des 60 services actifs ne tournait. Le dist publie
+# `[vars]` avec des chemins generises (`%USERPROFILE%/miniforge3/envs/laforge_py314/python.exe`) que personne ne
+# developpait, sans variante Linux/macOS : le hub ne demarrait pas et 33 services l'attendaient. Le poste de reference
+# marche parce que SES chemins existent. On DECOUVRE donc a l'installation ce que ce poste a en dur, avec la sonde a
+# trois voies -- et on ne remplace JAMAIS une variable dont le chemin existe, ni une qu'on n'a pas pu regarder
+# (ILLISIBLE n'autorise pas a ecraser : seul un ABSENT prouve ouvre la place).
+VARS_LOCAL = ROOT / "config" / "vars.local.toml"
+_VARS_INTERPRETEUR = ("PYTHON", "PY314", "PY314T", "PY312_RYZEN")
+_EXE = ".exe" if os.name == "nt" else ""
+
+
+def _developpe(v) -> str:
+    """`%NOM%` (forme generisee du dist) -> valeur de l'environnement ; USERPROFILE retombe sur le dossier personnel
+    hors Windows. Une variable inconnue reste VISIBLE telle quelle, jamais remplacee par du vide."""
+    import re
+
+    # Memes defauts que le chargeur Deno : la racine et le dossier de travail se deduisent du depot.
+    defauts = {"USERPROFILE": str(Path.home()), "NOKIDO_ROOT": ROOT.as_posix(), "NOKIDO_WORKSPACE": ROOT.parent.as_posix()}
+
+    def _rep(m):
+        return os.environ.get(m.group(1)) or defauts.get(m.group(1)) or m.group(0)
+    return re.sub(r"%([A-Za-z_][A-Za-z0-9_]*)%", _rep, str(v))
+
+
+def _chemin_tient(s: str) -> bool:
+    """Le chemin declare existe (fichier ou dossier), ou n'a pas pu etre regarde : dans les deux cas on n'y touche pas."""
+    p = Path(s)
+    if "%" in s or "${" in s or not p.is_absolute():
+        return False
+    try:
+        if p.is_dir():
+            return True
+    except OSError:
+        return True
+    return _verdict_chemin(p) != ABSENT
+
+
+def _depuis_sonde(noms, usuels) -> dict:
+    etat, detail = _sonde_binaire(tuple(noms), tuple(str(u) for u in usuels))
+    valeur = detail.rsplit(": ", 1)[1].replace("\\", "/") if etat == PRESENT and ": " in detail else None
+    return {"valeur": valeur, "etat": etat if (valeur or etat != PRESENT) else ILLISIBLE, "detail": detail}
+
+
+def vars_machine() -> dict:
+    """Pour chaque variable de `[vars]` dont le chemin declare n'existe pas sur CETTE machine : la valeur decouverte
+    (`etat` PRESENT) ou l'aveu qu'elle est introuvable (ABSENT / ILLISIBLE, `valeur` None)."""
+    home = Path.home()
+    sondes = {
+        "DENO": (("deno",), [home / ".deno" / "bin" / ("deno" + _EXE)]),
+        "LLAMA": (("llama-server",), [ROOT / "runtime" / "llama" / ("llama-server" + _EXE)]),
+        # runtime/ollama : build epinglee (local-llm.toml) ; l'archive Linux range le binaire sous bin/.
+        "OLLAMA_EXE": (("ollama",), [ROOT / "runtime" / "ollama" / ("ollama" + _EXE),
+                                     ROOT / "runtime" / "ollama" / "bin" / "ollama"]),
+        "LMS_EXE": (("lms",), [home / ".lmstudio" / "bin" / ("lms" + _EXE)]),
+    }
+    # Dossiers de binaires tiers : retenus seulement s'ils CONTIENNENT le binaire (2026-10-09, Qdrant extrait dans
+    # runtime/qdrant depuis la build epinglee de local-llm.toml).
+    dossiers = {"QDRANT_BIN": ROOT / "runtime" / "qdrant" / ("qdrant" + _EXE)}
+    # Dossiers de DONNEES que leur programme cree a la demande : sa valeur par defaut, DITE comme telle.
+    defauts = {"OLLAMA_MODELS": home / ".ollama" / "models"}
+    out = {}
+    for cle, val in _vars_du_toml().items():
+        if cle in ("ROOT", "PROXY_DIR"):
+            continue
+        developpe = _developpe(val)
+        if _chemin_tient(developpe):
+            # Un chemin qui ne tient que par une variable de l'UTILISATEUR (%USERPROFILE%...) se fige en ABSOLU : sur
+            # machine cliente le superviseur tourne en SYSTEM (owner 09/10) et developperait SON profil -- mesure 4,
+            # deno et ollama cherches sous config\systemprofile. Une valeur litterale (poste de reference) : intouchee.
+            if "%" in str(val):
+                out[cle] = {"valeur": Path(developpe).as_posix(), "etat": PRESENT,
+                            "detail": "fige en absolu pour le superviseur SYSTEM"}
+            continue
+        if cle in _VARS_INTERPRETEUR:
+            out[cle] = {"valeur": sys.executable.replace("\\", "/"), "etat": PRESENT,
+                        "detail": "interpreteur ou Nokido est installe"}
+        elif cle in sondes:
+            out[cle] = _depuis_sonde(*sondes[cle])
+        elif cle in defauts:
+            p = defauts[cle]
+            out[cle] = {"valeur": p.as_posix(), "etat": PRESENT if p.is_dir() else DEFAUT,
+                        "detail": "emplacement par defaut du programme (cree a la demande)"}
+        elif cle in dossiers:
+            exe = dossiers[cle]
+            out[cle] = ({"valeur": exe.parent.as_posix(), "etat": PRESENT, "detail": "build epinglee extraite"}
+                        if exe.is_file() else
+                        {"valeur": None, "etat": ABSENT, "detail": "binaire absent : %s" % exe.as_posix()})
+        else:
+            out[cle] = {"valeur": None, "etat": ABSENT, "detail": "aucune sonde pour cette variable : chemin a fournir"}
+    # Les dossiers se deduisent de LEUR binaire trouve, jamais au juge.
+    for dossier, exe, niveau in (("OLLAMA_DIR", "OLLAMA_EXE", 0), ("LMS_DIR", "LMS_EXE", 1)):
+        if dossier in out and (out.get(exe) or {}).get("valeur"):
+            out[dossier] = {"valeur": Path(out[exe]["valeur"]).parents[niveau].as_posix(), "etat": PRESENT,
+                            "detail": "deduit de %s" % exe}
+    return out
+
+
+def ecrire_vars_local(chemin=None) -> dict:
+    """Ecrit `config/vars.local.toml` : les chemins de CETTE machine, lus par le chargeur du superviseur par-dessus
+    `[vars]`. N'ecrit RIEN quand il n'y a rien a ecrire (poste dont les chemins existent). Les introuvables sont DITS
+    en commentaire. Rend le bilan : ecrit, chemin, ecrites, absentes."""
+    import datetime
+    import json
+
+    cible = Path(chemin) if chemin else VARS_LOCAL
+    vm = vars_machine()
+    ecrites = {k: v["valeur"] for k, v in vm.items() if v.get("valeur")}
+    absentes = sorted(k for k, v in vm.items() if not v.get("valeur"))
+    bilan = {"ecrit": False, "chemin": str(cible), "ecrites": sorted(ecrites), "absentes": absentes}
+    if not ecrites:
+        return bilan
+    lignes = ["# Ecrit par `nokido-doctor --ecrire-vars` le %s : chemins de CETTE machine pour les [vars]"
+              % datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+              "# du superviseur. Propre a la machine : jamais versionne. Une variable absente d'ici garde la valeur",
+              "# de proxy_deno/core/services.toml.", "", "[vars]"]
+    lignes += ["%s = %s" % (k, json.dumps(ecrites[k], ensure_ascii=False)) for k in sorted(ecrites)]
+    if absentes:
+        lignes += ["", "# INTROUVABLES sur cette machine (les services qui en dependent ne demarreront pas) :"]
+        lignes += ["#   %s -- %s" % (k, vm[k]["detail"]) for k in absentes]
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    bilan["ecrit"] = True
+    return bilan
+
+
 def _sonde_python() -> tuple[str, str]:
     v = sys.version_info
     detail = "%d.%d.%d (%s)" % (v.major, v.minor, v.micro, sys.executable)
@@ -458,7 +602,7 @@ def verifier(inclure_optionnels: bool = True) -> list[dict]:
         if e["cle"] == "python":
             etat, detail = _sonde_python()
         elif e["cle"] == "netcfg_agent":
-            etat, detail = _sonde_dossier_netcfg()
+            etat, detail = _sonde_paquet_netcfg()
         else:
             etat, detail = _sonde_binaire(e["binaires"], e.get("chemins_usuels", ()))
         out.append({
@@ -479,23 +623,21 @@ def _cle_os() -> str:
     return {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
 
 
-def _sonde_dossier_netcfg() -> tuple[str, str]:
-    """Le depot voisin netcfg-agent-mcp, designe par ${NETCFG_DIR} au TOML.
-
-    Ce n'est pas un binaire : c'est une arborescence Python lancee en `-m`. Une
-    variable non declaree rend ILLISIBLE, pas ABSENT — on ne sait alors meme pas
-    ou regarder.
-    """
-    d = _vars_du_toml().get("NETCFG_DIR")
-    if not d:
-        return ILLISIBLE, "${NETCFG_DIR} non declare au TOML — rien a verifier"
-    try:
-        p = Path(str(d))
-        if p.is_dir():
-            return PRESENT, str(p)
-        return ABSENT, "depot voisin introuvable: " + str(p)
-    except OSError as e:
-        return ILLISIBLE, "%s: %s" % (type(e).__name__, e)
+def _sonde_paquet_netcfg() -> tuple[str, str]:
+    """Les paquets netcfg-agent-mcp (`netcfg_mcp`) et netcfg-agent (`netcfg`), lances en `-m` par NokidoNetcfgMCP et
+    NokidoNetcfgUI. Depuis le 2026-10-11 ce sont des paquets PyPI : plus de depot voisin ni de ${NETCFG_DIR}, donc la
+    sonde ne depend plus du TOML. Cherche sans importer (find_spec) ; une erreur de recherche rend ILLISIBLE."""
+    import importlib.util
+    trouves, manquants = [], []
+    for mod in ("netcfg_mcp", "netcfg"):
+        try:
+            spec = importlib.util.find_spec(mod)
+        except (ImportError, ValueError) as e:
+            return ILLISIBLE, "%s : %s" % (mod, type(e).__name__)
+        (trouves if spec is not None else manquants).append(mod if spec is None else "%s (%s)" % (mod, spec.origin))
+    if manquants:
+        return ABSENT, "paquet(s) non installe(s) : " + ", ".join(manquants)
+    return PRESENT, " ; ".join(trouves)
 
 
 def epinglages_modeles() -> dict:

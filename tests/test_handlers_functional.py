@@ -3,7 +3,7 @@ test_handlers_functional.py — Tests fonctionnels des handlers @cmd Nokido v13
 Vérifie : dispatch, arguments manquants, cohérence help↔handlers, imports critiques.
 
 Lancer :
-    cd __import__("os").path.expanduser("~/Script python IA/LaForge")
+    cd "~/Script python IA/LaForge"
     python -m pytest tests/test_handlers_functional.py -v
 """
 from __future__ import annotations

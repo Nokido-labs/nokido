@@ -13,7 +13,10 @@
 # version REELLEMENT INSTALLEE dans laforge_py314. Mesure : pip install
 # --dry-run passe de CONFLIT a RESOLUBLE avec cette seule ligne.
 fastapi==0.136.1
-uvicorn[standard]==0.29.0
+# 0.29.0 -> 0.46.0 le 2026-10-11, meme histoire : requirements-organisme (SDK `mcp==1.27.2`, qui exige
+# `uvicorn>=0.31.1`) etait NON RESOLUBLE avec 0.29.0 -- revele par la CI Dependabot (run 38166784805).
+# 0.46.0 = la version REELLEMENT INSTALLEE dans l'interpreteur ${PYTHON} des services (mesure du jour).
+uvicorn[standard]==0.46.0
 httpx==0.28.1
 aiofiles==25.1.0
 pydantic==2.12.5

@@ -14,7 +14,7 @@ brain_worker local. Chacun auto-desactive si sa cle manque dans Nokido.env.
 
 Run :
   PYTHONNOUSERSITE=1 PYTHONIOENCODING=utf-8 \\
-    __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_rebuild_embeddings.py
+    "~/miniforge3/python.exe" tools/forge_rebuild_embeddings.py
 """
 
 import json

@@ -21,7 +21,9 @@ nokido_hub.py must be applied separately.
 from __future__ import annotations
 
 import argparse
+import os
 import secrets
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -96,23 +98,65 @@ def _icacls_subtrees_parallel(
             sys.stdout.flush()
 
 
-def _miniforge_subtrees() -> list[str]:
-    """Liste les sous-arbres miniforge3 à couvrir explicitement par icacls /T.
-    = sous-dossiers base canoniques + tous les envs/<name>."""
+def _sous_arbres(racine: str) -> list[str]:
+    """Sous-arbres d'une racine d'interpreteur a couvrir explicitement par icacls /T :
+    sous-dossiers canoniques + tous les envs/<name> (conda)."""
     import os as _os
 
     paths: list[str] = []
     for name in _MINIFORGE_SUBTREE_NAMES:
-        p = _os.path.join(MINIFORGE_ROOT, name)
+        p = _os.path.join(racine, name)
         if _os.path.isdir(p):
             paths.append(p)
-    envs_dir = _os.path.join(MINIFORGE_ROOT, "envs")
+    envs_dir = _os.path.join(racine, "envs")
     if _os.path.isdir(envs_dir):
         for entry in sorted(_os.listdir(envs_dir)):
             full = _os.path.join(envs_dir, entry)
             if _os.path.isdir(full):
                 paths.append(full)
     return paths
+
+
+def _miniforge_subtrees() -> list[str]:
+    """Liste les sous-arbres miniforge3 à couvrir explicitement par icacls /T.
+    = sous-dossiers base canoniques + tous les envs/<name>."""
+    return _sous_arbres(MINIFORGE_ROOT)
+
+
+def racines_python() -> list[str]:
+    """Racines des interpreteurs que les services lancent, sans doublon : celle de l'interpreteur qui provisionne
+    (`sys.base_prefix` : sur une machine cliente, celui ou Nokido est installe, que `nokido-doctor --ecrire-vars`
+    inscrit en [vars].PYTHON), puis miniforge3 s'il existe (poste de reference : base + envs)."""
+    import os as _os
+
+    out: list[str] = []
+    for p in (sys.base_prefix, MINIFORGE_ROOT):
+        if p and _os.path.isdir(p) and _os.path.normcase(_os.path.abspath(p)) not in {
+                _os.path.normcase(_os.path.abspath(x)) for x in out}:
+            out.append(p)
+    return out
+
+
+def ancetres_a_traverser(chemin: str) -> list[str]:
+    """Dossiers parents a TRAVERSER (droit X seul, sans heritage) pour atteindre `chemin`, racine du lecteur exclue :
+    un interpreteur installe dans un profil (C:\\Users\\<nom>\\miniforge3) est invisible d'un autre compte sans X
+    sur le profil -- python.exe echoue alors au chargement (STATUS_DLL_NOT_FOUND)."""
+    p = Path(chemin)
+    return [str(a) for a in p.parents if a.parent != a]
+
+
+def _acls_python(principal: str, label: str, en_plus: tuple = ()) -> None:
+    """Traversee des parents, lecture+execution heritable sur chaque racine d'interpreteur, puis /T sur ses
+    sous-arbres lourds. Avant le 2026-10-09, la traversee et la racine passaient a icacls le TEXTE
+    `__import__("os").path.expanduser("~")` (reste d'un decodage automatique ecrit DANS une f-string) : icacls
+    echouait, `check=False` taisait l'echec, et ces droits n'etaient jamais poses sur une machine neuve."""
+    subs: list[str] = []
+    for racine in racines_python():
+        for a in ancetres_a_traverser(racine):
+            ps(f'icacls "{a}" /grant "{principal}:(X)" /C', check=False)
+        ps(f'icacls "{racine}" /grant "{principal}:(OI)(CI)(RX)" /C', check=False)
+        subs += _sous_arbres(racine)
+    _icacls_subtrees_parallel(subs + list(en_plus), principal=principal, perm="(OI)(CI)(RX)", label=label)
 
 
 # ── PowerShell bridge ────────────────────────────────────────────────────
@@ -294,11 +338,7 @@ def set_acls() -> None:
     # SANS /T — /T sur ~12 GB d'arbre conda dépasse le timeout 120s par défaut.
     # Les sous-arbres lourds (envs/* + pkgs + Lib) reçoivent /T séparément
     # avec timeout=600 — couvre les fichiers EXISTANTS qui ne re-héritent pas.
-    ps(f'icacls __import__("os").path.expanduser("~") /grant "{GROUP}:(X)" /C', check=False)
-    ps(f'icacls __import__("os").path.expanduser("~\\miniforge3") /grant "{GROUP}:(OI)(CI)(RX)" /C', check=False)
-    _icacls_subtrees_parallel(
-        _miniforge_subtrees(), principal=GROUP, perm="(OI)(CI)(RX)", label="sandbox"
-    )
+    _acls_python(GROUP, "sandbox")
 
 
 def ensure_trusted_group() -> None:
@@ -360,16 +400,8 @@ def set_trusted_acls() -> None:
 
     print(f"  ACLs trusted: {ROOT.name}=modify, miniforge+llama=read")
     ps(f'icacls "{ROOT}" /grant "{TRUSTED_USER}:(OI)(CI)(M)" /T /C', check=False, timeout=600)
-    ps(f'icacls __import__("os").path.expanduser("~") /grant "{TRUSTED_USER}:(X)" /C', check=False)
-    # miniforge3 root : OI/CI sans /T (cf. set_acls). /T scopé sous-arbres.
-    ps(
-        f'icacls __import__("os").path.expanduser("~\\miniforge3") /grant "{TRUSTED_USER}:(OI)(CI)(RX)" /C',
-        check=False,
-    )
-    subs = list(_miniforge_subtrees())
-    if _os.path.isdir(LLAMA_DIR):
-        subs.append(LLAMA_DIR)
-    _icacls_subtrees_parallel(subs, principal=TRUSTED_USER, perm="(OI)(CI)(RX)", label="trusted")
+    # racines d'interpreteur : OI/CI sans /T (cf. set_acls), /T scope aux sous-arbres.
+    _acls_python(TRUSTED_USER, "trusted", (LLAMA_DIR,) if _os.path.isdir(LLAMA_DIR) else ())
 
 
 def set_firewall() -> None:
@@ -457,6 +489,137 @@ def teardown() -> None:
     print("  users, group, firewall rules, creds removed")
 
 
+# --- POSIX : Linux / macOS (decision owner du 2026-10-09, « Go, superviseur root ») ---------------------
+# Meme patron que Windows : comptes systeme DEDIES (pas de mot de passe : le superviseur root change de compte),
+# un groupe pour les bacs, ACL HERITEES (un fichier cree plus tard par root reste ecrivable par le service), et la
+# sortie reseau du compte offline coupee par son uid, loopback ouvert (hub, ollama).
+POSIX_USERS = ("nokido-sbx-offline", "nokido-sbx-online")
+POSIX_GROUP = "nokido-sbx"
+POSIX_TRUSTED = "nokido-trusted"
+MAC = sys.platform == "darwin"
+
+
+def _run(cmd: list, check: bool = False):
+    r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
+    if check and r.returncode:
+        raise RuntimeError("%s : %s" % (" ".join(cmd), (r.stderr or r.stdout).strip()[-300:]))
+    return r
+
+
+def _posix_existe(nom: str, groupe: bool = False) -> bool:
+    import grp
+    import pwd
+    try:
+        (grp.getgrnam if groupe else pwd.getpwnam)(nom)
+        return True
+    except KeyError:
+        return False
+
+
+def _mac_id_libre(cle: str) -> int:
+    """Premier identifiant libre de la plage des comptes systeme caches de macOS (< 500)."""
+    liste = "/Users" if cle == "UniqueID" else "/Groups"
+    pris = {int(l.split()[-1]) for l in _run(["dscl", ".", "-list", liste, cle]).stdout.splitlines()
+            if l.split() and l.split()[-1].isdigit()}
+    return next(i for i in range(450, 500) if i not in pris)
+
+
+def posix_groupe(nom: str) -> str:
+    if _posix_existe(nom, groupe=True):
+        return "present"
+    if MAC:
+        _run(["dscl", ".", "-create", "/Groups/" + nom], True)
+        _run(["dscl", ".", "-create", "/Groups/" + nom, "PrimaryGroupID", str(_mac_id_libre("PrimaryGroupID"))], True)
+    else:
+        _run(["groupadd", "--system", nom], True)
+    return "cree"
+
+
+def posix_utilisateur(nom: str, groupe: str) -> str:
+    if _posix_existe(nom):
+        return "present"
+    if MAC:
+        import grp
+        _run(["dscl", ".", "-create", "/Users/" + nom], True)
+        for k, v in (("UserShell", "/usr/bin/false"), ("UniqueID", str(_mac_id_libre("UniqueID"))),
+                     ("PrimaryGroupID", str(grp.getgrnam(groupe).gr_gid)), ("NFSHomeDirectory", "/var/empty"),
+                     ("IsHidden", "1"), ("RealName", "Nokido " + nom)):
+            _run(["dscl", ".", "-create", "/Users/" + nom, k, v], True)
+    else:
+        _run(["useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--gid", groupe, nom], True)
+    return "cree"
+
+
+def posix_acl() -> list:
+    """Ecriture HERITEE sur sandbox/ pour le groupe des bacs, sur tout le depot pour le compte trusted ; traversee des
+    parents du depot (un /home en 0750 le cacherait). Lecture du depot : celle de ses fichiers (umask 022)."""
+    SANDBOX_DIR.mkdir(parents=True, exist_ok=True)
+    faits = []
+    parents = [a for a in ROOT.parents if a.parent != a]
+    if MAC:
+        droits = ("read,write,execute,delete,append,readattr,writeattr,readextattr,writeextattr,list,search,"
+                  "add_file,add_subdirectory,delete_child,file_inherit,directory_inherit")
+        for chemin, qui in ((SANDBOX_DIR, "group:" + POSIX_GROUP), (ROOT, "user:" + POSIX_TRUSTED)):
+            faits.append((str(chemin), _run(["chmod", "-R", "+a", "%s allow %s" % (qui, droits), str(chemin)]).returncode))
+        for a in parents:
+            for qui in ("group:" + POSIX_GROUP, "user:" + POSIX_TRUSTED):
+                _run(["chmod", "+a", "%s allow search" % qui, str(a)])
+        return faits
+    if not shutil.which("setfacl"):
+        return [("setfacl", "ABSENT -- paquet `acl` a installer")]
+    for chemin, ace in ((SANDBOX_DIR, "g:%s:rwX" % POSIX_GROUP), (ROOT, "u:%s:rwX" % POSIX_TRUSTED)):
+        rc = _run(["setfacl", "-R", "-m", ace, str(chemin)]).returncode
+        rc = rc or _run(["setfacl", "-R", "-d", "-m", ace, str(chemin)]).returncode
+        faits.append((str(chemin), rc))
+    for a in parents:
+        _run(["setfacl", "-m", "g:%s:x,u:%s:x" % (POSIX_GROUP, POSIX_TRUSTED), str(a)])
+    return faits
+
+
+def posix_pare_feu() -> str:
+    """Sortie reseau coupee pour le compte offline, loopback ouvert -- l'equivalent de la regle Windows par SID."""
+    nom = POSIX_USERS[0]
+    if MAC:
+        regles = Path("/etc/pf.anchors/com.apple.nokido")
+        regles.write_text("block drop out quick on ! lo0 user %s\n" % nom, encoding="ascii")
+        rc = _run(["pfctl", "-a", "com.apple/nokido", "-f", str(regles)]).returncode
+        _run(["pfctl", "-E"])
+        return "pf (ancre com.apple/nokido) rc=%d" % rc
+    res = []
+    for outil in ("iptables", "ip6tables"):
+        if not shutil.which(outil):
+            res.append("%s ABSENT" % outil)
+            continue
+        regle = ["OUTPUT", "-m", "owner", "--uid-owner", nom, "!", "-o", "lo", "-j", "REJECT"]
+        if _run([outil, "-C", *regle]).returncode != 0:
+            _run([outil, "-A", *regle])
+        res.append("%s OK" % outil)
+    return ", ".join(res)
+
+
+def main_posix(args) -> int:
+    if args.status:
+        for nom in (*POSIX_USERS, POSIX_TRUSTED):
+            print("  %s: %s" % (nom, "present" if _posix_existe(nom) else "MISSING"))
+        return 0
+    if os.geteuid() != 0:
+        print("ERROR: run as root (cree des comptes, des ACL, une regle de pare-feu).")
+        return 1
+    if args.teardown:
+        print("teardown POSIX : non implemente -- retirer les comptes a la main (userdel / dscl . -delete).")
+        return 1
+    print("=== provisioning Nokido sandbox (POSIX) ===")
+    print("  groupe %s : %s" % (POSIX_GROUP, posix_groupe(POSIX_GROUP)))
+    print("  groupe %s : %s" % (POSIX_TRUSTED, posix_groupe(POSIX_TRUSTED)))
+    for nom in POSIX_USERS:
+        print("  compte %s : %s" % (nom, posix_utilisateur(nom, POSIX_GROUP)))
+    print("  compte %s : %s" % (POSIX_TRUSTED, posix_utilisateur(POSIX_TRUSTED, POSIX_TRUSTED)))
+    for chemin, rc in posix_acl():
+        print("  ACL %s : %s" % (chemin, rc))
+    print("  pare-feu : %s" % posix_pare_feu())
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Provision the Nokido sandbox.")
     ap.add_argument("--status", action="store_true")
@@ -470,8 +633,7 @@ def main() -> int:
     args = ap.parse_args()
 
     if sys.platform != "win32":
-        print("Windows only.")
-        return 1
+        return main_posix(args)
 
     if args.status:
         status()

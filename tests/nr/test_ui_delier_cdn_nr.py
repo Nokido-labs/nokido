@@ -198,6 +198,25 @@ def test_les_polices_declarees_existent_sur_le_disque():
     assert declarees > 0, "aucune ressource locale declaree : le test ne prouve rien"
 
 
+def test_le_html_embarque_du_hub_ne_lie_aucun_hote_externe():
+    """Campagne UI 13/10 : `@8766/forge/network` en defaut 3 passes sur 3, console
+    `ERR_NETWORK_ACCESS_DENIED @ fonts.googleapis.com`. Les pages de :8766 sont des
+    chaines HTML dans `tools/nokido_hub.py` : ni un CSS servi ni une page de /design,
+    donc hors de portee des deux cliquets ci-dessus. Un `preconnect` seul ouvre deja
+    une connexion (DNS + TLS) vers l'hote : c'est une sortie reseau comme une autre."""
+    import re as _re
+
+    source = ROOT / "tools" / "nokido_hub.py"
+    if not source.exists():
+        pytest.skip("tools/nokido_hub.py absent de cette copie du depot")
+    texte = source.read_text(encoding="utf-8", errors="replace")
+    motif = _re.compile(r"""(?:href|src)\s*=\s*["']https?://(%s)"""
+                        % "|".join(_re.escape(h) for h in _HOTES_EXTERNES))
+    fautifs = ["ligne %d -> %s" % (texte.count("\n", 0, m.start()) + 1, m.group(1))
+               for m in motif.finditer(texte)]
+    assert not fautifs, "hote externe lie par une page du hub :8766 : %s" % fautifs
+
+
 def test_mapping_ne_vise_que_des_fichiers_reels():
     """Garde d'alignement : chaque cible du MAPPING doit exister sous app/web_hub/static.
     Si un asset disparait du depot, ce test le dit AVANT que 16 pages ne servent un 404."""

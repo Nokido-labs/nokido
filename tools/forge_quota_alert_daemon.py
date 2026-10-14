@@ -8,7 +8,7 @@ mensuel pour permettre action preventive.
 Service NSSM (ou cron equivalent) :
     nssm install NokidoQuotaAlertDaemon ^
         %USERPROFILE%\\miniforge3\\python.exe ^
-        __import__("os").path.expanduser("~\\Script python IA\\LaForge\\tools\\forge_quota_alert_daemon.py")
+        "~\\Script python IA\\LaForge\\tools\\forge_quota_alert_daemon.py"
 
 Mailbox : POST /api/notify hub :8766 (recipient=user).
 

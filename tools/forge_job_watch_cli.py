@@ -258,8 +258,13 @@ def lire_bilan(texte: str, rc: str) -> dict:
         fin = [l.strip() for l in lignes[tb[-1]:] if l.strip()]
         return {"etat": "ECHEC", "motif": (fin[-1] if fin else "Traceback")[:240]}
     if rc != "0":
+        if preuve is not None:
+            return {"etat": "ECHEC", "motif": "rc=%s %s" % (rc, ligne_preuve[:200])}
+        # Sans Traceback ni preuve, la cause est souvent une ligne de verdict DEJA ecrite (gate ❌, FAIL, ERROR) :
+        # « sans motif lisible » la taisait (pre-controles du 13/10, rouges sur des gates nommees dans le journal).
+        parlantes = [l for l in non_vides if "❌" in l or _re.search(r"\b(FAIL|FAILED|ERROR|Error|ERREUR)\b", l)]
         return {"etat": "ECHEC", "motif": "rc=%s %s" % (
-            rc, ligne_preuve[:200] if preuve is not None else "sans motif lisible dans le journal")}
+            rc, _ANSI.sub("", parlantes[-1])[:200] if parlantes else "sans motif lisible dans le journal ni le .err")}
     if preuve is not None:
         if any(preuve.get(k, "0") != "0" for k in _DEFAILLANCES_CI):
             return {"etat": "ECHEC", "motif": ligne_preuve[:240]}
@@ -289,8 +294,45 @@ def _queue_du_journal(log: Path) -> tuple[str, str]:
     return brut.decode("utf-8", errors="replace"), note
 
 
+def _activite_arbre(pid):
+    """(cpu_s, octets_io) cumules du process ET de ses enfants. None = ILLISIBLE -- jamais « inactif ».
+
+    2026-10-13 : un cycle de soif a ete declare FIGE apres 15 min de journal muet, alors que son ENFANT lisait
+    37 Mo/s dans la base (balayage de 45 Go, qui ne journalise rien). Le wrapper de run_job reste a 0 % pendant que
+    l'enfant travaille : seul l'ARBRE dit la verite (« le CPU du wrapper n'est pas celui de l'enfant »)."""
+    if not pid:
+        return None
+    try:
+        import psutil
+
+        p = psutil.Process(int(pid))
+        procs = [p] + p.children(recursive=True)
+    except Exception:  # noqa: BLE001 -- muet-ok : None = ILLISIBLE, dit par l'appelant
+        return None
+    cpu, io, lus = 0.0, 0, 0
+    for q in procs:
+        try:
+            t = q.cpu_times()
+            c = q.io_counters()
+        except Exception:  # noqa: BLE001 -- muet-ok : process illisible ou parti, compte par `lus`
+            continue
+        cpu += t.user + t.system
+        io += c.read_bytes + c.write_bytes
+        lus += 1
+    return (cpu, io) if lus else None
+
+
+def _pid_du_job(base: Path, job: str):
+    try:
+        import json
+
+        return json.loads((base / ("%s.json" % job)).read_text(encoding="utf-8")).get("pid")
+    except Exception:  # noqa: BLE001 -- muet-ok : pid inconnu = activite ILLISIBLE, dite au verdict
+        return None
+
+
 def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
-               jobs_dir=None, horloge=time.time, dormir=time.sleep) -> int:
+               jobs_dir=None, horloge=time.time, dormir=time.sleep, activite=None) -> int:
     """Surveille un job. `jobs_dir`/`horloge`/`dormir` existent pour le NR.
 
     Une constante figee a l'import ne se redirige pas : sans ce parametre, le
@@ -305,6 +347,8 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
     debut = horloge()
     dernier_vu = None
     dernier_progres = debut
+    activite = activite or _activite_arbre
+    act_ref, arbre_dit = None, False
 
     while True:
         if rc.exists():
@@ -333,9 +377,24 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
             dernier_vu = m
             dernier_progres = maintenant
 
+        # L'ARBRE du job progresse-t-il (CPU > 0,5 s ou I/O > 1 Mo depuis la reference) ? Alors ce n'est pas un gel,
+        # meme si le journal se tait.
+        act = activite(_pid_du_job(base, job))
+        if act is not None and act_ref is not None and (act[0] - act_ref[0] > 0.5 or act[1] - act_ref[1] > 1_000_000):
+            if maintenant - dernier_progres > intervalle and not arbre_dit:
+                ecrire("JOB %s journal muet depuis %d min MAIS son arbre travaille (CPU +%.1f s, I/O +%.0f Mo) -- pas FIGE"
+                       % (job, int((maintenant - dernier_progres) / 60), act[0] - act_ref[0],
+                          (act[1] - act_ref[1]) / 1e6))
+                arbre_dit = True
+            dernier_progres = maintenant
+        if act is not None:
+            act_ref = act
+
         if maintenant - dernier_progres > gel_s:
-            ecrire("JOB %s FIGE — journal sans ecriture depuis %d min, et aucun .rc"
-                   % (job, int((maintenant - dernier_progres) / 60)))
+            ecrire("JOB %s FIGE — journal sans ecriture depuis %d min, aucun .rc, et son arbre %s"
+                   % (job, int((maintenant - dernier_progres) / 60),
+                      "INACTIF (CPU et I/O stables)" if act is not None
+                      else "ILLISIBLE (activite non lue : verdict tire du seul journal)"))
             return 0
 
         if maintenant - debut > max_s:

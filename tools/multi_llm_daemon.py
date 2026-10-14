@@ -595,8 +595,9 @@ def _full_desc(p: dict) -> str:
                 desc = params.get("description") or params.get("task") or ""
                 if desc:
                     return desc
-        except Exception:
-            pass
+        except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError) as e:
+            # Repli DIT : la description pleine etait illisible, la suite peut etre tronquee par le hub.
+            logger.warning("parameters illisibles (%s) : repli sur 'text', possiblement tronque", type(e).__name__)
     # Fallback: text (may be truncated) or description
     return p.get("text") or p.get("description") or p.get("task") or p.get("prompt") or ""
 
@@ -683,9 +684,10 @@ Only return {"cmd": ""} if there is truly ZERO executable action.
 _CMD_PATTERNS = [
     # Explicit markers
     re.compile(r"(?:COMMAND|CMD|Command to execute|Commande)[:\s]+([^\n]+)", re.IGNORECASE),
-    # Full python path
-    re.compile(r"(%USERPROFILE%/miniforge3/python\.exe[^\n]+)"),
-    re.compile(r'(__import__("os").path.expanduser("~/miniforge3/python\.exe[^")]+")'),
+    # Chemin COMPLET d'un interpreteur miniforge (Windows, `/` ou `\`, entre guillemets ou non), quelle que soit la
+    # session. 2026-10-09 : la 2e forme etait INERTE -- tools/forge_path_portabilize.py avait ecrit
+    # `__import__("os").path.expanduser(...)` DANS la regex ; la 1re ne valait que pour le profil de l'owner.
+    re.compile(r'"?([A-Za-z]:[\\/][^\n"]*?miniforge3[\\/]python\.exe[^\n"]*)"?'),
     # Backtick-quoted
     re.compile(r"`([^`\n]{6,})`"),
 ]

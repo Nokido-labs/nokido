@@ -3406,10 +3406,18 @@ async def ask(
                 else f"cle {provider.api_key_env} absente"),
         }
 
-    # Per-call model override — restored in finally to avoid singleton pollution
-    _orig_model = provider.model
-    if model:
+    # Surcharge de modele PAR APPEL sur une COPIE du fournisseur (2026-10-13). L'ancienne forme ecrivait
+    # `provider.model = model` sur l'instance PARTAGEE puis la restaurait en `finally` : deux appels
+    # concurrents a modeles differents se servaient le modele l'un de l'autre, et la restauration croisee
+    # pouvait FIGER un mauvais modele par defaut pour la vie du processus. Mesure du jour (debat swarm,
+    # semaphore 6) : nemotron-3-super demande, gemma-4-26b servi. La copie superficielle partage clients et
+    # etats ; seul `model` lui est propre.
+    if model and model != provider.model:
+        import copy as _copy
+
+        provider = _copy.copy(provider)
         provider.model = model
+    _orig_model = provider.model
 
     # Affect -> budget (Aura "valence predicts token budget") — OPT-IN env-gated (defaut
     # OFF). L'etat affectif ambiant (endocrine) module la verbosite : frustre/aversif ->

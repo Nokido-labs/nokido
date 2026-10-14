@@ -417,9 +417,137 @@ def open_tasks(timeout: float = 15.0) -> sqlite3.Connection:
     return _ouvrir_dediee(tasks_path(), TASKS_SCHEMA, tasks_switch_actif(), timeout)
 
 
+def _installe(racine: Path) -> bool:
+    """Vrai quand le code tourne depuis un paquet INSTALLE (pip), pas depuis un clone."""
+    return any(p.lower() in ("site-packages", "dist-packages") for p in racine.parts)
+
+
+def _donnees_utilisateur() -> Path:
+    """Dossier de donnees de l'utilisateur, a l'emplacement standard de chaque systeme."""
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "Nokido"
+    if _sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Nokido"
+    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "nokido"
+
+
+def racine_donnees() -> Path:
+    """Racine des DONNEES (RAG, data, logs, sandbox, runtime). Resolue A CHAQUE APPEL, comme les bascules.
+
+    Parcours paquet 3 OS du 13/10 : installe par pip, Nokido ecrivait RAG, data, logs, runtime et sandbox
+    DANS site-packages -- 1 386 modules sur 1 903 derivent leur racine de `__file__`. `pip uninstall` les
+    laissait derriere lui, et une mise a jour pouvait les ecraser. Ordre : `NOKIDO_DATA_DIR` si pose ; sinon,
+    code INSTALLE -> dossier de donnees de l'utilisateur ; sinon (clone) la racine du depot, comportement
+    inchange pour le poste de developpement.
+    """
+    explicite = os.environ.get("NOKIDO_DATA_DIR") or os.environ.get("LAFORGE_DATA_DIR")
+    if explicite:
+        return Path(explicite)
+    return _donnees_utilisateur() if _installe(_ROOT) else _ROOT
+
+
+# Dossiers que le corps ECRIT sous sa racine de code. Mesure du 13/10 : 853 modules sur 2 511 construisent ces
+# chemins a partir de `__file__` (sandbox 500, RAG 378, logs 123, data 91, runtime 5) -- trop pour les migrer un a
+# un. Decision owner du 13/10 : REDIRECTION A LA SOURCE, une fois, avant tout ecrivain.
+DOSSIERS_DE_DONNEES = ("RAG", "data", "logs", "sandbox", "runtime")
+MARQUEUR_DONNEES = ".nokido-donnees"
+
+
+def _est_lien(p: Path) -> bool:
+    try:
+        return p.is_symlink() or bool(getattr(p, "is_junction", lambda: False)())
+    except OSError:
+        return False
+
+
+def _lier(lien: Path, cible: Path) -> None:
+    """Jonction sous Windows (aucun privilege requis, contrairement au lien symbolique), lien ailleurs."""
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(cible), str(lien))
+    else:
+        os.symlink(str(cible), str(lien), target_is_directory=True)
+
+
+def rediriger_donnees(racine_code: Path | None = None) -> dict:
+    """INSTALLE seulement : chaque dossier de donnees du paquet devient un LIEN vers la racine des donnees.
+
+    Appelee par `nokido_agent/__init__.py`, donc avant tout ecrivain : les 853 modules, le hub et le superviseur
+    (`${ROOT}/data/...` de services.toml) ecrivent a travers le lien sans changer une ligne. Les donnees vivent
+    hors de site-packages et survivent aux mises a jour. Etats rendus, jamais devines : CLONE (rien a faire),
+    LIE (deja), CREE, DEJA_REEL (dossier d'une installation anterieure : rien n'est deplace en silence),
+    ECHEC:<cause>.
+    """
+    code = racine_code or _ROOT
+    if not _installe(code):
+        return {"mode": "CLONE"}
+    racine = racine_donnees()
+    if _installe(racine):
+        return {"mode": "REFUSE", "raison": "racine des donnees sous site-packages : %s" % racine}
+    etats: dict = {"mode": "INSTALLE", "racine": str(racine)}
+    try:
+        racine.mkdir(parents=True, exist_ok=True)
+        (racine / MARQUEUR_DONNEES).touch(exist_ok=True)   # seule une racine MARQUEE se laisse purger
+    except OSError as exc:
+        etats["marqueur"] = "ECHEC:%s" % type(exc).__name__
+    for nom in DOSSIERS_DE_DONNEES:
+        lien, cible = code / nom, racine / nom
+        try:
+            if _est_lien(lien):
+                etats[nom] = "LIE"
+                continue
+            if lien.exists():
+                etats[nom] = "DEJA_REEL"
+                continue
+            cible.mkdir(parents=True, exist_ok=True)
+            try:
+                _lier(lien, cible)
+                etats[nom] = "CREE"
+            except FileExistsError:            # un autre processus vient de le poser : on relit
+                etats[nom] = "LIE" if _est_lien(lien) else "DEJA_REEL"
+        except OSError as exc:
+            etats[nom] = "ECHEC:%s" % type(exc).__name__
+    return etats
+
+
+def retirer_donnees(racine_code: Path | None = None, purger: bool = False) -> dict:
+    """Desinstallation documentee (`nokido-composants --desinstaller [--purger]`) : retire les LIENS du paquet,
+    jamais un dossier reel ; `purger` efface aussi la racine des donnees de l'utilisateur. Rend ce qui a ete fait."""
+    import shutil as _shutil
+
+    code = racine_code or _ROOT
+    fait: dict = {"racine": str(racine_donnees())}
+    for nom in DOSSIERS_DE_DONNEES:
+        lien = code / nom
+        if _est_lien(lien):
+            try:
+                os.rmdir(lien) if os.name == "nt" else os.unlink(lien)   # retire le lien, pas sa cible
+                fait[nom] = "LIEN_RETIRE"
+            except OSError as exc:
+                fait[nom] = "ECHEC:%s" % type(exc).__name__
+        elif lien.exists():
+            fait[nom] = "DOSSIER_REEL_LAISSE"
+    if purger and _installe(code):
+        racine = racine_donnees()
+        if not (racine / MARQUEUR_DONNEES).is_file():
+            # NOKIDO_DATA_DIR peut viser n'importe quoi (le HOME par erreur) : sans le marqueur pose par
+            # `rediriger_donnees`, ce n'est pas une racine Nokido et rien n'est efface.
+            fait["purge"] = "REFUSEE : %s ne porte pas %s" % (racine, MARQUEUR_DONNEES)
+        else:
+            _shutil.rmtree(racine, ignore_errors=True)
+            fait["purge"] = "EFFACEE" if not racine.exists() else "PARTIELLE"
+    return fait
+
+
 def db_path() -> str:
     """Realpath de la base RAG (résout le symlink C:->V:). Writable partout."""
-    p = os.environ.get("LAFORGE_DB") or str(_DEFAULT)
+    p = os.environ.get("LAFORGE_DB") or str(racine_donnees() / "RAG" / "embeddings.db")
     try:
         return os.path.realpath(p)
     except Exception:
@@ -494,7 +622,7 @@ def checkpoint_wal(seuil_mo: float = 512.0, *, truncate: bool = False,
 
 
 def write_retry(op, *, attempts: int = 6, base_delay: float = 0.2,
-                timeout: float | None = None):
+                timeout: float | None = None, path: str | None = None):
     """Execute `op(conn)` en ECRITURE, en attendant son tour au lieu d'abandonner.
 
     `open_writer` (autocommit + WAL + busy_timeout) suffit dans l'immense majorite
@@ -532,7 +660,10 @@ def write_retry(op, *, attempts: int = 6, base_delay: float = 0.2,
 
     last = None
     for i in range(max(1, attempts)):
-        conn = open_writer(timeout=timeout)
+        # `path` ne traverse la frontiere QUE s'il est defini (lecon du 2026-09-07, test_socle_attente_bornee_nr) :
+        # le passer a None cassait les doublures ecrites contre le contrat d'avant (`lambda timeout=...:`), mesure
+        # 13/10 sur test_fts_triggers_source_unique_nr (6 erreurs) a l'integration de l'osmoregulation.
+        conn = open_writer(timeout=timeout) if path is None else open_writer(timeout=timeout, path=path)
         try:
             return op(conn)
         except sqlite3.OperationalError as e:
@@ -657,7 +788,7 @@ def busy_ms() -> int:
             val = int(env_val)
             if val > 0:
                 return val
-        except ValueError:
+        except ValueError:  # muet-ok : l'invalidite est DITE juste en dessous, avec le repli applique
             pass
         print(f"LAFORGE_SQLITE_BUSY_MS invalide ({env_val}), repli sur {default_ms} ms", flush=True)
     return default_ms

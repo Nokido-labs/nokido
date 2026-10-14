@@ -33,8 +33,8 @@ id = "installeur"
 description = "Installeur windows en une commande"
 source = "depot"
 chemin = "install.ps1"
-sha256 = "17088e9d29a3c982f25c30c60ad4f4b7c75e6a62878741a27c147c5535c59a73"
-taille = 18380
+sha256 = "5da72c667357d7896993b25e165d1d3f2980e9d011ea4ed35ea754d7bc19da61"
+taille = 17330
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 
@@ -43,8 +43,8 @@ id = "dependances-python"
 description = "Dependances Python de base (specification pip ; les roues ne sont pas encore hachees)"
 source = "depot"
 chemin = "requirements.txt"
-sha256 = "425c13065751407eb041362568829f8b4a3f40134e3486dffe062f01ef3b2ae0"
-taille = 4322
+sha256 = "11ad04ef87a4ee0d13b378b4aac4928ecba814b104066bbd5e17a5ac6a25dec1"
+taille = 4632
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 

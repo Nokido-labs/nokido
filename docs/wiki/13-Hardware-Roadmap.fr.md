@@ -21,7 +21,7 @@ Nokido conçu pour **suivre le silicium**, pas s'enfermer dans un paradigme. Pag
 | Phase | Horizon | Hardware cible | Modules impactés |
 |---|---|---|---|
 | Stable | aujourd'hui | APU x86-64 + iGPU + light NPU | tout existant |
-| A | 6-12 mois | NPU 40+ TOPS (Intel Lunar Lake, Hailo-10) | `forge_accelerator_router` (à créer) |
+| A | 6-12 mois | NPU 40+ TOPS (Intel Lunar Lake, Hailo-10) | routeur d'accélérateurs (à construire) |
 | B | 12-24 mois | Neuromorphique (Akida, Loihi 2, GrAI) | `forge_spike_router`, `forge_active_inference_agent` |
 | C | 24-48 mois | Analogique CIM / RRAM / photonique | swap backend `brain_worker` |
 | D | 48+ mois | Grilles analogiques continues | "modèle pré-entraîné" obsolète — full continual |
@@ -62,7 +62,7 @@ Adoption quand runtime open-source ship :
 
 ### Changement logiciel
 
-Nouveau module `app/forge_accelerator_router.py` (planifié) :
+Routeur d'accélérateurs dédié (planifié, pas encore implémenté) :
 1. Détecte accelerators dispo au boot.
 2. Route inférence ONNX par type tâche au meilleur backend : `DirectML > Vulkan > OpenVINO > HailoRT > EdgeTPU > CPU`.
 3. Surface endpoint `/api/accelerators` pour monitoring.
@@ -100,7 +100,7 @@ Les deux publient le backend qu'ils ont pris (`forge_snn_core.available()` rend
 quand le garde du bac à sable bloque la sonde) : la dégradation est **déclarée** — la lire
 avant d'attribuer un résultat « au SNN ».
 
-**Ce n'est pas théorique.** Le substrat est allumé (`sandbox/snn.wantedd` est présent,
+**Ce n'est pas théorique.** Le substrat est allumé (`sandbox/snn.wanted` est présent,
 `forge_resource_manager` le lit) et a émis **598 événements marqués `snn`** dans
 `sandbox/lifecycle_actions.jsonl` depuis le 2026-08-04 — recomptés le 2026-08-30, le
 dernier à `15:31:18 UTC`, cinq minutes avant l'écriture de cette ligne (le journal porte
@@ -233,8 +233,8 @@ Stack neuromorphique / analogique / photonique mesurée aujourd'hui ferme ce gap
 Si tu as un accelerator non-supporté :
 1. Ouvre issue GitHub avec modèle puce + API runtime.
 2. Implémenter backend adapter dans `go_services/brain_worker/src/backend_<vendor>.rs` ou `app/forge_<vendor>_runtime.py`.
-3. Update `forge_accelerator_router.py` pour détection.
-4. Ajoute benchmark dans `tools/forge_bench_accelerator.py`.
+3. Apprendre au routeur d'accélérateurs (une fois construit) à le détecter.
+4. Ajouter un benchmark dédié.
 
 PRs welcome : AMD ROCm tuning, Apple CoreML adapter, Hailo SDK integration, Lava-Loihi port `forge_spike_router`, NeuRRAM emulator.
 

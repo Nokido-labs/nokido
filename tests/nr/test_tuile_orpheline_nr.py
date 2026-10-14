@@ -76,14 +76,22 @@ def client(monkeypatch, admin_token):
     return c
 
 
+def _routes_a_plat(routes, prefixe=""):
+    """Depuis fastapi 0.143, `include_router` range un `_IncludedRouter` SANS `path` dans
+    `app.routes` : lire `.path` seul ne voyait plus aucune route d'un routeur inclus
+    (`/mcp_lab/`, `/rbac`, mesure 2026-10-12, pourtant servies). On descend dans son
+    `include_context` (prefixe + routeur inclus) ; avant 0.143, rien ne change."""
+    for r in routes:
+        ctx = getattr(r, "include_context", None)
+        if ctx is not None:
+            yield from _routes_a_plat(ctx.included_router.routes, prefixe + (ctx.prefix or ""))
+        else:
+            yield prefixe + (getattr(r, "path", "") or ""), r
+
+
 def _routes_reelles() -> set[str]:
     from app.web_hub.app import app
-    paths = set()
-    for r in app.routes:
-        p = getattr(r, "path", None)
-        if p:
-            paths.add(p)
-    return paths
+    return {p for p, _ in _routes_a_plat(app.routes) if p}
 
 
 def _catalogue(client) -> list[dict]:

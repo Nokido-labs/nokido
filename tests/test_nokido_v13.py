@@ -3,7 +3,7 @@ test_nokido_v13.py — Banc de tests unitaires Nokido v13
 Sessions 1-9 : correctifs NameError/BadIdentifier + tests fonctions internes.
 
 Lancer :
-    cd __import__("os").path.expanduser("~/Script python IA/LaForge")
+    cd "~/Script python IA/LaForge"
     python -m pytest tests/test_nokido_v13.py -v
 """
 from __future__ import annotations

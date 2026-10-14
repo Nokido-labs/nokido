@@ -227,3 +227,38 @@ def test_le_socle_du_depot_est_utilisable():
     for v in caps.values():
         assert v.get("tier") in {"garanti", "opportuniste"}
         assert v.get("forme")
+
+
+# ── faux BLOCK mesures le 2026-10-13 (9 BLOCK, « REGRESSION » permanente) ─────
+
+def test_un_champ_conditionnel_absent_n_est_pas_un_contrat_change(tmp_path, monkeypatch):
+    """`avertissement_reflexe` n'apparait que sans introspect recent : son absence n'est pas une regression."""
+    import forge_capability_ratchet as R
+
+    gele = "obj:avertissement_reflexe,bytes,note,ok,path,verified,warnings"
+    monkeypatch.setattr(R, "SOCLE", _socle(
+        tmp_path, {"governed_edit|blocks,path": _gel("governed_edit", ["blocks", "path"], gele, "garanti")}))
+    code, r = R._verdict(_courant({"governed_edit|blocks,path": _cap(
+        "governed_edit", ["blocks", "path"], "obj:bytes,note,ok,path,verified,warnings")}))
+    assert code == 0 and r["etat"] == "CONFORME", r
+
+
+def test_un_champ_obligatoire_perdu_bloque_toujours(tmp_path, monkeypatch):
+    """Controle negatif : perdre `job_id` (non conditionnel) d'un contrat garanti reste un BLOCK."""
+    import forge_capability_ratchet as R
+
+    monkeypatch.setattr(R, "SOCLE", _socle(
+        tmp_path, {"run|action,script": _gel("run", ["action", "script"], "obj:job_id,ok,pid,task_id", "garanti")}))
+    code, r = R._verdict(_courant({"run|action,script": _cap("run", ["action", "script"], "obj:ok,pid")}))
+    assert code == 1 and r["block"][0]["motif"] == "CONTRAT CHANGE", r
+
+
+def test_une_autre_action_sous_une_cle_agregee_est_une_review(tmp_path, monkeypatch):
+    """`hub|action` couvre toutes les valeurs d'action : des cles DISJOINTES disent une autre action -> REVIEW."""
+    import forge_capability_ratchet as R
+
+    monkeypatch.setattr(R, "SOCLE", _socle(
+        tmp_path, {"hub|action": _gel("hub", ["action"], "obj:configured", "garanti")}))
+    code, r = R._verdict(_courant({"hub|action": _cap("hub", ["action"], "obj:etat")}))
+    assert code == 0 and not r["block"], r
+    assert r["review"][0]["motif"] == "AUTRE ACTION (cle agregee)"

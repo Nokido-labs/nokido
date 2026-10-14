@@ -369,7 +369,10 @@ def audit_tables_empty(conn) -> dict:
     for t in tbls:
         try:
             n = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
-        except Exception:
+        except Exception as e:  # noqa: BLE001 -- table illisible : absente du compte, et DITE (illisible != vide)
+            import logging as _lg
+            _lg.getLogger(__name__).debug("[diagnostic] table %s ILLISIBLE (%s) : hors du compte", t,
+                                          type(e).__name__)
             continue
         if n == 0:
             empty.append(t)
@@ -1130,6 +1133,29 @@ def validate_provider_keys() -> dict:
     return {"ok": ok, "broken": broken, "total": len(keys)}
 
 
+def _fichiers_versionnes(dossiers) -> "set | None":
+    """Chemins (posix, relatifs au depot) que git suit sous `dossiers` ; None si git est illisible.
+
+    Le corps est ce qui est VERSIONNE. Mesure du 2026-10-13 : un brouillon non suivi
+    (`tools/tmp_bench_rust_go.py`, import `forge_bm25`) etait compte « import Nokido mort »,
+    -6 points et une DOULEUR critical relancee trois fois en six heures -- puis relaye par
+    claude.ai comme une regression. Un garde qui crie a faux finit desarme."""
+    import subprocess as _sp
+    try:
+        # ROOT doit etre la RACINE d'un depot. Sous-dossier d'un AUTRE depot (mesure 13/10 : le dossier temporaire
+        # du pre-controle vit sous sandbox/, dans Nokido), `ls-files` rend rc=0 et une liste VIDE -> plus aucun
+        # fichier examine, pris pour un perimetre lu. Un prefixe non vide = le corps ne se lit pas ici : None.
+        pref = _sp.run(["git", "-c", "safe.directory=*", "-C", str(ROOT), "rev-parse", "--show-prefix"],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        if pref.returncode != 0 or pref.stdout.strip():
+            return None
+        r = _sp.run(["git", "-c", "safe.directory=*", "-C", str(ROOT), "ls-files", "--", *dossiers],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, _sp.SubprocessError):
+        return None
+    return set(r.stdout.splitlines()) if r.returncode == 0 else None
+
+
 def audit_import_resolvability() -> dict:
     """Scan AST de tous les forge_*.py (app/ + tools/) : vérifie que chaque
     import d'un module Nokido (forge_*) résout. Une réf morte — module
@@ -1159,11 +1185,20 @@ def audit_import_resolvability() -> dict:
             files += list(d.glob("*.py"))
     broken: list = []
     optionnels: list = []
+    # Un fichier NON VERSIONNE n'est pas le corps : son import mort est CLASSE a part,
+    # visible, sans compter comme panne. Git illisible -> perimetre glob, et dit.
+    hors_corps: list = []
+    suivis = _fichiers_versionnes(["app", "tools"])
     for p in files:
         try:
+            rel = p.relative_to(ROOT).as_posix()
+        except ValueError:
+            rel = p.name
+        hors = suivis is not None and rel not in suivis
+        try:
             tree = _ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
-        except Exception:
-            continue  # erreur de syntaxe -> couverte par le hook AST PostToolUse
+        except Exception:  # noqa: BLE001 -- muet-ok : erreur de syntaxe, couverte par le hook AST PostToolUse
+            continue
         mods: set = set()
         gardes: set = set()
         for node in _ast.walk(tree):
@@ -1201,9 +1236,12 @@ def audit_import_resolvability() -> dict:
                 # qui a disparu reste visible, sans etre compte comme une panne. Le
                 # taire completement rendrait invisible la suppression d'un module
                 # que tout le monde importerait sous `try`.
-                (optionnels if m in gardes else broken).append(
+                (hors_corps if hors else optionnels if m in gardes else broken).append(
                     {"file": p.name, "missing": m})
-    return {"scanned": len(files), "broken": broken, "optionnels": optionnels}
+    return {"scanned": len(files), "broken": broken, "optionnels": optionnels,
+            "hors_corps": hors_corps,
+            "perimetre": "fichiers versionnes (git)" if suivis is not None
+            else "glob app/ + tools/ (git illisible : les non versionnes sont comptes)"}
 
 
 # ============================================================================
@@ -1433,7 +1471,7 @@ def audit_identification(fenetre_h: int = 1) -> dict:
                 % ",".join("?" * len(anonymes)), (borne, *sorted(anonymes))):
             try:
                 cm = (json.loads(meta) or {}).get("channel_meta") or {}
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : meta illisible = donnee ignoree, pas panne de l'audit
                 continue
             if cm.get("origine") == "resolue":
                 cle = (cm.get("cmdline") or cm.get("process") or "?")[:120]
@@ -2180,8 +2218,10 @@ def _heartbeat(stats: dict) -> None:
             ),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 -- rapport non ecrit : le lecteur verrait l'ancien, dit
+        import logging as _lg
+        _lg.getLogger(__name__).warning("[diagnostic] rapport NON ECRIT (%s) : le dernier rapport lisible est perime",
+                                        type(e).__name__)
 
 
 # ============================================================================
@@ -2278,8 +2318,9 @@ def _release_hormones_from_audit(audit: dict) -> list[dict]:
                     reason=f"daily_cost ${cost} / ${ALERT_DAILY_BUDGET_USD} = {ratio:.2f}",
                 )
             )
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 -- alerte de budget non emise : dite
+        import logging as _lg
+        _lg.getLogger(__name__).warning("[diagnostic] alerte de budget quotidien NON EMISE (%s)", type(e).__name__)
 
     return released
 
@@ -2360,8 +2401,9 @@ def main() -> int:
     if args.daemon:
         try:
             (SANDBOX / "health_diagnostic.pid").write_text(str(os.getpid()), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 -- pid non publie : le daemon tourne mais ne se nomme pas, dit
+            import logging as _lg
+            _lg.getLogger(__name__).warning("[diagnostic] pid du daemon NON PUBLIE (%s)", type(e).__name__)
 
     while True:
         out = run_cycle()

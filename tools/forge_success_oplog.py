@@ -140,8 +140,8 @@ def entrees(log: Path | None = None) -> list:
     for ligne in chemin.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             e = json.loads(ligne)
-        except ValueError:
-            continue          # ligne coupee : ignoree, jamais fatale
+        except ValueError:  # muet-ok : ligne coupee, ignoree, jamais fatale
+            continue
         c = e.get("commit")
         if not c:
             continue
@@ -386,15 +386,46 @@ def capacites_touchees(fichiers, log: Path | None = None,
         if not communs:
             continue
         cites = list((e.get("procedure") or {}).get("tests_dans_le_commit") or [])
+        absents = [t for t in cites if not (racine / t).is_file()]
+        # Un test RETIRE par un commit connu (motif traçable dans l'historique) n'est pas un MYSTERE : il sort de
+        # `tests_absents` (l'alerte) vers `tests_retires`, avec le commit de retrait. Mesure 13/10 : l'avertissement
+        # citait test_forge_veille_campagne_nr a CHAQUE edition de ci_local, retire le 20/09 par c272981e2 avec son
+        # motif. Un absent SANS commit de retrait lisible reste crie : on ne sait pas pourquoi il manque.
+        retires = []
+        for t in list(absents):
+            sha = _commit_de_retrait(racine, t)
+            if sha:
+                retires.append({"test": t, "retire_par": sha})
+                absents.remove(t)
         sortie.append({
             "commit": e.get("commit"), "date": e.get("date"),
             "symptome": (e.get("symptome") or "")[:90],
             "etat": e.get("etat"),
             "fichiers_communs": sorted(communs)[:4],
             "tests": [t for t in cites if (racine / t).is_file()],
-            "tests_absents": [t for t in cites if not (racine / t).is_file()],
+            "tests_absents": absents,
+            "tests_retires": retires,
         })
     return sortie
+
+
+_RETRAITS: dict = {}
+
+
+def _commit_de_retrait(racine: Path, test: str) -> "str | None":
+    """Commit qui a SUPPRIME `test` sous `racine` (git log --diff-filter=D), ou None si illisible / jamais suivi.
+    Cache par processus : la question revient a chaque edition gouvernee."""
+    cle = (str(racine), test)
+    if cle not in _RETRAITS:
+        import subprocess as _sp
+        try:
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", str(racine), "log", "--diff-filter=D", "-1",
+                         "--format=%h", "--", test], capture_output=True, text=True, encoding="utf-8",
+                        errors="replace", timeout=15)
+            _RETRAITS[cle] = (r.stdout.strip() or None) if r.returncode == 0 else None
+        except (OSError, _sp.SubprocessError):
+            _RETRAITS[cle] = None
+    return _RETRAITS[cle]
 
 
 def _deja(chemin: Path) -> set:
@@ -404,8 +435,8 @@ def _deja(chemin: Path) -> set:
     for ligne in chemin.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             vus.add(json.loads(ligne).get("commit"))
-        except ValueError:
-            continue          # ligne corrompue : ignoree, jamais fatale
+        except ValueError:  # muet-ok : ligne corrompue, ignoree, jamais fatale
+            continue
     return vus
 
 

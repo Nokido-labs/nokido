@@ -126,7 +126,9 @@ EXCLUS_WHEEL = {
     "tools/bench_fixtures": "donnees de test des bancs, pas du runtime",
 }
 RACINES_PYTHON = ("app", "tools")
-RACINES_DONNEES = {"nokido_agent.proxy_deno": "proxy_deno", "nokido_agent.config": "config"}
+RACINES_DONNEES = {"nokido_agent.proxy_deno": "proxy_deno", "nokido_agent.config": "config",
+                   # construit par `nokido-composants` a l'installation (parcours paquet 3 OS du 13/10 : sources absentes)
+                   "nokido_agent.go_services.forge_dispatcher": "go_services/forge_dispatcher"}
 
 
 def _sous(d: str, racine: str) -> bool:
@@ -173,6 +175,8 @@ def test_les_donnees_suivent_le_code_dans_la_wheel():
         assert f"graft {rel}" in manifest, f"MANIFEST.in ne greffe pas {rel}"
     for e in EXCLUS_WHEEL:
         assert f"prune {e}" in manifest, f"MANIFEST.in n'elague pas {e}"
+    # la source du dispatcher part, jamais un binaire construit sur le poste (9,5 Mo, non suivi par git)
+    assert "recursive-exclude go_services/forge_dispatcher *.exe *.exe.*" in manifest
 
 
 def _conf() -> dict:

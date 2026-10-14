@@ -58,6 +58,15 @@ def _serveur(port):
     return srv
 
 
+@pytest.fixture
+def arret():
+    """Arrete les fils de pouls en fin de test. Sans lui, un fil survivait a son test et, sur un port
+    recycle par un autre test, battait avec le VRAI beat_daemon (temoin_* vus par le corps, 13/10)."""
+    ev = threading.Event()
+    yield ev
+    ev.set()
+
+
 def _battements(monkeypatch):
     """Capture les appels a beat_daemon SANS ecrire dans sandbox/."""
     vus = []
@@ -74,13 +83,13 @@ def _attendre(pred, limite_s=6.0):
     return False
 
 
-def test_un_serveur_qui_repond_fait_battre(monkeypatch):
+def test_un_serveur_qui_repond_fait_battre(monkeypatch, arret):
     vus = _battements(monkeypatch)
     port = _port_libre()
     srv = _serveur(port)
     try:
         HB.demarrer_pouls_service_http("temoin_vivant",
-                                       "http://127.0.0.1:%d/" % port, intervalle_s=5.0)
+                                       "http://127.0.0.1:%d/" % port, intervalle_s=5.0, arret=arret)
         assert _attendre(lambda: vus), "aucun battement alors que le serveur repond"
         nom, extra = vus[0]
         assert nom == "temoin_vivant"
@@ -89,7 +98,7 @@ def test_un_serveur_qui_repond_fait_battre(monkeypatch):
         srv.shutdown()
 
 
-def test_un_serveur_qui_ne_repond_pas_ne_bat_pas(monkeypatch):
+def test_un_serveur_qui_ne_repond_pas_ne_bat_pas(monkeypatch, arret):
     """MORSURE — un `while True: beat()` rendrait ce test vert a tort.
 
     Rien n'ecoute sur ce port : si un battement apparait, c'est que le pouls atteste
@@ -98,7 +107,7 @@ def test_un_serveur_qui_ne_repond_pas_ne_bat_pas(monkeypatch):
     vus = _battements(monkeypatch)
     port = _port_libre()  # personne n'ecoute
     HB.demarrer_pouls_service_http("temoin_mort",
-                                   "http://127.0.0.1:%d/" % port, intervalle_s=5.0)
+                                   "http://127.0.0.1:%d/" % port, intervalle_s=5.0, arret=arret)
     time.sleep(2.0)
     assert not vus, (
         "le pouls a battu pour un serveur qui ne repond pas : il atteste l'existence "
@@ -106,11 +115,11 @@ def test_un_serveur_qui_ne_repond_pas_ne_bat_pas(monkeypatch):
     )
 
 
-def test_le_fil_est_daemon_et_ne_retient_pas_le_porteur():
+def test_le_fil_est_daemon_et_ne_retient_pas_le_porteur(arret):
     """Un fil non-daemon empecherait l'arret du service qu'il surveille."""
     port = _port_libre()
     fil = HB.demarrer_pouls_service_http("temoin_fil",
-                                         "http://127.0.0.1:%d/" % port, intervalle_s=5.0)
+                                         "http://127.0.0.1:%d/" % port, intervalle_s=5.0, arret=arret)
     assert isinstance(fil, threading.Thread)
     assert fil.daemon, "le fil de pouls retiendrait l'arret du porteur"
 
@@ -122,7 +131,61 @@ def test_l_intervalle_a_un_plancher():
     assert "max(" in src, "aucun plancher sur l'intervalle de sonde"
 
 
-def test_le_pouls_ne_leve_jamais(monkeypatch):
+def test_le_fil_s_arrete_et_ne_survit_pas_a_son_test(monkeypatch):
+    """MORSURE de la fuite du 13/10 : arret pose -> le fil meurt, et ne bat plus jamais, meme si un
+    serveur repond ensuite sur ce port (cas du port recycle par un autre test)."""
+    vus = _battements(monkeypatch)
+    ev = threading.Event()
+    port = _port_libre()
+    fil = HB.demarrer_pouls_service_http("temoin_arret",
+                                         "http://127.0.0.1:%d/" % port, intervalle_s=5.0, arret=ev)
+    ev.set()
+    fil.join(timeout=3.0)
+    assert not fil.is_alive(), "le fil de pouls survit a son arret"
+    srv = _serveur(port)
+    try:
+        time.sleep(1.0)
+        assert not vus, "un fil arrete a encore battu"
+    finally:
+        srv.shutdown()
+
+
+def test_sans_intervalle_le_pouls_suit_le_coeur(monkeypatch, arret):
+    """Owner 13/10 : « cadence coherente avec un rythme cardiaque ». Sans intervalle propre, la
+    periode vient du noeud sinusal et le battement DIT qu'il etait perfuse."""
+    vus = _battements(monkeypatch)
+    monkeypatch.setattr("nokido_agent.app.forge_cardiac_node.lire",
+                        lambda *a, **k: {"tick": 3, "periode_s": 7.0})
+    port = _port_libre()
+    srv = _serveur(port)
+    try:
+        HB.demarrer_pouls_service_http("temoin_coeur", "http://127.0.0.1:%d/" % port, arret=arret)
+        assert _attendre(lambda: vus), "aucun battement alors que le serveur repond"
+        _nom, extra = vus[0]
+        assert extra.get("rythme") == "sinusal" and extra.get("tick_coeur") == 3, extra
+        assert extra.get("tick_s") == 7.0, "la periode ne vient pas du coeur"
+    finally:
+        srv.shutdown()
+
+
+def test_coeur_muet_rythme_d_echappement_dit(monkeypatch, arret):
+    vus = _battements(monkeypatch)
+
+    def _muet(*a, **k):
+        raise OSError("coeur illisible")
+    monkeypatch.setattr("nokido_agent.app.forge_cardiac_node.lire", _muet)
+    port = _port_libre()
+    srv = _serveur(port)
+    try:
+        HB.demarrer_pouls_service_http("temoin_echappement", "http://127.0.0.1:%d/" % port, arret=arret)
+        assert _attendre(lambda: vus)
+        assert vus[0][1].get("rythme") == "echappement", vus[0]
+        assert vus[0][1].get("tick_s") == HB.ECHAPPEMENT_S
+    finally:
+        srv.shutdown()
+
+
+def test_le_pouls_ne_leve_jamais(monkeypatch, arret):
     """Un pouls qui casse son porteur serait pire que pas de pouls du tout."""
     def _explose(*a, **k):
         raise RuntimeError("temoin")
@@ -131,7 +194,7 @@ def test_le_pouls_ne_leve_jamais(monkeypatch):
     srv = _serveur(port)
     try:
         fil = HB.demarrer_pouls_service_http("temoin_exception",
-                                             "http://127.0.0.1:%d/" % port, intervalle_s=5.0)
+                                             "http://127.0.0.1:%d/" % port, intervalle_s=5.0, arret=arret)
         time.sleep(1.5)
         assert fil.is_alive(), "le fil de pouls est mort sur une exception de beat_daemon"
     finally:

@@ -12,6 +12,7 @@ import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
 import {
   defaultTomlPath,
   loadServices,
+  resoudreVars,
   type ServiceDef,
 } from "./service_loader.ts";
 import { memUsagePct, totalRamKo } from "./platform.ts";
@@ -47,7 +48,12 @@ function _loadDotEnv(path: string): number {
   }
 }
 const _N_ENV_LOADED = _loadDotEnv(join(ROOT, "Nokido.env"));
-const MINIFORGE = "%USERPROFILE%/miniforge3/python.exe";
+// L'interpreteur des lanceurs runAs, et LAFORGE_PYTHON transmis aux services : la variable PYTHON RESOLUE
+// (services.toml, puis config/vars.local.toml, `%NOM%` developpe). 2e mesure sur VM neuve (08/10) : ce litteral du
+// poste de reference faisait echouer les 10 services runAs partout ailleurs. Sur le poste de reference PYTHON vaut
+// exactement ce litteral (verifie) : comportement inchange. Repli : le litteral, si le TOML est illisible.
+const _MINIFORGE_REPLI = "%USERPROFILE%/miniforge3/python.exe";
+const MINIFORGE = resoudreVars(defaultTomlPath(), { ROOT })?.PYTHON || _MINIFORGE_REPLI;
 
 // Phase 38 (2026-05-27) — load DPAPI vault tokens into Deno.env so that
 // supervisor + spawned services share the same source of truth (the

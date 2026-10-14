@@ -151,9 +151,11 @@ def test_degradation_depuis_une_installation_par_paquet(monkeypatch):
 
     b = P.bilan()
     assert b["toml_services"] == P.ABSENT
-    assert "netcfg_agent" in b["indetermines_critiques"], (
-        "sans la declaration, on ne sait pas OU chercher le depot voisin : "
-        "c'est un indetermine, pas une absence")
+    # Depuis le 2026-10-11, netcfg est un PAQUET PyPI : sa sonde (find_spec) ne depend plus du TOML. Sans TOML, elle
+    # reste donc MESURABLE -- present ou absent, jamais indetermine faute de savoir ou chercher un depot voisin.
+    netcfg = next(l for l in b["lignes"] if l["cle"] == "netcfg_agent")
+    assert netcfg["etat"] in (P.PRESENT, P.ABSENT), netcfg
+    assert "netcfg_agent" not in b["indetermines_critiques"]
 
 
 def test_le_cli_et_le_test_ne_parlent_pas_forcement_au_meme_module():

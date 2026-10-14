@@ -21,8 +21,25 @@ _SCHEMA = "CREATE TABLE agent_messages (from_agent TEXT, to_agent TEXT, method T
           "CREATE TABLE conversation_log (x); CREATE TABLE network_log (x); CREATE TABLE shared_prompt_log (x);"
 
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _m2m_isolee(tmp_path, monkeypatch):
+    """Scission M2M : `audit_messages` lit `agent_messages` dans la base M2M (forge_db_path.m2m_path), PAS dans la
+    connexion qu'on lui passe. Mesure 13/10 : sans cette isolation le test comptait la VRAIE boite (440 != 2) --
+    mort en silence depuis la scission, hors CI. La base M2M du test est un fichier temporaire, partage par _conn."""
+    from nokido_agent.app import forge_db_path as _fdp
+    base = tmp_path / "m2m_test.db"
+    monkeypatch.setattr(_fdp, "m2m_path", lambda *a, **k: str(base))
+    monkeypatch.setattr(_fdp, "journal_path", lambda *a, **k: None, raising=False)
+    globals()["_BASE_M2M"] = str(base)
+
+
 def _conn():
-    c = sqlite3.connect(":memory:")
+    # Meme fichier que la base M2M isolee : les lignes inserees par le test sont celles qu'audit_messages lit.
+    # autocommit : audit_messages lit par SA connexion, une insertion non commitee lui serait invisible.
+    c = sqlite3.connect(globals()["_BASE_M2M"], isolation_level=None)
     c.executescript(_SCHEMA)
     return c
 

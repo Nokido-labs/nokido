@@ -1,4 +1,7 @@
 #Requires -Version 5.1
+# REMPLACE le 2026-10-13 par tools/install_shortcuts.ps1 (source unique des raccourcis) : ce script fait pointer
+# START sur nokido_start.ps1 EN DIRECT, donc la stack monte SANS le tray. Conserve (on gele, on ne supprime pas) ;
+# ne plus le lancer.
 # (Re)cree les raccourcis Bureau Nokido START et STOP.
 # Supprime tout .lnk existant AVANT de regenerer : un .lnk re-pointe
 # garde sinon un LinkInfo perime (ex: ancien laforge-start.cmd) qui fait

@@ -101,6 +101,25 @@ def _cle(tool: str, arg_keys: list) -> str:
     return f"{tool}|{','.join(arg_keys)}"
 
 
+# Champs CONDITIONNELS : presents selon l'ETAT de l'appel, pas selon le contrat. Mesure 13/10 : 8 des 9 BLOCK du
+# cliquet (« REGRESSION » permanente, soin endocrinien persistant 322 cycles) n'etaient que leur absence dans la
+# fenetre. Liste EXPLICITE, chaque entree avec sa raison : un champ obligatoire qui disparait reste un BLOCK.
+_CHAMPS_CONDITIONNELS = {
+    "avertissement_reflexe": "governed_edit : seulement sans introspect recent",
+    "text": "governed_edit / run : seulement quand un texte d'accompagnement existe",
+    "progress": "run job_status : seulement si le job ecrit un .progress.json",
+    "task_id": "run run_job : selon la voie de depot (tache ou job direct)",
+}
+
+
+def _cles_obj(forme) -> "set | None":
+    """Cles d'une forme `obj:k1,k2` ; None si ce n'est pas un objet aux cles lisibles."""
+    f = str(forme or "")
+    if not f.startswith("obj:") or f == "obj:?":
+        return None
+    return {k for k in f[4:].split(",") if k}
+
+
 def _meme_forme(a, b) -> bool:
     """Deux formes decrivent-elles le MEME contrat ?
 
@@ -121,6 +140,11 @@ def _meme_forme(a, b) -> bool:
         return True  # meme type, longueur differente : pas un changement de contrat
     if a.startswith("obj") and b.startswith("obj") and ("obj:?" in (a, b)):
         return True  # cles non observables d'un cote : indecidable, pas une alerte
+    ka, kb = _cles_obj(a), _cles_obj(b)
+    if ka is not None and kb is not None:
+        cond = set(_CHAMPS_CONDITIONNELS)
+        if ka - cond == kb - cond:
+            return True  # seuls des champs CONDITIONNELS different : meme contrat
     return False
 
 
@@ -290,6 +314,13 @@ def _verdict(courant: dict):
             continue
 
         if not _meme_forme(cur["forme"], g.get("forme")):
+            ka, kg = _cles_obj(cur["forme"]), _cles_obj(g.get("forme"))
+            if cle.endswith("|action") and ka and kg and not (ka & kg):
+                # Clé agregee par NOMS d'arguments : `hub|action` couvre toutes les valeurs d'action. Des cles
+                # DISJOINTES disent une AUTRE action observee, pas un contrat casse -- indecidable ici : REVIEW.
+                review.append({"cle": cle, "tier": tier, "motif": "AUTRE ACTION (cle agregee)",
+                               "gele": g.get("forme"), "observe": cur["forme"], "calls": cur["calls"]})
+                continue
             cible = block if tier == "garanti" else review
             cible.append({"cle": cle, "tier": tier, "motif": "CONTRAT CHANGE",
                           "gele": g.get("forme"), "observe": cur["forme"],

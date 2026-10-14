@@ -1,0 +1,59 @@
+# stats-publiques.yml — petite statistique en bas du README de la vitrine (decision owner 2026-10-13).
+#
+# Quotidien, sur le depot PUBLIC seulement (garde `github.repository`) : tools/forge_stats_publiques.py collecte
+# le trafic (14 jours glissants chez GitHub, d'ou l'archive), les telechargements PyPI, les etoiles et relit le
+# tampon STATS du README ; il archive et rend `stats.svg` dans la branche `stats` -- jamais dans `main`, que
+# seul l'instantane de distribution ecrit.
+#
+# Secret `STATS_TOKEN` (geste owner) : jeton a grain fin, depot Nokido-labs/nokido seul, permission
+# « Administration : lecture » (exigee par l'API trafic). Absent -> la carte dit « n/d », jamais 0.
+
+name: Statistique publique
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: stats-publiques
+  cancel-in-progress: false
+
+jobs:
+  stats:
+    if: github.repository == 'Nokido-labs/nokido'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Branche stats (archive existante, ou orpheline au premier passage)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone --quiet --depth 1 --branch stats \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" stats-branche \
+          || { mkdir stats-branche && cd stats-branche && git init --quiet && git checkout --orphan stats \
+               && git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"; }
+      - name: Collecte, archive, carte
+        env:
+          STATS_TOKEN: ${{ secrets.STATS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tools/forge_stats_publiques.py --depot "${GITHUB_REPOSITORY}" --sortie stats-branche --readme README.md
+      - name: Publication sur la branche stats
+        working-directory: stats-branche
+        run: |
+          git config user.name "nokido-stats"
+          git config user.email "nokido-stats@users.noreply.github.com"
+          git add archive.json stats.svg
+          git diff --cached --quiet && { echo "carte inchangee"; exit 0; }
+          git commit --quiet -m "stats: releve du $(date -u +%F)"
+          git push --quiet origin HEAD:stats

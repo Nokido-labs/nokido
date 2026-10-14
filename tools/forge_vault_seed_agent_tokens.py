@@ -102,10 +102,16 @@ def _cles_du_registre(ring_max: int = 3) -> list[str]:
         return []
     out = []
     for nom, meta in sorted(agents.items()):
+        # `jeton_direct: false` (OWNER_PORTAIL, decision owner 2a du 13/10) : sujet joignable SEULEMENT par
+        # delegation. Lui semer un jeton ouvrirait son ring a tout porteur, sans delegateur ni plancher.
+        if isinstance(meta, dict) and meta.get("jeton_direct") is False:
+            print(f"[gen] {nom} ecarte : sujet sans jeton direct (delegation seulement)")
+            continue
         try:
             if int(meta.get("ring", 4)) <= ring_max:
                 out.append(f"FORGE_TOKEN_{nom}")
         except (TypeError, ValueError):
+            print(f"[gen] {nom} ecarte : ring illisible au registre ({meta.get('ring')!r})")
             continue
     return out
 

@@ -698,10 +698,14 @@ pip install -r requirements.txt
 python tools/nokido_hub.py
 ```
 
-`pyproject.toml` declares **15 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
-`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `rag`, `security`, `ui` —
+`pyproject.toml` declares **16 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
+`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `organisme`, `rag`, `security`, `ui` —
 plus two aggregate bundles, `all` and `full`, which are not counted among them.
 They apply to the layout above, not to a published wheel.
+
+`organisme` is what the supervisor's services import at startup beyond the core; from a clone,
+`pip install -r requirements-organisme.txt` installs the same set with exact versions (on Linux,
+install `torch` from the PyTorch CPU index first: the PyPI Linux wheel pulls CUDA).
 
 ---
 
@@ -838,34 +842,29 @@ The current documentation expects the Hub to expose its MCP tool surface through
 
 # 🚀 First use
 
-Once the Hub is running, Nokido can be tested without connecting a second agent.
+Once `nokido-composants --tout` has run and the Hub answers, ask the bundled Knowledge Pack — no provider key,
+nothing to copy:
 
-Example:
-
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8766/mcp",
-    json={
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "ask",
-            "arguments": {
-                "provider": "auto",
-                "message": "Explain how Nokido's RAG works in three lines."
-            }
-        }
-    },
-    timeout=120,
-)
-
-print(response.json())
+```bash
+nokido hub rag '{"action": "search", "topic": "How do I install Nokido with pip?", "limit": 5}'
 ```
 
-For local inference, configure Ollama and load a model:
+The `nokido` CLI presents, by itself, the local client token that `nokido-composants` stored in the machine vault
+(identity `EDITOR`, ring 2). Anonymous callers stay at ring 3 by design: on a fresh install they can list the tools,
+and the search above is refused to them.
+This first request is measured on clean machines by `tools/forge_install_acceptance.py --paquet`.
+
+Installed with pip, Nokido keeps its data (knowledge base, models, logs, vault) **outside** `site-packages`, in the
+standard user data folder: `%LOCALAPPDATA%\Nokido`, `~/Library/Application Support/Nokido` or
+`~/.local/share/nokido` (`NOKIDO_DATA_DIR` overrides it). It survives upgrades. To uninstall:
+
+```bash
+nokido-composants --desinstaller            # add --purger to also erase your data
+pip uninstall nokido-agent
+```
+
+Asking a model (`ask`) needs a model: a local one (llama.cpp, Ollama) or a provider key stored in the vault
+(`nokido-vault set -k GROQ_API_KEY`). For local inference with Ollama:
 
 ```bash
 ollama pull qwen2.5-coder:latest
@@ -1300,5 +1299,7 @@ That organism does not completely exist yet. But several organs are already real
 **AGPLv3-or-later** · Commercial licensing available
 
 See [`LICENSE`](LICENSE) and [`COMMERCIAL.md`](COMMERCIAL.md).
+
+<p align="center"><img src="https://raw.githubusercontent.com/Nokido-labs/nokido/stats/stats.svg" alt="Public statistics: GitHub traffic, PyPI downloads, organism size" width="640"></p>
 
 <!-- STATS:0690e3a84:2026-09-23 modules=582 rag_chunks=4899487 embeddings=1581437 -->

@@ -87,7 +87,7 @@ PATCH_HUB = [
      '                    from nokido_agent.app.forge_mcp_elicitation import sse_requis as _sse_requis\n'
      '\n'
      '                    use_sse = _sse_requis(name, args)\n'
-     '                except Exception:  # noqa: BLE001 - sans le module : liste historique\n'
+     '                except Exception:  # noqa: BLE001 - muet-ok : sans le module, liste historique\n'
      '                    pass\n'
      '            if use_sse:\n'
      '\n'

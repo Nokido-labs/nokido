@@ -37,6 +37,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PORTEURS = (
     ROOT / "app" / "forge_llm_router.py",
     ROOT / "app" / "forge_litellm_bridge.py",
+    # 2026-10-12 : dspy tire litellm -- son `import dspy` mourait hors ligne en ConnectionError, hors du garde.
+    ROOT / "app" / "forge_dspy_router.py",
 )
 
 

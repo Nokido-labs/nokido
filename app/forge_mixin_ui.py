@@ -297,7 +297,7 @@ try:
 
     VSplitter = _St
 except ImportError:
-    pass
+    pass  # muet-ok : repli si textual n'est pas installe dans l'environnement
 
 
 # Autres classes Textual internes — proxy via __main__
@@ -322,10 +322,17 @@ class _ClassProxy:
 
 # Imports depuis les modules shredded
 try:
-    from nokido_agent.app.forge_orchestrator import SessionContext, AutocompleteEngine
+    from nokido_agent.app.forge_session_context import SessionContext
+except ImportError:
+    try:
+        from app.forge_session_context import SessionContext
+    except ImportError:
+        SessionContext = _ClassProxy("SessionContext")
+
+try:
+    from nokido_agent.app.forge_orchestrator import AutocompleteEngine
     from nokido_agent.app.forge_rag_engine import AgenticEngine, RAGEngine
 except ImportError:
-    SessionContext = _ClassProxy("SessionContext")
     AutocompleteEngine = _ClassProxy("AutocompleteEngine")
     AgenticEngine = _ClassProxy("AgenticEngine")
     RAGEngine = _ClassProxy("RAGEngine")
@@ -481,7 +488,7 @@ class UiMixin:
             self.query_one("#orc-title", Static).update("[bold #58a6ff]⚒ La Forge[/]")
             self.query_one("#orc-version", Static).update(f"[dim]v{ver} · {self.session_name[:12]}[/]")
         except Exception:
-            pass
+            pass  # muet-ok : widgets d'en-tete absents selon l'ecran TUI actif
 
     def _update_mode_buttons(self) -> None:
         """Met à jour visuellement les boutons de mode orchestrateur."""
@@ -493,7 +500,7 @@ class UiMixin:
                 else:
                     btn.remove_class("-active")
         except Exception:
-            pass
+            pass  # muet-ok : boutons de mode absents de la vue courante
 
     async def on_mount(self) -> None:
         """On mount."""
@@ -517,7 +524,7 @@ class UiMixin:
                     try:
                         _o.unlink()
                     except Exception:
-                        pass
+                        pass  # muet-ok : suppression de sauvegarde obsolete best-effort (verrou fichier Windows)
                 logger.info(f"[boot] Auto-backup -> {_dst.name}")
         except Exception as _be:
             logger.debug(f"[boot] backup: {_be}")
@@ -550,12 +557,12 @@ class UiMixin:
                 self.refresh(layout=True)
                 self.call_later(self.refresh, layout=True)
             except Exception:
-                pass
+                pass  # muet-ok : boucle d'evenements TUI interrompue ou widget detache
 
         try:
             _sig.signal(_sig.SIGWINCH, _on_winch)
         except (OSError, ValueError, AttributeError):
-            pass  # SIGWINCH indisponible (Windows)
+            pass  # muet-ok : SIGWINCH indisponible (Windows)
 
         self.context = SessionContext(self.session_name)
         orchestrator_state = OrchestratorState()
@@ -584,13 +591,13 @@ class UiMixin:
                         _o, _, _ = await run_ssh("hostname -f 2>/dev/null || hostname")
                         _hn = _strip_ssh_output(_o)
                     except Exception:
-                        pass
+                        pass  # muet-ok : resolution hostname distante optionnelle
                     _kern = ""
                     try:
                         _o2, _, _ = await run_ssh("uname -r")
                         _kern = _strip_ssh_output(_o2)
                     except Exception:
-                        pass
+                        pass  # muet-ok : detection version kernel distante optionnelle
                     _ks = f" · [dim]kernel {_kern}[/]" if _kern else ""
                     self._set_ssh_mode(True, hostname=_hn or settings.ssh_host)
                     self._chat_log().write(
@@ -620,7 +627,7 @@ class UiMixin:
                     _kern_out, _, _ = await run_ssh("uname -r")
                     _kern = _strip_ssh_output(_kern_out)
                 except Exception:
-                    pass
+                    pass  # muet-ok : detection version kernel distante optionnelle
                 _kern_str = f" · [dim]kernel {_kern}[/]" if _kern else ""
                 self._set_ssh_mode(True, hostname=_hn or settings.ssh_host)
                 self._chat_log().write(
@@ -801,10 +808,10 @@ class UiMixin:
 
                             _frc._SINGLETON = None
                         except Exception:
-                            pass
+                            pass  # muet-ok : forge_rag_cache optionnel ou non charge
                     _last_db_mtime = _mtime
             except Exception:
-                pass
+                pass  # muet-ok : boucle de surveillance mtime RAG robuste aux fichiers temporaires
 
             await asyncio.sleep(5)
 
@@ -818,11 +825,11 @@ class UiMixin:
                 try:
                     self.query_one("#v-splitter").remove_class("hidden")
                 except Exception:
-                    pass
+                    pass  # muet-ok : widget #v-splitter absent selon la disposition
                 try:
                     self.query_one("#chat-panel").remove_class("expanded")
                 except Exception:
-                    pass
+                    pass  # muet-ok : widget #chat-panel absent selon la disposition
                 # Connecter le terminal SSH si pas encore fait
                 if hasattr(self.terminal, "_connected") and not self.terminal._connected:
                     import asyncio as _aio
@@ -834,15 +841,15 @@ class UiMixin:
                 try:
                     self.query_one("#v-splitter").add_class("hidden")
                 except Exception:
-                    pass
+                    pass  # muet-ok : widget #v-splitter absent selon la disposition
                 try:
                     self.query_one("#chat-panel").add_class("expanded")
                 except Exception:
-                    pass
+                    pass  # muet-ok : widget #chat-panel absent selon la disposition
                 self.query_one("#chat-input", getattr(type(self), "AutocompleteInput", Input)).focus()
                 return
         except Exception:
-            pass
+            pass  # muet-ok : bascule du panneau terminal toleree si les composants ne sont pas montes
         self.terminal.focus()
 
     def action_focus_input(self) -> None:
@@ -859,7 +866,7 @@ class UiMixin:
         try:
             self.call_later(self.refresh, layout=True)
         except Exception:
-            pass
+            pass  # muet-ok : call_later ignore si application deconnectee ou en cours d'arret
 
     async def on_button_pressed(self, event: Button.Pressed):
         """On button pressed.

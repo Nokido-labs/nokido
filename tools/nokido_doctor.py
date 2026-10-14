@@ -114,6 +114,10 @@ def rendre_texte(b: dict, verbeux: bool = False) -> str:
     out.append("PROFIL %s (--profil complet pour l'organisme du poste de reference)" % b.get("profil", "?"))
     if b["bloquants"]:
         out.append("BLOQUANT — absent et prouve absent : " + ", ".join(b["bloquants"]))
+        # Ce que le produit sait poser lui-meme (sommes et tailles verifiees contre distribution/packs) : la commande
+        # est NOMMEE, l'inconnu n'a pas a la deviner (parcours paquet 13/10 : le BLOQUANT ne disait pas quoi faire).
+        if any(x.startswith(("modele:", "llama", "deno")) for x in b["bloquants"]):
+            out.append("  -> poser les composants et modeles epingles : nokido-composants --tout")
     else:
         out.append("Aucun prerequis critique prouve absent.")
     if b["indetermines_critiques"]:
@@ -216,6 +220,35 @@ def rendre_modeles(s: dict) -> str:
     return "\n".join(out)
 
 
+def etat_donnees() -> dict:
+    """Ou vivent les donnees : l'etat pose par la redirection au premier import du paquet installe (chantier 3, 14/10)."""
+    try:
+        import nokido_agent
+    except Exception as exc:  # noqa: BLE001 - illisible : le DIRE
+        return {"mode": "ILLISIBLE", "raison": "%s: %s" % (type(exc).__name__, exc)}
+    return getattr(nokido_agent, "ETAT_DONNEES", None) or {"mode": "CLONE"}
+
+
+def rendre_donnees(e: dict) -> str:
+    """Une ligne, plus les avertissements : une mise a jour depuis 0.20.10 garde ses dossiers dans le paquet (DEJA_REEL :
+    jamais deplaces en silence) -- personne ne le disait a l'utilisateur."""
+    mode = e.get("mode")
+    if mode == "CLONE":
+        return "DONNEES : clone de developpement, sous le depot (inchange)"
+    if mode != "INSTALLE":
+        return "DONNEES : %s %s" % (mode, e.get("raison", ""))
+    txt = "DONNEES : %s" % e.get("racine")
+    anterieurs = [n for n, v in e.items() if v == "DEJA_REEL"]
+    echecs = ["%s (%s)" % (n, v) for n, v in e.items() if str(v).startswith("ECHEC")]
+    if anterieurs:
+        txt += ("\n  AVERTISSEMENT - dossiers d'une installation anterieure restes DANS le paquet : %s. Ils sont lus "
+                "tels quels, et `pip uninstall` les laisserait : les deplacer vers la racine ci-dessus, puis relancer."
+                % ", ".join(anterieurs))
+    if echecs:
+        txt += "\n  ECHEC de redirection : %s" % ", ".join(echecs)
+    return txt
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="nokido-doctor",
@@ -232,7 +265,24 @@ def main(argv: list[str] | None = None) -> int:
                     help="ce qui BLOQUE : dev (defaut, hub d'agents pour devs) ou complet (organisme entier)")
     ap.add_argument("--modeles", action="store_true",
                     help="les modeles verifies qui tiennent sur CETTE machine, avec la commande llama.cpp / Ollama / LM Studio")
+    ap.add_argument("--ecrire-vars", action="store_true",
+                    help="ecrit config/vars.local.toml : les chemins de CETTE machine pour les services du superviseur "
+                         "(remede quand il ne trouve pas ses binaires ; un chemin existant n'est jamais remplace)")
     a = ap.parse_args(argv)
+
+    if a.ecrire_vars:
+        try:
+            b = P.ecrire_vars_local()
+        except Exception as exc:  # noqa: BLE001 - ecriture impossible : le DIRE, rc 2
+            print("ECHEC : les chemins de cette machine n'ont pas pu etre ecrits (%s: %s)" % (type(exc).__name__, exc))
+            return 2
+        if b["ecrit"]:
+            print("chemins de cette machine ecrits dans %s : %s" % (b["chemin"], ", ".join(b["ecrites"])))
+        else:
+            print("aucun chemin a ecrire : ceux de services.toml existent deja sur cette machine")
+        if b["absentes"]:
+            print("INTROUVABLES (les services qui en dependent ne demarreront pas) : %s" % ", ".join(b["absentes"]))
+        return 0
 
     if a.modeles:
         try:
@@ -256,10 +306,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     b = P.bilan(inclure_optionnels=not a.requis_seulement, profil=a.profil)
+    donnees = etat_donnees()
     if a.json:
-        print(json.dumps(b, indent=2, ensure_ascii=False))
+        print(json.dumps(dict(b, donnees=donnees), indent=2, ensure_ascii=False))
     else:
         print(rendre_texte(b, verbeux=a.verbeux))
+        print(rendre_donnees(donnees))
     return 1 if b["bloquants"] else 0
 
 

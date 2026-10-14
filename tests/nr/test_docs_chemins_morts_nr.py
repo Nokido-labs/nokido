@@ -129,6 +129,30 @@ def test_une_page_ILLISIBLE_est_comptee_et_non_lue_comme_propre(tmp_path, monkey
     assert res["pages"] == 1, "la page illisible ne doit pas etre comptee comme lue"
 
 
+def test_l_extension_longue_n_est_plus_tronquee_et_un_attribut_n_est_pas_un_chemin():
+    """Mesure 13/10 : `sandbox/snn.wanted` etait lu `snn.wante` (extension bornee a 5, sans garde de fin) -- l'outil
+    inventait une COQUILLE dans une doc juste ; `app/forge_x.request_resources` etait pris pour un chemin."""
+    assert C._RE_CHEMIN.findall("voir `sandbox/snn.wanted` et `sandbox/m2m.switch`") == [
+        "sandbox/snn.wanted", "sandbox/m2m.switch"]
+    assert C._RE_CHEMIN.findall("appel `app/forge_resource_manager.request_resources()`") == []
+
+
+def test_un_fichier_cree_a_l_execution_et_nomme_par_le_code_est_RUNTIME(tmp_path):
+    """`RAG/durable.db` n'existe qu'apres le premier workflow durable : absent n'est pas mort si le code le nomme.
+    Controle negatif : un fichier runtime que le code ne nomme pas reste MORT."""
+    import subprocess
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "forge_durable.py").write_text('DEFAULT_DB = ROOT / "RAG" / "durable.db"\n',
+                                                       encoding="utf-8")
+    subprocess.run(["git", "-c", "safe.directory=*", "-C", str(tmp_path), "init", "-q"], check=True,
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+    subprocess.run(["git", "-c", "safe.directory=*", "-C", str(tmp_path), "add", "app/forge_durable.py"], check=True,
+                   capture_output=True, text=True, encoding="utf-8", errors="replace")
+    etat, precision = C.classer("RAG/durable.db", tmp_path)
+    assert etat == "RUNTIME" and "forge_durable" in precision
+    assert C.classer("RAG/inconnu_de_tous.db", tmp_path)[0] == "MORT"
+
+
 def test_un_dossier_absent_est_DIT_et_ne_vaut_pas_succes(tmp_path, monkeypatch):
     monkeypatch.setattr(C, "ROOT", tmp_path)
     assert C.main(["--dossier", "nulle_part", "--check"]) == 0

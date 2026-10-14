@@ -8,15 +8,19 @@ BACKENDS PAR OS :
   - Windows : DPAPI avec flag CRYPTPROTECT_LOCAL_MACHINE (ctypes pur, zero dep).
               Chiffre avec la cle MACHINE -> dechiffrable par tout compte local.
               Permet aux comptes service sandbox de lire sans WCM per-user.
-  - macOS   : Keychain via `keyring` (service="Nokido_Vault"). Per-user, mais
-              acceptable car les sandbox accounts ne sont pas un cas macOS.
-  - Linux   : libsecret/Secret Service via `keyring` si dispo, sinon fallback
-              fichier `data/machine_vault.dat` chiffre AES-256-GCM avec une
-              passphrase derivee de `LAFORGE_VAULT_KEY` env var (PBKDF2).
+  - macOS / Linux, process root (installation systeme) : fichier 0640
+              root:nokido-sbx (`_coffre_machine_posix`), voir plus bas.
+  - macOS / Linux, utilisateur : trousseau via `keyring` (service="Nokido_Vault" :
+              Keychain, Secret Service). Quand le trousseau REFUSE (poste sans
+              session graphique, CI, conteneur : mesure du 2026-10-14, parcours
+              paquet Ubuntu et macOS), repli sur un fichier 0600 de l'utilisateur
+              (`_coffre_utilisateur_posix`), DIT a la premiere ecriture. Base64 :
+              un encodage, la protection est le mode -- comme le fichier root.
+              (L'ancien texte promettait un repli AES-GCM derive de
+              `LAFORGE_VAULT_KEY` : il n'a jamais ete ecrit.)
 
 STORE : `data/machine_vault.dat` — JSON {cle: base64(blob_chiffre)}. Toujours
-  utilise sur Windows pour partager entre comptes service. Sur Linux fallback,
-  meme format. Sur macOS le store reste dans Keychain (pas de fichier).
+  utilise sur Windows pour partager entre comptes service.
 
 COFFRE RESERVE (2026-09-28) : `C:/ProgramData/NokidoCoffre/coffre_reserve.dat`,
   meme format, mais scelle en portee UTILISATEUR sous SYSTEM, dans un dossier a
@@ -55,6 +59,8 @@ _IS_WIN = sys.platform == "win32"
 _IS_MAC = sys.platform == "darwin"
 _IS_LINUX = sys.platform.startswith("linux")
 _KEYRING_SERVICE = "Nokido_Vault"  # macOS Keychain / Linux Secret Service service name
+# Pourquoi le dernier `_keyring_set` a echoue (type d'exception, jamais son texte) : le repli le dit.
+_KEYRING_ECHEC: dict = {"raison": None}
 
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
 CRYPTPROTECT_LOCAL_MACHINE = 0x04
@@ -75,8 +81,12 @@ def _keyring_set(key: str, value: str) -> bool:
         import keyring  # type: ignore
 
         keyring.set_password(_KEYRING_SERVICE, key, value)
-        return _keyring_get(key) == value
-    except Exception:
+        if _keyring_get(key) == value:
+            return True
+        _KEYRING_ECHEC["raison"] = "relecture differente"
+        return False
+    except Exception as e:  # noqa: BLE001 -- trousseau absent ou verrouille : la raison est gardee pour le repli
+        _KEYRING_ECHEC["raison"] = type(e).__name__
         return False
 
 
@@ -209,15 +219,8 @@ def _save(store: dict) -> None:
 
 def available() -> bool:
     """True si un backend coffre est utilisable sur cet OS."""
-    if _IS_WIN:
-        return True
-    # macOS / Linux : keyring lib disponible ?
-    try:
-        import keyring  # type: ignore
-
-        return True
-    except ImportError:
-        return False
+    # Windows : DPAPI. macOS / Linux : trousseau, ou a defaut le fichier 0600 de l'utilisateur (2026-10-14).
+    return True
 
 
 def vault_get(key: str) -> Optional[str]:
@@ -261,7 +264,23 @@ def _vault_get_brut(key: str) -> Optional[str]:
             return _unprotect(base64.b64decode(enc)).decode("utf-8")
         except Exception:
             return None
-    # macOS / Linux : keyring (Keychain / libsecret)
+    # macOS / Linux : fichier machine (installation systeme root, owner 2026-10-09) s'il existe, sinon keyring
+    try:
+        enc = json.loads(_coffre_machine_posix().read_text(encoding="utf-8")).get(key)
+        if enc:
+            return base64.b64decode(enc).decode("utf-8")
+    except FileNotFoundError:
+        pass  # muet-ok : pas d'installation systeme -- keyring, comme avant le 2026-10-09
+    except (OSError, ValueError) as e:
+        print(f"[machine_vault] coffre machine POSIX ILLISIBLE ({type(e).__name__}) -- repli keyring")
+    # Le fichier utilisateur AVANT le trousseau : il n'existe que si le trousseau a refuse une ecriture, et une
+    # ecriture reussie au trousseau en retire la cle -- un trousseau perime ne masque donc jamais la valeur neuve.
+    enc = _lire_coffre_utilisateur()[0].get(key)
+    if enc:
+        try:
+            return base64.b64decode(enc).decode("utf-8")
+        except ValueError:
+            print(f"[machine_vault] coffre utilisateur : {key} INDECODABLE -- repli keyring")
     return _keyring_get(key)
 
 
@@ -285,8 +304,27 @@ def vault_set(key: str, value: str) -> bool:
         except Exception as e:  # noqa: BLE001
             print(f"[machine_vault] set {key} echec: {e}")
             return False
-    # macOS / Linux : keyring
-    return _keyring_set(key, value)
+    # macOS / Linux : sous root (installation systeme, owner 2026-10-09), fichier 0640 root:nokido-sbx a l'image du
+    # coffre machine Windows ; ailleurs keyring, comme avant.
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        garde = _garde_copie_reservee(key, value)
+        if garde:
+            print(f"[machine_vault] set {key} REFUSE : {garde}")
+            return False
+        chemin = _coffre_machine_posix()
+        try:
+            store = json.loads(chemin.read_text(encoding="utf-8")) if chemin.exists() else {}
+            store[key] = base64.b64encode(value.encode("utf-8")).decode("ascii")
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            _ecrire_posix(chemin, json.dumps(store, indent=1, sort_keys=True), 0o640, GROUPE_BACS_POSIX)
+            return _vault_get_brut(key) == value
+        except (OSError, ValueError) as e:
+            print(f"[machine_vault] set {key} echec: {type(e).__name__}")
+            return False
+    if _keyring_set(key, value):
+        _retirer_du_coffre_utilisateur(key)  # une copie de repli ne survit pas a la valeur du trousseau
+        return True
+    return _repli_coffre_utilisateur(key, value)
 
 
 def vault_delete(key: str) -> bool:
@@ -298,14 +336,17 @@ def vault_delete(key: str) -> bool:
             _save(store)
             return True
         return False
-    return _keyring_delete(key)
+    du_trousseau = _keyring_delete(key)
+    return _retirer_du_coffre_utilisateur(key) or du_trousseau
 
 
 def vault_list() -> list[str]:
     """Noms des cles presentes (jamais les valeurs).
-    Note: sur macOS/Linux via keyring, l'enumeration n'est pas portable —
-    on retourne le store DPAPI uniquement (vide sur non-Win)."""
-    return sorted(_load().keys())
+    Note: sur macOS/Linux le trousseau ne s'enumere pas de facon portable —
+    hors Windows on rend le store DPAPI (vide) et le coffre fichier utilisateur."""
+    if _IS_WIN:
+        return sorted(_load().keys())
+    return sorted(set(_load()) | set(_lire_coffre_utilisateur()[0]))
 
 
 # --- Coffre RESERVE (etape 2a du correctif du coffre, go owner 2026-09-28) -----------
@@ -326,6 +367,134 @@ RESERVE_PATH = RESERVE_DIR / "coffre_reserve.dat"
 # Le seul compte qui scelle : un blob scelle sous un autre compte serait INDECHIFFRABLE
 # pour le hub, qui retomberait en silence sur le coffre machine.
 RESERVE_COMPTE_SID = "S-1-5-18"
+
+# --- Coffres hors Windows (decision owner du 2026-10-09, « Fichier root 0600 ») ---------------------
+# Pas de DPAPI : la protection est celle du systeme de fichiers. Coffre RESERVE : dossier 0700 et fichier 0600 a
+# root, le seul compte qui le lit (le superviseur root, equivalent de SYSTEM). Coffre MACHINE (noms non reserves :
+# FORGE_TOKEN_<AGENT>, codes d'appariement), a l'image du coffre machine Windows lisible des comptes de service :
+# fichier 0640 root:nokido-sbx quand le process est root, keyring sinon (poste de developpement, comme avant).
+# Les valeurs y sont en base64 de leur texte : un ENCODAGE, pas un chiffrement -- dit ici pour qu'on ne s'y trompe pas.
+if not _IS_WIN:
+    RESERVE_DIR = Path("/Library/Application Support/Nokido/coffre" if sys.platform == "darwin"
+                       else "/var/lib/nokido/coffre")
+    RESERVE_PATH = RESERVE_DIR / "coffre_reserve.json"
+GROUPE_BACS_POSIX = "nokido-sbx"
+
+
+def _coffre_machine_posix() -> Path:
+    return RESERVE_DIR.parent / "coffre_machine.json"
+
+
+def _dossier_posix_ferme(d: Path) -> bool:
+    """Dossier du coffre reserve hors Windows : a root, aucun droit pour le groupe ni pour les autres."""
+    try:
+        st = d.stat()
+    except OSError:
+        return False
+    return st.st_uid == 0 and (st.st_mode & 0o077) == 0
+
+
+def _ecrire_posix(chemin: Path, texte: str, mode: int, groupe: Optional[str] = None) -> None:
+    """Ecriture atomique ; le mode est pose A LA CREATION, jamais un instant lisible par d'autres."""
+    tmp = chemin.parent / (chemin.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(texte)
+    os.chmod(tmp, mode)
+    if groupe:
+        try:
+            import grp
+            os.chown(tmp, 0, grp.getgrnam(groupe).gr_gid)
+        except (KeyError, OSError):
+            pass  # muet-ok : sans le groupe des bacs, le fichier reste a root seul -- plus ferme, jamais plus ouvert
+    tmp.replace(chemin)
+
+
+# --- Coffre fichier de l'UTILISATEUR hors Windows (mesure du 2026-10-14) ------------------------------------------
+# Parcours paquet sur les runners Ubuntu et macOS : `keyring` n'a pas de trousseau utilisable hors session graphique
+# (Linux sans Secret Service, Keychain verrouille), `_keyring_set` avalait l'exception, le semis du jeton EDITOR
+# rendait « NON ECRIT -- refuse ou sans effet » et toute la CLI tombait en ring 3. Repli : un fichier 0600 de
+# l'utilisateur, dans un dossier 0700, ecrit seulement quand le trousseau refuse, et DIT. Meme posture que le coffre
+# machine root (decision owner du 2026-10-09) : la protection est le mode du fichier, pas un chiffrement.
+_REPLI_DIT: set = set()
+
+
+def _coffre_utilisateur_posix() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Nokido" / "coffre_utilisateur.json"
+    xdg = os.environ.get("XDG_DATA_HOME", "")
+    base = Path(xdg) if xdg and os.path.isabs(xdg) else Path.home() / ".local" / "share"
+    return base / "nokido" / "coffre_utilisateur.json"
+
+
+def _lire_coffre_utilisateur() -> tuple:
+    """(cles, lisible) du coffre fichier utilisateur ; absent = lisible et vide (aucun repli n'a encore servi)."""
+    if _IS_WIN:
+        return {}, True
+    chemin = _coffre_utilisateur_posix()
+    try:
+        store = json.loads(chemin.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}, True
+    except (OSError, ValueError) as e:
+        print(f"[machine_vault] coffre utilisateur ILLISIBLE ({type(e).__name__}) : {chemin}")
+        return {}, False
+    if not isinstance(store, dict):
+        print(f"[machine_vault] coffre utilisateur ILLISIBLE (pas un objet JSON) : {chemin}")
+        return {}, False
+    return store, True
+
+
+def _ecrire_coffre_utilisateur(store: dict) -> None:
+    chemin = _coffre_utilisateur_posix()
+    chemin.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _ecrire_posix(chemin, json.dumps(store, indent=1, sort_keys=True), 0o600)
+
+
+def _repli_coffre_utilisateur(key: str, value: str) -> bool:
+    """Trousseau indisponible : la cle va au fichier 0600 de l'utilisateur. True ssi verifie par relecture."""
+    raison = _KEYRING_ECHEC.get("raison") or "inconnue"
+    chemin = _coffre_utilisateur_posix()
+    store, lisible = _lire_coffre_utilisateur()
+    if not lisible:
+        print(f"[machine_vault] set {key} REFUSE : trousseau indisponible ({raison}) et coffre utilisateur "
+              f"illisible -- jamais ecrase : {chemin}")
+        return False
+    enc = base64.b64encode(value.encode("utf-8")).decode("ascii")
+    store[key] = enc
+    try:
+        _ecrire_coffre_utilisateur(store)
+    except OSError as e:
+        print(f"[machine_vault] set {key} echec : trousseau ({raison}) puis coffre utilisateur ({type(e).__name__})")
+        return False
+    if str(chemin) not in _REPLI_DIT:
+        _REPLI_DIT.add(str(chemin))
+        print(f"[machine_vault] trousseau indisponible ({raison}) -- repli sur le coffre utilisateur 0600 : {chemin}")
+    return _lire_coffre_utilisateur()[0].get(key) == enc
+
+
+def _retirer_du_coffre_utilisateur(key: str) -> bool:
+    """Retire `key` du fichier utilisateur s'il l'a. True si elle y etait. Jamais de reecriture d'un fichier illisible."""
+    store, lisible = _lire_coffre_utilisateur()
+    if not lisible or key not in store:
+        return False
+    del store[key]
+    try:
+        _ecrire_coffre_utilisateur(store)
+    except OSError as e:
+        print(f"[machine_vault] coffre utilisateur : retrait de {key} ECHOUE ({type(e).__name__})")
+        return False
+    return True
+
+
+def _encoder_reserve(value: str) -> str:
+    brut = value.encode("utf-8")
+    return base64.b64encode(_protect(brut, portee_machine=False) if _IS_WIN else brut).decode("ascii")
+
+
+def _decoder_reserve(enc: str) -> str:
+    brut = base64.b64decode(enc)
+    return (_unprotect(brut) if _IS_WIN else brut).decode("utf-8")
 
 # Etats d'une lecture. ILLISIBLE n'est jamais ABSENT : un compte a qui l'ACL refuse le
 # fichier ne sait PAS si la cle y est.
@@ -348,7 +517,10 @@ def _sid_courant() -> Optional[str]:
     imposerait a tout le process, `_protect` compris.
     """
     if not _IS_WIN:
-        return None
+        # Hors Windows (owner 2026-10-09) : root est l'equivalent de SYSTEM -- rendu sous son identifiant pour que la
+        # regle « seul ce compte scelle le coffre reserve » reste UNE ; tout autre compte se dit par son uid.
+        euid = os.geteuid() if hasattr(os, "geteuid") else None
+        return None if euid is None else (RESERVE_COMPTE_SID if euid == 0 else "uid:%d" % euid)
     try:
         advapi32 = ctypes.WinDLL("advapi32")
         kernel32 = ctypes.WinDLL("kernel32")
@@ -412,8 +584,6 @@ def reserve_lire(key: str) -> tuple[Optional[str], str]:
 
     Ne journalise pas : le guichet `forge_secrets.get_secret` note la source qui a servi.
     """
-    if not _IS_WIN:
-        return None, RESERVE_HORS_WINDOWS
     store, etat = _lire_store_reserve()
     if etat != RESERVE_TROUVE:
         return None, etat
@@ -421,15 +591,13 @@ def reserve_lire(key: str) -> tuple[Optional[str], str]:
     if not enc:
         return None, RESERVE_CLE_ABSENTE
     try:
-        return _unprotect(base64.b64decode(enc)).decode("utf-8"), RESERVE_TROUVE
+        return _decoder_reserve(enc), RESERVE_TROUVE
     except Exception:  # noqa: BLE001 -- scelle pour un AUTRE compte, ou altere : illisible, pas absent
         return None, RESERVE_INDECHIFFRABLE
 
 
 def reserve_list() -> tuple[list[str], str]:
     """(noms, etat) du coffre reserve -- jamais les valeurs."""
-    if not _IS_WIN:
-        return [], RESERVE_HORS_WINDOWS
     store, etat = _lire_store_reserve()
     return sorted(store.keys()), etat
 
@@ -442,8 +610,8 @@ def reserve_set(key: str, value: str) -> bool:
     l'owner, avec son ACL), ou si le coffre existant est illisible (l'ecraser perdrait
     ce qu'il contient).
     """
-    if not _IS_WIN:
-        print("[coffre_reserve] refuse : Windows seulement")
+    if not _IS_WIN and not _dossier_posix_ferme(RESERVE_PATH.parent):
+        print(f"[coffre_reserve] refuse : {RESERVE_PATH.parent} absent ou ouvert (attendu : a root, mode 0700)")
         return False
     sid = _sid_courant()
     if sid != RESERVE_COMPTE_SID:
@@ -457,11 +625,14 @@ def reserve_set(key: str, value: str) -> bool:
         print(f"[coffre_reserve] refuse : coffre existant {etat}")
         return False
     try:
-        store[key] = base64.b64encode(
-            _protect(value.encode("utf-8"), portee_machine=False)).decode("ascii")
-        tmp = RESERVE_PATH.parent / (RESERVE_PATH.name + ".tmp")
-        tmp.write_text(json.dumps(store, indent=1, sort_keys=True), encoding="utf-8")
-        tmp.replace(RESERVE_PATH)
+        store[key] = _encoder_reserve(value)
+        texte = json.dumps(store, indent=1, sort_keys=True)
+        if _IS_WIN:
+            tmp = RESERVE_PATH.parent / (RESERVE_PATH.name + ".tmp")
+            tmp.write_text(texte, encoding="utf-8")
+            tmp.replace(RESERVE_PATH)
+        else:
+            _ecrire_posix(RESERVE_PATH, texte, 0o600)
     except Exception as e:  # noqa: BLE001
         print(f"[coffre_reserve] set {key} echec : {type(e).__name__}")
         return False

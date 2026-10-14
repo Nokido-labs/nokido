@@ -387,6 +387,12 @@ def _marquer_si_succes(state: dict, uid: str, verdict: tuple, etiquette: str = "
 # ── Conversion -> RefinedChunk via ingest_pipeline ───────────────────────────
 
 
+# IDENTITE PROPRE (2026-10-13, decision owner) : la veille presentait SERVICES (ring 4) quand `rag` exige 3 --
+# GATE_DENIED a chaque cycle, « 0 chunks ingeres » depuis au moins le 07/10. Elle porte desormais son marqueur
+# (config/agent_identities.json, FORGE_TOKEN_RSS_WATCHER au coffre) au lieu d'emprunter le badge commun.
+_IDENTITE_HUB = "RSS_WATCHER"
+
+
 def _ingest(text: str, source: str, domain: str, role: str, author: str, summary: str) -> tuple:
     """
     Passe le texte dans le hub MCP rag(action=ingest). Rend un VERDICT (statut, n, detail).
@@ -406,7 +412,7 @@ def _ingest(text: str, source: str, domain: str, role: str, author: str, summary
     try:
         from nokido_agent.app.forge_agent_credential import jeton_pour
 
-        token = jeton_pour("SERVICES")
+        token = jeton_pour(_IDENTITE_HUB)
     except Exception as _e:  # noqa: BLE001
         logger.info("[rss_watcher] pont jeton a bail indisponible (%s) — repli "
                     "sur le credential statique, PERMANENT donc non revocable",
@@ -415,12 +421,12 @@ def _ingest(text: str, source: str, domain: str, role: str, author: str, summary
         try:
             from nokido_agent.app.forge_secrets import get_secret
 
-            token = get_secret("FORGE_TOKEN_SERVICES") or ""
+            token = get_secret("FORGE_TOKEN_%s" % _IDENTITE_HUB) or ""
         except Exception as _e:  # noqa: BLE001
             logger.warning(
                 "[rss_watcher] credential illisible (%s) — l'appel partira SANS "
                 "jeton et sera rejete en 401 | remede: provisionner "
-                "FORGE_TOKEN_SERVICES au coffre", type(_e).__name__)
+                "FORGE_TOKEN_%s au coffre", type(_e).__name__, _IDENTITE_HUB)
             token = ""
     body = _j.dumps(
         {
@@ -447,7 +453,7 @@ def _ingest(text: str, source: str, domain: str, role: str, author: str, summary
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-Agent-Name": "SERVICES",
+                "X-Agent-Name": _IDENTITE_HUB,
                 "Authorization": f"Bearer {token}",
             },
         )

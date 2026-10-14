@@ -434,8 +434,81 @@ def _ring_du_porteur(request) -> int:
     return 1 if hmac.compare_digest(presente, attendu) else 99
 
 
+# Jetons des DELEGATEURS. Le hub peut injecter sa propre table (`get_starlette_routes(jetons_agents=...)`) ;
+# a defaut, `_jetons_delegateurs` les lit a la MEME source que `_load_agent_tokens` du hub (le coffre,
+# `FORGE_TOKEN_<AGENT>`), restreinte aux agents qui portent une regle `delegation` au registre. Ecrire la
+# ligne d'injection dans tools/nokido_hub.py (fichier critique) n'etait pas necessaire pour fermer le defaut.
+_JETONS_AGENTS = None
+_CACHE_DELEGATEURS: dict = {"t": 0.0, "jetons": {}}
+
+
+def _jetons_delegateurs() -> dict:
+    """{agent: jeton} des seuls agents autorises a deleguer. Cache 60 s ; un resultat VIDE n'est pas cache."""
+    import time  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415 -- le module n'importe Path que sous l'alias de son amorce
+
+    if _CACHE_DELEGATEURS["jetons"] and time.time() - _CACHE_DELEGATEURS["t"] < 60:
+        return _CACHE_DELEGATEURS["jetons"]
+    try:
+        from nokido_agent.app.forge_secrets import get_secret  # noqa: PLC0415
+
+        registre = json.loads((Path(__file__).resolve().parent.parent / "config" / "agent_identities.json")
+                              .read_text(encoding="utf-8")).get("agents", {})
+    except Exception as e:  # noqa: BLE001 -- registre ou coffre illisible : aucune delegation, et on le dit
+        logger.warning("[provider_admin] delegateurs illisibles (%s) : aucune delegation", type(e).__name__)
+        return {}
+    jetons = {}
+    for nom, fiche in registre.items():
+        if isinstance(fiche, dict) and fiche.get("delegation"):
+            val = get_secret("FORGE_TOKEN_%s" % nom.upper())
+            if val:
+                jetons[nom.upper()] = val
+    if jetons:
+        _CACHE_DELEGATEURS.update(t=time.time(), jetons=jetons)
+    return jetons
+
+
+def _ring_delegue(request) -> Optional[int]:
+    """Ring d'une DELEGATION prouvee (`via=delegated:<passerelle>`), sinon None.
+
+    MESURE 2026-10-14. Ces routes ne passent pas par `_exiger_identite` du hub :
+    `request.state.ring` n'y est jamais pose, et le porteur ne reconnait que le
+    maitre. La delegation WEBHUB -> OWNER_PORTAIL (decision owner 2a du 13/10)
+    n'etait donc JAMAIS evaluee ici. Sonde reelle contre le hub vivant : jeton
+    WEBHUB + `X-Agent-Name: OWNER_PORTAIL` -> 403 « ring <= 1 required », et la
+    campagne UI, session ETABLIE, voyait le meme 403. Le NR de la delegation
+    testait le videur, pas le chemin de la route.
+
+    Seule la DELEGATION est admise : un jeton derive qui parle en son propre nom
+    garde le refus d'avant. Ouvrir ces routes a tout ring 1 serait une autre
+    decision, qui n'a pas ete prise.
+    """
+    entete = request.headers.get("Authorization", "")
+    if not entete.lower().startswith("bearer "):
+        return None
+    agent = (request.headers.get("LaForge-Agent-Name") or request.headers.get("Agent-Name")
+             or request.headers.get("X-Agent-Name") or "")
+    client = getattr(request, "client", None)
+    local = (client.host if client else "") in ("127.0.0.1", "::1", "localhost")
+    try:
+        from nokido_agent.app.forge_videur import capture, resolve_identity  # noqa: PLC0415
+
+        jetons = _JETONS_AGENTS() if _JETONS_AGENTS is not None else _jetons_delegateurs()
+        ident = resolve_identity(agent, entete[7:].strip(), local=local, agent_tokens=jetons or {})
+    except Exception as e:  # noqa: BLE001 -- videur illisible : INCONNU, donc pas de delegation
+        logger.warning("[provider_admin] delegation non evaluee (%s) : refus", type(e).__name__)
+        return None
+    if not str(ident.get("via", "")).startswith("delegated:"):
+        return None
+    try:
+        capture(ident, "provider_admin", {k: ident[k] for k in ("acteur", "sujet") if ident.get(k)})
+    except Exception:  # noqa: BLE001
+        pass  # muet-ok : journaliser ne change pas la decision, deja prise par le videur
+    return int(ident["ring"])
+
+
 def _resolve_request_ring(request) -> int:
-    """Ring de la requête. Autorité : le middleware du hub, sinon le porteur.
+    """Ring de la requête. Autorité : le middleware du hub, sinon le porteur, sinon une délégation prouvée.
 
     Fallback 99 = deny. Aucun en-tête auto-déclaré n'entre plus ici.
     """
@@ -445,7 +518,11 @@ def _resolve_request_ring(request) -> int:
             r = request.state.ring
             if isinstance(r, int):
                 return r
-        return _ring_du_porteur(request)
+        r = _ring_du_porteur(request)
+        if r != 99:
+            return r
+        d = _ring_delegue(request)
+        return d if d is not None else 99
     except Exception:
         return 99
 
@@ -811,8 +888,15 @@ async def api_delete_access(request):
     return JSONResponse(res, status_code=200 if res.get("ok") else 400)
 
 
-def get_starlette_routes():
-    """Retourne la liste des Routes Starlette à brancher dans nokido_hub.app."""
+def get_starlette_routes(jetons_agents=None):
+    """Retourne la liste des Routes Starlette à brancher dans nokido_hub.app.
+
+    `jetons_agents` : appelable rendant la table `_AGENT_TOKENS` du hub (lue à chaque appel), pour
+    résoudre une délégation (`_ring_delegue`). Sans elle, les délégateurs du registre sont lus au coffre.
+    """
+    global _JETONS_AGENTS
+    if jetons_agents is not None:
+        _JETONS_AGENTS = jetons_agents
     try:
         from starlette.routing import Route  # noqa: PLC0415
     except ImportError:

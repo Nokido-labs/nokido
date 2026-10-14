@@ -1,7 +1,7 @@
 """Tests for forge_event_stream — Manus-style 6-step agent loop.
 
 Run :
-    PYTHONNOUSERSITE=1 __import__("os").path.expanduser("~/miniforge3/python.exe") \
+    PYTHONNOUSERSITE=1 "~/miniforge3/python.exe" \
         -m pytest tests/test_forge_event_stream.py -v
 """
 from __future__ import annotations

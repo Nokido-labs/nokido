@@ -34,6 +34,7 @@ API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbo
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Any, Dict, Optional
@@ -72,6 +73,9 @@ _TRANSITION_DITE = {"locale": False}
 def _sous_system() -> bool:
     """Le process tourne-t-il sous SYSTEM ? SID du JETON du process, jamais `USERNAME`.
     Illisible -> False : on ne suppose jamais SYSTEM, la voie du hub reste sure."""
+    if os.name != "nt":
+        # Linux / macOS (owner 2026-10-09) : le superviseur tourne en root, l'equivalent de SYSTEM.
+        return hasattr(os, "geteuid") and os.geteuid() == 0
     try:
         from nokido_agent.app import forge_machine_vault as mv
 

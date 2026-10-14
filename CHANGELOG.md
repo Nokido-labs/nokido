@@ -3,6 +3,318 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 4c57b5c17..72acf25c9 -->
+## 2026-10-14 — alpha `4c57b5c17..72acf25c9` (6 commits)
+
+### Nouveautés
+- **conv** : digestion des sessions Claude, seule la moelle entre au RAG (`40f7b90c5`)
+- **conv** : digestion incrementale toutes les 15 min, autoregulee (`83d081c2a`)
+
+### Corrections
+- **conv** : la porte dit un fichier de job illisible au lieu de le taire (`f752a875c`)
+- **coffre** : hors Windows et hors root, repli sur un fichier 0600 de l'utilisateur quand le trousseau refuse (`549b85d54`)
+- **coffre** : les routes du coffre du hub evaluent enfin la delegation WEBHUB -> OWNER_PORTAIL (`6023c2b9c`)
+- **memoire** : le gardien lit la RSS courante en bonnes unites -- le hub macOS ne vit plus sous tracemalloc (`72acf25c9`)
+
+<!-- changelog: 6a667c2ee..539b2ee7e -->
+## 2026-10-14 — alpha `6a667c2ee..539b2ee7e` (16 commits)
+
+### Nouveautés
+- **doctor** : dire ou vivent les donnees et avertir d'une installation anterieure (`e9ba8de3d`)
+
+### Corrections
+- **vitrine** : les liens externes s'ouvrent hors du cadre Hugging Face (`52408eba3`)
+- **veille** : un job se clot a la fin de son etape store (`23346ecd1`)
+- **depot** : aucun ecrivain d'execution ne reecrit un fichier suivi (`7e9fb410f`)
+- **gardes** : 10 chemins d'erreur muets du post-commit et de la campagne UI (`996b1ebdb`)
+- **gardes** : README de veille illisible distingue d'un README absent ; deux silences nommes (`127cf924a`)
+- **hub,portail** : 24 erreurs muettes dites ; la part locale illisible n'est plus affichee 100 % (`9a39036ba`)
+- **elicitation** : patch H3 aligne sur le marqueur muet-ok du hub (`7e3ad54ae`)
+- **session** : deux silences du demarrage dits (vus non memorises, resume illisible) (`b3409d748`)
+- **publication** : le workflow Forgejo au faux vert ne part plus au public (`bbf0dabfd`)
+- **hook-stop** : la raison du blocage traverse le tube intacte (`37046c771`)
+- **cles** : une revocation ne se perd plus sous ecrivains concurrents (`539b2ee7e`)
+
+### Documentation
+- **wiki** : reference des modules regeneree (2 460 modules) (`3fdc91b9d`)
+- **prompts** : audit 2.1.296 - recit, compteurs figes et majuscules retires (`540f87d12`)
+
+### Maintenance
+- **ui** : campagne isolee du vrai registre, doublure a jour, inscrite en suite pure (`68af80e85`)
+- **audit** : temoin pip-audit du 13/10 versionne pour la CI de reference (`9b57957b1`)
+
+<!-- changelog: 83035a38b..6a667c2ee -->
+## 2026-10-13 — alpha `83035a38b..6a667c2ee` (19 commits)
+
+### Nouveautés
+- **publication** : integration des forges miroirs, fiche et wiki rejouables (`cdb8139ee`)
+- **publication** : miroirs durcis, surface fermee et main/tags proteges (`d1e48738b`)
+- **publication** : releases et vitrine alignees sur GitHub, CI de verification du miroir GitLab (`6fd256b35`)
+- **publication** : tickets des miroirs renvoyes vers GitHub, CI GitLab active et durcie (`da47afd84`)
+- **miroirs** : meme logo que l'organisation GitHub sur GitLab et Codeberg, pose si absent puis relu (`92a4b1dd8`)
+- **portail** : relais du coffre pour l'owner, par delegation de WEBHUB (`56c45f90b`)
+- **donnees** : racine des donnees hors site-packages une fois installe (`9ef464b62`)
+- **donnees** : installe, les dossiers de donnees redirigent hors de site-packages (`a59212047`)
+- **hooks** : un tour ne se termine plus sur une attente passive (`1d0699751`)
+
+### Corrections
+- **installeur** : semer EDITOR depuis le registre (--from-registre) (`21e1f907b`)
+- **wheel** : embarquer les sources du dispatcher Go, jamais son binaire (`ca3e85314`)
+- **acceptance** : arreter l'arbre de services sans psutil sur le banc (`d534b0541`)
+- **acceptance** : sorties decodees en errors=replace, except nomme (`32f2b0b82`)
+- **hub** : plus aucune police chargee depuis Google sur les pages de :8766 (`c8a859e02`)
+- **web_hub** : le resume de veille montre les veilles qui ont ingere (`0dd412cfb`)
+- **auth** : sans maitre, un jeton d'agent prouve garde son ring (`b3d34af7a`)
+- **hooks** : except nomme, sortie decodee en errors=replace (`6a667c2ee`)
+
+### Documentation
+- **installation** : ou vivent les donnees, et la desinstallation propre (`eac35faea`)
+
+### Maintenance
+- **ci** : NR du relais owner en suite pure ; semeur dit un ring illisible (`90587d553`)
+
+<!-- changelog: 250abac55..84a51e233 -->
+## 2026-10-13 — alpha `250abac55..84a51e233` (20 commits)
+
+### Nouveautés
+- **publication** : miroirs du depot PUBLIC et vitrine Hugging Face statique (`2cd3ebb2a`)
+- **installation** : parcours du README depuis PyPI mesure de bout en bout (`58c31c623`)
+- **installeur** : nokido-composants pose modeles et Knowledge Pack (`c41c24c19`)
+- **installeur** : deno epingle et pose par nokido-composants (`f3b347f31`)
+- **installeur** : jeton du premier client seme, presente par le CLI nokido (`8ec621baa`)
+- **readme** : le bloc pip annonce le parcours complet des la version qui le sert (`dab8e45af`)
+
+### Corrections
+- **coffre** : le migrateur reconnait les secrets en _PASSKEY, _PASSPHRASE et _API (`dfd9e7d45`)
+- **coffre** : ARTIFICIALANALYSIS.AI et CONTROL_PLANE_TUNNEL_ID designees secrets par l'owner (`0f8befa81`)
+- **publication** : git tolerant au binaire, arbre illisible dit au lieu d'avale (`23748aeff`)
+- **paquet** : les epinglages distribution/ partent dans la wheel (`c1e1dabfe`)
+- **paquet** : schema et seeds de la base dans la wheel, sans identite des auteurs (`668fa8f27`)
+- **cli** : sept chemins muets du CLI nokido resserres ou dits (`091dd088b`)
+- **base** : le premier amorcage pose access_switches vide, plus de refus total (`043b818ed`)
+- **cli** : nokido hub lit les reponses MCP en flux SSE (`4f55fb490`)
+
+### Documentation
+- **readme** : premier usage = le chemin mesure, plus un ask anonyme refuse (`84a51e233`)
+
+### Maintenance
+- **installation** : premiere requete reussie sans cle ni jeton, mesuree (`16ee09f37`)
+- **installation** : saut voulu d'un bloc SSE non JSON marque muet-ok (`2c971fc00`)
+- **installation** : le parcours paquet mesure par defaut la wheel du snapshot teste (`569035421`)
+- **release** : 0.20.11 (`1aa4b8106`)
+- **installation** : l'acces anonyme a rag se mesure, il ne se juge pas (`7db8b4138`)
+
+<!-- changelog: 81cbc1766..ae076e4e1 -->
+## 2026-10-13 — alpha `81cbc1766..ae076e4e1` (1 commit)
+
+### Maintenance
+- **cliquet** : imports morts -- le lien repare forge_mixin_ui -> forge_orchestrator.SessionContext sort du socle (CI 38438500048 rouge 1/14092) (`ae076e4e1`)
+
+<!-- changelog: 66df7a2c6..cc5e6935e -->
+## 2026-10-13 — alpha `66df7a2c6..cc5e6935e` (26 commits)
+
+### Nouveautés
+- **session** : osmoregulation de SessionContext -- digestion avant eviction, zero perte (travail AGY integre) (`15a6b37e9`)
+- **conv_indexer** : toute la surface cognitive -- Gemini .jsonl de tous les projets, Codex au format reel (lot L1, travail AGY integre) (`d104e2295`)
+- **conv_indexer** : tache nocturne versionnee (XML du depot) et trace datee de chaque passage (`6e7ac70de`)
+- **rsi** : l'ecrivain de contournement du juge est GELE (debat swarm, Q2) (`870767495`)
+- **rsi** : held-out disjoint et deterministe dans le juge de mutation (debat swarm, Q1) (`df1f857cf`)
+- **pouls** : le pouls HTTP suit le rythme du coeur au lieu de sa propre montre (`b45b1032b`)
+
+### Corrections
+- **blackboard** : les zones de gouvernance ne sont plus elaguees par le TTL (roadmap effacee par l'age) (`1d2232cbc`)
+- **bureau** : les icones START, Restart et STOP lancent la stack par le Control Panel, donc avec le tray (`133d918ac`)
+- **bureau** : une seule icone Nokido lance la stack et le tray (`a52cead28`)
+- **bureau** : pause de fin du lanceur sans console qualifiee (gate recidive) (`318c6a8d8`)
+- **recidive** : conv_indexer et warmup_rag disent ce qu'ils ecartent (11 sites muets) (`ec12301ea`)
+- **recidive** : idiome get_running_loop de warmup_rag qualifie muet-ok (`3c50b5de3`)
+- **conv_indexer** : couverture() dit ILLISIBLE au lieu de n=0 quand le compte ne peut pas lister la racine (`9061c440c`)
+- **traces** : la cause d'un echec fournisseur atteint la trace (ERR:402, ERR:403, ERR:429, ERR:timeout) (`11a744fbd`)
+- **recidive** : forge_network_logger -- deux except nus restreints au cas attendu (client SSE deja retire) (`f547ceb16`)
+- **proxy** : une surcharge de modele dans ask() ne fuit plus vers un appel concurrent (`32d0e01f9`)
+- **tests** : quatre tests rouges hors CI repares et inscrits (lot L5, travail AGY integre) (`015636fcd`)
+- **recidive** : juge -- lignes illisibles du ledger comptees ; tableau de bord expose rejets held-out et illisibles (`71712b94b`)
+- **pouls** : un fil de pouls de test ne survit plus a son test (organes fantomes temoin_* vus par le corps) (`e858d4d06`)
+- **recidive** : forge_heartbeat -- pouls non ecrit, stats RAG et taskkill d'agent en derive dits ; repli mmap qualifie (`cc5e6935e`)
+
+### Documentation
+- **chantier** : cloture des roadmaps -- inventaire de toutes les sources, regle de cloture, lots Claude/AGY (`159fee64f`)
+- **chantier** : lot L9 -- fiabiliser l'auto-amelioration recursive, en tete (etat mesure, criteres) (`b06025ad5`)
+- **chantier** : L9 -- mesure corrigee, tous les candidats sont tries ; le trou est l'absence d'effecteur pour 2 traitements sur 4 (`1d8728f1c`)
+- **chantier** : L9 -- verdicts du swarm, faits du 13/10, revue externe confrontee au code (deltas seulement) (`bd5c3102c`)
+- **chantier** : L9 -- proposition chiffree du premier reglage L1 (embed.batch_size, decision owner) (`4126dfe51`)
+
+### Maintenance
+- **oplog** : NR des tests retires rendu hermetique (CI 38417635404 rouge) (`7d25c4657`)
+
+<!-- changelog: 50807e187..6137f9fcd -->
+## 2026-10-13 — alpha `50807e187..6137f9fcd` (8 commits)
+
+### Corrections
+- **egress,tests** : exception d'entropie epinglee par valeur ; test leptine reisole sur la base M2M (`55181dc15`)
+- **qualite** : pylint ignore l'alias runtime nokido_agent (E0401 systematique sur l'import canonique) (`fc308f202`)
+- **regulation** : un reveil vers :5557, retire par politique, n'est plus crie comme une panne (`4f21a0fc4`)
+- **oplog** : un test retire par un commit connu sort de l'alerte 'cite mais absent' (`f74b13834`)
+- **docs** : le gate des chemins ne tronque plus les extensions et classe RUNTIME les fichiers crees a l'execution (`e77b01721`)
+- **gates** : cliquet de capacites sans faux BLOCK, wiki 20 regenere, doctrine bounded_queue corrigee, test post-commit realigne (`75d556f76`)
+- **recidive** : chemins d'erreur muets traites dans curiosity, diagnostic, egress et oplog (20 sites) (`a6cb5242c`)
+- **recidive** : 46 chemins d'erreur muets du gestionnaire de ressources traites ; 2 tests morts hors CI repares (`6137f9fcd`)
+
+<!-- changelog: 2f08e7f64..e07430d65 -->
+## 2026-10-13 — alpha `2f08e7f64..e07430d65` (28 commits)
+
+### Nouveautés
+- **observabilite** : sonde passive du chemin chaud derriere interrupteur (`58fd8b59d`)
+- **stats** : statistique publique produite par une Action du depot public (`ed3e60c18`)
+- **observabilite** : la sonde lit la vraie file du hub, le pool to_thread (`7b5e0cb6c`)
+
+### Corrections
+- **ci** : lock du runtime re-fige, doublons dist-info tranches par le RECORD (`5f1eae45a`)
+- **veille** : la matiere retenue n'est plus tronquee (OpenAlex, arXiv, GitHub) (`fb263163a`)
+- **jobs** : job_status rend la fin du .err, le guet nomme le motif (`39e37c8e9`)
+- **veille** : verify_kw ne rend plus la meme requete trois fois (`1b95da276`)
+- **veille** : moteurs a CAPTCHA ecartes, GitHub et URL du theme dans la chaine (`50abfb8a2`)
+- **docker** : le keeper repare l'integration WSL cassee apres mise a jour (`abb7f4c1c`)
+- **veille** : les cibles donnees dans le theme passent d'abord dans refine (`30b667338`)
+- **agy** : une fusion n'est pas du travail produit, et sans commit propre ce n'est pas un succes (`e37c784be`)
+- **docker** : integration WSL preventive sur mise a jour, preuve positive, signal a la moelle (`96373299b`)
+- **veille** : la veille automatique porte son identite RSS_WATCHER au ring 3 (`bb0f4bc6a`)
+- **p1** : le gate RAM ne refuse plus sur une lecture dementie par la mesure directe (`ff41b0fee`)
+- **endocrine,guet** : hormones jetees comptees et exposees ; guet mesure l'arbre du job avant de dire FIGE (`8c9832c28`)
+- **autoregulation** : gardes RAM sur plancher 60 s, pas sur un instant ; bord >= 95 % decide a l'instant (`aacbc6e2f`)
+- **soif** : generation des themes de corpus avec repli local quand Cerebras tombe (`78a6b4ea2`)
+- **hub** : whoami ne gele plus la boucle du hub (corps en to_thread, comptes par domaine en cache) (`6595e8bf7`)
+- **diagnostic** : un ROOT sous-dossier d'un autre depot rend le perimetre versionne ILLISIBLE, pas vide (`12eeaf313`)
+
+### Documentation
+- **chantier** : viabilite de la cellule, criteres et repartition Claude/AGY (`c3d9e728b`)
+- **chantier** : ecrire dans le worktree, Nokido.py gele par l'owner (`dd219f1bb`)
+- **veilles** : fiches V8 (AGC priorite, reprise par phases) et V9 (MARI portes temporelles) d'AGY, corrigees en revue ; hormones: dernieres pertes muettes dites (`4bd8dbac4`)
+
+### Maintenance
+- **essai** : gates + suite pure sur runner Windows GitHub-hosted, branche essai/ci-hosted (`ad44eb369`)
+- **essai** : prefixe ci-hosted/**, lock en --no-deps, echec d'installation qui sort en rouge (`5bcae206a`)
+- **ci** : inscrire les NR du lot dans PURE_TESTS (`35fead2b3`)
+- **docker** : le keeper dit pourquoi ses trois nouveaux except se taisent (`bc2b87512`)
+- **docker** : annoter le dernier except voulu du keeper (`d7722b3fe`)
+- **diagnostic** : subprocess du NR en errors=replace (gate firehose) (`e07430d65`)
+
+<!-- changelog: c170e7d0a..ebbbf9b31 -->
+## 2026-10-13 — alpha `c170e7d0a..ebbbf9b31` (3 commits)
+
+### Corrections
+- **ci** : les 3 NR du 13/10 entrent dans la suite pure (`abf685e89`)
+- **diagnostic** : un import mort dans un fichier non versionne n'est plus une douleur du corps (`f7983e1ea`)
+- **diagnostic** : git ls-files en mode texte avec errors=replace (`ebbbf9b31`)
+
+<!-- changelog: 8a033f6cd..e9dcd8b86 -->
+## 2026-10-13 — alpha `8a033f6cd..e9dcd8b86` (3 commits)
+
+### Nouveautés
+- **audit** : pip-audit de TOUS les envs du poste (--tous-les-envs) (`9a190ad2c`)
+
+### Corrections
+- **enricher** : lire les PDF sans PyPDF2, et dire quand aucune bibliotheque n'existe (`4ac8ef306`)
+- **audit-prompts** : le rappel ne pretend plus que le changelog ingere couvre la version vue (`e9dcd8b86`)
+
+<!-- changelog: 726896c7f..df8ff12cb -->
+## 2026-10-12 — alpha `726896c7f..df8ff12cb` (10 commits)
+
+### Corrections
+- **outil** : forge_deno_check dit ILLISIBLE et le remede quand deno lui est refuse (`4bb514446`)
+- **outil** : forge_deno_check -- le repli par processus dit son echec au lieu de l'avaler (`9172cd472`)
+- **superviseur** : parseur TOML deno.land/std 0.224.0 -> jsr:@std/toml 1.0.11 (GHSA-crjp-8r9q-2j9r) (`8f86f46bd`)
+- **outil** : forge_deno_check -- cache deno inscriptible par le compte qui verifie (`5b83d44df`)
+- **securite** : cache disque de dspy coupe (diskcache sans correctif) ; import dspy hors ligne non fatal (`dcd3369eb`)
+- **outil** : forge_archi_lint trouve semgrep dans son environnement isole (uv tool) (`24746c709`)
+
+### Maintenance
+- **dspy** : silence volontaire du deballage d'enveloppe motive (muet-ok) (`46e3dd6d9`)
+- **suite pure** : les NR dspy cache disque et deno_check y entrent (zero service externe) (`364077d13`)
+- **archi_lint** : saut d'un candidat semgrep absent motive (muet-ok) (`d11cf621c`)
+- **compat** : routeurs inclus de fastapi 0.143 et relecture py7zr 1.x (`df8ff12cb`)
+
+<!-- changelog: aae969a44..3a82b2405 -->
+## 2026-10-12 — alpha `aae969a44..3a82b2405` (1 commit)
+
+### Corrections
+- **deps** : torch 2.11.0 -> 2.13.0 (GHSA-rrmf-rvhw-rf47) ; planchers et lock de retour arriere (`3a82b2405`)
+
+<!-- changelog: bfd9c21d2..8d1f01e3a -->
+## 2026-10-12 — alpha `bfd9c21d2..8d1f01e3a` (2 commits)
+
+### Corrections
+- **deps** : mcp 1.27.2 -> 1.28.1 -- alerte Dependabot #282 (Host/Origin WebSocket) (`b52a81015`)
+- **mesure** : le hub mort entre deux etapes dit son code de sortie ; deux dettes de nom (`8d1f01e3a`)
+
+<!-- changelog: 0839ae042..4c6eaf5cd -->
+## 2026-10-11 — alpha `0839ae042..4c6eaf5cd` (3 commits)
+
+### Nouveautés
+- **netcfg** : NetcfgMCP et NetcfgUI sur les paquets PyPI -- plus de depot voisin (`74e152c32`)
+
+### Corrections
+- **deps** : uvicorn 0.46.0 -- requirements-organisme etait non resoluble (mcp exige uvicorn>=0.31.1) (`5e9a3afdc`)
+- **regulation** : le sommeil RAM du gestionnaire de ressources respecte neverSleep (`4c6eaf5cd`)
+
+<!-- changelog: e0e228797..848233a75 -->
+## 2026-10-11 — alpha `e0e228797..848233a75` (4 commits)
+
+### Corrections
+- **robustesse** : trois chemins muets disent ce qu'ils ecartent (`3ab641c52`)
+- **installation** : mesure 5 -- SDK mcp declare, HOME de root, lanceurs delegants suivis (`848233a75`)
+
+### Documentation
+- **portabilite** : rendre leur texte a 22 docstrings abimees par l'ancien portabiliseur (`4f6e2d76f`)
+- **wiki** : retirer les fichiers qui n'ont jamais existe, pointer les vrais modules (`563c98313`)
+
+<!-- changelog: 7a34871d2..231f88cd3 -->
+## 2026-10-09 — alpha `7a34871d2..231f88cd3` (8 commits)
+
+### Nouveautés
+- **installation** : Caddy et Ollama epingles, executables .exe portables (`95961e770`)
+- **installation** : amorcage du coffre d'une machine neuve sous SYSTEM (`0b1a6b758`)
+- **installation** : installeur produit des composants epingles, dispatcher Go, tunnel propre au poste (`63b8d80cf`)
+- **installation** : runAs sous Linux et macOS -- comptes dedies, coffre root, superviseur root (`aa074460b`)
+
+### Corrections
+- **installation** : base RAG de netcfg par variable, sorties systemd/launchd decodees sans crash (`4721ba2f1`)
+
+### Documentation
+- **wiki** : page de reference des modules regeneree (2457 modules, 655 sans docstring) (`231f88cd3`)
+
+### Maintenance
+- **nr** : plafond propre a la sonde TUI reelle (budget 40 s > 30 s de la suite) (`b01d91db5`)
+- **cliquet** : plafond docstring abaisse 656 -> 655 (gain grave) (`58b0b4656`)
+
+<!-- changelog: ecfa26709..9fb00aa9e -->
+## 2026-10-09 — alpha `ecfa26709..9fb00aa9e` (2 commits)
+
+### Nouveautés
+- **installation** : organisme complet sur machine neuve -- dependances, base, Qdrant epingle (`e61dbf03b`)
+- **installation** : comptes runAs crees par l'installeur, superviseur en tache SYSTEM (`9fb00aa9e`)
+
+<!-- changelog: 7fe6d52e7..4418d11bc -->
+## 2026-10-08 — alpha `7fe6d52e7..4418d11bc` (1 commit)
+
+### Corrections
+- **superviseur** : les services runAs, AGY et le runner CI demarrent (ou se taisent a raison) sur une machine neuve (`4418d11bc`)
+
+<!-- changelog: 8b8113840..6c7e880b6 -->
+## 2026-10-08 — alpha `8b8113840..6c7e880b6` (1 commit)
+
+### Corrections
+- **superviseur** : l'organisme complet trouve ses chemins sur une machine neuve -- vars machine, deno verifie, llama.cpp macOS (`6c7e880b6`)
+
+<!-- changelog: 03903060a..0787a3b0d -->
+## 2026-10-08 — alpha `03903060a..0787a3b0d` (2 commits)
+
+### Nouveautés
+- **dist** : mesure de l'organisme COMPLET sur machine vierge -- Windows, Linux, macOS (`1fc4da412`)
+
+### Corrections
+- **dist** : l'arret incomplet des services de la mesure organisme se dit (`0787a3b0d`)
+
 <!-- changelog: 0e8d772c6..9ff0cd12e -->
 ## 2026-10-08 — alpha `0e8d772c6..9ff0cd12e` (1 commit)
 

@@ -61,6 +61,7 @@ COMMANDES_PUBLIQUES = (
     "nokido-cli",
     "nokido-vault",
     "nokido-secrets",
+    "nokido-composants",   # 13/10 : composants et modeles epingles depuis une installation pip
 )
 
 # Namespace du chantier de migration.

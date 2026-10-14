@@ -8,6 +8,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# GELE le 2026-10-13 -- decision du debat swarm RSI (Q2 ; panel gemini-2.5-pro, gpt-oss-120b, command-r,
+# nemotron-super ; juge poolside laguna ; sorties sandbox/debat_auto_amelioration/rsi_2026-10-13_*).
+# Cet ecrivain applique du code SANS passer par mutable() ni par le juge de gain, puis COMMITE SEUL. Le
+# brancher sur le juge en ferait une seconde voie d'ecriture a garder ; la seule voie autonome d'ecriture
+# de code reste celle du juge (forge_mutation_judge -> forge_merge_gate). Rien n'est supprime : le code
+# reste lisible ; le degel est un geste OWNER, par un commit revu qui change ce drapeau.
+GELE = True
+
 def parse_constitution() -> dict:
     import toml
     const_path = ROOT / "config" / "constitution.toml"
@@ -107,6 +115,10 @@ def apply_mutation_with_git_guard(file_path: Path, new_code: str, commit_msg: st
     En cas de succès : Commit Git + Redémarrage du service.
     En cas d'échec : Rollback au commit Git précédent.
     """
+    if GELE:
+        _log(f"GELE : refus d'ecrire {file_path} -- ecrivain de contournement du juge gele le 2026-10-13 "
+             "(debat swarm RSI, Q2) ; la voie d'ecriture autonome est celle du juge", "WARN")
+        return False
     label = f"mutation:{file_path.name}"
     _log(f"Starting mutation guard for {file_path.name}...")
     

@@ -20,8 +20,8 @@ Config claude_desktop_config.json :
   {
     "mcpServers": {
       "Nokido": {
-        "command": __import__("os").path.expanduser("~/miniforge3/python.exe"),
-        "args": [__import__("os").path.expanduser("~/Script python IA/LaForge/tools/mcp_stdio_bridge.py")],
+        "command": "~/miniforge3/python.exe",
+        "args": ["~/Script python IA/LaForge/tools/mcp_stdio_bridge.py"],
         "env": {
           "PYTHONIOENCODING": "utf-8",
           "PYTHONUTF8": "1"
@@ -730,7 +730,7 @@ def _fallback_stdio():
         sys.exit(1)
 
     # Windows : os.execv ne quote PAS les chemins avec espaces ("Script python IA")
-    # -> python ouvrirait __import__("os").path.expanduser('~\Script') et crasherait le bridge (Claude
+    # -> python ouvrirait '~\Script' et crasherait le bridge (Claude
     # Desktop "Server disconnected"). subprocess (liste d'args) gère l'espace ; le
     # serveur local hérite stdin/stdout (MCP stdio), le bridge attend puis sort.
     import subprocess

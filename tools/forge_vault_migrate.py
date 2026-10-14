@@ -71,9 +71,18 @@ SECRET_SUFFIXES = (
     "_PASSWD",
     "_PAT",
     "_KEY",
+    # Ajoutes le 2026-10-13 : SOURCEFORGE_SSH_PASSKEY (phrase de passe) et TAILSCALE_API (cle
+    # `tskey-api`) etaient classees CONFIG et restaient en clair dans Nokido.env. Classer une config
+    # comme secret est sans danger (get_secret lit le coffre en premier) ; l'inverse ne l'est pas.
+    "_PASSKEY",
+    "_PASSPHRASE",
+    "_API",
 )
 SECRET_SUBSTR = ("_TOKEN_",)
-SECRET_EXACT = {"DEEPINFRA", "SILICONFLOW", "SMITHERY_API"}
+SECRET_EXACT = {"DEEPINFRA", "SILICONFLOW", "SMITHERY_API",
+                # Designees par l'OWNER le 2026-10-13 (« ajouter les lignes ... au coffre ») : le suffixe
+                # ne les reconnait pas (nom a point ; identifiant de tunnel), elles vont au coffre.
+                "ARTIFICIALANALYSIS.AI", "CONTROL_PLANE_TUNNEL_ID"}
 # Garde-fou explicite : noms ambigus qui NE sont PAS des secrets.
 NOT_SECRET_EXACT = {
     "PRIVATE_KEY_PATH",

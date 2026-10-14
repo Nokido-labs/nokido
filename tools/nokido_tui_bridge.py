@@ -74,9 +74,9 @@ def main() -> int:
         except Exception:  # noqa: BLE001 — repli sur le chemin direct depuis ROOT
             from app.forge_heartbeat import demarrer_pouls_service_http
 
+        # Pas d'intervalle propre : le pouls suit le rythme du coeur (owner 2026-10-13).
         demarrer_pouls_service_http("tui_bridge",
-                                    "http://127.0.0.1:%d/" % args.port,
-                                    intervalle_s=60.0)
+                                    "http://127.0.0.1:%d/" % args.port)
     except Exception as exc:  # noqa: BLE001 — un pouls absent ne doit pas tuer le porteur
         print(f"[Nokido TUI Bridge] pouls non arme ({type(exc).__name__}) : "
               f"le superviseur ne verra pas sa mort")

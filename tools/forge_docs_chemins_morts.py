@@ -51,8 +51,33 @@ ROOT = Path(__file__).resolve().parent.parent
 ZONES = ("app", "tools", "tests", "config", "docs", "proxy_deno",
          "forge_desktop", "RAG", "sandbox", "scripts", ".github")
 
+# Extension de 1 a 10 caracteres ET garde de fin. Mesure 13/10 : avec `{1,5}` sans garde, `sandbox/snn.wanted` etait
+# lu `sandbox/snn.wante` et `sandbox/m2m.switch` lu `m2m.switc` -- l'outil inventait des COQUILLES dans une doc juste
+# (le NR du 17/09 les croyait des fautes de frappe) ; et `app/forge_x.request_resources` etait pris pour un chemin.
 _RE_CHEMIN = re.compile(
-    r"(?<![\w/.-])((?:%s)/[A-Za-z0-9_./*-]+\.[A-Za-z0-9]{1,5})" % "|".join(ZONES))
+    r"(?<![\w/.-])((?:%s)/[A-Za-z0-9_./*-]+\.[A-Za-z0-9]{1,10})(?![A-Za-z0-9_])" % "|".join(ZONES))
+
+# Zones ou le code CREE des fichiers a l'execution (bases, drapeaux d'intention, battements). Un tel fichier absent
+# n'est pas un lien mort si le code le nomme : `RAG/durable.db` (forge_durable.DEFAULT_DB) n'existe qu'apres le
+# premier workflow durable. Etat RUNTIME : liste, jamais compte comme MORT.
+_ZONES_RUNTIME = ("RAG/", "sandbox/")
+_CITES_PAR_CODE: dict = {}
+
+
+def _cite_par_code(base: str, racine: Path) -> "str | None":
+    """Premier module de app/ tools/ nokido_agent/ qui cite `base` (git grep -F), ou None si aucun / git illisible."""
+    cle = (str(racine), base)
+    if cle not in _CITES_PAR_CODE:
+        import subprocess as _sp
+        try:
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", str(racine), "grep", "-l", "-F", "-e", base, "--",
+                         "app/*.py", "tools/*.py", "nokido_agent/*.py"], capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", timeout=30)
+            lignes = r.stdout.splitlines() if r.returncode == 0 else []
+            _CITES_PAR_CODE[cle] = lignes[0] if lignes else None
+        except (OSError, _sp.SubprocessError):
+            _CITES_PAR_CODE[cle] = None
+    return _CITES_PAR_CODE[cle]
 
 # Placeholders PEDAGOGIQUES. Liste volontairement COURTE et issue du corpus
 # reel (`tools/your_tool.py`, doc des lanceurs) : inventer des motifs ici
@@ -91,6 +116,10 @@ def classer(chemin: str, racine: Path = None) -> tuple:
                          if f.name.startswith(prefixe) and f.name != base)
         if voisins:
             return ("COQUILLE", ", ".join(voisins[:3]))
+    if chemin.startswith(_ZONES_RUNTIME):
+        cite = _cite_par_code(base, racine)
+        if cite:
+            return ("RUNTIME", "cree a l'execution, nomme par %s" % cite)
     return ("MORT", "")
 
 
@@ -127,7 +156,7 @@ def main(argv=None) -> int:
         print("[chemins] dossier ABSENT : %s — NON MESURE, pas un succes" % cible)
         return 0
     res = scanner(cible)
-    ordre = ("MORT", "COQUILLE", "DEPLACE", "EXEMPLE")
+    ordre = ("MORT", "COQUILLE", "DEPLACE", "RUNTIME", "EXEMPLE")
     total = sum(len(res["par_etat"].get(e, ())) for e in ordre)
     print("[chemins] %d page(s) lue(s), %d illisible(s), %d reference(s) a instruire"
           % (res["pages"], len(res["illisibles"]), total))

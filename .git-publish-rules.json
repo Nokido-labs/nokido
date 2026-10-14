@@ -17,7 +17,9 @@
         {"path": "app/stress_test_firewall.py", "label": "slack"},
         {"path": "config/fleet.toml", "label": "generic_secret"},
         {"path": "tests/nr/test_hub_nr.py", "label": "generic_secret"},
-        {"path": "tests/test_functions.py", "label": "generic_secret"}
+        {"path": "tests/test_functions.py", "label": "generic_secret"},
+        {"path": "config/agent_identities.json", "label": "entropy", "sha256": "3baa3146ce6c995d",
+         "raison": "SUPERVISOR/tpm_jkt = empreinte PUBLIQUE de cle TPM (RFC 7638, base64url 43c), publiee depuis 64524878a ; epinglee par valeur, 2026-10-13"}
       ]
     },
     "public": {
@@ -34,6 +36,7 @@
         "app/build_cython/**",
         "config/identites_privees.txt",
         ".github/workflows/ci-selfhosted.yml",
+        ".forgejo/**",
         "sandbox/.ngrok_*",
         "sandbox/.pids",
         "sandbox/.srv_pid",

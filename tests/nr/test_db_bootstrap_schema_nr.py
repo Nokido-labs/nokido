@@ -52,8 +52,9 @@ def test_l_amorcage_cree_la_base_et_son_schema_sur_dossier_vide(tmp_path, monkey
     assert not db.exists()
     assert boot.main() == 0
     o = _objets(db)
-    for t in ("rag_chunks", "rag_fts", "rag_chunks_fts", "biblio_raw", "biblio_topics", "forge_entities",
-              "system_rules", "trajectories"):
+    # biblio_link (09/10) : sans elle, NokidoHebbian mourait au demarrage sur machine vierge (mesure organisme 3).
+    for t in ("rag_chunks", "rag_fts", "rag_chunks_fts", "biblio_raw", "biblio_topics", "biblio_link",
+              "forge_entities", "system_rules", "trajectories"):
         assert ("table", t) in o, t
     for trig in ("rag_chunks_fts_ai", "rag_chunks_fts_ad", "rag_chunks_fts_au", "rag_chunks_fts_bi", "forge_tier_guard"):
         assert ("trigger", trig) in o, trig

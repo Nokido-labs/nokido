@@ -15,7 +15,7 @@ Last review: **2026-09-09**
 
 ---
 
-## `diskcache` 5.6.3 — ACCEPTED
+## `diskcache` 5.6.3 — ACCEPTED, vulnerable path NEUTRALIZED (2026-10-12)
 
 | | |
 |---|---|
@@ -25,8 +25,8 @@ Last review: **2026-09-09**
 | **Vector** | DiskCache uses Python `pickle` for serialization by default |
 | **Precondition** | the attacker needs **write access to the cache directory**; code executes when the victim application later reads that cache |
 | **Actual usage here** | **no direct import** in `app/` or `tools/` (recursive search for `import diskcache` / `from diskcache`). Pulled transitively by `dspy` only |
-| **Mitigation** | none available by upgrade — there is no newer version to move to |
-| **Decision** | **accepted**, dated 2026-09-09 |
+| **Mitigation** | none available by upgrade — there is no newer version to move to. **Since 2026-10-12** the only diskcache instance in the codebase is gone: `dspy` opens a pickle-backed DISK cache (`~/.dspy_cache`) by default, and `app/forge_dspy_router.py` — which uses dspy for its Signatures only, the LLM call goes through the hub — turns it off at import (`dspy.configure_cache(enable_disk_cache=False)`). NR: `tests/nr/test_dspy_cache_disque_coupe_nr.py` |
+| **Decision** | **accepted**, dated 2026-09-09 ; path neutralized 2026-10-12 (the package stays installed: `dspy` 3.4.0 still requires it) |
 
 **Why accepted rather than mitigated.** Upgrading is not an option that exists:
 5.6.3 is simultaneously the last affected version and the latest published one.
@@ -42,7 +42,8 @@ flaw harmless, but it places it behind the same boundary as the rest of the mach
 so this acceptance is not an open-ended one:
 
 1. a release `> 5.6.3` appears on PyPI;
-2. a **direct** call site to `diskcache` appears in `app/` or `tools/`.
+2. a **direct** call site to `diskcache` appears in `app/` or `tools/`;
+3. a call site uses `dspy.LM` (its cache would then matter) or the `configure_cache` call above disappears.
 
 ---
 

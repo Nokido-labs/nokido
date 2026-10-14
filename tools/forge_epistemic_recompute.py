@@ -13,8 +13,8 @@ Usage:
 
 Scheduled task (Windows):
     schtasks /Create /SC DAILY /TN LaForge-EpistemicRecompute /TR ^
-      __import__("os").path.expanduser("~/miniforge3/python.exe ^
-       %NOKIDO_WORKSPACE%/LaForge/tools/forge_epistemic_recompute.py") ^
+      "~/miniforge3/python.exe ^
+       %NOKIDO_WORKSPACE%/LaForge/tools/forge_epistemic_recompute.py" ^
       /ST 03:00
 """
 

@@ -4,9 +4,9 @@ Domain: ai_prompts_landscape. Source repo (shallow clone) at C:/tmp/system-promp
 Schema-adaptive via PRAGMA table_info(rag_chunks). FTS5 sync best-effort.
 
 Usage (LAFORGE_PYTHON required — miniforge3):
-    __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_ingest_ai_prompts_landscape.py
-    __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_ingest_ai_prompts_landscape.py --verify
-    __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_ingest_ai_prompts_landscape.py --dry-run
+    "~/miniforge3/python.exe" tools/forge_ingest_ai_prompts_landscape.py
+    "~/miniforge3/python.exe" tools/forge_ingest_ai_prompts_landscape.py --verify
+    "~/miniforge3/python.exe" tools/forge_ingest_ai_prompts_landscape.py --dry-run
 """
 
 from __future__ import annotations

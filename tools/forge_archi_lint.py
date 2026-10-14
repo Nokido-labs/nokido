@@ -21,6 +21,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG = os.path.join(ROOT, ".semgrep", "nokido_golden_rules.yml")
 CANDIDATES = [
+    # 2026-10-12 : semgrep vit dans son propre environnement (uv tool), hors du miniforge base qu'il figeait
+    # (mcp, opentelemetry, pyjwt) ; ses commandes sont servies par ~\.local\bin, d'ordinaire deja dans le PATH.
+    __import__("os").path.expanduser(r"~\.local\bin\semgrep.exe"),
+    __import__("os").path.expanduser(r"~\.local\bin\pysemgrep.exe"),
     __import__("os").path.expanduser(r"~\miniforge3\Scripts\semgrep.exe"),
     __import__("os").path.expanduser(r"~\miniforge3\Scripts\pysemgrep.exe"),
 ]
@@ -41,7 +45,7 @@ def _semgrep() -> str | None:
         try:
             r = subprocess.run([cand, "--version"], capture_output=True, text=True,
                                timeout=120, errors="replace", env=env)
-        except Exception:  # noqa: BLE001 - binaire absent ou instantanement mort
+        except Exception:  # noqa: BLE001  # muet-ok : candidat absent ou mort net ; aucun ne demarre -> None, dit par l'appelant
             continue
         if r.returncode == 0 and (r.stdout or "").strip():
             return cand

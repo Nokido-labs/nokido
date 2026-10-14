@@ -1,7 +1,7 @@
 """Tests for forge_swarm_agents catalog of provider-specialized Agents.
 
 Run :
-    PYTHONNOUSERSITE=1 __import__("os").path.expanduser("~/miniforge3/python.exe") -m pytest \
+    PYTHONNOUSERSITE=1 "~/miniforge3/python.exe" -m pytest \
         tests/test_forge_swarm_agents.py -v
 """
 from __future__ import annotations

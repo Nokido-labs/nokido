@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -44,9 +45,32 @@ def _find_deno() -> str | None:
         for p in psutil.process_iter(["name", "exe"]):
             if (p.info.get("name") or "").lower() == "deno.exe" and p.info.get("exe"):
                 return p.info["exe"]
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 -- dernier repli : on le DIT, l'appelant conclura « deno introuvable »
+        print(f"[deno_check] repli processus illisible ({type(exc).__name__}: {exc}) -- deno non localise par ce chemin")
     return None
+
+
+def _inscriptible(dossier: str | None) -> bool:
+    """Le dossier existe (ou se cree) ET ce compte peut y ecrire -- prouve par une ecriture, jamais deduit."""
+    if not dossier:
+        return False
+    try:
+        os.makedirs(dossier, exist_ok=True)
+        with tempfile.TemporaryFile(dir=dossier):
+            return True
+    except OSError:
+        return False
+
+
+def _env_deno() -> dict:
+    """Mesure 2026-10-12 : sous LaForgeTrusted, l'environnement herite place le cache deno dans le profil de l'owner
+    (AppData\\Local\\deno), en lecture seule pour ce compte -- `deno check` mourait a la mise en cache (os error 5).
+    Un DENO_DIR inscriptible est garde ; sinon un cache propre au compte, dans son dossier temporaire inscriptible."""
+    env = dict(os.environ)
+    if not _inscriptible(env.get("DENO_DIR")):
+        env["DENO_DIR"] = os.path.join(tempfile.gettempdir(), "nokido_deno_dir")
+        print(f"[deno_check] DENO_DIR={env['DENO_DIR']} (cache propre a ce compte)")
+    return env
 
 
 def main() -> int:
@@ -61,8 +85,17 @@ def main() -> int:
     try:
         r = subprocess.run(
             [deno, "check", abs_target],
-            capture_output=True, text=True, cwd=ROOT, timeout=120,
+            capture_output=True, text=True, cwd=ROOT, timeout=120, env=_env_deno(),
         errors="replace")
+    except PermissionError as exc:
+        # Mesure 2026-10-12 : LaForgeTrusted n'executait plus ~/.deno/bin/deno.exe (WinError 5). `deno upgrade`
+        # REMPLACE l'exe : une autorisation posee sur l'ancien fichier part avec lui. Le remede tient s'il est
+        # HERITABLE et pose sur le dossier -- geste owner, c'est son profil. Rien n'a ete verifie : ILLISIBLE, pas OK.
+        dossier = os.path.dirname(os.path.dirname(deno)) if deno.lower().endswith("deno.exe") else os.path.dirname(deno)
+        print(f"ILLISIBLE: le compte {os.environ.get('USERNAME', '?')} ne peut pas executer {deno} ({exc}).")
+        print("  Rien n'a ete verifie. Remede (owner, dans son terminal, une fois -- survit aux `deno upgrade`) :")
+        print(f'  icacls "{dossier}" /grant "LaForgeTrusted:(OI)(CI)RX"')
+        return 4
     except Exception as exc:  # noqa: BLE001
         print(f"ERR: deno check failed to run: {exc}")
         return 3

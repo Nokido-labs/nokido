@@ -33,15 +33,23 @@ class _Proc:
         self.info = {"pid": pid, "name": name, "memory_info": _Mem(gb)}
 
 
+def _poser(monkeypatch, nom, module):
+    """Pose le faux module sous ses DEUX noms d'import. Mesure 13/10 : le code importe
+    `nokido_agent.app.<nom>` ; ce test ne patchait que le nom nu -> les VRAIS registres repondaient,
+    4 tests rouges hors CI (deux noms d'import = deux instances)."""
+    monkeypatch.setitem(sys.modules, nom, module)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app." + nom, module)
+
+
 def _wire(monkeypatch, procs, ports, verdicts, descendant=False):
     monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: list(procs))
     pr = types.ModuleType("forge_port_reconcile")
     pr._supervisor_ports = lambda: dict(ports)
     pr._is_descendant = lambda pid, anc, d=3: descendant
-    monkeypatch.setitem(sys.modules, "forge_port_reconcile", pr)
+    _poser(monkeypatch, "forge_port_reconcile", pr)
     wm = types.ModuleType("forge_body_world_model")
     wm.predict_impact = lambda svc, act: {"verdict": verdicts.get(svc, "safe")}
-    monkeypatch.setitem(sys.modules, "forge_body_world_model", wm)
+    _poser(monkeypatch, "forge_body_world_model", wm)
     # Desarmee par defaut depuis le 24-07 : les tests l'arment explicitement.
     monkeypatch.setenv("LAFORGE_EVICT_DYNAMIC", "1")
 
@@ -106,8 +114,8 @@ def test_world_model_absent_nevince_rien(monkeypatch):
     pr = types.ModuleType("forge_port_reconcile")
     pr._supervisor_ports = lambda: {8099: ("NokidoLlamaChat", 15860)}
     pr._is_descendant = lambda pid, anc, d=3: False
-    monkeypatch.setitem(sys.modules, "forge_port_reconcile", pr)
-    monkeypatch.setitem(sys.modules, "forge_body_world_model", None)
+    _poser(monkeypatch, "forge_port_reconcile", pr)
+    _poser(monkeypatch, "forge_body_world_model", None)
     assert rm._heavy_evictable_services() == []
 
 

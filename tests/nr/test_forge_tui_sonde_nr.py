@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+
+import pytest
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
@@ -70,6 +72,10 @@ def test_une_tui_qui_plante_au_montage_est_nommee(monkeypatch):
     assert r["verdict"] == "ILLISIBLE" and "PermissionError" in r["illisible"]
 
 
+# Plafond PROPRE a ce test : la sonde pilote une vraie TUI (20+ touches) avec un budget interne de 40 s, au-dessus du
+# plafond de 30 s de la suite. Mesure du 2026-10-09 : 15,7 s isole, mais coupe a 30 s trois pre-controles sur quatre
+# en fin de suite chargee (deja le 28/09) -- et le timeout par thread tue TOUTE la suite, pas seulement ce test.
+@pytest.mark.timeout(120)
 def test_chemin_reel_sur_la_tui_multi_cli(monkeypatch, tmp_path):
     monkeypatch.setattr(nt, "status_services", lambda: {"hub": "🟢"})
     monkeypatch.setattr(nt, "opsec_state", lambda: {"level": "STANDARD", "locked": False, "by": None})

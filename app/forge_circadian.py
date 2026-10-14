@@ -314,9 +314,13 @@ def _mesurer_dependances_vulnerables(hist=None, lanceur=None) -> dict:
     # Deux consommateurs, deux conventions, un seul producteur : on vise
     # EXPLICITEMENT le dossier versionne que le gate lit.
     _cible = "sandbox/pip_audit_history/pip_audit_%s.json" % _date.today().isoformat()
+    # `--tous-les-envs` (phase 3, 2026-10-13) : le meme job audite ensuite chaque env
+    # conda et uv tool du poste. Le 12/10, l'env des services portait 67 paquets
+    # vulnerables invisibles a Dependabot ET a ce rapport, qui ne decrit que
+    # l'interpreteur du job.
     try:
         res = launch_job("tools/forge_pip_audit_mesure.py", online=True,
-                         lane="audit", script_args="--sortie %s" % _cible)
+                         lane="audit", script_args="--sortie %s --tous-les-envs" % _cible)
     except Exception as exc:
         return {"pip_audit": "lancement refuse",
                 "erreur": "%s: %s" % (type(exc).__name__, exc)}

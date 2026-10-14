@@ -218,7 +218,8 @@ def main() -> int:
 
 
 # Manifestes de dependances du depot (relatifs a la racine).
-MANIFESTES = ("pyproject.toml", "requirements.txt", "requirements-ml.txt", "app/requirements.txt")
+MANIFESTES = ("pyproject.toml", "requirements.txt", "requirements-ml.txt", "requirements-organisme.txt",
+              "app/requirements.txt")
 _RE_NOM = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 
 

@@ -19,6 +19,7 @@ NoiseGuardian, forge_parity_gate (registre signaux + agrégation conservatrice).
 from __future__ import annotations
 __FORGE_COLOR__ = "GREEN"
 
+import hashlib
 import json
 import os
 import re
@@ -165,8 +166,17 @@ def _sig_entropy(ctx) -> pg.Finding | None:
                 return pg.red(f"secret haute-entropie en contexte ({len(v)}c) dans {path} : {v[:6]}…",
                               path=path)
         return None
+    # Faux positifs VERIFIES (ex. empreinte PUBLIQUE de cle, RFC 7638) : epingles dans le manifeste
+    # (secret_allow, label "entropy") par chemin ET empreinte sha256[:16] de la VALEUR -- jamais par fichier entier :
+    # une exception de fichier blanchirait aussi tout secret ajoute plus tard au meme fichier. Valeur qui change =
+    # alerte qui revient, voulu. Mesure 13/10 : `config/agent_identities.json` SUPERVISOR/tpm_jkt jaune a chaque push.
+    allow = [a for a in (ctx.get("profile") or {}).get("secret_allow", []) if a.get("label") == "entropy"]
     for tok in _LONG_TOKEN_RX.findall(content):
         if pg.shannon_entropy(tok) > 4.6:
+            if allow:
+                emp = hashlib.sha256(tok.encode("utf-8", "replace")).hexdigest()[:16]
+                if any(fnmatch(path, a.get("path", "")) and a.get("sha256") == emp for a in allow):
+                    continue
             return pg.yellow(f"token haute entropie ({len(tok)}c) dans {path} : {tok[:8]}…",
                              path=path)
     return None
@@ -297,8 +307,12 @@ def load_manifest() -> dict:
             for k, v in _DEFAULT_MANIFEST.items():
                 m.setdefault(k, v)
             return m
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 -- manifeste illisible : repli sur le DEFAUT, et c'est DIT
+            # Silence du 13/10 et avant : un `.git-publish-rules.json` casse etait remplace sans un mot par la politique
+            # par defaut -- exceptions, chemins bloques et profils du depot ignores, sans que personne le sache.
+            import logging as _lg
+            _lg.getLogger(__name__).warning("[egress] manifeste ILLISIBLE (%s : %s) -> politique PAR DEFAUT appliquee",
+                                            type(e).__name__, str(e)[:120])
     return _DEFAULT_MANIFEST
 
 
@@ -427,7 +441,7 @@ def push(remote: str = "origin", refspecs: list[str] | None = None) -> int:
     try:
         ALLOW_PIDFILE.parent.mkdir(parents=True, exist_ok=True)
         ALLOW_PIDFILE.write_text(str(os.getpid()), encoding="utf-8")
-    except Exception:
+    except Exception:  # noqa: BLE001 -- muet-ok : pidfile d'autorisation best-effort
         pass
     env = {**os.environ, "FORGE_EGRESS_INNER": "1"}  # le hook pre-push skip (déjà scanné)
     try:
@@ -436,7 +450,7 @@ def push(remote: str = "origin", refspecs: list[str] | None = None) -> int:
     finally:
         try:
             ALLOW_PIDFILE.unlink()
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : pidfile deja absent = etat voulu
             pass
 
 
@@ -497,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
                 ALLOW_PIDFILE.parent.mkdir(parents=True, exist_ok=True)
                 ALLOW_PIDFILE.write_text(str(proc.pid), encoding="utf-8")
                 break
-    except Exception:
+    except Exception:  # noqa: BLE001 -- muet-ok : pidfile d'autorisation best-effort
         pass
     return 0
 

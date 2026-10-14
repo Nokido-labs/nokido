@@ -12,6 +12,13 @@ graft app
 graft tools
 graft proxy_deno
 graft config
+graft distribution
+graft seed
+# Sources du dispatcher Go, construit par `nokido-composants` ; ses binaires locaux (non suivis) ne partent jamais.
+graft go_services/forge_dispatcher
+recursive-exclude go_services/forge_dispatcher *.exe *.exe.*
+# Identite des auteurs (bloquee aussi par la politique publique, a regenerer pseudonymise par son producteur).
+exclude seed/commit_intel.jsonl
 prune app/_attic
 prune app/legacy
 prune app/tests

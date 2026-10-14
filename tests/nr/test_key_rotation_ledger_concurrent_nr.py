@@ -75,13 +75,19 @@ def test_ecrivains_concurrents_ni_corruption_ni_perte(tmp_path):
     for p in procs:
         _out, err = p.communicate(timeout=120)
         assert p.returncode == 0, err.decode("utf-8", "replace")[-800:]
-    texte = ledger.read_text(encoding="utf-8")
-    donnees = json.loads(texte)          # corrompu => JSONDecodeError (« Extra data »)
+    if ledger.exists():
+        json.loads(ledger.read_text(encoding="utf-8"))   # corrompu => JSONDecodeError (« Extra data »)
+    # Lecture par le LECTEUR du module : une marque encore au journal (verrou non obtenu sous charge) n'est
+    # pas perdue -- compter le seul fichier ledger la declarait perdue a tort.
+    lecteur = _charger("forge_key_rotation_lecteur_nr")
+    lecteur._HEALTH = ledger
+    donnees = lecteur._relire_du_disque()
     attendu = n_proc * n_marques
     assert len(donnees) == attendu, (
         "%d marques sur %d : %d perdue(s) par ecriture concurrente — une revocation "
         "perdue ne laisse aucune trace" % (len(donnees), attendu, attendu - len(donnees)))
     restes = sorted(x.name for x in tmp_path.glob("key_health.json*.tmp"))
+    restes += sorted(x.name for x in tmp_path.glob("key_health.json.journal/*.tmp"))
     assert not restes, "temporaires abandonnes : %s" % restes
 
 
@@ -106,7 +112,7 @@ def test_le_verrou_couvre_toute_la_sequence(tmp_path, monkeypatch):
     journal = []
     monkeypatch.setattr(mod, "_verrou_ledger", lambda: _Verrou(journal))
     lire, sauver = mod._relire_du_disque, mod._save_health
-    monkeypatch.setattr(mod, "_relire_du_disque", lambda: (journal.append("lecture"), lire())[1])
+    monkeypatch.setattr(mod, "_relire_du_disque", lambda *a: (journal.append("lecture"), lire(*a))[1])
     monkeypatch.setattr(mod, "_save_health", lambda h: (journal.append("ecriture"), sauver(h))[1])
     mod.mark("NR_API_KEY", "k", "bad", "nr")
     assert journal == ["prise", "lecture", "ecriture", "liberation"], journal
@@ -132,17 +138,63 @@ def test_set_key_relit_le_disque_sous_verrou(tmp_path, monkeypatch):
     assert journal[:1] == ["prise"] and journal[-1:] == ["liberation"], journal
 
 
-def test_verrou_indisponible_ecrit_quand_meme_et_le_dit(tmp_path, monkeypatch, caplog):
-    """Un verrou tenu trop longtemps ne doit ni bloquer l'appelant ni perdre la marque en silence."""
+def test_verrou_indisponible_journalise_et_le_dit(tmp_path, monkeypatch, caplog):
+    """Un verrou tenu trop longtemps ne doit ni bloquer l'appelant ni perdre la marque en silence --
+    et ne doit plus REECRIRE le ledger sans exclusion (CI de reference du 14/10 : 149 marques sur 150)."""
     mod = _charger()
     ledger = tmp_path / "key_health.json"
     monkeypatch.setattr(mod, "_HEALTH", ledger)
     monkeypatch.setattr(mod, "_verrou_ledger", lambda: _Verrou([], echoue=True))
     with caplog.at_level(logging.ERROR):
         mod.mark("NR_API_KEY", "k", "bad", "nr")
-    assert len(json.loads(ledger.read_text(encoding="utf-8"))) == 1
+    assert not ledger.exists(), "sans verrou, le ledger a ete reecrit sans exclusion"
+    assert len(list((tmp_path / "key_health.json.journal").glob("*.json"))) == 1
+    assert len(mod._relire_du_disque()) == 1, "la marque journalisee doit etre vue par tout lecteur"
     assert any("verrou" in r.getMessage().lower() for r in caplog.records), (
         "une ecriture sans exclusion doit etre DITE")
+
+
+def _sans_verrou(mod, monkeypatch, echoue=True):
+    monkeypatch.setattr(mod, "_verrou_ledger", lambda: _Verrou([], echoue=echoue))
+
+
+def test_sans_verrou_une_marque_concurrente_n_est_pas_ecrasee(tmp_path, monkeypatch):
+    mod = _charger()
+    ledger = tmp_path / "key_health.json"
+    monkeypatch.setattr(mod, "_HEALTH", ledger)
+    ledger.write_text(json.dumps({"autre": {"env": "X", "status": "bad", "ts": 1.0}}), encoding="utf-8")
+    _sans_verrou(mod, monkeypatch)
+    mod.mark("NR_API_KEY", "k", "bad", "nr")
+    assert "autre" in json.loads(ledger.read_text(encoding="utf-8"))
+    vus = mod._relire_du_disque()
+    assert "autre" in vus and mod._fp("k") in vus
+
+
+def test_l_ecrivain_suivant_sous_verrou_absorbe_et_purge_le_journal(tmp_path, monkeypatch):
+    mod = _charger()
+    ledger = tmp_path / "key_health.json"
+    monkeypatch.setattr(mod, "_HEALTH", ledger)
+    _sans_verrou(mod, monkeypatch)
+    mod.mark("NR_API_KEY", "a", "bad", "nr")
+    _sans_verrou(mod, monkeypatch, echoue=False)
+    mod.mark("NR_API_KEY", "b", "bad", "nr")
+    sur_disque = json.loads(ledger.read_text(encoding="utf-8"))
+    assert {mod._fp("a"), mod._fp("b")} <= set(sur_disque), sur_disque
+    assert not list((tmp_path / "key_health.json.journal").glob("*.json")), "journal non purge"
+
+
+def test_retrait_journalise_et_le_plus_recent_l_emporte(tmp_path, monkeypatch):
+    mod = _charger()
+    ledger = tmp_path / "key_health.json"
+    monkeypatch.setattr(mod, "_HEALTH", ledger)
+    ledger.write_text(json.dumps({"x": {"env": "X", "status": "bad", "ts": 1.0},
+                                  "y": {"env": "Y", "status": "bad", "ts": 9e12}}), encoding="utf-8")
+    _sans_verrou(mod, monkeypatch)
+    mod._modifier_ledger(lambda h: h.pop("x", None))                       # retrait journalise
+    mod._journaliser({"y": {"env": "Y", "status": "ok", "ts": 1.0}})       # entree PLUS ANCIENNE
+    vus = mod._relire_du_disque()
+    assert "x" not in vus, "la pierre tombale journalisee doit retirer l'entree"
+    assert vus["y"]["status"] == "bad", "une entree de journal plus ancienne a ecrase une plus recente"
 
 
 def test_temporaire_unique_par_ecriture(tmp_path, monkeypatch):

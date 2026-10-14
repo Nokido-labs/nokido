@@ -10,7 +10,7 @@ sites existent, renommer le dossier est une chirurgie.
 CE QUE FAIT L'OUTIL. Il remplace ces chemins par une derivation depuis __file__, qui
 suit le dossier quel que soit son nom:
 
-    __import__("os").path.expanduser(r"~\\Script python IA\\LaForge\\RAG\\x.db")
+    r"~\\Script python IA\\LaForge\\RAG\\x.db"
     -> str(__import__("pathlib").Path(__file__).resolve().parents[1] / "RAG" / "x.db")
 
 CE QU'IL NE FAIT PAS, ET POURQUOI. Il ne touche NI les commentaires NI les docstrings

@@ -3,7 +3,7 @@
 # Cross-OS bootstrap : detect Python 3.12+, create venv, install via pyproject.toml extras.
 #
 # Usage:
-#   bash install.sh                              # default: hub + rag + llm + docs
+#   bash install.sh                              # default: hub + rag + llm + docs + organisme
 #   EXTRAS=full bash install.sh                  # tout sauf ML lourd
 #   EXTRAS=all bash install.sh                   # vraiment tout (~5 GB)
 #   EXTRAS=hub bash install.sh                   # juste hub serveur (~450 MB)
@@ -22,7 +22,8 @@ set -euo pipefail
 LAFORGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON_MIN_MINOR=12
 VENV_DIR="$LAFORGE_DIR/.venv"
-EXTRAS="${EXTRAS:-hub,rag,llm,docs}"  # default modular stack
+# organisme (2026-10-09) : ce que les services du superviseur importent au demarrage -- owner : aucune concession.
+EXTRAS="${EXTRAS:-hub,rag,llm,docs,organisme}"  # default modular stack
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
@@ -93,7 +94,36 @@ ok "Venv ready"
 # ── Install via pyproject.toml extras ─────────────────────────────────────────
 info "Installing 'laforge-agent[$EXTRAS]' from local pyproject..."
 "$PIP" install --quiet --upgrade pip wheel
+# Sous Linux, la roue PyPI de torch tire CUDA (plusieurs Go) : torch d'abord depuis l'index CPU de PyTorch, a la
+# version epinglee de requirements-organisme.txt ; l'extra la trouve ensuite deja satisfaite (X+cpu satisfait ==X).
+if [[ "$OS" == "Linux" && ",$EXTRAS," =~ ,(organisme|ml|all), ]]; then
+    TORCH_PIN="$(grep -E '^torch==' requirements-organisme.txt | head -n1)"
+    info "torch CPU (${TORCH_PIN:-torch}) depuis download.pytorch.org/whl/cpu..."
+    "$PIP" install --quiet "${TORCH_PIN:-torch}" --index-url https://download.pytorch.org/whl/cpu
+fi
 "$PIP" install --quiet -e ".[${EXTRAS}]"
+# Composants natifs EPINGLES (2026-10-09) : llama.cpp, Qdrant, Caddy (+ certificat local), Ollama, dispatcher Go --
+# telecharges, sommes verifiees, poses a leur emplacement standard par tools/forge_composants.py.
+if [[ ",$EXTRAS," =~ ,(organisme|all), ]]; then
+    info "Composants natifs epingles (forge_composants --tout)..."
+    "$PY" tools/forge_composants.py --tout || warn "Composants natifs incomplets : voir les lignes ci-dessus."
+fi
+# Organisme complet sous Linux/macOS (decisions owner du 2026-10-09) : comptes runAs dedies, coffre root 0600, codes
+# d'appariement affiches UNE fois, superviseur root (unite systemd systeme / LaunchDaemon). sudo demande le mot de passe.
+if [[ ",$EXTRAS," =~ ,(organisme|all), ]]; then
+    SUDO=""; [[ $EUID -ne 0 ]] && SUDO="sudo"
+    info "Comptes d'execution, coffre et superviseur root (sudo)..."
+    $SUDO "$PY" tools/forge_sandbox_setup.py || warn "Comptes d'execution NON crees : les services runAs ne demarreront pas."
+    $SUDO "$PY" tools/install_boot_hook.py --amorcer || warn "Amorcage du coffre incomplet : voir les lignes ci-dessus."
+    A_NOTER="/var/lib/nokido/coffre/appariement_a_noter.txt"
+    [[ "$OS" == "macOS" ]] && A_NOTER="/Library/Application Support/Nokido/coffre/appariement_a_noter.txt"
+    if $SUDO test -f "$A_NOTER"; then
+        echo ""; $SUDO cat "$A_NOTER"; $SUDO rm -f "$A_NOTER"
+        echo "  (affiches une seule fois : notez-les maintenant)"; echo ""
+    fi
+    $SUDO env NOKIDO_DENO="$(command -v deno || echo "$HOME/.deno/bin/deno")" "$PY" tools/install_boot_hook.py --installer \
+        || warn "Superviseur root NON installe : voir le message ci-dessus."
+fi
 ok "Installed: laforge-agent[$EXTRAS]"
 
 # Optional: keyring on macOS/Linux for cross-OS vault

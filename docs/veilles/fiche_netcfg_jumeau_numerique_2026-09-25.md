@@ -36,7 +36,7 @@ tirets). La longueur « observée » reste à sourcer dans la doc constructeur, 
 | Brique | Où | Niveau |
 |---|---|---|
 | Lecture des stencils (racks, équipements, U) | `netcfg/vsdx_reader.py` `classify()` | VERIFIED (tests historiques) |
-| **Connecteurs → liens, extrémités/IP → nœuds, site squelette** | `vsdx_reader.py` `_extract_connects`, `indices_du_texte` ; `session.py` `vsdx_to_network_v2`, `load_user_vsdx` | **MEASURED 25/09** : NR `tests/test_visio_pauvre.py` (rouge prouvé) + sonde chemin réel (upload + 8 routes GET = 200) sur `Network Topology.vsdx` public : 6 nœuds, 5 liens |
+| **Connecteurs → liens, extrémités/IP → nœuds, site squelette** | `vsdx_reader.py` `_extract_connects`, `indices_du_texte` ; `session.py` `vsdx_to_network_v2`, `load_user_vsdx` | **MEASURED 25/09** : NR `netcfg-agent-web/tests/test_visio_pauvre.py` (rouge prouvé) + sonde chemin réel (upload + 8 routes GET = 200) sur `Network Topology.vsdx` public : 6 nœuds, 5 liens |
 | Longueurs de câble par géométrie de page | `netcfg/topology.py:81` `cable_lengths(network, scale_m_per_px)` | DECLARED (existe, non recoupé avec les connecteurs) |
 | Catalogue de modèles (stencils constructeur) | `netcfg/stencils.py:266` `resolve_model` | DECLARED |
 | KeePass en lecture seule, paresseux | `netcfg/credentials.py` `KeePassProvider` ; `session.py` `load_keepass` | DECLARED ; `pykeepass` PRÉSENT dans l'interpréteur du service (mesuré, `services.toml` `PYTHON`) |

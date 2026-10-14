@@ -35,7 +35,9 @@ from __future__ import annotations
 __FORGE_COLOR__ = "immunitaire/coffre-reserve : provisionner le coffre reserve sous SYSTEM"
 
 import argparse
+import os
 import secrets
+from pathlib import Path
 from typing import Callable, Optional
 
 # --- amorce namespace (point d'entree) : `sys.path[0]` vaut le dossier du
@@ -86,6 +88,124 @@ _GENERATEURS = {
     "FORGE_PERSONA_HMAC_KEY": lambda: secrets.token_urlsafe(48),
     "LAFORGE_JWT_ED25519_PRIVE": _nouvelle_cle_ed25519,
 }
+
+# --- Machine NEUVE (decision owner du 2026-10-09, « Go, coffre reserve ») ------------------
+# Mesure 4 de l'organisme sur VM : aucun coffre n'existe, les COPIES n'ont pas de source
+# (TaskExecutor : « FORGE_MCP_TOKEN manquant »). `--machine-neuve` GENERE chaque nom reserve
+# absent des DEUX coffres et le scelle au coffre RESERVE -- jamais au coffre machine, lisible
+# par les comptes bac a sable (faille du 2026-09-28). Une valeur presente, ou qu'elle soit,
+# n'est jamais regeneree. Le fichier-cle VeraCrypt n'a pas de sens sans volume chiffre : dit.
+HORS_MACHINE_NEUVE = frozenset({"LAFORGE_VC_KEYFILE_B64"})
+A_GENERER_NEUF = "A_GENERER_MACHINE_NEUVE"
+# Codes d'appariement OAuth des pairs (PairMCP, GithubBridgeMCP) : coffre MACHINE, lus par
+# forge_bridge_launch. Decision owner du 2026-10-09 : generes, scelles, AFFICHES UNE FOIS -- par
+# l'installeur, qui lit puis efface `A_NOTER` (ACL SYSTEM + Administrateurs, jamais le depot).
+APPARIEMENTS = ("NOKIDO_PAIR_OAUTH_APPARIEMENT", "NOKIDO_BRIDGE_OAUTH_APPARIEMENT")
+# Hors Windows : dans le dossier du coffre reserve (root, 0700), le seul dossier ferme d'une installation POSIX.
+A_NOTER = ((Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "Nokido") if os.name == "nt"
+           else mv.RESERVE_DIR) / "appariement_a_noter.txt"
+_ALPHABET_CODE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"  # sans 0/O, 1/I/L : un code se tape
+
+
+def _jeton_neuf() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def _fernet_neuf() -> str:
+    from cryptography.fernet import Fernet
+    return Fernet.generate_key().decode("ascii")
+
+
+def generateur_neuf(nom: str) -> Callable:
+    """Le generateur d'une valeur NEUVE pour un nom reserve : cle Fernet valide pour la cle de
+    chiffrement, cle Ed25519 pour les JWT, jeton CSPRNG pour le reste."""
+    if nom in _GENERATEURS:
+        return _GENERATEURS[nom]
+    return _fernet_neuf if nom == "FORGE_ENCRYPT_KEY" else _jeton_neuf
+
+
+def code_appariement() -> str:
+    return "-".join("".join(secrets.choice(_ALPHABET_CODE) for _ in range(4)) for _ in range(3))
+
+
+def planifier_machine_neuve(plan: dict, lire_machine: Callable = None) -> dict:
+    """Machine neuve : un nom SANS source au coffre machine et absent du coffre reserve devient
+    A_GENERER_MACHINE_NEUVE ; une cle neuve qui exigeait une rotation n'en est pas une quand rien
+    n'a jamais ete signe avec. Rien d'autre ne bouge."""
+    lire_machine = lire_machine or _lire_coffre_machine
+    neuf = dict(plan)
+    for nom, etat in plan.items():
+        if nom in HORS_MACHINE_NEUVE:
+            continue
+        if etat == SOURCE_ABSENTE or (etat == A_GENERER and not lire_machine(nom)[0]):
+            neuf[nom] = A_GENERER_NEUF
+    return neuf
+
+
+def dossier_ferme(d: Path, appliquer: bool) -> str:
+    """Un dossier de secrets cree avec une ACL EXPLICITE (SYSTEM + Administrateurs, heritage
+    coupe) -- jamais l'ACL heritee de ProgramData, qui laisse lire les Utilisateurs (regle de
+    forge_machine_vault). L'ACL est RELUE : seul PRESENT_ACL_FERMEE autorise une ecriture."""
+    import subprocess
+
+    if os.name != "nt":
+        # Hors Windows (owner 2026-10-09) : a root, mode 0700 -- verifie par la meme regle que le coffre.
+        if not d.is_dir():
+            if not appliquer:
+                return "A_CREER"
+            d.mkdir(parents=True, mode=0o700)
+            os.chown(d, 0, 0)
+            os.chmod(d, 0o700)
+        return "PRESENT_ACL_FERMEE" if mv._dossier_posix_ferme(d) else "ACL_OUVERTE (attendu : a root, mode 0700)"
+    if not d.is_dir():
+        if not appliquer:
+            return "A_CREER"
+        d.mkdir(parents=True)
+        subprocess.run(["icacls", str(d), "/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F",
+                        "*S-1-5-32-544:(OI)(CI)F"], capture_output=True, text=True, errors="replace")
+    acl = subprocess.run(["icacls", str(d)], capture_output=True, text=True, errors="replace").stdout
+    ouverts = [m for m in ("\\Users:", "\\Utilisateurs:", "Everyone:", "Tout le monde:", "Authenticated Users:",
+                           "Utilisateurs authentifi") if m in acl]
+    return "ACL_OUVERTE %s" % ouverts if ouverts else "PRESENT_ACL_FERMEE"
+
+
+def creer_dossier_reserve(appliquer: bool) -> str:
+    return dossier_ferme(mv.RESERVE_PATH.parent, appliquer)
+
+
+def amorcer_identites_et_appariements(appliquer: bool) -> dict:
+    """Cle persona TPM (signe les assertions du lanceur runAs) et codes d'appariement absents. Sans
+    TPM, le lanceur se replie sur FORGE_TOKEN_<AGENT> : forge_vault_seed_agent_tokens les seme."""
+    from nokido_agent.app import forge_persona_tpm as tpm
+
+    bilan = {"persona_tpm": "A_CREER" if not appliquer else
+             ("PRESENTE" if tpm.ensure_persona_key() else "TPM_INDISPONIBLE (repli FORGE_TOKEN_<AGENT>)")}
+    nouveaux = []
+    for nom in APPARIEMENTS:
+        if fs.get_secret(nom):
+            bilan[nom] = DEJA_EN_PLACE
+            continue
+        if not appliquer:
+            bilan[nom] = A_ECRIRE
+            continue
+        code = code_appariement()
+        ecrit = mv.vault_set(nom, code) is not False
+        getattr(fs, "invalidate_cache", lambda: None)()  # l'absence lue plus haut ne doit pas masquer l'ecriture
+        ok = ecrit and fs.get_secret(nom) == code
+        bilan[nom] = ECRITE if ok else ECHEC
+        if ok:
+            nouveaux.append((nom, code))
+    if nouveaux:
+        etat = dossier_ferme(A_NOTER.parent, True)
+        if etat != "PRESENT_ACL_FERMEE":
+            # Les codes sont scelles au coffre ; on ne les ecrit pas dans un dossier lisible par tous.
+            bilan["a_noter"] = "NON ECRIT : %s" % etat
+            return bilan
+        A_NOTER.write_text("Codes d'appariement Nokido -- a noter, ils ne seront plus affiches :\n"
+                           + "".join("  %s = %s\n" % (n, c) for n, c in nouveaux), encoding="utf-8")
+        bilan["a_noter"] = str(A_NOTER)
+    return bilan
+
 
 A_ECRIRE = "A_ECRIRE"
 A_GENERER = "A_GENERER_SUR_GO"
@@ -200,6 +320,10 @@ def main(argv=None) -> int:
                     help="ecrire au coffre reserve (defaut : plan seulement)")
     ap.add_argument("--rotation-persona", action="store_true",
                     help="generer la NOUVELLE cle HMAC persona (rotation, go owner)")
+    ap.add_argument("--machine-neuve", action="store_true",
+                    help="machine NEUVE (owner 2026-10-09) : generer au coffre reserve chaque nom reserve "
+                         "absent des deux coffres, creer son dossier a ACL fermee, la cle persona TPM et les "
+                         "codes d'appariement absents")
     a = ap.parse_args(argv)
 
     manquants = fs.NOMS_RESERVES - set(COPIES) - set(DEDIEES) - set(NOUVELLES)
@@ -211,10 +335,18 @@ def main(argv=None) -> int:
         print(f"REFUS : compte courant {sid or 'ILLISIBLE'} -- le coffre reserve se scelle "
               f"sous SYSTEM ({mv.RESERVE_COMPTE_SID}), profil ps_clm")
         return 2
-    if not mv.RESERVE_PATH.parent.is_dir():
+    if a.machine_neuve:
+        etat_dossier = creer_dossier_reserve(a.appliquer)
+        print(f"dossier du coffre reserve : {etat_dossier}")
+        if a.appliquer and etat_dossier != "PRESENT_ACL_FERMEE":
+            print("REFUS : dossier du coffre reserve non ferme -- aucun secret ne sera ecrit")
+            return 2
+    elif not mv.RESERVE_PATH.parent.is_dir():
         print(f"REFUS : {mv.RESERVE_PATH.parent} absent -- il se cree par l'owner, avec son ACL")
         return 2
     _noms, etat = mv.reserve_list()
+    if a.machine_neuve and not a.appliquer and not mv.RESERVE_PATH.parent.is_dir():
+        etat = mv.RESERVE_COFFRE_ABSENT  # plan sur machine vierge : le dossier sera cree par --appliquer
     if etat not in (mv.RESERVE_TROUVE, mv.RESERVE_COFFRE_ABSENT):
         print(f"REFUS : coffre reserve {etat} -- rien ne sera ecrit par-dessus")
         return 2
@@ -222,6 +354,11 @@ def main(argv=None) -> int:
     cibles = calculer_cibles()
     plan = planifier(cibles)
     plan.update(planifier_nouvelles(rotation=a.rotation_persona))
+    if a.machine_neuve:
+        plan = planifier_machine_neuve(plan)
+        for nom in HORS_MACHINE_NEUVE:
+            if plan.get(nom) == SOURCE_ABSENTE:
+                plan[nom] = "SANS_OBJET_MACHINE_NEUVE"
     print(f"coffre reserve : {mv.RESERVE_PATH} ({etat}) -- compte {sid}")
     for nom in (*COPIES, *DEDIEES):
         print(f"  {nom:<26} {plan[nom]:<24} {cibles[nom][1]}")
@@ -241,11 +378,17 @@ def main(argv=None) -> int:
                 continue
             plan[nom] = ECRITE if mv.reserve_set(nom, _GENERATEURS[nom]()) else ECHEC
             print(f"  {nom:<26} {plan[nom]}")
+        for nom in sorted(n for n, e in plan.items() if e == A_GENERER_NEUF):
+            plan[nom] = ECRITE if mv.reserve_set(nom, generateur_neuf(nom)()) else ECHEC
+            print(f"  {nom:<26} {plan[nom]} (valeur neuve, machine neuve)")
     else:
         print("PLAN seulement -- rien n'est ecrit. Relancer avec --appliquer.")
+    if a.machine_neuve:
+        for nom, e in amorcer_identites_et_appariements(a.appliquer).items():
+            print(f"  {nom:<34} {e}")
 
-    en_place = ({IDENTIQUE, ECRITE, DEJA_EN_PLACE, EN_PLACE_SOURCE_RETIREE}
-                | ({A_ECRIRE} if not a.appliquer else set()))
+    en_place = ({IDENTIQUE, ECRITE, DEJA_EN_PLACE, EN_PLACE_SOURCE_RETIREE, "SANS_OBJET_MACHINE_NEUVE"}
+                | ({A_ECRIRE, A_GENERER_NEUF} if not a.appliquer else set()))
     restent = sorted(n for n, e in plan.items() if e not in en_place)
     print(f"bilan : {len(plan) - len(restent)}/{len(plan)} en place"
           + (f" ; NON provisionnees : {restent}" if restent else ""))

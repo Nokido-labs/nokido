@@ -60,12 +60,13 @@ def test_chiffrement_en_processus_ou_refus(bk, tmp_path):
     assert r["ok"] is True and dest.exists()
     assert b"SQLite format 3" not in dest.read_bytes(), "contenu en clair dans l'archive"
     import py7zr  # noqa: PLC0415
+    # extractall et non readall : py7zr 1.x a retire readall() (mesure 2026-10-12, 0.22 -> 1.1.4).
     with py7zr.SevenZipFile(dest, "r", password="cle-de-test-NR") as z:
-        lu = z.readall()["base.db"].read()
-    assert lu == clair.read_bytes()
+        z.extractall(path=tmp_path / "lu")
+    assert (tmp_path / "lu" / "base.db").read_bytes() == clair.read_bytes()
     with pytest.raises(Exception):
         with py7zr.SevenZipFile(dest, "r", password="mauvaise") as z:
-            z.readall()
+            z.extractall(path=tmp_path / "refus")
 
 
 def test_cible_fixe_la_preparation_est_sur_la_cible_jamais_sur_c(bk, monkeypatch, tmp_path):

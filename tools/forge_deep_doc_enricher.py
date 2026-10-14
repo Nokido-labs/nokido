@@ -37,10 +37,38 @@ def _chunks(text: str):
         start += CHUNK_SIZE - OVERLAP
 
 
-def _extract_pdf(path: Path) -> str | None:
-    try:
-        from PyPDF2 import PdfReader
+_PDF_ABSENT_DIT = False
 
+
+def _extract_pdf(path: Path) -> str | None:
+    """Texte d'un PDF par la premiere bibliotheque presente : pypdf (successeur maintenu de
+    PyPDF2, meme API), PyMuPDF, puis PyPDF2 en dernier recours.
+
+    PyPDF2 3.0.1 (vulnerable, sain seulement en descente) quitte le miniforge base le 13/10,
+    ou PyMuPDF, pdfplumber et pypdfium2 sont deja presents. L'ancien code avalait l'ImportError :
+    sans PyPDF2, chaque PDF aurait ete ignore EN SILENCE. Aucune bibliotheque = dit une fois."""
+    global _PDF_ABSENT_DIT
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        try:
+            import fitz  # PyMuPDF
+        except ImportError:
+            try:
+                from PyPDF2 import PdfReader
+            except ImportError:
+                if not _PDF_ABSENT_DIT:
+                    _PDF_ABSENT_DIT = True
+                    print("[enricher] AUCUNE bibliotheque PDF (pypdf, pymupdf, PyPDF2) : "
+                          "les PDF ne sont PAS lus")
+                return None
+        else:
+            try:
+                with fitz.open(str(path)) as doc:
+                    return "\n".join(p.get_text() or "" for p in doc)
+            except Exception:
+                return None
+    try:
         reader = PdfReader(str(path))
         return "\n".join(p.extract_text() or "" for p in reader.pages)
     except Exception:

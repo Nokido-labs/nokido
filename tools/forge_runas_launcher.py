@@ -141,9 +141,11 @@ def _preparer_dossier(dossier, compte) -> bool:
     if not compte:
         return False
     Path(dossier).mkdir(parents=False, exist_ok=True)
+    # errors="replace" : icacls ecrit dans la page OEM de la console (cp850 sur un Windows francais) ; un octet
+    # indecodable levait UnicodeDecodeError et faisait tomber le lanceur au lieu de rendre un rc.
     r = subprocess.run(["icacls", str(dossier), "/inheritance:r", "/grant:r",
                         "*S-1-5-18:(OI)(CI)F", f"{compte}:(OI)(CI)R"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, errors="replace")
     return r.returncode == 0
 
 
@@ -228,6 +230,58 @@ def _preparer_environnement(environ) -> str:
     return message + f" ; REFUS ({code}) du jeton court pour {identite} : {chemin}"
 
 
+# --- POSIX : Linux / macOS (decision owner du 2026-10-09, « Go, superviseur root ») --------------
+# Meme patron que Windows : des comptes systeme DEDIES (crees par tools/forge_sandbox_setup.py), un superviseur en
+# root (equivalent de SYSTEM), un enfant qui meurt avec son lanceur. Mesure 4 : sous Linux et macOS les 10 services
+# runAs mouraient sur `No module named 'win32event'` -- ce lanceur n'avait qu'une branche Windows.
+UTILISATEURS_POSIX = {"sandbox-offline": "nokido-sbx-offline", "sandbox-online": "nokido-sbx-online"}
+
+
+def utilisateur_posix(mode: str, environ) -> str | None:
+    """Le compte d'un mode runAs hors Windows ; `interactive` = l'utilisateur qui a installe (NOKIDO_UTILISATEUR,
+    pose par l'installeur), jamais root."""
+    if mode == "interactive":
+        nom = (environ.get("NOKIDO_UTILISATEUR") or "").strip()
+        return nom if nom and nom != "root" else None
+    return UTILISATEURS_POSIX[mode]
+
+
+def _mourir_avec_le_parent() -> None:
+    """Linux : SIGKILL a l'enfant si le lanceur meurt -- l'equivalent du Job Object KILL_ON_JOB_CLOSE. Appele APRES le
+    changement de compte (un changement d'uid efface ce reglage)."""
+    if sys.platform.startswith("linux"):
+        import ctypes
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, 9)  # PR_SET_PDEATHSIG, SIGKILL
+
+
+def main_posix(mode: str, argv: list) -> int:
+    if os.geteuid() != 0:
+        sys.stderr.write(f"[runas_launcher] REFUS : runAs exige le superviseur en root (equivalent de SYSTEM, owner "
+                         f"2026-10-09) ; uid courant {os.geteuid()}\n")
+        return 1
+    nom = utilisateur_posix(mode, os.environ)
+    if not nom:
+        sys.stderr.write("[runas_launcher] REFUS : mode interactive sans NOKIDO_UTILISATEUR (jamais root)\n")
+        return 1
+    import pwd
+    import signal
+
+    try:
+        pw = pwd.getpwnam(nom)
+    except KeyError:
+        sys.stderr.write(f"[runas_launcher] REFUS : compte {nom} absent -- tools/forge_sandbox_setup.py (root)\n")
+        return 1
+    sys.stderr.write(f"[runas_launcher] {_preparer_environnement(os.environ)}\n")
+    env = dict(os.environ, HOME=pw.pw_dir if os.path.isdir(pw.pw_dir) else "/tmp", USER=nom, LOGNAME=nom)
+    proc = subprocess.Popen(argv, user=pw.pw_uid, group=pw.pw_gid, extra_groups=[], env=env, cwd=os.getcwd(),
+                            preexec_fn=_mourir_avec_le_parent)
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: proc.terminate())
+    sys.stdout.write(f"[runas_launcher] {mode} pid={proc.pid} user={nom} cmd={' '.join(argv)[:160]}\n")
+    sys.stdout.flush()
+    return proc.wait()
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         sys.stderr.write(f"usage: forge_runas_launcher.py <{'|'.join(_MODES)}> <cmd> [args...]\n")
@@ -237,6 +291,8 @@ def main() -> int:
     if mode not in _MODES:
         sys.stderr.write(f"[runas_launcher] unknown runAs mode: {mode}\n")
         return 2
+    if os.name != "nt":
+        return main_posix(mode, sys.argv[2:])
     command = subprocess.list2cmdline(sys.argv[2:])
     sys.stderr.write(f"[runas_launcher] {_preparer_environnement(os.environ)}\n")
 

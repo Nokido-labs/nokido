@@ -329,7 +329,7 @@ directories.
 1. Register it in `app/forge_mcp_registry.py::ToolRegistry`.
 2. Add the dispatch handler.
 3. Add it to `tools/hub_middleware.py::_ALLOWED_TOOLS`.
-4. Test : `pytest tests/test_forge_mcp_registry.py`.
+4. Test : `pytest tests/test_forge_mcp_registry_namespace.py tests/test_forge_mcp_registry_unicode.py`.
 
 ### How do I write a custom skill ?
 

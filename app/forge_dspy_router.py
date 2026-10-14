@@ -21,16 +21,31 @@ selection du provider (le routing reste hub).
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
+from pathlib import Path
 from typing import Any
+
+# Meme garde que forge_litellm_bridge / forge_llm_router : dspy tire litellm, qui charge tiktoken A L'IMPORT et ne
+# respecte que CUSTOM_TIKTOKEN_CACHE_DIR. Sans lui, un import hors ligne meurt en ConnectionError (mesure 2026-10-12).
+_CACHE_TIKTOKEN = Path(__file__).resolve().parent.parent / "sandbox" / "tiktoken_cache"
+if _CACHE_TIKTOKEN.is_dir():
+    os.environ.setdefault("CUSTOM_TIKTOKEN_CACHE_DIR", str(_CACHE_TIKTOKEN))
 
 try:
     import dspy  # noqa: F401
 
     _DSPY_OK = True
-except ImportError:  # noqa: F401
+except Exception:  # ImportError, mais aussi l'echec reseau de tiktoken a l'import : dspy absent, jamais fatal
     _DSPY_OK = False
     dspy = None  # type: ignore
+
+if _DSPY_OK and hasattr(dspy, "configure_cache"):
+    # GHSA-w8v5-vhqr-4h9v : diskcache (<= 5.6.3, AUCUNE version corrigee publiee) depique ce qu'il trouve dans son
+    # dossier, et dspy ouvre par defaut un tel cache DISQUE (~/.dspy_cache). Ce module ne se sert de dspy que pour ses
+    # Signatures -- l'appel LLM passe par le hub, jamais par dspy.LM -- donc ce cache n'a aucun usage ici : on le
+    # coupe, et le seul chemin vulnerable du paquet disparait. Registre : docs/cve_sans_correctif.md.
+    dspy.configure_cache(enable_disk_cache=False, enable_memory_cache=True)
 
 HUB_URL = "http://127.0.0.1:8766/mcp"
 
@@ -147,7 +162,7 @@ def signature_call(
             inner = json.loads(text)
             if isinstance(inner, dict) and "text" in inner:
                 text = inner["text"]
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError):  # muet-ok : texte hors enveloppe garde tel quel, l'extraction tranche
             pass
         # Extract first JSON object
         import re as _re

@@ -71,4 +71,6 @@ def test_le_repli_nssm_a_disparu():
     import re
     corps = re.search(r"def _action_restart_hub\(\):(.*?)\ndef ", src, re.S).group(1)
     assert "_service_action(" not in corps, "Restart-Service NokidoMCP relancerait un 2e hub sur :8766"
-    assert "Restart stack" in corps
+    # Le message dit comment relancer la stack : menu du tray (l'icone « Restart stack » a quitte le
+    # Bureau le 2026-10-13, une seule icone « Nokido » y reste).
+    assert "Restart full-stack" in corps

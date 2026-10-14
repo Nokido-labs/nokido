@@ -23,8 +23,8 @@ Outils :
 
 Config claude_desktop_config.json :
   {"mcpServers":{"Nokido":{
-    "command":__import__("os").path.expanduser("~/miniforge3/python.exe"),
-    "args":[__import__("os").path.expanduser("~/Script python IA/LaForge/tools/nokido_mcp_server.py")]}}}
+    "command":"~/miniforge3/python.exe",
+    "args":["~/Script python IA/LaForge/tools/nokido_mcp_server.py"]}}}
 """
 
 import ast, contextlib, difflib, fnmatch, gc, hashlib, io, json

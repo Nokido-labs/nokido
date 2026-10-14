@@ -991,13 +991,23 @@ def _effet_observe(workdir: str, avant: tuple) -> str:
             # teste aussi la plage comme CHEMIN ; sous un worktree profond (CI), <workdir>/<a>..<b>
             # depasse MAX_PATH et le stat rend ENAMETOOLONG -- fatal, au lieu d'ENOENT -- d'ou
             # « failed to stat '<a>..<b>': Filename too long », rc 128.
-            r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-list", "--count",
-                         "%s..%s" % (h_av, h_ap), "--"], capture_output=True, text=True,
+            # PROPRES SEULEMENT (2026-10-13) : `--first-parent --no-merges`. Sans eux, une fusion d'alpha dans la
+            # branche de l'agent comptait toute l'histoire qu'elle apporte -- « commits produits : 1338 » pour une
+            # delegation qui n'avait RIEN committe de son travail (5 fichiers laisses non commites), verdict SUCCESS.
+            plage = "%s..%s" % (h_av, h_ap)
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-list", "--count", "--first-parent",
+                         "--no-merges", plage, "--"], capture_output=True, text=True,
                         encoding="utf-8", errors="replace", timeout=20, env=_env_git())
             # rc VERIFIE (2026-10-02, CI de reference f340e9ca4) : `int(stdout or 0)` faisait d'un
             # rev-list en ECHEC « 0 commit » -- HEAD avait bouge, l'effet etait annonce nul.
             if r.returncode == 0 and r.stdout.strip().isdigit():
                 n = int(r.stdout.strip())
+                rf = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-list", "--count", "--first-parent",
+                              "--merges", plage, "--"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=20, env=_env_git())
+                if rf.returncode == 0 and rf.stdout.strip().isdigit() and int(rf.stdout.strip()):
+                    pourquoi = " [+ %s fusion(s) : l'histoire qu'elles apportent n'est PAS du travail produit]" % (
+                        rf.stdout.strip())
             else:
                 n, pourquoi = -1, " [rev-list rc=%s : %s]" % (r.returncode, (r.stderr or "").strip()[:160])
         except Exception as e:  # noqa: BLE001 - illisible, dit
@@ -1007,6 +1017,20 @@ def _effet_observe(workdir: str, avant: tuple) -> str:
 
 
 _INTENTS_NON_FAITS = ("NEED_HUMAN_APPROVAL", "NEED_CLARIFY", "BUDGET_EXCEEDED")
+
+
+def _non_livre(effet: str, reponse: str) -> str | None:
+    """Motif « NON LIVRE » si la delegation n'a produit AUCUN commit propre mais laisse du travail non committe,
+    sans pointer d'artefact. None sinon.
+
+    2026-10-13 : AGY a fusionne alpha, modifie forge_session_context.py, puis s'est arrete sur 5 fichiers non
+    commites ; l'enveloppe du CLI disait SUCCESS et le drain l'a relaye. Du travail non committe dans un worktree
+    n'est ni relisible par le hub (ACL) ni fusionnable : DECLARE n'est pas ACHIEVED. Une tache de rapport qui
+    pointe son artefact (`pointer_ref`) est jugee par `_artefact_declare_absent`, pas ici."""
+    m = re.search(r"commits produits : (\d+) \([^)]*\) ; fichiers non commites : (\d+)", effet or "")
+    if not m or m.group(1) != "0" or int(m.group(2)) == 0 or '"pointer_ref"' in (reponse or ""):
+        return None
+    return "[NON LIVRE] aucun commit propre, %s fichier(s) non committe(s)" % m.group(2)
 
 
 def _intent_rendu(reponse: str) -> str | None:
@@ -1178,6 +1202,10 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
             and _est_accuse_reception(str(detail))):
         ok = False
         effet = "%s ; [ACCUSE DE RECEPTION] promesse sans compte rendu" % effet
+    nl = None if (rendu or absent) else _non_livre(effet, str(detail))
+    if nl:
+        ok = False      # du travail laisse non committe n'est ni relisible ni fusionnable (2026-10-13)
+        effet = "%s ; %s" % (effet, nl)
     log.info(f"  DELEGATE {task_id[:24]} -> AGY {'OK' if ok else 'KO'}{(' ' + rendu) if rendu else ''} "
              f"({len(str(detail))} chars) {effet}")
     # L'effet passe EN TETE : `_fin` tronque le detail a 220 caracteres pour le M2M.

@@ -45,8 +45,10 @@ réinventée. **Un agent qui code un chemin listé ici sans le réutiliser est d
 - `run action=shell commands=[…]` sérialise désormais **par ressource exclusive**
   (clé `git:<repo>`) — sequentiel dans un groupe, parallèle entre groupes.
 - Job lourd → `run_job` avec `lane` (`forge_lane_admission`, 1 job par lane, refus réactif).
-- `app/forge_bounded_queue.py` existe (file bornée + release leptin) mais **n'est importé
-  par personne** : si un besoin de file apparaît, le câbler plutôt qu'en écrire une autre.
+- `app/forge_bounded_queue.py` (file bornée `BoundedQueue` + release leptin, écrivain différé `EcrivainDiffere`)
+  est importé par `forge_intention_journal`, `forge_promcp_profiler` et `tools/forge_handoff_worker`
+  (constat du 2026-10-13 ; la mention « importé par personne » était périmée) : si un besoin de file
+  apparaît, l'étendre plutôt qu'en écrire une autre.
 
 **Point sur un domaine (roadmap, rules, memory…).**
 - **LIRE le SSoT** : `forge_ssot.point(query)` / `docs/<domaine>_state.json`. Ne pas

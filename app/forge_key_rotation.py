@@ -74,14 +74,81 @@ def _verrou_ledger():
     return FileLock(str(_HEALTH) + ".lock", timeout=_LEDGER_LOCK_S)
 
 
+def _dossier_journal() -> Path:
+    """Journal en AJOUT SEUL a cote du ledger. Derive de `_HEALTH` a l'appel : les NR le deplacent."""
+    return _HEALTH.with_name(_HEALTH.name + ".journal")
+
+
+def _journaux() -> list:
+    """Fichiers du journal, dans l'ordre chronologique (le nom commence par time_ns)."""
+    try:
+        return sorted(_dossier_journal().glob("*.json"))
+    except OSError:
+        return []
+
+
+def _delta(avant: dict, apres: dict) -> dict:
+    """Ce que la modification a change : entrees nouvelles ou modifiees, et retraits (pierre tombale datee)."""
+    d = {k: v for k, v in apres.items() if avant.get(k) != v}
+    d.update({k: {"retire": True, "ts": time.time()} for k in avant if k not in apres})
+    return d
+
+
+def _journaliser(delta: dict) -> bool:
+    """Depose `delta` dans un fichier UNIQUE du journal : aucun autre ecrivain ne peut le toucher, il n'y a
+    rien a exclure. Fusionne par tout lecteur, purge par le prochain ecrivain sous verrou."""
+    if not delta:
+        return True
+    d = _dossier_journal()
+    nom = "%d.%d.%s.json" % (time.time_ns(), os.getpid(), secrets.token_hex(4))
+    tmp = d / (nom + ".tmp")
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(delta, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, d / nom)
+        return True
+    except Exception as e:  # noqa: BLE001
+        import logging as _lg
+        _lg.getLogger("forge.key_rotation").error(
+            "[key_rotation] journal du ledger NON ecrit (%s: %s) | consequence: les marques de ce "
+            "process (revocations comprises) ne sont vues par AUCUN autre", type(e).__name__, str(e)[:90])
+        return False
+
+
+def _fusionner_journaux(data: dict, fichiers: list) -> dict:
+    """Applique le journal sur `data` : par empreinte, l'horodatage le plus RECENT gagne."""
+    for f in fichiers:
+        try:
+            delta = json.loads(f.read_text(encoding="utf-8"))
+        except Exception as e:  # noqa: BLE001
+            import logging as _lg
+            _lg.getLogger("forge.key_rotation").error(
+                "[key_rotation] entree de journal ILLISIBLE %s (%s) : ignoree, gardee pour instruction",
+                f.name, type(e).__name__)
+            continue
+        if not isinstance(delta, dict):
+            continue
+        for fp, entree in delta.items():
+            if not isinstance(entree, dict):
+                continue
+            actuel = data.get(fp)
+            if isinstance(actuel, dict) and float(entree.get("ts") or 0) < float(actuel.get("ts") or 0):
+                continue
+            if entree.get("retire"):
+                data.pop(fp, None)
+            else:
+                data[fp] = entree
+    return data
+
+
 def _modifier_ledger(modif) -> None:
     """Lire DU DISQUE, modifier, ecrire — sous le verrou inter-processus.
 
-    Sans verrou obtenu, on ecrit QUAND MEME (une marque de revocation ne doit pas
-    etre abandonnee parce qu'un autre ecrivain traine) et on le DIT : le fichier
-    reste lisible grace au temporaire unique, seule une marque concurrente peut
-    alors etre perdue.
+    Sans verrou obtenu, on ne REECRIT JAMAIS le ledger : reecrire sans exclusion depuis une lecture perimee
+    ecrasait la marque d'un autre ecrivain (1 revocation perdue sur 150, CI de reference du 14/10). Le
+    changement part au JOURNAL en ajout seul ; meme repli si l'ecriture du ledger echoue sous verrou.
     """
+    global _health_cache
     verrou = _verrou_ledger()
     tenu = False
     if verrou is not None:
@@ -91,13 +158,28 @@ def _modifier_ledger(modif) -> None:
         except Exception as e:  # noqa: BLE001
             import logging as _lg
             _lg.getLogger("forge.key_rotation").error(
-                "[key_rotation] verrou du ledger NON obtenu en %.1fs (%s) | consequence: "
-                "ecriture SANS exclusion, une marque concurrente peut etre perdue",
-                _LEDGER_LOCK_S, type(e).__name__)
-    try:
-        h = dict(_relire_du_disque())
+                "[key_rotation] verrou du ledger NON obtenu en %.1fs (%s) | consequence: marque deposee "
+                "au JOURNAL (ajout seul), fusionnee par tout lecteur", _LEDGER_LOCK_S, type(e).__name__)
+    if not tenu:
+        base = dict(_relire_du_disque())
+        h = dict(base)
         modif(h)
-        _save_health(h)
+        _journaliser(_delta(base, h))
+        _health_cache = (time.monotonic(), h)  # ce process voit sa marque tout de suite
+        return
+    try:
+        lus = _journaux()
+        base = dict(_relire_du_disque(lus))
+        h = dict(base)
+        modif(h)
+        if _save_health(h):
+            for f in lus:  # seuls les fichiers FUSIONNES ici : un depot posterieur reste pour le suivant
+                try:
+                    f.unlink()
+                except OSError:  # muet-ok : un journal deja fusionne et non purge se refusionne sans effet
+                    pass
+        else:
+            _journaliser(_delta(base, h))
     finally:
         if tenu:
             try:
@@ -113,7 +195,7 @@ def _fp(key: str) -> str:
 _ETAT_LEDGER = "VIDE"  # VIDE | LU | ILLISIBLE — voir `etat_du_ledger`
 
 
-def _relire_du_disque() -> dict:
+def _relire_du_disque(journaux: list | None = None) -> dict:
     """Lit le ledger SANS passer par le cache, et classe ce qui s'est passe.
 
     TROIS ETATS ET JAMAIS DEUX. L'ancienne version faisait `except: data = {}` :
@@ -128,11 +210,15 @@ def _relire_du_disque() -> dict:
     les cles sur un ledger illisible couperait tout le routage cloud pour un
     fichier tronque — un garde qui crie a faux se fait desarmer. L'appelant qui
     fait de la SECURITE peut, lui, choisir de se fermer.
+
+    Le JOURNAL (marques deposees sans verrou) est fusionne dans les TROIS etats : une revocation qui
+    n'a pas encore rejoint le ledger reste une revocation.
     """
     global _ETAT_LEDGER
+    journaux = _journaux() if journaux is None else journaux
     if not _HEALTH.exists():
         _ETAT_LEDGER = "VIDE"
-        return {}
+        return _fusionner_journaux({}, journaux)
     try:
         data = json.loads(_HEALTH.read_text(encoding="utf-8"))
     except Exception as e:  # noqa: BLE001
@@ -143,12 +229,12 @@ def _relire_du_disque() -> dict:
             "toute cle marquee est relue comme INCONNUE, donc servable — les "
             "revocations sont levees jusqu'a reparation du fichier",
             type(e).__name__, str(e)[:90])
-        return {}
+        return _fusionner_journaux({}, journaux)
     if not isinstance(data, dict):
         _ETAT_LEDGER = "ILLISIBLE"
-        return {}
+        return _fusionner_journaux({}, journaux)
     _ETAT_LEDGER = "LU"
-    return data
+    return _fusionner_journaux(data, journaux)
 
 
 def etat_du_ledger() -> str:
@@ -171,7 +257,7 @@ def _load_health() -> dict:
     return data
 
 
-def _save_health(h: dict) -> None:
+def _save_health(h: dict) -> bool:
     """Ecriture ATOMIQUE : temporaire puis remplacement.
 
     Un `write_text` direct laisse une fenetre ou le fichier est tronque. S'y
@@ -196,6 +282,7 @@ def _save_health(h: dict) -> None:
                 if essai == 4:
                     raise
                 time.sleep(0.02 * (essai + 1))
+        return True
     except Exception as e:  # noqa: BLE001
         try:
             tmp.unlink()
@@ -213,6 +300,7 @@ def _save_health(h: dict) -> None:
             "les marques de ce process (revocations comprises) ne sont vues par "
             "AUCUN autre et disparaissent au redemarrage",
             type(e).__name__, str(e)[:90])
+        return False
 
 
 def _secret(name: str) -> Optional[str]:

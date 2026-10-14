@@ -94,8 +94,8 @@ def beat_daemon(name: str, **extra) -> bool:
         return False
 
 
-def demarrer_pouls_service_http(nom: str, url: str, intervalle_s: float = 60.0,
-                                timeout_s: float = 5.0):
+def demarrer_pouls_service_http(nom: str, url: str, intervalle_s: float | None = None,
+                                timeout_s: float = 5.0, arret=None):
     """Pouls d'un SERVEUR HTTP, atteste par le fait qu'il SERT. Rend le thread.
 
     `beat_daemon` demande de battre APRES un cycle reussi, jamais au demarrage. Un
@@ -116,12 +116,31 @@ def demarrer_pouls_service_http(nom: str, url: str, intervalle_s: float = 60.0,
     Le fil est `daemon` : il n'empeche jamais l'arret du porteur. Il ne leve jamais, et
     une sonde en echec est SILENCIEUSE par construction (c'est l'absence de battement
     qui parle, pas un journal).
+
+    `arret` (threading.Event, optionnel) arrete le fil. Mesure 2026-10-13 : sans lui, les
+    fils des tests survivaient a leur test ; un fil qui sondait un port LIBRE finissait par
+    toucher un serveur d'un autre test sur ce port recycle, et battait avec le VRAI
+    `beat_daemon` -- des organes « temoin_vivant/mort/exception » apparaissaient au corps
+    comme censes tourner. En production, None = boucle a vie (inchange).
+
+    `intervalle_s=None` (defaut, owner 2026-10-13 : « cadence coherente avec un rythme
+    cardiaque ») : le pouls SUIT LE COEUR -- la periode est relue au noeud sinusal a chaque
+    tour (`Cadence._accorder`), rythme d'echappement s'il se tait, et le battement DIT s'il
+    etait perfuse (`rythme`, `tick_coeur`). Une montre propre a cet organe serait un
+    pacemaker de plus ; un intervalle explicite reste possible (tests).
     """
     import threading as _th
     import urllib.request as _u
 
+    _stop = arret if arret is not None else _th.Event()
+    _cad = Cadence(nom, cycle_s=0) if intervalle_s is None else None
+
     def _boucle() -> None:
-        while True:
+        while not _stop.is_set():
+            perfusion = {}
+            if _cad is not None:
+                _cad._accorder()
+                perfusion = {"rythme": _cad.rythme, "tick_coeur": _cad.tick_coeur, "tick_s": _cad.tick_s}
             try:
                 requete = _u.Request(url, method="GET")
                 with _u.urlopen(requete, timeout=timeout_s) as r:
@@ -129,10 +148,10 @@ def demarrer_pouls_service_http(nom: str, url: str, intervalle_s: float = 60.0,
                     # de Ko et ce fil tourne en permanence. Le statut suffit a prouver
                     # que la reponse a ete PRODUITE.
                     if 200 <= r.status < 500:
-                        beat_daemon(nom, sonde=url, statut=r.status)
+                        beat_daemon(nom, sonde=url, statut=r.status, **perfusion)
             except Exception:  # noqa: BLE001 — muet-ok : l'absence de pouls EST le signal
                 pass
-            time.sleep(max(5.0, intervalle_s))
+            _stop.wait(max(5.0, _cad.tick_s if _cad is not None else float(intervalle_s)))
 
     fil = _th.Thread(target=_boucle, name="pouls-%s" % nom, daemon=True)
     fil.start()
@@ -366,8 +385,9 @@ def _write_hb_bg(hb: dict) -> None:
         """
         try:
             _HB_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 - un pouls non ecrit se lit comme une mort : le dire
+            import logging as _lg
+            _lg.getLogger(__name__).warning("pouls NON ecrit (%s) : %s: %s", _HB_PATH, type(exc).__name__, exc)
 
     threading.Thread(target=_do, daemon=True, name="HB-Flush").start()
 
@@ -437,8 +457,9 @@ def beat(agent: str, status: str = "idle", progress: int = 0, task: str = "") ->
                 h["db_chunks"] = rag["db_chunks"]
                 _write_hb_bg(h)
                 br.json_set("rag", rag)
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - statistiques RAG non rafraichies : le dire
+                import logging as _lg
+                _lg.getLogger(__name__).debug("stats RAG du pouls non rafraichies : %s: %s", type(exc).__name__, exc)
 
         threading.Thread(target=_bg_flush, daemon=True, name=f"HB-BG-{agent}").start()
 
@@ -452,7 +473,7 @@ def read_heartbeat() -> dict:
         hb = br.json_get("hb")
         if hb:
             return hb
-    except Exception:
+    except Exception:  # noqa: BLE001 - muet-ok : repli sur le fichier juste en dessous
         pass
     # Fallback fichier
     try:
@@ -485,8 +506,10 @@ def kill_stale_agents(stale_seconds: int = 120) -> list:
                 if str(pid) in r.stdout:
                     _sp.Popen(f"taskkill /PID {pid} /T /F", shell=True, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
                     killed.append(f"{agent} PID={pid} drift={drift_ms // 1000}s")
-            except Exception:
-                pass
+            except Exception as exc:  # noqa: BLE001 - un agent en derive NON arrete doit se lire
+                import logging as _lg
+                _lg.getLogger(__name__).warning("agent %s (PID %s) en derive NON arrete : %s: %s",
+                                                agent, pid, type(exc).__name__, exc)
     return killed
 
 

@@ -115,7 +115,7 @@ def unsubscribe(q) -> None:
     with _LOCK:
         try:
             _SUBSCRIBERS.remove(q)
-        except ValueError:
+        except ValueError:  # muet-ok -- desabonner un abonne deja retire est idempotent
             pass
 
 
@@ -175,9 +175,16 @@ def _redact_dict(d: dict) -> dict:
     return out
 
 
+# EVENEMENTS JETES, COMPTES (2026-10-13, fiche veille v8 « AGC ») : l'AGC ne jetait jamais un travail sans lever une
+# alarme nommee (1201/1202). Ici une file d'abonne pleine faisait `except: pass` -- l'hormone n'arrivait pas a ce
+# recepteur, et personne ne pouvait le savoir. Le rejet reste (un abonne lent ne doit pas bloquer la diffusion),
+# mais il est COMPTE, expose dans system_state(), et dit au journal (1re fois puis toutes les 100).
+_JETES: dict = {"file_pleine": 0, "autre": 0}
+
+
 def _push_to_subscribers(rec: dict) -> None:
     """Best-effort push (non-blocking) avec redact PII Phase 33.
-    Si une queue est pleine, l'event est drop pour ce subscriber."""
+    Si une queue est pleine, l'event est drop pour ce subscriber -- et COMPTE (voir _JETES)."""
     if not _SUBSCRIBERS:
         return
     # Redact payload AVANT push (copie defensive, l'original _ACTIVE garde tout)
@@ -190,8 +197,14 @@ def _push_to_subscribers(rec: dict) -> None:
     for q in subs:
         try:
             q.put_nowait(safe_rec)
-        except Exception:
-            pass  # full or no loop, skip
+        except Exception as e:  # noqa: BLE001 -- rejet assume, mais compte et dit
+            cle = "file_pleine" if type(e).__name__ == "QueueFull" else "autre"
+            with _LOCK:
+                _JETES[cle] += 1
+                n = _JETES[cle]
+            if n == 1 or n % 100 == 0:
+                logger.warning("[hormones] %d evenement(s) JETE(S) (%s) vers un abonne -- %s", n, cle,
+                               "abonne trop lent, sa file est pleine" if cle == "file_pleine" else type(e).__name__)
 
 
 def _expires_at(hormone: str, released_ts: float) -> float:
@@ -232,8 +245,9 @@ def release(
     # Phase 12 push event-driven (non-bloquant best-effort)
     try:
         _push_to_subscribers(rec)
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 -- la diffusion ne bloque pas release, mais se dit
+        logger.warning("[hormones] diffusion de %s id=%s ECHOUEE (%s) : aucun abonne ne l'a recue", hormone, hid,
+                       type(exc).__name__)
     # Phase 12 persist si critique (survie restart hub). Seules les hormones
     # de stress/urgence a haut niveau sont persistees.
     if hormone in ("adrenaline", "cortisol") and rec["level"] >= 0.9:
@@ -241,8 +255,9 @@ def release(
             from nokido_agent.app.forge_critical_events import persist as _persist
 
             _persist("hormone", "critical", rec)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 -- evenement critique NON persiste : il ne survivra pas a un restart
+            logger.warning("[hormones] %s critique id=%s NON persiste (%s) : perdu au prochain restart du hub",
+                           hormone, hid, type(exc).__name__)
     # Phase 25 (2026-05-25) — dual-write vers forge_endocrine (SQLite autorité).
     # Consensus 4-voix LLM : endocrine = autorité long-terme (persiste reboot,
     # consume par homeostasis_orchestrator). hormones reste view in-RAM + SSE
@@ -337,8 +352,8 @@ def active(hormone: str | None = None, include_endocrine: bool = True) -> list[d
                         "_source": "endocrine_sqlite",
                     }
                 )
-        except Exception:
-            pass  # endocrine indispo = fallback in-RAM seul
+        except Exception as exc:  # noqa: BLE001 -- endocrine illisible = vue RAM seule, DITE
+            logger.debug("[hormones] scan endocrine ILLISIBLE (%s) : active() ne rend que la vue RAM", type(exc).__name__)
     out.sort(key=lambda r: r["released_ts"], reverse=True)
     return out
 
@@ -366,6 +381,8 @@ def system_state() -> dict[str, Any]:
             for h, lvs in by_hormone.items()
         },
         "known_hormones": sorted(HORMONES.keys()),
+        # Ce que la diffusion a JETE depuis le demarrage : un recepteur qui n'a pas recu n'est pas un recepteur sain.
+        "evenements_jetes": dict(_JETES),
     }
 
 

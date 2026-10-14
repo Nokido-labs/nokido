@@ -15,7 +15,7 @@ Couvre :
   10. Cohérence @help — toutes les commandes du REGISTRY sont documentées
 
 Lancer :
-    cd __import__("os").path.expanduser("~/Script python IA/LaForge")
+    cd "~/Script python IA/LaForge"
     python -m pytest tests/test_dispatch.py -v
 """
 from __future__ import annotations

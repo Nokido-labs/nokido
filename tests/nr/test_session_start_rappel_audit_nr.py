@@ -77,6 +77,16 @@ def test_un_changement_de_version_rappelle_l_audit():
     assert texte and "2.1.282 -> 2.1.290" in texte
 
 
+def test_le_rappel_ne_pretend_pas_que_le_changelog_couvre_la_version():
+    """13/10 : le rappel disait « changelog ingere » alors que l'ingestion (26/09) s'arretait
+    avant la version vue. Il nomme la version a chercher et dit qu'une source muette = INCONNU."""
+    m = _module()
+    etat = {"audite": {"modele": "claude-opus-5-5", "version": "2.1.294"}}
+    texte, _ = m.rappel_audit(etat, "claude-opus-5-5", "2.1.295")
+    assert "CLI 2.1.295" in texte, "la version a chercher dans le changelog doit etre nommee"
+    assert "INCONNU" in texte, "une source qui ne contient pas la version ne dit pas « rien »"
+
+
 def test_rien_n_a_change_rien_n_est_dit():
     m = _module()
     etat = {"audite": {"modele": "claude-opus-5-5", "version": "2.1.282"}}

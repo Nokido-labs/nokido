@@ -81,6 +81,34 @@ EXCLUDE = "Nokido.py,legacy,_attic,sandbox,inspirations,_mcp_repos,tmp_*.py"
 # L'ecart est sans effet tant que ci.yml reste manuel, mais la phrase, elle, envoyait
 # chercher la liste au mauvais endroit. Un commentaire perime coute une enquete.
 PURE_TESTS = [
+    # Verse le 2026-10-13 : classement secret/config du migrateur de coffre (_PASSKEY, _API). Pur.
+    "tests/nr/test_vault_migrate_classement_nr.py",
+    "tests/nr/test_miroirs_depot_public_nr.py",
+    "tests/nr/test_parcours_paquet_nr.py",
+    "tests/nr/test_installeur_modeles_connaissances_nr.py",
+    "tests/nr/test_bootstrap_interrupteurs_nr.py",
+    "tests/nr/test_relais_owner_portail_nr.py",
+    "tests/nr/test_racine_donnees_nr.py",
+    "tests/nr/test_hook_stop_attente_passive_nr.py",
+    "tests/nr/test_veille_cloture_store_nr.py",
+    "tests/nr/test_churn_hors_suivi_nr.py",
+    "tests/test_forge_ui_campaign.py",
+    "tests/nr/test_part_locale_et_muets_critiques_nr.py",
+    # Verse le 2026-10-13 (lot L9, RSI, debat swarm Q1) : held-out disjoint et deterministe du juge.
+    "tests/nr/test_juge_held_out_nr.py",
+    # Verse le 2026-10-13 (lot L9, RSI, debat swarm Q2) : l'ecrivain de contournement du juge est gele.
+    "tests/nr/test_ecrivain_contournement_gele_nr.py",
+    # Verse le 2026-10-13 (lot L9, RSI) : une surcharge de modele dans ask() ne fuit plus vers un appel
+    # concurrent (copie par appel). Pur : fournisseur factice, aucun reseau.
+    "tests/nr/test_ask_modele_par_appel_sans_course_nr.py",
+    # Verse le 2026-10-13 (lot L9, RSI) : la cause d'un echec fournisseur (402/403/429/timeout) entre dans
+    # le statut de la trace. Pur : net_log doublé, sidecar lu sur une ligne fixe.
+    "tests/nr/test_cause_echec_fournisseur_dans_le_statut_nr.py",
+    # Verse le 2026-10-13 (lot L1 cloture des roadmaps, AGY + integration) : surfaces de conv_indexer
+    # (Gemini .jsonl, Codex au format reel). Pur : tout sous tmp_path, aucune lecture du profil reel.
+    "tests/nr/test_conv_indexer_surfaces_nr.py",
+    "tests/nr/test_conv_digestion_nr.py",
+    "tests/nr/test_mem_watchdog_rss_courante_nr.py",
     # Verse le 2026-09-20 EN MEME TEMPS que le test : un NR commite mais non
     # declare ici ne tourne dans AUCUNE des deux CI (defaut paye le 19/09). Il
     # est pur : quatre racines de skills factices sous `tmp_path`, aucun service.
@@ -1841,6 +1869,88 @@ PURE_TESTS = [
     "tests/nr/test_rag_stream_requete_sure_nr.py",
     # Embedder :8099 (2026-10-08) : lot physique = contexte, borne en jetons sur les 3 portes.
     "tests/nr/test_embedder_8099_textes_longs_nr.py",
+    # Chemins machine du superviseur (2026-10-08) : 0/60 services sur VM neuve, [vars] generises jamais developpes.
+    "tests/nr/test_vars_machine_superviseur_nr.py",
+    # Comptes runAs crees par l'installeur (2026-10-09) : f-strings d'icacls cassees, interpreteur hors miniforge,
+    # install.ps1 ASCII et delegue a forge_sandbox_setup, organisme installe depuis un clone.
+    "tests/nr/test_comptes_installeur_nr.py",
+    # Portabiliseur (2026-10-09) : seul un litteral ENTIER est reecrit, jamais un chemin niche dans un autre.
+    "tests/nr/test_portabilize_litteraux_nr.py",
+    # Installeur produit des composants epingles (2026-10-09) : somme fausse refusee, construction reproductible.
+    "tests/nr/test_composants_nr.py",
+    # runAs sous Linux / macOS (2026-10-09) : comptes dedies, superviseur root, coffre root 0600, refus dit hors root.
+    "tests/nr/test_runas_posix_nr.py",
+    # Chemins muets (2026-10-09) : icacls du lanceur en page OEM, fichier illisible du portabiliseur, repli tronque.
+    "tests/nr/test_chemins_muets_dits_nr.py",
+    # Sommeil RAM (2026-10-11) : RESOURCE_MANAGER endormait NetcfgUI malgre neverSleep (16 ordres en 2 h).
+    "tests/nr/test_sommeil_ram_respecte_neversleep_nr.py",
+    # Failles du 2026-10-12 : cache disque dspy coupe (diskcache sans correctif) ; verificateur deno sous compte de
+    # service (acces refuse, cache deno du profil owner). Faux modules, aucun service.
+    "tests/nr/test_dspy_cache_disque_coupe_nr.py",
+    "tests/nr/test_deno_check_acces_refuse_nr.py",
+    # 2026-10-13 : audit pip de TOUS les envs (faux poste, pip-audit simule) ; enricher PDF sans PyPDF2
+    # (faux modules) ; imports morts d'un fichier non versionne classes hors du corps (faux depot). Aucun service.
+    "tests/nr/test_pip_audit_tous_les_envs_nr.py",
+    "tests/nr/test_enricher_pdf_sans_pypdf2_nr.py",
+    "tests/nr/test_imports_morts_hors_corps_nr.py",
+    # Sonde passive du chemin chaud (P2) : vraie file asyncio, interrupteur dans tmp. Aucun service.
+    "tests/nr/test_sonde_hotpath_nr.py",
+    # Statistique publique de la vitrine (owner 2026-10-13) : API simulee, fichiers dans tmp. Aucun service.
+    "tests/nr/test_stats_publiques_nr.py",
+    # Lock du runtime certifiant re-fige (2026-10-13) : fausses distributions dans tmp. Aucun service.
+    "tests/nr/test_ci_lock_runtime_nr.py",
+    # Matiere de veille non tronquee (owner 2026-10-13) : API GitHub simulee. Aucun service.
+    "tests/nr/test_veille_matiere_non_tronquee_nr.py",
+    # Cause d'un job en echec rendue par job_status et le guet (owner 2026-10-13). Faux dossier de jobs. Aucun service.
+    "tests/nr/test_job_err_visible_nr.py",
+    # verify_kw sans doublons (2026-10-13) : LLM simule. Aucun service.
+    "tests/nr/test_verify_kw_sans_doublons_nr.py",
+    # vue de la veille reparee (2026-10-13) : SearXNG, GitHub, crawl simules. Aucun service ni reseau.
+    "tests/nr/test_veille_vue_reparee_nr.py",
+    # integration WSL de Docker Desktop (2026-10-13) : journal simule, cycle simule. Aucun Docker.
+    "tests/nr/test_docker_integration_wsl_nr.py",
+    # drain AGY : fusion exclue de l'effet, NON LIVRE sans commit propre (2026-10-13). Depot git temporaire.
+    "tests/nr/test_agy_effet_fusion_non_livre_nr.py",
+    # veille automatique : identite propre RSS_WATCHER, SERVICES non releve (2026-10-13). Hub simule.
+    "tests/nr/test_rss_watcher_identite_propre_nr.py",
+    # gate P1 : lecture RAM dementie par la mesure directe = refus annule et dit (2026-10-13). psutil simule.
+    "tests/nr/test_p1_ram_second_observateur_nr.py",
+    # gardes RAM (should_throttle, admission ensure_service) sur plancher 60 s, bord >= 95 % a l'instant (2026-10-13).
+    "tests/nr/test_ram_plancher_fenetre_nr.py",
+    # soif : generation des themes de corpus avec repli local quand Cerebras tombe (402 le 13/10). LLM simules.
+    "tests/nr/test_soif_repli_llm_nr.py",
+    # whoami hors de la boucle du hub + cache 10 min des comptes par domaine (6 gels, 74 s le 13/10). Connexion simulee.
+    "tests/nr/test_whoami_hors_boucle_nr.py",
+    # leptine : audit_messages hors telemetrie, base M2M isolee (mort en silence depuis la scission M2M, 13/10).
+    "tests/test_leptin_mailbox_telemetry.py",
+    # egress : exception d'entropie epinglee par VALEUR (sha256), jamais par fichier (tpm_jkt public, 13/10).
+    "tests/nr/test_egress_entropie_valeur_epinglee_nr.py",
+    # nudge : un port retire par politique (:5557) n'est pas une panne -- INFO + rattrapage (13/10). zmq simule.
+    "tests/nr/test_nudge_port_retire_par_politique_nr.py",
+    # post-commit : vectorise_file rend la voie empruntee ; rouge hors CI jusqu'au 13/10 (attendait True).
+    "tests/test_post_commit_doctrine.py",
+    # eviction par capacite : faux registres poses sous les DEUX noms d'import (4 rouges hors CI jusqu'au 13/10).
+    "tests/test_eviction_par_capacite.py",
+    # gate P1 intent-aware : RAM directe (_free_now) simulee, independant du poste (13/10).
+    "tests/test_p1_gate_intent_aware.py",
+    # osmoregulation de SessionContext (AGY, agent/antigravity 755424002..90cbf4d34, integre le 13/10 apres 4 revues).
+    "tests/nr/test_osmoregulation_digestion_nr.py",
+    # tableau noir : zones de gouvernance jamais elaguees (incident du 13/10, 81 faits roadmap restaures). Base tmp.
+    "tests/nr/test_blackboard_zones_perennes_nr.py",
+    # icones START/Restart/STOP : par le Control Panel (stack + tray verifie), jamais nokido_start.ps1 en direct (13/10).
+    "tests/nr/test_raccourcis_lancent_le_tray_nr.py",
+    # hormones jetees faute de place : comptees et exposees (2026-10-13). File asyncio locale.
+    "tests/nr/test_hormones_jetes_comptes_nr.py",
+    # guet de job : l'arbre actif n'est pas un gel, l'illisible est dit (2026-10-13). Activite simulee.
+    "tests/nr/test_job_watch_arbre_actif_nr.py",
+    # singleton RAG : get_rag() unique, zero constructeur RAGEngine() direct par AST (lot L5, 2026-10-13). Pur.
+    "tests/test_rag_singleton.py",
+    # couverture modules core (models, dispatch, stack evolutif isole sous tmp_path) (lot L5, 2026-10-13). Pur.
+    "tests/nr/test_core_coverage_nr.py",
+    # refacto 2026-04 (state, circuit breakers, facade, container DI, invariants structures app/) borne (lot L5, 2026-10-13). Pur.
+    "tests/nr/test_refacto_nr.py",
+    # chemins d'erreur muets motives de forge_mixin_ui (lot L5, 2026-10-13). Pur.
+    "tests/nr/test_mixin_ui_sans_chemins_muets_nr.py",
     "tests/nr/test_capability_gate_sondes_nr.py",
     "tests/nr/test_gate_depense_tokens_nr.py",
     "tests/nr/test_tool_budget_gate_nr.py",

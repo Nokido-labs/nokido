@@ -40,6 +40,14 @@ import socket
 import time
 
 PORT_DEFAUT = 5557
+# Ports RETIRES PAR POLITIQUE : personne ne doit y ecouter, ce n'est pas une panne (constitution :
+# DISABLED_BY_POLICY != RESOURCE_UNAVAILABLE). Mesure 13/10 : chaque commit (ancrage forge_self_correction)
+# imprimait un WARNING « personne n'ecoute :5557 » -- une alarme pour un choix, qui finit filtree. L'ecouteur reste
+# sonde EN PREMIER : si le port revit un jour, le reveil est delivre comme avant.
+_PORTS_RETIRES = {
+    5557: "brain_worker :5557 retire par politique depuis 2026-06-03 (OOM BGE-M3 ONNX) ; embedder vivant :8099 ; "
+          "rattrapage des chunks sans vecteur = NokidoDeportEmbed (vagues d'une heure)",
+}
 # Un connect_ex vers un port LOCAL ferme revient immediatement (ECONNREFUSED), donc
 # la sonde est quasi gratuite. Le cache evite quand meme de la refaire a chaque
 # chunk insere lors d'une ingestion en rafale.
@@ -69,20 +77,23 @@ def _ecouteur_present(port: int) -> bool:
     return ouvert
 
 
-def _dire_une_fois(cle: str, etat: str, msg: str, *args) -> None:
+def _dire_une_fois(cle: str, etat: str, msg: str, *args, niveau: int | None = None) -> None:
     """Un etat qui DURE se dit une fois ; son changement se redit. Sans cela, une
-    ingestion en rafale produirait une ligne par chunk et le remede finirait filtre."""
+    ingestion en rafale produirait une ligne par chunk et le remede finirait filtre.
+    `niveau` : gravite explicite (un choix de politique se dit en INFO, une panne en WARNING)."""
     if _DERNIER_ETAT.get(cle) == etat:
         return
     _DERNIER_ETAT[cle] = etat
-    (logger.warning if etat != "ok" else logger.info)(msg, *args)
+    if niveau is None:
+        niveau = logging.WARNING if etat != "ok" else logging.INFO
+    logger.log(niveau, msg, *args)
 
 
 def nudge_embed(n: int = 1, port: int = PORT_DEFAUT, source: str = "?",
                 payload: dict | None = None) -> dict:
     """Reveille le daemon d'embedding. Rend l'etat REEL de la livraison.
 
-    Retourne {"delivre": bool, "etat": "ok"|"aucun_ecouteur"|"impossible", ...}.
+    Retourne {"delivre": bool, "etat": "ok"|"aucun_ecouteur"|"desactive_par_politique"|"impossible", ...}.
     L'appelant peut donc agir — ce qu'un `except: pass` interdisait, faute d'avoir
     quoi que ce soit a observer.
 
@@ -91,6 +102,12 @@ def nudge_embed(n: int = 1, port: int = PORT_DEFAUT, source: str = "?",
     l'ecouteur reste au meme endroit, ce qui evite que chaque appelant reinvente —
     et oublie — le controle qui manquait.
     """
+    if not _ecouteur_present(port) and port in _PORTS_RETIRES:
+        _dire_une_fois("ecouteur:%d" % port, "retire",
+                       "[nudge] :%d retire par politique -- reveil non envoye (appelant: %s) : %s",
+                       port, source, _PORTS_RETIRES[port], niveau=logging.INFO)
+        return {"delivre": False, "etat": "desactive_par_politique", "port": port,
+                "rattrapage": "NokidoDeportEmbed"}
     if not _ecouteur_present(port):
         _dire_une_fois(
             "ecouteur:%d" % port, "absent",

@@ -1,7 +1,7 @@
 """
 nokido_tui.py v2 — TUI multi-CLI user (ring 0)
 
-Phases 1-6 complètes de docs/roadmap_tui_multi_cli.md.
+Phases 1-6 complètes.
 v2 ajoute : OPSEC indicator (Phase 6 cognitive), RAG pane toggle,
 filter unread, persistence bind mount, help modal.
 

@@ -256,7 +256,7 @@ Oui — change le mapping port. Hub prend env var `LAFORGE_HUB_PORT`. Chaque ins
 1. Register dans `app/forge_mcp_registry.py::ToolRegistry`.
 2. Ajouter handler dispatch.
 3. Ajouter à `tools/hub_middleware.py::_ALLOWED_TOOLS`.
-4. Test : `pytest tests/test_forge_mcp_registry.py`.
+4. Test : `pytest tests/test_forge_mcp_registry_namespace.py tests/test_forge_mcp_registry_unicode.py`.
 
 ### Écrire un skill custom ?
 

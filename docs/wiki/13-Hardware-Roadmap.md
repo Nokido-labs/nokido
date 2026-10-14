@@ -20,7 +20,7 @@ This page is the technical companion to [MANIFESTO.md §6](../../MANIFESTO.md#6-
 | Phase | Horizon | Target hardware | Modules impacted |
 |---|---|---|---|
 | Stable | today | x86-64 APU + iGPU + light NPU | all existing |
-| A | 6–12 months | 40+ TOPS NPU (Intel Lunar Lake, Hailo-10) | `forge_accelerator_router` (to create) |
+| A | 6–12 months | 40+ TOPS NPU (Intel Lunar Lake, Hailo-10) | accelerator router (to build) |
 | B | 12–24 months | Neuromorphic (Akida, Loihi 2, GrAI) | `forge_snn_core`, `forge_active_inference_agent` |
 | C | 24–48 months | Analog CIM / RRAM / photonic | `brain_worker` backend swap |
 | D | 48+ months | Continuous analog grids | "model pre-train" obsolete — full continual learning |
@@ -74,7 +74,7 @@ Adoption when an open-source runtime ships :
 
 ### Software change
 
-A new module `app/forge_accelerator_router.py` (planned, not yet
+A dedicated accelerator router (planned, not yet
 implemented) will :
 
 1. Detect available accelerators at boot.
@@ -115,7 +115,7 @@ Both publish which backend they took (`forge_snn_core.available()` returns
 `False` when the sandbox guard blocks the probe), so the degradation is declared —
 read it before attributing a result to "the SNN".
 
-**This is not hypothetical.** The substrate is switched on (`sandbox/snn.wantedd`
+**This is not hypothetical.** The substrate is switched on (`sandbox/snn.wanted`
 is present; `forge_resource_manager` reads it) and has fired **598 `snn`-tagged
 events** into `sandbox/lifecycle_actions.jsonl` since 2026-08-04 — re-counted
 2026-08-30, latest at `15:31:18 UTC`, five minutes before this line was written
@@ -275,8 +275,8 @@ If you have an accelerator we don't support :
 2. Implement a backend adapter in
    `go_services/brain_worker/src/backend_<vendor>.rs` (Rust) or
    `app/forge_<vendor>_runtime.py` (Python).
-3. Update `forge_accelerator_router.py` (when created) to detect it.
-4. Add a benchmark in `tools/forge_bench_accelerator.py`.
+3. Teach the accelerator router (once built) to detect it.
+4. Add a benchmark for it.
 
 Welcome PRs :
 

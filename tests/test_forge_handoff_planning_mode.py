@@ -5,7 +5,7 @@ Inspired by Devin AI dualite (PLANNING vs STANDARD) and Claude Code 2.0
 <think> Gate" for the design rationale.
 
 Run :
-    __import__("os").path.expanduser("~/miniforge3/python.exe") -m pytest tests/test_forge_handoff_planning_mode.py -v
+    "~/miniforge3/python.exe" -m pytest tests/test_forge_handoff_planning_mode.py -v
 """
 from __future__ import annotations
 

@@ -446,7 +446,19 @@ class ChainExecutor:
             import re
 
             idxs = [int(x) - 1 for x in re.findall(r"\d+", raw) if 0 <= int(x) - 1 < len(kws)]
-            return [kws[i] for i in idxs[:3]] if idxs else kws[:3]
+            # DEDOUBLONNER (2026-10-13). Le LLM a rendu « 1 1 1 » : trois fois la MEME requete, les requetes precises
+            # (Executive/Waitlist, tables de phases, alarme 1202) jetees sans un mot -- la veille Hamilton n'a ingere
+            # qu'UNE source. On garde l'ordre choisi, sans doublon, et on complete avec les suivantes ; on le DIT.
+            garde = list(dict.fromkeys(idxs))[:3]
+            for i in range(len(kws)):
+                if len(garde) >= min(3, len(kws)):
+                    break
+                if i not in garde:
+                    garde.append(i)
+            if len(garde) != len(idxs[:3]) or len(set(idxs[:3])) < len(idxs[:3]):
+                logger.warning("verify_kw : sortie LLM %r corrigee (doublons/manques) -> %r", raw[:80],
+                               [kws[i] for i in garde])
+            return [kws[i] for i in garde]
         if step_type == "refine":
             results = context.get("search_results", [])
             if not results:
@@ -600,11 +612,19 @@ class ChainExecutor:
                         axis2 = max(0.0, 1.0 - age * 0.1)  # 0 si age >10
                 # Axis 3 : source trust (-2 to +2)
                 axis3 = _source_trust(r.get("url"))
-                return axis1 + axis2 + axis3  # range ~[-2, 6]
+                # Axis 4 : CIBLE DONNEE dans le theme (2026-10-13). Nommee explicitement par qui lance la veille, elle
+                # vaut au moins une venue reconnue (+2, comme arxiv) : sans cet axe, les cinq fichiers du code AGC
+                # (raw.githubusercontent.com, confiance 0) ont ete evinces des 5 places par des articles arxiv que le
+                # crawl a ensuite rejetes. Le veto de source et le veto d'ancrage s'appliquent toujours.
+                axis4 = 2.0 if r.get("engine") == "theme_url" else 0.0
+                return axis1 + axis2 + axis3 + axis4  # range ~[-2, 8]
 
-            # Compute offline scores + sort
+            # Compute offline scores + sort. Les CIBLES DONNEES passent d'abord (2026-10-13) : un bonus de score ne
+            # suffisait pas -- sur un theme juge « academique », arxiv vaut +2.5 de confiance plus la fraicheur et
+            # repassait devant. Elles restent soumises aux vetos et au seuil ci-dessous, puis a l'affinage du crawl et
+            # de l'ingestion.
             scored = [(r, _offline_score(r)) for r in results]
-            scored.sort(key=lambda x: x[1], reverse=True)
+            scored.sort(key=lambda x: (x[0].get("engine") == "theme_url", x[1]), reverse=True)
 
             # LLM scoring best-effort (NON bloquant)
             llm_scores = {}
@@ -703,7 +723,7 @@ class ChainExecutor:
     async def _call_search(self, context):
         import asyncio
 
-        from nokido_agent.app.forge_watch_agent import _academic_search, _ensure_searxng, _searxng
+        from nokido_agent.app.forge_watch_agent import _academic_search, _ensure_searxng, _github_search, _searxng
 
         # Réveil central on-demand de SearXNG (seam superviseur) + attente
         # readiness AVANT les requêtes, sinon la 1re veille dégrade en academic
@@ -735,12 +755,32 @@ class ChainExecutor:
         tentatives = 0
         echecs = 0
 
+        # URLS DONNEES DANS LE THEME (2026-10-13) : des cibles CONNUES, injectees en tete comme candidats ; refine
+        # les note et l'affinage decide, rien n'est force. `forge_watch_agent._step_search` le faisait depuis le
+        # 2026-07-22 (cas ExploitGym), mais ce chemin-ci -- le SEUL qu'execute la chaine -- ne l'avait jamais recu :
+        # deux versions de la meme etape avaient diverge. Le contenu provisoire ne sert qu'a la notation ; si le
+        # crawl ne ramene pas la page, `_call_crawl` le vide (jamais ingere a la place de la page).
+        import re as _re
+
+        _theme = context.get("theme") or ""
+        for _u in _re.findall(r"https?://[^\s\"'\)\]]+", _theme):
+            if _u in seen_urls:
+                continue
+            seen_urls.add(_u)
+            all_res.append({"title": _u[:120], "url": _u,
+                            "content": ("cible donnee dans le theme: " + _theme)[:400],
+                            "keyword": "theme-url", "engine": "theme_url"})
+
         def _docs(k, m):
             # DOCS OFFICIELLES en tete pour les sujets-OUTILS : passe SearXNG orientee
             # documentation, prime au dedup avant l'academique -- sinon l'API academique
             # (OpenAlex/arXiv) noyait les docs jj/aider/bazel sous des papiers hors-sujet
             # (mesure 2026-08-28 : jujutsu -> -Execution Envelopes-, aider -> -Vibe Coding-).
             return _searxng(k + " official documentation guide", m)
+
+        def _github(k, m):
+            # API injoignable = ECHEC compte (non-mesure), jamais une source qui a repondu « rien ».
+            return _github_search(k, m, leve=True)
 
         for kw in kws:
             # L'academique est une SOURCE A PART ENTIERE, pas un repli. `_searxng`
@@ -750,7 +790,8 @@ class ChainExecutor:
             # (veilles du 2026-07-16). L'API academique rend l'ABSTRACT directement :
             # ni crawl, ni chrome de nav, ni PDF a extraire. Academique en PREMIER :
             # a URL egale, son abstract prime au dedup.
-            for src, n in ((_docs, 4), (_academic_search, 3), (_searxng, 6)):
+            # GitHub par API (README entier, aucun CAPTCHA) : `_step_search` l'interrogeait, ce chemin jamais.
+            for src, n in ((_docs, 4), (_academic_search, 3), (_github, 3), (_searxng, 6)):
                 tentatives += 1
                 try:
                     hits = src(kw, n)
@@ -778,7 +819,8 @@ class ChainExecutor:
         # Observabilité : breakdown sources (academic > 0 = preuve que SearXNG a échoué).
         eng: dict = {}
         for r in all_res:
-            tag = "academic" if (r.get("engine") in ("openalex", "arxiv_direct")) else "searxng"
+            tag = ("academic" if r.get("engine") in ("openalex", "arxiv_direct")
+                   else r.get("engine") if r.get("engine") in ("github_api", "theme_url") else "searxng")
             eng[tag] = eng.get(tag, 0) + 1
         # Priorite DOMAINE (2026-08-28 v2) : les docs officielles priment sur
         # l'academique pour les sujets-outils -- le refine prend les premiers,
@@ -792,7 +834,8 @@ class ChainExecutor:
                                     "/abs/", "researchgate")):
                 return -1
             return 0
-        all_res.sort(key=lambda r: -_score_dom(r.get("url", "")))
+        # Les cibles DONNEES restent en tete : refine ne montre au LLM que les 10 premiers titres.
+        all_res.sort(key=lambda r: -(3 if r.get("engine") == "theme_url" else _score_dom(r.get("url", ""))))
         print(f"[SEARCH] n={len(all_res)} searxng_ensured={searxng_ok} sources={eng} "
               f"tentatives={tentatives} echecs={echecs}")
         # TROIS etats, jamais deux. Aucun resultat ET aucune source joignable n'est
@@ -877,6 +920,12 @@ class ChainExecutor:
                 continue
             r["content"], r["crawled"] = md, True
             _solder(url, r)
+        # Une cible DONNEE dans le theme que le crawl n'a pas ramenee n'a pour contenu que le texte provisoire
+        # de notation : on le VIDE, l'ingestion la rejette alors comme « sans corps » au lieu d'ingerer le theme
+        # a la place de la page (2026-10-13).
+        for r in refined:
+            if r.get("engine") == "theme_url" and not r.get("crawled"):
+                r["content"] = ""
         # Profondeur AGREGEE du node : sans elle, il faudrait relire chaque
         # resultat pour savoir si la veille a vraiment ouvert les yeux.
         profil: dict = {}

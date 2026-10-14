@@ -60,7 +60,7 @@ def check_missing(imports: list[str]) -> list[str]:
 # figee se perime en silence. Le depot DECLARE deja ses dependances ; le seul cas
 # legitime de cette fonction est de restaurer une dependance declaree mais absente
 # de l'environnement — jamais d'en AJOUTER une que personne n'a decidee.
-_FICHIERS_DECLARATION = ("requirements.txt", "requirements-ml.txt", "pyproject.toml")
+_FICHIERS_DECLARATION = ("requirements.txt", "requirements-ml.txt", "requirements-organisme.txt", "pyproject.toml")
 
 # Un nom d'import n'est pas un nom de distribution. Ces alias couvrent les ecarts
 # courants ; ils ne servent qu'a EVITER UN REFUS INJUSTE, jamais a elargir.

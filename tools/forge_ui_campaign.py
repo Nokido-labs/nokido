@@ -904,6 +904,11 @@ _PASSES_CONFIRMATION = 3
 # reclame un fait temporel : sans lui, chaque passe repart sans memoire et un
 # defaut qui ne se montre pas aujourd'hui n'existe plus.
 _REGISTRE_INSTABLES = OUT / "routes_instables.json"
+# Compteurs d'occurrences : ANNEXE ignoree par git (`sandbox/ui_campaign/*`). Decision owner du 14/10 : l'arbre partage
+# n'etait jamais propre, la campagne reecrivant ce fichier SUIVI a chaque passe. Le fichier suivi ne porte plus que la
+# LISTE des routes -- il ne change que si une route NOUVELLE entre -- et reste versionne pour le runner (exception
+# mesuree du 17/09 dans .gitignore : sans lui, le cliquet N-passes ne rejouait rien et rendait un faux vert).
+_COMPTEURS_INSTABLES = OUT / "routes_instables_compteurs.json"
 
 
 def routes_a_rejouer(en_defaut, registre) -> list:
@@ -946,17 +951,30 @@ def maj_registre(registre, en_defaut) -> dict:
 
 
 def _lire_registre() -> dict:
+    """La LISTE suivie, enrichie des compteurs de l'annexe quand elle existe (sur le runner elle n'existe pas : 1)."""
     try:
-        return json.loads(_REGISTRE_INSTABLES.read_text(encoding="utf-8"))
+        routes = json.loads(_REGISTRE_INSTABLES.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001 — registre absent au premier run : normal
         return {}
+    try:
+        compteurs = json.loads(_COMPTEURS_INSTABLES.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — annexe absente (runner, premier run) : les compteurs repartent de la liste
+        compteurs = {}
+    return {r: int(compteurs.get(r) or (routes.get(r) if isinstance(routes, dict) else 1) or 1) for r in routes}
 
 
 def _ecrire_registre(registre) -> None:
+    """Compteurs dans l'annexe a chaque passe ; liste suivie reecrite SEULEMENT si l'ensemble des routes change."""
+    liste = {r: 1 for r in sorted(registre)}
     try:
         _REGISTRE_INSTABLES.parent.mkdir(parents=True, exist_ok=True)
-        _REGISTRE_INSTABLES.write_text(
-            json.dumps(registre, indent=1, sort_keys=True), encoding="utf-8")
+        _COMPTEURS_INSTABLES.write_text(json.dumps(registre, indent=1, sort_keys=True), encoding="utf-8")
+        try:
+            actuelle = json.loads(_REGISTRE_INSTABLES.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — absente ou illisible : on la (re)ecrit
+            actuelle = None
+        if actuelle != liste:
+            _REGISTRE_INSTABLES.write_text(json.dumps(liste, indent=1, sort_keys=True), encoding="utf-8")
     except Exception as e:  # noqa: BLE001
         print("[persistance] registre NON ecrit (%s) — la prochaine passe "
               "repartira sans memoire" % type(e).__name__)
@@ -1095,7 +1113,7 @@ async def run() -> None:
     _t0 = _time.time()
     try:
         sys.stdout.reconfigure(errors="replace")  # console Windows cp1252 : emojis -> pas de crash
-    except Exception:
+    except Exception:  # muet-ok : flux deja reconfigure ou non reconfigurable, l'affichage seul est concerne
         pass
     cfg = AuthConfig.from_env()
     # Le coffre en repli : `from_env()` seul laissait le jeton VIDE sous le compte
@@ -1268,8 +1286,9 @@ async def run() -> None:
             br.page.on("response", _reponse)
             await br.page.add_init_script(_DISABLE_ANIM)
             await br.page.add_init_script(_SSE_REGISTRY_JS)
-        except Exception:
-            pass
+        except Exception as _exc_init:  # noqa: BLE001 - la mesure change : animations et SSE non neutralises, on le DIT
+            print("[campagne] scripts d'initialisation NON poses (%s) : animations et flux SSE non neutralises, "
+                  "les empreintes de cette passe peuvent bouger d'elles-memes" % type(_exc_init).__name__)
 
         # --- LOGIN par le formulaire (methode prouvee) ---
         login_state = None
@@ -1311,7 +1330,7 @@ async def run() -> None:
             try:
                 try:
                     await br.page.evaluate("() => { if (window._closeAllEventSources) window._closeAllEventSources(); }")
-                except Exception:
+                except Exception:  # muet-ok : page sans registre SSE ou deja fermee ; la navigation remplace le document
                     pass
                 try:
                     await br.goto(url, "domcontentloaded")
@@ -1321,8 +1340,8 @@ async def run() -> None:
                     await br.goto(url, "domcontentloaded")
                 try:
                     await br.page.wait_for_load_state("networkidle", timeout=4000)
-                except Exception:
-                    pass  # pages SSE -> networkidle jamais, OK
+                except Exception:  # muet-ok : pages SSE -> networkidle jamais atteint, attendu
+                    pass
                 await br.wait(1.2)
                 await _vue_ou_echec(br.page, path)
                 # ATTENTE CONDITIONNELLE, pas un delai arbitraire. Les badges de ces
@@ -1342,7 +1361,7 @@ async def run() -> None:
                             "(ms) => { const t = (document.body.innerText || '').toLowerCase();"
                             " return ms.every(m => t.includes(m)); }",
                             arg=[m.lower() for m in _must], timeout=6000)
-                    except Exception:  # noqa: BLE001
+                    except Exception:  # noqa: BLE001  # muet-ok : l'absence est JUGEE juste apres, pas ignoree
                         pass  # toujours absent apres 6 s -> c'est un VRAI manque
                 name = (path.strip("/").replace("/", "_") or "root")
                 png = OUT / f"{name}.png"
@@ -1437,7 +1456,7 @@ async def run() -> None:
                 try:
                     try:
                         await br.page.evaluate("() => { if (window._closeAllEventSources) window._closeAllEventSources(); }")
-                    except Exception:
+                    except Exception:  # muet-ok : page sans registre SSE ou deja fermee ; la navigation suit
                         pass
                     await br.goto(url_de(path), "domcontentloaded")
                     await br.wait(0.8)
@@ -1483,7 +1502,7 @@ async def run() -> None:
                         # reset : re-nav + re-remplir avant chaque clic sûr (isole les effets)
                         try:
                             await br.page.evaluate("() => { if (window._closeAllEventSources) window._closeAllEventSources(); }")
-                        except Exception:
+                        except Exception:  # muet-ok : page sans registre SSE ou deja fermee ; la navigation suit
                             pass
                         await br.goto(url_de(path), "domcontentloaded")
                         await br.wait(0.5)
@@ -1491,8 +1510,9 @@ async def run() -> None:
                         for _sel, _val in fills:
                             try:
                                 await br.fill(_sel, _val)
-                            except Exception:
-                                pass
+                            except Exception as _exc_fill:  # noqa: BLE001 - le clic suivant porte sur un formulaire VIDE
+                                print("[clic] %s : champ %s NON rempli (%s) avant le clic"
+                                      % (path, _sel, type(_exc_fill).__name__))
                         # EMPREINTE, pas seulement le texte. `dom_text()` rend
                         # `document.body.innerText`, qui n'inclut NI la valeur des champs
                         # NI l'URL. Mesure 2026-08-26 : « Effacer » (/rag) vide un

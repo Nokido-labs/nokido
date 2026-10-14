@@ -85,7 +85,7 @@ def scan_predicate_distribution() -> dict[str, int]:
             try:
                 preds = json.loads(r["predicates"] or "[]")
                 counter.update(preds)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError:  # muet-ok : ligne aux predicats illisibles = donnee, pas panne du scan
                 continue
         return dict(counter)
     finally:
@@ -234,8 +234,8 @@ def detect_stack_gaps(max_gaps: int = 6) -> list[dict]:
                     "SELECT COUNT(*) FROM rag_fts WHERE rag_fts MATCH ?",
                     (f'"{nom}" AND "{mineure}"',),
                 ).fetchone()[0]
-            except Exception:  # noqa: BLE001
-                continue  # requete FTS invalide sur ce nom -> on s'abstient
+            except Exception:  # noqa: BLE001 -- muet-ok : requete FTS invalide sur ce nom -> abstention voulue
+                continue
             if n_hits > 0:
                 continue  # la version est citee quelque part : pas un angle mort
             out.append({
@@ -294,7 +294,7 @@ def detect_knowledge_gaps(min_domain_floor: int = 3, recency_threshold_days: int
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             age_days = (now - dt).days
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError):  # muet-ok : date illisible -> ligne ignoree (donnee)
             continue
         if age_days > recency_threshold_days and domain_dist.get(domain, 0) > 0:
             gaps.append(
@@ -414,7 +414,7 @@ def _extract_json(raw: str, require_key: str | None = None) -> dict:
         _p = json.loads(txt)  # cas nominal : JSON pur
         if _ok(_p):
             return _p
-    except json.JSONDecodeError:
+    except json.JSONDecodeError:  # muet-ok : pas du JSON pur -> extraction par balayage ci-dessous
         pass
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", txt, re.DOTALL)
     if fence:
@@ -446,7 +446,7 @@ def _extract_json(raw: str, require_key: str | None = None) -> dict:
                         _p = json.loads(txt[start:i + 1])
                         if _ok(_p):
                             return _p
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError:  # muet-ok : candidat suivant du balayage
                         pass
                     break
         start = txt.find("{", start + 1)
@@ -527,15 +527,15 @@ def generate_themes_for_gaps(gaps: list[dict], n: int = GAP_THEME_BUDGET_PER_CYC
     if len(self_themes) >= n:
         return self_themes
     n = n - len(self_themes)
+    # Cle CEREBRAS seule : une cle Groq envoyee a l'URL Cerebras ne pouvait que tomber. Groq reste atteint par le
+    # repli local ci-dessous (Ollama puis Groq), comme les etapes LLM de la chaine de veille.
     try:
         from nokido_agent.app.forge_secrets import get_secret
 
-        key = get_secret("CEREBRAS_API_KEY") or get_secret("GROQ_API_KEY")
-    except Exception:
-        return self_themes
-    if not key:
-        logger.warning("[curiosity] aucune cle cloud — seuls les themes de SOI (deterministes) sont produits")
-        return self_themes
+        key = get_secret("CEREBRAS_API_KEY")
+    except Exception as e:  # noqa: BLE001 -- coffre illisible : on passe au repli local, et on le dit
+        logger.warning("[curiosity] cle Cerebras ILLISIBLE (%s) -> repli local", type(e).__name__)
+        key = None
 
     # Summarize top gaps for prompt
     gap_lines = []
@@ -569,8 +569,28 @@ def generate_themes_for_gaps(gaps: list[dict], n: int = GAP_THEME_BUDGET_PER_CYC
         n=n,
     )
 
+    # REPLI (2026-10-13). Cycle reel du jour : 32 min de scan, 50 gaps detectes, puis Cerebras -> HTTP 402 Payment
+    # Required, et 0 theme pousse -- tout le cycle sterile sur UN fournisseur. On tente Cerebras s'il a une cle, puis
+    # le meme repli que les etapes LLM de la chaine de veille (forge_watch_agent._llm_local : Ollama, puis Groq).
+    raw, cause = None, "aucune cle Cerebras"
+    if key:
+        try:
+            raw = _cerebras_call(prompt, key)
+        except urllib.error.URLError as e:  # HTTPError en herite : 402 quota, 401 cle, reseau
+            cause = f"Cerebras {type(e).__name__}: {str(e)[:80]}"
+    if raw is None:
+        try:
+            from nokido_agent.app.forge_watch_agent import _llm_local
+
+            raw = _llm_local(prompt)
+        except Exception as e:  # noqa: BLE001
+            raw, cause = "ERR:no_llm", f"{cause} ; repli {type(e).__name__}"
+        if raw == "ERR:no_llm":
+            logger.error(f"[curiosity] volet CORPUS eteint — {len(gaps)} gaps detectes, aucun LLM ({cause} ; "
+                         f"repli local Ollama/Groq indisponible). Themes de SOI conserves: {len(self_themes)}.")
+            return self_themes
+        logger.warning(f"[curiosity] {cause} -> themes de corpus generes par le repli local (Ollama/Groq)")
     try:
-        raw = _cerebras_call(prompt, key)
         parsed = _extract_json(raw, require_key="themes")
         themes = parsed.get("themes", [])
         # Validation
@@ -855,8 +875,8 @@ def capitalize_completed(max_jobs: int = 10) -> dict:
             for c in (d.get("candidats") or []):
                 if str(c.get("u")) not in refuses:
                     gardees.append(f"{str(c.get('t'))[:70]} <{c.get('u')}>")
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001 -- candidats gardes illisibles : la liste rendue est incomplete, dit
+            logger.debug("[curiosity] candidats gardes illisibles (%s) : liste partielle", type(e).__name__)
 
         res = anchor_solution(
             problem=f"Gap du corps '{idea_id}' : {str(theme)[:120]}",
@@ -886,8 +906,9 @@ def capitalize_completed(max_jobs: int = 10) -> dict:
     try:
         etat_p.parent.mkdir(parents=True, exist_ok=True)
         etat_p.write_text(json.dumps(sorted(set(vus))[-500:], ensure_ascii=False), encoding="utf-8")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- etat de dedup non ecrit : les memes themes reviendront, dit
+        logger.warning("[curiosity] etat des themes vus NON ECRIT (%s : %s) : dedup perdue au prochain cycle",
+                       type(e).__name__, etat_p.name)
     return out
 
 
@@ -956,7 +977,7 @@ def main():
     if hasattr(sys.stdout, "reconfigure"):
         try:
             sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : stdout non reconfigurable, sortie inchangee
             pass
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")

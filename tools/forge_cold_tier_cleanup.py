@@ -14,7 +14,7 @@ Supprime definitivement les chunks du repo repo_hermes_agent (NO-GO confirme,
      de sync : rebuild explicite obligatoire).
   4. Rapport d'integrite avant/apres.
 
-Run       : __import__("os").path.expanduser("~/miniforge3/python.exe") tools/forge_cold_tier_cleanup.py
+Run       : "~/miniforge3/python.exe" tools/forge_cold_tier_cleanup.py
 Dry-run   : ... tools/forge_cold_tier_cleanup.py --dry-run   (compte seul, 0 ecriture)
 """
 

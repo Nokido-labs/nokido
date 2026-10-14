@@ -81,7 +81,8 @@ async def rag_self_warmup(app, _rag_warmup_done=None) -> None:
             _th.Thread(target=_bridge.warmup, daemon=True, name="LlamaCpp-Warmup").start()
             _logger and _logger.info("[RAG warmup] llama.cpp warmup lancé en background")
     except Exception as _e:
-        pass  # llama-cpp-python non installé — silencieux
+        # Le plus souvent llama-cpp-python absent ; mais un pont present qui echoue doit se lire.
+        _logger.info("[RAG warmup] llama.cpp non prechauffe : %s: %s", type(_e).__name__, _e)
 
     chat = app._chat_log()
     indexed = 0
@@ -253,8 +254,9 @@ async def rag_self_warmup(app, _rag_warmup_done=None) -> None:
         try:
             if hasattr(_re, "_rebuild_indexes"):
                 await _re._rebuild_indexes()
-        except Exception:
-            pass
+        except Exception as _rb:
+            logger.warning("[RAG warmup] index NON reconstruit apres les capacites : %s: %s",
+                           type(_rb).__name__, _rb)
         logger.info(f"RAG warmup: {len(_new_chunks)} docs capacités indexées")
     except Exception as _e:
         logger.debug(f"RAG warmup tools: {_e}")
@@ -458,13 +460,10 @@ async def rag_self_warmup(app, _rag_warmup_done=None) -> None:
 
     # ── Rebuild index + résumé final ──────────────────────────────
     try:
-        try:
-            if hasattr(_re, "_rebuild_indexes"):
-                await _re._rebuild_indexes()
-        except Exception:
-            pass
-    except Exception:
-        pass
+        if hasattr(_re, "_rebuild_indexes"):
+            await _re._rebuild_indexes()
+    except Exception as _rb:
+        logger.warning("[RAG warmup] index final NON reconstruit : %s: %s", type(_rb).__name__, _rb)
     logger.info(f"[RAG warmup COMPLET] {indexed} chunks total (source + modules + config + logs + backlog)")
     # Signaler au _bg_startup que tous les embeddings sont terminés
     if _rag_warmup_done is not None and not _rag_warmup_done.is_set():
@@ -498,7 +497,7 @@ async def rag_self_warmup(app, _rag_warmup_done=None) -> None:
         _hb_beat("CLAUDE", status="idle", task="warmup_complete")
         start_auto_beat("CLAUDE", interval_sec=15.0)
     except Exception as _hb_e:
-        pass
+        logger.info("[RAG warmup] battement de fin de warmup non emis : %s: %s", type(_hb_e).__name__, _hb_e)
 
 
 async def index_self_in_rag(app) -> None:
@@ -669,7 +668,7 @@ def warmup_rag(force: bool = False, batch_size: int = 256) -> dict:
         try:
             _ = _asyncio.get_running_loop()
             return {"ok": False, "err": "event_loop_busy", "tsh_level": tsh, "batch_size_used": batch_size}
-        except RuntimeError:
+        except RuntimeError:  # muet-ok : aucune boucle active = cas nominal, asyncio.run est permis
             pass
         _asyncio.run(_warmup_app_index())
         n_processed = 1
@@ -684,6 +683,6 @@ def warmup_rag(force: bool = False, batch_size: int = 256) -> dict:
         n_processed += conv_res.get("total_inserted", 0)
         logger.info("[warmup_rag] conv_indexer: %d nouveaux chunks conversations", conv_res.get("total_inserted", 0))
     except Exception as _ce:
-        logger.debug("[warmup_rag] conv_indexer skip: %s", _ce)
+        logger.warning("[warmup_rag] conv_indexer echec: %s: %s", type(_ce).__name__, _ce)
 
     return {"ok": True, "chunks_processed": n_processed, "batch_size_used": batch_size, "tsh_level": tsh}

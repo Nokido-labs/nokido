@@ -430,6 +430,24 @@
         "services"
       ]
     },
+    "RSS_WATCHER": {
+      "ring": 3,
+      "_note": "2026-10-13, decision owner (GO a). La veille automatique (NokidoRSSWatcher) ingerait sous SERVICES, ring 4, alors que `rag` exige 3 : GATE_DENIED a chaque cycle depuis au moins le 24/09 (code) et le 07/10 (journal, 13 522 refus), « 0 chunks ingeres ». Ring 3 = le minimum pour indexer. SERVICES n'est PAS releve : ce serait donner le droit d'ecrire au RAG a tout organe qui emprunte ce badge commun.",
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "RSS_WATCHER",
+      "surface": "internal",
+      "mailbox": "RSS_WATCHER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "organe": "veille automatique des flux (changelogs, blogs, publications) -- ingere dans le RAG par le hub",
+      "porte_son_propre_marqueur": "FORGE_TOKEN_RSS_WATCHER au coffre, seme par tools/forge_vault_seed_agent_tokens.py --generate-missing --from-registre --agents RSS_WATCHER. Il n'emprunte plus FORGE_TOKEN_SERVICES.",
+      "aliases": [
+        "agt_rss_watcher",
+        "rss_watcher"
+      ]
+    },
     "SUPERVISOR": {
       "ring": 1,
       "channel": "HTTP_DIRECT",
@@ -2335,6 +2353,17 @@
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local"
+    },
+    "OWNER_PORTAIL": {
+      "ring": 1,
+      "kind": "surface",
+      "actor": "OWNER",
+      "surface": "portal",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "jeton_direct": false,
+      "motif": "Decision owner 2a du 2026-10-13. Le portail :7400 relaie sous WEBHUB (ring 2) et les routes du coffre du hub exigent ring <= 1 : le panneau cles/acces de /llm_dashboard ne rendait que des 403. Ce SUJET n'a pas de jeton : il n'est joignable QUE par la delegation deja accordee a WEBHUB (ring_min_delegue 1, via=delegated:WEBHUB, acteur distinct du sujet), et le portail ne le declare que pour une session VERIFIEE (auth active, X-LaForge-User reinjecte par le middleware). `jeton_direct: false` : ni le semeur ni le chargeur du hub ne lui associent de jeton -- sinon un porteur obtiendrait le ring 1 sans passer par la delegation."
     },
     "GEMINI_FLASH": {
       "ring": 3,

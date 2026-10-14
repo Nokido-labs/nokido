@@ -23,6 +23,20 @@ if str(_RACINE) not in sys.path:
 from app.web_hub.dashboard_html import href_de, slugs_montes  # noqa: E402
 
 
+def _routes_a_plat(routes, prefixe=""):
+    """Depuis fastapi 0.143, `include_router` range un `_IncludedRouter` SANS `path` dans
+    `app.routes` : les deux tests ci-dessous ne voyaient plus aucune route d'un routeur
+    inclus (mesure 2026-10-12 : `/mcp_lab/` et `/rbac` declares manquants, pourtant servis ;
+    le controle `response_class` passait sans les examiner). On descend dans son
+    `include_context` (prefixe + routeur inclus) ; avant 0.143, rien ne change."""
+    for r in routes:
+        ctx = getattr(r, "include_context", None)
+        if ctx is not None:
+            yield from _routes_a_plat(ctx.included_router.routes, prefixe + (ctx.prefix or ""))
+        else:
+            yield prefixe + (getattr(r, "path", "") or ""), r
+
+
 def test_une_surface_montee_en_proxy_garde_son_chemin_gouverne():
     """CORRECTION de la premiere version de ce test, qui accusait `recon` : le portail
     MONTE un reverse-proxy authentifie sous `/recon` et `/graph` (app.py). Y substituer
@@ -115,8 +129,8 @@ def test_aucune_route_du_portail_ne_declare_une_response_class_nulle():
     from app.web_hub.app import app
 
     fautives = [
-        (r.path, sorted(r.methods), getattr(r.endpoint, "__name__", "?"))
-        for r in app.routes
+        (p, sorted(r.methods), getattr(r.endpoint, "__name__", "?"))
+        for p, r in _routes_a_plat(app.routes)
         if isinstance(r, APIRoute) and r.include_in_schema
         and getattr(getattr(r, "response_class", None), "value", getattr(r, "response_class", None)) is None
     ]
@@ -131,7 +145,7 @@ def test_aucune_tuile_du_portail_ne_pointe_vers_une_route_inexistante():
     from app.web_hub.app import SERVICES, app
 
     montees = slugs_montes(app)
-    connues = {getattr(r, "path", "") for r in app.routes} | {"/%s/" % s for s in montees}
+    connues = {p for p, _ in _routes_a_plat(app.routes)} | {"/%s/" % s for s in montees}
     manquants = []
     for slug, cfg in SERVICES.items():
         if cfg.get("coming_soon"):

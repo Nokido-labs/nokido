@@ -657,7 +657,8 @@ function ViewAccueil({
     }).then(r => r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status))).then(setOv).catch(e => setErr(String(e && e.message || e)));
   }, []);
   const souvenirs = ov ? ov.souvenirs : null;
-  const localPct = ov ? ov.local_pct : 0;
+  // null = part locale NON mesuree (historique reseau illisible, 14/10) : jamais un chiffre invente.
+  const localPct = ov && ov.local_pct != null ? ov.local_pct : null;
   const matur = souvenirs == null ? "—" : souvenirs >= 40 ? "4 / 5" : souvenirs >= 20 ? "3 / 5" : souvenirs >= 8 ? "2 / 5" : "1 / 5";
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -726,7 +727,7 @@ function ViewAccueil({
       gap: "10px"
     }
   }, /*#__PURE__*/React.createElement(SovereigntyGauge, {
-    local: localPct,
+    local: localPct == null ? 0 : localPct,
     label: null,
     showLegend: false,
     height: 8,
@@ -739,7 +740,7 @@ function ViewAccueil({
       fontSize: "11px",
       color: "var(--text-dim)"
     }
-  }, localPct, "% local"))), /*#__PURE__*/React.createElement(Card, {
+  }, localPct == null ? "local : illisible" : localPct + "% local"))), /*#__PURE__*/React.createElement(Card, {
     className: "lf-tile",
     style: {
       background: "var(--bg-1)"
@@ -852,7 +853,7 @@ function ViewCap() {
       fontSize: "11px",
       color: "var(--text-dim)"
     }
-  }, steps.length, " \xE9tapes r\xE9centes (lessons_learned) \xB7 ", ov ? ov.souvenirs : 0, " souvenirs \xB7 ", ov ? ov.local_pct : 0, "% local")), /*#__PURE__*/React.createElement(Card, null, /*#__PURE__*/React.createElement("div", {
+  }, steps.length, " \xE9tapes r\xE9centes (lessons_learned) \xB7 ", ov ? ov.souvenirs : 0, " souvenirs \xB7 ", ov && ov.local_pct != null ? ov.local_pct + "% local" : "local : illisible")), /*#__PURE__*/React.createElement(Card, null, /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: "2px"
     }

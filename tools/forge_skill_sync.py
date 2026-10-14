@@ -19,7 +19,7 @@ CONTEXTE D'EXÉCUTION — IMPORTANT :
   Lit/écrit ~/.gemini, ~/.claude et le dir Copilot = profil user. La sandbox Nokido
   (LaForgeSbxOffline) reçoit Access Denied sur ces chemins (vérifié 2026-06-10). DONC :
   lancer EN SESSION user via le préfixe `!` du prompt :
-      ! %USERPROFILE%/miniforge3/python.exe __import__("os").path.expanduser("~/Script python IA/LaForge/tools/forge_skill_sync.py") --discover
+      ! %USERPROFILE%/miniforge3/python.exe "~/Script python IA/LaForge/tools/forge_skill_sync.py" --discover
   PAS via le hub sandbox. (Option future : tâche onlogon silencieuse, cf
   memory schtasks_silent_onlogon_account_hide.)
 

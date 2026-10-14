@@ -436,12 +436,14 @@ def _docker_procs_present() -> bool:
         return False
 
 
-def _force_recycle_docker() -> bool:
+def _force_recycle_docker(motif: str = "process up mais daemon KO") -> bool:
     """Débloque un Docker figé en 'starting' : kill TOUS les process Docker + wsl --shutdown
     (reset backend WSL2) + relance propre. Un simple re-Popen ne suffit pas si l'instance
-    hung est encore présente (cf symptôme 'reste en starting / ne se coupe pas')."""
-    log.warning("docker STUCK starting (process up, daemon KO) -> FORCE-RECYCLE (kill + wsl shutdown + relaunch)")
-    _audit("kill", "force-recycle: process up mais daemon KO", procs=",".join(_DOCKER_PROC_NAMES))
+    hung est encore présente (cf symptôme 'reste en starting / ne se coupe pas').
+    `motif` : la raison REELLE du cycle, journalisee telle quelle (2026-10-13 : l'integration WSL cassee
+    declenche aussi ce cycle, et le journal ne doit pas dire « STUCK starting » a sa place)."""
+    log.warning("docker FORCE-RECYCLE (kill + wsl shutdown + relaunch) : %s", motif)
+    _audit("kill", "force-recycle: %s" % motif, procs=",".join(_DOCKER_PROC_NAMES))
     if sys.platform == "win32":
         for name in _DOCKER_PROC_NAMES:
             try:
@@ -856,6 +858,172 @@ def _maybe_release(now: float) -> dict | None:
     return detail
 
 
+# INTEGRATION WSL CASSEE (2026-10-13). Apres une mise a jour de Docker Desktop -- ou toute relance qui ne passe pas
+# par ce keeper -- le namespace partage /mnt/wsl se rompt : la distro Debian ne voit plus backend.sock, et Docker
+# Desktop affiche une fenetre d'erreur toutes les ~75 s alors que le moteur, lui, REPOND. Le remede est prouve
+# (`wsl --shutdown`, 2026-06-03 et 2026-07-27) et deja ecrit ici (_force_recycle_docker -> _launch_docker_desktop
+# -> _wsl_shutdown) ; il n'etait jamais declenche par ce symptome, puisque le daemon repond. Signal = le journal de
+# l'ORGANE (Docker Desktop), jamais une sonde. Un cycle par episode, refractaire d'une heure : lancer OUI, boucler NON.
+_SIGNATURE_INTEGRATION = re.compile(
+    r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})[^\]]*\].*waiting \S+ for the backend socket.*DockerDesktop/Wsl/ExecError",
+    re.M)
+# PREUVE POSITIVE de sante : Docker Desktop journalise « adding a wsl agent for new distro <X> » ; un ajout sans
+# erreur derriere depuis plus de _INTEGRATION_PREUVE_S vaut « ok ». Sans cette ligne, l'absence d'erreur ne prouve
+# rien (Docker Desktop peut avoir cesse de reessayer) : INCONNU, jamais « ok » (2026-10-13).
+_AJOUT_AGENT = re.compile(
+    r"^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})[^\]]*\]\[com\.docker\.backend\.exe\.wslintegration\] "
+    r"adding a wsl agent for new distro", re.M)
+_INTEGRATION_PREUVE_S = 90
+_INTEGRATION_FENETRE_S = 600
+_INTEGRATION_REFRACTAIRE_S = 3600
+_INTEGRATION: dict = {"fichier": None, "pos": None, "dernier_cycle": 0.0, "sans_effet_dit": False}
+
+
+def _journal_docker_desktop() -> Path | None:
+    """Journal backend de Docker Desktop. Le keeper tourne en SYSTEM, sans le LOCALAPPDATA de l'owner : on prend le
+    journal le plus recemment ecrit sous les profils (override DOCKER_KEEPER_DESKTOP_LOG). None = introuvable."""
+    force = os.environ.get("DOCKER_KEEPER_DESKTOP_LOG")
+    if force:
+        return Path(force)
+    racine = Path(os.environ.get("SystemDrive", "C:") + "\\") / "Users"
+    try:
+        cands = list(racine.glob("*/AppData/Local/Docker/log/host/com.docker.backend.exe.log"))
+        return max(cands, key=lambda p: p.stat().st_mtime) if cands else None
+    except OSError:  # muet-ok : None remonte en « integration_wsl: ILLISIBLE » dans le heartbeat
+        return None
+
+
+def _integration_wsl_cassee(maintenant: float | None = None) -> int | None:
+    """Occurrences RECENTES (< 10 min) de la signature, lues depuis la derniere position.
+    None = journal ILLISIBLE, jamais lu comme « pas de panne »."""
+    p = _journal_docker_desktop()
+    if p is None:
+        return None
+    try:
+        taille = p.stat().st_size
+        if _INTEGRATION["fichier"] != str(p) or _INTEGRATION["pos"] is None or taille < _INTEGRATION["pos"]:
+            debut = max(0, taille - 262144)  # premiere lecture ou rotation : la fin recente seulement
+        else:
+            debut = _INTEGRATION["pos"]
+        with open(p, "rb") as f:
+            f.seek(debut)
+            bloc = f.read(max(0, taille - debut)).decode("utf-8", "replace")
+        _INTEGRATION.update(fichier=str(p), pos=taille)
+    except OSError:  # muet-ok : None remonte en « integration_wsl: ILLISIBLE » dans le heartbeat
+        return None
+    from datetime import datetime, timezone
+
+    def _ts(h):
+        try:
+            return datetime.strptime(h, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+        except ValueError:  # muet-ok : une ligne a l'horodatage illisible ne compte pas
+            return None
+
+    limite = (maintenant if maintenant is not None else time.time()) - _INTEGRATION_FENETRE_S
+    n = 0
+    for ts in filter(None, map(_ts, _SIGNATURE_INTEGRATION.findall(bloc))):
+        _INTEGRATION["derniere_signature_ts"] = max(ts, _INTEGRATION.get("derniere_signature_ts") or 0.0)
+        if ts >= limite:
+            n += 1
+    for ts in filter(None, map(_ts, _AJOUT_AGENT.findall(bloc))):
+        _INTEGRATION["dernier_ajout_ts"] = max(ts, _INTEGRATION.get("dernier_ajout_ts") or 0.0)
+    return n
+
+
+def _signaler_moelle(stats: dict) -> None:
+    """Afference DIRECTE vers la moelle (forge_organ_afferent -> forge_trace_spine), sur TRANSITION d'etat
+    seulement : le heartbeat dit l'etat a qui le lit, la moelle le PORTE aux organes qui ecoutent (owner 13/10 :
+    « branche au systeme nerveux »). Pas d'hormone : une integration Docker cassee est une information
+    sensorielle, pas un stress systemique -- une hormone module les admissions de tout le corps."""
+    etat = stats.get("integration_wsl")
+    if etat == _INTEGRATION.get("dernier_etat_signale"):
+        return
+    _INTEGRATION["dernier_etat_signale"] = etat
+    try:
+        from nokido_agent.app.forge_organ_afferent import emettre
+
+        ok, raison = emettre("docker_keeper", "docker", dict(stats), kind="integration_wsl")
+        if not ok:
+            log.warning("moelle : signal integration_wsl=%s REFUSE (%s)", etat, raison)
+    except Exception as exc:  # noqa: BLE001 -- dit ici : le heartbeat porte toujours l'etat
+        log.warning("moelle INJOIGNABLE (%s) : transition integration_wsl=%s non propagee", type(exc).__name__, etat)
+
+
+def _en_refractaire(stats: dict) -> bool:
+    depuis = time.monotonic() - _INTEGRATION["dernier_cycle"]
+    if not (_INTEGRATION["dernier_cycle"] and depuis < _INTEGRATION_REFRACTAIRE_S):
+        return False
+    stats["integration_wsl_refractaire_s"] = round(_INTEGRATION_REFRACTAIRE_S - depuis, 1)
+    if stats.get("integration_wsl") == "CASSEE" and not _INTEGRATION["sans_effet_dit"]:
+        _INTEGRATION["sans_effet_dit"] = True
+        log.error("integration WSL toujours CASSEE %.0f s apres le cycle : remede SANS EFFET cette fois, aucun "
+                  "nouveau cycle avant la fin du refractaire (instruire : %s)", depuis, _INTEGRATION["fichier"])
+    return True
+
+
+def _cycle_integration(stats: dict, motif: str) -> dict:
+    log.warning("integration WSL : %s -> cycle prouve", motif)
+    _INTEGRATION["dernier_cycle"] = time.monotonic()
+    lance = _force_recycle_docker(motif)
+    stats["integration_wsl_cycle"] = bool(lance)
+    if lance:
+        budget, _why = _boot_timeout_for_load()
+        woke, what = _wait_daemon(time.monotonic() + budget)
+        stats["integration_wsl_wake_ok"] = woke
+        stats["integration_wsl_wake_info"] = what
+        if woke:
+            _STATE["last_boot_ok_ts"] = time.monotonic()
+    try:  # les lignes ecrites avant ou pendant le cycle ne sont pas recomptees
+        _INTEGRATION["pos"] = Path(_INTEGRATION["fichier"]).stat().st_size
+    except (OSError, TypeError):  # muet-ok : au pire, la lecture suivante recompte et le refractaire tient
+        pass
+    return stats
+
+
+def _surveiller_integration_wsl(version: str | None = None) -> dict:
+    """Champs de heartbeat sur l'integration WSL, propages a la moelle sur transition."""
+    stats = _evaluer_integration_wsl(version)
+    _signaler_moelle(stats)
+    return stats
+
+
+def _evaluer_integration_wsl(version: str | None = None) -> dict:
+    """PREVENTIF puis CURATIF (voir plus haut). Preventif (owner 13/10, « plus reactif ») : la mise a jour se VOIT
+    avant la panne -- la version du serveur change. Si ce n'est pas le keeper qui a relance Docker (son lancement
+    fait deja wsl --shutdown), le cycle part AVANT que la distro ne casse : zero fenetre au lieu d'une."""
+    maj = None
+    if version:
+        prec, prec_ts = _INTEGRATION.get("version"), _INTEGRATION.get("version_ts") or 0.0
+        _INTEGRATION.update(version=version, version_ts=time.monotonic())
+        if prec and prec != version and _STATE["last_boot_ok_ts"] <= prec_ts:
+            maj = "%s -> %s" % (prec, version)
+    if maj:
+        stats0: dict = {"integration_wsl": "MISE_A_JOUR", "docker_mise_a_jour": maj}
+        if not _docker_wanted():
+            stats0["integration_wsl_action"] = "aucune : Docker n'est pas reclame"
+            return stats0
+        if _en_refractaire(stats0):
+            return stats0
+        return _cycle_integration(stats0, "mise a jour Docker %s : cycle PREVENTIF de l'integration WSL" % maj)
+    n = _integration_wsl_cassee()
+    if n is None:
+        return {"integration_wsl": "ILLISIBLE"}
+    if n == 0:
+        _INTEGRATION["sans_effet_dit"] = False
+        ajout = _INTEGRATION.get("dernier_ajout_ts") or 0.0
+        if ajout > (_INTEGRATION.get("derniere_signature_ts") or 0.0) and time.time() - ajout > _INTEGRATION_PREUVE_S:
+            return {"integration_wsl": "ok"}
+        return {"integration_wsl": "INCONNU"}  # aucune panne lue, mais aucune preuve de sante non plus
+    stats: dict = {"integration_wsl": "CASSEE", "integration_wsl_signatures": n}
+    if not _docker_wanted():
+        stats["integration_wsl_action"] = "aucune : Docker n'est pas reclame"
+        return stats
+    if _en_refractaire(stats):
+        return stats
+    return _cycle_integration(stats, "integration WSL cassee (%d signature(s) dans %s) : backend.sock invisible "
+                              "depuis la distro" % (n, _INTEGRATION["fichier"]))
+
+
 def main() -> int:
     global _iter, _consecutive_failures, _last_launch_ts
     log.info("docker_keeper start tick=%.0fs heartbeat=%s", TICK_S, HEARTBEAT_PATH)
@@ -870,13 +1038,17 @@ def main() -> int:
             # Docker tourne — quelqu'un le reclame-t-il encore ? La decision se
             # prend ICI, pas dans un minuteur : le tick ne fait qu'evaluer.
             relache = _maybe_release(time.monotonic())
+            integ = _surveiller_integration_wsl(ver if iok else None)
             _write_heartbeat(
-                "ok",
+                # Sain = PROUVE sain sur tous ses champs : un moteur qui repond avec une integration WSL cassee
+                # ne se declare plus « ok » en transportant sa panne (2026-10-13).
+                "degraded" if integ.get("integration_wsl") == "CASSEE" else "ok",
                 {
                     "daemon_up": True,
                     "server_version": ver if iok else "ready",
                     "consecutive_failures": 0,
                     **({"released": relache} if relache else {}),
+                    **integ,
                 },
             )
         else:

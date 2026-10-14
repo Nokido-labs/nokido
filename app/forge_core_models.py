@@ -523,80 +523,79 @@ class OrchestratorManager:
         self.state = OrchestratorState()
 
 
-class SessionContext:
-    """Gère l'historique d'une conversation et l'indexation RAG."""
+# ============================================================================
+# SessionContext (GELÉ — Successeur canonique : app/forge_session_context.py)
+# Voir docs/CHANTIER_VIABILITE_CELLULE.md section 5.
+# Conservé pour compatibilité ascendante ; les nouveaux appelants utilisent
+# directement app.forge_session_context.SessionContext.
+# ============================================================================
+try:
+    from nokido_agent.app.forge_session_context import (
+        SessionContext as _CanonicalSessionContext,
+        SessionMessage,
+    )
+except ImportError:
+    from app.forge_session_context import (  # type: ignore
+        SessionContext as _CanonicalSessionContext,
+        SessionMessage,
+    )
+
+
+class SessionContext(_CanonicalSessionContext):
+    """SessionContext gelé (successeur unifié : app/forge_session_context.py).
+
+    Conserve pour compatibilité ascendante. Hérite du gestionnaire canonique
+    avec osmorégulation complète (digestion avant éviction, zéro perte).
+    """
 
     def __init__(self, session_name: str, max_tokens: int = 3000):
-        """Initialise l'instance."""
-        self.name = session_name
-        self.max_tokens = max_tokens
-        self.messages: List[Dict] = []
-        self.summary: Optional[str] = None
-        self.current_tokens = 0
+        super().__init__(name=session_name, max_tokens=max_tokens)
         self.filename = _DATA_DIR / f"session_{session_name}.json"
         self._load()
-        from nokido_agent.app.forge_app_context import get_rag as _gr
-
-        rag_engine = _gr()
-        if rag_engine:
-            rag_engine.session_ctxs[session_name] = self
 
     def _load(self) -> None:
-        """Load."""
+        """Charge l'état legacy si présent."""
         if self.filename.exists():
             try:
                 with open(self.filename, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.messages = data.get("messages", [])
+                    raw_messages = data.get("messages", [])
+                    for m in raw_messages:
+                        if isinstance(m, dict):
+                            self.messages.append(
+                                SessionMessage(role=m.get("role", "user"), text=m.get("content", m.get("text", "")))
+                            )
                     self.summary = data.get("summary")
-                    self.current_tokens = sum(len(m["content"]) // 4 for m in self.messages)
             except Exception as e:
                 logger.error(f"Erreur chargement session {self.name}: {e}")
 
     def save(self) -> None:
-        """Save."""
+        """Sauvegarde legacy vers _DATA_DIR et sandbox."""
+        super().save()
         try:
             with open(self.filename, "w", encoding="utf-8") as f:
                 json.dump(
-                    {"messages": self.messages, "summary": self.summary, "saved_at": datetime.now().isoformat()},
+                    {
+                        "messages": [m.to_dict() for m in self.messages],
+                        "summary": self.summary,
+                        "saved_at": datetime.now().isoformat(),
+                    },
                     f,
                     indent=2,
                     ensure_ascii=False,
                 )
         except Exception as e:
-            logger.error(f"Erreur sauvegarde session {self.name}: {e}")
-
-    def add(self, role: str, content: str) -> None:
-        """Add."""
-        from nokido_agent.app.forge_app_context import get_rag as _gr
-
-        rag_engine = getattr(self, "rag_engine", None) or _gr()
-        tokens = len(content) // 4
-        self.messages.append({"role": role, "content": content, "tokens": tokens})
-        self.current_tokens += tokens
-        while self.current_tokens > self.max_tokens and len(self.messages) > 1:
-            removed = self.messages.pop(0)
-            self.current_tokens -= removed["tokens"]
-        self.save()
-        if rag_engine:
-            asyncio.create_task(rag_engine.add_session_message(self.name, role, content))
-
-    def get_context(self) -> List[Dict]:
-        """Get context."""
-        ctx = []
-        if self.summary:
-            ctx.append({"role": "system", "content": f"Résumé: {self.summary}"})
-        ctx.extend(self.messages)
-        return ctx
+            logger.error(f"Erreur sauvegarde session legacy {self.name}: {e}")
 
     def unregister(self) -> None:
-        """Unregister."""
+        """Détache la session du moteur RAG (compatibilité ascendante)."""
         from nokido_agent.app.forge_app_context import get_rag as _gr
 
         rag_engine = getattr(self, "rag_engine", None) or _gr()
         self.save()
-        if rag_engine and self.name in rag_engine.session_ctxs:
+        if rag_engine and hasattr(rag_engine, "session_ctxs") and self.name in rag_engine.session_ctxs:
             del rag_engine.session_ctxs[self.name]
+
 
 
 class PrefectManager:

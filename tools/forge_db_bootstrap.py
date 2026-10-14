@@ -35,6 +35,29 @@ def creer_schema(c) -> list[str]:
     return sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'"))
 
 
+def poser_interrupteurs(c) -> str:
+    """access_switches VIDE dans la base par defaut quand elle manque. Parcours paquet 13/10 : installe par pip, la table
+    n'existait nulle part ; le controle des interrupteurs levait « no such table » et, fail-closed, le hub REFUSAIT
+    TOUT appel d'outil, quel que soit le rang. Table vide = aucune exception, la decision revient au rang (le
+    comportement voulu). Jamais sur une base DEDIEE declaree (LAFORGE_SWITCHES_DB_PATH) : y creer une table vide
+    effacerait en silence des regles de refus -- basculer ce garde est un geste owner. Une table presente est intouchee."""
+    import os
+
+    if os.environ.get("LAFORGE_SWITCHES_DB_PATH"):
+        return "SWITCHES : base dediee declaree (LAFORGE_SWITCHES_DB_PATH) -- non touchee, geste owner"
+    autre = os.environ.get("LAFORGE_DB_PATH")
+    if autre and Path(autre).resolve() != DB.resolve():
+        return "SWITCHES : les interrupteurs vivent dans %s, pas dans cette base -- non touchee" % autre
+    if _table_exists(c, "access_switches"):
+        return "SWITCHES : access_switches deja presente -- intouchee"
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from nokido_agent.app.forge_access_switches import DDL   # le DDL du module PROPRIETAIRE, pas une copie
+
+    c.executescript(DDL)
+    return "SWITCHES : access_switches CREEE vide (aucune exception : la decision revient au rang)"
+
+
 def _table_exists(c, table: str) -> bool:
     return (
         c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
@@ -147,6 +170,7 @@ def main() -> int:
     if not args.dry_run:
         tables = creer_schema(c)
         print(f"SCHEMA : {SCHEMA.name} applique, rag_chunks {'PRESENTE' if 'rag_chunks' in tables else 'ABSENTE'}")
+        print(poser_interrupteurs(c))
     print()
 
     # Pour chaque .jsonl, deviner la table (préfixe avant __ ou tout le nom)

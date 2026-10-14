@@ -37,7 +37,10 @@ def _agents_connus() -> list:
 
         reg = _P(__file__).resolve().parent.parent / "config" / "agent_identities.json"
         agents = (_json.loads(reg.read_text(encoding="utf-8")) or {}).get("agents") or {}
-        for n in agents:
+        for n, meta in agents.items():
+            # sujet joignable par delegation SEULEMENT (OWNER_PORTAIL, 2a du 13/10) : aucun jeton ne le represente
+            if isinstance(meta, dict) and meta.get("jeton_direct") is False:
+                continue
             if n.upper() not in noms:
                 noms.append(n.upper())
     except Exception as exc:  # noqa: BLE001
@@ -416,3 +419,25 @@ def traiter_renouvellement(hote_client: str, type_contenu: str,
     # en le pretendant porteur.
     return 200, {"access_token": neuf, "issued_token_type": TYPE_JETON_ACCES,
                  "token_type": "Bearer", "expires_in": 1800}, dict(_ENTETES_JETON)
+
+
+def ring_sans_maitre(auth: str, local: bool, jetons_agents: Dict[str, str], ring_de, plancher) -> tuple:
+    """Hub SANS jeton maitre (installation neuve) : un jeton d'agent PROUVE garde le ring de son agent.
+
+    Parcours paquet 3 OS du 13/10 : FORGE_TOKEN_EDITOR seme ET charge au boot, et pourtant chaque requete
+    du premier client tombait au ring 3 -- `_resolve_ring` rendait le plancher des que le maitre manquait,
+    AVANT de regarder le porteur. Sur une machine neuve il n'y a pas de maitre : le jeton du premier client
+    (decision owner du 13/10) ne pouvait donc jamais servir.
+
+    Seul ce qui est PROUVE change : sans porteur, ou avec un porteur inconnu, la decision reste celle d'avant
+    (`plancher()` en local, -1 a distance). Un porteur VIDE ne prouve rien -- `compare_digest("", "")` serait
+    vrai, d'ou le double garde. `ring_de(nom, defaut)` et `plancher()` sont ceux du hub (injectes : ce module
+    ne lit pas le registre des rings).
+    """
+    porte = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if porte:
+        for nom, attendu in jetons_agents.items():
+            if attendu and hmac.compare_digest(porte.encode(), str(attendu).encode()):
+                logger.info("[identite] hub sans maitre : %s prouve par son jeton derive", nom)
+                return ring_de(nom, 3), nom
+    return plancher() if local else (-1, "no_token")

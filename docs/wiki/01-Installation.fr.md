@@ -210,8 +210,9 @@ rm -rf nokido/
 deactivate
 rm -rf nokido/
 
-# Pip
+# Pip (depuis 0.20.11) -- les données vivent hors de site-packages et survivent aux mises à jour
+nokido-composants --desinstaller            # ajouter --purger pour effacer aussi tes données
 pip uninstall nokido-agent
 ```
 
-Les secrets vault persistent dans le trousseau système sous macOS / Linux (Keychain, libsecret), et sous Windows dans `data\machine_vault.dat` (DPAPI, portée machine) plus le coffre réservé SYSTEM `C:\ProgramData\NokidoCoffre\coffre_reserve.dat`. Supprime-les manuellement pour un wipe complet.
+Installé par pip, Nokido range ses données (base de connaissances, modèles, journaux, `data/machine_vault.dat`) dans le dossier de données de l'utilisateur : `%LOCALAPPDATA%\Nokido`, `~/Library/Application Support/Nokido` ou `~/.local/share/nokido` (`NOKIDO_DATA_DIR` le remplace) ; `--purger` l'efface. Les secrets vault persistent aussi dans le trousseau système sous macOS / Linux (Keychain, libsecret), et sous Windows dans le coffre réservé SYSTEM `C:\ProgramData\NokidoCoffre\coffre_reserve.dat`. Supprime-les manuellement pour un wipe complet.

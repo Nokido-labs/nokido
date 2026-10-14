@@ -332,7 +332,8 @@ def _open_db(db_path: Path) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
         return conn
-    return open_writer()
+    # Base par defaut : contrat d'avant (`open_writer()`), `path` seulement pour une autre base (voir write_retry).
+    return open_writer() if db_path == DB_PATH else open_writer(path=str(db_path))
 
 
 class SessionSink:
@@ -421,9 +422,42 @@ def store_chunks(chunks: list[RefinedChunk], db_path: Path = DB_PATH, batch_size
     finally:
         conn.close()
 
+    def _commit_batch(b: list) -> None:
+        try:
+            from nokido_agent.app.forge_db_path import write_retry
+
+            target_path = str(db_path) if db_path != DB_PATH else None
+            write_retry(
+                lambda conn: conn.executemany(
+                    "INSERT OR REPLACE INTO rag_chunks "
+                    "(id,text,source,domain,role_hint,author,ingested_at,meta,embedding) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    b,
+                ),
+                path=target_path,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Échec write_retry lors de store_chunks (_commit_batch, batch_len=%d), repli direct sur _open_db : %s",
+                len(b),
+                exc,
+            )
+            c = _open_db(db_path)
+            try:
+                c.executemany(
+                    "INSERT OR REPLACE INTO rag_chunks "
+                    "(id,text,source,domain,role_hint,author,ingested_at,meta,embedding) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    b,
+                )
+                c.commit()
+            finally:
+                c.close()
+
     for c in chunks:
         fp = c.meta["fingerprint"]
         if fp in known:
+            c.meta["already_present"] = True
             continue
         known.add(fp)  # dedup intra-lot : deux chunks identiques d'un meme document
         if c.domain in COSINE_DEDUP_DOMAINS and c.embedding:
@@ -457,28 +491,12 @@ def store_chunks(chunks: list[RefinedChunk], db_path: Path = DB_PATH, batch_size
         )
 
         if len(batch) >= batch_size:
-            conn = _open_db(db_path)
-            conn.executemany(
-                "INSERT OR REPLACE INTO rag_chunks "
-                "(id,text,source,domain,role_hint,author,ingested_at,meta,embedding) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                batch,
-            )
-            conn.commit()
-            conn.close()  # release WAL write slot between batches
+            _commit_batch(batch)
             inserted += len(batch)
             batch = []
 
     if batch:
-        conn = _open_db(db_path)
-        conn.executemany(
-            "INSERT OR REPLACE INTO rag_chunks "
-            "(id,text,source,domain,role_hint,author,ingested_at,meta,embedding) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            batch,
-        )
-        conn.commit()
-        conn.close()
+        _commit_batch(batch)
         inserted += len(batch)
 
     logger.info(f"[ingest] {inserted}/{len(chunks)} chunks stockes")

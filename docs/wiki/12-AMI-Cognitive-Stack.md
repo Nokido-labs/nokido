@@ -58,7 +58,7 @@ actions and estimating returns.
 | MPC Planner | `app/forge_mpc.py` | Model-Predictive Control over N-step horizons. |
 | Policy / Value | `app/forge_policy_net.py`, `app/forge_value_net.py` | DeepMind-style nets. |
 | MCTS | `app/forge_mcts_engine.py` | Monte-Carlo Tree Search over the world model. |
-| Self-supervised pre-train | `app/forge_jepa.py` | JEPA (Joint-Embedding Predictive Architecture, LeCun 2023). |
+| Self-supervised pre-train | `app/forge_world_model.py` (JEPA branch), `app/forge_sigreg.py` | JEPA (Joint-Embedding Predictive Architecture, LeCun 2023). |
 
 All modules built **continual-learning ready** (no batch retraining
 required) — see `app/forge_continual_backprop.py`.
@@ -134,7 +134,7 @@ Train step / loss curves : 4/4 tests pass (memory `forge_lnn_monitor`).
 
 ## 🧬 JEPA — Joint Embedding Predictive Architecture
 
-`app/forge_jepa.py` implements LeCun's JEPA (2023) :
+The JEPA branch of `app/forge_world_model.py` implements LeCun's JEPA (2023), with SIGReg in `app/forge_sigreg.py` :
 
 - Two encoders (target + predictor) on different views of the data.
 - Predict the **embedding** of the target view from the predictor view,
@@ -235,9 +235,7 @@ LLM-as-orchestrator setups (see MANIFESTO §3.5).
 | `forge_scorecard` | `tests/test_forge_scorecard.py` | 51 tests |
 | `forge_active_inference_agent` | `tests/test_forge_active_inference.py` | 6/6 |
 | `forge_lnn_monitor` | `tests/test_forge_lnn_monitor.py` | 4/4 |
-| `forge_jepa` | `tests/test_forge_jepa.py` | TBD |
-| `forge_goap` | `tests/test_forge_goap.py` | partial |
-| `forge_ami_strategist` | (E2E in `tests/test_ami_e2e.py`) | E2E PASS |
+| `forge_goap` | `tests/test_goap_execution.py`, `tests/nr/test_appui_forge_goap_nr.py` | partial |
 
 ## 📚 Reading list
 

@@ -57,16 +57,51 @@ _DELAI_LECTURE = 8.0
 _DELAI_ECRITURE = 10.0
 _DELAI_TEST = 20.0
 
+# 2a (decision owner du 2026-10-13) -- le relais du coffre garde l'identite de l'OWNER. Les routes du
+# coffre du hub exigent ring <= 1 et le portail relaie sous WEBHUB (ring 2) : tout le panneau cles/acces
+# de /llm_dashboard ne rendait que des 403 (campagne UI, 3 passes sur 3). WEBHUB DELEGUE deja au
+# registre (`ring_min_delegue: 1`) : il declare le sujet OWNER_PORTAIL, qui n'a AUCUN jeton propre, et
+# le hub trace `via=delegated:WEBHUB` (acteur distinct du sujet). Condition : une session VERIFIEE --
+# auth active, ou le middleware a retire tout X-LaForge-User venu du client et reinjecte le `sub` valide.
+# Auth coupee (`dev-bypass`) ou etat illisible : aucun sujet, le relais reste WEBHUB (fail-closed).
+SUJET_OWNER = "OWNER_PORTAIL"
+_EN_TETE_SESSION = "x-laforge-user"
+
+
+def sujet_owner(utilisateur: str, auth_active: bool) -> str:
+    """Le sujet a declarer au hub pour une session VERIFIEE, sinon "" (relais sous WEBHUB seul)."""
+    if not auth_active or not utilisateur or utilisateur == "dev-bypass":
+        return ""
+    return SUJET_OWNER
+
+
+def _auth_portail_active() -> bool:
+    try:
+        from app.web_hub.app import AUTH_CFG
+
+        return bool(AUTH_CFG.enabled) and not AUTH_CFG.fail_closed
+    except Exception as exc:  # noqa: BLE001 -- illisible = pas de delegation, et on le DIT
+        log.warning("etat d'auth du portail illisible (%s) : relais sans sujet owner", type(exc).__name__)
+        return False
+
+
+def _sujet_de(request: Request) -> str:
+    entetes = getattr(request, "headers", None)       # sans en-tetes, pas de session : pas de sujet
+    if entetes is None:
+        return ""
+    return sujet_owner(entetes.get(_EN_TETE_SESSION, ""), _auth_portail_active())
+
 
 async def _vers_hub(methode: str, chemin: str, *, json_corps: Any = None,
-                    delai: float = _DELAI_LECTURE) -> tuple[int, dict]:
-    """Relaie vers le hub avec le jeton du coffre. Ne journalise jamais le corps."""
+                    delai: float = _DELAI_LECTURE, sujet: str = "") -> tuple[int, dict]:
+    """Relaie vers le hub avec le jeton du coffre. Ne journalise jamais le corps.
+    `sujet` : identite declaree POUR le compte de laquelle WEBHUB agit (delegation, voir SUJET_OWNER)."""
     jeton = _hub_token()
     if not jeton:
         # Coffre illisible = INCONNU, pas « autorise » : on refuse en le nommant.
         return 503, {"ok": False, "error": "jeton hub illisible depuis le portail "
                                            "(coffre injoignable) — ecriture refusee"}
-    entetes = {"Authorization": "Bearer " + jeton, "X-Agent-Name": "WEBHUB"}
+    entetes = {"Authorization": "Bearer " + jeton, "X-Agent-Name": sujet or "WEBHUB"}
     if json_corps is not None:
         entetes["Content-Type"] = "application/json"
     try:
@@ -229,13 +264,14 @@ async def _relayer_ecriture(request: Request, champ: str, vide: str, chemin_hub:
     valeur = (corps or {}).get(champ, "")
     if not isinstance(valeur, str) or not valeur.strip():
         return JSONResponse({"ok": False, "error": vide}, status_code=400)
-    code, charge = await _vers_hub("POST", chemin_hub, json_corps={champ: valeur}, delai=_DELAI_ECRITURE)
+    code, charge = await _vers_hub("POST", chemin_hub, json_corps={champ: valeur}, delai=_DELAI_ECRITURE,
+                                   sujet=_sujet_de(request))
     log.info("%s -> HTTP %d", libelle, code)
     return JSONResponse(charge, status_code=200 if code == 200 else code)
 
 
-async def _relayer_retrait(chemin_hub: str, libelle: str) -> JSONResponse:
-    code, charge = await _vers_hub("DELETE", chemin_hub, delai=_DELAI_ECRITURE)
+async def _relayer_retrait(request: Request, chemin_hub: str, libelle: str) -> JSONResponse:
+    code, charge = await _vers_hub("DELETE", chemin_hub, delai=_DELAI_ECRITURE, sujet=_sujet_de(request))
     log.info("%s -> HTTP %d", libelle, code)
     return JSONResponse(charge, status_code=200 if code == 200 else code)
 
@@ -247,8 +283,8 @@ async def api_poser_cle(provider: str, request: Request) -> JSONResponse:
 
 
 @router.delete("/api/providers/{provider}/key")
-async def api_retirer_cle(provider: str) -> JSONResponse:
-    return await _relayer_retrait("/api/providers/%s/key" % provider,
+async def api_retirer_cle(provider: str, request: Request) -> JSONResponse:
+    return await _relayer_retrait(request, "/api/providers/%s/key" % provider,
                                   "coffre: retrait demande pour %s" % provider)
 
 
@@ -256,9 +292,9 @@ async def api_retirer_cle(provider: str) -> JSONResponse:
 # authentifie vers le hub, qui garde la liste blanche et le ring. Sous /api/providers,
 # donc HORS de l'allowlist publique. Jamais la valeur en journal ni en reponse.
 @router.get("/api/providers/acces")
-async def api_etat_acces() -> JSONResponse:
+async def api_etat_acces(request: Request) -> JSONResponse:
     """Relaie `GET /api/access` du hub : provenance des acces, jamais leur valeur."""
-    code, charge = await _vers_hub("GET", "/api/access")
+    code, charge = await _vers_hub("GET", "/api/access", sujet=_sujet_de(request))
     return JSONResponse(charge, status_code=200 if code == 200 else code)
 
 
@@ -270,15 +306,15 @@ async def api_poser_acces(cle: str, request: Request) -> JSONResponse:
 
 
 @router.delete("/api/providers/acces/{cle}")
-async def api_retirer_acces(cle: str) -> JSONResponse:
+async def api_retirer_acces(cle: str, request: Request) -> JSONResponse:
     """Relaie au hub `DELETE /api/access/{cle}` : retrait de l'acces du coffre."""
-    return await _relayer_retrait("/api/access/%s" % cle, "coffre: acces %s retire" % cle)
+    return await _relayer_retrait(request, "/api/access/%s" % cle, "coffre: acces %s retire" % cle)
 
 
 @router.post("/api/providers/{provider}/test")
-async def api_tester(provider: str) -> JSONResponse:
+async def api_tester(provider: str, request: Request) -> JSONResponse:
     code, charge = await _vers_hub("POST", "/api/providers/%s/test" % provider,
-                                   delai=_DELAI_TEST)
+                                   delai=_DELAI_TEST, sujet=_sujet_de(request))
     return JSONResponse(charge, status_code=200 if code == 200 else code)
 
 

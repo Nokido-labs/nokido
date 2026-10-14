@@ -530,7 +530,9 @@ def _generiser_chemins_owner(dist: Path) -> None:
 # doit donc porter son workflow de publication. Liste BLANCHE : la CI
 # self-hosted et le reste de `.github/workflows/` restent hors du dist.
 # installation-complete.yml (2026-10-07) : acceptation de l'installation complete sur runners heberges vierges.
-WORKFLOWS_DIST = (".github/workflows/release.yml", ".github/workflows/installation-complete.yml")
+# stats-publiques.yml (owner 2026-10-13) : petite statistique en bas du README, produite sur le depot public.
+WORKFLOWS_DIST = (".github/workflows/release.yml", ".github/workflows/installation-complete.yml",
+                  ".github/workflows/stats-publiques.yml")
 
 
 def _embarquer_workflows_dist(rev: str, dist: Path) -> None:

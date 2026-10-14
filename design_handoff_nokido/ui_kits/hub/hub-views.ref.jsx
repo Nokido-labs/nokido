@@ -144,7 +144,8 @@ function ViewAccueil({ enabled, onToggle, editMode }) {
       .catch((e) => setErr(String((e && e.message) || e)));
   }, []);
   const souvenirs = ov ? ov.souvenirs : null;
-  const localPct = ov ? ov.local_pct : 0;
+  // null = part locale NON mesuree (historique reseau illisible, 14/10) : jamais un chiffre invente.
+  const localPct = ov && ov.local_pct != null ? ov.local_pct : null;
   const matur = souvenirs == null ? "—"
     : (souvenirs >= 40 ? "4 / 5" : souvenirs >= 20 ? "3 / 5" : souvenirs >= 8 ? "2 / 5" : "1 / 5");
   return (
@@ -168,8 +169,8 @@ function ViewAccueil({ enabled, onToggle, editMode }) {
             {ov ? ov.intention : err ? "Roadmap indisponible — l'appel a échoué." : "Chargement de la roadmap active…"}
           </p>
           <div style={{ marginTop: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
-            <SovereigntyGauge local={localPct} label={null} showLegend={false} height={8} style={{ flex: 1 }} />
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-dim)" }}>{localPct}% local</span>
+            <SovereigntyGauge local={localPct == null ? 0 : localPct} label={null} showLegend={false} height={8} style={{ flex: 1 }} />
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-dim)" }}>{localPct == null ? "local : illisible" : localPct + "% local"}</span>
           </div>
         </Card>
         <Card className="lf-tile" style={{ background: "var(--bg-1)" }}>
@@ -215,7 +216,7 @@ function ViewCap() {
 
       <div style={{ display: "flex", alignItems: "center" }}>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", color: "var(--text-dim)" }}>
-          {steps.length} étapes récentes (lessons_learned) · {ov ? ov.souvenirs : 0} souvenirs · {ov ? ov.local_pct : 0}% local
+          {steps.length} étapes récentes (lessons_learned) · {ov ? ov.souvenirs : 0} souvenirs · {ov && ov.local_pct != null ? ov.local_pct + "% local" : "local : illisible"}
         </span>
       </div>
 

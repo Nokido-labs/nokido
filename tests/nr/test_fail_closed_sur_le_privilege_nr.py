@@ -111,6 +111,35 @@ def test_le_plancher_se_signale_au_journal(arbre):
     )
 
 
+@pytest.mark.parametrize("auth, local, attendu", [
+    ("Bearer jeton-derive-editor", True, (2, "EDITOR")),     # installation neuve : le 1er client PROUVE garde son ring
+    ("Bearer jeton-derive-editor", False, (2, "EDITOR")),
+    ("Bearer faux", True, (_ISOLE, "local_sans_preuve")),    # rien de prouve : rien ne change
+    ("Bearer ", True, (_ISOLE, "local_sans_preuve")),        # un porteur VIDE ne prouve rien (compare_digest("", ""))
+    ("", False, (-1, "no_token")),
+])
+def test_hub_sans_maitre_un_jeton_d_agent_prouve_garde_son_ring(auth, local, attendu):
+    """Parcours paquet 3 OS du 13/10 : EDITOR seme ET charge au boot, et pourtant chaque requete au ring 3 --
+    `if not HUB_TOKEN` rendait le plancher AVANT de regarder le porteur."""
+    import sys
+
+    for p in (str(RACINE), str(RACINE / "app")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import forge_auth_tokens as T
+
+    jetons = {"EDITOR": "jeton-derive-editor", "VIDE": ""}
+    rendu = T.ring_sans_maitre(auth, local, jetons, lambda nom, defaut: {"EDITOR": 2}.get(nom, defaut),
+                               lambda: (_ISOLE, "local_sans_preuve"))
+    assert rendu == attendu
+
+
+def test_la_branche_sans_maitre_passe_par_la_preuve(arbre):
+    """Le hub branche la fonction pure dans `if not HUB_TOKEN`, avec SES jetons, SON bareme et SON plancher."""
+    src = ast.unparse(_fonction(arbre, "_resolve_ring"))
+    assert "ring_sans_maitre(auth, local, _AGENT_TOKENS, _agent_ring, _ring_local_sans_preuve)" in src
+
+
 def test_le_repli_legacy_garde_son_propre_plancher(arbre):
     """NON-REGRESSION — le durcissement voisin, celui qui existait deja, ne doit
     pas disparaitre pendant qu'on s'occupe de son jumeau."""

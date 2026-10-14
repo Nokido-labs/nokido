@@ -56,11 +56,27 @@ SNAPSHOT_COUNT = 20  # top-N lignes dans le dump
 
 
 def _rss_mb() -> float:
-    """Mémoire RSS du process courant en MB — sans dépendance externe."""
+    """Mémoire RSS COURANTE du process en Mo.
+
+    MESURE 2026-10-14 (organisme macOS, run 38536079233) : « RAM CRITIQUE 112912MB >= 500MB » sur un runner de
+    14 Go. L'ancienne lecture prenait `ru_maxrss / 1024` sur toute plate-forme POSIX ; or `ru_maxrss` est en
+    KILO-OCTETS sous Linux mais en OCTETS sous macOS -- 112 912 « Mo » valaient ~110 Mo -- et c'est un PIC, qui
+    ne redescend jamais. Le hub macOS se croyait donc en crise a chaque controle : tracemalloc arme en permanence,
+    instantane complet et GC force toutes les 30 s. psutil d'abord (RSS courante) ; le pic n'est qu'un repli, en
+    bonnes unites.
+    """
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / (1024 * 1024)
+    except Exception:  # noqa: BLE001
+        pass  # muet-ok : psutil absent ou illisible, les replis ci-dessous mesurent quand meme
     try:
         import resource  # Linux/macOS
+        import sys
 
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        pic = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return pic / (1024 * 1024) if sys.platform == "darwin" else pic / 1024
     except ImportError:
         pass
     try:

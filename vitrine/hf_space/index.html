@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nokido</title>
+<meta name="description" content="Nokido: a local-first runtime for an artificial organism. Static showcase of the public repository.">
+<style>
+:root{--bg:#f7f6f3;--fg:#1d1b22;--mute:#5d5a66;--card:#fff;--line:#e2dfe8;--acc:#4b3fb8;--acc2:#e9e6fb;
+--ok:#1f7a3f;--part:#9a6200;--pause:#6b6b78;--code:#efedf6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15131c;--fg:#ece9f4;--mute:#a6a2b4;
+--card:#1e1b28;--line:#322e40;--acc:#a99cff;--acc2:#2b2645;--ok:#5fd18a;--part:#f0b85a;--pause:#9a98a8;--code:#262236}}
+:root[data-theme="dark"]{--bg:#15131c;--fg:#ece9f4;--mute:#a6a2b4;--card:#1e1b28;--line:#322e40;--acc:#a99cff;
+--acc2:#2b2645;--ok:#5fd18a;--part:#f0b85a;--pause:#9a98a8;--code:#262236}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:0 16px 48px}
+a{color:var(--acc)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font-size:.88em}
+pre{background:var(--code);padding:12px 14px;border-radius:8px;overflow-x:auto;font-size:.88em}
+h1{font-size:2.4rem;margin:0}
+h2{font-size:1.35rem;margin:44px 0 6px}
+.lead{font-size:1.15rem;color:var(--mute);max-width:720px}
+.hero{padding:48px 0 8px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}
+.btn{display:inline-block;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);
+color:var(--fg);text-decoration:none;font-weight:600}
+.btn.p{background:var(--acc);border-color:var(--acc);color:var(--bg)}
+.note{border-left:3px solid var(--acc);background:var(--acc2);padding:10px 14px;border-radius:0 8px 8px 0;font-size:.95rem}
+.sub{color:var(--mute);margin:0 0 14px}
+.layer{margin-bottom:14px}
+.orgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,230px),1fr));gap:8px;align-items:start}
+details.org{background:var(--card);border:1px solid var(--line);border-radius:10px}
+details.org[open]{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc2)}
+details.org summary{cursor:pointer;padding:8px 12px;display:flex;align-items:center;gap:8px;font-weight:600;list-style:none}
+details.org summary::-webkit-details-marker{display:none}
+details.org>div{padding:0 12px 12px;font-size:.92rem}
+details.org p{margin:6px 0}
+.layer h3{font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin:0 0 6px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.s-ok{background:var(--ok)}.s-part{background:var(--part)}.s-pause{background:var(--pause)}.s-none{background:var(--line)}
+.badge{display:inline-block;font-size:.8rem;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid currentColor}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.85rem;color:var(--mute);margin-top:8px}
+.legend span{display:flex;align-items:center;gap:6px}
+.st{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative}
+.st>input{position:absolute;opacity:0;pointer-events:none}
+.track{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.track label{font-size:.82rem;cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--mute);
+border-radius:99px;padding:4px 10px}
+.panes>div{display:none}.panes h4{margin:4px 0}
+.st>input:nth-of-type(1):checked~.track label:nth-child(1),.st>input:nth-of-type(2):checked~.track label:nth-child(2),
+.st>input:nth-of-type(3):checked~.track label:nth-child(3),.st>input:nth-of-type(4):checked~.track label:nth-child(4),
+.st>input:nth-of-type(5):checked~.track label:nth-child(5),.st>input:nth-of-type(6):checked~.track label:nth-child(6)
+{background:var(--acc);border-color:var(--acc);color:var(--bg)}
+.st>input:nth-of-type(1):checked~.panes>div:nth-child(1),.st>input:nth-of-type(2):checked~.panes>div:nth-child(2),
+.st>input:nth-of-type(3):checked~.panes>div:nth-child(3),.st>input:nth-of-type(4):checked~.panes>div:nth-child(4),
+.st>input:nth-of-type(5):checked~.panes>div:nth-child(5),.st>input:nth-of-type(6):checked~.panes>div:nth-child(6)
+{display:block}
+.st>input:focus-visible~.track{outline:2px solid var(--acc);outline-offset:4px;border-radius:8px}
+.tag{font-size:.78rem;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.three{grid-template-columns:1fr}}
+.three div{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.three b{display:block;margin-bottom:4px}
+ul.no{columns:2;padding-left:18px}
+@media (max-width:560px){ul.no{columns:1}}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--mute);font-size:.88rem}
+</style>
+</head>
+<body>
+<main>
+<section class="hero">
+<h1>Nokido</h1>
+<p class="lead">A <b>local-first runtime for an artificial organism</b>: the nervous system and physiology that let
+local models, cloud providers and coding agents work together on your machine, without becoming a heap of
+independent agents.</p>
+<div class="btns">
+<a class="btn p" target="_blank" rel="noopener noreferrer" href="https://github.com/Nokido-labs/nokido">Source on GitHub</a>
+<a class="btn" target="_blank" rel="noopener noreferrer" href="https://pypi.org/project/nokido-agent/">nokido-agent on PyPI</a>
+<a class="btn" href="#claims">What it does not claim</a>
+</div>
+<p class="note">This is a <b>static page</b>. It is not connected to any running Nokido: no hub, no memory, no keys
+live here. Statuses below are copied from the repository's status table; walkthroughs are <b>illustrations of the
+documented path, not recorded runs</b>.</p>
+</section>
+
+<h2>Explore the organism</h2>
+<p class="sub">Select an organ: its role, its declared status, and the evidence the repository cites for it.</p>
+<div class="layer"><h3>Clients (disposable)</h3><div class="orgs">
+<details class="org" name="org"><summary><i class="dot s-none"></i>Coding agents</summary><div><span class="badge">described in the README</span>
+<p>Claude Code, Codex CLI, OpenCode, Antigravity and other MCP clients call the hub. The client stays disposable; the system persists.</p><p class="tag">Evidence</p><p>MCP over HTTP</p></div></details>
+</div></div>
+<div class="layer"><h3>Hub and protocols</h3><div class="orgs">
+<details class="org" name="org" open><summary><i class="dot s-ok"></i>MCP hub</summary><div><span class="badge">operational</span>
+<p>One hub that clients reach through MCP; every action goes through it so it can be gated and journaled.</p><p class="tag">Evidence</p><p><code>NokidoMCP</code> hub, enabled by default</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-ok"></i>M2M messaging</summary><div><span class="badge">operational</span>
+<p>Messages between agents carry an intent from a closed dictionary and a pointer to the source of truth.</p><p class="tag">Evidence</p><p><code>forge_m2m_protocol</code> validator (intents, pointers)</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>ACP</summary><div><span class="badge">in development</span>
+<p>Agent interoperability protocol.</p><p class="tag">Evidence</p><p><code>NokidoAcpWs</code>, disabled by default</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-pause"></i>A2A Tier-1</summary><div><span class="badge">paused</span>
+<p>Agent-to-agent protocol.</p><p class="tag">Evidence</p><p><code>NokidoA2A</code>, disabled by default (code present)</p></div></details>
+</div></div>
+<div class="layer"><h3>Cognition</h3><div class="orgs">
+<details class="org" name="org"><summary><i class="dot s-none"></i>Model routing</summary><div><span class="badge">described in the README</span>
+<p>Routes across local and cloud models by use case, with a local fallback.</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-none"></i>Memory and retrieval</summary><div><span class="badge">described in the README</span>
+<p>Long-term memory with provenance: full-text and vector retrieval over what the system learned.</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>Swarm</summary><div><span class="badge">hardening</span>
+<p>Several models deliberate on one question.</p><p class="tag">Evidence</p><p><code>forge_swarm</code> family: NR in CI for 12 of 13 modules (not the base one)</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>Epistemic drive</summary><div><span class="badge">first piece</span>
+<p>Turns a detected knowledge gap into an inquiry.</p><p class="tag">Evidence</p><p><code>forge_epistemic_daemon</code>; full cortex-autonomic coupling not built</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>Autonomous evolution</summary><div><span class="badge">guarded</span>
+<p>Changes to Nokido itself, behind a single gate.</p><p class="tag">Evidence</p><p><code>forge_mutation_judge</code>: one gate (owner arming, brake, human lock) + auto-brake on capability regression</p></div></details>
+</div></div>
+<div class="layer"><h3>Physiology and defence</h3><div class="orgs">
+<details class="org" name="org"><summary><i class="dot s-ok"></i>Governance gates</summary><div><span class="badge">operational</span>
+<p>Deterministic gates around actions: AST checks, secret scanning, RBAC, egress control.</p><p class="tag">Evidence</p><p><code>NokidoGateConsumer</code> + <code>forge_golden_rules_ast</code></p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>Immune system</summary><div><span class="badge">partial</span>
+<p>Filters what leaves for the cloud and checks what comes back.</p><p class="tag">Evidence</p><p><code>forge_semantic_firewall</code> + <code>forge_sovereign_membrane</code></p></div></details>
+<details class="org" name="org"><summary><i class="dot s-ok"></i>Endocrine</summary><div><span class="badge">operational</span>
+<p>Hormone-like signals that modulate the whole body.</p><p class="tag">Evidence</p><p><code>NokidoHormonesListener</code> + <code>forge_endocrine</code></p></div></details>
+<details class="org" name="org"><summary><i class="dot s-ok"></i>Nervous system</summary><div><span class="badge">operational</span>
+<p>Afferent signals and organ pulses.</p><p class="tag">Evidence</p><p><code>NokidoAfferent</code> + <code>NokidoOrganPulse</code></p></div></details>
+<details class="org" name="org"><summary><i class="dot s-ok"></i>Homeostasis</summary><div><span class="badge">achieved</span>
+<p>Regulates CPU, RAM, queues and providers under pressure.</p><p class="tag">Evidence</p><p><code>NokidoHomeostasis</code> + <code>forge_homeostasis_orchestrator</code></p></div></details>
+<details class="org" name="org"><summary><i class="dot s-part"></i>Circadian cycle</summary><div><span class="badge">partial</span>
+<p>Sleep-like phases for maintenance work.</p><p class="tag">Evidence</p><p><code>forge_circadian</code> beats; 7 of 9 phase targets disabled or undeclared</p></div></details>
+<details class="org" name="org"><summary><i class="dot s-ok"></i>Spiking substrate</summary><div><span class="badge">experimental</span>
+<p>Software spiking neural network, on demand.</p><p class="tag">Evidence</p><p><code>forge_snn_core</code> + <code>forge_snn_router</code></p></div></details>
+</div></div>
+<div class="legend">
+<span><i class="dot s-ok"></i>achieved / operational</span><span><i class="dot s-part"></i>partial, hardening, guarded</span>
+<span><i class="dot s-pause"></i>paused or off by default</span><span><i class="dot s-none"></i>described, no status line</span>
+</div>
+
+<h2>Follow a request</h2>
+<p class="sub">Illustration of the documented path. Not a recorded run.</p>
+<div class="st"><input type="radio" name="rq" id="rq1" checked><input type="radio" name="rq" id="rq2"><input type="radio" name="rq" id="rq3"><input type="radio" name="rq" id="rq4"><input type="radio" name="rq" id="rq5"><input type="radio" name="rq" id="rq6">
+<div class="track"><label for="rq1">1. Call</label><label for="rq2">2. Gate</label><label for="rq3">3. Route</label><label for="rq4">4. Protect</label><label for="rq5">5. Remember</label><label for="rq6">6. Regulate</label></div>
+<div class="panes">
+<div><h4>Call</h4><p>A coding agent calls a tool on the hub through MCP. It does not touch files or the shell directly.</p></div>
+<div><h4>Gate</h4><p>The hub checks the action before it runs: role, AST validity, secret scanning, egress rules.</p></div>
+<div><h4>Route</h4><p>Work that needs a model goes to a local model or, by use case, to a cloud provider, with a local fallback.</p></div>
+<div><h4>Protect</h4><p>What leaves for the cloud passes the semantic firewall; what comes back is checked on the way in.</p></div>
+<div><h4>Remember</h4><p>Results and decisions are anchored in memory with their provenance, retrievable later.</p></div>
+<div><h4>Regulate</h4><p>If CPU, RAM or queues come under pressure, hormone-like signals and homeostasis slow down or shed work.</p></div>
+</div></div>
+
+<h2>The self-improvement loop</h2>
+<p class="sub">How a change to Nokido itself is meant to travel, and where it stands today.</p>
+<div class="st"><input type="radio" name="ev" id="ev1" checked><input type="radio" name="ev" id="ev2"><input type="radio" name="ev" id="ev3"><input type="radio" name="ev" id="ev4"><input type="radio" name="ev" id="ev5"><input type="radio" name="ev" id="ev6">
+<div class="track"><label for="ev1">1. Observe</label><label for="ev2">2. Hypothesis</label><label for="ev3">3. Isolated trial</label><label for="ev4">4. Judge</label><label for="ev5">5. Decide</label><label for="ev6">6. Watch and revert</label></div>
+<div class="panes">
+<div><h4>Observe</h4><p>The body records what went wrong or could be better.</p></div>
+<div><h4>Hypothesis</h4><p>A candidate change is proposed for one well-defined setting.</p></div>
+<div><h4>Isolated trial</h4><p>The change is tried apart from the running organism.</p></div>
+<div><h4>Judge</h4><p>Regression tests decide; a capability regression brakes the loop automatically.</p></div>
+<div><h4>Decide</h4><p>One gate: the owner must arm evolution, a brake can halt it, a human lock can hold it.</p></div>
+<div><h4>Watch and revert</h4><p>After a change, the body keeps measuring and must be able to prove a revert.</p></div>
+</div>
+<p class="note"><b>Status: guarded.</b> The judge and the brakes exist; arming is an owner decision. As of 2026-10-13,
+no mutation has been applied autonomously.</p></div>
+
+<h2>Declared, observed, verified</h2>
+<div class="three">
+<div><b>Declared</b>What the code or a config says. An organ can exist in code without being wired.</div>
+<div><b>Observed</b>What a probe sees right now. A port that answers does not prove a model is loaded.</div>
+<div><b>Verified</b>What a test or an artifact proves. A probe that cannot look reports <code>ILLISIBLE</code>, never &ldquo;no&rdquo;.</div>
+</div>
+
+<h2 id="claims">What Nokido does not claim</h2>
+<ul class="no"><li>AGI</li><li>guaranteed self-healing</li><li>perfect autonomy</li><li>perfect self-awareness</li>
+<li>universal protocol compatibility</li><li>production-grade stability for every subsystem</li>
+<li>production neuromorphic hardware support</li></ul>
+<p>Nokido is an <b>alpha-stage research and engineering project</b>. The repository, its tests and its live capability
+checks are the authoritative source for the current state.</p>
+
+<h2>Try it</h2>
+<pre>pip install nokido-agent
+nokido-doctor        # what this machine has, lacks, or cannot read</pre>
+<p>The cloned repository remains the reference path for the full organism (services, supervisor, local models):
+see the <a target="_blank" rel="noopener noreferrer" href="https://github.com/Nokido-labs/nokido#-installation">installation section</a>.</p>
+
+<footer>Static showcase of <a target="_blank" rel="noopener noreferrer" href="https://github.com/Nokido-labs/nokido">github.com/Nokido-labs/nokido</a>,
+published from commit <code>{{SHA_PUBLIC}}</code>. Licensing is defined by the repository, not by this page.<br>
+Read-only mirrors: <a target="_blank" rel="noopener noreferrer" href="https://codeberg.org/user/nokido-public">Codeberg</a> ·
+<a target="_blank" rel="noopener noreferrer" href="https://gitlab.com/naarobb/nokido">GitLab</a> ·
+<a target="_blank" rel="noopener noreferrer" href="https://sourceforge.net/projects/nokido/">SourceForge</a> — issues and contributions on GitHub.</footer>
+</main>
+</body>
+</html>

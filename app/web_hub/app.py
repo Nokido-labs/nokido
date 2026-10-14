@@ -290,7 +290,7 @@ async def _close_jti_persistence():
     _jti_persister = None
     try:
         p.close(flush_timeout=2.0)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - muet-ok : arret, persistance deja fermee ou jamais ouverte
         pass
 
 
@@ -537,7 +537,7 @@ class _NoCacheStatic(StaticFiles):
         resp = await super().get_response(path, scope)
         try:
             resp.headers["Cache-Control"] = "no-store, max-age=0"
-        except Exception:
+        except Exception:  # muet-ok : reponse aux en-tetes figes, servie telle quelle
             pass
         return resp
 
@@ -605,7 +605,7 @@ app.include_router(ondemand_router)
 try:
     from app.web_hub.redteam_views import router as redteam_router  # noqa: E402
     app.include_router(redteam_router)
-except ModuleNotFoundError:
+except ModuleNotFoundError:  # muet-ok : lab absent => pas de route (fail-closed voulu, voir ci-dessus)
     pass
 from app.web_hub.wired_routes import router as wired_router  # noqa: E402
 app.include_router(wired_router)
@@ -815,6 +815,14 @@ def ui_playground_route():
 
 
 # --- Generative UI applied : 3 routes wires LLM-driven sections ---
+# Veilles recentes AYANT INGERE, quel que soit leur statut. Campagne UI 13/10 : les jobs restent `en_cours` apres
+# ingestion (594 fragments ce jour-la, jamais clos) et le filtre `status='completed'` rendait « aucune donnee ».
+# `n_ingested` est du TEXTE en base : sans CAST, '0' > 0 est VRAI en SQLite.
+_SQL_VEILLES_RECENTES = (
+    "SELECT substr(theme,1,80), CAST(n_ingested AS INTEGER), status FROM watch_jobs "
+    "WHERE CAST(n_ingested AS INTEGER) > 0 ORDER BY updated_at DESC LIMIT 15")
+
+
 @app.get("/ui/auto/veille-summary", response_class=HTMLResponse)
 def ui_auto_veille_summary(generer: int = 0):
     """Summary veille recent. Repli SERVI D'ABORD, generation ensuite.
@@ -828,12 +836,9 @@ def ui_auto_veille_summary(generer: int = 0):
     db = _P(__file__).resolve().parent.parent.parent / "RAG" / "embeddings.db"
     try:
         c = sqlite3.connect(str(db), timeout=5)
-        rows = c.execute(
-            "SELECT substr(theme,1,80) as theme, n_ingested FROM watch_jobs "
-            "WHERE status='completed' AND n_ingested>0 ORDER BY updated_at DESC LIMIT 15"
-        ).fetchall()
+        rows = c.execute(_SQL_VEILLES_RECENTES).fetchall()
         c.close()
-        data = {"recent_veilles": [{"theme": r[0], "chunks": r[1]} for r in rows]}
+        data = {"recent_veilles": [{"theme": r[0], "chunks": r[1], "statut": r[2]} for r in rows]}
     except Exception as e:
         return HTMLResponse(f'<div class="text-red-600 p-2">DB err: {e}</div>')
 
@@ -843,16 +848,17 @@ def ui_auto_veille_summary(generer: int = 0):
     # Les donnees sont DEJA en main : rien ne justifie de faire attendre avant de
     # les montrer. « Live-only » interdit la donnee inventee, pas la mise en
     # forme modeste -- et encore moins de la servir tout de suite.
-    _colonnes = [("theme", "Theme"), ("chunks", "Chunks")]
+    _colonnes = [("theme", "Theme"), ("chunks", "Chunks"), ("statut", "Statut")]
     if not generer:
         return HTMLResponse(enveloppe_progressive(
-            table_repli(data["recent_veilles"], _colonnes, note="rendu simple"),
+            table_repli(data["recent_veilles"], _colonnes,
+                        note="rendu simple -- 15 veilles les plus recentes ayant ingere, tous statuts"),
             "/ui/auto/veille-summary?generer=1", "widget-veille-summary"))
 
     result = generate_ui(
         "Cree un <table class='min-w-full'> Tailwind des veilles fournies. "
-        "Colonnes : Theme / Chunks. Itere data_source.recent_veilles, "
-        "ecris chaque <tr> avec valeurs INLINE (theme + chunks resolus). "
+        "Colonnes : Theme / Chunks / Statut. Itere data_source.recent_veilles, "
+        "ecris chaque <tr> avec valeurs INLINE (theme + chunks + statut resolus). "
         "Header bg-gray-100, hover:bg-gray-50.",
         data_source=data,
         max_tokens=1200,
@@ -1679,8 +1685,10 @@ def api_hub_overview():
         _gen = _d.get("generated_ts")
         if _gen:
             ssot_age_s = round(_time_mod.time() - float(_gen))
-    except Exception:
-        pass
+    except Exception as _exc_cap:
+        import logging as _lg
+        _lg.getLogger("web_hub").info("[accueil] intention du SSoT illisible (%s) : intitule par defaut affiche",
+                                      type(_exc_cap).__name__)
 
     steps = []
     souvenirs = 0
@@ -1694,8 +1702,10 @@ def api_hub_overview():
                 steps.append({"title": s[:84], "state": "done"})
             if len(steps) >= 7:
                 break
-    except Exception:
-        pass
+    except Exception as _exc_etapes:
+        import logging as _lg
+        _lg.getLogger("web_hub").info("[accueil] etapes recentes illisibles (%s) : liste vide affichee",
+                                      type(_exc_etapes).__name__)
 
     local_pct = 100
     try:
@@ -1704,8 +1714,13 @@ def api_hub_overview():
         if rows:
             loc = sum(1 for r in rows if "cloud" not in str(r.get("channel", "")).lower())
             local_pct = round(100 * loc / len(rows))
-    except Exception:
-        pass
+    except Exception as _exc_net:
+        # ILLISIBLE n'est pas 100 % LOCAL (14/10) : le defaut affichait une souverainete non mesuree comme une
+        # mesure. Un historique VIDE reste une mesure (aucun appel cloud) ; un historique illisible ne l'est pas.
+        local_pct = None
+        import logging as _lg
+        _lg.getLogger("web_hub").warning("[accueil] historique reseau illisible (%s) : part locale NON mesuree",
+                                         type(_exc_net).__name__)
 
     return JSONResponse({
         "intention": intention, "steps": steps, "n_steps": len(steps),
@@ -1762,8 +1777,10 @@ def reports_page():
                 "ORDER BY created_at DESC LIMIT 50"
             ).fetchall()
             con.close()
-        except Exception:
-            pass
+        except Exception as _exc_secu:
+            import logging as _lg
+            _lg.getLogger("web_hub").warning("[securite] rapports illisibles (%s) : liste vide affichee",
+                                             type(_exc_secu).__name__)
     cards = (
         "".join(
             f'<div class="r-card"><div class="r-src">{r[0]}</div>'

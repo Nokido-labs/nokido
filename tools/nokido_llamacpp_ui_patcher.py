@@ -15,7 +15,7 @@ Usage :
     LAFORGE_PYTHON tools/nokido_llamacpp_ui_patcher.py [--port 8091] [--out data/llamacpp_webui_fr]
 
 Ensuite ajouter au BAT :
-    --path __import__("os").path.expanduser("~\\Script python IA\\LaForge\\data\\llamacpp_webui_fr")
+    --path "~\\Script python IA\\LaForge\\data\\llamacpp_webui_fr"
 """
 
 from __future__ import annotations

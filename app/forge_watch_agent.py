@@ -160,7 +160,7 @@ def _broadcast(event: dict) -> None:
     for cb in list(_SSE_CALLBACKS):
         try:
             cb(event)
-        except Exception:
+        except Exception:  # muet-ok : un auditeur SSE deconnecte ne casse ni la diffusion ni le journal (1 ligne/evenement)
             pass
     print(
         f"[WATCH] {event.get('step', '?')} -> {event.get('status', '?')} | {event.get('theme', '?')[:40]}", flush=True
@@ -581,7 +581,9 @@ def _openalex_search(query: str, n: int = 8) -> list[dict]:
                 for word, idxs in inv.items():
                     for i in idxs:
                         positions[i] = word
-                abstract = " ".join(positions[i] for i in sorted(positions))[:1500]
+                # Plus de coupe a 1500 (owner 2026-10-13 : « toute la substantifique moelle ») :
+                # l'ingestion decoupe deja en morceaux, et un plafond eventuel s'y DIT.
+                abstract = " ".join(positions[i] for i in sorted(positions))
             # URL : primary_location.landing_page > DOI > openalex id
             url_work = ""
             pl = w.get("primary_location") or {}
@@ -643,7 +645,7 @@ def _arxiv_search(query: str, n: int = 8) -> list[dict]:
                     {
                         "title": title[:300],
                         "url": link,
-                        "content": summary[:1500],
+                        "content": summary,
                         "engine": "arxiv_direct",
                     }
                 )
@@ -670,7 +672,7 @@ def _gh_get(path: str, accept: str = "application/vnd.github+json"):
         return r.read()
 
 
-def _github_search(query: str, n: int = 4) -> list[dict]:
+def _github_search(query: str, n: int = 4, leve: bool = False) -> list[dict]:
     """GitHub par API, JAMAIS par crawl : la page rendue est de la chrome.
 
     Mesure 2026-07-28 (wj_2636bad295) : 41 candidats ingeres -> 2 retenus. Crawler
@@ -685,6 +687,10 @@ def _github_search(query: str, n: int = 4) -> list[dict]:
         data = json.loads(_gh_get("/search/repositories?" + params).decode("utf-8"))
     except Exception as e:  # noqa: BLE001
         logger.warning(f"github api KO: {e}")
+        # `leve=True` (chaine de veille, 2026-10-13) : une API injoignable est une NON-MESURE, pas « GitHub n'a
+        # rien » -- rendre [] la faisait compter comme une source qui a repondu.
+        if leve:
+            raise
         return []
     out = []
     for it in (data.get("items") or [])[:n]:
@@ -692,9 +698,13 @@ def _github_search(query: str, n: int = 4) -> list[dict]:
         body = it.get("description") or ""
         try:
             raw = _gh_get("/repos/%s/readme" % full, "application/vnd.github.raw")
-            body = (body + "\\n\\n" + raw.decode("utf-8", "replace"))[:4000]
-        except Exception:  # noqa: BLE001
-            pass  # pas de README = on garde la description, on ne jette pas
+            # README ENTIER (owner 2026-10-13) : il EST la matiere ingeree d'un depot, et l'ancienne coupe a
+            # 4000 caracteres le tronquait en silence -- l'ingestion le decoupe en morceaux. Et un vrai saut de
+            # ligne : "\\n\\n" inserait un antislash-n litteral entre la description et le README.
+            body = body + "\n\n" + raw.decode("utf-8", "replace")
+        except Exception as exc:  # noqa: BLE001 - pas de README OU README illisible : on garde la description
+            # « pas de README » (404) et « README illisible » (limite de debit, reseau) ne sont pas le meme etat.
+            logger.info("veille github : README de %s non lu (%s) -- description seule", full, type(exc).__name__)
         out.append({"title": full[:300], "url": it.get("html_url") or "",
                     "content": body, "engine": "github_api"})
     return [r for r in out if r["url"]]
@@ -840,6 +850,40 @@ def _ensure_searxng(wait_s: "int | None" = None) -> bool:
     return False
 
 
+# Moteurs SearXNG ACTIFS dans les categories de la veille, lus sur /config (cache 1 h). Voir _moteurs_searxng.
+_MOTEURS_SEARXNG: dict = {"ts": 0.0, "noms": []}
+_MOTEURS_TTL_S = 3600
+_CATEGORIES_VEILLE = ("general", "it", "science")
+
+
+def _moteurs_searxng() -> list[str]:
+    """Moteurs ACTIFS de SearXNG dans les categories de la veille, lus sur /config (cache 1 h).
+
+    Sans cette liste, le coupe-circuit par moteur ENREGISTRAIT les moteurs a CAPTCHA (brave, duckduckgo,
+    startpage, karmasearch) sans jamais les ECARTER : chaque requete repartait vers les memes, rendait 0
+    resultat, et le circuit GLOBAL s'ouvrait -- la veille Hamilton du 2026-10-13 n'a vu que de l'OpenAlex
+    (29/29 resultats). Les categories it et science ouvrent en plus les moteurs sans CAPTCHA (depots, Q&R,
+    publications).
+    [] = liste ILLISIBLE (/config injoignable), jamais « aucun moteur » : l'appelant retombe alors sur
+    categories=general, le comportement d'avant, et le journal le dit.
+    """
+    now = time.time()
+    if _MOTEURS_SEARXNG["noms"] and now - _MOTEURS_SEARXNG["ts"] < _MOTEURS_TTL_S:
+        return list(_MOTEURS_SEARXNG["noms"])
+    try:
+        req = urllib.request.Request(f"{SEARXNG_URL}/config", headers={"User-Agent": "Mozilla/5.0 (LaForge-WatchAgent)"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            conf = json.loads(r.read())
+        noms = sorted({e["name"] for e in conf.get("engines", [])
+                       if e.get("enabled") and set(e.get("categories") or []) & set(_CATEGORIES_VEILLE)})
+    except Exception as e:  # noqa: BLE001 -- dit ici, jamais lu comme « aucun moteur »
+        logger.warning(f"SearXNG /config ILLISIBLE ({type(e).__name__}) : moteurs inconnus, categories=general")
+        return []
+    _MOTEURS_SEARXNG.update(ts=now, noms=noms)
+    logger.info(f"SearXNG : {len(noms)} moteur(s) actif(s) dans {list(_CATEGORIES_VEILLE)}")
+    return noms
+
+
 def _searxng(query: str, n: int = 8) -> list[dict]:
     """Query SearXNG + filtre paywalls + boost open access (arxiv/github/etc).
     Fallback academic cascade si SearXNG 0 results OU engine CB OPEN.
@@ -848,7 +892,19 @@ def _searxng(query: str, n: int = 8) -> list[dict]:
         logger.info("searxng CB open, skip direct fallback academic")
         return _academic_search(query, n)
 
-    params = urllib.parse.urlencode({"q": query, "format": "json", "categories": "general", "language": "en"})
+    # COUPE-CIRCUIT PAR MOTEUR, EFFECTIF (2026-10-13) : un moteur en circuit ouvert est ECARTE de la requete,
+    # les autres continuent de servir. Avant, il etait seulement compte -- voir _moteurs_searxng.
+    moteurs = _moteurs_searxng()
+    ecartes = [m for m in moteurs if _engine_open(f"searxng:{m}")]
+    interroges = [m for m in moteurs if m not in ecartes]
+    if moteurs and not interroges:
+        logger.warning(f"SearXNG : les {len(moteurs)} moteurs sont en circuit ouvert, fallback academic")
+        return _academic_search(query, n)
+    if ecartes:
+        logger.info(f"SearXNG : {len(interroges)} moteur(s) interroge(s), {len(ecartes)} ecarte(s) "
+                    f"(circuit ouvert) : {ecartes}")
+    choix = {"engines": ",".join(interroges)} if interroges else {"categories": "general"}
+    params = urllib.parse.urlencode({"q": query, "format": "json", "language": "en", **choix})
     req = urllib.request.Request(
         f"{SEARXNG_URL}/search?{params}",
         headers={
@@ -871,9 +927,13 @@ def _searxng(query: str, n: int = 8) -> list[dict]:
             if filtered:
                 _engine_record("searxng", ok=True)
                 return filtered[:n]
-            # 0 results SearXNG -> count partial fail + academic fallback
-            _engine_record("searxng", ok=False)
-            logger.info(f"SearXNG 0 results for '{query[:40]}', fallback academic")
+            # 0 resultat n'est une PANNE de SearXNG que si AUCUN moteur interroge n'a repondu. Des moteurs qui
+            # repondent « rien » disent seulement que le web n'a rien sur cette requete : le compter en echec
+            # ouvrait le circuit GLOBAL apres trois requetes pointues (UNKNOWN n'est pas NO, dans les deux sens).
+            muets = {ue[0] if isinstance(ue, (list, tuple)) and ue else str(ue) for ue in unresp}
+            if not interroges or set(interroges) <= muets:
+                _engine_record("searxng", ok=False)
+            logger.info(f"SearXNG 0 results for '{query[:40]}' ({len(muets)} moteur(s) muet(s)), fallback academic")
             return _academic_search(query, n)
     except Exception as e:
         _engine_record("searxng", ok=False)
@@ -1733,9 +1793,16 @@ def _step_store(conn, job_id: str, theme: str, refined: list[dict], idea_id: str
          "refus": _why[:20]},
         ensure_ascii=False,
     )
+    # L'etape `store` est CELLE qui s'execute : en base elle est encore `running`, et run_node ne la marquera
+    # terminee (completed, ou degraded si rien n'est retenu -- deux etats TERMINAUX) qu'APRES ce retour. La lire
+    # telle quelle rendait `en_cours`, et plus rien ne recalculait le verdict : 7 veilles bloquees, dont 594, 351
+    # et 89 fragments ingeres le 13/10 (diagnostic du 14/10, simulation C:/tmp/veille/reverdict_jobs_bloques.py).
+    _etapes = _nodes_du_job(conn, job_id)
+    if _etapes is not None:
+        _etapes = [(s, "completed" if s == "store" and st == "running" else st) for s, st in _etapes]
     _update_job(
         conn, job_id, "done",
-        verdict_chaine(_nodes_du_job(conn, job_id), n, dedup=_dedup),
+        verdict_chaine(_etapes, n, dedup=_dedup),
         n_stored=n,
         refined_json=_trace,
         # Le message d'origine ecrasait TROIS situations sous un « seuil OU insert

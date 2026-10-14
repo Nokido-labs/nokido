@@ -92,6 +92,13 @@ from typing import (
 
 logger = logging.getLogger(__name__)
 
+try:  # sonde PASSIVE du chemin chaud (roadmap P2) : eteinte ou absente = chemin inchange
+    from nokido_agent.app.forge_hotpath_probe import sonde_active as _sonde_hotpath
+except Exception:  # muet-ok : sans sonde, les points d'appel ne font rien
+
+    def _sonde_hotpath():
+        return None
+
 # Type aliases ----------------------------------------------------------------
 
 EventKind = Literal["user_msg", "tool_result", "system", "deadline", "external"]
@@ -242,6 +249,9 @@ class EventStream:
         AgentLoop preserve the Manus 6-step ordering instead of fan-out chaos.
         """
         self._seq += 1
+        _p = _sonde_hotpath()
+        if _p is not None:
+            _p.on_publish(getattr(event, "source", "?"), event.kind, self._seq)
         await self._q.put((event.priority(), self._seq, event))
 
     async def consume(self, timeout: Optional[float] = None) -> Optional[Event]:
@@ -261,6 +271,10 @@ class EventStream:
                 _prio, _seq, ev = await asyncio.wait_for(self._q.get(), timeout=timeout)
         except asyncio.TimeoutError:
             return None
+        _p = _sonde_hotpath()
+        if _p is not None:
+            _p.on_dequeue(ev.kind, _seq, self._q.qsize())
+            _t_dispatch = _p.dispatch_start()
         # Record before dispatch so handlers can introspect history safely.
         self._history.append(ev)
         if len(self._history) > self._max_hist:
@@ -275,6 +289,8 @@ class EventStream:
                 await h(ev)
             except Exception:  # noqa: BLE001
                 logger.exception("wildcard handler raised on %s", ev.kind)
+        if _p is not None:
+            _p.dispatch_end(ev.kind, _t_dispatch)
         self._q.task_done()
         return ev
 

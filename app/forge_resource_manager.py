@@ -41,6 +41,7 @@ API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbo
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import logging
 import os
@@ -183,6 +184,18 @@ def _dump_snapshot_json() -> None:
     _append_vitals_history(_SNAPSHOT)
 
 
+_VITAUX_ECHECS_DITS: set = set()
+
+
+def _dire_echec_vitaux(exc: Exception) -> None:
+    """Le journal des vitaux existe pour dire ce qui s'est passe : son propre echec se dit (une fois par type)."""
+    nom = type(exc).__name__
+    if nom not in _VITAUX_ECHECS_DITS:
+        _VITAUX_ECHECS_DITS.add(nom)
+        logging.getLogger(__name__).warning("[vitals] ligne de la serie NON ECRITE (%s: %s) -- trou dans "
+                                            "l'historique tant que ce type d'echec dure", nom, str(exc)[:120])
+
+
 def _append_vitals_history(snap: dict) -> None:
     """Append une ligne compacte de vitaux a la serie bornee. Ne leve JAMAIS.
 
@@ -260,8 +273,8 @@ def _append_vitals_history(snap: dict) -> None:
                 _VITALS_HISTORY_MAX_BYTES / 1048576.0)
             _CANAUX_VUS = _vus
         _ecrire_jsonl(_VITALS_HISTORY_PATH, row, _VITALS_HISTORY_MAX_BYTES)
-    except Exception:  # noqa: BLE001 - un journal qui casse son appelant serait pire
-        pass
+    except Exception as _e_vit:  # noqa: BLE001 - un journal qui casse son appelant serait pire ; il se DIT
+        _dire_echec_vitaux(_e_vit)
 
 
 def _ecrire_jsonl(chemin, row: dict, max_bytes: int) -> None:
@@ -404,7 +417,7 @@ def read_vitals_history(since_ts: float = 0.0, limit: int = 400) -> list[dict]:
                 continue
             try:
                 row = _json.loads(line)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : ligne illisible de la serie ignoree (donnee)
                 continue
             if float(row.get("ts") or 0) >= since_ts:
                 out.append(row)
@@ -496,7 +509,7 @@ def _sample_top_procs(n: int = 5) -> list[dict]:
             try:
                 rss = p.info["memory_info"].rss
                 procs.append((rss, p.info["pid"], p.info["name"]))
-            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):  # muet-ok : processus disparu
                 continue
         procs.sort(reverse=True)
         return [{"pid": pid, "name": name, "ram_gb": round(rss / 1024**3, 2)} for rss, pid, name in procs[:n]]
@@ -658,17 +671,17 @@ def _sample_once() -> dict[str, Any]:
             out["ram_used_gb"] = round(vm.used / 1024**3, 2)
             out["ram_total_gb"] = round(vm.total / 1024**3, 2)
             out["ram_free_gb"] = round(vm.available / 1024**3, 2)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : champ absent = INCONNU dans le snapshot, re-echantillonne
             pass
         try:
             # interval=None = non-blocking, returns last sample
             out["cpu_pct"] = round(psutil.cpu_percent(interval=None), 1)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : champ absent = INCONNU dans le snapshot, re-echantillonne
             pass
         try:
             d = psutil.disk_usage(str(Path(__file__).anchor))
             out["disk_pct"] = round(d.percent, 1)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : champ absent = INCONNU dans le snapshot, re-echantillonne
             pass
     # GPU : throttle 1x/min + breaker. MESURE 2026-07-26 (Observateur d'evenements,
     # canaux PowerShell + WMI-Activity) : a la cadence de 3 s, ce capteur faisait
@@ -824,8 +837,23 @@ def _non_essential_sains() -> list[str]:
     except Exception:  # noqa: BLE001 - jamais empecher la regulation de tourner
         return list(_SUPERVISOR_NON_ESSENTIAL)
 
+    # neverSleep au TOML (2026-10-11) : la liste curatee ne le consultait pas -- RESOURCE_MANAGER endormait
+    # NokidoNetcfgUI (neverSleep, porte d'entree de la tuile netcfg) 16 fois en 2 h (supervisor_ordres.jsonl), alors
+    # que le bail de priorite (_candidats_bail) le respecte. TOML illisible : comportement d'avant, DIT a l'audit.
+    toml = _services_du_toml()
+    if toml is None:
+        try:
+            _audit_lifecycle("sleep_neversleep_illisible", "service", "services.toml ILLISIBLE : neverSleep non oppose")
+        except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, la decision n'en depend pas
+            pass
     sains: list[str] = []
     for svc in _SUPERVISOR_NON_ESSENTIAL:
+        if toml is not None and (toml.get(svc) or {}).get("neverSleep"):
+            try:
+                _audit_lifecycle("sleep_skipped", "service", "neverSleep au TOML", target=svc)
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, la decision n'en depend pas
+                pass
+            continue
         try:
             critique = is_critical(svc)
         except Exception:  # noqa: BLE001 - verdict indisponible = on s'abstient
@@ -833,7 +861,7 @@ def _non_essential_sains() -> list[str]:
         if critique:
             try:
                 _audit_lifecycle("sleep_skipped", "service", why_critical(svc), target=svc)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, la decision n'en depend pas
                 pass
             continue
         sains.append(svc)
@@ -992,10 +1020,11 @@ def _supervisor_sleep_non_essential() -> None:
                 req = _ur.Request(f"{_SUPERVISOR_URL}/sleep/{svc}", method="POST", headers=_h)
                 with _ur.urlopen(req, timeout=3):
                     pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:  # noqa: BLE001 -- ordre NON delivre : REQUESTED != ACHIEVED, dit
+                logging.getLogger(__name__).warning("[regulation] sommeil de %s NON delivre au superviseur (%s)",
+                                                    svc, type(e).__name__)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[regulation] mise en sommeil abandonnee (%s)", type(e).__name__)
 
 
 def _supervisor_wake_non_essential() -> None:
@@ -1017,10 +1046,11 @@ def _supervisor_wake_non_essential() -> None:
                 req = _ur.Request(f"{_SUPERVISOR_URL}/wake/{svc}", method="POST", headers=_h)
                 with _ur.urlopen(req, timeout=3):
                     pass
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as e:  # noqa: BLE001 -- ordre NON delivre : REQUESTED != ACHIEVED, dit
+                logging.getLogger(__name__).warning("[regulation] reveil de %s NON delivre au superviseur (%s)",
+                                                    svc, type(e).__name__)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[regulation] reveil abandonne (%s)", type(e).__name__)
 
 
 def _urgence_ram(ram_pct: float | None = None) -> float | None:
@@ -1401,7 +1431,7 @@ def _age_heartbeat_s(d: dict, chemin=None):
         return None
     try:
         return time.time() - float(brut)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # muet-ok : pas un horodatage numerique -> formes suivantes
         pass
     from datetime import datetime as _dt
 
@@ -1417,7 +1447,7 @@ def _age_heartbeat_s(d: dict, chemin=None):
         try:
             q = _dt.fromisoformat(essai)
             break
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 -- muet-ok : format suivant
             continue
     if q is None:
         return None
@@ -1509,7 +1539,7 @@ def _backlog_embeddings() -> int:
             finally:
                 _c.close()
             return int(_n)
-        except Exception:  # noqa: BLE001 - base absente/vide/verrouillee : candidat suivant
+        except Exception:  # noqa: BLE001 - muet-ok : base absente/vide/verrouillee : candidat suivant
             continue
     return -1
 
@@ -1538,7 +1568,7 @@ def _port_ecoute(port: int) -> bool:
             if c.status == "LISTEN" and c.laddr and c.laddr.port == cible:
                 return True
         return False
-    except Exception:  # noqa: BLE001 - table illisible : on retombe sur la connexion
+    except Exception:  # noqa: BLE001 - muet-ok : table illisible : on retombe sur la connexion
         pass
     _s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     _s.settimeout(0.8)
@@ -1549,7 +1579,7 @@ def _port_ecoute(port: int) -> bool:
     finally:
         try:
             _s.close()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 -- muet-ok : fermeture d'une socket de sonde
             pass
 
 
@@ -1614,6 +1644,53 @@ def _arbitrage_consolidation_tick() -> None:
             "[arbitrage] tick ignore (%s: %s)", type(_e).__name__, _e)
 
 
+# ── RAM : decider sur un PLANCHER de fenetre courte, pas sur un instant (2026-10-13) ──────────────────────────
+# Mesure du 13/10 (sandbox/hub_blackbox.jsonl, 3 133 points de 00:00 a 14:43) : la RAM depasse 85 % en RAFALES --
+# 34 episodes de 8 a 107 s, mediane ~26 s ; au-dessus de 90 %, 10 episodes, aucun au-dela de 28 s. Les gardes
+# decidaient sur l'INSTANT : refus du gate P1 a 97,6 % puis de l'admission Docker a 87,7 %, dementis 20 s plus tard.
+# Rejoue sur la journee, un plancher sur 60 s ne garde que 11 des 107 instants >= 85 % -- ceux des episodes qui ont
+# reellement TENU -- et sur 120 s, aucun. Le sampler publie donc le MINIMUM des 60 dernieres secondes : il ne passe
+# le seuil que si la pression a dure toute la fenetre. Deux cas restent decides a l'instant, et le DISENT : le bord
+# reel (>= _RAM_PLAFOND_DUR_PCT, on n'attend pas 60 s au bord de l'OOM) et une fenetre trop courte pour juger
+# (sampler qui vient de demarrer, snapshot relu par un process non proprietaire sans plancher frais).
+_RAM_FENETRE_S = 60.0
+_RAM_FENETRE_COUVERTURE_MIN_S = 45.0
+_RAM_PLAFOND_DUR_PCT = 95.0
+_RAM_FENETRE: collections.deque = collections.deque(maxlen=256)
+
+
+def _noter_ram_fenetre(snap: dict) -> None:
+    """Ajoute l'echantillon a la fenetre et publie plancher, couverture et horodatage dans `snap`. Ne leve jamais."""
+    try:
+        ts, ram = float(snap.get("ts") or 0.0), snap.get("ram_pct")
+        if not ts or ram is None:
+            return
+        _RAM_FENETRE.append((ts, float(ram)))
+        dedans = [(t, v) for t, v in _RAM_FENETRE if t >= ts - _RAM_FENETRE_S]
+        snap["ram_pct_plancher_60s"] = round(min(v for _, v in dedans), 1)
+        snap["ram_fenetre_couverture_s"] = round(ts - dedans[0][0], 1)
+        snap["ram_fenetre_ts"] = ts
+    except Exception as e:  # noqa: BLE001 -- un plancher absent se rabat sur l'instant, dit par ram_pct_decision
+        logging.getLogger(__name__).debug("[ram-fenetre] echantillon ignore (%s)", type(e).__name__)
+
+
+def ram_pct_decision(snap: dict | None = None) -> tuple[float, str]:
+    """RAM sur laquelle DECIDER, et sur quelle base : (valeur, base).
+
+    base = « plancher 60 s » | « instant (bord ...) » | « instant (fenetre ...) ». Le plancher n'est retenu que
+    s'il a ete calcule sur CE snapshot (meme `ts`) : un plancher perime a cote d'un instant frais mentirait.
+    """
+    s = snap if snap is not None else get_snapshot()
+    inst = float(s.get("ram_pct") or 0.0)
+    if inst >= _RAM_PLAFOND_DUR_PCT:
+        return inst, "instant (bord >= %.0f %%)" % _RAM_PLAFOND_DUR_PCT
+    plancher, couv = s.get("ram_pct_plancher_60s"), float(s.get("ram_fenetre_couverture_s") or 0.0)
+    if plancher is None or s.get("ram_fenetre_ts") != s.get("ts") or couv < _RAM_FENETRE_COUVERTURE_MIN_S:
+        return inst, "instant (fenetre %.0f s < %.0f s, ou plancher absent/perime)" % (
+            couv, _RAM_FENETRE_COUVERTURE_MIN_S)
+    return float(plancher), "plancher %.0f s" % _RAM_FENETRE_S
+
+
 def _sampler_loop() -> None:
     """Daemon thread loop. Refreshes _SNAPSHOT every _SAMPLE_INTERVAL_S."""
     global _last_evict_ts, _last_supervisor_sleep_ts, _last_supervisor_wake_ts
@@ -1621,11 +1698,12 @@ def _sampler_loop() -> None:
     if _PSUTIL_OK:
         try:
             psutil.cpu_percent(interval=None)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : amorce de cpu_percent, le premier tick dira l'INCONNU
             pass
     while not _SAMPLER_STOP.is_set():
         try:
             new = _sample_once()
+            _noter_ram_fenetre(new)
             _SNAPSHOT.update(new)
             _dump_snapshot_json()
             # Satiete graduee : la glande, pas un garde de plus (cf _secreter_insuline).
@@ -1829,8 +1907,9 @@ def _sampler_loop() -> None:
                     name="forge_supervisor_wake",
                     daemon=True,
                 ).start()
-        except Exception:
-            pass  # Never crash the sampler
+        except Exception as e:  # noqa: BLE001 -- jamais casser le sampler, mais le DIRE
+            logging.getLogger(__name__).debug("[regulation] branche eviction/sommeil/reveil en echec (%s)",
+                                              type(e).__name__)
         if _SAMPLER_STOP.wait(_SAMPLE_INTERVAL_S):
             return
 
@@ -1917,8 +1996,8 @@ def _seed_snapshot_cold() -> None:
             if (time.time() - float(raw["ts"])) <= _COLD_SEED_MAX_AGE_S:
                 _SNAPSHOT.update(raw)
                 return
-    except Exception:
-        pass  # broker absent / illisible / perime -> on tente psutil
+    except Exception:  # noqa: BLE001 -- muet-ok : broker absent / illisible / perime -> on tente psutil
+        pass
 
     if not _PSUTIL_OK:
         return  # ts reste 0 -> « inconnu », jamais « tout va bien »
@@ -1938,7 +2017,7 @@ def _seed_snapshot_cold() -> None:
     try:
         d = psutil.disk_usage(str(Path(__file__).anchor))
         _SNAPSHOT["disk_pct"] = round(d.percent, 1)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- muet-ok : champ absent = INCONNU dans le snapshot
         pass
 
 
@@ -1983,7 +2062,7 @@ def _should_autostart_sampler() -> bool:
     try:
         if Path(sys.argv[0]).name in _SAMPLER_OWNER_ARGV:
             return True
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 -- muet-ok : argv illisible -> regles suivantes de propriete
         pass
     age = _published_state_age_s()
     return age is None or age > _SAMPLER_TAKEOVER_AFTER_S
@@ -2060,10 +2139,11 @@ def should_throttle(
             ram_pct_threshold -= CORTISOL_TIGHTEN_PTS
             cpu_pct_threshold -= CORTISOL_TIGHTEN_PTS
             gpu_pct_threshold -= CORTISOL_TIGHTEN_PTS
-    except Exception:  # noqa: BLE001 - endocrinien absent -> on continue sur les seuils ressources
+    except Exception:  # noqa: BLE001 - muet-ok : endocrinien absent -> on continue sur les seuils ressources
         pass
     s = get_snapshot()
-    if s.get("ram_pct", 0) >= ram_pct_threshold:
+    # RAM : plancher des 60 dernieres secondes, pas l'instant (voir ram_pct_decision et la mesure du 13/10).
+    if ram_pct_decision(s)[0] >= ram_pct_threshold:
         return True
     if s.get("cpu_pct", 0) >= cpu_pct_threshold:
         return True
@@ -2395,8 +2475,8 @@ def _audit_lifecycle(action: str, domain: str, reason: str = "", **extra) -> Non
         from nokido_agent.app.forge_lifecycle_audit import record as _record
 
         _record(action, domain=domain, reason=reason, **extra)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- audit non ecrit : la decision passe, la trace manque, dit
+        logging.getLogger(__name__).debug("[audit] %s NON trace (%s)", action, type(e).__name__)
 
 
 def get_active_intents() -> dict:
@@ -2458,8 +2538,8 @@ def get_active_intents() -> dict:
                     _lg.getLogger(__name__).debug(
                         "[intentions] arbitre indisponible (%r)", _exc)
             out[_cle] = _frais
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001 -- intention illisible : absente de la lecture, dite
+            logging.getLogger(__name__).debug("[intentions] une intention ILLISIBLE (%s)", type(e).__name__)
         # CONSTATER la lecture aupres du capteur de couplage. Mesure 2026-08-02 :
         # `forge_signal_coupling.couplage()` rendait `lecteurs_constates: 0` sur TOUS
         # les signaux — non pas parce que personne ne lisait, mais parce que personne
@@ -2481,8 +2561,8 @@ def get_active_intents() -> dict:
             "SELECT COUNT(*) FROM agent_chain_nodes WHERE status IN ('pending','running','retry_pending')"
         ).fetchone()[0]
         conn.close()
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- chains_active absent = INCONNU, dit
+        logging.getLogger(__name__).debug("[intentions] chaines actives ILLISIBLES (%s)", type(e).__name__)
     return out
 
 
@@ -2531,7 +2611,7 @@ def docker_pause_all() -> int:
         from nokido_agent.app.forge_docker_audit import record as _record
 
         _record("pause", "reclaim RAM (hors organes de perception)", containers=len(ids))
-    except Exception:  # noqa: BLE001 - jamais fatal
+    except Exception:  # noqa: BLE001 - muet-ok : trace d'audit docker best-effort, jamais fatale
         pass
     rc, _out, _err = _run_capture(["docker", "pause", *ids], timeout=5.0)
     if rc != 0:
@@ -2672,7 +2752,7 @@ def ollama_loaded_models() -> list[dict[str, Any]]:
                     "until": str(until),
                 }
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 -- muet-ok : entree de modele illisible ignoree (donnee)
             continue
     # LRU-ish : oldest "until" first, empty strings last.
     out.sort(key=lambda d: (d["until"] == "", d["until"]))
@@ -2701,9 +2781,9 @@ def _ollama_children_rss_gb() -> float:
                 try:
                     total += float(child.memory_info().rss) / (1024 ** 3)
                     vu = True
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 -- muet-ok : enfant disparu entre deux lectures
                     continue
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 -- muet-ok : processus disparu ou inaccessible
             continue
     return round(total, 2) if vu else 0.0
 
@@ -2735,8 +2815,9 @@ def ollama_unload(model: str) -> bool:
         with _ur.urlopen(req, timeout=6.0) as r:
             if 200 <= int(getattr(r, "status", 0) or 0) < 300:
                 return _rss_libere(_rss_avant)
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 -- dechargement par l'API refuse : repli CLI ci-dessous, dit
+        logging.getLogger(__name__).debug("[evict] dechargement API de %s refuse (%s) -> ollama stop",
+                                          model, type(e).__name__)
     rc, _out, _err = _run_capture(["ollama", "stop", model], timeout=3.0)
     return _rss_libere(_rss_avant) if rc == 0 else False
 
@@ -2949,7 +3030,7 @@ def llamacpp_native_stop() -> bool:
         with _ur.urlopen(req, timeout=8.0) as r:
             if 200 <= int(getattr(r, "status", 0) or 0) < 300:
                 return True
-    except Exception:  # noqa: BLE001 - on tente le repli, sans masquer l'echec
+    except Exception:  # noqa: BLE001 - muet-ok : on tente le repli, sans masquer l'echec
         pass
 
     # Chemin 2 : qui ECOUTE le port gere. Jamais le nom, jamais la cmdline.
@@ -2963,10 +3044,10 @@ def llamacpp_native_stop() -> bool:
                 try:
                     psutil.Process(int(c.pid)).kill()
                     killed = True
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                except (psutil.NoSuchProcess, psutil.AccessDenied):  # muet-ok : killed reste False, rendu
                     pass
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- table des connexions illisible : killed=False rendu, cause dite
+        logging.getLogger(__name__).debug("[evict] connexions illisibles (%s)", type(e).__name__)
     return killed
 
 
@@ -3220,8 +3301,8 @@ def _publish_evict_trace(cand: dict, libre_avant: float, libre_apres: float, rai
                 "delta_gb_mesure": round(float(libre_apres) - float(libre_avant), 2),
             }, ensure_ascii=False),
             "regulation", 0.9, "RESOURCE_MANAGER")
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- fait de regulation non publie : dit
+        logging.getLogger(__name__).debug("[regulation] fait d'eviction NON publie (%s)", type(e).__name__)
 
 
 def _heavy_evictable_services(min_ram_gb: float = 1.0) -> list[dict]:
@@ -3330,7 +3411,7 @@ def _heavy_evictable_services(min_ram_gb: float = 1.0) -> list[dict]:
                 # mesurent pas la meme chose ne peuvent pas se repondre.
                 _prive = getattr(_mi, "private", None)
                 rss = float(_prive or _mi.rss) / (1024 ** 3)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : processus disparu ou inaccessible
                 continue
             if rss < min_ram_gb:
                 continue
@@ -3345,7 +3426,7 @@ def _heavy_evictable_services(min_ram_gb: float = 1.0) -> list[dict]:
                         if _is_descendant(pid, spid, 3):
                             svc = sname
                             break
-                    except Exception:  # noqa: BLE001
+                    except Exception:  # noqa: BLE001 -- muet-ok : filiation illisible -> service suivant
                         continue
             if not svc or svc in seen:
                 continue  # non rattaché = on s'abstient
@@ -3424,13 +3505,12 @@ def _heavy_evictable_services(min_ram_gb: float = 1.0) -> list[dict]:
                     _audit_lifecycle("evict_critique_inactif", "service",
                                      why_critical(svc) + " MAIS " + _pourquoi
                                      + " -> candidat rechargeable", target=svc)
-            except Exception:  # noqa: BLE001
-                # Sans la source des capacites, on ne peut pas juger -> s'abstenir.
+            except Exception:  # noqa: BLE001 -- muet-ok : sans la source des capacites, on ne juge pas -> s'abstenir
                 continue
 
             try:
                 verdict = (predict_impact(svc, "stop") or {}).get("verdict")
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : impact non predictible -> s'abstenir d'evincer
                 continue
             if verdict != "safe":
                 continue  # essentiel ou dépendants -> intouchable
@@ -3582,7 +3662,7 @@ def _bloated_recoverable_pillars(min_ram_gb: float) -> list[dict]:
                 # l'engagement prive, pas le working set paginable.
                 _prive = getattr(_mi, "private", None)
                 rss = float(_prive or _mi.rss) / (1024 ** 3)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : processus disparu ou inaccessible
                 continue
             if rss < min_ram_gb:
                 continue
@@ -3596,7 +3676,7 @@ def _bloated_recoverable_pillars(min_ram_gb: float) -> list[dict]:
                         if _is_descendant(pid, spid, 3):
                             svc = sname
                             break
-                    except Exception:  # noqa: BLE001
+                    except Exception:  # noqa: BLE001 -- muet-ok : filiation illisible -> service suivant
                         continue
             if not svc or svc in seen:
                 continue
@@ -3611,7 +3691,7 @@ def _bloated_recoverable_pillars(min_ram_gb: float) -> list[dict]:
                     _k in svc.lower() for _k in ("embed", "rerank"))
                 if not _pilier:
                     continue  # ni critique ni embed/rerank -> _heavy_evictable s'en charge
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : verdict indisponible -> s'abstenir pour ce service
                 continue
             seen.add(svc)
             out.append({"service": svc, "pid": pid, "ram_gb": round(rss, 2)})
@@ -3821,7 +3901,7 @@ def _cout_des_pids(pids: dict) -> dict:
                 io += c.read_bytes + c.write_bytes
                 t = p.cpu_times()
                 cpu += t.user + t.system
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 -- muet-ok : processus disparu entre deux lectures
                 continue
         return io, cpu
 
@@ -3863,7 +3943,7 @@ def _candidats_bail() -> tuple[list | None, str]:
         try:
             if is_critical(nom):
                 continue
-        except Exception:  # noqa: BLE001 - verdict indisponible = on s'abstient pour ce service
+        except Exception:  # noqa: BLE001 - muet-ok : verdict indisponible = on s'abstient pour ce service
             continue
         pids[nom] = int(pid)
     couts = _cout_des_pids(pids)
@@ -3890,7 +3970,7 @@ def _lire_baux() -> list:
     for f in fichiers:
         try:
             out.append(_j.loads(f.read_text(encoding="utf-8")))
-        except Exception:  # noqa: BLE001 - un bail illisible ne s'invente pas
+        except Exception:  # noqa: BLE001 - muet-ok : un bail illisible ne s'invente pas
             continue
     return out
 

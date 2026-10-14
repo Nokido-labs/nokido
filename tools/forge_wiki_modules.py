@@ -996,7 +996,15 @@ def main(argv=None) -> int:
         cards_data[chemin]["vu_le"] = now
         
     if "--check" not in argv: # ne pas ecrire si LECTURE SEULE
-        cards_path.write_text(json.dumps(cards_data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        try:
+            cards_path.write_text(json.dumps(cards_data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        except OSError as e:
+            # Mesure 13/10 : sous LaForgeTrusted les pages s'ecrivent mais pas les cartes -> traceback APRES un
+            # travail fait, rc=1 indistinct d'un echec total. Les pages sont a jour ; ce qui manque se DIT : rc=3.
+            print("[wiki] cartes NON ECRITES (%s : %s) -- les pages sont a jour, mais l'empreinte L2 par module "
+                  "(docstring_vue, empreinte_vue) n'est PAS persistee : relancer sous un compte qui ecrit tools/."
+                  % (type(e).__name__, cards_path.name))
+            return 3
 
     return 0
 

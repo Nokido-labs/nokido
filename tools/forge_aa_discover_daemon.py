@@ -9,13 +9,13 @@ Tous les 7 jours :
 
 Service NSSM (mode loop continu) :
     nssm install NokidoAADiscoverDaemon ^
-        __import__("os").path.expanduser("~\\miniforge3\\python.exe") ^
-        __import__("os").path.expanduser("~\\Script python IA\\Nokido\\tools\\forge_aa_discover_daemon.py")
+        "~\\miniforge3\\python.exe" ^
+        "~\\Script python IA\\Nokido\\tools\\forge_aa_discover_daemon.py"
 
 OU schtasks Windows hebdomadaire (mode --once) :
     schtasks /create /tn "LaForge-AA-Discover" /sc weekly /d MON /st 06:00 ^
-        /tr "\\__import__("os").path.expanduser("~\\miniforge3\\python.exe\\") ^
-             \\__import__("os").path.expanduser("~\\Script python IA\\Nokido\\tools\\forge_aa_discover_daemon.py\\") --once"
+        /tr "\\"~\\miniforge3\\python.exe\\" ^
+             \\"~\\Script python IA\\Nokido\\tools\\forge_aa_discover_daemon.py\\" --once"
 
 State persistent : sandbox/aa_discover_seen.json
   {slugs_notified: [...], last_run_utc: "..."}

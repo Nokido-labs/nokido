@@ -13,7 +13,6 @@
 "app/forge_hybrid_cortex.py|forge_event_stream|publish": 1,
 "app/forge_mixin_ui.py|forge_orchestrator|AutocompleteEngine": 1,
 "app/forge_mixin_ui.py|forge_orchestrator|OrchestratorState": 1,
-"app/forge_mixin_ui.py|forge_orchestrator|SessionContext": 1,
 "app/forge_provider_admin.py|forge_provider_watcher|check_health": 1,
 "app/forge_rag_warmup.py|forge_heartbeat|start_auto_beat": 1,
 "app/forge_remediation.py|forge_orphan_reaper|_managed_scripts": 1,

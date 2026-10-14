@@ -25,6 +25,7 @@ Fonctionnalités :
 
 API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) :
 - `lancer_panneau` — `Nokido Control Panel.bat --action <action>` dans une console VISIBLE (`cmd /k`) ; rend False, et le DIT, si rien n'est lance.
+- `ecrire_ico` — icone du raccourci Bureau « Nokido » en .ico multi-tailles (`--ecrire-ico <chemin>`, appele par install_shortcuts.ps1) ; rend False, et le DIT, si la marque est illisible.
 """
 
 from __future__ import annotations
@@ -170,6 +171,34 @@ def _make_icon(state: str = "ok") -> Image.Image:
     draw = ImageDraw.Draw(img)
     draw.ellipse([44, 44, 62, 62], fill=accent, outline="#1b1826", width=3)
     return img
+
+
+def _icone_bureau(taille: int = 256) -> Image.Image | None:
+    """Icone du raccourci Bureau (2026-10-13) : la tuile et la marque du tray, SANS lisere ni
+    pastille -- un .ico est fige, une couleur d'etat y mentirait. None si la marque est illisible."""
+    marque = _marque_nokido(taille * 15 // 16)
+    if marque is None:
+        return None
+    img = Image.new("RGBA", (taille, taille), (0, 0, 0, 0))
+    ImageDraw.Draw(img).rounded_rectangle([0, 0, taille - 1, taille - 1], radius=taille * 7 // 32,
+                                          fill="#1b1826")
+    img.alpha_composite(marque, ((taille - marque.width) // 2, (taille - marque.height) // 2))
+    return img
+
+
+def ecrire_ico(chemin) -> bool:
+    """Ecrit l'icone du raccourci Bureau en .ico multi-tailles ; False, et le DIT, si la marque
+    est illisible -- une tuile vide passerait pour l'icone Nokido."""
+    img = _icone_bureau(256)
+    if img is None:
+        print(f"[tray] icone NON ecrite : marque Nokido illisible ({MARQUE_SVG})")
+        return False
+    chemin = Path(chemin)
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    img.save(chemin, format="ICO",
+             sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print(f"[tray] icone ecrite : {chemin}")
+    return True
 
 
 def _icon_state() -> str:
@@ -589,4 +618,12 @@ def main():
 
 
 if __name__ == "__main__":
+    # `--ecrire-ico <chemin>` (2026-10-13) : ecrit l'icone du raccourci Bureau et SORT, sans tray
+    # ni verrou d'instance -- install_shortcuts.ps1 l'appelle pendant qu'un tray tourne.
+    if "--ecrire-ico" in sys.argv:
+        _i = sys.argv.index("--ecrire-ico")
+        if _i + 1 >= len(sys.argv):
+            print("usage : nokido_tray.py --ecrire-ico <chemin.ico>")
+            raise SystemExit(2)
+        raise SystemExit(0 if ecrire_ico(sys.argv[_i + 1]) else 1)
     main()

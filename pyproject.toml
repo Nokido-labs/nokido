@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.10"
+version = "0.20.11"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -112,10 +112,27 @@ ml = [
     # DEPICKLE, c'est-a-dire execute du code a la lecture d'un fichier de modele.
     # La protection existait, elle n'etait pas DECLAREE : un contributeur
     # installant l'extra `ml` pouvait obtenir une version ou elle n'existe pas.
-    "torch>=2.6.0",
+    # Plancher 2.13.0 le 2026-10-12 : GHSA-rrmf-rvhw-rf47 (torch.jit.script, vulnerable <= 2.12.1).
+    "torch>=2.13.0",
     "torch-geometric>=2.5.0",
     "sentence-transformers>=5.6.0",
     "snntorch>=0.9.0",
+]
+
+# Organisme complet : ce que les services du superviseur importent AU DEMARRAGE en plus du coeur (releve du
+# 2026-10-09, etape `imports` de tools/forge_install_acceptance.py ; versions exactes : requirements-organisme.txt).
+# Sous Linux, poser torch d'abord depuis https://download.pytorch.org/whl/cpu : la roue PyPI Linux tire CUDA.
+organisme = [
+    "nokido-agent[hub,rag]",
+    "pywin32>=311; sys_platform == 'win32'",
+    "qdrant-client>=1.18.0",
+    "textual>=8.2.4",
+    "textual-serve>=1.1.3",
+    "torch>=2.13.0",
+    "torch-geometric>=2.5.0",
+    "mcp>=1.28.1",
+    "netcfg-agent[complet]>=0.2.1",
+    "netcfg-agent-mcp>=0.4.0",
 ]
 
 # Git ingestion + monitoring
@@ -136,6 +153,9 @@ netcfg = [
     "paramiko>=5.0.0",
     "lxml>=5.0.0",
     "pyte>=0.8.0",
+    # netcfg en paquets PyPI depuis le 2026-10-11 (AGPL-3.0, comme Nokido)
+    "netcfg-agent[complet]>=0.2.1",
+    "netcfg-agent-mcp>=0.4.0",
 ]
 
 # Documents/PDF extraction (pour ingest /ingest/url, biblio veille)
@@ -183,7 +203,7 @@ full = [
 
 # Bundle "all" — vraiment tout (gros téléchargement : torch + jax + semgrep ~5 GB)
 all = [
-    "nokido-agent[hub,rag,llm,cloud,ui,ml,git,docker,netcfg,docs,ami,bench,security]",
+    "nokido-agent[hub,rag,llm,cloud,ui,ml,organisme,git,docker,netcfg,docs,ami,bench,security]",
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -207,6 +227,9 @@ nokido-cli       = "nokido_agent.tools.llama_cli:main"
 nokido-doctor    = "nokido_agent.tools.nokido_doctor:main"
 nokido-vault     = "nokido_agent.app.forge_machine_vault:main"
 nokido-secrets   = "nokido_agent.app.forge_secrets:main"
+# Pose les composants natifs et les modeles EPINGLES (somme + taille verifiees) : seul chemin d'un utilisateur pip
+# vers un doctor vert (parcours paquet 13/10 : aucune commande ne le faisait hors du banc de test).
+nokido-composants = "nokido_agent.tools.forge_composants:main"
 
 [project.urls]
 # Canonique (owner 2026-09-15) : repo public = Nokido-labs/nokido. Les URLs
@@ -247,6 +270,15 @@ Manifesto     = "https://github.com/Nokido-labs/nokido/blob/alpha/MANIFESTO.md"
 # (`ROOT / "config"`, `ROOT / "proxy_deno"`) tiennent une fois la wheel installee.
 "nokido_agent.proxy_deno" = "proxy_deno"
 "nokido_agent.config"     = "config"
+# Epinglages des composants et des modeles (URL + somme) : sans eux, installe par pip, le doctor repondait
+# « NON EPINGLE : source et somme a etablir » pour bge-m3 (parcours paquet, 2026-10-13).
+"nokido_agent.distribution" = "distribution"
+# Schema et seeds de la base (forge_db_bootstrap) : sans eux, installe par pip, « seed dir absent » -- pas de
+# schema, donc ni table des rangs d'outils ni access_switches, et le hub refusait tout en fail-closed (13/10).
+"nokido_agent.seed" = "seed"
+# Sources du dispatcher Go (main.go, go.mod) : `nokido-composants` le CONSTRUIT a l'installation. Sans elles, le poseur
+# echouait sur les 3 OS (FileNotFoundError, parcours paquet du 13/10). Jamais le binaire : MANIFEST.in l'exclut.
+"nokido_agent.go_services.forge_dispatcher" = "go_services/forge_dispatcher"
 
 [tool.setuptools]
 packages = [
@@ -389,6 +421,9 @@ packages = [
     # embarquer ce qui n'est pas du Python.
     "nokido_agent.proxy_deno",
     "nokido_agent.config",
+    "nokido_agent.distribution",
+    "nokido_agent.seed",
+    "nokido_agent.go_services.forge_dispatcher",
 ]
 
 [tool.setuptools.package-data]
@@ -443,3 +478,9 @@ disable = ["C", "R"]
 
 [tool.pylint.format]
 max-line-length = 120
+
+[tool.pylint.typecheck]
+# `nokido_agent` est l'ALIAS d'import canonique du depot, resolu a l'EXECUTION : pylint ne peut pas le suivre
+# statiquement et levait E0401/E0611 sur tout fichier qui respecte l'idiome. Mesure 13/10 : le quality gate notait
+# chaque nouveau NR 0,7 a 5,0/10 pour cette seule raison (un E pese lourd dans le score).
+ignored-modules = ["nokido_agent"]

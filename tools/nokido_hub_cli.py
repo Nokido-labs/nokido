@@ -72,6 +72,17 @@ def main(argv: list[str] | None = None) -> int:
         print(_version())
         return 0
 
+    # Le CORE du paquet est un client (pyproject : « pas de hub serveur ») : sans l'extra, le hub mourait en
+    # « No module named 'uvicorn' » (parcours paquet, 2026-10-13). Il dit maintenant quoi installer.
+    import importlib.util
+
+    manquants = [m for m in ("uvicorn", "fastapi", "starlette", "mcp") if importlib.util.find_spec(m) is None]
+    if manquants:
+        print("nokido-hub : le hub serveur demande des dependances absentes (%s).\n"
+              "  Organisme complet : pip install \"nokido-agent[organisme]\"\n"
+              "  Hub seul          : pip install \"nokido-agent[hub]\"" % ", ".join(manquants), file=sys.stderr)
+        return 2
+
     # Import TARDIF : il initialise des registres et journalise. Rien de tout
     # cela ne doit se produire pour une simple demande d'aide.
     import asyncio
