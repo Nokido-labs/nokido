@@ -70,6 +70,9 @@ def zone(tmp_path, monkeypatch):
     monkeypatch.setattr(lr, "_racines_de_preuve", lambda _fw: ([tmp_path, tmp_path / "absente"], []))
     monkeypatch.setattr(fw, "retirer_worktree", _retirer)
     monkeypatch.setattr(fw, "_git", lambda args, cwd: git.append(args))
+    # Worktrees FACTICES (fichier .git sans depot) : le controle « sans perte » (15/10) est declare
+    # satisfait ici ; il est eprouve sur un VRAI depot dans test_worktrees_preuve_sans_perte_nr.
+    monkeypatch.setattr(fw, "perte_possible", lambda wt: None)
     monkeypatch.setattr(lr, "PROOF_KEEP", 3)
     monkeypatch.setattr(lr, "PROOF_DAYS", 7.0)
     return tmp_path, appels, git
@@ -114,6 +117,9 @@ def test_la_racine_de_la_ci_est_trouvee_quel_que_soit_le_compte(tmp_path, monkey
     except ImportError:
         from nokido_agent.app.forge_sandbox_exec import chemin_tmp_sandbox
     monkeypatch.setattr(fw, "PROOF_ROOT", tmp_path / "TEMP_du_service" / "nokido_proof")
+    # Registre des racines inscrites (15/10) isole : sur le poste reel il porte D:/Temp/nokido_proof
+    # des le premier push, et ce test-ci ne juge que la racine de la CI.
+    monkeypatch.setattr(fw, "racines_de_preuve_inscrites", lambda: [])
     racines, illisibles = lr._racines_de_preuve(fw)
     attendue = os.path.normcase(str(Path(chemin_tmp_sandbox()) / "nokido_proof"))
     assert not illisibles, illisibles
@@ -170,3 +176,26 @@ def test_elle_est_cablee_dans_le_passage_quotidien():
     src = (RACINE / "tools" / "forge_log_retention.py").read_text(encoding="utf-8")
     i = src.index("def run_retention(")
     assert '"worktrees_de_preuve": _purge_worktrees_de_preuve(dry)' in src[i:i + 900]
+
+
+def test_le_runner_purge_SA_racine_et_seulement_elle(monkeypatch, capsys):
+    """Mesure du 2026-10-14 : 38 worktrees sous D:/Temp/nokido_proof (TEMP du compte du RUNNER), le plus ancien du
+    26/09 -- le service (autre compte) ne voit pas cette racine. `--once --preuves` ne lance QUE cette purge, sur
+    les racines du compte appelant ; le reste de la retention n'est pas touche."""
+    appels = []
+    monkeypatch.setattr(lr, "_purge_worktrees_de_preuve", lambda dry: appels.append(("preuves", dry)) or {"ok": 1})
+    monkeypatch.setattr(lr, "run_retention", lambda dry=False: appels.append(("tout", dry)) or {})
+    monkeypatch.setattr(sys, "argv", ["forge_log_retention.py", "--once", "--preuves", "--dry-run"])
+    assert lr.main() == 0
+    assert appels == [("preuves", True)], appels
+
+
+def test_le_workflow_du_runner_appelle_la_purge_sans_risquer_le_verdict():
+    import yaml
+    d = yaml.safe_load((RACINE / ".github" / "workflows" / "ci-selfhosted.yml").read_text(encoding="utf-8"))
+    j = d["jobs"]["menage-preuves"]
+    assert j["continue-on-error"] is True, "un menage ne doit jamais faire echouer un verdict"
+    assert "always()" in j["if"] and "self-hosted" in j["runs-on"]
+    assert set(j["needs"]) >= {"gates", "pytest-pur", "ui-acceptance"}, "il passe APRES les jobs qui creent des preuves"
+    assert any("forge_log_retention.py --once --preuves" in (s.get("run") or "") for s in j["steps"])
+    assert "PYBIN" in (d.get("env") or {}), "l'interpreteur du runner est defini au niveau du workflow"

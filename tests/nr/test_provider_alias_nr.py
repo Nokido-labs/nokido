@@ -88,8 +88,10 @@ def test_ask_resout_les_noms_du_hub_par_la_table_si_le_modele_est_tenu():
     from nokido_agent.app import forge_agent_proxy as fap
 
     assert fap.get_provider("groq_fast") is fap.get_provider("groq") is not None, "resolution FIDELE accordee"
-    assert fap.get_provider("github_codestral") is None, "substitution de modele refusee"
-    assert "substitution refusee" in fap._raison_alias("github_codestral")
+    assert fap.get_provider("github_codestral") is None, "aucune substitution : slot GitHub retire"
+    # 15/10 (owner : « gpt4o_github n'existe plus ») : l'alias vers gpt4o_github a disparu avec lui ;
+    # la raison dite n'est plus « substitution refusee » mais le RETRAIT, avec sa cause.
+    assert "RETIRE" in fap._raison_alias("github_codestral") and "410" in fap._raison_alias("github_codestral")
     assert fap.get_provider("provider_totalement_invente") is None
 
 

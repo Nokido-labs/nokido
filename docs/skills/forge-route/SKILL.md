@@ -1,6 +1,6 @@
 ---
-name: laforge-route
-description: Activer / désactiver le routage des CLI agentiques (Claude Code, Gemini, Cline) vers les modèles Nokido (ex-LaForge) (ingress local/OAuth) ou revenir aux modèles natifs. Déclencher quand l'utilisateur veut "route via LaForge", "passe en local / LaForge", "reviens en natif", "active/désactive le routage CLI", "lf-route on/off", "utilise LaForge pour tous les CLI", "économise mon quota / déporte". Bascule un flag partagé lu par les wrappers au prochain lancement.
+name: forge-route
+description: "À utiliser quand l'owner veut faire tourner ses CLI (Claude Code, Gemini/Antigravity, Cline, Copilot) sur les modèles de Nokido ou revenir au natif : « passe en local », « route via Nokido », « économise mon quota », « lf-route on/off ». Bascule partagée lue par les wrappers *-lf, avec repli natif si le hub tombe."
 ---
 
 # LaForge — toggle routage CLI (lf-route)
@@ -30,4 +30,4 @@ Appelle le hub `run` action=`trusted_script`, path=`tools/forge_cli_route.py` :
 
 ## Pré-requis
 
-Wrappers actifs : `$PROFILE` dot-source `tools/laforge_cli_aliases.ps1`.
+Wrappers actifs : `$PROFILE` dot-source `tools/nokido_cli_aliases.ps1` (l'ancien `laforge_cli_aliases.ps1` n'existe plus).

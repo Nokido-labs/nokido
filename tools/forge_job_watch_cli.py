@@ -235,6 +235,31 @@ def _preuve_ci(lignes: list) -> tuple:
     return -1, None, ""
 
 
+_PYTEST_RESUME = _re.compile(r"\b\d+ (?:passed|failed|errors?)\b.*\bin [\d.]+s\b")
+_PYTEST_COMPTE = _re.compile(r"\b(\d+) (passed|failed|errors?)\b")
+
+
+def _resume_pytest(lignes) -> dict | None:
+    """Cumul des lignes de resume pytest (« 10 failed, 30 passed in 12.3s ») ; None = aucune.
+
+    15/10 : le guet rendait « rc=0 sans ligne de bilan » sur des jobs de NR dont le journal portait `74 passed`, ce
+    qui forcait un aller-retour de plus pour lire le journal ; et un relais qui avale le rc d'un pytest rouge
+    passait pour un succes. Le resume du producteur se LIT -- il ne se VERIFIE pas (JUnit)."""
+    vus = {"passed": 0, "echecs": 0, "lignes": 0, "derniere_rouge": ""}
+    for l in lignes:
+        propre = _ANSI.sub("", l)
+        if not _PYTEST_RESUME.search(propre):
+            continue
+        vus["lignes"] += 1
+        for n, mot in _PYTEST_COMPTE.findall(propre):
+            if mot == "passed":
+                vus["passed"] += int(n)
+            else:
+                vus["echecs"] += int(n)
+                vus["derniere_rouge"] = propre.strip()
+    return vus if vus["lignes"] else None
+
+
 def lire_bilan(texte: str, rc: str) -> dict:
     """Etat GRADUE d'un job fini : ECHEC · ARRET_GARDE · VIDE · DECLARE ·
     TERMINE_NON_VERIFIE · INCONNU. Jamais VERIFIED (voir plus haut)."""
@@ -272,6 +297,13 @@ def lire_bilan(texte: str, rc: str) -> dict:
             return {"etat": "TERMINE_NON_VERIFIE", "motif": "suite incomplete : " + ligne_preuve[:200]}
         return {"etat": "DECLARE",
                 "motif": "preuve CI du producteur, NON verifiee (JUnit) : " + ligne_preuve[:200]}
+    pyt = _resume_pytest(lignes)
+    if pyt is not None and pyt["echecs"]:
+        return {"etat": "ECHEC", "motif": "rc=0 MAIS %d echec(s)/erreur(s) pytest : %s"
+                % (pyt["echecs"], pyt["derniere_rouge"][:200])}
+    if pyt is not None and n_chunks is None:
+        return {"etat": "DECLARE", "motif": "resume pytest du producteur : %d verts sur %d resume(s), NON verifie (JUnit)"
+                % (pyt["passed"], pyt["lignes"])}
     if n_chunks is None:
         return {"etat": "TERMINE_NON_VERIFIE", "motif": "rc=0 sans ligne de bilan : le silence n'est pas un succes"}
     if n_chunks == 0:
@@ -295,11 +327,16 @@ def _queue_du_journal(log: Path) -> tuple[str, str]:
 
 
 def _activite_arbre(pid):
-    """(cpu_s, octets_io) cumules du process ET de ses enfants. None = ILLISIBLE -- jamais « inactif ».
+    """(cpu_s, octets_io, operations_io) cumules du process ET de ses enfants. None = ILLISIBLE -- jamais « inactif ».
 
     2026-10-13 : un cycle de soif a ete declare FIGE apres 15 min de journal muet, alors que son ENFANT lisait
     37 Mo/s dans la base (balayage de 45 Go, qui ne journalise rien). Le wrapper de run_job reste a 0 % pendant que
-    l'enfant travaille : seul l'ARBRE dit la verite (« le CPU du wrapper n'est pas celui de l'enfant »)."""
+    l'enfant travaille : seul l'ARBRE dit la verite (« le CPU du wrapper n'est pas celui de l'enfant »).
+
+    2026-10-15 : le pack natif a ete declare FIGE alors que son enfant ATTENDAIT l'embedder :8099 (connexion etablie,
+    CPU du serveur en hausse). Sous Windows, le reseau se compte dans `other_bytes`/`other_count`, pas dans
+    read/write : mesure sur 15 s, enfant +667 operations et +31 Ko « other », 0 octet lu ou ecrit ; temoin inactif,
+    0 operation. Le travail d'un client se fait dans le serveur : seules ses operations d'E/S le trahissent."""
     if not pid:
         return None
     try:
@@ -309,7 +346,7 @@ def _activite_arbre(pid):
         procs = [p] + p.children(recursive=True)
     except Exception:  # noqa: BLE001 -- muet-ok : None = ILLISIBLE, dit par l'appelant
         return None
-    cpu, io, lus = 0.0, 0, 0
+    cpu, io, ops, lus = 0.0, 0, 0, 0
     for q in procs:
         try:
             t = q.cpu_times()
@@ -317,9 +354,22 @@ def _activite_arbre(pid):
         except Exception:  # noqa: BLE001 -- muet-ok : process illisible ou parti, compte par `lus`
             continue
         cpu += t.user + t.system
-        io += c.read_bytes + c.write_bytes
+        # `other_*` n'existe que sous Windows (reseau, peripheriques) : absent = 0, pas une erreur.
+        io += c.read_bytes + c.write_bytes + getattr(c, "other_bytes", 0)
+        ops += c.read_count + c.write_count + getattr(c, "other_count", 0)
         lus += 1
-    return (cpu, io) if lus else None
+    return (cpu, io, ops) if lus else None
+
+
+SEUIL_OPS = 50  # operations d'E/S par intervalle : temoin inactif mesure a 0, client en attente d'un serveur a ~2 700/min
+
+
+def _arbre_progresse(act, ref) -> bool:
+    """L'arbre a-t-il progresse depuis `ref` ? CPU > 0,5 s, OU E/S > 1 Mo, OU plus de SEUIL_OPS operations.
+    Une mesure a deux champs (ancienne forme, injectee par les NR) se juge sur CPU et octets seuls."""
+    if act[0] - ref[0] > 0.5 or act[1] - ref[1] > 1_000_000:
+        return True
+    return len(act) > 2 and len(ref) > 2 and act[2] - ref[2] > SEUIL_OPS
 
 
 def _pid_du_job(base: Path, job: str):
@@ -377,14 +427,15 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
             dernier_vu = m
             dernier_progres = maintenant
 
-        # L'ARBRE du job progresse-t-il (CPU > 0,5 s ou I/O > 1 Mo depuis la reference) ? Alors ce n'est pas un gel,
-        # meme si le journal se tait.
+        # L'ARBRE du job progresse-t-il (CPU, octets ou operations d'E/S depuis la reference) ? Alors ce n'est pas
+        # un gel, meme si le journal se tait.
         act = activite(_pid_du_job(base, job))
-        if act is not None and act_ref is not None and (act[0] - act_ref[0] > 0.5 or act[1] - act_ref[1] > 1_000_000):
+        if act is not None and act_ref is not None and _arbre_progresse(act, act_ref):
             if maintenant - dernier_progres > intervalle and not arbre_dit:
-                ecrire("JOB %s journal muet depuis %d min MAIS son arbre travaille (CPU +%.1f s, I/O +%.0f Mo) -- pas FIGE"
+                ecrire("JOB %s journal muet depuis %d min MAIS son arbre travaille (CPU +%.1f s, I/O +%.1f Mo%s) -- pas FIGE"
                        % (job, int((maintenant - dernier_progres) / 60), act[0] - act_ref[0],
-                          (act[1] - act_ref[1]) / 1e6))
+                          (act[1] - act_ref[1]) / 1e6,
+                          ", %d operations" % (act[2] - act_ref[2]) if len(act) > 2 and len(act_ref) > 2 else ""))
                 arbre_dit = True
             dernier_progres = maintenant
         if act is not None:
@@ -393,7 +444,7 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
         if maintenant - dernier_progres > gel_s:
             ecrire("JOB %s FIGE — journal sans ecriture depuis %d min, aucun .rc, et son arbre %s"
                    % (job, int((maintenant - dernier_progres) / 60),
-                      "INACTIF (CPU et I/O stables)" if act is not None
+                      "INACTIF (CPU, octets et operations d'E/S stables)" if act is not None
                       else "ILLISIBLE (activite non lue : verdict tire du seul journal)"))
             return 0
 
@@ -434,4 +485,9 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    # Sortie UTF-8 : elle est lue par Monitor, qui affichait « TERMINE rc=0 � le rc » en cp1252
+    # (audit des prompts du 15/10, constat 1).
+    for _flux in (sys.stdout, sys.stderr):
+        if hasattr(_flux, "reconfigure"):
+            _flux.reconfigure(encoding="utf-8", errors="replace")
     raise SystemExit(main())

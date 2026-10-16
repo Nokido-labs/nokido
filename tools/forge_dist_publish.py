@@ -531,8 +531,10 @@ def _generiser_chemins_owner(dist: Path) -> None:
 # self-hosted et le reste de `.github/workflows/` restent hors du dist.
 # installation-complete.yml (2026-10-07) : acceptation de l'installation complete sur runners heberges vierges.
 # stats-publiques.yml (owner 2026-10-13) : petite statistique en bas du README, produite sur le depot public.
+# miroirs-publics.yml (owner 2026-10-14) : chaque version publiee part aussi vers Codeberg, GitLab, SourceForge et
+# le Space HF, sur runner heberge (secrets du depot public poses par l'owner).
 WORKFLOWS_DIST = (".github/workflows/release.yml", ".github/workflows/installation-complete.yml",
-                  ".github/workflows/stats-publiques.yml")
+                  ".github/workflows/stats-publiques.yml", ".github/workflows/miroirs-publics.yml")
 
 
 def _embarquer_workflows_dist(rev: str, dist: Path) -> None:

@@ -1,12 +1,10 @@
 ---
 name: forge-systematic-debugging
 description: >
-  Méthode de débogage en 4 phases (cause racine → motif → hypothèse →
-  correctif) adaptée à la pile Nokido. À utiliser sur un test qui échoue, un
-  bug en production, un comportement inattendu, une erreur du hub ou du pont
-  stdio, un RAG vide, ou quand plusieurs correctifs ont déjà échoué. Pas de
-  correctif sans cause racine ; après 3 échecs, remettre l'architecture en
-  question.
+  À utiliser sur un test rouge, un Traceback, un écart à l'attendu, une erreur du hub
+  ou du pont stdio, une recherche RAG vide, ou après un correctif déjà raté. Méthode en
+  4 phases : cause racine, motif, hypothèse, correctif. Pas de correctif sans cause
+  racine ; après 3 échecs, remettre l'architecture en question.
 ---
 
 # forge-systematic-debugging — RCA 4-phases pour Nokido

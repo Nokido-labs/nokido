@@ -9,6 +9,9 @@ Job protocol (drop a JSON file in sandbox/harness_jobs/):
   {"agent": "codex", "args": ["exec","--skip-git-repo-check","-s","read-only","-"],
    "send": "Reply: PONG", "eof": true, "until": "PONG", "timeout": 120, "screen": false}
 No "until" -> drain until the process exits (EOF) or timeout = full answer.
+Optional "cwd": working directory of the agent. Without it the harness falls back to
+C:\tmp -- measured 2026-10-15: codex, asked to audit the live repo, landed in C:\tmp,
+found several stale copies there and rightly refused to guess which one was live.
 No "send" -> stdin is DEVNULL (the CLI gets EOF immediately = no hang waiting input).
 Each job runs under a WATCHDOG (own thread + hard wall-clock deadline) and a
 kill-tree on overrun, so a hanging agent CANNOT wedge the worker loop.
@@ -72,7 +75,8 @@ def process_job(job):
     interactive = job.get("mode") == "interactive"
     has_send = job.get("send") is not None
     timeout = float(job.get("timeout", 120))
-    h = harness_for(agent, args=args, interactive=interactive, stdin_devnull=not has_send)
+    h = harness_for(agent, args=args, interactive=interactive, stdin_devnull=not has_send,
+                    cwd=job.get("cwd") or None)
     result = {}
 
     def _drive():

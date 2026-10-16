@@ -140,6 +140,81 @@ def who_present(window_s: int = DEFAULT_WINDOW) -> list:
     return list(room(window_s).keys())
 
 
+IDENTITES = ROOT / "config" / "agent_identities.json"
+FRAICHEUR_META_S = 300   # meta du hub admise si son empreinte a <= 5 min d'ecart avec la plus recente de l'agent
+# Interlocuteurs (ceux qui parlent AU corps) contre organes (le corps qui se parle a lui-meme) : `kind` du store.
+KINDS_INTERLOCUTEURS = frozenset({"cli_agent", "surface", "relay", "hook"})
+
+
+def _ts_iso(v) -> float | None:
+    """Horodatage du hub (`datetime.now().isoformat()`, heure LOCALE naive) -> epoch ; illisible -> None."""
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(str(v)).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def etat_presence(fenetre_s: int = 900, maintenant: float | None = None, identites: dict | None = None,
+                  dossier: Path | None = None) -> list:
+    """Qui est dans la piece, AVEC sa provenance (demande owner 15/10 : « dynamique avec leur provenance exacte »).
+
+    Fusion des DEUX empreintes : celle de la porte (`sandbox/presence/<AGENT>.seen`, chaque appel gouverne) et celle
+    du hub (`sandbox/presence_<agent>.seen` : ring, dernier outil, client mesure). Provenance DECLAREE = store
+    d'identite (kind, surface, canal, transport, machine) ; MESUREE = ce que le hub a ecrit (adresse du client),
+    jamais deduite. Un agent absent du store est rendu avec `declare=False` -- pas cache, pas devine."""
+    now = time.time() if maintenant is None else maintenant
+    d_porte = dossier or _DIR
+    vus: dict = {}
+    if d_porte.exists():
+        for p in d_porte.glob("*.seen"):
+            ts = _read_ts(p)
+            if ts is not None:
+                vus[p.stem.upper()] = {"ts": ts}
+    meta_hub: dict = {}
+    for p in d_porte.parent.glob("presence_*.seen"):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001  # muet-ok : empreinte illisible = rien de plus que la porte
+            continue
+        a = str(d.get("agent") or p.stem[len("presence_"):]).upper()
+        e = vus.setdefault(a, {})
+        ts = _ts_iso(d.get("ts"))
+        if ts and ts > e.get("ts", 0):
+            e["ts"] = ts
+        meta_hub[a] = (ts, {k: d[k] for k in ("ring", "last_tool", "client", "reseau") if d.get(k) is not None})
+    # Revue AGY 15/10 : la fusion copiait ring/outil/client du hub SANS regarder leur age -- un agent arrive a l'instant
+    # par la porte heritait d'un outil vieux de plusieurs jours. La meta du hub ne s'attache que si son empreinte est
+    # contemporaine (<= FRAICHEUR_META_S de la plus recente) ; sinon elle est DITE perimee, jamais affichee comme vraie.
+    for a, (ts, meta) in meta_hub.items():
+        e = vus[a]
+        if ts is not None and e.get("ts", 0) - ts <= FRAICHEUR_META_S:
+            e.update(meta)
+        elif meta:
+            e["meta_hub_perimee"] = True
+    if identites is None:
+        try:
+            identites = json.loads(IDENTITES.read_text(encoding="utf-8")).get("agents", {})
+        except Exception:  # noqa: BLE001  # muet-ok : store illisible -> declare=False pour tous, et c'est DIT
+            identites = {}
+    alias = {str(x).upper(): k.upper() for k, v in identites.items() if isinstance(v, dict)
+             for x in (v.get("aliases") or [])}
+    ids = {k.upper(): v for k, v in identites.items() if isinstance(v, dict)}
+    out = []
+    for a, e in vus.items():
+        age = now - e.get("ts", 0)
+        if not e.get("ts") or age > fenetre_s:
+            continue
+        i = ids.get(a) or ids.get(alias.get(a, ""), {})
+        out.append({"agent": a, "age_s": round(max(0.0, age), 1), "ring": e.get("ring", i.get("ring")),
+                    "dernier_outil": e.get("last_tool"), "declare": bool(i), "kind": i.get("kind"),
+                    "surface": i.get("surface"), "canal": i.get("channel"), "transport": i.get("transport"),
+                    "machine": i.get("machine"), "client": e.get("client"), "reseau": e.get("reseau"),
+                    "meta_hub_perimee": bool(e.get("meta_hub_perimee")),
+                    "interlocuteur": (i.get("kind") in KINDS_INTERLOCUTEURS) if i else True})
+    return sorted(out, key=lambda x: x["age_s"])
+
+
 def last_seen(agent: str) -> float | None:
     p = _DIR / f"{(agent or '').upper()}.seen"
     ts = _read_ts(p) if p.exists() else None

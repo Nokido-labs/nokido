@@ -37,30 +37,52 @@ def test_as_utc_tolere_les_entrees_illisibles():
     assert di._as_utc("pas une date") is None
 
 
-def test_attestation_commit_anterieur_detectee(monkeypatch, tmp_path):
-    """Cas reel du 2026-07-23 : done en citant un commit anterieur de 37 min."""
+def _taches(tmp_path, lignes):
     import sqlite3
 
     db = tmp_path / "tasks.db"
     con = sqlite3.connect(str(db))
-    con.execute("CREATE TABLE tasks (id TEXT, agent TEXT, status TEXT, "
-                "result TEXT, created_at TEXT)")
-    con.execute("INSERT INTO tasks VALUES (?,?,?,?,?)",
-                ("job_x", "ANTIGRAVITY", "done",
-                 '{"status_code":"SUCCESS","pointer_ref":"commit:0a880f22"}',
-                 "2026-07-23T11:36:25"))
+    con.execute("CREATE TABLE tasks (id TEXT, agent TEXT, status TEXT, result TEXT, created_at TEXT)")
+    for tid, sha, cree in lignes:
+        con.execute("INSERT INTO tasks VALUES (?,?,?,?,?)",
+                    (tid, "ANTIGRAVITY", "done", '{"status_code":"SUCCESS","pointer_ref":"commit:%s"}' % sha, cree))
     con.commit()
     con.close()
+    return db
 
-    monkeypatch.setattr(di, "TASKS_DB", db)
-    # commit date 10:58:55 UTC < task 11:36:25 UTC
-    monkeypatch.setattr(di, "_git", lambda repo, *a: "2026-07-23T12:58:55+02:00")
 
+def _cest(monkeypatch):
+    from datetime import timedelta as _td
+
+    monkeypatch.setattr(di, "_FUSEAU_LOCAL", timezone(_td(hours=2)))   # le poste de l'owner, fixe : runner-independant
+
+
+def test_attestation_commit_anterieur_detectee(monkeypatch, tmp_path):
+    """Un commit anterieur a la creation DANS LES DEUX lectures d'une date naive (locale ou UTC) est accuse."""
+    _cest(monkeypatch)
+    monkeypatch.setattr(di, "TASKS_DB", _taches(tmp_path, [("job_x", "0a880f22", "2026-07-23T11:36:25")]))
+    # 06:00 UTC : avant 09:36 UTC (11:36 lue en heure locale CEST) comme avant 11:36 UTC.
+    monkeypatch.setattr(di, "_git", lambda repo, *a: "2026-07-23T08:00:00+02:00")
     found = di._scan_false_attestations()
     assert len(found) == 1
-    assert found[0]["kind"] == "attestation_commit_anterieur"
-    assert found[0]["severity"] == "high"
-    assert "37 min" in found[0]["detail"]
+    assert found[0]["kind"] == "attestation_commit_anterieur" and found[0]["severity"] == "high"
+
+
+def test_date_naive_ambigue_n_accuse_pas(monkeypatch, tmp_path):
+    """Mesure du 15/10 : tasks.db ecrit l'HEURE LOCALE (tache deposee a 12:25 locale -> `12:25:16`). Lue comme de
+    l'UTC, elle fabriquait des accusations : les deux taches d'AGY du 13/10 (commits 20 et 22 min APRES leur
+    creation) sortaient « 97-99 min avant ». Le cas du 23/07 (11:36:25 naif, commit 10:58:55 UTC), lu jadis
+    « 37 min avant » par la meme lecture UTC, est AMBIGU (83 min apres en heure locale) : il n'accuse plus."""
+    _cest(monkeypatch)
+    monkeypatch.setattr(di, "TASKS_DB", _taches(tmp_path, [
+        ("job_80243f4b", "256dd2a8", "2026-10-13T13:45:29.806025"),
+        ("job_31c21e08", "ef635552", "2026-10-13T14:23:59.635116"),
+        ("job_x", "0a880f22", "2026-07-23T11:36:25"),
+    ]))
+    commits = {"256dd2a8": "2026-10-13T14:05:35+02:00", "ef635552": "2026-10-13T14:46:16+02:00",
+               "0a880f22": "2026-07-23T12:58:55+02:00"}
+    monkeypatch.setattr(di, "_git", lambda repo, *a: commits[a[-1]])
+    assert di._scan_false_attestations() == []
 
 
 def test_attestation_posterieure_est_valide(monkeypatch, tmp_path):

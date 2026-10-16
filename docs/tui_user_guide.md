@@ -156,7 +156,7 @@ crash conteneur, sauvegardé par Historique de fichiers Windows / VSS).
 |---|---|---|---|
 | `agt_claude` | CLAUDE | `FORGE_TOKEN_CLAUDE_CLI` | STDIO MCP via Claude Desktop |
 | `agt_gemini` | GEMINI | `FORGE_TOKEN_GEMINI` | OAuth daemon `gemini_poll_daemon` |
-| `agt_codex` | CODEX | (à enregistrer si nécessaire) | Codex CLI, ring 2 |
+| `agt_codex` | CODEX | (à enregistrer si nécessaire) | Codex CLI, ring 1 (depuis le 15/10) |
 | `agt_cline` | CLINE | `FORGE_TOKEN_CLINE` | Plan/Act mode |
 | `agt_master_llamacpp` | MASTER | local — | qwen2.5-coder:7b llama.cpp natif :8080 |
 

@@ -621,13 +621,98 @@ def consolider(
     }
 
 
+# ---------------------------------------------------------- consolidation de nuit (Q5)
+# Debat tour 3, decision Q5 (15/10). Le motif horaire sautait ~20 fois par jour : le modele local
+# n'est pas CHAUD, son chargement depasse le tick de 60 s, et un modele chaud 24/7 declencherait
+# l'eviction RAM (AGY : 87,4 % mesures). La nuit, le motif lance donc CE job detache : il prend la
+# lane, reveille le modele SANS contrainte de tick, consolide UN lot borne, puis DECHARGE le modele
+# (keep_alive 0). Jamais de modele chaud permanent. L'issue est ecrite pour le recul du motif.
+ETAT_NUIT = ROOT / "sandbox" / "consolidation_nuit.json"
+LANE_NUIT = "consolidation_nuit"
+
+
+def lire_etat_nuit() -> dict:
+    try:
+        d = json.loads(ETAT_NUIT.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def ecrire_etat_nuit(maj: dict) -> None:
+    d = lire_etat_nuit()
+    d.update(maj)
+    try:
+        ETAT_NUIT.parent.mkdir(parents=True, exist_ok=True)
+        tmp = ETAT_NUIT.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, ETAT_NUIT)
+    except OSError as e:
+        logger.warning("etat de la consolidation de nuit NON ecrit (%s)", type(e).__name__)
+
+
+def _decharger_modele() -> bool:
+    """keep_alive 0 sans prompt : Ollama decharge le modele. Faux si la demande n'a pas abouti."""
+    body = json.dumps({"model": MODELE_LOCAL, "keep_alive": 0}).encode("utf-8")
+    req = urllib.request.Request(OLLAMA_URL, data=body, headers={"Content-Type": "application/json"},
+                                 method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30):
+            return True
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        logger.warning("dechargement du modele NON confirme (%s)", type(e).__name__)
+        return False
+
+
+def consolidation_nuit(limit: int = 20, appel=None, consolider_fn=None, decharger=None, admettre=None,
+                       liberer=None) -> dict:
+    """Un lot borne, modele reveille puis decharge. Issue : OK | MUET | LANE_REFUSEE | ERREUR."""
+    appel = appel or _appel_local
+    consolider_fn = consolider_fn or consolider
+    decharger = decharger or _decharger_modele
+    holder = "consolidation_nuit:%d" % os.getpid()
+    if admettre is None or liberer is None:
+        from nokido_agent.app.forge_lane_admission import admit, release
+        admettre = admettre or (lambda: admit(LANE_NUIT, holder, heavy=True, ttl=4 * 3600))
+        liberer = liberer or (lambda: release(LANE_NUIT, holder))
+    debut = time.time()
+    adm = admettre() or {}
+    if not adm.get("admit"):
+        res = {"issue": "LANE_REFUSEE", "raison": str(adm.get("reason") or adm)[:200]}
+    else:
+        try:
+            # Reveil SANS contrainte de tick : le chargement a froid se paie ici, une fois.
+            if not appel('Reply with the JSON {"ok": true}.', timeout=300):
+                res = {"issue": "MUET", "raison": "le modele local n'a pas repondu au reveil (300 s)"}
+            else:
+                rapport = consolider_fn(limit=limit)
+                res = {"issue": "OK", "rapport": rapport}
+        except Exception as e:  # noqa: BLE001 - l'issue est ECRITE, le motif recule
+            res = {"issue": "ERREUR", "raison": "%s: %s" % (type(e).__name__, str(e)[:160])}
+        finally:
+            res_dech = decharger()
+            liberer()
+        res["modele_decharge"] = res_dech
+    prec = lire_etat_nuit()
+    echecs = 0 if res["issue"] == "OK" else int(prec.get("echecs_consecutifs", 0)) + 1
+    ecrire_etat_nuit({"fin_ts": time.time(), "duree_s": round(time.time() - debut, 1), "issue": res["issue"],
+                      "echecs_consecutifs": echecs, "dernier": res})
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=25, help="Max chunks par passage")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--backend", choices=("local", "cerebras"), default="local")
     ap.add_argument("--consolider", action="store_true", help="extraction PUIS reevaluation")
+    ap.add_argument("--nuit", action="store_true",
+                    help="job detache de nuit : lane, reveil du modele, UN lot, dechargement (keep_alive 0)")
     args = ap.parse_args()
+    if args.nuit:
+        result = consolidation_nuit(limit=args.limit)
+        print(json.dumps(result, indent=2, ensure_ascii=False, default=str))
+        return 0 if result.get("issue") == "OK" else 1
     if args.consolider:
         result = consolider(limit=args.limit, backend=args.backend, dry_run=args.dry_run)
     else:
@@ -637,4 +722,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

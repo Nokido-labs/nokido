@@ -36,6 +36,19 @@ class WorkflowPaused(Exception):
         self.run_id, self.reason = run_id, reason
 
 
+class WorkflowDivergence(Exception):
+    """Levée au REPLAY quand une activity deja completee est rappelee avec d'AUTRES entrees.
+
+    Audit ChatGPT web du 15/10, verifie : `input_hash` etait ecrit mais jamais relu, donc une meme
+    `step_key` appelee avec des entrees differentes rendait l'ANCIENNE sortie en silence. Ni rejouer
+    la sortie perimee, ni re-executer l'effet de bord (il a deja eu lieu) : on s'arrete et on le dit."""
+
+    def __init__(self, run_id: str, step_key: str, attendu: str, recu: str):
+        super().__init__(f"workflow {run_id} : activity {step_key!r} rappelee avec d'autres entrees "
+                         f"(hash enregistre {attendu}, recu {recu}) -- ni replay ni re-execution")
+        self.run_id, self.step_key, self.attendu, self.recu = run_id, step_key, attendu, recu
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -65,7 +78,7 @@ class WorkflowStore:
 
     def get_step(self, run_id: str, step_key: str):
         return self.conn.execute(
-            "SELECT output_json, status FROM workflow_steps WHERE run_id=? AND step_key=?",
+            "SELECT output_json, status, input_hash FROM workflow_steps WHERE run_id=? AND step_key=?",
             (run_id, step_key),
         ).fetchone()
 
@@ -97,15 +110,21 @@ class WorkflowContext:
     def __init__(self, store: WorkflowStore, run_id: str, signals: dict | None = None):
         self.store, self.run_id, self.signals = store, run_id, signals or {}
         self.replayed = self.executed = 0
+        self.replayed_sans_hash = 0   # lignes anterieures au controle : rejouees, entrees NON verifiees
 
     def activity(self, key: str, fn, *args, **kwargs):
+        h = _hash([args, sorted(kwargs.items())])
         cached = self.store.get_step(self.run_id, key)
         if cached and cached[1] == "completed":
+            enregistre = cached[2] if len(cached) > 2 else None
+            if enregistre and enregistre != h:
+                raise WorkflowDivergence(self.run_id, key, enregistre, h)
+            if not enregistre:
+                self.replayed_sans_hash += 1
             self.replayed += 1
             return json.loads(cached[0])          # REPLAY : effet de bord PAS ré-exécuté
         out = fn(*args, **kwargs)                  # 1re exécution réelle
-        self.store.put_step(self.run_id, key, getattr(fn, "__name__", "fn"),
-                            _hash([args, sorted(kwargs.items())]), out, "completed")
+        self.store.put_step(self.run_id, key, getattr(fn, "__name__", "fn"), h, out, "completed")
         self.executed += 1
         return out
 

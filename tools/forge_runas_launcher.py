@@ -207,6 +207,10 @@ def _preparer_environnement(environ) -> str:
     retires = sorted(k for k in list(environ) if _a_retirer(k, NOMS_RESERVES))
     for k in retires:
         environ.pop(k, None)
+    # Sorties de l'enfant en UTF-8 (15/10) : un service Python lance sous runAs ecrivait ses pipes en
+    # cp1252, et son journal (relu en UTF-8) affichait « Aucune tǽche pending » (NokidoTaskExecutorAntigravity).
+    # `setdefault` : un service qui declare son propre encodage le garde.
+    environ.setdefault("PYTHONIOENCODING", "utf-8")
     message = f"{len(retires)} secret(s) herite(s) retire(s)"
     identite = (environ.get("NOKIDO_IDENTITE") or "").strip().upper()
     if not identite:

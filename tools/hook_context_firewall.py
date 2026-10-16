@@ -190,8 +190,29 @@ def reduire(tool_name, tool_output, tool_succeeded):
         return None
 
 
+def _rappel_skills(ev):
+    """Rappel de skill au moment ou elle s'applique (tools/forge_skill_hint.py) : un test qui
+    vient d'echouer, un job mort. Il s'AJOUTE a la sortie, il ne decide rien de la reduction.
+
+    La sortie se lit sous `tool_output` (forme lue par ce firewall) ou `tool_response` (forme de
+    la reference des hooks) : les deux, faute d'avoir mesure laquelle ce runtime remplit."""
+    try:
+        ev = ev or {}
+        sortie = ev.get("tool_output")
+        if sortie is None:
+            sortie = ev.get("tool_response")
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import forge_skill_hint
+        return "\n".join(forge_skill_hint.suggerer(
+            "PostToolUse", sortie, outil=str(ev.get("tool_name") or ""),
+            session=str(ev.get("session_id") or "")))
+    except Exception as e:  # noqa: BLE001 - le firewall ne tombe pas pour un rappel ; on le DIT
+        print("[skill-hint] indisponible (%s)" % type(e).__name__, file=sys.stderr)
+        return ""
+
+
 def traiter(ev):
-    """N'ecrit QUE s'il y a une reduction a proposer."""
+    """N'ecrit QUE s'il y a une reduction ou un rappel de skill a proposer."""
     try:
         if str((ev or {}).get("hook_event_name") or "") != "PostToolUse":
             return 0
@@ -202,18 +223,19 @@ def traiter(ev):
         succes = (ev or {}).get("tool_succeeded")
         reduit = reduire((ev or {}).get("tool_name") or "",
                          (ev or {}).get("tool_output"), succes)
-        if reduit is None:
+        rappel = _rappel_skills(ev)
+        if reduit is None and not rappel:
             return 0  # cas normal : rien, pas un mot
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "updatedToolOutput": {
-                    "text": reduit,
-                    # Un firewall ne transforme JAMAIS un echec en succes.
-                    "isError": succes is False,
-                },
+        specifique = {"hookEventName": "PostToolUse"}
+        if reduit is not None:
+            specifique["updatedToolOutput"] = {
+                "text": reduit,
+                # Un firewall ne transforme JAMAIS un echec en succes.
+                "isError": succes is False,
             }
-        }))
+        if rappel:
+            specifique["additionalContext"] = rappel
+        print(json.dumps({"hookSpecificOutput": specifique}))
         return 0
     except Exception:  # noqa: BLE001 - muet-ok
         return 0

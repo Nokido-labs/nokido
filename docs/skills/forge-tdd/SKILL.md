@@ -1,17 +1,11 @@
 ---
 name: forge-tdd
 description: >
-  Test-Driven Development (RED-GREEN-REFACTOR) adapté au stack Nokido —
-  pytest, async, fixtures, mocks de hub/bridge/RAG. Triggers : ajout d'un
-  nouveau module forge_*.py, modification d'un module critique
-  (forge_mcp_registry, nokido_hub, forge_clawhub_bridge,
-  forge_semantic_firewall), correction d'un bug (Phase 4 de
-  forge-systematic-debugging exige un test failing AVANT fix), refactor
-  d'un broker, ajout d'un nouveau tool MCP, ajout d'un nouveau rôle
-  (PLANNER/EXECUTOR/...), demande "écris un test", "TDD pour X",
-  "test d'abord", "RED-GREEN-REFACTOR". Iron Law : NO PRODUCTION CODE
-  WITHOUT A FAILING TEST FIRST. Adapté du skill obra/superpowers/
-  test-driven-development.
+  À utiliser avant d'écrire ou de corriger du code Nokido : nouveau module
+  forge_*.py, correctif (le NR rouge d'abord), refactor d'un module critique, nouvel
+  outil MCP, ou demande « TDD », « test d'abord ». Cycle RED-GREEN-REFACTOR avec
+  pytest isolé, fixtures et faux hub/RAG : aucun code de production sans un test qui
+  échoue d'abord.
 ---
 
 # forge-tdd — TDD pour Nokido

@@ -29,6 +29,7 @@ Câblage pre-push (optionnel) :
     # dans .githooks/pre-push :  LAFORGE_PYTHON tools/ci_local.py --fast
 """
 
+# nokido-compte: hors_ligne  -- la CI a besoin des droits git du depot, pas du reseau (11/09 : online = 11 failures git)
 from __future__ import annotations
 
 import argparse
@@ -109,6 +110,10 @@ PURE_TESTS = [
     "tests/nr/test_conv_indexer_surfaces_nr.py",
     "tests/nr/test_conv_digestion_nr.py",
     "tests/nr/test_mem_watchdog_rss_courante_nr.py",
+    "tests/nr/test_workflow_miroirs_publics_nr.py",
+    "tests/nr/test_rescue_ne_se_notifie_pas_lui_meme_nr.py",
+    "tests/nr/test_dependabot_verdict_nr.py",
+    "tests/nr/test_reprise_preuve_suite_pure_nr.py",
     # Verse le 2026-09-20 EN MEME TEMPS que le test : un NR commite mais non
     # declare ici ne tourne dans AUCUNE des deux CI (defaut paye le 19/09). Il
     # est pur : quatre racines de skills factices sous `tmp_path`, aucun service.
@@ -2290,6 +2295,140 @@ PURE_TESTS = [
     "tests/nr/test_chemin_chaud_sans_balayage_nr.py",
     # Detecteur de tests instables : N passes, verdict test par test sur JUnit (veille lot_C_01b).
     "tests/nr/test_nr_instables_nr.py",
+    # Rappel de skill au moment ou elle s'applique, par les hooks deja cables (owner 14/10).
+    "tests/nr/test_skill_hint_nr.py",
+    # Le sync ne ressuscite plus une skill retiree et rafraichit ses anciens deploiements (14/10).
+    "tests/nr/test_skill_sync_retires_nr.py",
+    # M2M autonome hub <-> AGY : une demande de travail atteint l'executeur agy, sans copier-coller (14/10).
+    "tests/nr/test_m2m_agy_travail_vers_executeur_nr.py",
+    # Le relais du debat anti-regression ne se relance plus sur un courrier hors sujet (14/10).
+    "tests/nr/test_m2m_relais_debat_hors_sujet_nr.py",
+    # Frontmatters des skills : nom = dossier, pas de name: parasite ni de targets, description <= 350 (15/10).
+    "tests/nr/test_skills_frontmatter_nr.py",
+    # forge_provision_clients : un mode cible n'ecrit plus les jetons de tous les agents dans C:\tmp (15/10).
+    "tests/nr/test_provision_clients_sans_fuite_nr.py",
+    # Job harness : le cwd demande atteint le harness (codex lance dans C:\tmp le 15/10).
+    "tests/nr/test_harness_job_cwd_nr.py",
+    # Rotation des jetons : les variables HKCU existantes suivent le coffre (codex en 401 le 15/10).
+    "tests/nr/test_rotation_propage_env_nr.py",
+    # Outil memory : schemas reels (search/context/providers/tasks), jamais de LIKE plein-texte (15/10).
+    "tests/nr/test_memory_tool_schema_nr.py",
+    # Reglage L1 embed.batch_size : consommateur reel, type borne, mesure locale stricte (debat RSI 15/10).
+    "tests/nr/test_l1_embed_batch_size_nr.py",
+    # Le producteur d'auto-amelioration dit l'issue de chaque cycle (NO_SIGNAL...) dans l'audit (15/10).
+    "tests/nr/test_producteur_annonce_son_issue_nr.py",
+    # Une seule cle (sandbox/evolution.armed) arme juge ET applicateur ; le frein gagne toujours (15/10).
+    "tests/nr/test_armement_cle_unique_nr.py",
+    # Plafonds (50/24 h, 30 min) et reprise des actes interrompus de l'auto-amelioration (15/10).
+    "tests/nr/test_plafonds_et_reprise_rsi_nr.py",
+    # Calibrateur L1 (embed.batch_size) : propose +/-25 % borne, ne mute rien, l'applicateur juge (15/10).
+    "tests/nr/test_calibrateur_l1_nr.py",
+    # La cle d'armement porte une portee : `l1` n'ouvre que les reglages L1, jamais le code (15/10).
+    "tests/nr/test_portee_cle_armement_nr.py",
+    # Ouie de la membrane : depot de pair en quarantaine entendu, trie, memorise, signale ; jamais approuve (15/10).
+    "tests/nr/test_pair_quarantaine_ecoute_nr.py",
+    # Cliquet de mutation : une surface inchangee reprend son resultat (accelerer la CI, 15/10).
+    "tests/nr/test_mutation_ratchet_reprise_nr.py",
+    # CI de reference en UN etage par defaut (tools/forge_ci_reference.py, 15/10).
+    "tests/nr/test_ci_reference_un_etage_nr.py",
+    # Le sens du hub : LENT (delai) n'est pas ABSENT (refus) ; le pouls departage (15/10).
+    "tests/nr/test_sense_hub_lent_pas_tombe_nr.py",
+    # Recherche web : SearXNG injoignable n'est pas « aucun resultat » (15/10).
+    "tests/nr/test_web_search_erreur_n_est_pas_vide_nr.py",
+    # Un acte clos n'est jamais lu orphelin, NR sur le chemin reel (1er acte L1, 15/10).
+    "tests/nr/test_orphelin_lu_sur_forme_reelle_nr.py",
+    # Le digest de veille caviarde sa matiere avant l'envoi cloud (pre_flight est binaire, 15/10).
+    "tests/nr/test_digest_caviarde_avant_envoi_nr.py",
+    # Fournisseur retire (gpt4o_github) dit sa raison, plus aucune route ; swarm = joignables seuls (15/10).
+    "tests/nr/test_fournisseur_retire_et_joignables_nr.py",
+    # Un /models PUBLIC (SambaNova, OpenRouter) ne prouve pas une cle et ne la rearme jamais (15/10).
+    "tests/nr/test_catalogue_models_public_nr.py",
+    # Audit ChatGPT 15/10 : /llm/activate et /service/start partagent la porte d'un service disabled.
+    "tests/nr/test_reveil_llm_disabled_nr.py",
+    # Audit ChatGPT 15/10 : le routeur rend le modele DEMANDE et le modele SERVI (UNKNOWN sinon).
+    "tests/nr/test_router_modele_servi_nr.py",
+    # Audit ChatGPT 15/10 : manifeste d'ingestion illisible = INDETERMINE, ecriture atomique, arret si non ecrit.
+    "tests/nr/test_ingestion_manifeste_fail_closed_nr.py",
+    # Audit ChatGPT 15/10 : un chunk de veille sans ligne rag_fts se compte et leve fts_desync.
+    "tests/nr/test_veille_fts_ko_signale_nr.py",
+    # Un acte RSI rend son service non evincable jusqu'au verdict (veto de sommeil borne, 15/10).
+    "tests/nr/test_veto_sommeil_acte_nr.py",
+    # Hooks et veilleur de jobs : sortie UTF-8 stricte, jamais cp1252 (audit des prompts, 15/10).
+    "tests/nr/test_hooks_sortie_utf8_nr.py",
+    # Le synchroniseur de skills lit le ring des CLI au registre vivant des identites (forge-core, 15/10).
+    "tests/nr/test_skill_sync_ring_registre_nr.py",
+    # Effecteur de soif : douleur chronique -> enquete bornee, close par le capteur seul (debat tour 3, Q4).
+    "tests/nr/test_effecteur_soif_nr.py",
+    # Consolidation de nuit : job detache borne, modele reveille puis decharge (debat tour 3, Q5).
+    "tests/nr/test_consolidation_nuit_nr.py",
+    # La remediation lit l'inventaire ACTUEL du faucheur d'orphelins (import mort depuis c2705bb03, 15/10).
+    "tests/nr/test_remediation_orphelins_contrat_nr.py",
+    # Audit ChatGPT workflow, corrige par AGY (15/10) : chainage intra-phase du pipeline, verdicts GOAP stricts
+    # (ok:false = echec, illisible = UNKNOWN), plan_route raccorde a forge_workflow.submit sur la voie DEPORT.
+    "tests/nr/test_workflow_pipeline_chaining_nr.py",
+    "tests/nr/test_goap_execution_verdicts_nr.py",
+    "tests/nr/test_gate_plan_route_deport_nr.py",
+    # zAI : clef valide SANS solde ecartee des joignables, palier gratuit glm-4.5-flash en slot (15/10).
+    "tests/nr/test_zai_palier_gratuit_nr.py",
+    # Reprise durable : une activity rappelee avec d'autres entrees leve WorkflowDivergence (audit ChatGPT, 15/10).
+    "tests/nr/test_workflow_durable_divergence_nr.py",
+    # Instrument du cliquet de capacites : etiquette de journal != objet JSON (1re enquete de soif, AGY, 15/10).
+    "tests/nr/test_matrice_forme_etiquette_journal_nr.py",
+    # Registre MCP (derogation owner 15/10) : max_steps applique, web_search honnete, rag index lexical.
+    "tests/nr/test_registre_contrats_15_10_nr.py",
+    # Worktrees de preuve : purge SANS PERTE dans toutes les racines inscrites (owner 15/10).
+    "tests/nr/test_worktrees_preuve_sans_perte_nr.py",
+    # Matrice modele x fournisseur mesuree par generation, et bascule de la meme famille (owner 15/10).
+    "tests/nr/test_matrice_modele_fournisseur_nr.py",
+    "tests/nr/test_bascule_par_matrice_nr.py",
+    # Services runAs : sorties de l'enfant en UTF-8 (journal de l'executeur AGY illisible, 15/10).
+    "tests/nr/test_runas_sorties_utf8_nr.py",
+    # Secret migre et relu identique au coffre : la ligne en clair quitte Nokido.env (owner 15/10).
+    "tests/nr/test_migration_retire_le_clair_nr.py",
+    # Repli LLM local : une reponse VIDE fait passer au fournisseur suivant (curiosite 0 theme, 15/10).
+    "tests/nr/test_llm_local_reponse_vide_nr.py",
+    # Banc collectif : equipe contre modele seul a budget egal, gain seulement au-dela du bruit (15/10).
+    "tests/nr/test_banc_collectif_nr.py",
+    # Decision owner 15/10 : le modele Gemini vient de l'APPELANT ; un GEMINI_MODEL global ne l'ecrase plus.
+    "tests/nr/test_gemini_modele_de_l_appelant_nr.py",
+    # Mesure 15/10 (wj_fc7e31285b) : le verdict d'un job de veille se recalcule quand sa chaine termine.
+    "tests/nr/test_job_veille_clos_quand_chaine_terminee_nr.py",
+    # Client Gemini web (AGY, integre le 15/10) : surface figee, https, origine controlee, PKCE nettoye.
+    "tests/nr/test_gemini_web_pair_client_nr.py",
+    # Decision owner 15/10 : constantes du corps exposees au MCP en LECTURE SEULE (outil dynamique).
+    "tests/nr/test_constantes_du_corps_lecture_seule_nr.py",
+    # Decision owner 15/10 (modele Gemini selon l'appelant) : les 4 lecteurs vivants corriges par AGY.
+    "tests/nr/test_gemini_bridge_modele_appelant_nr.py",
+    "tests/nr/test_litellm_connector_modele_appelant_nr.py",
+    "tests/nr/test_gemini_poll_daemon_modele_appelant_nr.py",
+    "tests/nr/test_after_model_hook_modele_appelant_nr.py",
+    # Decision owner 15/10 : Nokido porte Lean (amorce formel/ d'AGY, juge, boucle, provisionnement dans runtime/).
+    "tests/nr/test_lean_conformite_harness_nr.py",
+    "tests/nr/test_lean_verify_nr.py",
+    "tests/nr/test_lean_prove_nr.py",
+    "tests/nr/test_lean_provision_nr.py",
+    # Decision owner 15/10 « les deux » : Promptfoo compare les voies de la matrice, cles gardees au coffre.
+    "tests/nr/test_promptfoo_pont_nr.py",
+    # STALE != DEAD : la reprise des noeuds de chaine exige un processus PROUVE mort (pid + heure de creation).
+    "tests/nr/test_noeud_running_orphelin_nr.py",
+    # Demande owner 15/10 : le tray montre le mode DEV, les agents vivants avec leur provenance, les ordres recents.
+    "tests/nr/test_tray_agents_provenance_ordres_nr.py",
+    # Provenance d'un agent MESUREE par le hub (IP du client, reseau), jamais declaree par l'agent (15/10).
+    "tests/nr/test_hub_presence_provenance_mesuree_nr.py",
+    # Sonde commune : un catalogue de modeles se lit sous data/models/results/items, pas sous un seul format.
+    "tests/nr/test_endpoint_commun_formes_nr.py",
+    # L'accuse de notify rend le frame archive et le destinataire reel (derogation owner 15/10, plainte de Codex).
+    "tests/nr/test_notify_rend_le_frame_nr.py",
+    # Pack natif (15/10) : l'arbre publie lui-meme ; un essentiel absent refuse le pack, bge-m3 local seul.
+    "tests/nr/test_pack_natif_couverture_nr.py",
+    # Banc HumanEval : un quota JOURNALIER epuise arrete le run et compte les non-joues (banc 164 du 15/10).
+    "tests/nr/test_humaneval_arret_quota_journalier_nr.py",
+    # Compte d'execution DECLARE par le script et verifie a l'appel, relais compris (owner 15/10 : « pour de bon »).
+    "tests/nr/test_gate_compte_declare_nr.py",
+    # Aucune charge de l'agent pendant une CI de reference : temoin pose par forge_ci_reference, mure par le gate.
+    "tests/nr/test_gate_ci_en_cours_nr.py",
+    # Surface swarm : le participant litellm attend l'ask asynchrone (une coroutine rendue perdait toute la session).
+    "tests/nr/test_swarm_litellm_attend_nr.py",
     # Bail de mission : reprise unique avec checkpoint, abandon apres plafond (veille lot_B_25).
     "tests/nr/test_tache_bail_expire_reprise_nr.py",
     # Aucun outil ne passe --no-verify a git : le pre-commit porte le scan de secrets (veille lot_C_03).
@@ -3169,18 +3308,72 @@ def _args_suite_pure(tests, fichier, turbo: bool) -> tuple:
     liste dans NOKIDO_CI_LISTE ; `tests/conftest.py` ecarte sans les importer les fichiers absents de
     la liste et rejoue l'ordre declare.
 
+    Turbo (2026-10-14) : le repli sur `@fichier` en --turbo est RETIRE. Le conftest retire la variable
+    avant que xdist lance ses workers, mais leur transmet desormais le chemin par `workerinput` : ils
+    filtrent comme le sequentiel. Mesure qui l'impose : en `@fichier`, chaque worker de
+    `--turbo --turbo-workers 3` a passe plus de 10 min en collecte sans importer un seul test.
+    `turbo` reste dans la signature : l'appelant le transmet, la forme ne depend plus de lui.
+
     Repli sur `@fichier` (forme precedente, meme perimetre) quand le filtre ne peut pas s'appliquer :
-    - turbo : le conftest RETIRE la variable a la configuration, avant que xdist lance ses workers ;
-      ils collecteraient tout `tests/` ;
-    - une entree hors `tests/`, qui n'est pas un fichier `.py`, ou qui vise un test (`::`) : le filtre
-      ne sait retenir que des fichiers entiers sous `tests/`.
+    une entree hors `tests/`, qui n'est pas un fichier `.py`, ou qui vise un test (`::`) : le filtre
+    ne sait retenir que des fichiers entiers sous `tests/`.
     """
     args = _args_depuis_fichier(tests, fichier)
     norm = [str(t).replace("\\", "/") for t in tests]
-    if turbo or not norm or any("::" in t or not t.startswith("tests/") or not t.endswith(".py")
-                                for t in norm):
+    if not norm or any("::" in t or not t.startswith("tests/") or not t.endswith(".py") for t in norm):
         return args, {}
     return ["tests"], {"NOKIDO_CI_LISTE": str(Path(fichier))}
+
+
+# Paliers de RAM LIBRE (Go) -> workers xdist. Mesure du 2026-10-14 (calibration, suite pure entiere) : le pic de
+# l'arbre vaut 3 809 Mo a -n 3 et 4 250 a 4 347 Mo a -n 4 (borne d'un job : 6 000 Mo), la RAM libre descendant de
+# 2,3 a 2,7 Go pendant le run. L'ancien defaut -- la moitie des coeurs, 8 ici -- aurait depasse la borne.
+_PALIERS_TURBO = ((4.8, 4), (3.6, 3))
+
+
+def _rapporter_faulthandler(dossier) -> list:
+    """Montre les traces de plantage NATIF laissees par les processus pytest (tests/conftest.py les ecrit quand
+    NOKIDO_FAULTHANDLER_DIR est pose). Rend [(fichier, lignes)] des fichiers NON VIDES ; un fichier vide = processus
+    sorti sans plantage natif. Mesure 2026-10-14 : un worker mort « Not properly terminated », sans aucune trace,
+    et 15 plantages pyarrow (arrow.dll, 0xc0000005) au journal Windows -- on ne voyait ni QUI ni OU."""
+    traces = []
+    try:
+        fichiers = sorted(Path(dossier).glob("faulthandler_*.log"))
+    except OSError as e:
+        print("  [faulthandler] dossier ILLISIBLE (%s) : un plantage natif n'aurait pas de trace" % type(e).__name__)
+        return traces
+    for f in fichiers:
+        try:
+            lignes = [l for l in f.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+        except OSError as e:
+            print("  [faulthandler] %s ILLISIBLE (%s)" % (f.name, type(e).__name__))
+            continue
+        if lignes:
+            traces.append((f.name, lignes))
+            print("\033[31m  [faulthandler] PLANTAGE NATIF %s (%d lignes) :\033[0m" % (f.name, len(lignes)))
+            for l in lignes[:14]:
+                print("     " + l[:200])
+    if fichiers and not traces:
+        print("\033[90m  [faulthandler] %d processus suivi(s), aucun plantage natif\033[0m" % len(fichiers))
+    return traces
+
+
+def _workers_turbo(demande=None) -> int:
+    """Nombre de workers du turbo : celui DEMANDE, sinon choisi sur la RAM libre au depart, et DIT.
+
+    RAM illisible -> 3 (le palier du milieu), et on le dit : ne pas savoir n'autorise ni le maximum ni le minimum.
+    """
+    if demande:
+        return int(demande)
+    try:
+        import psutil
+        libre = psutil.virtual_memory().available / 2 ** 30
+    except Exception as e:  # noqa: BLE001
+        print("  [turbo] RAM libre ILLISIBLE (%s) -> 3 workers" % type(e).__name__, flush=True)
+        return 3
+    n = next((w for seuil, w in _PALIERS_TURBO if libre >= seuil), 2)
+    print("  [turbo] RAM libre %.1f Go -> %d workers (paliers %s, sinon 2)" % (libre, n, _PALIERS_TURBO), flush=True)
+    return n
 
 # DEUX AXES ORTHOGONAUX, et les confondre est le piege (2026-09-07).
 #   etat de lecture : "LU" · "ABSENT" · "ILLISIBLE"
@@ -4435,6 +4628,48 @@ def preparer_reference(sha: str = None, git=None, wt=None, execution_id=None) ->
             "statut_worktree": res.get("status")}
 
 
+def _reprendre_preuve_suite_pure():
+    """0 si la suite pure de CE sha est deja certifiee par un AUTRE observateur (option A, owner 14/10) : elle n'est
+    pas rejouee, et on le DIT avec les axes non re-mesures. None sinon : la suite pure est rejouee normalement.
+
+    Les racines des preuves sont DECLAREES (NOKIDO_PREUVES_PARTAGEES, separateur os.pathsep) : le runner travaille
+    dans son propre checkout, la reference ecrit sous l'arbre principal -- deduire le chemin depuis ROOT ne verrait
+    rien (meme lecon que la purge des worktrees : chaque compte a son TEMP)."""
+    racines = [r for r in (os.environ.get("NOKIDO_PREUVES_PARTAGEES") or "").split(os.pathsep) if r.strip()]
+    if not racines:
+        print("\033[33m[reprise] NOKIDO_PREUVES_PARTAGEES absent : rien a reprendre, suite pure REJOUEE\033[0m")
+        return None
+    rc, out, err = _git_reference(["rev-parse", "HEAD"])
+    sha = out.split()[0] if rc == 0 and out else ""
+    if not sha:
+        print("\033[33m[reprise] sha HEAD illisible (rc=%s %s) : suite pure REJOUEE\033[0m" % (rc, (err or "")[:80]))
+        return None
+    from forge_ci_proof import (AXES_NON_REMESURES, chercher_reprise, empreinte_substrat, hash_contrat,
+                                hash_plan)
+    attendu = {"plan": hash_plan(PURE_TESTS, BLOCS_ISOLES),
+               "contrat": hash_contrat([ROOT / c for c in _CONTRAT_CI], racine=ROOT)[0],
+               "substrat": empreinte_substrat(), "lock": None, "match": "ILLISIBLE"}
+    try:
+        from forge_ci_lock import fermeture, hash_lock, lire_lock, reconcilier
+        _lock, _motif = lire_lock(ROOT / "requirements-ci.lock")
+        if _lock is not None:
+            attendu["lock"] = hash_lock(_lock)
+            attendu["match"] = reconcilier(_lock, fermeture()["paquets"])[0]
+    except ImportError as e:
+        print("\033[33m[reprise] forge_ci_lock indisponible (%s) : rien ne peut etre repris\033[0m" % type(e).__name__)
+    chemin, m, refus = chercher_reprise(sha, racines, attendu)
+    if chemin is None:
+        print("\033[33m[reprise] AUCUNE preuve reprenable pour %s -- suite pure REJOUEE. Motifs : %s\033[0m"
+              % (sha[:12], " ; ".join(refus[:6]) or "aucune preuve capturee pour ce sha"))
+        return None
+    print("\033[1;32m[reprise] suite pure CERTIFIEE par un autre observateur (%s), REPRISE par ce runner : NON "
+          "rejouee.\033[0m" % m.get("execution_id"))
+    print("  [preuve-reprise] sha=%s etat=%s origine=%s env_origine=%s lock=%s axes_non_remesures=%s"
+          % (sha[:12], m.get("certification_state"), chemin, str(m.get("environment_fingerprint"))[:12],
+             str(m.get("dependency_lock_hash"))[:12], ",".join(AXES_NON_REMESURES)))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="ci_local", description="Miroir local complet des GitHub Actions")
     ap.add_argument("--only", action="append", metavar="GATE", default=None,
@@ -4454,9 +4689,17 @@ def main() -> int:
     ap.add_argument("--ui-gate", action="store_true", help="+ contrat d'acceptation UI web_hub (Playwright, :7400 requis)")
     ap.add_argument("--turbo", action="store_true",
                     help="suite pure en parallele (xdist, --dist=loadfile). "
-                         "Mesure 2026-09-04 : 300 s -> ~100 s. OPT-IN : le gate par "
-                         "defaut reste sequentiel tant que le mode parallele n'a pas "
-                         "garde une publication reelle.")
+                         "Mesure 2026-09-04 : 300 s -> ~100 s ; 2026-10-14 (suite entiere) : 1 104 s -> 288 s a "
+                         "-n 4. OPT-IN : le gate par defaut reste sequentiel tant que le mode parallele n'a pas "
+                         "garde une publication reelle -- la CI de reference et le runner le passent EXPLICITEMENT "
+                         "depuis le 14/10 (premiere publication gardee).")
+    ap.add_argument("--turbo-workers", type=int, default=None, dest="turbo_workers",
+                    help="nombre de workers xdist en --turbo (defaut : choisi sur la RAM LIBRE au depart, "
+                         "4 / 3 / 2 -- voir _PALIERS_TURBO). Mesure du 14/10 : l'ancien defaut, la moitie des "
+                         "coeurs (8), depassait la RAM libre du poste et le cap RSS de 6000 Mo.")
+    ap.add_argument("--reprendre-preuve", action="store_true", dest="reprendre_preuve",
+                    help="avec --only pytest : reprendre la preuve de la suite pure capturee pour CE sha par un autre "
+                         "observateur (racines NOKIDO_PREUVES_PARTAGEES) au lieu de la rejouer ; sinon rejoue")
     ap.add_argument("--impacte", action="store_true",
                     help="ne rejouer que les tests que le diff peut avoir casses. "
                          "OPT-IN, et NON CERTIFIANT : publie SUITE_PARTIELLE, ne "
@@ -4488,6 +4731,11 @@ def main() -> int:
     if _ONLY:
         print("\033[1;36m[only] selection EXCLUSIVE : %s — les autres gates ne sont "
               "pas executes\033[0m" % ", ".join(_ONLY))
+    # Option A (owner 14/10) : AVANT toute bascule de worktree, une preuve d'un autre observateur pour ce sha
+    # dispense de rejouer la suite pure. Seulement si l'appel ne demande QUE la suite pure.
+    if getattr(a, "reprendre_preuve", False) and _ONLY and set(_ONLY) == {"pytest"}:
+        if _reprendre_preuve_suite_pure() == 0:
+            return 0
 
     # T0 : bascule vers le worktree de reference AVANT tout gate, pour qu'aucun
     # element du verdict ne lise l'arbre partage (sinon la course est deplacee,
@@ -4809,6 +5057,15 @@ def main() -> int:
                             [PY, "tools/forge_module_census.py", "--check"],
                             blocking=True))
 
+    # ── preuve formelle (Lean, formel/) : OBSERVATION d'abord, comme `anatomie` a sa creation ──
+    # Decision owner du 15/10 : Nokido porte Lean (juge forge_lean_verify : sources sans sorry/axiom, lake build,
+    # axiomes par liste blanche du noyau). rc 0 PROUVE, 1 REFUSE, 2 INCONNU -- Lean absent (chaine non provisionnee
+    # dans runtime/elan, du depot ou du depot principal vu d'un worktree) = INCONNU, dit, jamais un vert. NON
+    # BLOQUANT tant que son bruit n'est pas mesure sur plusieurs CI.
+    if (ROOT / "tools" / "forge_lean_verify.py").exists() and (ROOT / "formel").is_dir():
+        results.append(_run("preuve formelle (Lean, formel/)", [PY, "tools/forge_lean_verify.py"],
+                            blocking=False))
+
     # ── wiki date : la page GENEREE decrit-elle le corps COURANT ? ──────────
     # NON BLOQUANT d'emblee, comme `anatomie` a sa creation : on observe son
     # bruit avant d'enforcer, un gate promu trop tot se fait desarmer.
@@ -5080,6 +5337,14 @@ def main() -> int:
             # fermeture des flux. On tranche dessus, et le rc ne sert plus que de
             # signal secondaire.
             _xml = _btmp.parent / "pytest_pur_junit.xml"
+            # Traces de plantage natif des processus pytest (voir `_rapporter_faulthandler`) : a cote du JUnit,
+            # videes avant le run -- jamais juger sur les traces du run precedent.
+            _fh_dir = _btmp.parent / "faulthandler"
+            try:
+                for _f in _fh_dir.glob("faulthandler_*.log"):
+                    _f.unlink()
+            except OSError:  # muet-ok : un reste illisible sera DIT par _rapporter_faulthandler
+                pass
 
             # MODE TURBO (opt-in) — mesures du 2026-09-04, selection reelle de la CI :
             #   sequentiel                 299,8 s   0 echec
@@ -5104,6 +5369,14 @@ def main() -> int:
                 "tests/test_predict_impact_sr.py",
             )
             _turbo = bool(getattr(a, "turbo", False)) and _has("xdist")
+            if _turbo:
+                # LONGUEUR DE CHEMIN (mesure 2026-10-14, 1re reference en turbo sur ce23f35a8) : xdist ajoute
+                # `popen-gwN\` (10 car.) au basetemp ; sous le worktree de reference
+                # (`...\nokido_proof\ci-reference-<h>\artefacts\<compte>\pytest_basetemp\`), 7 tests qui creent
+                # des worktrees et des clones git ont franchi la limite : « fatal: '$GIT_DIR' too big », WinError
+                # 183. Le sequentiel, 10 caracteres plus court, passait. `bt` (13 car. de moins que
+                # `pytest_basetemp`) rend les chemins turbo PLUS COURTS que les sequentiels.
+                _btmp = _btmp.parent / "bt"
             # Les BLOCS ISOLES sortent du processus principal QUEL QUE SOIT le mode.
             # `_a_part` ne les couvrait pas : il n'existe qu'en turbo, et son motif est
             # tout autre (artefact de capture sous xdist). Deux raisons distinctes
@@ -5136,7 +5409,7 @@ def main() -> int:
                 # verdict continue de se lire sur le JUnit, ecrit par pytest AVANT la
                 # fermeture des flux — c'est deja la parade retenue le 2026-08-26, elle
                 # couvre donc le besoin que `--capture=no` couvrait.
-                _cmd += ["-p", "xdist", "-n", str(max(1, (os.cpu_count() or 2) // 2)),
+                _cmd += ["-p", "xdist", "-n", str(_workers_turbo(getattr(a, "turbo_workers", None))),
                          "--dist=loadfile"]
             else:
                 _cmd += ["--capture=no"]
@@ -5177,8 +5450,10 @@ def main() -> int:
                     _cmd, blocking=True,
                     env={"PYTHONPATH": str(ROOT / "app"),
                          "LAFORGE_SQLITE_BUSY_MS": "9000",
+                         "NOKIDO_FAULTHANDLER_DIR": str(_fh_dir),
                          "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", **_env_liste})
                 _telemetrie("apres: suite pure")
+                _rapporter_faulthandler(_fh_dir)
                 _dernier_principal = dict(_run.__dict__.get("dernier") or {})
                 if _turbo and _a_part:
                     # Second processus, sequentiel et SANS capture : les fichiers que
@@ -6041,12 +6316,16 @@ def _ecrire_ci_proof(process_state, failure_stage=None, ctx=None,
         print("\033[33m  [ci-proof] NON ECRIT : aucun repertoire de preuve "
               "(NOKIDO_PROOF_DIR absent) — on ne replie PAS sur l'arbre juge\033[0m")
         return
-    contrat, illisibles = hash_contrat([ROOT / c for c in _CONTRAT_CI])
+    contrat, illisibles = hash_contrat([ROOT / c for c in _CONTRAT_CI], racine=ROOT)
     # B2 : le lock dit ce qui est REQUIS, la reconciliation dit si l'environnement
     # y correspond. Sans elle, `dependency_lock_hash` affirmerait quelque chose
     # sur un FICHIER. Avec un laforge_py314 PERMANENT partage avec le hub vivant,
     # c'est exactement l'ecart a mesurer.
     _lock_hash, _match = None, None
+    # Le DETAIL voyage avec la preuve (2026-10-14) : le runner du poste sortait DIVERGENT sans qu'on puisse dire
+    # pourquoi -- l'ecart n'etait qu'imprime, et le journal GitHub n'est lisible qu'apres coup, tronque. Un verdict
+    # qui ne nomme pas son ecart oblige a le re-mesurer ailleurs, sous un autre compte, donc a cote.
+    _dependances = None
     try:
         from forge_ci_lock import fermeture, hash_lock, lire_lock, reconcilier
         _lock, _motif_lock = lire_lock(ROOT / "requirements-ci.lock")
@@ -6064,6 +6343,12 @@ def _ecrire_ci_proof(process_state, failure_stage=None, ctx=None,
             for _n, _d in sorted(_det["ecarts"].items())[:8]:
                 print("\033[33m     ECART %-26s lock=%-12s installe=%s\033[0m"
                       % (_n, _d["lock"], _d["installe"]))
+            for _n in sorted(_det["manquants"])[:8]:
+                print("\033[33m     MANQUANT %s\033[0m" % _n)
+            if _match != "CONFORME":
+                _dependances = {"ecarts": dict(sorted(_det["ecarts"].items())),
+                                "manquants": sorted(_det["manquants"]),
+                                "hors_lock": len(_det["hors_lock"])}
     except ImportError as _el:  # muet-ok : dit juste au-dessus/au-dessous
         _match = "ILLISIBLE"
         print("\033[33m  [ci-lock] INDISPONIBLE (%s) — environnement NON "
@@ -6097,7 +6382,8 @@ def _ecrire_ci_proof(process_state, failure_stage=None, ctx=None,
         # D : la telemetrie VOYAGE avec la preuve. Un journal affiche puis perdu
         # ne permet pas de comparer deux runs du meme sha — c'est exactement ce
         # qui manquait pour attribuer les 3 timeouts sur 4 runs.
-        extra={"telemetrie": list(_TELEMETRIE)} if _TELEMETRIE else None)
+        extra=({"telemetrie": list(_TELEMETRIE)} if _TELEMETRIE else {})
+              | ({"dependances": _dependances} if _dependances else {}) or None)
     cible = Path(dossier) / "ci_proof.json"
     ok, motif = ecrire(cible, m)
     if not ok:

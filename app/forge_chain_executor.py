@@ -101,6 +101,12 @@ class ChainExecutor:
             chain_id TEXT PRIMARY KEY, global_vars TEXT, updated_at TEXT DEFAULT (datetime('now', 'utc'))
         );
         """)
+        # Identite du processus qui a pris le noeud (15/10) : sans elle, la reprise ne voit que l'AGE et relance en
+        # double un noeud lent mais vivant (forge_durable.recover_chain_nodes). ADD COLUMN = metadonnee, O(1).
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(agent_chain_nodes)").fetchall()}
+        for col, typ in (("runner_pid", "INTEGER"), ("runner_cree", "REAL")):
+            if col not in cols:
+                conn.execute("ALTER TABLE agent_chain_nodes ADD COLUMN %s %s" % (col, typ))
         conn.commit()
         conn.close()
 
@@ -258,10 +264,15 @@ class ChainExecutor:
     async def run_node(self, node: Dict[str, Any]):
         node_id, chain_id, role = node["id"], node["chain_id"], node["agent_role"]
         print(f"[EXE] Running {node_id} ({role})")
+        try:
+            from nokido_agent.app.forge_durable import identite_processus
+            pid, cree = identite_processus()
+        except Exception:  # noqa: BLE001  # muet-ok : sans identite, la reprise retombe sur l'age (dit dans forge_durable)
+            pid, cree = os.getpid(), None
         conn = self._get_conn()
         conn.execute(
-            "UPDATE agent_chain_nodes SET status='running', started_at=? WHERE id=?",
-            (datetime.now(tz=timezone.utc).isoformat(), node_id),
+            "UPDATE agent_chain_nodes SET status='running', started_at=?, runner_pid=?, runner_cree=? WHERE id=?",
+            (datetime.now(tz=timezone.utc).isoformat(), pid, cree, node_id),
         )
         conn.commit()
         conn.close()
@@ -308,6 +319,7 @@ class ChainExecutor:
             conn.commit()
             conn.close()
             print(f"[EXE] {node_id} done.")
+            self._clore_job_si_chaine_terminee(chain_id)
         except Exception as e:
             print(f"[EXE] Failed {node_id}: {e}")
             conn = self._get_conn()
@@ -325,6 +337,47 @@ class ChainExecutor:
             else:
                 conn.execute("UPDATE agent_chain_nodes SET status='failed', error=? WHERE id=?", (str(e), node_id))
             conn.commit()
+            conn.close()
+            self._clore_job_si_chaine_terminee(chain_id)
+
+    def _clore_job_si_chaine_terminee(self, chain_id: str) -> Optional[str]:
+        """Recalcule le verdict METIER du job quand sa chaine n'a plus d'etape en attente ni en cours.
+
+        Mesure du 15/10 (lecture de %NOKIDO_DATA%\\embeddings.db) : la veille `wj_fc7e31285b` a ses 7 etapes `completed`,
+        mais son job reste `running` depuis le 07/09 -- la ligne a ete ecrite a 16:34:17, deux secondes AVANT la
+        fin de l'ingest (369 chunks). `run_node` ne touchait jamais `watch_jobs` : seuls `store` et le solde du
+        budget y ecrivent, donc une etape qui finit APRES eux laisse le job fige pour toujours.
+        Liste BLANCHE des etats d'attente : la moindre etape non terminale et rien n'est ecrit. Une chaine sans
+        job de veille n'est pas touchee. Un succes efface la trace d'echec du job, comme `run_node` le fait pour
+        le noeud. Rend le verdict ecrit, ou None."""
+        _ATTENTE = {"pending", "retry_pending", "running", "queued"}
+        conn = self._get_conn()
+        try:
+            etapes = [(r[0], r[1]) for r in conn.execute(
+                "SELECT step_name, status FROM agent_chain_nodes WHERE chain_id=?", (chain_id,)).fetchall()]
+            if not etapes or any(str(st or "").lower() in _ATTENTE for _, st in etapes):
+                return None
+            row = conn.execute("SELECT n_stored, status FROM watch_jobs WHERE id=?", (chain_id,)).fetchone()
+            if row is None:
+                return None
+            from nokido_agent.app.forge_watch_agent import verdict_chaine  # noqa: PLC0415
+            # `completed_dedup` (la base possedait deja tout) n'est connu que de l'etape qui l'a ecrit : le garder,
+            # sinon le recalcul le degraderait en `completed_empty`.
+            verdict = verdict_chaine(etapes, int(row[0] or 0), dedup=(row[1] == "completed_dedup"))
+            if verdict.startswith("completed") and verdict != "completed_partial":
+                conn.execute("UPDATE watch_jobs SET step='done', status=?, error=NULL, updated_at=? WHERE id=?",
+                             (verdict, datetime.now(tz=timezone.utc).isoformat(), chain_id))
+            else:
+                conn.execute("UPDATE watch_jobs SET step='done', status=?, updated_at=? WHERE id=?",
+                             (verdict, datetime.now(tz=timezone.utc).isoformat(), chain_id))
+            conn.commit()
+            print("[EXE] chaine %s terminee -- verdict du job : %s" % (chain_id, verdict))
+            return verdict
+        except Exception as exc:  # noqa: BLE001
+            print("[EXE] cloture du job %s impossible (%s) : le noeud est ecrit, le verdict "
+                  "metier ne l'est PAS" % (chain_id, type(exc).__name__))
+            return None
+        finally:
             conn.close()
 
     async def dispatch_agent(self, node, context):

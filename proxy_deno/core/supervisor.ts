@@ -798,6 +798,34 @@ interface ServiceState {
 
 const states = new Map<string, ServiceState>();
 
+// Reveil A LA DEMANDE d'un service DECLARE mais absent de `states` (disabled=true dans
+// services.toml : la boucle de chargement du boot le saute). Le def vient de SERVICES et
+// l'etat est cree a la volee. Partage par /service/start (fix wake-disabled du 2026-06-03 :
+// SearXNG & co rendaient 404) et /llm/activate (audit ChatGPT du 15/10 : NokidoLlamaNative).
+// `exigeLlmPool` : la route LLM ne cree d'etat QUE pour un membre du pool -- elle ne doit pas
+// devenir une porte de demarrage generique qui contournerait les regles des autres services.
+function etatALaDemande(name: string, exigeLlmPool: boolean): ServiceState | null {
+  const def = SERVICES.find((s) => s.name === name);
+  if (!def || (exigeLlmPool && !def.llmPool)) return null;
+  states.set(name, {
+    def,
+    status: "stopped",
+    proc: null,
+    pid: null,
+    restartCount: 0,
+    lastStartMs: 0,
+    backoffIdx: 0,
+    logFile: null,
+    restartHistory: [],
+    quarantineUntilMs: 0,
+    heartbeat: null,
+    quickFailCount: 0,
+  });
+  // Libelle de /service/start inchange (cite par forge_ensure_service et services_views).
+  log(`[${exigeLlmPool ? "llm/activate" : "service/start"}] reveil on-demand "${name}" (disabled -> state cree)`);
+  return states.get(name)!;
+}
+
 for (const def of SERVICES) {
   if (def.disabled) continue;
   const initialStatus: ServiceStatus = def.llmPool ? "sleeping" : "stopped";
@@ -2541,7 +2569,11 @@ async function handleCtrl(req: Request): Promise<Response> {
 
   if (p.startsWith("/supervisor/llm/activate/") && req.method === "POST") {
     const name = p.replace("/supervisor/llm/activate/", "");
-    const state = states.get(name);
+    // Audit ChatGPT du 15/10 (verifie sur le code) : un LLM du pool DECLARE `disabled` (ex.
+    // NokidoLlamaNative) n'est pas dans `states` au boot -> cette route rendait 404 « not in llm
+    // pool », alors que /service/start savait creer l'etat. Meme reveil a la demande, et le pool
+    // reste borne : enforcePool AVANT le demarrage, comme pour un service deja charge.
+    const state = states.get(name) ?? etatALaDemande(name, true);
     if (!state?.def.llmPool) return jsonResp({ error: "not in llm pool" }, 404);
     await enforcePool(name);
     state.status = "stopped";
@@ -2555,31 +2587,8 @@ async function handleCtrl(req: Request): Promise<Response> {
   // a llm/activate. Evite Start-Process manuel cote user.
   if (p.startsWith("/supervisor/service/start/") && req.method === "POST") {
     const name = p.replace("/supervisor/service/start/", "");
-    let state = states.get(name);
-    if (!state) {
-      // Service on-demand (disabled=true dans services.toml) : pas instancie
-      // dans `states` au boot (cf. for-loop L643 `if (def.disabled) continue`).
-      // Le reveil = charger le def depuis SERVICES + creer le state a la volee.
-      // Fix wake-disabled 2026-06-03 (SearXNG/etc renvoyaient 404 a la demande).
-      const def = SERVICES.find((s) => s.name === name);
-      if (!def) return jsonResp({ error: "unknown service", name }, 404);
-      states.set(name, {
-        def,
-        status: "stopped",
-        proc: null,
-        pid: null,
-        restartCount: 0,
-        lastStartMs: 0,
-        backoffIdx: 0,
-        logFile: null,
-        restartHistory: [],
-        quarantineUntilMs: 0,
-        heartbeat: null,
-        quickFailCount: 0,
-      });
-      state = states.get(name)!;
-      log(`[service/start] reveil on-demand "${name}" (disabled -> state cree)`);
-    }
+    const state = states.get(name) ?? etatALaDemande(name, false);
+    if (!state) return jsonResp({ error: "unknown service", name }, 404);
     if (state.status === "running") return jsonResp({ ok: true, already_running: name });
     state.status = "stopped";
     state.backoffIdx = 0;

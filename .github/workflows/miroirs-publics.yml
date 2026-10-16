@@ -1,0 +1,117 @@
+# Miroirs publics -- owner 2026-10-14 : « quand tu publieras la nouvelle version sur nokido public, fais-le aussi
+# sur les autres depots publics [...] systematiquement ; peut-etre en CI cote GitHub sur le nokido public pour
+# alleger la charge ici ». Embarque dans le dist par WORKFLOWS_DIST (tools/forge_dist_publish.py).
+#
+# Tourne sur le DEPOT PUBLIC (runner heberge), au tag de version. Source = ce depot public lui-meme, clone sans
+# authentification : rien de plus que ce qui est deja public ne peut partir. `main` + tags seulement, SANS forcer
+# (memes refspecs que publish_multi._REFSPECS : refs/pull/* et les branches jetables essai/** sont refuses par les
+# autres forges -- mesure 0.20.11 ; un miroir qui diverge sur main le DIT au lieu d'etre ecrase). Memes cibles que
+# tools/publish_multi.py --miroirs-public (verrouille par NR).
+# Les jetons ne passent JAMAIS dans une URL (journaux git) : en-tete http.extraHeader, masque par Actions.
+#
+# Secrets du depot Nokido-labs/nokido, poses par l'OWNER (jamais par un agent) : CODEBERG_TOKEN, GITLAB_TOKEN,
+# HF_TOKEN, SF_DEPLOY_KEY (cle SSH DEDIEE a ce workflow, partie publique sur le compte SourceForge).
+# Un secret ABSENT n'est pas saute en silence : la forge est dite NON PUBLIEE et le job finit en echec. Une forge en
+# echec n'empeche pas les autres d'etre tentees (`!cancelled()`).
+name: Miroirs publics
+
+# Declenche a la FIN de « Release to PyPI », pas au tag : la release se termine par un commit du bot sur main
+# (README `pip install nokido-agent==X`) ; un declenchement au tag partait AVANT lui (mesure 0.20.11 : miroirs a
+# 19c350a, public a dc1667e). Un commit pousse avec GITHUB_TOKEN ne declenche aucun workflow, workflow_run si.
+on:
+  workflow_run:
+    workflows: ["Release to PyPI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: miroirs-publics
+  cancel-in-progress: false
+
+jobs:
+  miroirs:
+    # Le fichier vit aussi dans le depot PRIVE (source du dist) : sans cette garde, un tag v* y lancerait le job
+    # sans secrets ni source anonyme -- echec bruyant a chaque version. Seul le depot public publie ses miroirs.
+    if: >-
+      github.repository == 'Nokido-labs/nokido' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SOURCE: https://github.com/${{ github.repository }}.git
+    steps:
+      - name: Source = depot public, clone anonyme (branches + tags)
+        run: git clone --bare "$SOURCE" src.git
+
+      - name: Codeberg
+        if: ${{ !cancelled() }}
+        env:
+          T: ${{ secrets.CODEBERG_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then echo "::error::CODEBERG_TOKEN absent : Codeberg NON PUBLIE"; echo codeberg >> manquants; exit 0; fi
+          H="Authorization: Basic $(printf 'user:%s' "$T" | base64 -w0)"
+          git -C src.git -c http.extraHeader="$H" push https://codeberg.org/user/nokido-public.git \
+            'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || { echo codeberg >> manquants; exit 1; }
+
+      - name: GitLab
+        if: ${{ !cancelled() }}
+        env:
+          T: ${{ secrets.GITLAB_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then echo "::error::GITLAB_TOKEN absent : GitLab NON PUBLIE"; echo gitlab >> manquants; exit 0; fi
+          H="Authorization: Basic $(printf 'oauth2:%s' "$T" | base64 -w0)"
+          git -C src.git -c http.extraHeader="$H" push https://gitlab.com/naarobb/nokido.git \
+            'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || { echo gitlab >> manquants; exit 1; }
+
+      - name: SourceForge (cle SSH dediee)
+        if: ${{ !cancelled() }}
+        env:
+          K: ${{ secrets.SF_DEPLOY_KEY }}
+        run: |
+          if [ -z "$K" ]; then echo "::error::SF_DEPLOY_KEY absent : SourceForge NON PUBLIE"; echo sourceforge >> manquants; exit 0; fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$K" > ~/.ssh/sf && chmod 600 ~/.ssh/sf
+          ssh-keyscan git.code.sf.net >> ~/.ssh/known_hosts 2>/dev/null
+          rc=0
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sf -o IdentitiesOnly=yes" \
+            git -C src.git push ssh://user@git.code.sf.net/p/nokido/code \
+            'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || rc=$?
+          rm -f ~/.ssh/sf
+          if [ "$rc" -ne 0 ]; then echo sourceforge >> manquants; exit "$rc"; fi
+
+      - name: Space Hugging Face (vitrine statique)
+        if: ${{ !cancelled() }}
+        env:
+          T: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$T" ]; then echo "::error::HF_TOKEN absent : Space HF NON PUBLIE"; echo hf >> manquants; exit 0; fi
+          git clone --depth 1 "$SOURCE" depot
+          if [ ! -d depot/vitrine/hf_space ]; then echo "::error::vitrine/hf_space absente du depot public"; echo hf >> manquants; exit 0; fi
+          H="Authorization: Bearer $T"
+          git -c http.extraHeader="$H" clone https://huggingface.co/spaces/user/nokido space
+          rsync -a --delete --exclude .git depot/vitrine/hf_space/ space/
+          git -C space add -A
+          git -C space -c user.name=nokido-ci -c user.email=ci@nokido.invalid commit -m "vitrine ${GITHUB_REF_NAME}" || echo "vitrine inchangee"
+          git -C space -c http.extraHeader="$H" push || { echo hf >> manquants; exit 1; }
+
+      - name: Verification ANONYME (meme sha sur chaque forge)
+        if: ${{ !cancelled() }}
+        run: |
+          # main (dernier commit, bot README compris) ET le tag de version le plus recent, sur chaque forge.
+          T=$(git -C src.git describe --tags --abbrev=0 refs/heads/main 2>/dev/null || true)
+          ecarts=0
+          for R in refs/heads/main ${T:+refs/tags/$T}; do
+            attendu=$(git -C src.git rev-parse "${R}^{commit}")
+            for f in https://codeberg.org/user/nokido-public.git https://gitlab.com/naarobb/nokido.git \
+                     https://git.code.sf.net/p/nokido/code; do
+              lu=$(git ls-remote "$f" "${R}^{}" | cut -f1)
+              [ -z "$lu" ] && lu=$(git ls-remote "$f" "$R" | cut -f1)
+              echo "$f $R -> ${lu:-ABSENT} (attendu $attendu)"
+              [ "$lu" = "$attendu" ] || ecarts=$((ecarts+1))
+            done
+          done
+          if [ -s manquants ]; then echo "::error::forges NON publiees : $(tr '\n' ' ' < manquants)"; exit 1; fi
+          if [ "$ecarts" -gt 0 ]; then echo "::error::$ecarts forge(s) sans la reference attendue"; exit 1; fi

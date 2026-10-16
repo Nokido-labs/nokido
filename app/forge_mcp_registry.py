@@ -40,7 +40,7 @@ v3.1 (2026-05-23) — Namespace structure + explanation field
   Champ `explanation` ajoute dans `inputSchema.properties` de tous les tools
   (string, optionnel pour 6 mois). Helper `enforce_explanation(args, mode=...)`
   permet de passer en mode "error" via env `LAFORGE_EXPLANATION_MODE=error`.
-  Deadline mode=error : 2026-08-01.
+  `LAFORGE_EXPLANATION_MODE=error` rend le champ obligatoire ; aucune bascule datee n'est codee.
 """
 from __future__ import annotations
 __FORGE_COLOR__ = "GREEN"
@@ -334,7 +334,7 @@ def enforce_explanation(call: Dict[str, Any], mode: str = "warn") -> None:
         return
     msg = (
         f"[explanation-missing] tool '{name}' appele sans champ "
-        f"`explanation` (pattern Cursor/Augment). Deadline mode=error : 2026-08-01."
+        f"`explanation` (pattern Cursor/Augment). LAFORGE_EXPLANATION_MODE=error le rend obligatoire."
     )
     if mode == "error":
         raise ValueError(msg)
@@ -1529,10 +1529,9 @@ class ToolRegistry:
     _EXPLANATION_FIELD: Dict[str, str] = {
         "type": "string",
         "description": (
-            "One sentence explanation as to why this tool is being used, "
-            "and how it contributes to the goal. Optional during transition "
-            "(warn-only), required after 2026-08-01 (set "
-            "LAFORGE_EXPLANATION_MODE=error to enforce now)."
+            "One sentence: why this call, and how it serves the goal. Logged for "
+            "audit; when missing, a warning is logged "
+            "(LAFORGE_EXPLANATION_MODE=error makes it required)."
         ),
     }
 
@@ -1892,7 +1891,7 @@ class ToolRegistry:
                         },
                         "script_args": {
                             "type": "string",
-                            "description": "CLI args for trusted_script (chaine style shell, parsee via shlex)",
+                            "description": "Arguments CLI du script (chaine style shell, parsee via shlex) : trusted_script ET run_job",
                         },
                         "script": {
                             "type": "string",
@@ -2212,7 +2211,7 @@ class ToolRegistry:
             },
             {
                 "name": "ask",
-                "description": "RPC LLM: provider=claude|gemini|groq|ollama|gpt4o_github|gemini_cli|claude_agent_sdk|claude_cli|...",
+                "description": "RPC LLM: provider=claude|gemini|groq|ollama|gemini_cli|claude_agent_sdk|claude_cli|...",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2319,7 +2318,13 @@ class ToolRegistry:
             },
             {
                 "name": "rag",
-                "description": "RAG: action=index|search",
+                "description": (
+                    "Memoire RAG de Nokido. search : recherche dans le corpus indexe (topic = la question, "
+                    "limit = nombre de resultats) ; peut depasser 120 s sur un gros corpus -- pour situer "
+                    "du code, preferer introspect. index : consigne le resultat d'une tache (task_id + "
+                    "result, domaine mcp_result, 4000 premiers caracteres, la coupe est dite). Une "
+                    "recherche vide ne prouve pas une absence."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2362,7 +2367,12 @@ class ToolRegistry:
             },
             {
                 "name": "manage_forge_lifecycle",
-                "description": "Pilote le cycle de vie (START/STOP/RESTART) des organes Nokido via NSSM.",
+                "description": (
+                    "START/STOP/RESTART/STATUS/LIST des services Nokido d'une liste blanche, par le "
+                    "superviseur :8765 (wake/sleep/restart ; plus NSSM depuis le 24/05) ; quelques organes "
+                    "hors superviseur (llama-server, proxy, netcfg-agent-mcp) par processus. NokidoMCP et "
+                    "NokidoWebHub ne s'arretent pas ; le hub se relance par hub action=redemarrer_stack."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -4424,18 +4434,23 @@ class ToolRegistry:
     # -- HANDLERS : Web & Agents --
 
     async def handle_web_search(self, args: dict, agent: str, ring: int) -> str:
-        """Recherche web avec cascade SearXNG -> Groq fallback."""
-        import sys as _sys, os as _os
+        """Recherche web par SearXNG (moteurs, puis duckduckgo seul). Une recherche qui n'a PAS pu se
+        faire (SearXNG eteint, delai, moteurs bloques) le DIT : ce n'est jamais « aucun resultat »."""
+        import sys as _sys
 
         _sys.path.insert(0, str(self.root / "app"))
-        from nokido_agent.app.forge_web_fallback import web_search_with_fallback, format_results
+        from nokido_agent.app.forge_web_fallback import format_results, web_search_diag
 
         query = args.get("query", "")
         max_res = int(args.get("max_results", 5))
-        results = await web_search_with_fallback(query, max_results=max_res)
-        if not results:
-            return "Aucun resultat (SearXNG + Groq fallback vides)."
-        return format_results(results)
+        d = await web_search_diag(query, max_results=max_res)
+        results, erreurs = d.get("results") or [], d.get("erreurs") or []
+        if results:
+            return format_results(results)
+        if erreurs:
+            return ("RECHERCHE NON FAITE (ce n'est PAS « aucun resultat ») : SearXNG injoignable ou en "
+                    "erreur -- %s. Reveil : nokido_ensure_service service=searxng" % " ; ".join(erreurs)[:600])
+        return "Aucun resultat (SearXNG a repondu sans rien trouver)."
 
     async def handle_absorb_rfc_knowledge(self, args: dict, agent: str, ring: int) -> str:
         import sys as _sys
@@ -4910,9 +4925,18 @@ class ToolRegistry:
         # ── STEP 3 : Notification volatile (poll classique) ──────────────────
         _tagged_msg = f"[frame:{_first_frame or 'frm_x'}|hash:{_nh.md5(msg.encode()).hexdigest()[:16]}] {msg}"
         self.state_mgr.add_notification(_tagged_msg, source=agent)
+        # L'EMETTEUR REPART AVEC SA REFERENCE (15/10, derogation owner). Codex : « l'accuse ne contenait pas
+        # d'identifiant unique, je peux preciser la boite et le sujet, pas un identifiant ». Le frame etait CALCULE
+        # puis tu : un emetteur qui ne sait pas ce qu'il a emis ne peut ni citer son envoi ni prouver sa livraison.
+        # Et le destinataire REEL est dit : EVENTBUS_ARCHIVE signifie que personne ne lira le message.
         if _is_broadcast:
-            return f"OK broadcast envoye a {len(_targets)} agents: {', '.join(_targets)}" + _m2m_note
-        return "OK notification envoyee" + _m2m_note
+            return (f"OK broadcast envoye a {len(_targets)} agents: {', '.join(_targets)} "
+                    f"frame={_first_frame}" + _m2m_note)
+        _dest = _targets[0] if _targets else "?"
+        if _dest == "EVENTBUS_ARCHIVE":
+            return (f"ARCHIVE SEULEMENT frame={_first_frame} to=EVENTBUS_ARCHIVE -- aucun destinataire identifie "
+                    f"(parametre `to` ou prefixe [DEST] / [EMETTEUR->DEST]) : personne ne lira ce message" + _m2m_note)
+        return f"OK notification envoyee frame={_first_frame} to={_dest}" + _m2m_note
 
     # Comptes de rag_chunks par domaine : un GROUP BY sur ~10 M lignes, 10 a 18 s. Mesure du 2026-10-13
     # (logs/loop_lag.log) : execute a chaque whoami SUR la boucle du hub, il l'a gelee 6 fois dans la journee,
@@ -5167,7 +5191,7 @@ class ToolRegistry:
             return _j.dumps({"agent": agent, "ts": _now, "error": str(e)})
 
     async def handle_manage_forge_lifecycle(self, args: dict, agent: str, ring: int) -> str:
-        """Pilote le cycle de vie (START/STOP/RESTART) des organes Nokido via NSSM."""
+        """Cycle de vie des services Nokido par le superviseur :8765 (app/forge_lifecycle_tool.py)."""
         organ = args.get("organ_name", args.get("organ", ""))
         action = args.get("action", "")
         priority = args.get("priority", "NORMAL")
@@ -5252,17 +5276,29 @@ class ToolRegistry:
         task_id = args.get("task_id", "?")
         result = args.get("result", "")
         src = f"mcp_result:{agent}:{task_id}:{int(time.time())}"
-        text = f"[AGENT:{agent}] [TASK:{task_id}]\n{result}"[:4000]
+        complet = f"[AGENT:{agent}] [TASK:{task_id}]\n{result}"
+        text = complet[:4000]
+        cid = f"idx_{agent}_{task_id}_{int(time.time())}"
         try:
             conn = sqlite3.connect(str(self.db_path), timeout=10)
             conn.execute(
                 "INSERT OR REPLACE INTO rag_chunks(id, source, text, domain, author, ingested_at) VALUES(?, ?, ?, ?, ?, datetime('now'))",
-                (f"idx_{agent}_{task_id}_{int(time.time())}", src, text, "mcp_result", agent),
+                (cid, src, text, "mcp_result", agent),
             )
+            # Synchro LEXICALE (15/10) : sans elle, le resultat indexe etait present en base mais
+            # INVISIBLE en BM25 -- meme defaut que la veille corrigee le meme jour. Un echec se DIT.
+            fts = "lexical OK"
+            try:
+                conn.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
+                             (cid, text, src, "mcp_result"))
+            except sqlite3.Error as _e_fts:
+                fts = "SANS ligne rag_fts (%s) : trouvable en dense seulement" % type(_e_fts).__name__
             conn.commit()
             conn.close()
             self.state_mgr.add_notification(f"tache '{task_id}' indexee RAG", source=agent)
-            return f"OK indexe: {src}"
+            coupe = ("" if len(complet) <= 4000 else
+                     " ; COUPE a 4000/%d caracteres, le reste n'est PAS indexe" % len(complet))
+            return f"OK indexe: {src} ({fts}{coupe})"
         except Exception as e:
             return f"Erreur index: {e}"
 
@@ -6032,14 +6068,16 @@ class ToolRegistry:
                     "SELECT adr_id, title, status FROM adr_records ORDER BY id DESC LIMIT 5"
                 ).fetchall()
 
-                # Providers UP
+                # Providers UP -- colonnes REELLES (schema lu le 2026-10-15 : provider, agent_id,
+                # ttft_ms, grade, status, measured_at, priority). L'ancienne requete visait des
+                # colonnes disparues : `memory context` rendait OperationalError (constat Codex).
                 prov_rows = conn.execute(
-                    "SELECT provider_id, quality_tier, last_status FROM provider_scores WHERE last_status='ok' ORDER BY calls_total DESC"
+                    "SELECT provider, grade, status FROM provider_scores WHERE status='ok' ORDER BY measured_at DESC"
                 ).fetchall()
 
-                # Agents actifs (heartbeats récents)
+                # Noeuds actifs (heartbeats recents) -- fleet_heartbeats porte node_id / last_ping_at.
                 fleet = conn.execute(
-                    "SELECT agent_id, status FROM fleet_heartbeats ORDER BY last_seen DESC LIMIT 5"
+                    "SELECT node_id, status FROM fleet_heartbeats ORDER BY last_ping_at DESC LIMIT 5"
                 ).fetchall()
 
                 # Stats mémoire
@@ -6058,8 +6096,8 @@ class ToolRegistry:
                     "active_sprint": sprint[:200],
                     "recent_adr": [{"id": r["adr_id"], "title": r["title"], "status": r["status"]} for r in adr_rows],
                     "key_rules": [r["content"][:150] for r in rules],
-                    "providers_up": [r["provider_id"] for r in prov_rows],
-                    "active_agents": [{"id": r["agent_id"], "status": r["status"]} for r in fleet],
+                    "providers_up": [r["provider"] for r in prov_rows],
+                    "active_agents": [{"id": r["node_id"], "status": r["status"]} for r in fleet],
                     "memory_stats": {
                         "rag_chunks": n_rag,
                         "adr_records": n_adr,
@@ -6125,10 +6163,12 @@ class ToolRegistry:
             # ACTION : providers
             elif action == "providers":
                 prov = conn.execute(
-                    "SELECT provider_id, agent_id, calls_total, quality_tier, last_status "
-                    "FROM provider_scores ORDER BY calls_total DESC"
+                    "SELECT provider, agent_id, ttft_ms, grade, status, measured_at "
+                    "FROM provider_scores ORDER BY measured_at DESC"
                 ).fetchall()
-                fleet = conn.execute("SELECT agent_id, role, status, last_seen FROM fleet_heartbeats").fetchall()
+                fleet = conn.execute(
+                    "SELECT node_id, node_type, status, last_ping_at FROM fleet_heartbeats"
+                ).fetchall()
                 return _json.dumps(
                     {
                         "providers": [dict(r) for r in prov],
@@ -6144,14 +6184,14 @@ class ToolRegistry:
                 status = args.get("status")
                 if status:
                     rows = conn.execute(
-                        "SELECT task_id, agent_id, description, status, created_at FROM agent_tasks "
-                        "WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                        "SELECT id AS task_id, executor AS agent_id, description, status, created_at "
+                        "FROM agent_tasks WHERE status=? ORDER BY created_at DESC LIMIT ?",
                         (status, limit),
                     ).fetchall()
                 else:
                     rows = conn.execute(
-                        "SELECT task_id, agent_id, description, status, created_at FROM agent_tasks "
-                        "ORDER BY created_at DESC LIMIT ?",
+                        "SELECT id AS task_id, executor AS agent_id, description, status, created_at "
+                        "FROM agent_tasks ORDER BY created_at DESC LIMIT ?",
                         (limit,),
                     ).fetchall()
                 return _json.dumps([dict(r) for r in rows], ensure_ascii=False, indent=2)
@@ -6163,40 +6203,33 @@ class ToolRegistry:
                 domain = args.get("domain")
                 if not query:
                     return _json.dumps({"error": "query obligatoire"})
-                # FTS search
+                # Requete du moteur (RAGEngine._scores_lexicaux) : sous-requete BORNEE sur
+                # rag_chunks_fts, jointure sur ROWID (rc.id est un sha texte : `rc.id = fts.rowid`
+                # ne matchait jamais). Pas de repli LIKE : sur rag_chunks (plus de 20 Go) il
+                # gelerait la boucle du hub ; une recherche qui echoue le DIT (15/10, constat Codex).
+                import re as _re
+
+                _tokens = [w for w in _re.split(r"\W+", query) if len(w) > 3][:15]
+                _q_fts = " OR ".join(_tokens) or query
                 try:
-                    if domain:
-                        rows = conn.execute(
-                            """SELECT rc.id, rc.source, rc.domain, rc.content
-                               FROM rag_chunks rc
-                               JOIN rag_chunks_fts fts ON rc.id = fts.rowid
-                               WHERE rag_chunks_fts MATCH ? AND rc.domain=?
-                               ORDER BY rank LIMIT ?""",
-                            (query, domain, limit),
-                        ).fetchall()
-                    else:
-                        rows = conn.execute(
-                            """SELECT rc.id, rc.source, rc.domain, rc.content
-                               FROM rag_chunks rc
-                               JOIN rag_chunks_fts fts ON rc.id = fts.rowid
-                               WHERE rag_chunks_fts MATCH ?
-                               ORDER BY rank LIMIT ?""",
-                            (query, limit),
-                        ).fetchall()
-                    results = [
-                        {"id": r["id"], "source": r["source"], "domain": r["domain"], "content": r["content"][:500]}
-                        for r in rows
-                    ]
-                except Exception as e:
-                    # Fallback LIKE
                     rows = conn.execute(
-                        "SELECT id, source, domain, content FROM rag_chunks WHERE content LIKE ? LIMIT ?",
-                        (f"%{query}%", limit),
+                        "SELECT rc.id, rc.source, rc.domain, rc.text FROM "
+                        "(SELECT rowid AS rid, rank FROM rag_chunks_fts "
+                        " WHERE rag_chunks_fts MATCH ? ORDER BY rank LIMIT ?) s "
+                        "JOIN rag_chunks rc ON rc.rowid = s.rid",
+                        (_q_fts, limit * 5 if domain else limit),
                     ).fetchall()
-                    results = [
-                        {"id": r["id"], "source": r["source"], "domain": r["domain"], "content": r["content"][:500]}
-                        for r in rows
-                    ]
+                except Exception as e:
+                    return _json.dumps({"query": query, "results": [], "count": 0,
+                                        "error": "recherche FTS impossible : %s" % e},
+                                       ensure_ascii=False, indent=2)
+                if domain:
+                    rows = [r for r in rows if r["domain"] == domain][:limit]
+                results = [
+                    {"id": r["id"], "source": r["source"], "domain": r["domain"],
+                     "content": (r["text"] or "")[:500]}
+                    for r in rows
+                ]
                 return _json.dumps(
                     {"query": query, "results": results, "count": len(results)}, ensure_ascii=False, indent=2
                 )
@@ -6506,7 +6539,6 @@ class ToolRegistry:
             providers = [
                 "groq",
                 "mistral",
-                "gpt4o_github",
                 "gemini",
                 "ollama",
                 "cohere",
@@ -8982,6 +9014,14 @@ class ToolRegistry:
             plan = await GoalPlanner.plan(goal, ring_max=ring)
             if not plan.subgoals:
                 return f"OK: No actions needed for {pattern}"
+            # `max_steps` etait lu sans jamais etre applique (audit ChatGPT 15/10, diff d'AGY) : le plan
+            # est coupe AVANT execution, et la reponse dit prevu / execute / ecartees.
+            from nokido_agent.app.forge_goap import plafonner_plan
+            plafond = plafonner_plan(plan, max_steps)
+            if not plan.subgoals:
+                return _j.dumps({"ok": False, "pattern": pattern, "prevu": plafond["prevu"], "execute": 0,
+                                 "ecartees": plafond["ecartees"],
+                                 "raison": "max_steps=%s : aucune action gardee" % max_steps}, ensure_ascii=False)
 
             traj = await execute_plan(plan, dispatch_fn=_hub_dispatch)
 
@@ -9002,6 +9042,9 @@ class ToolRegistry:
                 {
                     "ok": traj.ok,
                     "pattern": pattern,
+                    "prevu": plafond["prevu"],
+                    "execute": len(traj.steps),
+                    "ecartees": plafond["ecartees"],
                     "steps": len(traj.steps),
                     "summary": [s.intent for s in traj.steps],
                 },

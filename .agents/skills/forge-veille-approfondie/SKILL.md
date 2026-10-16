@@ -1,19 +1,6 @@
 ---
 name: forge-veille-approfondie
-description: >
-  Veille bibliographique approfondie Nokido — pipeline autonome 7 étapes
-  via `forge_watch_agent.create_job()` + ChainExecutor : keywords expansion
-  Ollama → verify_kw Groq llama-8b → SearXNG multi-queries → refine Groq
-  llama-70b → crawl pages → ingest RAG → store biblio_raw. Conçu pour
-  **tâches de recherche longues** où l'économie de tokens vient du cache
-  RAG persistant et de l'autonomie (pas de prompt user répétitif). Triggers :
-  utilisateur fournit un **thème exploratoire** (pas une URL précise) et
-  veut "veille auto sur X", "recherche approfondie sur Y", "trouve tout ce
-  qui existe sur Z", "veille active", "monte un dossier sur W", "watch
-  job sur ce sujet", "lance une recherche large", "que se passe-t-il dans
-  l'écosystème de V". Pour cibles inconnues à découvrir. **Distinction
-  critique** avec `forge-veille-rapide` : approfondie = thème, 7 étapes,
-  ~5-15min, ~5-15k tokens cloud. Rapide = URL connue, 0 tokens cloud, ~5s.
+description: "À utiliser quand l'owner veut explorer un thème sans URL connue : « veille sur X », « recherche approfondie », « monte un dossier », « trouve tout ce qui existe sur Y ». Pipeline autonome en 7 étapes (`forge_watch_agent.create_job()` : mots-clés, recherche, tri, crawl, ingestion RAG), 5 à 15 min. URL déjà connue : forge-veille-rapide."
 ---
 
 # forge-veille-approfondie — Pipeline N8N 7 étapes
@@ -23,6 +10,10 @@ description: >
 Skill stable basée sur `app/forge_watch_agent.py` + `app/forge_chain_executor.py`
 + `app/forge_biblio_worker.py`. Boucle autonome ChainExecutor reprend les
 chains pending au boot du Hub :8766.
+
+La veille est UNE chaîne parmi d'autres : la capacité générale de chaînage
+d'actions (task, run_job, plan/GOAP, orchestrate, swarm, ChainExecutor) est
+décrite par la skill `forge-pipeline`. Ici, seulement la chaîne de veille.
 
 ## Quand se déclencher
 
@@ -71,8 +62,8 @@ Exemples mauvais :
 Méthode A — direct Python (recommandé, contourne bug 500 sur /api/watch/jobs) :
 
 ```python
-import sys
-sys.path.insert(0, r"~\Script python IA\LaForge\app")
+import os, sys
+sys.path.insert(0, os.path.expanduser(r"~\Script python IA\Nokido\app"))
 from forge_watch_agent import create_job
 
 chain_id = create_job(
@@ -106,6 +97,10 @@ curl -X POST "http://127.0.0.1:8766/api/watch/create" \
 
 ### 3. Pipeline 7 étapes (autonome, ChainExecutor)
 
+`create_job()` écrit une ligne `watch_jobs` et 7 nœuds `agent_chain_nodes` dans UNE
+transaction (reprise sur verrou par `write_retry`) ; le ChainExecutor les exécute.
+`run_watch_job()` est obsolète (il ne fait que déléguer).
+
 | # | Step | Agent | LLM | Coût |
 |---|---|---|---|---|
 | 1 | keywords | KeywordAgent | ollama (laforge-qwen) | 0 cloud |
@@ -125,6 +120,23 @@ for j in list_jobs(limit=5):
 ```
 
 Ou stream SSE temps réel : `GET /api/watch/stream` (Hub :8766).
+
+**Le statut d'un job n'est pas son verdict.** `verdict_chaine(nodes, n_stored, dedup)`
+(même module) le déduit des étapes ET de ce qui a été retenu :
+
+| verdict | sens |
+|---|---|
+| `completed` | rétention non nulle, toutes les étapes terminées |
+| `completed_partial` | une étape cassée, mais du résultat a survécu |
+| `completed_dedup` | rien de neuf : la base possédait déjà (pas un échec) |
+| `completed_empty` | rien retenu, aucune étape cassée (vide assumé) |
+| `failed` | une étape obligatoire cassée ET rien retenu |
+| `en_cours` | une étape sans statut terminal : pas encore de verdict |
+| `indetermine` | étapes illisibles : ni succès ni échec, ne rien conclure |
+
+> **Une purge efface les lignes de `watch_jobs` et `agent_chain_nodes`** (constaté le
+> 22/09). Un job absent de ces tables n'est pas un job qui n'a jamais tourné :
+> chercher aussi dans `biblio_raw` et le RAG avant de conclure.
 
 ### 5. Récupérer les résultats
 
@@ -166,8 +178,9 @@ Coût marginal de chaque veille additionnelle ≈ constant.
 
 ## Comparaison avec forge-veille-rapide
 
-Voir tableau dans `forge-veille-rapide/SKILL.md`. Règle simple :
-**URL connue = rapide. Thème exploratoire = approfondie.**
+Règle simple : **URL connue = rapide. Thème exploratoire = approfondie.**
+La rapide ingère une source donnée (crawl → MarkdownChunker → rag_chunks + rag_fts) ;
+l'approfondie découvre les sources elle-même (mots-clés → recherche → tri → crawl).
 
 ## Patterns de déclenchement
 
@@ -214,189 +227,11 @@ Si l'un manque, le pipeline cale au step concerné (`status=running step=<step>`
 PIRE que caler : SearXNG injoignable rend des résultats VIDES sans erreur, et le
 pipeline continue jusqu'au bout en produisant des chunks à sec (cf
 `gotcha_veille_fabrication_quarantine`). Un job "terminé" n'est donc PAS une
-preuve qu'il a trouvé quoi que ce soit — compter les entrées `biblio_raw`.
+preuve qu'il a trouvé quoi que ce soit — lire le verdict (§4) et compter les
+entrées `biblio_raw`.
 Diagnostic via `forge-systematic-debugging` (Phase 1 grille anatomique).
 
-
-## [fusionné depuis laforge-pipeline]
-
-> Section absorbée depuis l'ancienne skill `laforge-pipeline`. Son frontmatter
-> d'origine est conservé ci-dessous EN CITATION : laissé en bloc YAML brut, il
-> faisait voir une seconde identité de skill aux chargeurs qui cherchent
-> `---` + `name:`, d'où des commandes en double côté CLI (constaté sur AGY,
-> 2026-08-11 : `/forge-models` et `/laforge-models`).
->
->     name: laforge-pipeline
->     description: Pipeline de veille active Nokido. Lancer, suivre et analyser
->       les jobs de recherche SearXNG automatiques. Chaînage de micro-agents via
->       agent_chain_nodes.
-
-# Nokido Pipeline — Veille Active
-
-## Lancer une veille
-
-```python
-# Via run action=python
-from forge_watch_agent import create_job
-job_id = create_job("mon thème de recherche", idea_id="ma_categorie")
-print(job_id)
-```
-
-## Suivre les jobs
-
-```
-query "SELECT id, theme, step, status, n_ingested, n_stored FROM watch_jobs ORDER BY created_at DESC LIMIT 10"
-```
-
-## Pipeline (6 étapes, reprise automatique si interrompu)
-
-1. `keywords` → LLM local (Ollama/Groq) génère 4 requêtes raffinées
-2. `verify_kw` → LLM vérifie la pertinence  
-3. `search` → SearXNG (port 8080, 0 token)
-4. `refine` → LLM score pertinence 1-10
-5. `ingest` → RAG vectorisation (≥4/10)
-6. `store` → biblio_raw (≥6/10)
-
-## Voir les résultats
-
-```
-query "SELECT title, url, status FROM biblio_raw ORDER BY created_at DESC LIMIT 20"
-```
-
-## MessageFrame — communication structurée
-
-Tout message entre agents doit utiliser forge_message_frame.MessageFrame :
-- `from_agent`, `to_agent`, `action`, `parameters`, `tool_defs`
-- Les tool_defs sont injectées automatiquement par Nokido
-
-
-
-## [fusionné depuis forge-veille-rapide]
-
-> **[archivé 2026-08-11]** Frontmatter d'origine, neutralisé. Le dossier
-> `forge-veille-rapide` a été supprimé, son contenu vit dans cette section.
->
->     name: forge-veille-rapide
-description: >
-  Veille bibliographique rapide Nokido — ingestion directe d'URL connue dans le
-  RAG sans pipeline LLM. Économie maximale de tokens (zéro appel cloud LLM, juste
-  crawl + embedding NPU). Triggers : utilisateur fournit une **URL précise** et
-  veut "ajouter au RAG", "ingère cette page", "veille rapide", "quick crawl",
-  "garde cette URL en mémoire", "indexe cette doc", "ajoute ce site à la
-  bibliographie sans recherche élargie", ou tout cas où la cible est connue et
-  où la recherche SearXNG serait du gaspillage. Utilise `mcp_laforge-sovereign-
-  hub_crawl` puis `/ingest/url` du Hub :8766. Pour 1-N URLs déjà identifiées.
-  **Distinction critique** avec `forge-veille-approfondie` : rapide = URL connue,
-  zéro LLM cloud, ~5s/URL. Approfondie = thème exploratoire, pipeline 7 étapes
-  SearXNG + Groq, plusieurs minutes.
----
-
-# forge-veille-rapide — Ingestion directe URL → RAG
-
-## Statut
-
-Skill stable basée sur outils MCP existants `crawl` + `read` + endpoint Hub
-`/ingest/url`. Aucun nouveau module à créer.
-
-## Quand se déclencher
-
-- L'utilisateur fournit **une ou plusieurs URLs précises** (release notes,
-  doc officielle, blog post, CHANGELOG GitHub, README, page Web spécifique).
-- L'utilisateur demande "indexe cette page", "ajoute au RAG", "garde en
-  mémoire", "veille rapide sur X", "quick fetch", "ingère cette doc".
-- L'utilisateur signale qu'il a **déjà identifié la source** et ne veut PAS
-  qu'on parte chercher avec SearXNG ("c'est ça que je veux", "pile cette
-  URL", "exactement cette page").
-- Token budget serré : économie maximum, pas de Groq, pas d'Ollama refine.
-
-## Quand NE PAS se déclencher
-
-- Sujet général, thématique, exploratoire → `forge-veille-approfondie`.
-- "Trouve-moi des sources sur X" → `forge-veille-approfondie`.
-- Veille récurrente sur un thème large → `forge-veille-approfondie`.
-- URL inconnue / à découvrir → `forge-veille-approfondie`.
-
-## Workflow
-
-### 1. Crawl direct via MCP
-
-```python
-# Tool MCP : mcp_laforge-sovereign-hub_crawl
-# Une URL → contenu brut + métadonnées
-result = crawl(url="https://example.com/release-notes/v4.0",
-               max_depth=1, max_pages=1)
-# result = { "url": ..., "title": ..., "content_md": ..., "links": [...] }
-```
-
-Pour multi-URLs, **boucle simple** côté client. Pas de SearXNG, pas
-d'expansion de keywords.
-
-### 2. Ingestion RAG via /ingest/url
-
-```bash
-curl -X POST "http://127.0.0.1:8766/ingest/url" \
-  -H "Authorization: Bearer ${LAFORGE_HUB_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/release-notes/v4.0",
-       "tags": ["spin", "fermyon", "release"],
-       "domain": "ia",
-       "agent": "<TON_AGENT_ID>_VEILLE_RAPIDE"}'
-```
-
-Le hub gère :
-- Déduplication via hash md5 chain (cf `forge_biblio_core.insert_biblio_raw`)
-- Chunking markdown (`MarkdownChunker`, headers + overlap)
-- Embedding via `forge_npu_embedder` (ONNX NPU Radeon 780M, gratuit)
-- Insert dans `rag_chunks` + `rag_fts` (BM25 indexable immédiatement)
-
-### 3. Anchor solution (optionnel mais recommandé)
-
-```python
-from forge_self_correction import anchor_solution
-anchor_solution(
-    problem="Veille rapide sur <sujet>",
-    solution="Indexé URL <url> via crawl+ingest direct, tag=<tag>",
-    example=f"crawl({url!r}) → /ingest/url",
-    domain="rag",
-)
-```
-
-## Coût mesuré
-
-- **LLM cloud** : 0 token
-- **LLM local** : 0 token
-- **Embedding NPU** : ~50ms par chunk de 512 tokens (gratuit, hardware)
-- **Latence totale** : ~3-8s par URL (crawl + chunk + embed + insert)
-
-## Comparaison avec forge-veille-approfondie
-
-| Critère | rapide | approfondie |
-|---|---|---|
-| Cible | URL connue | Thème exploratoire |
-| SearXNG | non | oui (5-10 queries) |
-| Groq llama-8b | non | oui (verify_kw) |
-| Groq llama-70b | non | oui (refine) |
-| Ollama | non | oui (keywords expansion) |
-| Pipeline étapes | 2 (crawl + ingest) | 7 (keywords→verify→search→refine→crawl→ingest→store) |
-| Latence | 3-8s | 2-15min |
-| Tokens cloud | 0 | ~5000-15000 |
-| Use case | "indexe cette page" | "veille auto sur X" |
-
-## Patterns de déclenchement
-
-```
-"ingère https://spinframework.dev/changelog"
-"garde cette URL en RAG: https://docs.boundaryml.com/v0.222"
-"quick crawl https://news.ycombinator.com/item?id=12345"
-"ajoute cette page sans recherche SearXNG"
-"j'ai déjà l'URL, fais juste ingest"
-```
-
-## Anti-patterns
-
-```
-"veille sur Spin Fermyon"           → approfondie (thème, pas URL)
-"qu'est-ce qu'il y a de neuf sur X" → approfondie (exploratoire)
-"trouve-moi des sources sur Y"      → approfondie (recherche)
-```
-
+> Historique : ce fichier portait en annexe deux copies fusionnées le 11/08 (l'ancienne
+> `laforge-pipeline`, qui décrivait 6 étapes sans le crawl, et une copie de
+> `forge-veille-rapide`). Retirées le 14/10 : chacune vit dans sa propre skill, et la
+> copie à 6 étapes contredisait le code. Texte intégral dans l'historique git.

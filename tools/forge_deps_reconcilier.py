@@ -303,6 +303,83 @@ def analyser() -> list:
     return lignes
 
 
+# ── VERDICT DES PR DEPENDABOT (owner 2026-10-14 : « garder la fusion humaine, automatiser tout le reste ») ──────────
+# Mesure du jour : les PR Dependabot du depot source (#19 depuis le 23/09, #24 depuis le 07/10, #27) avaient leur CI de
+# quarantaine VERTE et attendaient une revue que rien ne signalait. Ce verdict ne fusionne RIEN : il classe chaque
+# montee avec les regles de `classer` (meme seuil des 5 mineures, memes paquets LOURDS). Logique PURE ici : cet outil
+# d'analyse ne lance aucun processus (garde test_l_outil_n_installe_rien) ; la lecture de la PR et le commentaire
+# vivent dans tools/forge_dependabot_verdict.py.
+MARQUEUR_VERDICT = "<!-- nokido-verdict-dependabot -->"
+_LIGNE_MAJ = re.compile(r"^(?:Updates|Bumps) `([^`]+)` from (\S+?) to (\S+?)\.?\s*$", re.M)
+_ANNONCE = re.compile(r"with (\d+) updates?")
+_EXIGENCE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9_.\-]*)(?:\[[^\]]*\])?\s*(?:==|>=|~=|<=|>|<)\s*([0-9][^\s,;#]*)")
+
+
+def niveau_montee(de: str, vers: str) -> str:
+    """CORRECTIF | MINEURE | MAJEURE | INDETERMINE. En 0.x, une mineure casse l'API (semver) : MAJEURE."""
+    if not re.match(r"\d", str(de or "")) or not re.match(r"\d", str(vers or "")):
+        return "INDETERMINE"
+    a, b = _version(de), _version(vers)
+    if b <= a:
+        return "INDETERMINE"
+    if a[0] != b[0] or (a[0] == 0 and a[1] != b[1]) or (b[1] - a[1]) >= 5:
+        return "MAJEURE"
+    return "MINEURE" if a[1] != b[1] else "CORRECTIF"
+
+
+def montees_de_pr(titre: str, corps: str, diff: str = "") -> dict:
+    """{paquet: (de, vers)} lues dans le corps PUIS dans le diff des manifestes (le corps d'un gros groupe est tronque
+    par Dependabot : 6 paquets sur 37 le 14/10). `annoncees` = le nombre que le titre promet, None s'il n'en dit rien."""
+    montees = {m.group(1): (m.group(2), m.group(3)) for m in _LIGNE_MAJ.finditer(corps or "")}
+    retires, ajoutes = {}, {}
+    for ligne in (diff or "").splitlines():
+        if ligne[:1] in "-+" and not ligne.startswith(("---", "+++")):
+            m = _EXIGENCE.match(ligne[1:].strip().strip("\"',"))
+            if m:
+                (retires if ligne[0] == "-" else ajoutes)[m.group(1).lower()] = m.group(2)
+    for nom, vers in ajoutes.items():
+        if nom in retires and retires[nom] != vers and not any(k.lower() == nom for k in montees):
+            montees[nom] = (retires[nom], vers)
+    if not montees:  # PR isolee : « bump <paquet> from A to B » n'est que dans le titre
+        t = re.search(r"bump (\S+) from (\S+) to (\S+)", titre or "", re.I)
+        if t:
+            montees[t.group(1)] = (t.group(2), t.group(3))
+    a = _ANNONCE.search(titre or "")
+    return {"montees": montees, "annoncees": int(a.group(1)) if a else (len(montees) or None)}
+
+
+def verdict_pr(titre: str, corps: str, ci: str, diff: str = "") -> dict:
+    lu = montees_de_pr(titre, corps, diff)
+    lignes = []
+    for nom, (de, vers) in sorted(lu["montees"].items()):
+        n = niveau_montee(de, vers)
+        lourd = nom.lower().replace("_", "-") in LOURDS
+        lignes.append({"paquet": nom, "de": de, "vers": vers, "niveau": n, "lourd": lourd})
+    illisibles = (lu["annoncees"] or 0) - len(lignes)
+    graves = [x for x in lignes if x["niveau"] in ("MAJEURE", "INDETERMINE") or x["lourd"]]
+    if (ci or "").lower() != "success":
+        reco = "BLOQUE : CI de quarantaine %s" % (ci or "INCONNUE")
+    elif graves or illisibles > 0:
+        reco = "A REVOIR : montee majeure, paquet lourd ou montee illisible -- CI de reference conseillee avant fusion"
+    else:
+        reco = "PRET POUR REVUE : correctifs et mineures seulement, quarantaine verte"
+    return {"recommandation": reco, "ci": ci, "lignes": lignes, "annoncees": lu["annoncees"],
+            "illisibles": max(illisibles, 0)}
+
+
+def texte_verdict(v: dict) -> str:
+    t = [MARQUEUR_VERDICT, "**Verdict Nokido (automatique, ne fusionne rien)** : %s" % v["recommandation"], "",
+         "CI de quarantaine : `%s` -- montees lues : %d%s" % (
+             v["ci"], len(v["lignes"]),
+             (" sur %d annoncees (%d ILLISIBLES, non comptees comme sures)" % (v["annoncees"], v["illisibles"])
+              if v["illisibles"] else "")), "",
+         "| Paquet | De | Vers | Niveau |", "| --- | --- | --- | --- |"]
+    for x in v["lignes"]:
+        t.append("| %s | %s | %s | %s%s |" % (x["paquet"], x["de"], x["vers"], x["niveau"], " (LOURD)" if x["lourd"] else ""))
+    t += ["", "La fusion reste HUMAINE (decision owner du 2026-10-14) : ce commentaire est mis a jour a chaque CI."]
+    return "\n".join(t)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--classe", default=None,

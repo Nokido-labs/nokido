@@ -48,7 +48,9 @@ def _build_prompt(m: dict) -> str:
         f"DE: {m.get('from')}\nMESSAGE:\n{m.get('body')}\n\n"
         "Réponds de façon concise et utile (tu peux poser une question, proposer, valider, refuser "
         "ou temporiser). Ta réponse sera postée AUTOMATIQUEMENT à l'expéditeur. Pas de préambule — "
-        "réponds directement, en français."
+        "réponds directement, en français. Tu ne peux RIEN exécuter ni écrire de fichier : ne promets "
+        "jamais une action ou un artefact ; un travail se demande par un M2M HANDOFF_NEXT, qui part à "
+        "l'exécuteur agy."
     )
 
 
@@ -69,6 +71,151 @@ def _build_prompt(m: dict) -> str:
 # de providers coexistent dans Nokido, et celui-ci n'accepte que le nom court.
 # Mesure du 31/08 : `groq` rend gpt-oss-120b en 537 ms, tier gratuit.
 PROVIDER_FORT = os.environ.get("GEMINI_AUTO_PROVIDER", "groq")
+
+# TRAVAIL != CONVERSATION (2026-10-14, owner : « repare le M2M autonome entre le hub et AGY, ce
+# n'est pas acceptable les copier-coller »). Mesure du soir : un courrier HANDOFF_NEXT (« lis ce
+# dossier, ecris ta reponse dans ce fichier ») a ete acquitte en 10 s puis repondu par groq —
+# « je te remets l'artefact des que termine » — alors que ce daemon N'EXECUTE RIEN ; cote
+# agent_messages, le meme intent (categorie routing) recevait un OK_DONE structure, sans travail.
+# Le seul chemin qui execute agy est l'executeur de taches ANTIGRAVITY (agy en mode agent,
+# artefact juge). Une demande de travail y est donc DEPOSEE : l'emetteur recoit aussitot le numero
+# de tache, puis le resultat quand l'executeur l'a rendu (_relayer_resultats). Ce daemon ne
+# promet plus rien qu'il ne tient pas.
+INTENTS_TRAVAIL = frozenset({"HANDOFF_NEXT"})
+CLES_TRAVAIL = ("artefact_attendu", "mission")
+_SUIVI_TACHES = ROOT / "sandbox" / "gemini_auto_taches.json"
+_SUIVI_MAX_S = 86400  # une tache jamais rendue en 24 h : on le DIT a l'emetteur et on cesse de suivre
+
+
+def _lire_m2m(body) -> dict:
+    """Le dict M2M porte par le courrier (prefixe texte ou enveloppe {"text": "<json>"}) ; {} sinon."""
+    b = (body or "").strip()
+    for essai in (b, b[b.find("{"):] if "{" in b else ""):
+        if not essai.startswith("{"):
+            continue
+        try:
+            o = json.loads(essai)
+        except Exception:  # noqa: BLE001 — muet-ok : pas du JSON, donc pas un M2M structure
+            continue
+        txt = o.get("text") if isinstance(o, dict) else None
+        if isinstance(txt, str) and "{" in txt:
+            try:
+                o = json.loads(txt[txt.find("{"):])
+            except Exception:  # noqa: BLE001 — muet-ok : enveloppe texte non JSON, on garde l'exterieur
+                pass
+        if isinstance(o, dict):
+            return o
+    return {}
+
+
+def demande_de_travail(body) -> dict | None:
+    """Le M2M s'il demande du TRAVAIL (intent HANDOFF_NEXT, ou un artefact attendu) ; None sinon."""
+    o = _lire_m2m(body)
+    intent = str(o.get("intent") or o.get("intent_code") or "").upper()
+    if intent in INTENTS_TRAVAIL or any(o.get(k) for k in CLES_TRAVAIL):
+        return o
+    return None
+
+
+def _description_tache(frm, mail_id, body) -> str:
+    return (
+        "Demande M2M de %s (courrier %s), deposee par l'auto-repondeur pour que TU l'executes en "
+        "mode agent.\n\nMESSAGE :\n%s\n\nCONSIGNES : lis les pointeurs du message (pointer_ref, "
+        "dossier...) avec l'outil `read` du hub si ton bac a sable ne les atteint pas ; fais le travail "
+        "demande ; ecris tout artefact DANS ton repertoire de travail si le chemin demande est hors de "
+        "ton bac ; TERMINE par une ligne JSON {\"intent\":\"OK_DONE\",\"pointer_ref\":\"<chemin de "
+        "l'artefact>\"} ou {\"intent\":\"NEED_HUMAN_APPROVAL\",\"note\":\"raison\"}."
+        % (frm, mail_id, body))
+
+
+def _lire_suivi() -> dict:
+    """Taches deposees en attente de resultat. Absent = aucune. Illisible = on LEVE : un suivi lu
+    vide ferait perdre en silence le retour de chaque tache en vol."""
+    if not _SUIVI_TACHES.exists():
+        return {}
+    return json.loads(_SUIVI_TACHES.read_text(encoding="utf-8"))
+
+
+def _client_hub(client=None):
+    if client is not None:
+        return client
+    from nokido_agent.app.forge_hub_client import HubClient
+
+    return HubClient(agent="GEMINI", timeout=30.0)
+
+
+def deposer_tache_agy(frm, mail_id, body, client=None) -> dict:
+    """Depose la demande comme tache ANTIGRAVITY via le hub ; la suit pour en relayer le resultat.
+    -> {"task_id": ...} ou {"error": ...}."""
+    try:
+        txt = _client_hub(client).tool("task", {
+            "action": "assign", "agent": "ANTIGRAVITY", "intent": "HANDOFF_NEXT",
+            "description": _description_tache(frm, mail_id, body)})
+    except Exception as e:  # noqa: BLE001 — rendu a l'appelant, qui le DIT a l'emetteur
+        return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+    try:
+        d = json.loads(txt or "")
+    except Exception:  # noqa: BLE001 — reponse non JSON du hub : erreur nommee
+        return {"error": "reponse du hub illisible : %s" % (txt or "vide")[:120]}
+    tid = d.get("task_id") if isinstance(d, dict) else None
+    if not tid:
+        return {"error": "pas de task_id : %s" % (txt or "")[:160]}
+    suivi = _lire_suivi()
+    suivi[tid] = {"from": frm, "mail": mail_id, "ts": time.time()}
+    _SUIVI_TACHES.write_text(json.dumps(suivi), encoding="utf-8")
+    return {"task_id": tid}
+
+
+def reponse_travail(frm, mail_id, body, client=None) -> tuple:
+    """(reponse M2M, via) pour une demande de travail : numero de tache, ou echec NOMME."""
+    dep = deposer_tache_agy(frm, mail_id, body, client=client)
+    if dep.get("task_id"):
+        return json.dumps({"intent": "HANDOFF_NEXT", "pointer_ref": "tasks.db:" + dep["task_id"],
+                           "confidence": 1.0,
+                           "note": "transmis a l'executeur agy (mode agent) ; resultat relaye a la fin"},
+                          ensure_ascii=False), "executeur-agy"
+    return json.dumps({"intent": "ERR_DEPENDENCY", "pointer_ref": "mail:%s" % mail_id, "confidence": 1.0,
+                       "note": "depot de tache impossible : " + dep.get("error", "?")[:120]},
+                      ensure_ascii=False), "executeur-agy:KO"
+
+
+def relayer_resultats(post_fn, client=None, maintenant=None) -> list:
+    """Renvoie a l'emetteur d'origine le resultat de chaque tache deposee, une fois rendue."""
+    maintenant = time.time() if maintenant is None else maintenant
+    try:
+        suivi = _lire_suivi()
+    except (OSError, ValueError) as e:
+        return [{"suivi_taches": "ILLISIBLE (%s) : resultats NON relayes" % type(e).__name__}]
+    if not suivi:
+        return []
+    cli, out, reste = _client_hub(client), [], {}
+    for tid, f in suivi.items():
+        try:
+            st = json.loads(cli.tool("task", {"action": "status", "task_id": tid}) or "{}")
+        except Exception as e:  # noqa: BLE001 — statut illisible : on garde la tache et on le DIT
+            reste[tid] = f
+            out.append({"tache": tid, "statut": "illisible (%s)" % type(e).__name__})
+            continue
+        s = str(st.get("status") or "")
+        if s not in ("completed", "failed"):
+            if maintenant - float(f.get("ts") or 0) > _SUIVI_MAX_S:
+                post_fn("GEMINI", f["from"], "[GEMINI-AUTO·executeur-agy] " + json.dumps(
+                    {"intent": "ERR_TIMEOUT", "pointer_ref": "tasks.db:" + tid, "confidence": 1.0,
+                     "note": "tache non rendue en 24 h (statut %s) : suivi abandonne" % (s or "?")},
+                    ensure_ascii=False), reply_to="GEMINI", in_reply_to=f.get("mail"))
+                out.append({"tache": tid, "abandon": s or "?"})
+                continue
+            reste[tid] = f
+            continue
+        ok = s == "completed"
+        post_fn("GEMINI", f["from"], "[GEMINI-AUTO·executeur-agy] " + json.dumps(
+            {"intent": "OK_DONE" if ok else "ERR_INTERNAL", "status_code": "SUCCESS" if ok else "FAILURE",
+             "pointer_ref": "tasks.db:" + tid, "confidence": 1.0,
+             "resume": str(st.get("result_summary") or st.get("error") or "")[:400]}, ensure_ascii=False),
+            reply_to="GEMINI", in_reply_to=f.get("mail"))
+        out.append({"tache": tid, "relaye_a": f["from"], "statut": s})
+    _SUIVI_TACHES.write_text(json.dumps(reste), encoding="utf-8")
+    return out
 
 
 def _fort_chat(prompt: str, timeout: int = 90):
@@ -315,14 +462,18 @@ def tick() -> object:
 
     # Garde-fou 1 : si user pilote Gemini en interactif, ne pas doubler ses réponses.
     # --force / GEMINI_AUTO_FORCE bypass (test, ou quand l'humain laisse l'agent piloter).
+    # Session interactive ouverte : la CONVERSATION lui revient (ne pas doubler ses reponses), mais
+    # le TRAVAIL part quand meme a l'executeur agy, qui lance son propre agy sans gener la session.
+    # Mesure 2026-10-14 : avant, tout etait differe, et un courrier HANDOFF_NEXT n'atteignait jamais
+    # l'executeur tant que l'owner avait AGY ouvert.
     _force = "--force" in sys.argv or os.environ.get("GEMINI_AUTO_FORCE")
+    _differe = False
     if not _force:
         try:
             from nokido_agent.tools.gemini_poll_daemon import _is_gemini_interactive_running
 
-            if _is_gemini_interactive_running():
-                return {"deferred": "gemini interactive running"}
-        except Exception:
+            _differe = bool(_is_gemini_interactive_running())
+        except Exception:  # noqa: BLE001 — muet-ok : sonde indisponible = pas de session detectee
             pass
 
     token = load_token()
@@ -336,6 +487,8 @@ def tick() -> object:
     for m in mails[:MAX_PER_TICK]:
         if (m.get("from") or "").upper() == "GEMINI":  # anti-loop : son propre courrier
             continue
+        if _differe and demande_de_travail(m.get("body") or "") is None:
+            continue  # conversation : laissee a la session AGY interactive, non reclamee
         if not claim("GEMINI", m.get("id")):  # P0-1 EXCLUSION ATOMIQUE : un autre worker l'a pris
             out.append({"mail": m.get("id"), "skipped": "déjà claim"})
             continue
@@ -353,6 +506,14 @@ def tick() -> object:
             _safe_body = getattr(_pf, "safe_task", None) or m.get("body")
         except Exception as _fe:  # firewall indispo : ne brique pas l'agent (fail-open infra) + log
             out.append({"mail": m.get("id"), "firewall_warn": "pre_flight err: " + str(_fe)[:60]})
+        if demande_de_travail(_safe_body or "") is not None:
+            # TRAVAIL : tache ANTIGRAVITY executee par agy, jamais une conversation qui promet.
+            rs, via = reponse_travail(m.get("from"), m.get("id"), _safe_body or "")
+            post("GEMINI", m["from"], "[GEMINI-AUTO·" + via + "] " + rs, reply_to="GEMINI",
+                 in_reply_to=m.get("id"))
+            ack_mail(m.get("id"), "GEMINI")
+            out.append({"mail": m.get("id"), "travail": via, "reponse": rs[:160]})
+            continue
         prompt = _build_prompt({**m, "body": _safe_body})
         try:  # FLUX HEADLESS visible (/forge/postal) : le PROMPT envoyé à gemini_cli
             from nokido_agent.app.forge_swarm_bus import publish
@@ -404,10 +565,20 @@ def tick() -> object:
         ack_mail(m.get("id"), "GEMINI")  # P0-1 : traité -> acked (accusé de réception)
         out.append({"replied_to": m["from"], "mail": m.get("id"), "resp_len": len(rs)})
 
+    # RETOUR des taches deposees : le resultat de l'executeur agy revient a l'emetteur d'origine.
+    try:
+        out.extend(relayer_resultats(post))
+    except Exception as _re:  # noqa: BLE001 - le relais ne doit jamais casser le tick, mais il se DIT
+        out.append({"relayer_resultats": "err " + str(_re)[:80]})
+
     # PONT (2026-08-27) : draine AUSSI l'ARCHIVE agent_messages, que le postal ne lit
     # jamais. `notify to=gemini` y ecrit TOUJOURS (STEP 1 de handle_notify, source fiable)
     # et parfois dans un canal postal mal mappe (fix 193d4b80b non tenu) -> 13 jours de
     # courrier des pairs perdu. On draine la source fiable, meme cycle de reponse.
+    if _differe:
+        # La boite agent_messages est de la conversation : elle reste a la session interactive.
+        return out or {"deferred": "gemini interactive running (conversation laissee a la session ; "
+                                    "le travail part a l'executeur agy)"}
     try:
         out.extend(_drain_agent_messages(token))
     except Exception as _de:  # noqa: BLE001 - le drain archive ne doit jamais casser le tick postal
@@ -539,13 +710,27 @@ def _drain_agent_messages(token) -> list:
         # Une TACHE assignee demande du TRAVAIL, pas un accuse. Elle ne passe jamais par
         # le court-circuit structure, meme quand son intent est de coordination : sinon
         # `task.assign{intent:SCOPE_SET}` repartirait avec un OK_DONE et rien de fait.
-        _ack = None if "task" in _meth.lower() else _ack_m2m(body)
+        if "task" in _meth.lower():
+            # Notification d'une tache deja posee dans tasks.db : l'executeur ANTIGRAVITY la LANCE en
+            # vrai agy. Y repondre ici (groq/local) fabriquait une fausse reponse en parallele du vrai
+            # travail (mesure 2026-10-14). On la classe lue, et on le DIT.
+            _set(mid, "read")
+            out.append({"am_mail": mid, "tache": "laissee a l'executeur ANTIGRAVITY (tasks.db)"})
+            continue
+        _travail = demande_de_travail(body)
+        _ack = None if _travail is not None else _ack_m2m(body)
         _up = (body or "").upper()
+        if _travail is not None:
+            # Avant : HANDOFF_NEXT (categorie routing) recevait un OK_DONE structure SANS travail.
+            rs, via = reponse_travail(frm, mid, safe)
+            _ack = rs
         if _ack == "":
             _set(mid, "read")  # rien a repondre : zero LLM, zero courrier de retour
             out.append({"am_mail": mid, "acked_no_reply": True})
             continue
-        if _ack is not None:
+        if _travail is not None:
+            pass  # rs, via deja poses par reponse_travail
+        elif _ack is not None:
             rs, via = _ack, "ack-structure"
         elif any(k in _up for k in ("OK_DONE", "COLLAB_PONG")):
             _set(mid, "read")  # accuse recu : rien a repondre

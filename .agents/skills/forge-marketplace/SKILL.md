@@ -1,15 +1,6 @@
 ---
 name: forge-marketplace
-description: >
-  Catalogue des skills externes installées chez Claude Code via marketplaces
-  (anthropic-agent-skills officiel + caveman alternatif). Déclencher quand
-  l utilisateur demande : "créé doc Word/Excel/PowerPoint", "génère PDF",
-  "compose email pro", "build artifact web", "test webapp", "créé GIF Slack",
-  "design canvas", "art algorithmique", "construis MCP server", "créé un
-  skill", "frontend design", "brand guidelines", "rédige internal comms",
-  "use Claude API". Routing : visible côté Claude Code natif uniquement
-  (caches dans .claude/plugins/cache/). Autres CLIs doivent passer par
-  agt_claude pour exécution.
+description: "À utiliser pour savoir quelle skill externe installée (anthropic-agent-skills, caveman) couvre une demande : documents Office et PDF, e-mails, artefacts web, tests de webapp, design, création de serveur MCP ou de skill, Claude API. Visible dans Claude Code seulement ; les autres CLI passent par agt_claude."
 ---
 
 # claude-skills-marketplace — Skills externes installées chez Claude

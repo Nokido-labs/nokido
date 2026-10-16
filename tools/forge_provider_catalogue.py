@@ -35,6 +35,10 @@ sys.path.insert(0, str(ROOT))
 
 TIMEOUT = 20
 
+# Fournisseurs dont /models repond SANS cle (mesure 2026-10-15, requete anonyme) : un 200 y est
+# NON PROBANT pour la cle. Mistral et Groq rendent 401 sans cle : chez eux, le 200 prouve bien.
+MODELS_PUBLIC = frozenset({"sambanova", "openrouter"})
+
 # (etiquette, cle au coffre, endpoint /models). Uniquement des surfaces
 # OpenAI-compatibles : ailleurs, /models n'existe pas et un 404 ne dirait rien.
 FOURNISSEURS = [
@@ -143,6 +147,345 @@ def modeles_cables() -> dict[str, list[str]]:
     return out
 
 
+# ── MATRICE MODELE x FOURNISSEUR (owner 15/10 : « des LLM peuvent etre injoignables par un provider et
+# joignables par un autre ») ──────────────────────────────────────────────────────────────────────────
+# /models dit ce qu'un fournisseur DECLARE ; seul un appel de GENERATION dit ce qu'il SERT a cette cle.
+# Mesure du 15/10 qui l'a motivee : glm-5.x refuse en direct chez zAI (429/1113 sans solde), mistral-large
+# refuse en direct chez Mistral (403/1910 hors palier) -- un MEME modele peut vivre chez un autre
+# fournisseur. La matrice se lit par FAMILLE, jamais par slot : un refus qualifie un COUPLE.
+MATRICE = ROOT / "sandbox" / "matrice_modele_fournisseur.json"
+# Familles utiles (noyau normalise par `famille_de`) ; extensible sans toucher au code de sonde.
+FAMILLES_UTILES = ("glm-5", "glm-4.5", "glm-4.7", "mistral-large", "mistral-medium", "mistral-small",
+                   "llama-3.3-70b", "llama-3.1-8b", "deepseek-v3", "deepseek-r1", "qwen3", "gpt-oss-120b",
+                   "gpt-oss-20b", "kimi-k2", "nemotron")
+# Hors dialecte OpenAI pour la generation (le /chat/completions n'y existe pas a cet endroit).
+SANS_GENERATION = frozenset({"cohere", "voyage", "jina"})
+
+
+def famille_de(model_id: str) -> str:
+    """Noyau comparable d'un identifiant : sans organisation, routage, suffixes de variante.
+    `z-ai/glm-5:free` -> `glm-5` ; `mistralai/mistral-large-2411` -> `mistral-large` ;
+    `meta-llama/Llama-3.3-70B-Instruct-Turbo` -> `llama-3.3-70b`."""
+    import re as _re
+
+    n = model_id.split(":", 1)[0].split("/")[-1].strip().lower()
+    n = _re.sub(r"-(instruct|chat|turbo|latest|versatile|preview|fp8|hf)\b", "", n)
+    n = _re.sub(r"-\d{4}(-\d{2}-\d{2})?$", "", n)          # millesimes : -2411, -2025-01-31
+    n = n.replace("_", "-")
+    for f in FAMILLES_UTILES:
+        if n == f or n.startswith(f + "-") or n.startswith(f + "."):
+            return f
+    return n
+
+
+def classer_reponse(code: int, detail: str) -> str:
+    """Etat d'un COUPLE fournisseur x modele d'apres la reponse a une generation (jamais d'un modele seul)."""
+    d = (detail or "").lower()
+    if code == 200:
+        return "JOIGNABLE"
+    if code == 402 or "1113" in d or "insufficient balance" in d or "payment" in d or "credit" in d:
+        return "SANS_SOLDE"
+    if "1910" in d or "tier" in d or "subscription" in d or "not allowed" in d:
+        return "HORS_PALIER"
+    if code == 429:
+        return "DEBIT"                     # limite de debit : PAS un refus, a re-sonder
+    if code in (401, 403) or "api key" in d or "unauthorized" in d:
+        return "CLEF_REFUSEE"
+    if code == 404 or "not found" in d or "does not exist" in d:
+        return "MODELE_ABSENT"
+    return "INCONNU"
+
+
+def sonder_generation(url_models: str, cle: str, model_id: str, timeout: int = 40) -> tuple[int, str, float]:
+    """(code, detail, latence_ms) d'une generation MINIMALE. La cle ne sort pas d'ici."""
+    import time as _t
+
+    url = url_models.rsplit("/models", 1)[0] + "/chat/completions"
+    corps = json.dumps({"model": model_id, "max_tokens": 16,
+                        "messages": [{"role": "user", "content": "Reponds uniquement par le mot : OK"}]}).encode()
+    req = urllib.request.Request(url, data=corps, method="POST", headers={
+        "Authorization": f"Bearer {cle}", "Content-Type": "application/json", "User-Agent": "nokido-matrice"})
+    t0 = _t.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            r.read(2000)
+            return r.status, "", round((_t.time() - t0) * 1000)
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = exc.read(400).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001 - corps illisible
+            detail = str(exc.reason or "")
+        return exc.code, detail.replace("\n", " ")[:200], round((_t.time() - t0) * 1000)
+    except Exception as exc:  # noqa: BLE001 - DNS, TLS, delai : INCONNU, jamais « injoignable »
+        return -1, f"{type(exc).__name__}: {exc}"[:120], round((_t.time() - t0) * 1000)
+
+
+# ── Axe COMPETENCE (decision owner 15/10 : « les deux » -- matrice etendue d'abord, Promptfoo ensuite) ─────────
+# JOIGNABLE n'est pas COMPETENT. Taches FIXES a correcteur DETERMINISTE : jamais un juge LLM (faux verts payes le
+# 13/08), jamais d'execution du code produit par un modele. Un echec de TRANSPORT vaut INCONNU (None), pas « rate ».
+def _objet_json(texte: str, strict: bool):
+    t = (texte or "").strip()
+    if not strict:
+        debut, fin = t.find("{"), t.rfind("}")
+        t = t[debut:fin + 1] if 0 <= debut < fin else ""
+    try:
+        obj = json.loads(t)
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _ok_json_strict(texte: str) -> bool:
+    return _objet_json(texte, strict=True) == {"a": 2, "b": [1, 2]}
+
+
+def _ok_appel_outil(texte: str) -> bool:
+    obj = _objet_json(texte, strict=False) or {}
+    args = obj.get("arguments")
+    return obj.get("outil") == "lire_fichier" and isinstance(args, dict) and args.get("chemin") == "notes.txt"
+
+
+def _ok_calcul(texte: str) -> bool:
+    return (texte or "").strip().rstrip(".") == "391"
+
+
+def _ok_consigne(texte: str) -> bool:
+    import re as _re
+
+    return bool(_re.fullmatch(r"[A-ZÀ-ÖØ-Þ]+ [A-ZÀ-ÖØ-Þ]+ [A-ZÀ-ÖØ-Þ]+", (texte or "").strip()))
+
+
+TACHES_COMPETENCE = (
+    ("json_strict", 'Reponds UNIQUEMENT par cet objet JSON, sans aucun texte ni balise autour : {"a": 2, "b": [1, 2]}',
+     _ok_json_strict),
+    ("appel_outil", "Tu disposes d'un seul outil : lire_fichier(chemin). Pour lire le fichier notes.txt, reponds "
+                    'UNIQUEMENT par un objet JSON de la forme {"outil": <nom>, "arguments": {"chemin": <chemin>}}.',
+     _ok_appel_outil),
+    ("calcul", "Combien font 17 * 23 ? Reponds par le nombre seul.", _ok_calcul),
+    ("consigne", "Reponds par exactement trois mots, tous en MAJUSCULES, sans ponctuation.", _ok_consigne),
+)
+
+
+def generer_texte(url_models: str, cle: str, model_id: str, prompt: str, max_tokens: int = 400,
+                  timeout: int = 60) -> tuple[int, str, float]:
+    """(code, texte, latence_ms) d'une vraie generation. `max_tokens` >= 300 : les modeles qui raisonnent rendent
+    un texte VIDE en dessous (glm-4.5-flash, mesure 15/10). La cle ne sort pas d'ici."""
+    import time as _t
+
+    url = url_models.rsplit("/models", 1)[0] + "/chat/completions"
+    corps = json.dumps({"model": model_id, "max_tokens": max_tokens, "temperature": 0,
+                        "messages": [{"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(url, data=corps, method="POST", headers={
+        "Authorization": f"Bearer {cle}", "Content-Type": "application/json", "User-Agent": "nokido-matrice"})
+    t0 = _t.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            d = json.loads(r.read(200_000).decode("utf-8", errors="replace"))
+        texte = ((d.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        return 200, texte if isinstance(texte, str) else "", round((_t.time() - t0) * 1000)
+    except urllib.error.HTTPError as exc:
+        return exc.code, "", round((_t.time() - t0) * 1000)
+    except Exception:  # noqa: BLE001 - DNS, TLS, delai, corps illisible : INCONNU, rendu par le code -1
+        return -1, "", round((_t.time() - t0) * 1000)
+
+
+def _outil_natif(url_models: str, cle: str, model_id: str, sonde_fn=None) -> tuple:
+    """(verdict, code) de l'APPEL D'OUTIL NATIF par la sonde existante `forge_tool_call_probe.interroger` (vrais
+    `tool_calls` : APPELLE / IGNORE / REFUSE / NON_MESURE) -- convergence P2 du 15/10 : la matrice consomme la
+    famille des sondes d'endpoints au lieu de re-sonder. APPELLE -> True ; IGNORE/REFUSE -> False ; NON_MESURE
+    (debit, panne, transport) -> None, jamais un echec du modele."""
+    if sonde_fn is None:
+        try:
+            from nokido_agent.tools import forge_tool_call_probe as _tcp
+        except ImportError:
+            import forge_tool_call_probe as _tcp
+
+        sonde_fn = _tcp.interroger
+    try:
+        v = sonde_fn(url_models.rsplit("/models", 1)[0], cle, model_id) or {}
+    except Exception:  # noqa: BLE001 - sonde illisible : non mesure, dit par le code -1
+        return None, -1
+    etat = v.get("etat")
+    if etat == "NON_MESURE":
+        return None, 429
+    if etat == "REFUSE":
+        # La sonde range en REFUSE tout code hors 429/5xx. Un 401/402/403/404/408 dit que l'ACCES est refuse
+        # (clef, solde, modele absent, delai) -- pas que le modele refuse les outils : non mesure. Seul un 400
+        # (parametre `tools` rejete) est un vrai echec de competence.
+        import re as _re
+
+        m = _re.match(r"HTTP (\d+)", v.get("motif") or "")
+        code = int(m.group(1)) if m else -1
+        return (None, code) if code in (401, 402, 403, 404, 408, -1) else (False, 200)
+    return {"APPELLE": True, "IGNORE": False}.get(etat), 200
+
+
+def sonder_competence(url_models: str, cle: str, model_id: str, gen_fn=None, taches=TACHES_COMPETENCE,
+                      outil_fn=None) -> dict:
+    """Joue les taches fixes sur un couple. `reussies / mesurees` -- une tache dont le transport echoue n'est pas
+    mesuree (None) ; le score n'existe que si au moins une tache l'a ete. La tache `appel_outil` passe par la
+    VRAIE sonde d'appel d'outil (`_outil_natif`), plus par un objet JSON ecrit en texte."""
+    gen_fn = gen_fn or generer_texte
+    detail, codes, lat = {}, {}, []
+    for nom, prompt, correcteur in taches:
+        if nom == "appel_outil":
+            ok, code = _outil_natif(url_models, cle, model_id, outil_fn)
+            detail[nom] = ok
+            if ok is None:
+                codes[nom] = code
+            continue
+        code, texte, ms = gen_fn(url_models, cle, model_id, prompt)
+        detail[nom] = bool(correcteur(texte)) if code == 200 else None
+        if code == 200:
+            lat.append(ms)
+        else:
+            codes[nom] = code
+    mesurees = [v for v in detail.values() if v is not None]
+    return {"reussies": sum(mesurees), "mesurees": len(mesurees), "total": len(taches),
+            "score": round(sum(mesurees) / len(mesurees), 2) if mesurees else None,
+            "taches": detail, "codes_non_mesurees": codes,
+            "latence_ms_mediane": sorted(lat)[len(lat) // 2] if lat else None}
+
+
+def reclasser_par_competence(voie: dict) -> dict:
+    """Un 200 a 16 tokens ne prouve pas l'usage. Mesure du 15/10 : 20 couples OpenRouter payants « JOIGNABLES »
+    rendaient tous 402 « Insufficient credits » a l'usage reel (puis meme a 16 tokens). Si AUCUNE tache de
+    competence n'a pu se mesurer et que TOUS les codes disent la meme chose, l'etat suit l'usage : 402 -> SANS_SOLDE,
+    429 -> DEBIT. Codes melanges ou transport : l'etat reste, la competence dit INCONNU."""
+    c = voie.get("competence") or {}
+    codes = set((c.get("codes_non_mesurees") or {}).values())
+    if c.get("mesurees") == 0 and len(codes) == 1:
+        nouveau = {402: "SANS_SOLDE", 429: "DEBIT"}.get(codes.pop())
+        if nouveau:
+            voie["etat_sonde_16_tokens"] = voie.get("etat")
+            voie["etat"] = nouveau
+    return voie
+
+
+# CLI : memes taches, par le CHEMIN REEL du routeur (`forge_agent_proxy.ask`). Codex absent par defaut (owner 15/10 :
+# non paye, quota tres limite) ; un CLI qui echoue (OAuth expire, fournisseur inconnu) est NOTE avec sa raison,
+# jamais classe incompetent.
+CLI_PAR_DEFAUT = ("gemini_cli", "opencode")
+
+
+def _texte_de(reponse) -> tuple:
+    """(texte, erreur) d'une reponse d'`ask` -- un dict, quelle que soit sa forme exacte."""
+    if not isinstance(reponse, dict):
+        return "", "reponse non conforme (%s)" % type(reponse).__name__
+    if reponse.get("error"):
+        return "", str(reponse.get("error"))[:160]
+    for cle_texte in ("response", "text", "content", "reponse"):
+        v = reponse.get(cle_texte)
+        if isinstance(v, str):
+            return v, ""
+    return "", "aucun texte dans la reponse (cles : %s)" % ",".join(sorted(reponse))[:120]
+
+
+def sonder_competence_cli(provider: str, ask_fn=None, taches=TACHES_COMPETENCE, timeout: int = 180) -> dict:
+    """Les taches fixes jouees par un CLI via `ask` (sans contexte RAG, sans bascule). Echec d'appel = None."""
+    import asyncio
+    import time as _t
+
+    if ask_fn is None:
+        from nokido_agent.app.forge_agent_proxy import ask as _ask
+
+        def ask_fn(p, prompt):
+            return asyncio.run(_ask(p, prompt, rag_context=False, max_tokens=400, timeout=timeout, _bascule=False))
+    detail, raisons, lat = {}, {}, []
+    for nom, prompt, correcteur in taches:
+        t0 = _t.time()
+        try:
+            texte, erreur = _texte_de(ask_fn(provider, prompt))
+        except Exception as exc:  # noqa: BLE001 - un appel qui leve n'est pas une tache ratee : INCONNU, dit
+            texte, erreur = "", "%s: %s" % (type(exc).__name__, str(exc)[:140])
+        if erreur:
+            detail[nom], raisons[nom] = None, erreur
+            continue
+        detail[nom] = bool(correcteur(texte))
+        lat.append(round((_t.time() - t0) * 1000))
+    mesurees = [v for v in detail.values() if v is not None]
+    return {"reussies": sum(mesurees), "mesurees": len(mesurees), "total": len(taches),
+            "score": round(sum(mesurees) / len(mesurees), 2) if mesurees else None, "taches": detail,
+            "raisons_non_mesurees": raisons, "latence_ms_mediane": sorted(lat)[len(lat) // 2] if lat else None}
+
+
+def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=None, sonder_fn=None,
+                       par_famille_max: int = 3, competence: bool = False, competence_fn=None) -> dict:
+    """Pour chaque fournisseur a cle presente : /models -> couples (famille, modele) ; puis une generation
+    par couple d'une famille utile (au plus `par_famille_max` modeles par famille et fournisseur)."""
+    import time as _t
+
+    if get_secret is None:
+        from nokido_agent.app.forge_secrets import get_secret
+    interroger_fn = interroger_fn or interroger
+    sonder_fn = sonder_fn or sonder_generation
+    voulues = set(familles)
+    out = {"mesure_le": _t.strftime("%Y-%m-%dT%H:%M:%S"), "familles": {}, "fournisseurs": {}}
+    for etiquette, env_key, url in FOURNISSEURS:
+        if etiquette in SANS_GENERATION or "127.0.0.1" in url or "localhost" in url:
+            continue
+        cle = get_secret(env_key) if env_key else ""
+        if not cle:
+            out["fournisseurs"][etiquette] = "CLE_ABSENTE"
+            continue
+        code, ids, detail = interroger_fn(url, cle)
+        if code != 200:
+            out["fournisseurs"][etiquette] = "MODELS_%s" % code
+            continue
+        out["fournisseurs"][etiquette] = "MODELS_200 (%d)" % len(ids)
+        vus: dict = {}
+        for mid in ids:
+            f = famille_de(mid)
+            if f in voulues and len(vus.setdefault(f, [])) < par_famille_max:
+                vus[f].append(mid)
+        for f, mids in vus.items():
+            for mid in mids:
+                c, d, lat = sonder_fn(url, cle, mid)
+                voie = {"fournisseur": etiquette, "modele": mid, "etat": classer_reponse(c, d),
+                        "code": c, "latence_ms": lat, "detail": d[:120]}
+                if competence and voie["etat"] == "JOIGNABLE":
+                    voie["competence"] = (competence_fn or sonder_competence)(url, cle, mid)
+                    reclasser_par_competence(voie)
+                out["familles"].setdefault(f, []).append(voie)
+    for f in out["familles"]:
+        out["familles"][f].sort(key=lambda v: (v["etat"] != "JOIGNABLE", v["latence_ms"]))
+    return out
+
+
+def ecrire_matrice(m: dict) -> bool:
+    try:
+        MATRICE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = MATRICE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+        import os as _os
+
+        _os.replace(tmp, MATRICE)
+        return True
+    except OSError:
+        return False
+
+
+def voies_joignables(famille: str, age_max_j: float = 7.0) -> dict:
+    """{"voies": [(fournisseur, modele, latence_ms)], "etat": ...} pour une famille. Matrice absente,
+    illisible ou plus vieille que `age_max_j` : etat INCONNU / PERIMEE, jamais « aucune voie »."""
+    import time as _t
+
+    try:
+        m = json.loads(MATRICE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"voies": [], "etat": "INCONNU", "raison": "matrice jamais mesuree"}
+    except (OSError, ValueError):
+        return {"voies": [], "etat": "INCONNU", "raison": "matrice illisible"}
+    try:
+        age_j = (_t.time() - _t.mktime(_t.strptime(m.get("mesure_le", ""), "%Y-%m-%dT%H:%M:%S"))) / 86400
+    except (ValueError, OverflowError):
+        age_j = None
+    voies = [(v["fournisseur"], v["modele"], v["latence_ms"]) for v in m.get("familles", {}).get(famille_de(famille), [])
+             if v.get("etat") == "JOIGNABLE"]
+    etat = "PERIMEE" if age_j is None or age_j > age_max_j else ("MESUREE" if voies else "AUCUNE_VOIE_MESUREE")
+    return {"voies": voies, "etat": etat, "age_j": None if age_j is None else round(age_j, 2)}
+
+
 def candidates_du_clair(etiquette: str, env_key: str) -> list[tuple[int, str]]:
     """[(ligne, valeur)] du `.env` pour cette cle — commentees COMPRISES.
 
@@ -171,6 +514,30 @@ def candidates_du_clair(etiquette: str, env_key: str) -> list[tuple[int, str]]:
 def main() -> int:
     from nokido_agent.app.forge_secrets import get_secret
 
+    if "--matrice" in sys.argv:
+        m = construire_matrice(competence="--competence" in sys.argv)
+        if "--cli" in sys.argv:
+            i = sys.argv.index("--cli")
+            noms = sys.argv[i + 1].split(",") if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--") \
+                else list(CLI_PAR_DEFAUT)
+            m["cli"] = {p.strip(): sonder_competence_cli(p.strip()) for p in noms if p.strip()}
+            for p, c in m["cli"].items():
+                print(f"cli {p:12} : {c['reussies']}/{c['mesurees']} mesurees (sur {c['total']}) {c['taches']} "
+                      f"{('non mesurees : ' + str(c['raisons_non_mesurees'])[:200]) if c['raisons_non_mesurees'] else ''}")
+        ok = ecrire_matrice(m)
+        for f, voies in sorted(m["familles"].items()):
+            j = [v for v in voies if v["etat"] == "JOIGNABLE"]
+            print(f"{f:16} {len(j)}/{len(voies)} joignable(s) : "
+                  + ", ".join(f"{v['fournisseur']}:{v['modele']} {v['etat']}" for v in voies)[:400])
+            for v in j:
+                c = v.get("competence")
+                if c:
+                    print(f"    competence {v['fournisseur']}:{v['modele']} : {c['reussies']}/{c['mesurees']} "
+                          f"mesurees (sur {c['total']}) {c['taches']} mediane {c['latence_ms_mediane']} ms")
+        print("fournisseurs :", json.dumps(m["fournisseurs"], ensure_ascii=False))
+        print(f"matrice {'ecrite' if ok else 'NON ECRITE'} : {MATRICE}")
+        print("Aucune cle n'a ete affichee.")
+        return 0 if ok else 1
     cables = modeles_cables()
     if "--depuis-env" in sys.argv:
         print("=== candidates trouvees en clair (coffre NON modifie) ===")
@@ -197,7 +564,13 @@ def main() -> int:
             print(f"    {detail}")
             print("    -> 401/403 accuse la CLE ; 404 accuse l'URL ; -1 = non mesure")
             continue
-        if "--rearmer" in sys.argv:
+        if etiquette in MODELS_PUBLIC:
+            # MESURE 2026-10-15 : SambaNova et OpenRouter servent /models SANS cle (HTTP 200).
+            # La cle SambaNova (…652c) obtenait 200 ici ET 401 invalid_api_key a la generation.
+            # Ce 200 ne prouve donc RIEN de la cle : ni « elle vit », ni rearmement.
+            print(f"    ⚠ /models est PUBLIC chez {etiquette} (200 sans cle) : ce 200 ne prouve PAS "
+                  "la cle -- seul un appel authentifie (generation) tranche ; aucun rearmement")
+        elif "--rearmer" in sys.argv:
             # Un 200 sur /models est la PREUVE que la cle vit. La rotation avait
             # pu l'ecarter pour un 403 qui visait en realite un modele retire :
             # ce qui innocente doit pouvoir lever la peine.

@@ -1,15 +1,11 @@
 ---
 name: forge-security-scan
 description: >
-  Analyse statique de qualité et de robustesse du code pour Nokido —
-  wrapper d'outils d'analyse (Semgrep, CodeQL) intégré au silo qualité.
-  Triggers : revue statique d'un module forge_*.py avant install/commit,
-  scan d'un dépôt à ingérer dans le RAG, détection de défauts courants
-  et vérification de conformité, complément de Commit Guard AST et
-  SkillGuardian, demande "analyse ce code", "revue avant commit",
-  "Semgrep / CodeQL sur X", "skill safe à installer ?". Délègue les
-  findings au hub via /api/ingest pour persistence RAG et au
-  forge_clawhub_bridge pour blocage install si severity élevée.
+  À utiliser avant d'installer une skill, de committer un module sensible ou
+  d'ingérer un dépôt dans le RAG, ou sur demande « analyse ce code », « revue
+  statique », « Semgrep », « CodeQL ». Analyse statique qui complète Commit Guard AST
+  et SkillGuardian : findings envoyés au RAG, installation bloquée si la sévérité est
+  élevée.
 ---
 
 # forge-security-scan — Scan SAST orchestré

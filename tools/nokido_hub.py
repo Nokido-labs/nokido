@@ -1300,7 +1300,22 @@ def _resolve_ring(request) -> tuple[int, str]:
 _SANDBOX = Path(__file__).resolve().parent.parent / "sandbox"
 
 
-def _write_agent_presence(agent: str, ring: int, tool: str = None) -> None:
+def _reseau_client(ip) -> str | None:
+    """Reseau MESURE d'une adresse de client : local, tailscale (100.64.0.0/10), lan, externe ; illisible -> None."""
+    try:
+        import ipaddress as _ipa
+
+        a = _ipa.ip_address(str(ip))
+    except ValueError:
+        return None
+    if a.is_loopback:
+        return "local"
+    if a.version == 4 and a in _ipa.ip_network("100.64.0.0/10"):
+        return "tailscale"
+    return "lan" if a.is_private else "externe"
+
+
+def _write_agent_presence(agent: str, ring: int, tool: str = None, client: str = None) -> None:
     """Ecrit sandbox/presence_<agent>.seen avec ts+ring+pid+last_tool.
 
     PRESENCE d'un CLIENT, PAS vitalite d'un organe (mandat owner 2026-07-26 :
@@ -1336,6 +1351,10 @@ def _write_agent_presence(agent: str, ring: int, tool: str = None) -> None:
                     "ts": _dt.now().isoformat(),
                     "pid": _os.getpid(),
                     "last_tool": tool,
+                    # Provenance MESUREE de la requete (15/10, tray) : l'identite declaree dit qui l'agent pretend
+                    # etre, l'adresse dit d'ou il appelle -- local, tailscale, lan.
+                    "client": client,
+                    "reseau": _reseau_client(client) if client else None,
                 }
             ),
             encoding="utf-8",
@@ -1678,7 +1697,7 @@ main{flex:1;overflow:hidden;display:flex;flex-direction:column}
   <div class="bar">
     <select id="dProv" style="width:120px">
       <option value="groq">Groq</option><option value="mistral">Mistral</option>
-      <option value="gpt4o_github">GPT-4o</option><option value="gemini">Gemini</option><option value="ollama">Ollama</option>
+      <option value="gemini">Gemini</option><option value="ollama">Ollama</option>
     </select>
     <input id="dInput" type="text" placeholder="Message direct a l agent selectionne..." style="flex:1">
     <button class="btn ok" onclick="sendMsg()">Envoyer</button>
@@ -3133,7 +3152,7 @@ async def _build_app():
             set_actor(agent_hdr, ring=ring, channel=_ach, transport=_atr, machine=_amc)
         except Exception:  # muet-ok : contexte d'acteur = observabilite, jamais bloquant
             pass
-        _write_agent_presence(agent_hdr, ring)
+        _write_agent_presence(agent_hdr, ring, client=client_ip)
 
         if ring < 0:
             _log_network(

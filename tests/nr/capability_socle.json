@@ -1504,8 +1504,9 @@
    ],
    "calls_au_gel": 564,
    "derive": false,
-   "forme": "obj:?",
+   "forme": "texte:moyen",
    "last_ts_au_gel": "2026-09-25T15:56:09.940",
+   "requalifie": "2026-10-15 : gele obj:? par l'ancien instrument (sortie prefixee d'une etiquette [..] lue comme objet) ; forme reelle texte. Enquete de soif 9e12655ec128 (AGY), instrument corrige dans forge_regression_matrix._DEBUT_JSON.",
    "tier": "garanti",
    "tool": "run"
   },
@@ -2424,8 +2425,9 @@
    ],
    "calls_au_gel": 195,
    "derive": false,
-   "forme": "obj:?",
+   "forme": "texte:long",
    "last_ts_au_gel": "2026-09-25T15:17:44.949",
+   "requalifie": "2026-10-15 : gele obj:? par l'ancien instrument (sortie prefixee d'une etiquette [..] lue comme objet) ; forme reelle texte. Enquete de soif 9e12655ec128 (AGY), instrument corrige dans forge_regression_matrix._DEBUT_JSON.",
    "tier": "garanti",
    "tool": "run"
   },
@@ -2439,8 +2441,9 @@
    ],
    "calls_au_gel": 152,
    "derive": false,
-   "forme": "obj:?",
+   "forme": "texte:long",
    "last_ts_au_gel": "2026-09-25T01:20:13.080",
+   "requalifie": "2026-10-15 : gele obj:? par l'ancien instrument (sortie prefixee d'une etiquette [..] lue comme objet) ; forme reelle texte. Enquete de soif 9e12655ec128 (AGY), instrument corrige dans forge_regression_matrix._DEBUT_JSON.",
    "tier": "garanti",
    "tool": "run"
   },

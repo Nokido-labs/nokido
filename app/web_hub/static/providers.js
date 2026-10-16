@@ -379,6 +379,12 @@
       boite.appendChild(texte(document.createElement("p"), "Lecture impossible : " + e.message));
       return;
     }
+    if (r.status === 403) {
+      // Refus VOULU sans session verifiee (delegation OWNER_PORTAIL, decision owner 2a du 13/10) : on le NOMME.
+      boite.appendChild(texte(document.createElement("p"),
+        "Réservé à l'owner connecté au portail (session vérifiée) — " + (j.error || "HTTP 403")));
+      return;
+    }
     if (!r.ok || !j.acces) {
       boite.appendChild(texte(document.createElement("p"), "Lecture refusée : " + (j.error || ("HTTP " + r.status))));
       return;

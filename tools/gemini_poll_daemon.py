@@ -114,7 +114,10 @@ POLL_INTERVAL = int(_env_from_nokido("GEMINI_POLL_INTERVAL_S", "30"))
 POLL_MODE = _env_from_nokido(
     "GEMINI_POLL_MODE", "passive"
 ).lower()  # défaut passive: pas de traitement cloud autonome (garde-fou); GEMINI_POLL_MODE=active pour opt-in
-GEMINI_MODEL = _env_from_nokido("GEMINI_MODEL", "gemini-2.5-flash")
+# Modèle par défaut sur la voie clé API (palier gratuit) : seule la famille flash-lite répond.
+# Ne dépend plus d'un GEMINI_MODEL global figé qui pointerait sur pro ou flash (décision owner 15/10).
+DEFAULT_GEMINI_API_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = DEFAULT_GEMINI_API_MODEL
 GEMINI_CLI_MODEL = _env_from_nokido(
     "GEMINI_CLI_MODEL", "gemini-2.5-pro"
 )  # flash-lite = nul pour code/raisonnement
@@ -399,9 +402,10 @@ def call_llm(prompt: str, api_key: str = "", model: str = "", timeout: int = 90)
     """Cascade: API key -> CLI OAuth -> Groq fallback.
     Chaque option est gratuite ou utilise l abonnement existant.
     """
-    # 1. API key Gemini (payant a l usage, le plus rapide)
+    # 1. API key Gemini (palier gratuit : famille flash-lite par defaut)
     if api_key:
-        result = call_gemini_api_rest(prompt, api_key, model or GEMINI_MODEL, timeout)
+        target_api_model = model or DEFAULT_GEMINI_API_MODEL
+        result = call_gemini_api_rest(prompt, api_key, target_api_model, timeout)
         if not result.startswith("ERR"):
             return result
         log(f"API key failed: {result[:80]} -- fallback CLI OAuth", "WARN")

@@ -49,7 +49,9 @@ from __future__ import annotations
 __FORGE_COLOR__ = "locomoteur/orchestr : kernel de mutation, unifie les briques d'automutation"  # organe declare le 2026-09-06 (audit de raccordement)
 
 import json
+import logging
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -115,6 +117,8 @@ def _reverts_consecutifs() -> int:
             continue  # muet-ok : verifier_chaine_evolution compte et nomme les lignes illisibles
         if e.get("kind") != "post_application" or e.get("verdict") == "NON_APPLIQUE":
             continue  # un acte qui n'a pas eu lieu n'interrompt ni ne prolonge une serie
+        if str(e.get("verdict") or "").startswith("REPRIS"):
+            continue  # une REPRISE apres crash n'est ni une regression ni un succes mesure
         if e.get("verdict") in REVERTS:
             n += 1
         else:
@@ -280,6 +284,81 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
             "frein": frein}
 
 
+# ── Plafonds et actes orphelins (debat RSI 15/10 : Codex et AGY, tour 2) ───────────────────
+# Les plafonds du debat du 13/10 (<= 50 experiences/jour, fenetre de 30 min) n'etaient ecrits
+# NULLE PART dans le code (Codex) : on les code ici, au seul point ou un acte part. Et un acte
+# inscrit EN_COURS sans `post_application` est celui d'un process mort entre l'acte et la
+# mesure : tant qu'il n'est pas repris, aucun autre acte ne part (fail-closed).
+PLAFOND_ACTES_JOUR = 50
+INTERVALLE_MIN_S = 1800.0
+
+
+def _lire_registre() -> list:
+    from nokido_agent.app import forge_autonomous_loops as _al
+    try:
+        lignes = Path(_al._EVOLUTION_LEDGER).read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        return []
+    out = []
+    for ligne in lignes:
+        try:
+            out.append(json.loads(ligne))
+        except ValueError:
+            continue  # muet-ok : verifier_chaine_evolution compte et nomme les lignes illisibles
+    return out
+
+
+def _instant(e: dict):
+    import time as _t
+    try:
+        return _t.mktime(_t.strptime(str(e.get("ts")), "%Y-%m-%dT%H:%M:%S"))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def application_id_de(e: dict):
+    """L'identifiant de l'application qu'une `post_application` clot -- UNE seule lecture pour tous.
+
+    Il vit a DEUX endroits selon la branche qui ecrit : a la racine (NON_APPLIQUE, reprises) ou
+    dans `application` (mesurer_apres, le chemin normal). Mesure du 15/10, 1er acte L1 reel :
+    CONSERVE ecrit, mais lu « orphelin » -> la reprise l'a defait. Debat tour 3 (Q2, AGY + Codex) :
+    une fonction d'extraction unique, que cloture, reprise et tests partagent."""
+    if not isinstance(e, dict):
+        return None
+    return e.get("application_id") or (e.get("application") or {}).get("application_id")
+
+
+def actes_orphelins(entrees: list | None = None) -> list:
+    """Applications inscrites EN_COURS qu'aucune `post_application` ne clot."""
+    entrees = _lire_registre() if entrees is None else entrees
+    closes = {application_id_de(e) for e in entrees if e.get("kind") == "post_application"}
+    closes.discard(None)
+    return [e for e in entrees if e.get("kind") == "application" and e.get("status") == "EN_COURS"
+            and e.get("exp_id") not in closes]
+
+
+def garde_plafonds(maintenant: float | None = None, entrees: list | None = None) -> dict | None:
+    """None si un nouvel acte peut partir ; sinon {verdict, pourquoi}. N'ecrit rien."""
+    import time as _t
+    entrees = _lire_registre() if entrees is None else entrees
+    orph = actes_orphelins(entrees)
+    if orph:
+        return {"verdict": "ORPHELIN_A_REPRENDRE",
+                "pourquoi": "%d acte(s) applique(s) sans mesure apres (%s) : a reprendre avant tout "
+                            "nouvel acte" % (len(orph), ", ".join(str(o.get("cible")) for o in orph[:3]))}
+    now = _t.time() if maintenant is None else maintenant
+    recents = [t for t in (_instant(e) for e in entrees if e.get("kind") == "application")
+               if t is not None and now - t < 86400]
+    if len(recents) >= PLAFOND_ACTES_JOUR:
+        return {"verdict": "PLAFOND",
+                "pourquoi": "%d actes sur 24 h (plafond %d)" % (len(recents), PLAFOND_ACTES_JOUR)}
+    if recents and now - max(recents) < INTERVALLE_MIN_S:
+        return {"verdict": "PLAFOND",
+                "pourquoi": "dernier acte il y a %d s (intervalle minimal %d s)"
+                            % (now - max(recents), INTERVALLE_MIN_S)}
+    return None
+
+
 def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer, reverter,
                          mesurer, empreinte, bruit: dict, apres_conserve=None) -> dict:
     """Porte -> reference AVANT -> acte -> `mesurer_apres`. Le chemin L1.
@@ -292,6 +371,9 @@ def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer,
     if not porte.get("autorisee"):
         return {"verdict": porte.get("etat") or "INCONNU", "applique": False,
                 "porte": porte, "exp_id": exp_id}
+    garde = garde_plafonds()
+    if garde:
+        return dict(garde, applique=False, exp_id=exp_id)
     reference, err = _mesure_sure(mesurer)
     if err:
         return {"verdict": "INDECIDABLE", "applique": False, "exp_id": exp_id,
@@ -308,24 +390,62 @@ def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer,
                         "cible": cible, "ref_exp": exp_id, "reference": reference,
                         "empreinte_avant": empreinte_avant})
     exp_id = exp_id or app_id
+    # Non evincable de l'acte a son verdict (15/10) : un sommeil RAM au milieu laissait un orphelin reel.
+    veto = _poser_veto_acte(cible, app_id)
     try:
-        fait = appliquer() or {}
-    except Exception as exc:  # noqa: BLE001 - un acte qui leve peut avoir ecrit a moitie
-        fait = {"ok": False, "detail": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
-    if not fait.get("ok"):
-        if _empreinte_sure(empreinte) == empreinte_avant:
-            rec_id = _inscrire({"kind": "post_application", "niveau": niveau, "cible": cible,
-                                "ref_exp": exp_id, "application_id": app_id,
-                                "verdict": "NON_APPLIQUE", "status": "NON_APPLIQUE",
-                                "detail": fait})
-            return {"verdict": "NON_APPLIQUE", "applique": False, "exp_id": exp_id,
-                    "post_id": rec_id, "detail": fait}
-        # L'acte a echoue MAIS l'etat a bouge : on le traite comme une regression.
-    r = mesurer_apres(niveau, cible, exp_id, reference, empreinte_avant, mesurer, reverter,
-                      empreinte, bruit, application=dict(fait, application_id=app_id),
-                      apres_conserve=apres_conserve)
-    r["application_id"] = app_id
-    return r
+        try:
+            fait = appliquer() or {}
+        except Exception as exc:  # noqa: BLE001 - un acte qui leve peut avoir ecrit a moitie
+            fait = {"ok": False, "detail": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
+        if not fait.get("ok"):
+            if _empreinte_sure(empreinte) == empreinte_avant:
+                rec_id = _inscrire({"kind": "post_application", "niveau": niveau, "cible": cible,
+                                    "ref_exp": exp_id, "application_id": app_id,
+                                    "verdict": "NON_APPLIQUE", "status": "NON_APPLIQUE",
+                                    "detail": fait})
+                return {"verdict": "NON_APPLIQUE", "applique": False, "exp_id": exp_id,
+                        "post_id": rec_id, "detail": fait}
+            # L'acte a echoue MAIS l'etat a bouge : on le traite comme une regression.
+        r = mesurer_apres(niveau, cible, exp_id, reference, empreinte_avant, mesurer, reverter,
+                          empreinte, bruit, application=dict(fait, application_id=app_id),
+                          apres_conserve=apres_conserve)
+        r["application_id"] = app_id
+        return r
+    finally:
+        _lever_veto_acte(veto)
+
+
+def _poser_veto_acte(cible: str, app_id) -> str | None:
+    """Le service qui porte l'acte (`LAFORGE_SERVICE_SELF`, pose par le demon des boucles en --daemon)
+    se declare non evincable jusqu'au verdict. Hors service (CLI, test) : personne ne l'endort, rien
+    n'est pose. Un veto non pose n'empeche pas l'acte : on le DIT, la reprise des orphelins reste le filet."""
+    svc = (os.environ.get("LAFORGE_SERVICE_SELF") or "").strip()
+    if not svc:
+        return None
+    try:
+        from nokido_agent.app.forge_resource_manager import poser_veto_sommeil
+
+        r = poser_veto_sommeil(svc, "acte %s en cours sur %s" % (app_id, cible))
+    except Exception as exc:  # noqa: BLE001 - regulateur illisible : l'acte continue, sans protection, et c'est dit
+        r = {"ok": False, "erreur": "%s: %s" % (type(exc).__name__, str(exc)[:120])}
+    if not r.get("ok"):
+        logging.getLogger(__name__).warning("[rsi] veto de sommeil NON pose pour %s (%s) : un sommeil RAM "
+                                            "pendant l'acte le rendrait orphelin", svc, r.get("erreur"))
+        return None
+    return svc
+
+
+def _lever_veto_acte(svc: str | None) -> None:
+    if not svc:
+        return
+    try:
+        from nokido_agent.app.forge_resource_manager import lever_veto_sommeil
+
+        if lever_veto_sommeil(svc):
+            return
+    except Exception:  # noqa: BLE001 - muet-ok : dit ci-dessous, et le veto expire seul (borne 30 min)
+        pass
+    logging.getLogger(__name__).warning("[rsi] veto de sommeil de %s NON leve : il expirera seul", svc)
 
 
 # ── L3 : merge wip -> alpha ─────────────────────────────────────────────────────────

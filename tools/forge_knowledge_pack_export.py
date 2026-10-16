@@ -35,6 +35,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -116,6 +117,31 @@ class Dist:
         r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(self.chemin), *args],
                            capture_output=True, text=True, encoding="utf-8", errors="replace")
         return r.returncode, r.stdout
+
+    def lire_lot(self, chemins: list) -> dict:
+        """Contenu de N fichiers a HEAD en UN processus (`git cat-file --batch`).
+
+        15/10 : un `git show` par fichier = 6 089 processus pour le dist v0.20.11, ~30 min de decoupe muette avant
+        la premiere vectorisation (promotion de release comprise). Rend {} si git echoue : l'appelant retombe alors
+        sur la lecture fichier par fichier, et le dit. Un chemin absent (« missing ») n'est simplement pas rendu."""
+        entree = "".join("HEAD:%s\n" % c for c in chemins).encode("utf-8")
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(self.chemin), "cat-file", "--batch"],
+                           input=entree, capture_output=True)
+        if r.returncode:
+            return {}
+        out, i, res = r.stdout, 0, {}
+        for c in chemins:
+            fin = out.find(b"\n", i)
+            if fin < 0:
+                break
+            entete = out[i:fin].decode("utf-8", "replace").split()
+            i = fin + 1
+            if len(entete) != 3 or entete[-1] == "missing":
+                continue
+            taille = int(entete[2])
+            res[c] = out[i:i + taille].decode("utf-8", "replace")
+            i += taille + 1  # le LF qui suit chaque contenu
+        return res
 
     def contenu(self, chemin: str) -> str:
         if chemin not in self._cache:
@@ -251,6 +277,195 @@ def export_pack(dist: Path, output: Path | None = None, version: str = "0.0.0", 
     return stats
 
 
+# ── PACK NATIF (owner 15/10 : « mesure bien que rien d'essentiel n'est absent du knowledge pack ») ─────────────────
+# Mesure sur le pack v0.20.11 : 509 des 604 .md publies sans AUCUN fragment (couverture ponderee 13,9 %), dont
+# README, CHANGELOG, docs/ARCHITECTURE, SECURITY, MANIFESTO, le wiki (10,3 %), 14 skills sur 33. Cause STRUCTURELLE :
+# le pack etait une SELECTION du RAG prive prouvee contre le dist ; tout ce qui a ete ecrit pour le public sans etre
+# reingere en sortait. Ici le pack EST l'arbre publie : couverture complete par construction, et un fichier
+# essentiel absent refuse le pack au lieu de le laisser partir troue.
+FORMAT_NATIF = "nokido-knowledge-pack/3-natif"
+CLASSES_NATIF = {".md": "doc", ".py": "code", ".toml": "config", ".yaml": "config", ".yml": "config",
+                 ".json": "config", ".txt": "doc"}
+EXCLUS_NATIF = ("tests/", ".agents/", ".github/")  # tests = bruit pour le RAG ; .agents = copie de docs/skills
+TAILLE_MAX_NATIF = 512_000                          # au-dela : compte « trop_gros » et LISTE, jamais tronque
+ESSENTIELS = ("README.md", "CHANGELOG.md", "docs/ARCHITECTURE.md", "RULES_SHARED.md", "SECURITY.md",
+              "CONTRIBUTING.md", "MANIFESTO.md")
+
+
+def classe_natif(chemin: str) -> str | None:
+    if chemin.startswith(EXCLUS_NATIF):
+        return None
+    ext = Path(chemin).suffix.lower()
+    c = CLASSES_NATIF.get(ext)
+    if c == "doc" and "/skills/" in "/" + chemin:
+        return "skill"
+    if c == "doc" and chemin.startswith("docs/wiki/"):
+        return "wiki"
+    return c
+
+
+def _embed_bge_m3_local(textes: list, er=None) -> list:
+    """bge-m3 LOCAL (:8099) SEUL. La cascade d'embed_batch_fast peut finir chez Voyage ou Jina : d'autres espaces
+    de vecteurs, melanges en silence dans le pack. Un lot non vectorise rend des None, comptes par l'appelant.
+
+    15/10 (mesure, journal du keeper) : `pilier NokidoLlamaEmbed -> stopped :: sans intention + idle + ram 86 %` a
+    19:36:39, en PLEIN pack -- le pack ne declarait pas son besoin (il n'ouvre une connexion que par lot, et
+    `embed.wanted` n'etait pose qu'une fois l'embedder deja injoignable). Le client DECLARE donc son besoin avant
+    chaque lot (`declare_wanted`, cooldown interne : pas de repetition) ; un refus de l'arbitre est dit par lui."""
+    if er is None:
+        try:
+            from nokido_agent.app import forge_embed_router as er
+        except Exception:
+            import forge_embed_router as er  # type: ignore[no-redef]
+    try:
+        er.declare_wanted("embed.wanted", cooldown=120.0, motif="pack natif : vectorisation en cours")
+    except Exception as exc:  # noqa: BLE001 -- l'intention ne doit jamais casser le lot ; on le dit
+        print("[pack natif] intention embed.wanted NON posee (%s)" % type(exc).__name__, file=sys.stderr, flush=True)
+    v = er._llama8099_call(textes, timeout=120.0)
+    return v if v and len(v) == len(textes) else [None] * len(textes)
+
+
+def _vecteur_valide(vec):
+    a = np.asarray(vec, dtype=np.float32) if vec is not None else None
+    if a is None or a.shape != (DIM,) or not np.isfinite(a).all() or abs(float(np.linalg.norm(a)) - 1) > 0.02:
+        return None
+    return a
+
+
+SEUIL_NON_VECTORISE = 0.005  # au-dela, le pack est REFUSE : un pack troue ne sort pas en silence (15/10)
+
+
+def selectionner_natif(dist, juge, embed_fn, lot: int = 32, reprises: int = 12, pause_s: float = 90.0,
+                       pouls=None, dormir=None) -> tuple[list, dict]:
+    """Decoupe l'arbre publie, filtre, vectorise.
+
+    15/10 (pack natif v0.20.11 REFUSE) : les six essentiels de la racine passaient tous les filtres (README 80
+    fragments, CHANGELOG 172...) mais AUCUN n'a ete vectorise. `sorted()` met les noms en majuscules de la racine en
+    TETE : tout le premier bloc (~500 fragments) a echoue cote :8099, et un lot en echec n'etait jamais retente.
+    Desormais : reprise des lots en echec en fin de passe (`reprises` fois, apres `pause_s`), compte dans
+    `cr["reprises"]` ; un pouls tous les 20 lots (le relais capture la sortie : sans pouls, 2 h de silence).
+    La fenetre (12 x 90 s) couvre une VRAIE coupure de l'embedder : le 15/10 il a ete mis en sommeil par le
+    superviseur (« reclaim RAM ») puis releve ~17 min plus tard ; 3 x 30 s n'en couvraient que 90 s."""
+    pouls = pouls or (lambda m: print(m, file=sys.stderr, flush=True))
+    dormir = dormir or time.sleep
+    try:
+        from nokido_agent.app.forge_rag_store import MarkdownChunker
+    except Exception:
+        from forge_rag_store import MarkdownChunker  # type: ignore[no-redef]
+    cr: dict = {"par_classe": {}, "trop_gros": [], "fichiers_incomplets": {}}
+    candidats = []
+    retenus_chemins = [ch for ch in sorted(dist.publies) if classe_natif(ch)]
+    lus = dist.lire_lot(retenus_chemins) if hasattr(dist, "lire_lot") else None
+    if lus is not None and not lus and retenus_chemins:
+        pouls("[pack natif] lecture par lot ECHOUEE : repli sur un `git show` par fichier (lent)")
+        lus = None
+    for n, chemin in enumerate(retenus_chemins, 1):
+        c = classe_natif(chemin)
+        k = cr["par_classe"].setdefault(c, Counter())
+        k["fichiers"] += 1
+        if n % 500 == 0 or n == len(retenus_chemins):
+            pouls("[pack natif] decoupe : %d/%d fichiers, %d fragments candidats" % (n, len(retenus_chemins),
+                                                                                    len(candidats)))
+        if lus is not None and chemin in lus:
+            rc, brut = 0, lus[chemin]
+        else:
+            rc, brut = dist._git("show", "HEAD:" + chemin)
+        if rc or not brut.strip():
+            k["illisible_ou_vide"] += 1
+            continue
+        if len(brut) > TAILLE_MAX_NATIF:
+            cr["trop_gros"].append((chemin, len(brut)))
+            continue
+        for frag in MarkdownChunker.chunk(brut, 2000, 200):
+            t = (frag.get("text") or frag.get("content") or "").strip()
+            k["fragments"] += 1
+            motif = ("trop_court" if len(t) < LONGUEUR_MIN else "secret" if any(p.search(t) for p in SECRET_PATTERNS)
+                     else "identite" if any(p.search(t) for p in PII_PATTERNS) else "juge_rouge" if juge(chemin, t)
+                     else None)
+            if motif:
+                k[motif] += 1
+                cr["fichiers_incomplets"].setdefault(chemin, Counter())[motif] += 1
+                continue
+            cid = hashlib.sha256(("dist:%s|%s" % (chemin, t)).encode("utf-8")).hexdigest()[:16]
+            candidats.append((cid, t, chemin, c))
+    vecteurs: dict = {}
+
+    def _passe(indices: list) -> list:
+        echec, nb = [], (len(indices) + lot - 1) // lot
+        for n, i in enumerate(range(0, len(indices), lot), 1):
+            bloc = indices[i:i + lot]
+            vecs = embed_fn([candidats[j][1] for j in bloc]) or []
+            if len(vecs) != len(bloc):  # moins de vecteurs que de textes : tout le lot en echec, jamais un zip qui tronque
+                vecs = [None] * len(bloc)
+            for j, vec in zip(bloc, vecs):
+                a = _vecteur_valide(vec)
+                if a is None:
+                    echec.append(j)
+                else:
+                    vecteurs[j] = a
+            if n % 20 == 0 or n == nb:
+                pouls("[pack natif] lot %d/%d : %d vectorises, %d en echec" % (n, nb, len(vecteurs), len(echec)))
+        return echec
+
+    en_echec = _passe(list(range(len(candidats))))
+    cr["reprises"] = {"premiere_passe_en_echec": len(en_echec), "tentatives": 0, "recuperes": 0}
+    for essai in range(1, reprises + 1):
+        if not en_echec:
+            break
+        pouls("[pack natif] reprise %d/%d : %d fragments non vectorises, dans %.0f s" % (essai, reprises, len(en_echec),
+                                                                                     pause_s))
+        dormir(pause_s)
+        avant = len(en_echec)
+        en_echec = _passe(en_echec)
+        cr["reprises"]["tentatives"] = essai
+        cr["reprises"]["recuperes"] += avant - len(en_echec)
+    retenus = []
+    for j, (cid, t, chemin, c) in enumerate(candidats):  # ordre des candidats conserve : pack deterministe
+        if j in vecteurs:
+            cr["par_classe"][c]["retenus"] += 1
+            retenus.append((cid, t, chemin, c, vecteurs[j]))
+        else:
+            cr["par_classe"][c]["non_vectorise"] += 1
+            cr["fichiers_incomplets"].setdefault(chemin, Counter())["non_vectorise"] += 1
+    garde = {r[2] for r in retenus}
+    # Revue AGY 15/10 : `e in dist.publies` laissait passer un essentiel SUPPRIME du dist (README efface par erreur) :
+    # le pack partait sans lui, sans refus. Absent du dist ou sans fragment retenu : les deux refusent, motif distinct.
+    cr["essentiels_absents"] = [e if e in dist.publies else "%s (ABSENT DU DIST)" % e for e in ESSENTIELS
+                                if e not in garde]
+    cr["non_vectorise_total"] = len(candidats) - len(retenus)
+    cr["candidats"] = len(candidats)
+    cr["par_classe"] = {c: dict(v) for c, v in cr["par_classe"].items()}
+    cr["fichiers_incomplets"] = {f: dict(v) for f, v in cr["fichiers_incomplets"].items()}
+    return retenus, cr
+
+
+def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.0.0", dry_run: bool = False,
+                      embed_fn=None) -> dict:
+    d = Dist(dist)
+    retenus, cr = selectionner_natif(d, _juge_public(), embed_fn or _embed_bge_m3_local)
+    stats = {"format": FORMAT_NATIF, "version": version, "dist_commit": d.commit, "retenus": len(retenus), **cr}
+    trou = cr.get("non_vectorise_total", 0) / max(cr.get("candidats", 0), 1)
+    if cr["essentiels_absents"] or trou > SEUIL_NON_VECTORISE:
+        # Le rapport part AVANT le refus : le 15/10 il etait perdu, et la cause a du etre reconstituee a la main.
+        print(json.dumps(stats, ensure_ascii=False, indent=1, default=str), file=sys.stderr, flush=True)
+        if cr["essentiels_absents"]:
+            raise SystemExit("[pack natif] REFUSE : fichiers essentiels sans aucun fragment retenu : %s"
+                             % cr["essentiels_absents"])
+        raise SystemExit("[pack natif] REFUSE : %d fragments sur %d NON vectorises (%.2f %% > %.1f %%) -- embedder "
+                         "indisponible trop longtemps ; relancer quand :8099 tient" % (
+                             cr["non_vectorise_total"], cr["candidats"], 100 * trou, 100 * SEUIL_NON_VECTORISE))
+    if dry_run or not retenus:
+        return stats
+    manifest = {"format": FORMAT_NATIF, "version": version, "exported_at": datetime.now(UTC).isoformat(),
+                "dist_commit": d.commit, "count": len(retenus), "dim": DIM, "model": "BAAI/bge-m3 (local :8099 seul)",
+                "dtype": "float16", "license": "AGPL-3.0-or-later", "exclus": list(EXCLUS_NATIF),
+                "critere": "pack natif : arbre publie du dist a ce commit, decoupe MarkdownChunker 2000/200"}
+    sortie = Path(output) if output else OUT_DIR / ("nokido_knowledge_pack_v%s.npz" % version)
+    stats["sha256"] = ecrire_pack(sortie, retenus, manifest)
+    stats["out_path"], stats["octets"] = str(sortie), sortie.stat().st_size
+    return stats
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--dist", required=True, type=Path, help="clone du depot public, lu a son commit HEAD")
@@ -259,10 +474,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dry-run", action="store_true", help="compter sans ecrire le pack")
     p.add_argument("--base", type=Path, help="base RAG (defaut : celle de forge_db_path)")
     p.add_argument("--verbose", action="store_true", help="journal detaille")
+    p.add_argument("--natif", action="store_true",
+                   help="pack NATIF : l'arbre publie lui-meme, decoupe et vectorise en bge-m3 local (15/10)")
     a = p.parse_args(argv)
     if a.verbose:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
-    stats = export_pack(a.dist, a.output, a.version, a.dry_run, base=a.base)
+    if a.natif:
+        stats = export_pack_natif(a.dist, a.output, a.version, a.dry_run)
+    else:
+        stats = export_pack(a.dist, a.output, a.version, a.dry_run, base=a.base)
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 

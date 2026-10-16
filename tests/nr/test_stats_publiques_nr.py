@@ -35,8 +35,13 @@ def _faux_get(url, jeton=None):
         return {"clones": [{"timestamp": "2026-10-06T00:00:00Z", "count": 40, "uniques": 9}]}
     if "/actions/workflows/" in url:
         return {"workflow_runs": [{"created_at": "2026-10-06T10:00:00Z"}, {"created_at": "2026-10-06T12:00:00Z"}]}
+    if "pypistats.org" in url and "/python_major" in url:
+        return {"data": [{"category": "3", "date": "2026-10-06", "downloads": 40},
+                         {"category": "null", "date": "2026-10-06", "downloads": 900}]}
     if "pypistats.org" in url:
         return {"data": {"last_month": 120}}
+    if url.endswith("/releases?per_page=100"):
+        return [{"assets": [{"download_count": 7}, {"download_count": 3}]}]
     return {"stargazers_count": 5}
 
 
@@ -81,6 +86,79 @@ def test_le_point_d_entree_ecrit_l_archive_et_la_carte(tmp_path, monkeypatch):
     assert archive["jours"]["2026-10-06"]["clones"] == [40, 9]
     svg = (tmp_path / "stats" / "stats.svg").read_text(encoding="utf-8")
     assert "3 vues" in svg and "582 modules" in svg
+
+
+def test_la_collecte_globale_garde_la_serie_hors_miroirs_et_les_releases(monkeypatch):
+    m = _module()
+    monkeypatch.setattr(m, "_get_json", _faux_get)
+    r = m.collecter("Nokido-labs/nokido", "jeton", "jeton_actions", TAMPON)
+    assert r["pypi_jours"]["nokido-agent"] == {"2026-10-06": 40}, "installateurs pip/uv SEULEMENT"
+    assert r["pypi_robots"]["nokido-agent"] == {"2026-10-06": 900}, "sans Python declare = robots, comptes a part"
+    assert r["releases"]["total"] == 10
+    g = m.global_pypi(m.fusionner({}, r))
+    assert g["robots"] == 2700 and g["total"] == 120, "3 paquets x (40 installateurs, 900 robots)"
+
+
+def _run(rid, jour, event="push", wf_jobs=None):
+    return {"id": rid, "created_at": jour + "T10:00:00Z", "status": "completed", "event": event}, wf_jobs
+
+
+def test_nos_ci_sont_comptees_run_par_run_une_seule_fois():
+    m = _module()
+    install = [{"name": "Installation complete ubuntu-latest", "conclusion": "success", "steps": [{}]},
+               {"name": "Organisme complet macos-latest", "conclusion": "failure", "steps": [{}]},
+               {"name": "Parcours paquet ubuntu-latest", "id": 11, "conclusion": "success", "steps": [{}]},
+               {"name": "Parcours paquet windows-latest", "id": 12, "conclusion": "success", "steps": [{}]}]
+    release = [{"name": "publish", "steps": [{"name": "PyPI sert-il EXACTEMENT les octets", "conclusion": "success"}]}]
+    runs = {"installation-complete.yml": [{"id": 1, "created_at": "2026-10-10T09:00:00Z", "event": "workflow_dispatch"},
+                                          {"id": 2, "created_at": "2026-10-11T09:00:00Z", "event": "push"},
+                                          {"id": 3, "created_at": "2026-10-12T09:00:00Z", "event": "push"}],
+            "release.yml": [{"id": 9, "created_at": "2026-10-14T09:00:00Z", "event": "push"}]}
+
+    def get(url, jeton=None):
+        for wf, lst in runs.items():
+            if "/workflows/%s/" % wf in url:
+                return {"workflow_runs": lst}, None
+        rid = url.split("/runs/")[1].split("/")[0]
+        return {"jobs": release if rid == "9" else install}, None
+
+    def journal(api, job_id, jeton):
+        if job_id == 12:
+            raise OSError("journal expire")
+        return "  SPEC_PAQUET: nokido-agent[organisme]==0.20.11\n"
+
+    out, manques = m.tirages_ci("api", "j", {"3"}, get=get, journal=journal)
+    assert set(out) == {"1", "2", "9"} and not manques, "le run 3, deja compte, n'est pas relu"
+    assert out["1"]["comptes"] == {"pack": 1, "netcfg-agent": 3, "netcfg-agent-mcp": 3, "nokido-agent": 1}
+    assert out["1"]["inconnus"] == 1, "spec illisible : DITE, ni telechargement ni zero"
+    assert "nokido-agent" not in out["2"]["comptes"], "un push construit la wheel du clone : pas de PyPI"
+    assert out["9"]["comptes"] == {"nokido-agent": 1}
+
+
+def test_le_cumul_global_deduit_nos_ci_dans_la_periode_et_dit_l_incoherence():
+    m = _module()
+    archive = {"jours": {"2026-10-04": {"pypi": {"nokido-agent": 100}}, "2026-10-05": {"pypi": {"nokido-agent": 50,
+                                                                                              "netcfg-agent": 2}}},
+               "ci_runs": {"a": {"jour": "2026-10-01", "comptes": {"nokido-agent": 5}},       # avant la serie : ignore
+                           "b": {"jour": "2026-10-05", "comptes": {"nokido-agent": 10, "netcfg-agent": 4, "pack": 2},
+                                 "inconnus": 1}}}
+    g = m.global_pypi(archive)
+    assert g["depuis"] == "2026-10-04" and g["total"] == 152 and g["ci"] == 14
+    assert g["par_paquet"]["nokido-agent"] == {"total": 150, "ci": 10, "reel": 140}
+    assert g["incoherences"] == ["netcfg-agent"], "deduction > total : dite, jamais ecretee en silence"
+    assert g["pack_ci"] == 2 and g["inconnus"] == 1
+
+
+def test_la_carte_est_globale_et_dit_ce_qu_elle_ne_deduit_pas(monkeypatch):
+    m = _module()
+    jours = {"2026-09-%02d" % d: {"vues": [1, 1]} for d in range(1, 21)}
+    s = m.resume({"jours": jours, "dernier": {"manques": {}}})
+    assert s["vues"] == 20, "toute l'archive, plus une fenetre de 14 jours"
+    monkeypatch.setattr(m, "_get_json", _faux_get)
+    svg = m.rendre_svg(m.resume(m.fusionner({}, m.collecter("Nokido-labs/nokido", "j", "j", TAMPON))))
+    assert "PyPI depuis le 2026-10-06" in svg and "installations réelles" in svg and "nos CI déduites" in svg
+    assert "robots et scanners exclus" in svg
+    assert "installations locales non déduites" in svg and "Trafic depuis le 2026-10-06" in svg
 
 
 def test_le_workflow_reste_sur_le_depot_public_et_la_branche_stats():

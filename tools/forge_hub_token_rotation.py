@@ -344,12 +344,54 @@ def inventory(probe: bool = True):
     return exposed_alive, vault
 
 
+def _propager_env(nouvelles: dict, presentes=None, poser=None) -> list:
+    """Aligne les variables UTILISATEUR (HKCU) qui portent une cle venant d'etre rotee.
+
+    POURQUOI. La rotation reecrivait le coffre et les fichiers de config qui CONTENAIENT
+    l'ancienne valeur ; elle ne touchait jamais l'environnement. Or un client configure par
+    `bearer_token_env_var` (codex) ne porte aucun jeton dans son fichier : il le lit dans la
+    variable. Mesure 2026-10-15 : 9 agents sur 9 avec « registre PERIME » (coffre != HKCU)
+    depuis la derniere rotation, et codex refuse en 401 a chaque demarrage, sans message
+    lisible cote client (« laforge: failed, 0 tools »).
+
+    Seules les variables DEJA presentes sont realignees : en creer d'autres serait decider
+    a la place de l'owner quels clients lisent l'environnement. Aucune valeur affichee,
+    seulement des empreintes. `presentes` / `poser` : injectables pour le NR.
+    """
+    out = []
+    if presentes is None:
+        try:
+            import winreg
+
+            presentes = set()
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as k:
+                for nom in nouvelles:
+                    try:
+                        winreg.QueryValueEx(k, nom)
+                        presentes.add(nom)
+                    except FileNotFoundError:  # muet-ok : absence attendue, dite plus bas (« absente de HKCU »)
+                        pass
+        except Exception as exc:  # noqa: BLE001
+            # ILLISIBLE n'est pas ABSENT : on le dit, avec le geste qui rattrape.
+            return ["  HKCU ILLISIBLE (%s) -- lancer forge_provision_clients.py --apply en session owner"
+                    % type(exc).__name__]
+    if poser is None:
+        from forge_provision_clients import _poser_env_utilisateur as poser
+    for nom, valeur in nouvelles.items():
+        if nom in presentes:
+            out.append("  ENV %s : %s (sha8=%s)" % (nom, poser(nom, valeur), fp(valeur)))
+        else:
+            out.append("  ENV %s : absente de HKCU, rien a aligner" % nom)
+    return out
+
+
 def execute(keys: list[str]):
     """Rotation effective : vault + réécriture configs. Owner console UNIQUEMENT."""
     _, vault = _vault_tokens()
     from nokido_agent.app.forge_secrets import set_secret
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     replacements: dict[str, str] = {}
+    nouvelles: dict[str, str] = {}
     for k in keys:
         old = vault.get(k)
         if not old:
@@ -358,6 +400,7 @@ def execute(keys: list[str]):
         new = _secrets.token_hex(32)
         set_secret(k, new)
         replacements[old] = new
+        nouvelles[k] = new
         print("ROTATED vault %s : %s -> %s" % (k, fp(old), fp(new)))
 
     if not replacements:
@@ -380,6 +423,9 @@ def execute(keys: list[str]):
             txt = txt.replace(old, new)
         f.write_text(txt, encoding="utf-8")
         print("  PATCHED %s : %d occurrence(s) (backup %s)" % (f, n, bak.name))
+
+    print("\n=== variables d'environnement utilisateur (HKCU) ===")
+    print("\n".join(_propager_env(nouvelles)))
 
     print("""
 === SUITE MANUELLE (dans l'ordre) ===

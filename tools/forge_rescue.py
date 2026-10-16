@@ -960,6 +960,12 @@ if __name__ == "__main__":
         metavar="AGENT",
         help="Resync agent : prompt reprise + notify hub + write to file",
     )
+    parser.add_argument(
+        "--sans-notifier",
+        action="store_true",
+        help="--resync : ecrit le prompt sans prevenir l'autre agent (appel depuis le hook Stop de cet autre agent : "
+             "il se previendrait lui-meme a chaque fin de tour, mesure du 2026-10-14)",
+    )
     args = parser.parse_args()
 
     if args.status:
@@ -988,37 +994,33 @@ if __name__ == "__main__":
         print(f"[+] Prompt reprise écrit : {out_file}")
         print(f"[+] Taille : {len(prompt)} chars")
         print(f"[+] À coller dans nouvelle session {args.resync.upper()}.")
-        # Notify hub via inbox de l'autre agent (alerte resync en cours)
-        try:
-            other = "claude" if args.resync.lower() == "gemini" else "gemini"
-            msg = f"[{other.upper()}] [RESCUE] Prompt reprise généré pour {args.resync.upper()} : {out_file.name}. Resync en cours."
-            body = json.dumps(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 1,
-                    "method": "tools/call",
-                    "params": {"name": "hub", "arguments": {"action": "notify", "message": msg}},
-                }
-            ).encode("utf-8")
-            # 2026-08-05 : ce POST etait au bon format JSON-RPC mais partait SANS
-            # en-tete Authorization -> rejete `no_auth` par _resolve_ring. Il a ete
-            # surpris par le controle d'identification du diagnostic de sante, et
-            # non par une enquete : c'etait le TROISIEME emetteur anonyme, celui
-            # qu'aucune lecture manuelle n'avait trouve.
-            sys.path.insert(0, str(ROOT))
-            from nokido_agent.app.forge_hub_client import HubClient  # client GOUVERNE
+        # Notify hub via inbox de l'autre agent (alerte resync en cours). --sans-notifier : l'appelant EST cet autre
+        # agent (hook Stop de Claude ; mesure du 2026-10-14 : il s'ecrivait a lui-meme a chaque fin de tour).
+        if args.sans_notifier:
+            print("[+] Notification SAUTEE (--sans-notifier) : l'appelant est l'agent qu'on aurait prevenu")
+        else:
+            try:
+                other = "claude" if args.resync.lower() == "gemini" else "gemini"
+                msg = f"[{other.upper()}] [RESCUE] Prompt reprise généré pour {args.resync.upper()} : {out_file.name}. Resync en cours."
+                # 2026-08-05 : ce POST etait au bon format JSON-RPC mais partait SANS
+                # en-tete Authorization -> rejete `no_auth` par _resolve_ring. Il a ete
+                # surpris par le controle d'identification du diagnostic de sante, et
+                # non par une enquete : c'etait le TROISIEME emetteur anonyme, celui
+                # qu'aucune lecture manuelle n'avait trouve.
+                sys.path.insert(0, str(ROOT))
+                from nokido_agent.app.forge_hub_client import HubClient  # client GOUVERNE
 
-            _c = HubClient(agent="RESCUE")
-            _rep = _c.notify(msg)
-            if _rep is None:
-                print(f"[!] Notify {other.upper()} NON DELIVRE — hub injoignable sur "
-                      f"{_c.base_url} (identite RESCUE, jeton {_c.token_src})")
-            elif isinstance(_rep, str) and ("GATE_DENIED" in _rep or "Erreur" in _rep):
-                print(f"[!] Notify {other.upper()} REFUSE par le hub : {_rep} "
-                      f"— verifier le ring de RESCUE dans config/agent_identities.json")
-            else:
-                print(f"[+] Notify {other.upper()} via hub OK (identite RESCUE)")
-        except Exception as e:
-            print(f"[!] Hub notify err: {e}")
+                _c = HubClient(agent="RESCUE")
+                _rep = _c.notify(msg)
+                if _rep is None:
+                    print(f"[!] Notify {other.upper()} NON DELIVRE — hub injoignable sur "
+                          f"{_c.base_url} (identite RESCUE, jeton {_c.token_src})")
+                elif isinstance(_rep, str) and ("GATE_DENIED" in _rep or "Erreur" in _rep):
+                    print(f"[!] Notify {other.upper()} REFUSE par le hub : {_rep} "
+                          f"— verifier le ring de RESCUE dans config/agent_identities.json")
+                else:
+                    print(f"[+] Notify {other.upper()} via hub OK (identite RESCUE)")
+            except Exception as e:
+                print(f"[!] Hub notify err: {e}")
     else:
         parser.print_help()

@@ -42,7 +42,12 @@ def _db() -> sqlite3.Connection:
 
 
 def _hub_health() -> dict:
-    """/health rapide (0.6s) — up/down + champ marqueur si présent."""
+    """/health rapide (0.6s) — TROIS etats, jamais deux (UNKNOWN != NO).
+
+    up=True : il a repondu. up=False : connexion REFUSEE ou impossible = hub absent.
+    up=None : DELAI depasse = hub LENT (occupe), pas tombe. Mesure du 15/10 : quatre
+    « NE REPOND PAS » dans la nuit pendant des elicitations de 120 s et des jobs pytest,
+    hub a 200 en 15 ms a chaque verification -- puis un faux « REVENU = restart »."""
     try:
         with urllib.request.urlopen("http://127.0.0.1:8766/health", timeout=0.6) as r:
             try:
@@ -50,8 +55,10 @@ def _hub_health() -> dict:
             except Exception:
                 body = {}
             return {"up": True, "body": body if isinstance(body, dict) else {}}
-    except Exception:
-        return {"up": False, "body": {}}
+    except Exception as e:  # noqa: BLE001 - classe ci-dessous, jamais tue
+        if isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError):
+            return {"up": None, "etat": "LENT", "body": {}}
+        return {"up": False, "etat": "INJOIGNABLE", "body": {}}
 
 
 def _hub_pulse() -> dict:
@@ -93,8 +100,27 @@ def _sense() -> str | None:
 
     now = time.time()
     msgs = []
-    if not health["up"]:
-        msgs.append("⚠ HUB :8766 NE RÉPOND PAS (down/wedge) — déporté jobs : poll job_status au retour")
+    try:
+        _ts = pulse.get("ts") or pulse.get("updated_at")
+        age_pouls = now - float(_ts) if _ts else None
+    except (TypeError, ValueError):
+        age_pouls = None
+    if age_pouls is None:
+        # forge_state ne date pas toujours son pouls (mesure du 15/10 : « pouls illisible » a
+        # chaque lenteur). Le battement que le SUPERVISEUR lit (sandbox/hub.heartbeat) fait foi.
+        try:
+            age_pouls = now - (ROOT / "sandbox" / "hub.heartbeat").stat().st_mtime
+        except OSError:
+            age_pouls = None  # muet-ok : les deux observateurs muets -> « illisible », dit plus bas
+    if health["up"] is None:
+        # Un delai depasse n'est pas une panne : le pouls (second observateur) tranche.
+        if age_pouls is not None and age_pouls <= 120:
+            msgs.append("hub LENT (/health > 0,6 s) mais pouls frais (%ds) : occupe, pas tombe" % int(age_pouls))
+        else:
+            msgs.append("⚠ hub LENT et pouls %s : wedge possible — poll job_status avant de conclure"
+                        % ("vieux (%ds)" % int(age_pouls) if age_pouls is not None else "illisible"))
+    elif not health["up"]:
+        msgs.append("⚠ HUB :8766 NE RÉPOND PAS (connexion refusée) — déporté jobs : poll job_status au retour")
     else:
         if prev.get("up") is False:
             msgs.append("hub REVENU (était down au dernier tour) = restart")
@@ -449,6 +475,9 @@ def _postal() -> list[str]:
 # Session Claude Code du tour courant (lue sur stdin par `_intention`). Vide si le
 # client ne la fournit pas : la deduplication est alors SUSPENDUE, jamais devinee.
 _SESSION_ID = ""
+# La demande ENTIERE : l'intention est coupee a 400 caracteres pour la memoire, le rappel de
+# skill a besoin de l'URL et du verbe, ou qu'ils soient dans la demande.
+_PROMPT = ""
 
 # ─── Une strate ne se repete pas tant qu'elle n'a pas change (2026-09-24) ───
 # Mesure en session reelle : les MEMES dettes (75,9 j, 69 j...) et le meme score
@@ -520,9 +549,10 @@ def _intention() -> str:
     try:
         evt = json.loads(brut)
         if isinstance(evt, dict):
-            global _SESSION_ID
+            global _SESSION_ID, _PROMPT
             _SESSION_ID = str(evt.get("session_id") or "")
-            return str(evt.get("prompt") or evt.get("user_prompt") or "")[:400]
+            _PROMPT = str(evt.get("prompt") or evt.get("user_prompt") or "")
+            return _PROMPT[:400]
     except Exception:  # noqa: BLE001 — pas du JSON : on prend le texte tel quel
         pass
     return brut.strip()[:400]
@@ -549,7 +579,26 @@ def _memoire(intention: str) -> str | None:
         return None
 
 
+def _skills_du_tour() -> list:
+    """Rappel de la skill qui s'applique a la demande de l'owner (rien si aucune)."""
+    if not _PROMPT:
+        return []
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forge_skill_hint
+    return forge_skill_hint.suggerer("UserPromptSubmit", _PROMPT, session=_SESSION_ID)
+
+
+def _stdout_utf8() -> None:
+    """Claude Code lit la sortie du hook en UTF-8 ; la console Windows l'ecrit en cp1252 par
+    defaut. Mesure 2026-10-14 : « débat » arrivait « d�bat » dans le rappel de skill."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception as e:  # noqa: BLE001 — flux non reconfigurable : accents a risque, on le DIT
+        print(f"[claude-hook] stdout non reconfigure ({type(e).__name__}) : accents a risque", file=sys.stderr)
+
+
 def main() -> None:
+    _stdout_utf8()
     out: list[str] = []
     # 0. INTENTION : lue AVANT tout, car stdin ne se lit qu'une fois.
     intention = _intention()
@@ -572,6 +621,12 @@ def main() -> None:
         out += _postal()
     except Exception as e:
         print(f"[claude-hook] postal error: {e}", file=sys.stderr)
+    # 3bis. SKILLS : celle qui s'applique a CETTE demande, au moment ou elle arrive
+    #       (tools/forge_skill_hint.py, table config/skill_triggers.json).
+    try:
+        out += _skills_du_tour()
+    except Exception as e:  # noqa: BLE001
+        print(f"[claude-hook] skills error: {e}", file=sys.stderr)
     # 4. MÉMOIRE DE TRAVAIL — en dernier : les messages d'un pair attendent une
     #    réponse, la mémoire ne fait qu'éclairer. Si le budget devait mordre, il doit
     #    mordre ici.

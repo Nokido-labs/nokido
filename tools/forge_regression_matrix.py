@@ -46,6 +46,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import sys
 import time
@@ -146,6 +147,21 @@ def _arg_keys(payload_in: str | None) -> list[str]:
     return []
 
 
+# DEBUT DE JSON (enquete de soif d'AGY du 15/10, verifiee) : « commence par [ ou { » prenait pour un
+# objet toute sortie console prefixee d'une etiquette de journal -- `[IPv6 autorisee (defaut)] HTTP 403
+# -> [{"code": ...` devenait `obj:result`, et le cliquet de capacites criait REGRESSION 48 cycles de
+# suite sur `run|action,code,network`. Le payload stocke est TRONQUE : un json.loads strict ferait
+# passer de vrais objets coupes pour du texte. On reconnait donc le DEBUT syntaxique d'un JSON :
+# `{` suivi de `"` ou `}` ; `[` suivi d'une valeur JSON (objet, tableau, chaine, nombre, litteral, `]`).
+_DEBUT_JSON = re.compile(r'\{\s*["}]|\[\s*(?:[\[{"\]]|-?\d|(?:true|false|null)\b)')
+
+
+def _forme_dominante(formes: dict) -> str:
+    """Forme la plus frequente ; a egalite, la plus RECENTE. Avant, `max` gardait la premiere inseree :
+    sur 4 formes vues 1 fois chacune, un artefact vieux de 30 jours l'emportait sur l'observation fraiche."""
+    return max(formes.items(), key=lambda kv: (kv[1]["n"], str(kv[1]["last"])))[0]
+
+
 def _forme_sortie(payload_out) -> str:
     """Signature de FORME d'une reponse — jamais son contenu.
 
@@ -163,7 +179,7 @@ def _forme_sortie(payload_out) -> str:
     s = str(payload_out).strip()
     if not s:
         return "vide"
-    if s[0] in "{[":
+    if s[0] in "{[" and _DEBUT_JSON.match(s):
         cles = _scan_keys_truncated(s)
         return ("obj:" + ",".join(cles[:8])) if cles else "obj:?"
     n = len(s)
@@ -259,7 +275,7 @@ def cmd_extract(days: int, min_calls: int) -> int:
         e["channels"] = sorted(e["channels"])
         formes = e.pop("formes")
         if formes:
-            dom = max(formes.items(), key=lambda kv: kv[1]["n"])[0]
+            dom = _forme_dominante(formes)
             rec = max(formes.items(), key=lambda kv: str(kv[1]["last"]))[0]
             e["formes_n"] = len(formes)
             e["forme_dominante"] = dom[:90]

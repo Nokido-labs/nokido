@@ -94,7 +94,7 @@ def resolve_provider_panel(roles_providers: list, *, context: str = "trusted",
     """Assigne chaque rôle à un provider LIVE. Substitue les morts par un fallback live.
     roles_providers: [(role, provider)]. Renvoie [(role, live_provider)] (rôles non
     résolus = écartés). fallbacks: pool de remplacement (défaut : cloud rapides fiables)."""
-    fallbacks = fallbacks or ["groq", "mistral", "cerebras", "gpt4o_github", "cohere"]
+    fallbacks = fallbacks or ["groq", "mistral", "cerebras", "cohere"]  # gpt4o_github RETIRE 15/10
     live_fb, _ = live_providers(fallbacks, context=context, status=status)
     out, used = [], set()
     for role, prov in roles_providers:

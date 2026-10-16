@@ -306,8 +306,8 @@ Standard codes :
 
 ## 🧠 Tool design conventions
 
-- Every tool argument schema has an `explanation` field (optional during
-  transition, required after 2026-08-01 if `LAFORGE_EXPLANATION_MODE=error`) —
+- Every tool argument schema has an `explanation` field (optional by default,
+  required if `LAFORGE_EXPLANATION_MODE=error`) —
   it's a one-line *why* this tool is being used, to help the audit log.
 - Most tools take an `action` discriminator to keep the tool count manageable
   (verb-dispatcher pattern).

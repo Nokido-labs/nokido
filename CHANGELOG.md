@@ -3,6 +3,270 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 9d11208bd..38910c6b6 -->
+## 2026-10-15 — alpha `9d11208bd..38910c6b6` (15 commits)
+
+### Nouveautés
+- **release** : la release construit le Knowledge Pack NATIF (`d9d33d639`)
+- **stats** : statistique publique GLOBALE -- installations PyPI reelles, nos CI deduites, robots exclus (`09237f6f5`)
+
+### Corrections
+- **pack** : le pack natif reprend les lots non vectorises -- les essentiels de la racine etaient perdus en tete (`a2cbf9f18`)
+- **m2m** : l'accuse de notify rend l'identifiant du message et son destinataire reel (`d57f1916b`)
+- **pack** : reprises qui couvrent une vraie coupure de l'embedder, et refus d'un pack troue (`bac86c65f`)
+- **pack** : le pack natif DECLARE son besoin de l'embedder -- le keeper l'arretait en plein travail (`84086ebeb`)
+- **test** : la premiere collecte disque est isolee de l'amorcage du module -- rouge de la CI de reference 2dfc7bea1 (`6bf765266`)
+- **edge** : un refus rendu avant lecture du corps arrive toujours au client -- RST Windows (CI de reference 1ec53f29e) (`38910c6b6`)
+
+### Performance
+- **pack** : le pack natif lit le dist en un seul git cat-file --batch au lieu de 6 089 git show (`129faaff2`)
+
+### Documentation
+- **debat** : voix finale de Codex (ring 1, verbatim verifie) + preuves de branchement de deux UNKNOWN (`126a8c359`)
+- **debat** : decisions owner A-D -- boucle nociceptive et metabolique d'abord, cerveau bicameral (`0f8266aa9`)
+- **debat** : cartographie de la nociception -- 64 emetteurs, 12 recepteurs par sous-chaine, aucune boucle (`7134e3f51`)
+- **debat** : critique du plan « vert » de Codex -- circadien mesure (6 phases, 6 tirees), risques d'activation (`a7ec07022`)
+- **readme** : ligne circadienne mesuree -- 6 phases tirent, 6 de leurs 8 cibles desactivees par decision (`5aa1c4387`)
+
+### Maintenance
+- **release** : 0.20.12 (`c5e8ab973`)
+
+<!-- changelog: 462b1c78c..6a85dbd39 -->
+## 2026-10-15 — alpha `462b1c78c..6a85dbd39` (14 commits)
+
+### Corrections
+- **gate** : le compte d'execution se DECLARE dans le script et se VERIFIE a l'appel, relais compris -- mur, pas rappel (`afecf5e72`)
+- **gate** : aucune charge de l'agent pendant une CI de reference -- temoin pose par la CI, mur dans le gate (`840edb385`)
+- trois defauts trouves par la revue d'AGY -- ordres illisibles, meta de presence perimee, essentiel absent du dist (`039dd4e72`)
+- **swarm** : le participant litellm attend l'ask asynchrone -- une coroutine rendue comme reponse perdait la session (`a564c5880`)
+- **swarm** : une chaine d'erreur n'est jamais une reponse reussie -- faux vert de la surface swarm (`3983fc110`)
+- **identite** : Codex en ring 1 -- le principe owner « clients a equivalence » (26/07) l'avait oublie (`9fdfbe8f2`)
+- **hub,sondes** : provenance d'un agent MESUREE par le hub ; sonde commune lit tous les formats de catalogue (`4e641035b`)
+- **guet** : un client qui attend un serveur n'est plus dit FIGE ; le guet lit les resumes pytest (`43c0e40d3`)
+
+### Documentation
+- **rules** : le compte se declare dans le script -- ligne de la table des capacites (miroir lisible du gate afecf5e72) (`68b7b807c`)
+- **debat** : anatomie du corps -- diagnostic Codex (verbatim) et point de vue Claude, dossier du debat M2M (`e815aa564`)
+- **debat** : voix du swarm sur l'anatomie du corps (4 reponses reelles sur 9) + piege AGY sous sandbox (`bb86bf29f`)
+- **debat** : anatomie du corps -- voix d'AGY (verbatim), synthese, reponse a Codex sur la visibilite du live (`a9e956595`)
+- **identite** : Codex ring 1 aussi dans les TEXTES -- il se croyait ring 2 en lisant ses instructions (`6a85dbd39`)
+
+### Maintenance
+- **anatomie** : carte du corps regeneree -- 21 modules apparus depuis le 28/09 (1 083 -> 1 104) (`f4ef37613`)
+
+<!-- changelog: 681e223e2..462b1c78c -->
+## 2026-10-15 — alpha `681e223e2..462b1c78c` (10 commits)
+
+### Nouveautés
+- **ci** : gate « preuve formelle (Lean, formel/) » non bloquant ; le juge trouve la chaine depuis un worktree (`603e1bd45`)
+- **banc** : pont Promptfoo -> Nokido -- Promptfoo compare les voies de la matrice, les cles restent au coffre (`0dc5235d1`)
+- **tray** : le tray montre le corps REEL -- mode DEV et autorite, agents vivants avec leur provenance, ordres recents (`9cee5cf3b`)
+- **pack** : pack NATIF -- l'arbre publie lui-meme, bge-m3 local seul ; un fichier essentiel absent refuse le pack (`308e7fbf4`)
+
+### Corrections
+- **livraison** : une date naive de tasks.db est ambigue -- l'integrite de livraison n'accuse plus a 2 h pres (`c6d937a1b`)
+- **banc** : une erreur de TRANSPORT n'est jamais une tache « sauvee par l'equipe » -- hors mesure, comptee et dite (`c9a7b797e`)
+- **chaines** : STALE != DEAD -- un noeud lent mais vivant n'est plus relance en double ; seule une mort PROUVEE relance (`923c849dd`)
+- **banc** : un quota JOURNALIER epuise arrete le run HumanEval et le dit -- plus 60 taches x 14 s de llm_error certaines (`462b1c78c`)
+
+### Documentation
+- **skills** : forge-veille-rapide -- jamais `WHERE chunk_id = ?` sur rag_fts (plein scan sous verrou d'ecriture) (`57f6ccc89`)
+
+### Maintenance
+- **fournisseurs** : l'appel d'outil de la matrice passe par la vraie sonde forge_tool_call_probe (`00a6192f9`)
+
+
+<!-- changelog: ee0dd2b72..7234d74ae -->
+## 2026-10-15 — alpha `ee0dd2b72..7234d74ae` (28 commits)
+
+### Nouveautés
+- **clients/gemini_web** : client Tampermonkey pour le connecteur des pairs Nokido (`27e8590e8`)
+- **proprioception** : les constantes du corps exposees au MCP en lecture seule (`6457abd98`)
+- **fournisseurs** : la matrice mesure la COMPETENCE des couples joignables, pas seulement leur acces (`e74c14e52`)
+- **fournisseurs** : la competence se mesure aussi pour les CLI, par le chemin reel du routeur (`19ba644af`)
+- **formel** : pilote Lean 4 — modeles d'invariants harness contract et replay durable (`713d30c9c`)
+- **preuve** : Nokido porte Lean -- provisionne dans runtime/, juge deterministe, boucle de preuve routee (`13f738bd0`)
+
+### Corrections
+- **secrets** : la clef ArtificialAnalysis se lit au coffre d'abord (`9b723c00b`)
+- **fournisseurs** : le modele Gemini vient de l'appelant, un GEMINI_MODEL global ne l'ecrase plus (`0878b2f60`)
+- **veille** : le verdict d'un job se recalcule quand sa chaine termine (`ff771e1b7`)
+- **clients/gemini_web** : controle d'origine a l'execution et suppression verificateur PKCE (`4b4e4a3d8`)
+- **fournisseurs** : un couple joignable a 16 tokens mais refuse a l'usage est reclasse (402 -> SANS_SOLDE) (`d1d3492b1`)
+- **gemini_bridge** : le modele depend de l'appelant avec defaut flash-lite sur cle API (`d62dd6812`)
+- **litellm_connector** : le modele depend de l'appelant avec defaut flash-lite sur cle API (`df1ba1de0`)
+- **gemini_poll_daemon** : le modele depend de l'appelant avec defaut flash-lite sur cle API (`e20aea9b3`)
+- **after_model_hook** : resolution du modele selon l'appelant pour le quota tracking (`9f61e562d`)
+
+### Documentation
+- **clients/gemini_web** : rapport d'integration et diffs serveur proposes (`1103e3869`)
+- **clients/gemini_web** : levee des reserves rapport -- CORS a mesurer, secrets au coffre et ecart serveur (`aaef56c4c`)
+- **clients/gemini_web** : secret d'appariement saisi masque ; NR du client dans PURE_TESTS (`915ef8abf`)
+- **audit** : tableau d'audit des 6 lecteurs de GEMINI_MODEL (`7d3e66905`)
+- **wiki** : 20-Modules-Reference regeneree (gate wiki PERIME au pre-controle de fa3834153) (`600e19487`)
+- **formel** : rapport du pilote Lean 4 — build lake, axiomes, conformite et couts (`ec952b3cb`)
+- **wiki** : 20-Modules-Reference regeneree (modules Lean : provision, verify, prove) (`7234d74ae`)
+
+### Maintenance
+- **clients/gemini_web** : NR de verification statique du client Gemini Web (`938dbbcae`)
+- **clients/gemini_web** : NR controle d'origine et nettoyage verificateur PKCE (`585ecdcd2`)
+- **ci** : NR des lecteurs GEMINI_MODEL corriges par AGY declares dans PURE_TESTS (`7260f41ce`)
+- **nr** : conformite Python aux theoremes Lean 4 harness et replay durable (`e8b18f222`)
+- **nr** : la garde UI patche l'instance VIVANTE de web_hub.auth -- robuste a tout purgeur de sys.modules (`e0b662b99`)
+
+<!-- changelog: 1264a8fc3..5a0520e5e -->
+## 2026-10-15 — alpha `1264a8fc3..5a0520e5e` (52 commits)
+
+### Nouveautés
+- **rsi** : reglage L1 embed.batch_size — consommateur reel et mesure locale stricte (`711213a2b`)
+- **rsi** : le producteur d'auto-amelioration annonce l'issue de chaque cycle (`b3870cf82`)
+- **rsi** : une seule cle fichier arme les deux portes de l'evolution, le frein gagne toujours (`58a07218d`)
+- **rsi** : plafonds codes et reprise des actes interrompus de l'auto-amelioration (`5ada746ab`)
+- **rsi** : declaration L1 embed.batch_size et producteur de calibration l1_calibration (`750e67580`)
+- **rsi** : la cle d'armement porte une portee -- `l1` n'ouvre que les reglages L1, jamais le code (`ea54639af`)
+- **membrane** : l'ouie de la quarantaine -- chaque depot de pair est entendu, trie, memorise, signale (`645711afc`)
+- **fournisseurs** : gpt4o_github retire partout ou il routait ; un swarm ne joint que les joignables (`7ff24501f`)
+- **rsi** : la mesure L1 se parametre par workers et taille de lot (preparation embed.max_workers) (`8e15d3203`)
+- **rsi** : porte du juge -- entre la variable et la cle, la portee la plus restrictive gagne (`30d50d133`)
+- **rsi** : un acte L1 rend son service non evincable jusqu'au verdict ; hooks en UTF-8 (`cd955e823`)
+- **soif** : effecteur d'enquete -- une douleur chronique devient une enquete bornee, desarmee (`81296c386`)
+- **soif** : consolidation epistemique de nuit en job detache, modele decharge apres le lot (`f3da764d4`)
+- **fournisseurs** : zAI -- slot gratuit glm-4.5-flash ; la clef valide sans solde n'est plus appelee (`a5723df51`)
+- **fournisseurs** : Mistral -- slot du palier de l'abonnement (nemo) ; large en direct hors palier (`0131867dc`)
+- **fournisseurs** : matrice modele x fournisseur mesuree, et bascule de la meme famille (`ab6e37bb9`)
+- **fitness** : banc collectif -- un agent seul contre l'equipe, sur les memes taches (`1056115d0`)
+- **rsi** : l'applicateur suit la portee la plus restrictive ; les reflexes RAM par liste blanche (`0ab0bab45`)
+
+### Corrections
+- **tests** : la cle et le frein reels de l'owner n'arment ni ne freinent plus un NR (`98bd8784b`)
+- **sens** : un hub LENT n'est pas un hub TOMBE -- trois etats, le pouls departage (`dc9bfabb7`)
+- **web** : une recherche qui n'a pas pu se faire n'est pas « aucun resultat » (`c3404114d`)
+- **rsi** : un acte CONSERVE n'est plus lu « orphelin » -- l'identifiant vit dans `application` (`7f52289ee`)
+- **sens** : sans pouls date, le battement lu par le superviseur fait foi (`b3749cc5f`)
+- **veille** : le digest caviarde sa matiere avant l'envoi cloud -- le pare-feu refusait chaque lot (`02785ac96`)
+- **catalogue** : un /models PUBLIC ne prouve pas une cle, et ne la rearme plus (`ac509ce83`)
+- audit ChatGPT web du 15/10 -- reveil LLM, 413, modele servi, manifeste, FTS de veille (`5426de057`)
+- **skills** : rings des CLI lus au registre vivant ; forge-core se dit archive (`dfcdcb2a7`)
+- **remediation** : la dette d'orphelins se mesure a nouveau par l'inventaire du faucheur (`dfa36058c`)
+- **workflow** : audit ChatGPT -- chainage pipeline, verdicts GOAP stricts, plan_route raccorde (par AGY) (`3e5289dcd`)
+- **workflow** : reprise durable -- une activity rappelee avec d'autres entrees ne rejoue plus en silence (`2fbd152a6`)
+- **capacites** : l'instrument de forme ne prend plus une etiquette de journal pour un objet JSON (`523da5c4f`)
+- **registre** : blocs critiques du 15/10 -- max_steps applique, web_search honnete, rag index lexical (`6e916f4a2`)
+- **worktrees** : purge des preuves SANS PERTE, dans toutes les racines ou on les cree (`871f892e1`)
+- **fournisseurs** : SambaNova -- clef renouvelee au coffre, compte sans moyen de paiement (402) (`f42ad09b8`)
+- **nr** : deux NR rouges de la CI de reference du 15/10 sur 71fe6de55 (`901d883ba`)
+- **runas** : les sorties du lanceur en UTF-8 -- le journal de l'executeur AGY lisait « t?che » (`4a513cd62`)
+- **secrets** : un secret relu identique au coffre n'a plus de ligne en clair dans Nokido.env (`ba8b2155c`)
+- **veille** : une reponse VIDE du modele local fait passer au fournisseur suivant (`40023b319`)
+- **secrets** : retrait du clair -- repli EN PLACE quand la creation du voisin temporaire est refusee (`5e8a7aaea`)
+- **gate** : importer Optional, utilise au niveau module par Action.plan (`184a674ad`)
+- **skills** : le ring de claude se lit au registre des identites, comme les autres CLI (`c2c6013f2`)
+- **workflow** : `submit` devient `ecrire_plan` -- il ecrit le plan, il ne lance rien (`813021211`)
+- **gate** : plan_route appelle ecrire_plan -- le DEPORT ecrit le plan, le hub le lance (`cc3ac38b0`)
+
+### Performance
+- **ci** : reference en un etage et reprise du cliquet de mutation par surface (`661776193`)
+
+### Documentation
+- **rsi** : la description du motif proposal_applier nomme la cle d'armement et le frein (`7f72ea851`)
+- **regles** : la regle du worktree dedie sans l'anecdote du 06/09 (`e3782d1e9`)
+- **wiki** : 20-Modules-Reference regeneree (gate wiki date PERIME au pre-controle du 15/10) (`71b8e2dfa`)
+- **wiki** : 20-Modules-Reference regeneree (gate wiki PERIME au pre-controle de 8acdf787a) (`5a0520e5e`)
+
+### Maintenance
+- **rsi** : une seule lecture de l'identifiant d'application (debat tour 3, Q2) (`edf81124d`)
+- **nr** : sortie git du NR des worktrees decodee avec errors="replace" (`25d349f04`)
+- **ci** : declarer les NR du lot du 15/10 apres-midi dans PURE_TESTS (`bc417374c`)
+- **secrets** : le saut d'une ligne non UTF-8 a la migration est dit voulu (muet-ok) (`a638858fe`)
+
+<!-- changelog: 7c2687808..a9acdf8d3 -->
+## 2026-10-15 — alpha `7c2687808..a9acdf8d3` (27 commits)
+
+### Nouveautés
+- **skills** : rappel au moment, descriptions « A utiliser quand », retraits declares (`077544827`)
+- **skills** : Codex et .agents/skills du depot servis par forge_skill_sync (GO owner) (`acb66f134`)
+
+### Corrections
+- **skills** : errors= sur subprocess texte, retours silencieux justifies (gate) (`bf5ededdd`)
+- **skills** : manifeste illisible garde et dit, plus d'historique de rollback efface (`0a6eb0e14`)
+- **skills** : un nom de skill cite ne declenche plus son rappel ; hook inbox en UTF-8 (`76dd8b3bd`)
+- **skills** : --prune ne touche plus une skill externe (smithery-ai-cli, jonction owner) (`fcbc8b40f`)
+- **m2m** : une demande de travail a AGY atteint l'executeur agy, plus de reponse qui promet (`8f5349b50`)
+- **m2m** : session AGY interactive ouverte, le travail part quand meme a l'executeur (`26a2668c8`)
+- **m2m** : le relais du debat anti-regression ne se relance plus sur un courrier hors sujet (`2d301289e`)
+- **secrets** : forge_provision_clients n'ecrit plus les jetons de tous les agents en clair en mode cible (`33beca452`)
+- **harness** : un job du NokidoHarnessWorker peut fixer le repertoire de l'agent (cwd) (`4568e860f`)
+- **secrets** : la rotation des jetons realigne les variables HKCU existantes (`8bab79259`)
+- **mcp** : l'outil memory suit les schemas reels et ne replie plus sur un LIKE plein-texte (`a9acdf8d3`)
+
+### Documentation
+- **skills** : noms alignes sur les dossiers, forge-route et veille-rapide decrites par leur intention (`2c8a6632a`)
+- **skills** : 10 skills reecrites sur leur intention d'origine (debat AGY + swarm + Gemini web) (`5c90e8952`)
+- **skills** : skill forge-m2m-agy + veille-approfondie sans ses copies fusionnees (`1a3c51066`)
+- **skills** : descriptions <= 350 car., forge-hub et regles d'or reparees, cliquet des frontmatters (`c789309fc`)
+- **skills** : forge-memory-ssot et forge-immunity-opsec, les deux skills manquantes (`8012ab8af`)
+- **skills** : familles de skills, garde Smithery, pont netcfg committe (`cea7cedab`)
+- **skills** : corrections de l'audit Codex sur le code vivant + forge-code-governance (`d7884d238`)
+- **skills** : second avis Codex (MCP du hub) — recette RAG, outil memory en panne, sources (`b9a008c92`)
+- **skills** : forge-database-state, la skill « bases et etat » demandee par Codex, AGY et Gemini (`4ccc9385b`)
+
+### Maintenance
+- **skills** : .agents/skills resynchronise depuis docs/skills par forge_skill_sync (ring 2) (`fa42d17a5`)
+- **skills** : .agents/skills resynchronise apres la remise en service des 8 skills (`aa7b32315`)
+- **secrets** : absence attendue d'une variable HKCU annotee muet-ok (gate recidive) (`d3d59e582`)
+- **skills** : .agents/skills resynchronise par forge_skill_sync --apply owner (5 nouvelles skills, descriptions <= 350) (`9a2e6792a`)
+
+### Autres
+- revert(skills): 8 skills retirees sans lecture de leur contenu remises en service (owner) (`b8fb7ca3e`)
+
+<!-- changelog: dcd090954..7b56addbe -->
+## 2026-10-14 — alpha `dcd090954..7b56addbe` (2 commits)
+
+### Corrections
+- **ci** : trace des plantages natifs, pre-push sans user-site, delai de nr_instables (`90ba1573e`)
+
+### Maintenance
+- **deps** : locks re-figes apres quarantaine des 14 dist-info orphelins (`7b56addbe`)
+
+<!-- changelog: 973191f54..8ee44666b -->
+## 2026-10-14 — alpha `973191f54..8ee44666b` (2 commits)
+
+### Corrections
+- **ci** : contrat de preuve independant de l'emplacement, ecarts au lock dans la preuve (`816fd1090`)
+- **tests** : eviction et garde UI hermetiques (rouges sur le runner en turbo) (`8ee44666b`)
+
+<!-- changelog: d46eda48b..6975b2b36 -->
+## 2026-10-14 — alpha `d46eda48b..6975b2b36` (1 commit)
+
+### Corrections
+- **ci** : basetemp court en turbo, xdist ajoutait popen-gwN au-dela de la limite de chemin (`6975b2b36`)
+
+<!-- changelog: eed4c61db..d46eda48b -->
+## 2026-10-14 — alpha `eed4c61db..d46eda48b` (17 commits)
+
+### Nouveautés
+- **dist** : chaque version publiee part aussi vers Codeberg, GitLab, SourceForge et le Space HF (`c3180fb85`)
+- **deps** : verdict automatique des PR Dependabot, la fusion reste humaine (`f0d212ff5`)
+- **ci** : le runner reprend la preuve de la suite pure capturee par la CI de reference (option A) (`0068c148a`)
+- **ci** : turbo explicite sur la reference et le runner, workers choisis sur la RAM libre (`d46eda48b`)
+
+### Corrections
+- **rescue** : le hook Stop ne s'ecrit plus a lui-meme et ne resume plus a chaque tour (`e6b0101b3`)
+- **portail** : un 403 sans session verifiee est nomme au lieu d'etre affiche en erreur brute (`bdc3578c4`)
+- **dist** : retablit miroirs-publics dans WORKFLOWS_DIST, annule par accident dans bdc3578c4 (`52257cdb1`)
+- **miroirs** : main + tags seulement, sans forcer -- la branche jetable essai/** etait refusee partout (`dc5692442`)
+- **miroirs** : --integration-forges importe l'egress quel que soit l'ordre des appels (`ef2f22dd8`)
+- **miroirs** : le workflow suit la FIN de la release, commit README du bot compris (`3cc345942`)
+- **ci** : le runner purge enfin sa propre racine de worktrees de preuve (`ea1a36f80`)
+- **ci** : le turbo passe la liste aux workers xdist (collecte quadratique) (`0734934fc`)
+- **ci** : runner sans user-site de l'owner sur gates et pytest-pur (preuve DIVERGENT) (`8eedd5819`)
+- **nr** : le cliquet des pouls ne compte plus une ancre nommee en clair (`3813155ee`)
+- **nr** : test_hub_auth rend les modules app.web_hub qu'il purge (echec d'ordre en turbo) (`287a2daa6`)
+
+### Maintenance
+- **rescue** : le chemin reel du hook decode sa sortie avec errors=replace (`6116bfb98`)
+- **dist** : la configuration Dependabot ne part plus dans le depot public (`70496506c`)
+
 <!-- changelog: 4c57b5c17..72acf25c9 -->
 ## 2026-10-14 — alpha `4c57b5c17..72acf25c9` (6 commits)
 

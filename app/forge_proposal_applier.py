@@ -62,6 +62,7 @@ from __future__ import annotations
 __FORGE_COLOR__ = "sn-vegetatif/applicateur-propositions"
 
 import argparse
+import inspect
 import json
 import os
 import sqlite3
@@ -89,7 +90,17 @@ CORTICAL = {"stop_service", "topology_change"}
 #   3. la porte d'evolution est ARMEE (`forge_mutation_judge.evolution_autorisee`).
 # Schema : {"nom": {"type": "float"|"int"|"bool"|"str", "min": x, "max": y, "defaut": v,
 #                   "mesure": "module:fonction", "bruit": {"dimension": 0.01}}}
-PARAMS_L1: dict[str, dict] = {}
+PARAMS_L1: dict[str, dict] = {
+    # Premier reglage (debat M2M RSI du 15/10 : AGY, Codex, Claude ; decision owner Q3).
+    # Consommateur : forge_embed_router.embed_batch_fast (drain d'embedding). Mesure LOCALE
+    # stricte (seul :8099, jamais de repli cloud). Bruit MESURE le 15/10 avant declaration :
+    # 5 mesures a 32 = 47,1..50,5 textes/s (ecart max 1,75) ; a 24, une mesure isolee a 40,9
+    # -> 5,0 textes/s (~10 %) pour ne pas reverter sur du bruit ; perte STRICTE (0) : un seul
+    # vecteur manquant est un recul. Bornes 8..128 : au-dela, :8099 refuse (borne apprise 08/10).
+    "embed.batch_size": {"type": "int", "min": 8, "max": 128, "defaut": 32,
+                         "mesure": "forge_embed_router:mesurer_capacite_batch",
+                         "bruit": {"textes_par_seconde": 5.0, "taux_succes": 0.0}},
+}
 # Valeurs COURANTES des reglages L1. Chaque entree garde l'entree qu'elle remplace
 # (`precedente`) : un process qui meurt entre l'acte et la mesure laisse de quoi revenir.
 PARAMS_L1_FICHIER = ROOT / "sandbox" / "parametres_l1.json"
@@ -149,12 +160,54 @@ def cible_protegee(action) -> str | None:
 
 
 def arme() -> bool:
-    """L'owner a-t-il arme l'auto-application ? Defaut : NON."""
-    return str(os.environ.get("LAFORGE_APPLIER_ARMED", "")).strip().lower() in (
-        "1", "true", "yes", "on")
+    """L'owner a-t-il arme l'auto-application ? Defaut : NON.
+
+    Debat RSI 15/10 (AGY, tour 2) : cette porte ne lisait que `LAFORGE_APPLIER_ARMED`, distincte
+    de celle du juge -- armer l'un laissait l'autre en « plan seul » sans le dire. Elle suit
+    maintenant la MEME cle fichier que le juge (`sandbox/evolution.armed`, un geste owner, lu
+    sans redemarrage), et le frein `sandbox/evolution.halt` la ferme comme il ferme le juge.
+    Un etat illisible n'arme pas."""
+    return portee_armement() is not None
 
 
-def porte_evolution() -> dict:
+# Liste BLANCHE des reflexes RAM (decision owner Q3 du 15/10, « aligner + exempter RAM ») : sous une
+# portee L1, ces types-la -- et eux seuls -- restent executes quand LAFORGE_APPLIER_ARMED (Nokido.env,
+# owner 27/08) les arme. Un type de reflexe NOUVEAU n'y entre pas par defaut : il reste en plan sous L1.
+REFLEXES_RAM = frozenset({"reclaim_cache", "unload_idle"})
+
+
+def _variable_armee() -> bool:
+    return str(os.environ.get("LAFORGE_APPLIER_ARMED", "")).strip().lower() in ("1", "true", "yes", "on")
+
+
+def portee_armement() -> str | None:
+    """Portee EFFECTIVE de l'auto-application : "TOUT", "L1" ou None (desarme).
+
+    Le frein gagne. Ensuite, la MEME regle que le juge (30d50d133, decision owner Q3 du 15/10) :
+    variable seule ou variable + cle `tout` -> TOUT ; variable + cle `l1` -> L1 (la plus restrictive
+    gagne) ; variable + cle vide ou inconnue -> rien ; sans variable, la cle dit sa portee
+    (`forge_mutation_judge.portee_cle`). Juge illisible : la cle ne s'interprete plus, seule la
+    variable arme (fail-closed). Les reflexes RAM gardent leur exemption sous L1 (`REFLEXES_RAM`)."""
+    try:
+        from nokido_agent.app import forge_mutation_judge as _juge
+
+        frein, lire_cle = _juge._FREIN_EVOLUTION, _juge.portee_cle
+    except Exception:  # noqa: BLE001 - muet-ok : juge illisible -> frein canonique, cle non interpretee
+        frein, lire_cle = ROOT / "sandbox" / "evolution.halt", None
+    try:
+        if frein.exists():
+            return None
+        p_cle = lire_cle() if lire_cle is not None else None
+    except OSError:
+        return None
+    if _variable_armee():
+        if p_cle is None or p_cle == "TOUT":
+            return "TOUT"
+        return "L1" if p_cle == "L1" else None
+    return p_cle if p_cle in ("L1", "TOUT") else None
+
+
+def porte_evolution(portee: str = "L1") -> dict:
     """Etat de la porte UNIQUE d'evolution, lu a chaque appel. Fail-closed.
 
     `forge_mutation_judge.evolution_autorisee()` porte le verrou humain, le frein
@@ -168,7 +221,13 @@ def porte_evolution() -> dict:
         if f is None:
             return {"autorisee": False, "etat": "INCONNU",
                     "motif": "porte absente de forge_mutation_judge (version anterieure)"}
-        r = f() or {}
+        # L'applicateur et le controleur ne font que du L1 : ils demandent la portee L1. Une
+        # porte qui ne connait pas de portee (version anterieure, doublure de test) repond seule.
+        try:
+            accepte = "portee" in inspect.signature(f).parameters
+        except (TypeError, ValueError):
+            accepte = False
+        r = (f(portee=portee) if accepte else f()) or {}
         return {"autorisee": r.get("autorisee") is True, "etat": r.get("etat") or "INCONNU",
                 "motif": r.get("motif") or ""}
     except Exception as exc:  # noqa: BLE001 - porte illisible = fermee, et le DIRE
@@ -453,6 +512,43 @@ def plan() -> list[dict]:
     return out
 
 
+def reprendre_orphelins_l1() -> list:
+    """Reprend les actes L1 appliques puis interrompus avant leur mesure (debat RSI 15/10, Codex).
+
+    Un process mort entre l'acte et la mesure laisse au registre une `application` EN_COURS sans
+    `post_application`. Trois cas, decides par l'EMPREINTE inscrite avant l'acte :
+      * l'empreinte est deja celle d'avant : rien n'avait ete ecrit -> REPRIS_NON_APPLIQUE ;
+      * l'entree courante est celle posee par CET acte : on remet `precedente` (gardee au magasin)
+        et l'empreinte doit redevenir celle d'avant -> REPRIS_REVERTE ;
+      * sinon : REPRISE_NON_PROUVEE, et le frein est pose -- jamais un acte laisse sans verdict.
+    Revenir a l'entree d'avant est toujours le sens sur : la reprise tourne meme desarme."""
+    from nokido_agent.app import forge_mutation_controller as _ctl
+
+    out = []
+    for acte in _ctl.actes_orphelins():
+        cible = str(acte.get("cible") or "")
+        if acte.get("niveau") != "L1" or not cible.startswith("param:"):
+            continue  # muet-ok : L2+ n'a pas de magasin ici ; il reste bloque par garde_plafonds
+        nom = cible.split(":", 1)[1]
+        avant = acte.get("empreinte_avant")
+        if empreinte_l1() == avant:
+            verdict = "REPRIS_NON_APPLIQUE"
+        else:
+            entree = _lire_l1().get(nom)
+            if isinstance(entree, dict) and entree.get("exp_id") == acte.get("ref_exp"):
+                _restaurer_param({"param": nom, "existait": entree.get("precedente") is not None,
+                                  "ancienne_entree": entree.get("precedente")})
+            verdict = "REPRIS_REVERTE" if empreinte_l1() == avant else "REPRISE_NON_PROUVEE"
+        _ctl._inscrire({"kind": "post_application", "niveau": "L1", "cible": cible,
+                        "ref_exp": acte.get("ref_exp"), "application_id": acte.get("exp_id"),
+                        "verdict": verdict, "status": verdict})
+        if verdict == "REPRISE_NON_PROUVEE":
+            _ctl._poser_frein("reprise de %s NON prouvee : l'empreinte ne revient pas a celle "
+                              "d'avant l'acte" % cible)
+        out.append({"cible": cible, "verdict": verdict})
+    return out
+
+
 def appliquer(dry_run: bool | None = None) -> dict:
     """Applique l'etage REFLEXE. Desarme => plan seul, rien n'est mute.
 
@@ -461,17 +557,25 @@ def appliquer(dry_run: bool | None = None) -> dict:
       -> sante APRES -> verdict. Le veto de sante s'applique MEME si l'observable
       s'est ameliore.
     """
-    dry = (not arme()) if dry_run is None else bool(dry_run)
+    # Reprise des actes interrompus AVANT tout le reste, au cycle du demon (dry_run=None) :
+    # jamais un acte laisse sans verdict, et aucun nouvel acte tant qu'un orphelin existe.
+    reprises = reprendre_orphelins_l1() if dry_run is None else []
+    # Portee de la cle (owner 15/10) : `l1` n'execute que les set_param L1, les reflexes
+    # restent en plan. Un appel force (dry_run explicite) garde l'ancien sens : tout l'etage.
+    portee = portee_armement() if dry_run is None else "TOUT"
+    dry = (portee is None) if dry_run is None else bool(dry_run)
     p = plan()
-    res = {"arme": arme(), "dry_run": dry, "plan": p,
+    res = {"arme": portee is not None, "portee": portee, "hors_portee": [], "dry_run": dry, "plan": p,
            "reflexe": len([x for x in p if x.get("etage") == "REFLEXE"]),
            "cortical": len([x for x in p if x.get("etage") == "CORTICAL"]),
            "diagnostic": len([x for x in p if x.get("etage") == "DIAGNOSTIC"]),
            "refuse": len([x for x in p if x.get("etage") == "REFUSE"]),
-           "actes": []}
+           "reprises": reprises, "actes": []}
     if dry:
-        res["note"] = ("DESARME : aucune mutation. Poser LAFORGE_APPLIER_ARMED=1 arme "
-                       "l'etage reflexe UNIQUEMENT (decision owner).")
+        res["note"] = ("DESARME : aucune mutation. La cle sandbox/evolution.armed (contenu 'l1' : "
+                       "reglages L1 seuls ; 'tout' : tout l'etage reflexe ; vide = rien) ou "
+                       "LAFORGE_APPLIER_ARMED=1 arme (decision owner) ; le frein "
+                       "sandbox/evolution.halt l'emporte toujours.")
         return res
 
     for x in p:
@@ -480,6 +584,12 @@ def appliquer(dry_run: bool | None = None) -> dict:
         action = x["action"]
         if action.get("type") == "set_param":
             res["actes"].append(_appliquer_set_param(x))
+            continue
+        exempte = (portee == "L1" and action.get("type") in REFLEXES_RAM and _variable_armee())
+        if portee != "TOUT" and not exempte:
+            res["hors_portee"].append({"id": x["id"], "type": action.get("type"),
+                                       "pourquoi": "cle de portee %s : seuls les reglages L1 "
+                                                   "s'appliquent, ce reflexe reste en plan" % portee})
             continue
         obs_av = _observable(action)
         sante_av = _sante_globale()

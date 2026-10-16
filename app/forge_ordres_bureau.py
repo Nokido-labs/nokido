@@ -125,6 +125,31 @@ def deposer(action: str, demandeur: str, raison: str = "", maintenant: float | N
     return dict(ordre)
 
 
+def recents(n: int = 8, journal: Path | None = None) -> list:
+    """Lecture SEULE des n derniers evenements du journal (depose, pris, execute_hub, refuse...) : ce que le tray
+    affiche (demande owner 15/10 : « les ordres ne s'affichent pas »). La file en attente vit en memoire du hub,
+    illisible hors de lui ; le journal, lui, est le temoin partage. Ligne illisible : comptee, jamais inventee."""
+    j = journal or JOURNAL
+    try:
+        lignes = j.read_text(encoding="utf-8").splitlines()[-max(1, n) * 3:]
+    except FileNotFoundError:
+        return []                      # aucun journal = aucun ordre jamais consigne : un vrai NON
+    except OSError as exc:
+        # Revue AGY 15/10 : `except OSError: return []` faisait afficher « aucun ordre » au tray pour un journal
+        # verrouille ou refuse -- un INCONNU deguise en NON.
+        return [{"evenement": "JOURNAL ILLISIBLE (%s)" % type(exc).__name__}]
+    out = []
+    for ligne in lignes:
+        try:
+            e = json.loads(ligne)
+        except ValueError:
+            out.append({"evenement": "ILLISIBLE"})
+            continue
+        out.append({k: e.get(k) for k in ("ts", "evenement", "id", "action", "ordre", "demandeur", "consommateur",
+                                          "cible", "ok") if e.get(k) is not None})
+    return out[-n:]
+
+
 def en_attente(maintenant: float | None = None) -> list:
     """Lecture seule : les ordres non echus, sans les prendre."""
     t = time.time() if maintenant is None else maintenant

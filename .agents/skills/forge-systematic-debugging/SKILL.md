@@ -1,16 +1,6 @@
 ---
 name: forge-systematic-debugging
-description: >
-  Méthodologie de debugging systématique 4-phases (Root Cause → Pattern →
-  Hypothesis → Implementation) adaptée au stack Nokido. Triggers : test
-  pytest qui échoue, bug en prod, comportement inattendu, "Tool execution
-  failed", "Hub error 400", erreur du bridge mcp_stdio_bridge,
-  preflight_check qui ne trouve rien, RAG qui retourne des résultats vides,
-  SkillGuardian qui rejette à tort, ou phrase utilisateur du type "ça
-  marche pas", "y'a un bug", "je comprends pas pourquoi", "j'ai déjà essayé
-  X et Y", "ultrathink ce truc". Iron Law : NO FIXES WITHOUT ROOT CAUSE
-  INVESTIGATION FIRST. Si 3+ fixes ont échoué → questionner l'architecture,
-  pas continuer. Adapté du skill obra/superpowers/systematic-debugging.
+description: "À utiliser sur un test rouge, un Traceback, un écart à l'attendu, une erreur du hub ou du pont stdio, une recherche RAG vide, ou après un correctif déjà raté. Méthode en 4 phases : cause racine, motif, hypothèse, correctif. Pas de correctif sans cause racine ; après 3 échecs, remettre l'architecture en question."
 ---
 
 # forge-systematic-debugging — RCA 4-phases pour Nokido

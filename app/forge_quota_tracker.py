@@ -358,7 +358,6 @@ def get_all_quotas(fetch_live: bool = False) -> dict[str, Any]:
         "glm",
         "mistral",
         "perplexity",
-        "gpt4o_github",
         "ollama",
         "deepseek",
     ]

@@ -12,7 +12,13 @@ SEARXNG_URL = "http://127.0.0.1:8080"
 SEARXNG_TIMEOUT = 5
 
 
-def _searxng_sync(query: str, max_results: int, engines: str = "") -> List[Dict]:
+# UNE ERREUR N'EST PAS « AUCUN RESULTAT » (15/10). Mesure : `web_search` a repondu « Aucun
+# resultat » alors que SearXNG etait ETEINT (connexion refusee), puis encore juste apres son
+# reveil (ping OK, recherches vides) : l'appelant concluait a l'absence de resultats -- UNKNOWN
+# lu comme NO. `_searxng_diag` rend (resultats, erreur) ; `web_search_diag` porte les erreurs ;
+# les signatures historiques (`_searxng_sync`, `web_search_with_fallback`) sont gardees.
+def _searxng_diag(query: str, max_results: int, engines: str = "") -> tuple:
+    """(resultats, erreur) : erreur = None si SearXNG a REPONDU (meme une liste vide)."""
     params: Dict = {"q": query, "format": "json"}
     if engines:
         params["engines"] = engines
@@ -23,10 +29,32 @@ def _searxng_sync(query: str, max_results: int, engines: str = "") -> List[Dict]
         ) as r:
             return [
                 x for x in json.loads(r.read()).get("results", [])[:max_results] if x.get("title") or x.get("content")
-            ]
-    except Exception as e:
-        logger.debug(f"[searxng/{engines or 'default'}] {e}")
-        return []
+            ], None
+    except Exception as e:  # noqa: BLE001 - rendu comme erreur NOMMEE, jamais comme liste vide muette
+        logger.warning(f"[searxng/{engines or 'default'}] {type(e).__name__}: {e}")
+        return [], "%s/%s: %s" % (engines or "default", type(e).__name__, str(e)[:120])
+
+
+def _searxng_sync(query: str, max_results: int, engines: str = "") -> List[Dict]:
+    return _searxng_diag(query, max_results, engines)[0]
+
+
+async def web_search_diag(query: str, max_results: int = 5) -> Dict:
+    """{"results": [...], "erreurs": [...], "source": ...} -- meme cascade, erreurs NOMMEES.
+
+    `results` vide ET `erreurs` vide = SearXNG a repondu sans rien trouver ; `erreurs` non vide
+    = on n'a PAS pu chercher (moteur eteint, delai, refus) : ce n'est jamais « aucun resultat »."""
+    loop = asyncio.get_event_loop()
+    erreurs: List[str] = []
+    for moteurs, source in (("", "searxng"), ("duckduckgo", "duckduckgo")):
+        res, err = await loop.run_in_executor(None, _searxng_diag, query, max_results, moteurs)
+        if err:
+            erreurs.append(err)
+        if res:
+            for r in res:
+                r["_source"] = source
+            return {"results": res, "erreurs": erreurs, "source": source}
+    return {"results": [], "erreurs": erreurs, "source": None}
 
 
 async def web_search_with_fallback(

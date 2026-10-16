@@ -27,6 +27,7 @@ import sys
 from dataclasses import dataclass, asdict
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "app") not in sys.path:
@@ -68,6 +69,7 @@ class Action:
     est_tokens: int = 0
     quality_need: str = "normal"  # normal | high
     nlu_conf: float = 0.7
+    plan: Optional[dict] = None
 
 
 @dataclass
@@ -254,7 +256,7 @@ async def plan_route(action: Action, *, entity_id: str = "wrk_laforge", token: s
     réutilise l'existant (cf. architecture_rules:routing_stack_compose).
       1) intent_router.route(prompt) -> intent CONNU ? bypass (plan caché, 0-LLM) -> NATIVE.
       2) sinon -> classify(action) pour la VOIE (native/local/deport/cloud).
-    forge_workflow.submit se déclenche si lane==DEPORT. Dégrade en classify seul si
+    forge_workflow.ecrire_plan ECRIT le plan si lane==DEPORT ; le lancement reste un run_job du hub. Dégrade en classify seul si
     intent_router indispo (jamais bloquer le routage)."""
     intent = None
     try:
@@ -270,9 +272,31 @@ async def plan_route(action: Action, *, entity_id: str = "wrk_laforge", token: s
                 "reason": "intent connu -> plan caché (bypass LLM)", "plan": intent.get("plan")}
     d = classify(action)
     d = learn_adjust(d, action)  # apprentissage actif : re-rank par prior appris (gardes figés)
-    return {"intent": (intent or {}).get("source_task"),
-            "intent_action": (intent or {}).get("action", "none"),
-            "lane": d.lane, "target": d.target, "reason": d.reason, "decision": d.to_dict()}
+    out = {
+        "intent": (intent or {}).get("source_task"),
+        "intent_action": (intent or {}).get("action", "none"),
+        "lane": d.lane,
+        "target": d.target,
+        "reason": d.reason,
+        "decision": d.to_dict(),
+    }
+    if d.lane == Lane.DEPORT.value:
+        try:
+            from nokido_agent.app.forge_workflow import ecrire_plan as wf_ecrire_plan
+            wf_plan = action.plan or {
+                "name": f"wf_{action.kind}_{abs(hash(action.prompt)) % 10**8}",
+                "phases": [
+                    {
+                        "name": "P1",
+                        "mode": "pipeline",
+                        "agents": [{"role": action.agent, "prompt": action.prompt}],
+                    }
+                ],
+            }
+            out["submission"] = wf_ecrire_plan(wf_plan)
+        except Exception as e:  # noqa: BLE001
+            out["submission"] = {"ok": False, "error": str(e)}
+    return out
 
 
 def _selftest() -> int:

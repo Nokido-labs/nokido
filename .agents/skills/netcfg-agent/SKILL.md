@@ -1,6 +1,6 @@
 ---
 name: netcfg-agent
-description: "netcfg-agent — agent de configuration réseau multi-vendor (port web 7500, port MCP 8767, distinct du Nokido Sovereign Hub sur 8766). Triggers : audit de configuration réseau, parsing Visio/VSDX, drift detection running-config, WAL hash-chain audit (SHA-256), templates multi-vendor (Huawei VRP, HPE Comware, HP ProCurve, Aruba AOS-CX, Netgear ProSafe), preview/dry-run avant deploy SSH, KeePass zero-trust credentials, FastAPI web UI, Textual TUI (3 onglets Identity/Running/Terminal), PTY SSH via asyncssh+pyte, topology analysis (cables, cycles, SPOFs), 7 optimization analyses, 9 tools MCP (ping/vendors/list_equipments/get_dashboard/ topology/audit/verify_chain/preview_deploy/open_terminal), demo fleet 15 switches (4 sites, 20 VLANs, 24 trunks, 376.5m cabling), commandes CLI (preview/deploy/audit/verify/vendors/serve/tui/optimize/inventory), ou bridge netcfg→silos Nokido via netcfg_silo_bridge."
+description: "À utiliser pour auditer ou piloter un réseau multi-constructeurs (Huawei, HPE, HP, Aruba, Netgear) : dérive entre schéma Visio (.vsdx) et running-config, topologie (SPOF, boucles, VLAN), dry-run avant déploiement SSH, terminal PTY, journal WAL chaîné. Serveur MCP :8767 (web :7500), distinct du hub :8766 ; pont vers les silos Nokido."
 ---
 
 # netcfg-agent
@@ -333,7 +333,7 @@ credentials:
 
 ## Integration with Nokido (netcfg_silo_bridge)
 
-Source: `LaForge/app/netcfg_silo_bridge.py` (14.6 KB, not yet committed).
+Source: `app/netcfg_silo_bridge.py` in the Nokido repo (committed; checked with `git ls-files` on 2026-10-15).
 
 Bridge between netcfg-agent-mcp and Nokido silos. Three phases:
 

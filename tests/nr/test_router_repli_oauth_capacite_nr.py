@@ -131,6 +131,15 @@ def test_un_403_de_palier_ou_de_cle_reste_une_capacite():
     assert lr.repli_oauth_autorise([("o", "403 invalid_api_key")], False) is True
 
 
+def test_un_depassement_de_taille_est_une_capacite_pas_un_refus():
+    # Audit ChatGPT 15/10 (verifie) : 413 et contexte depasse n'etaient pas reconnus.
+    for err in ("Error code: 413 - request too large", "context_length_exceeded",
+                "This model's maximum context length is 32768 tokens", "prompt is too long: 210000 tokens"):
+        assert lr.repli_oauth_autorise([("codestral", err)], False) is True, err
+    # Un refus de CONTENU qui parle de taille reste un refus : jamais de reroutage.
+    assert lr.repli_oauth_autorise([("x", "403 content policy violation: text too large")], False) is False
+
+
 def test_le_repli_est_plafonne_par_heure(monkeypatch):
     # Debat tour 2 : sans plafond, une panne large des API gratuites draine le quota OAuth.
     _neutraliser(monkeypatch, {"gemini_cli": {"ok": True, "text": "ok", "model": "m"},

@@ -12,6 +12,10 @@ root = subprocess.run(
     capture_output=True, text=True, encoding="utf-8",
 ).stdout.strip()
 env = dict(os.environ)
+# 2026-10-14 : le pre-push tourne dans la session de l'OWNER, dont le user-site Python passe devant l'environnement.
+# Ses preuves (D:/Temp/nokido_proof) sortaient DIVERGENT au lock et ont ete prises pour celles du runner. Meme regle
+# que la CI (PYTHONNOUSERSITE sur gates et pytest-pur) : l'environnement mesure est celui du depot, pas du profil.
+env["PYTHONNOUSERSITE"] = "1"
 env["PYTHONPATH"] = os.pathsep.join(
     [os.path.join(root, "app"), os.path.join(root, "tools"), env.get("PYTHONPATH", "")]
 )

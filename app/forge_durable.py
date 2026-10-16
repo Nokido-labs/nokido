@@ -151,7 +151,34 @@ class DurableWorkflow:
 _MAX_REPRISES_CRASH = 5
 
 
-def recover_chain_nodes(conn_factory, threshold_s=600):
+def identite_processus(pid=None):
+    """(pid, heure de creation) : l'identite d'un processus qui survit a la reutilisation de son pid. Heure illisible
+    -> None, jamais une date inventee."""
+    import os
+    pid = pid or os.getpid()
+    try:
+        import psutil
+        return pid, psutil.Process(pid).create_time()
+    except Exception:  # noqa: BLE001  # muet-ok : identite incomplete = INCERTAIN en aval, dit par runner_vivant
+        return pid, None
+
+
+def runner_vivant(pid, cree, process_fn=None):
+    """True : le processus qui a pris le noeud vit encore (meme pid ET meme heure de creation). False : PROUVE mort
+    (pid absent, zombie, ou pid reutilise par un autre). None : illisible (acces refuse, identite incomplete) --
+    INCERTAIN, qui ne vaut jamais « mort » (constitution : UNKNOWN != NO)."""
+    if not pid or cree is None:
+        return None
+    try:
+        if process_fn is None:
+            import psutil
+            process_fn = psutil.Process
+        return abs(process_fn(int(pid)).create_time() - float(cree)) < 1.0
+    except Exception as e:  # noqa: BLE001
+        return False if type(e).__name__ in ("NoSuchProcess", "ZombieProcess") else None
+
+
+def recover_chain_nodes(conn_factory, threshold_s=600, process_fn=None):
     """Crash-resume for forge_chain_executor (durable pattern): a node left
     'running' after a crash is never re-picked by execute_pending (which only
     takes pending/retry_pending) -> the chain wedges. Re-queue stale 'running'
@@ -162,12 +189,24 @@ def recover_chain_nodes(conn_factory, threshold_s=600):
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(seconds=threshold_s)).isoformat()
     conn = conn_factory()
     try:
+        # STALE != DEAD (mesure 15/10, P2 roadmap_p2_noeud_running_orphelin_20261015). Le seul critere etait l'AGE :
+        # tout noeud `running` depuis plus de `threshold_s` repartait en `retry_pending` -- or l'etape `ingest` de
+        # `wj_fc7e31285b` a tourne 29 min VIVANTE (369 chunks) : un noeud lent etait relance EN DOUBLE pendant qu'il
+        # travaillait. Desormais `run_node` ecrit l'identite du processus (pid + heure de creation) et seule une
+        # mort PROUVEE relance ; vivant ou illisible (INCERTAIN) -> on ne touche pas. Une ligne SANS identite (ecrite
+        # avant ce correctif) garde le seul critere disponible, l'age, comme avant.
+        cols = {c[1] for c in conn.execute("PRAGMA table_info(agent_chain_nodes)").fetchall()}
+        ident = {"runner_pid", "runner_cree"} <= cols
         rows = conn.execute(
-            "SELECT id, retry_count, max_retries, error FROM agent_chain_nodes "
-            "WHERE status='running' AND (started_at IS NULL OR started_at < ?)",
-            (cutoff,)).fetchall()
+            "SELECT id, retry_count, max_retries, error, started_at%s FROM agent_chain_nodes WHERE status='running'"
+            % (", runner_pid, runner_cree" if ident else "")).fetchall()
         n = 0
         for r in rows:
+            if ident and r["runner_pid"]:
+                if runner_vivant(r["runner_pid"], r["runner_cree"], process_fn) is not False:
+                    continue
+            elif r["started_at"] and r["started_at"] >= cutoff:
+                continue
             # UN CRASH DU HUB N'EST PAS UN ECHEC DU NOEUD (mesure 2026-08-20).
             # Avant : chaque reprise consommait un `retry_count`. Le hub est mort
             # 3 fois dans la journee ; une chaine de veille a donc epuise ses 3
@@ -187,8 +226,10 @@ def recover_chain_nodes(conn_factory, threshold_s=600):
                     _prev = 0
             _reprises = _prev + 1
             new = "retry_pending" if _reprises <= _MAX_REPRISES_CRASH else "failed"
+            preuve = ("runner mort pid %s" % r["runner_pid"] if ident and r["runner_pid"]
+                      else "stale running sans identite de processus")
             conn.execute("UPDATE agent_chain_nodes SET status=?, error=? WHERE id=?",
-                         (new, "recovered: stale running (crash-resume #%d)" % _reprises,
+                         (new, "recovered: %s (crash-resume #%d)" % (preuve, _reprises),
                           r["id"]))
             n += 1
         conn.commit()

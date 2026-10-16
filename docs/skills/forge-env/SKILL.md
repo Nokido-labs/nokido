@@ -1,6 +1,11 @@
 ---
-name: laforge-env
-description: Chemins et constantes système Nokido (ex-LaForge). Python, Node, répertoires, tokens. Référence pour éviter les erreurs de chemin.
+name: forge-env
+description: >-
+  À utiliser avant d'exécuter un script, de lire la base RAG ou un journal, ou face à
+  une erreur de chemin, un PermissionError ou un accès refusé depuis un compte
+  restreint. Donne les chemins et constantes canoniques (LAFORGE_PYTHON, dépôt, bases),
+  les comptes d'exécution (owner, bac à sable du hub) et les voies gouvernées pour agir
+  sur les services.
 ---
 
 # LaForge — Environnement Système
@@ -55,14 +60,18 @@ p = subprocess.Popen(
 print('Relay PID:', p.pid)
 ```
 
-## Services NSSM
+## Services
 
-```
-LaForgeMCP      → Hub :8766
-netcfg-agent    → netcfg :8767
-```
+Source de vérité : `proxy_deno/core/services.toml`. État réel : `hub action=whoami`
+(`services_degraded`) — un port qui répond ne prouve pas que le service travaille.
 
-Restart : `Shell: nssm restart LaForgeMCP`
+- **Hub :8766** : propriété exclusive du superviseur (LaForge-Master :8765). JAMAIS
+  `nssm restart` direct (règle d'or : conflit de port, crash loop). Relance par
+  `hub action=redemarrer_stack` (dialogue owner).
+- **Service périphérique** (embedder, SearXNG, Docker, ollama, workers…) : le relever par
+  `nokido_ensure_service{service, desired_state=running}`, idempotent. Sans demander s'il
+  ne coupe aucun pair (cf. forge-autonomie).
+- **netcfg-agent** : web :7500, MCP :8767.
 
 ## Accès fichiers — chemins absolus
 

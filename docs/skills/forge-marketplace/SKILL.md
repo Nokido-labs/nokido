@@ -1,11 +1,10 @@
 ---
 name: forge-marketplace
 description: >
-  Catalogue des skills installés via les marketplaces (anthropic-agent-skills,
-  caveman) : documents Office et PDF, e-mails, artefacts web, tests de webapp,
-  design, création de serveurs MCP ou de skills, Claude API. À utiliser pour
-  savoir quel skill externe couvre une demande de ce type. Visible dans
-  Claude Code seulement ; les autres CLI passent par agt_claude.
+  À utiliser pour savoir quelle skill externe installée (anthropic-agent-skills,
+  caveman) couvre une demande : documents Office et PDF, e-mails, artefacts web,
+  tests de webapp, design, création de serveur MCP ou de skill, Claude API. Visible
+  dans Claude Code seulement ; les autres CLI passent par agt_claude.
 ---
 
 # claude-skills-marketplace — Skills externes installées chez Claude

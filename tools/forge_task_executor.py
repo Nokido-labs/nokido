@@ -285,8 +285,14 @@ def _extract_message(description: str) -> str:
             return m3.group(1).strip()
         return cmd_section
 
-    # Fallback : retourner description complète (tronquée)
-    return description[:3000]
+    # Fallback : la description COMPLETE. La coupe a 3000 caracteres etait MUETTE : une demande de
+    # travail longue arrivait tronquee a agy sans que personne le sache (mesure 2026-10-14, reparation
+    # du M2M autonome). La seule borne reelle est l'argv d'agy (30000, appliquee par _delegate_to_agy) ;
+    # au-dela, on le DIT.
+    if len(description) > 30000:
+        log.warning("description de %d caracteres : agy n'en recevra que 30000 (borne argv)",
+                    len(description))
+    return description[:30000]
 
 
 def _db() -> sqlite3.Connection:

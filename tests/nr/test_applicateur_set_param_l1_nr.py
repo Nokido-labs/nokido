@@ -33,6 +33,10 @@ def l1(tmp_path, monkeypatch):
     monkeypatch.setattr(al, "_EVOLUTION_LEDGER", tmp_path / "evolution_experiences.jsonl")
     monkeypatch.setattr(al, "_ensure_ledger_migrated", lambda: None)
     monkeypatch.setattr(mc, "_generation_avant", lambda: None)
+    # La cle et le frein REELS de l'owner (sandbox/evolution.armed|halt) ne doivent jamais armer
+    # ni freiner un test : mesure du 15/10, cle `l1` posee -> « desarme » lu ARME, NR rouge.
+    monkeypatch.setattr(juge, "_CLE_ARMEMENT", tmp_path / "evolution.armed")
+    monkeypatch.setattr(juge, "_FREIN_EVOLUTION", tmp_path / "evolution.halt")
     return tmp_path
 
 

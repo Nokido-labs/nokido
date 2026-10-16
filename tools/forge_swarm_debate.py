@@ -27,7 +27,7 @@ SPECIALISTS = [
     ("ARCHITECTE LOGICIEL (couplage, blast-radius, maintenabilité, distributed-monolith)", "groq"),
     ("SRE/PERFORMANCE (latence hot-path, observabilité d'une toile async, débogabilité)", "cerebras"),
     ("SÉCURITÉ (surface d'attaque, isolation, fail-closed, confused deputy)", "mistral"),
-    ("INGÉNIEUR SYSTÈMES DISTRIBUÉS (actor model, message-passing, consistency, supervision/résilience)", "gpt4o_github"),
+    ("INGÉNIEUR SYSTÈMES DISTRIBUÉS (actor model, message-passing, consistency, supervision/résilience)", "nvidia_nim"),  # gpt4o_github RETIRE 15/10
     ("FRUGALITÉ/SOUVERAINETÉ (coût tokens, RAM/iGPU, local-first, tax de l'agentification)", "cohere"),
 ]
 # Providers LIVE+gratuits (cf. list_providers). gemini_cli (OAuth) ne marche PAS déporté

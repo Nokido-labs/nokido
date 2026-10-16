@@ -26,7 +26,7 @@ from typing import Optional
 # Providers cloud tier-0 (free/quota) — pression quota = fraction epuisee.
 CLOUD_TIER0 = (
     "groq", "cerebras", "nvidia", "mistral",
-    "openrouter", "sambanova", "cohere", "gpt4o_github",
+    "openrouter", "sambanova", "cohere",  # gpt4o_github RETIRE 15/10 (410 Gone)
 )
 
 # Seuil doc : CORTISOL_QUOTA_CLOUD produite quand cost/daily_budget > 0.8.

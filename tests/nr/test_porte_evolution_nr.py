@@ -30,6 +30,9 @@ def porte(tmp_path, monkeypatch):
     """Etat maitrise : verrou humain OUVERT, aucun frein, armement absent."""
     monkeypatch.setattr(op, "human_lock_state", lambda: ("OUVERT", "test"))
     monkeypatch.setattr(mj, "_FREIN_EVOLUTION", tmp_path / "evolution.halt")
+    # La VRAIE cle de l'owner (sandbox/evolution.armed, `l1` depuis le 15/10) ne doit pas entrer dans
+    # le NR : la source la plus restrictive gagne (debat tour 3, Q3), elle fermerait la portee TOUT.
+    monkeypatch.setattr(mj, "_CLE_ARMEMENT", tmp_path / "evolution.armed")
     monkeypatch.delenv("LAFORGE_EVOLUTION_ARMED", raising=False)
     return tmp_path / "evolution.halt"
 

@@ -60,14 +60,15 @@ async def _run_phase(phase: dict, prev: str, context: str, ask_fn) -> tuple:
 
     mode = phase.get("mode", "parallel")
 
-    async def _one(a: dict) -> tuple:
+    async def _one(a: dict, upstream: str = "") -> tuple:
         role = a.get("role", "agent")
         prov = vmap.get(role)
         if not prov:
             return (role, "", False)
         body = a.get("prompt", "")
-        if prev:
-            body = f"[CONTEXTE amont]\n{prev}\n\n{body}"
+        ctx = upstream if upstream else prev
+        if ctx:
+            body = f"[CONTEXTE amont]\n{ctx}\n\n{body}"
         try:
             txt = await ask_fn(prov, f"TON RÔLE = {role}.\n{body}", a.get("max_tokens", 420))
             return (role, (txt or "").strip(), bool(txt))
@@ -78,12 +79,12 @@ async def _run_phase(phase: dict, prev: str, context: str, ask_fn) -> tuple:
         out = []
         acc = prev
         for a in agents:
-            role, txt, ok = await _one({**a})
+            role, txt, ok = await _one({**a}, upstream=acc)
             if ok:
                 acc = txt  # sortie N -> entrée N+1
             out.append((role, txt, ok))
     else:  # parallel (fan-out)
-        out = list(await asyncio.gather(*[_one(a) for a in agents]))
+        out = list(await asyncio.gather(*[_one(a, upstream=prev) for a in agents]))
 
     oks = [(r, t) for r, t, k in out if k]
     synthed = None
@@ -124,15 +125,25 @@ async def run_plan(plan: dict, *, context: str = "trusted", ask_fn=None) -> dict
             "written": written, "body": body}
 
 
-def submit(plan: dict, *, online: bool = True, notify: str = "CLAUDE") -> dict:
-    """DÉPORTE le workflow : écrit le plan + lance run_job(forge_workflow --plan). Le CLIENT
-    n'exécute RIEN — il reçoit un job_id. Nécessite le hub (run_job)."""
+def ecrire_plan(plan: dict, *, online: bool = True, notify: str = "CLAUDE") -> dict:
+    """ÉCRIT le plan du workflow sur disque et rend la commande `run_job` qui le lancera.
+
+    Ne LANCE rien : aucun job n'est créé ici, aucun `job_id` n'est rendu. Le lancement reste un geste
+    du hub (`run action=run_job`), donc gouverné. `online` et `notify` ne sont pas encore consommés.
+    Ancien nom `submit` : il promettait un lancement que le code n'a jamais fait (audit ChatGPT du
+    15/10, vérifié par AGY ; décision owner : renommer)."""
     plan_path = ROOT / "sandbox" / "workspace" / f"wf_plan_{abs(hash(json.dumps(plan, sort_keys=True))) % 10**8}.json"
     plan_path.parent.mkdir(parents=True, exist_ok=True)
     plan_path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
     return {"plan_path": str(plan_path),
             "run": f"run_job script=app/forge_workflow.py (avec --plan {plan_path.name})",
-            "note": "déport via le hub run_job ; le client reçoit job_id, pas l'exécution"}
+            "note": "plan ECRIT, rien n'est lance : passer la commande `run` au hub (run_job)"}
+
+
+def submit(plan: dict, *, online: bool = True, notify: str = "CLAUDE") -> dict:
+    """Ancien nom de `ecrire_plan`, gardé tant qu'un appelant l'importe (forge_orchestration_gate,
+    module juge : sa bascule appartient à son auteur). N'a jamais lancé de job."""
+    return ecrire_plan(plan, online=online, notify=notify)
 
 
 def _main() -> int:
@@ -162,7 +173,8 @@ def _selftest() -> int:
                         {"role": "B", "provider": "deepseek", "prompt": "y"}],  # deepseek mort -> substitué
              "synth": "Synthétise"},
             {"name": "P2", "mode": "pipeline",
-             "agents": [{"role": "C", "provider": "mistral", "prompt": "z"}]},
+             "agents": [{"role": "C", "provider": "mistral", "prompt": "z"},
+                        {"role": "D", "provider": "mistral", "prompt": "suite"}]},
         ],
     }
     res = asyncio.run(run_plan(plan, context="trusted", ask_fn=_mock))
@@ -177,7 +189,7 @@ def _selftest() -> int:
 
     chk(res["sections"] == ["P1", "P2"], f"phases exécutées: {res['sections']}")
     chk("P1" in res["body"] and "P2" in res["body"], "body contient les 2 phases")
-    chk(res["result"], "résultat final non vide (chaînage inter-phases)")
+    chk("### D" in res["result"], "résultat final contient la sortie du dernier agent de pipeline")
     s = submit(plan)
     chk("plan_path" in s and Path(s["plan_path"]).exists(), "submit écrit le plan (déport)")
     print(f"selftest: {ok}/{total} OK")

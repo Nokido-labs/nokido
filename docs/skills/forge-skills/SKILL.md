@@ -1,11 +1,10 @@
 ---
 name: forge-skills
 description: >
-  Passerelle vers les skills Nokido exposées par le hub :8766 (search,
-  install, run, list, info, remove, status via @skill). À utiliser quand une
-  demande porte sur une capacité Nokido (RAG, RBAC, NPU, netcfg, membrane,
-  firewall sémantique, rôles, file de tâches, mailbox, rescue, trust score)
-  ou sur l'installation d'une skill ClawHub.
+  À utiliser quand une demande vise une capacité que le hub expose comme skill (RAG,
+  RBAC, NPU, netcfg, membrane, firewall sémantique, rôles, file de tâches, courrier,
+  rescue, trust score), ou pour installer une skill ClawHub. Passerelle vers @skill
+  du hub :8766 : search, install, run, list, info, remove, status.
 ---
 
 # laforge-skills — Passerelle skills via le Hub Nokido
@@ -47,11 +46,10 @@ Nokido, refactor, etc.) — utiliser le skill `nokido` ou `laforge-ops`
 
 ## Toolset minimal
 
-Outils de base suffisants — pas de dépendance exotique :
-
-- `Bash` ou `PowerShell` pour `curl` HTTP vers le hub.
-- `WebFetch` pour requêtes GET enrichies sur le hub.
-- `Read` pour inspecter un module skill installé localement.
+Voie normale : l'outil MCP **`skill`** du hub (`mcp__laforge-sovereign-hub__skill`,
+action=list|search|load|ingest…), gouverné et journalisé comme tout appel hub. Les appels
+`curl` JSON-RPC ci-dessous restent la voie de secours d'une surface qui n'a pas le
+connecteur MCP — et le seul usage légitime de curl est de SONDER le hub lui-même.
 
 Le hub fait tout le reste (review Guardian, sandbox d'exécution, RAG
 bridge, persistence). Ne JAMAIS réimplémenter ces fonctions ici.

@@ -819,6 +819,80 @@ _SUPERVISOR_WAKE_ON_RECOVERY = _SUPERVISOR_NON_ESSENTIAL + [
 ]
 
 
+# VETO DE SOMMEIL (15/10, debat RSI tour 3). Mesure : RESOURCE_MANAGER a endormi NokidoAutonomousLoops
+# 14 fois le 15/10 (sandbox/supervisor_ordres.jsonl). Un sommeil entre un acte L1 et sa mesure laisse
+# un acte ORPHELIN reel, repris et defait au cycle suivant : le reglage n'est jamais juge. Le service
+# qui tient un acte le DECLARE ici, la regulation le saute en le disant (audit `sleep_skipped`).
+# Borne : un veto expire seul (process mort sans le lever) et ne depasse jamais _VETO_SOMMEIL_MAX_S.
+# Ce n'est PAS un neverSleep : il ne couvre que l'acte, les autres services cedent toujours, et
+# l'eviction dure (Ollama/llamacpp/Docker) n'en tient pas compte. Illisible = ignore et DIT : un
+# fichier abime ne doit pas bloquer la regulation RAM.
+_VETO_SOMMEIL_DIR = Path(_RACINE_AMORCE) / "sandbox" / "veto_sommeil"
+_VETO_SOMMEIL_MAX_S = 1800.0
+
+
+def _fichier_veto(service: str) -> Path:
+    sur = "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(service))[:80] or "_"
+    return _VETO_SOMMEIL_DIR / (sur + ".json")
+
+
+def poser_veto_sommeil(service: str, motif: str, duree_s: float = _VETO_SOMMEIL_MAX_S) -> dict:
+    """Declare `service` non evincable pendant `duree_s` (bornee a _VETO_SOMMEIL_MAX_S). Ecriture atomique."""
+    import json as _json
+
+    maintenant = time.time()
+    d = {"service": str(service), "motif": (motif or "?")[:200], "pid": os.getpid(),
+         "pose_a": maintenant, "jusqu_a": maintenant + max(1.0, min(float(duree_s), _VETO_SOMMEIL_MAX_S))}
+    try:
+        _VETO_SOMMEIL_DIR.mkdir(parents=True, exist_ok=True)
+        f = _fichier_veto(service)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(_json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, f)
+    except OSError as e:
+        return {"ok": False, "erreur": "%s: %s" % (type(e).__name__, str(e)[:160])}
+    return dict(d, ok=True)
+
+
+def lever_veto_sommeil(service: str) -> bool:
+    """Retire le veto de `service`. Absent = deja leve (vrai) ; echec d'E/S = faux (il expirera seul)."""
+    try:
+        _fichier_veto(service).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    return True
+
+
+def vetos_sommeil_actifs(maintenant: float | None = None) -> dict:
+    """{service: motif} des vetos en cours. Expire, hors borne ou illisible : ignore, et le DIT."""
+    import json as _json
+
+    t = time.time() if maintenant is None else maintenant
+    actifs: dict = {}
+    try:
+        fichiers = sorted(_VETO_SOMMEIL_DIR.glob("*.json"))
+    except OSError:
+        return actifs
+    for f in fichiers:
+        try:
+            d = _json.loads(f.read_text(encoding="utf-8"))
+            svc, fin = str(d["service"]), float(d["jusqu_a"])
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logging.getLogger(__name__).warning("[regulation] veto de sommeil illisible %s (%s) : ignore",
+                                                f.name, type(e).__name__)
+            continue
+        if fin <= t:
+            continue
+        if fin - t > _VETO_SOMMEIL_MAX_S + 5:
+            logging.getLogger(__name__).warning("[regulation] veto de sommeil %s hors borne (%.0f s) : ignore",
+                                                svc, fin - t)
+            continue
+        actifs[svc] = str(d.get("motif") or "?")
+    return actifs
+
+
 def _non_essential_sains() -> list[str]:
     """La liste ci-dessus, PRIVEE de tout service porteur d'une capacite critique.
 
@@ -847,7 +921,14 @@ def _non_essential_sains() -> list[str]:
         except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, la decision n'en depend pas
             pass
     sains: list[str] = []
+    vetos = vetos_sommeil_actifs()
     for svc in _SUPERVISOR_NON_ESSENTIAL:
+        if svc in vetos:
+            try:
+                _audit_lifecycle("sleep_skipped", "service", "veto de sommeil : %s" % vetos[svc], target=svc)
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, la decision n'en depend pas
+                pass
+            continue
         if toml is not None and (toml.get(svc) or {}).get("neverSleep"):
             try:
                 _audit_lifecycle("sleep_skipped", "service", "neverSleep au TOML", target=svc)
@@ -3934,8 +4015,11 @@ def _candidats_bail() -> tuple[list | None, str]:
     except Exception:  # noqa: BLE001 - sans la garde des capacites, on s'abstient
         return None, "forge_service_capabilities INDISPONIBLE : aucune garde des capacites critiques"
     pids = {}
+    vetos = vetos_sommeil_actifs()
     for nom, decl in toml.items():
         if decl.get("essential") is not False or decl.get("neverSleep") or decl.get("disabled"):
+            continue
+        if nom in vetos:   # acte en cours (veto de sommeil) : il ne cede pas a une tache prioritaire non plus
             continue
         pid = ((etat.get(nom) or {}).get("pid"))
         if not pid:

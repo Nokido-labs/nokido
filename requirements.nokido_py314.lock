@@ -1,24 +1,10 @@
 # requirements.nokido_py314.lock -- GENERE par `tools/forge_ci_lock.py --runtime --ecrire`, ne pas editer.
 # Etat de l'env du hub (runtime certifiant), releve dans l'env : laforge_py314
-# Releve le 2026-10-13 : 225 paquet(s) epingle(s).
+# Releve le 2026-10-14 : 225 paquet(s) epingle(s).
 # Installer tel quel (versions exactes, sans resolution) : python -m pip install --no-deps -r <ce fichier>
 # ROLLBACK d'un env casse : laforge_py314/python.exe -m pip install --no-deps -r requirements.nokido_py314.lock
 # Discipline : apres tout changement de deps, re-figer ce fichier (et resceller les manifestes s'ils le citent).
 # EXCLU forge-bm25 : installation editable locale (dossier de cette machine)
-# DOUBLON annotated-types : 0.8.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 0.7.0
-# DOUBLON certifi : 2026.5.20 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2026.4.22
-# DOUBLON hf-xet : 1.5.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 1.4.3
-# DOUBLON huggingface-hub : 1.17.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 1.13.0
-# DOUBLON markdown-it-py : 4.2.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 4.0.0
-# DOUBLON numpy : 2.5.2 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2.4.4
-# DOUBLON packaging : 26.3 garde (RECORD conforme au disque) ; dist-info orphelin(s) 26.2
-# DOUBLON pydantic : 2.13.4 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2.12.5
-# DOUBLON pydantic-core : 2.46.4 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2.41.5
-# DOUBLON pygments : 2.21.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2.20.0
-# DOUBLON regex : 2026.5.9 garde (RECORD conforme au disque) ; dist-info orphelin(s) 2026.4.4
-# DOUBLON tokenizers : 0.23.1 garde (RECORD conforme au disque) ; dist-info orphelin(s) 0.22.2
-# DOUBLON typing-extensions : 4.16.0 garde (RECORD conforme au disque) ; dist-info orphelin(s) 4.15.0
-# DOUBLON typing-inspection : 0.4.4 garde (RECORD conforme au disque) ; dist-info orphelin(s) 0.4.2
 
 absl-py==2.4.0
 accelerate==1.15.0

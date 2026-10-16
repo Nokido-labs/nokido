@@ -1,135 +1,86 @@
 ---
-name: laforge-hub
-description: Accès au hub LaForge. Tools MCP disponibles + actions non exposées dans le schema. Pattern hub_call.py pour actions avancées.
+name: forge-hub
+description: >-
+  À utiliser pour parler au hub Nokido (:8766) depuis n'importe quelle surface : un
+  outil répond « action inconnue » ou une action manque au schéma en cache, notifier
+  un pair, interroger un modèle par `ask`, connaître son identité et son ring, sonder
+  le hub. Donne les actions du schéma, le recours `hub_call.py` et ses limites.
 ---
 
-# LaForge Hub — Tronc Cérébral
+# forge-hub — parler au hub Nokido (:8766)
 
-Hub MCP : http://127.0.0.1:8766/mcp (configuré dans settings.json)
+Hub MCP : `http://127.0.0.1:8766/mcp`. Toute action passe par lui : c'est là que les
+gardes s'appliquent (videur, firewall, exec_tier) et que l'appel est journalisé.
 
-## Actions MCP directes (dans le schema)
+## Actions de l'outil `hub` (schéma relu le 15/10)
 
-```
-hub action=poll                     → messages en attente
-hub action=notify message="..."     → envoyer message inter-agents
-hub action=whoami                   → contexte agent complet
-hub action=list_providers           → providers LLM disponibles
-```
+| action | sert à |
+|---|---|
+| `whoami` | identité, ring, tâches non réclamées par agent (« personne ne draine ») |
+| `poll` | messages en attente |
+| `notify to=… message=…` | message inter-agents ; `to` = claude, gemini, cline, daemon ou hub ; message au format M2M `{intent, pointer_ref}` |
+| `list_providers` | providers LLM du registre |
+| `search_recent` | recherche récente |
+| `get_mode`, `set_mode` | mode du hub |
+| `quota_model quality=… apply=true` | choix de modèle selon la qualité (high, medium, low, ultra) |
+| `quota_report flash=… flash_lite=… pro=… preview_pro=…` | déclarer le quota consommé — 4 pools Gemini seulement, voir `forge-quota` |
+| `redemarrer_stack message=…` | relancer la pile par le dialogue owner, jamais `nssm` à la main |
+| `demander_ordre ordre=…`, `ordre_bureau`, `confirmer_owner` | question à l'owner (élicitation), puis exécution ou dépôt pour le tray |
+| `emit_telemetry` | lire son handler avant usage |
 
-## Actions avancées NON dans le schema MCP
+Le reste est porté par des outils MCP distincts : `ask`, `run`, `query`, `rag`, `read`,
+`task`, `governed_edit`, `blackboard_*`, `introspect`, etc.
 
-Ces actions existent dans le hub mais Gemini CLI ne les voit pas via tools/list.
-**Ne jamais essayer de les appeler via le tool hub directement — utiliser hub_call.py.**
+## « Action inconnue » ou action absente du schéma
 
-```
-quota_model  quality=high|medium|low  apply=true   → sélection auto modèle Gemini
-quota_report flash=X flash_lite=Y pro=Z preview_pro=W → reporter quota réel
-```
+1. **Schéma en cache.** La plupart des CLI chargent le schéma MCP au démarrage : une
+   action ajoutée au hub depuis reste invisible. Relancer la session du CLI (ou son
+   lanceur) recharge le schéma. Une action invisible n'est pas une action absente.
+2. **Action servie mais hors de l'enum** (mesuré le 14/10 : `quota_status`) :
+   `tools/hub_call.py quota_status`, avec les limites ci-dessous.
 
-## Pattern hub_call.py — LA bonne méthode
+## `tools/hub_call.py` — un recours, avec trois limites
 
-```python
-# Via run action=python
-import subprocess
-r = subprocess.run(
-    ['python', 'tools/hub_call.py', 'quota_model', 'quality=medium', 'apply=true'],
-    capture_output=True, text=True,
-    cwd=r'~\Script python IA\Nokido'
-)
-print(r.stdout)
-```
+`LAFORGE_PYTHON tools/hub_call.py <action|outil> [clé=valeur …]` envoie un JSON-RPC
+direct à `:8766/mcp`. Les noms `ask`, `query`, `rag`, `read`, `write`, `web_search`,
+`biblio`, `research_agent`, `run`, `event`, `hub_status` partent comme outils ; tout
+autre nom part comme `hub action=<nom>`.
 
-Exemples hub_call.py :
-```
-python tools/hub_call.py poll
-python tools/hub_call.py quota_model quality=medium apply=true
-python tools/hub_call.py quota_report flash=100 flash_lite=23 pro=0 preview_pro=0
-python tools/hub_call.py notify message="[GEMINI][DONE] tache terminee"
-```
-
-## Quota — Pools séparés (ne pas confondre)
-
-| Pool | Modèles | Reset |
-|------|---------|-------|
-| flash_25 | gemini-2.5-flash + flash-lite | 12h |
-| pro_25 | gemini-2.5-pro | 24h |
-| preview_pro | gemini-3.1-pro-preview | 24h — POOL SÉPARÉ |
-
-**Si Flash 100% épuisé → Pro 3.1 preview est intact (pool différent).**
-0% dans /model = vraiment disponible, pas "inconnu".
-
-## Snapshot système
+1. **Il signe GEMINI** : le jeton lu est `FORGE_TOKEN_GEMINI`. Un autre agent qui
+   l'utilise agit sous l'identité de Gemini et fausse l'attribution. Réservé aux
+   surfaces Gemini / AGY ; les autres passent par leurs propres outils MCP.
+2. **Jamais depuis l'outil `run` du hub** : `run` s'exécute DANS le hub, et un script
+   qui rappelle `:8766` le fait attendre sur lui-même. Le lancer depuis le shell de la
+   surface.
+3. Côté Claude Code, sonder le hub = Bash + `curl` vers `:8766`, un seul segment.
 
 ```
-query sql="SELECT text FROM rag_chunks WHERE id='snapshot_20260429'"
+LAFORGE_PYTHON tools/hub_call.py poll
+LAFORGE_PYTHON tools/hub_call.py quota_status
+LAFORGE_PYTHON tools/hub_call.py ask provider=groq message="ta question"
 ```
 
-## Appeler d'autres LLM via le hub
+`LAFORGE_PYTHON` = `~/miniforge3/python.exe`, jamais `python` brut.
 
-Le hub route vers tous les providers via le tool `ask` :
+## Interroger un autre modèle
 
-```python
-# Groq — llama-3.3-70b rapide
-python tools/hub_call.py ask provider=groq message="ta question"
+Outil MCP `ask`, avec `provider=` ou la forme `provider:model`. Les noms acceptés par
+`ask` ne sont pas ceux du registre `list_providers` : un nom du registre peut être
+inconnu de `ask` (piège payé : `gemini_flash`, 9 tours sur 9 en réponse vide).
+`gemini_cli` = `agy.exe` sur l'abonnement owner : il rend un texte, pas un agent.
 
-# Mistral
-python tools/hub_call.py ask provider=mistral message="ta question"
+- choisir un modèle, tourner en local : `forge-models` ;
+- budget, 429, pools : `forge-quota` ;
+- débat entre modèles : `forge-m2m-debat-mesure` ;
+- faire travailler AGY : `forge-m2m-agy`.
 
-# LLM local (llamacpp/LM Studio)
-python tools/hub_call.py ask provider=llamacpp message="ta question"
+## État du système
 
-# Ollama local
-python tools/hub_call.py ask provider=ollama message="ta question"
+`hub action=whoami` (services dégradés, tâches en souffrance) ou
+`forge_ssot.point('point system_state')`. Pas d'instantané figé : celui qu'indiquait
+cette skill datait d'avril.
 
-# Claude (via API Anthropic)
-python tools/hub_call.py ask provider=claude message="ta question"
+## Quand le hub ne répond plus
 
-# SambaNova
-python tools/hub_call.py ask provider=sambanova message="ta question"
-```
-
-## Appeler Claude spécifiquement
-
-```python
-python tools/hub_call.py ask provider=claude message="[CLAUDE] question ou tache"
-```
-
-## Providers disponibles (ring 0)
-
-| Provider | Modèle | Latence | Usage |
-|----------|--------|---------|-------|
-| groq | llama-3.3-70b | ~350ms | Rapide, général |
-| mistral | mistral-large | ~450ms | Raisonnement |
-| llamacpp | qwen3:8b | ~300ms | Local, privé |
-| ollama | qwen3:8b | ~7s | Local lourd |
-| sambanova | llama-3.3-70b | ~700ms | Backup |
-| claude | sonnet | ~2s | Tâches complexes |
-
-## Débat inter-agents
-
-```python
-python tools/hub_call.py agent_debate question="..." agents=groq,mistral
-```
-
-## RÈGLE CRITIQUE — Schema MCP et redémarrage
-
-**Gemini CLI cache le schema MCP au démarrage.**
-Si une action hub retourne "action inconnue" ou n'est pas dans l'enum :
-1. Le hub a peut-être été mis à jour après le démarrage du CLI
-2. **Solution : redémarrer le launcher** `python tools\gemini_launcher.py`
-3. Le nouveau schema sera chargé avec toutes les actions disponibles
-
-Ne jamais essayer de contourner via python -c ou shell — redémarrer le launcher.
-
-## Actions hub disponibles (schema complet post-restart)
-
-```
-hub action=poll
-hub action=notify message="..."
-hub action=whoami
-hub action=quota_model quality=medium apply=true
-hub action=quota_report flash=X flash_lite=Y pro=Z preview_pro=W
-hub action=list_providers
-hub action=search_recent
-hub action=emit_telemetry
-```
+Skill `forge-rescue`. Relance : `hub action=redemarrer_stack`. `LaForge-Master :8765`
+est le propriétaire exclusif du hub ; un restart direct crée un conflit de port.

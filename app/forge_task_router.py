@@ -92,15 +92,8 @@ PROVIDERS = {
         "best_for": ["queries", "filter", "classify"],
         "unavailable_if": lambda: not os.environ.get("HF_TOKEN"),
     },
-    # GRATUIT - GitHub Models (Copilot)
-    "gpt4o_github": {
-        "cost": 0,
-        "speed": "fast",
-        "ctx": 128000,
-        "models": ["gpt-4o"],
-        "best_for": ["code_review", "analyze", "docs"],
-        "unavailable_if": lambda: not os.environ.get("GITHUB_MODELS_TOKEN"),
-    },
+    # RETIRE (owner 15/10 : « gpt4o_github n'existe plus, a supprimer ») : GitHub Models rend
+    # 410 Gone depuis le 18/08 (raison dans forge_provider_alias.RETIRES). Plus aucune route.
     # GRATUIT - OpenRouter free pool (Qwen3-Coder 480B, Nemotron 120B...)
     "openrouter_free": {
         "cost": 0,
@@ -165,13 +158,13 @@ ROUTING = {
     "summarize_log": ["groq", "gemini"],
     "summarize_long": ["gemini"],  # ctx 1M
     # Code et analyse
-    "write_tests": ["llamacpp", "ollama", "gpt4o_github", "openrouter_free"],
-    "write_docs": ["gemini", "ollama", "gpt4o_github"],
+    "write_tests": ["llamacpp", "ollama", "openrouter_free"],
+    "write_docs": ["gemini", "ollama"],
     "analyze_code": ["llamacpp", "ollama", "openrouter_free"],
-    "code_review": ["gpt4o_github", "groq"],
+    "code_review": ["groq", "openrouter_free"],
     "analyze_large": ["gemini"],  # ctx 1M = fichier entier
     # Rapports
-    "write_report": ["gemini", "gpt4o_github"],
+    "write_report": ["gemini", "groq"],
     "benchmark_eval": ["gemini", "groq"],
     "write_orphans": ["gemini", "ollama"],
     "write_changelog": ["groq", "ollama"],
@@ -251,7 +244,7 @@ def _keystone_pool_provider(task_type):
     if m.startswith('cli:'):
         # Pour les autres non-LLM (cli:agy, cli:vscode, etc.)
         return None
-    for prov in ('llamacpp', 'ollama', 'groq', 'gemini', 'hf', 'gpt4o_github', 'codex_cli'):
+    for prov in ('llamacpp', 'ollama', 'groq', 'gemini', 'hf', 'codex_cli'):
         if prov in m:
             return prov
     return None
@@ -294,7 +287,7 @@ def select_provider(task_type: str) -> str:
         if name in s and s[name]["available"]:
             return name
     # Fallback: premier gratuit disponible
-    for name in ["groq", "gemini", "ollama", "hf", "gpt4o_github"]:
+    for name in ["groq", "gemini", "ollama", "hf"]:
         if name in s and s[name]["available"]:
             return name
     return "claude"  # dernier recours
@@ -340,7 +333,7 @@ async def route(task_type: str, payload: dict) -> dict:
     for p in ROUTING.get(task_type, ["groq", "ollama", "gemini"]):
         if p not in ordered:
             ordered.append(p)
-    for p in ["llamacpp", "ollama", "groq", "gemini", "gpt4o_github", "claude"]:
+    for p in ["llamacpp", "ollama", "groq", "gemini", "claude"]:
         if p not in ordered:
             ordered.append(p)
     # ── AXE 2 : CAPACITÉ (TRANSPORT ≠ APPLICATIF) ──────────────────────────

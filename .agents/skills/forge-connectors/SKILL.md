@@ -1,13 +1,6 @@
 ---
 name: forge-connectors
-description: >
-  Connecteurs cloud Claude (claude.ai) accessibles UNIQUEMENT par agt_claude :
-  Gmail (10 tools), Google Calendar (auth), Google Drive (auth), Notion (13 tools).
-  Déclencher quand l utilisateur demande : "envoie mail", "créé draft Gmail",
-  "cherche dans Gmail", "créé page Notion", "mets à jour Notion", "ajoute event
-  calendar", "fichier Drive". Si la demande vient d un autre CLI (Gemini/Cline/
-  Codex), router vers agt_claude via TUI ou agent_messages — eux n'ont PAS
-  accès direct.
+description: "À utiliser quand l'owner demande d'agir dans Gmail, Google Calendar, Google Drive ou Notion : envoyer ou chercher un mail, créer un brouillon, une page Notion, un événement, retrouver un fichier Drive. Ces connecteurs claude.ai ne sont joignables que par agt_claude : depuis toute autre surface, la demande se route vers lui."
 ---
 
 # claude-connectors — Connecteurs cloud Claude.ai

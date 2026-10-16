@@ -172,15 +172,45 @@ def zone_evaluateur_touchee(chemins) -> list:
 #   - verrou humain (kill-switch opsec)    : priorite absolue, deja existant, IMPORTE ;
 #   - frein `sandbox/evolution.halt`       : N'IMPORTE QUEL organe le pose, seul l'owner le
 #                                            retire (supprimer le fichier) ;
-#   - armement `LAFORGE_EVOLUTION_ARMED=1` : absent par defaut, geste OWNER.
+#   - armement `LAFORGE_EVOLUTION_ARMED=1` : absent par defaut, geste OWNER ;
+#   - OU cle fichier `sandbox/evolution.armed` (debat RSI 15/10, AGY + Codex) : le demon des
+#     boucles ne charge pas Nokido.env, une variable posee apres son demarrage ne l'atteint
+#     jamais. Un fichier est lu par TOUS les processus a chaque appel, sans redemarrage ; le
+#     poser et le retirer sont des gestes OWNER. Le frein reste prioritaire sur la cle.
 # Mesure du jour : aucune mutation autonome ne tournait (registre : triage a blanc et constats
 # en attente seulement) -- la porte desarmee ne coupe rien qui vivait. FAIL-CLOSED : un etat
 # illisible n'autorise pas une mutation. Le juge lance A LA MAIN (owner, CLI) n'y est pas soumis.
 _FREIN_EVOLUTION = ROOT / "sandbox" / "evolution.halt"
+_CLE_ARMEMENT = ROOT / "sandbox" / "evolution.armed"
+# PORTEE DE LA CLE (owner 15/10, 1er essai RSI « L1 seul ») : son CONTENU dit ce qu'elle arme.
+# `l1` = les seuls reglages L1 (applicateur + controleur de mutation) ; `tout` = aussi les
+# mutations de CODE (submit_candidate_to_judge ecrit dans l'arbre vivant, boucle gardee, merge
+# gate). Vide ou autre = n'arme RIEN, et le motif le dit : un fichier vide pose par megarde
+# n'ouvre pas l'ecriture dans l'arbre vivant. La variable LAFORGE_EVOLUTION_ARMED arme tout.
+_PORTEES_CLE = {"l1": "L1", "tout": "TOUT"}
 
 
-def evolution_autorisee() -> dict:
-    """{"autorisee": bool, "etat": ARMEE|DESARMEE|HALTED|VERROU_HUMAIN|INCONNU, "motif": str}."""
+def portee_cle() -> str | None:
+    """None = cle absente ; "L1" | "TOUT" ; "INCONNU" = contenu vide ou non reconnu.
+
+    Leve OSError si la cle existe mais ne se lit pas : l'appelant la traite en INCONNU."""
+    if not _CLE_ARMEMENT.exists():
+        return None
+    with open(_CLE_ARMEMENT, "rb") as fh:
+        brut = fh.read(256)
+    # PowerShell 5.1 (Out-File, >) ecrit en UTF-16 avec BOM : le decoder, pas le lire en charabia.
+    if brut[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        texte = brut.decode("utf-16", errors="replace")
+    else:
+        texte = brut.decode("utf-8-sig", errors="replace")
+    return _PORTEES_CLE.get(texte.strip().lower(), "INCONNU")
+
+
+def evolution_autorisee(portee: str = "TOUT") -> dict:
+    """{"autorisee": bool, "etat": ARMEE|DESARMEE|HALTED|VERROU_HUMAIN|INCONNU, "motif": str}.
+
+    `portee` = ce que l'appelant veut faire : "TOUT" par defaut (mutation de code), "L1" pour
+    un reglage L1. Une cle de portee L1 refuse une demande TOUT."""
     try:
         from nokido_agent.app.forge_opsec import human_lock_state
 
@@ -200,10 +230,46 @@ def evolution_autorisee() -> dict:
     except OSError as e:
         return {"autorisee": False, "etat": "INCONNU",
                 "motif": "frein illisible (%s) : aucune mutation" % type(e).__name__}
-    if os.environ.get("LAFORGE_EVOLUTION_ARMED", "").strip().lower() not in ("1", "true", "yes", "oui"):
+    arme_var = os.environ.get("LAFORGE_EVOLUTION_ARMED", "").strip().lower() in ("1", "true", "yes", "oui")
+    try:
+        p_cle = portee_cle()
+    except OSError as e:
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "cle d'armement illisible (%s) : aucune mutation" % type(e).__name__}
+    # Motif vide quand la variable arme seule (contrat de test_porte_evolution_nr) ; la cle se NOMME.
+    # DEBAT TOUR 3 (Q3, 15/10) : deux sources PRESENTES -> la plus RESTRICTIVE gagne, et le motif
+    # le dit. Avant, la variable (TOUT) ecrasait une cle `l1` posee par l'owner : le geste le plus
+    # recent et le plus precis perdait contre une variable d'environnement oubliee. Une cle
+    # illisible ou au contenu inconnu ferme aussi : INCONNU est la portee la plus etroite.
+    if arme_var and p_cle in (None, "TOUT"):
+        return {"autorisee": True, "etat": "ARMEE", "motif": ""}
+    if arme_var and p_cle == "INCONNU":
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "LAFORGE_EVOLUTION_ARMED arme tout, mais la cle %s est presente au contenu vide "
+                         "ou non reconnu : la source la plus restrictive gagne, rien n'est arme"
+                         % _CLE_ARMEMENT.name}
+    if arme_var and p_cle == "L1":
+        if portee != "L1":
+            return {"autorisee": False, "etat": "DESARMEE",
+                    "motif": "LAFORGE_EVOLUTION_ARMED arme tout, la cle %s porte L1 : la source la plus "
+                             "restrictive gagne, la portee %s n'est pas armee" % (_CLE_ARMEMENT.name, portee)}
+        return {"autorisee": True, "etat": "ARMEE",
+                "motif": "LAFORGE_EVOLUTION_ARMED (TOUT) et cle %s (L1) : la plus restrictive gagne, "
+                         "portee L1" % _CLE_ARMEMENT.name}
+    if p_cle is None:
         return {"autorisee": False, "etat": "DESARMEE",
-                "motif": "LAFORGE_EVOLUTION_ARMED absent : l'armement est un geste owner"}
-    return {"autorisee": True, "etat": "ARMEE", "motif": ""}
+                "motif": "ni LAFORGE_EVOLUTION_ARMED ni %s : l'armement est un geste owner"
+                         % _CLE_ARMEMENT.name}
+    if p_cle == "INCONNU":
+        return {"autorisee": False, "etat": "INCONNU",
+                "motif": "cle %s presente, contenu vide ou non reconnu (attendu 'l1' ou 'tout') : "
+                         "rien n'est arme" % _CLE_ARMEMENT.name}
+    if p_cle == "L1" and portee != "L1":
+        return {"autorisee": False, "etat": "DESARMEE",
+                "motif": "cle %s de portee L1 : la portee %s n'est pas armee"
+                         % (_CLE_ARMEMENT.name, portee)}
+    return {"autorisee": True, "etat": "ARMEE",
+            "motif": "cle %s (portee %s)" % (_CLE_ARMEMENT.name, p_cle)}
 
 
 def poser_frein_evolution(motif: str, par: str = "?") -> dict:

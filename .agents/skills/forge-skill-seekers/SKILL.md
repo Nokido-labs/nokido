@@ -1,15 +1,6 @@
 ---
 name: forge-skill-seekers
-description: >
-  Génération NATIVE de SKILL.md depuis une source de documentation (URL, texte).
-  Capacité SOUVERAINE de Nokido exposée comme tool hub dynamique `skill_forge` —
-  réimplémentation du subset utile de Skill_Seekers, sans dépendance externe ni
-  serveur tiers. Triggers : l'utilisateur fournit une URL de doc (vendor, framework,
-  API) et demande « crée un skill depuis cette doc », « transforme docs.X en skill »,
-  « scrape et indexe cette doc », « skill auto depuis URL », ou évoque un vendor sans
-  skill associé (Cisco IOS-XE, Juniper Junos, MikroTik RouterOS). Le tool fetch (crawl)
-  → structure (LLM LOCAL) → review (SkillGuardian) → écrit une PROPOSITION ; l'install
-  dans docs/skills/ est une action privilégiée gatée (confirm + owner).
+description: "À utiliser quand l'owner veut faire une skill d'une URL de documentation (« crée un skill depuis cette doc »), ou cite un équipement sans skill (Cisco IOS-XE, Juniper, MikroTik). Outil hub `skill_forge` : crawl, structuration par LLM souverain, revue SkillGuardian. Produit une PROPOSITION ; l'installer dans docs/skills/ reste un geste owner."
 ---
 
 # forge-skill-seekers — capacité native docs → SKILL.md
@@ -20,7 +11,9 @@ LIVE. Réimplémenté en natif dans `app/forge_skill_forge.py`, exposé comme to
 `skill_forge` (registre `app/forge_tools_dynamic/registry.json`, handler
 `app/forge_tools_dynamic/tool_skill_forge.py`). La capacité ÉMANE de Nokido : aucun serveur MCP
 externe, aucune dépendance `pip`, aucun code tiers (donc aucune attribution MIT requise).
-Souveraineté : structuration via LLM LOCAL (router/ollama/lmstudio/groq), jamais d'API
+Souveraineté (`app/forge_skill_forge.py`, `_SAFE_PROVIDERS` / `_FORBIDDEN`) : local
+(ollama, lmstudio, llamacpp, router_local) ou cloud ouvert (groq, cerebras, sambanova),
+routeur ou docker — ce n'est donc pas « tout local » —, jamais d'API
 claude/gemini bare (provider forcé via `_safe_provider`).
 
 ## Pipeline (composition de l'existant, anti-dup)

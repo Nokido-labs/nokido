@@ -1,0 +1,4 @@
+{
+  "_doc": "Skills RETIREES du service. tools/forge_skill_sync.py ne les rapatrie plus depuis une copie CLI (consolidate) et --apply met ces copies de cote dans sandbox/skill_sync_mis_de_cote (jamais supprimees, --rollback les remet). Leur derniere version vit ici sous _attic_<slug>. Ajouter une entree = decision owner datee, APRES lecture du contenu de la skill. Retirer une entree = la skill redevient deployable.",
+  "_historique": "2026-10-14 : huit skills (autonomie, cognitive-sync, env, hub, ops, pipeline, quota, route) inscrites puis desinscrites le meme soir sur decision owner : le retrait avait ete decide sur leur description et leur usage, sans lire leur contenu, et forge-core qui les absorbait n'etait deployee chez aucun agent. Revue skill par skill en cours."
+}

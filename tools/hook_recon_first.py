@@ -365,4 +365,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Sortie UTF-8 (stdout ET stderr : les refus passent par stderr). Sans elle, Windows ecrit en
+    # cp1252 et l'agent lit des accents casses (audit des prompts du 15/10, constat 1).
+    for _flux in (sys.stdout, sys.stderr):
+        if hasattr(_flux, "reconfigure"):
+            _flux.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main())

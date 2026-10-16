@@ -19,5 +19,12 @@
     "path": "%NOKIDO_ROOT%\\app\\forge_tools_dynamic\\tool_metier_dispatch.py",
     "created": "2026-08-02T00:00:00",
     "hash": "8ae0f2e8"
+  },
+  "constantes_du_corps": {
+    "description": "Constantes du corps en LECTURE SEULE : reglages declares (PARAMS_L1 : bornes, defaut, valeur du magasin, qui peut changer) a cote des constantes observees (forge_physiology). N'ecrit rien ; l'ecriture reste a l'applicateur L1 arme.",
+    "signature": "constantes_du_corps(section)",
+    "path": "%NOKIDO_ROOT%\\app\\forge_tools_dynamic\\tool_constantes_du_corps.py",
+    "created": "2026-10-15T13:50:00",
+    "hash": "643c139a"
   }
 }

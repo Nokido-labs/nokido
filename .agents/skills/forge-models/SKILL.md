@@ -1,91 +1,43 @@
 ---
 name: forge-models
-description: Choisir / switcher un modèle Nokido (local ou cloud OAuth) au-delà des modèles natifs du CLI. Déclencher quand l'utilisateur veut "changer de modèle", "utiliser un autre modèle", "liste les modèles", "tourne en local", "utilise Claude Max / Gemini / Groq", "switch model", ou router une tâche vers un modèle Nokido précis. Le picker natif du CLI ne liste que ses modèles intégrés ; ce skill expose les modèles Nokido (locaux + cloud OAuth) via le hub MCP et préserve les quotas.
-targets: [claude, gemini, copilot]
+description: "À utiliser quand un agent ou l'owner veut un autre modèle que celui de sa surface : changer de modèle, tourner en local, utiliser Claude Max, Gemini, Groq ou un modèle spécialisé, déporter une micro-tâche, lister les modèles. Le sélecteur natif d'un CLI ne voit que ses modèles ; la skill passe par le hub (list_providers, ask)."
 ---
 
-# Nokido — choix / switch de modèle (via le hub MCP)
+# forge-models — choisir et utiliser un modèle Nokido depuis n'importe quelle surface
 
-Le picker natif du CLI (`/model`) ne liste que ses modèles intégrés (verrouillés).
-Les modèles Nokido — **locaux** + **cloud OAuth** — sont accessibles via le hub MCP
-`laforge-sovereign-hub`. Ce skill = la surface de "choix de modèle" pour Nokido.
+Le sélecteur natif d'un CLI (`/model`) ne liste que ses modèles intégrés. Les modèles de Nokido,
+locaux et cloud, se joignent par le hub. Vaut pour toutes les surfaces et pour les agents du swarm.
 
-## Lister les modèles disponibles
+## Lister
 
-Appelle le tool MCP `hub` avec `action=list_providers` (ou `route_task`).
-Affiche à l'utilisateur la liste : nom du provider, ring, disponibilité.
+- `hub action=list_providers` : nom, ring, disponibilité ; `hub action=whoami` : latence et note.
+- Deux espaces de noms coexistent : les noms courts acceptés par `ask` (`groq`, `gemini`, `mistral`,
+  `cohere`, `deepseek`, `openrouter_free`, `gemini_cli`, `claude_cli`, `codex_cli`, `copilot_cli`…)
+  et ceux du registre. En cas de doute, c'est `ask` qui fait foi. La forme `provider:model` est
+  acceptée par `ask` (ex. `groq:llama-3.3-70b-versatile`).
 
-## Utiliser / switcher vers un modèle
+## Utiliser
 
-Pour exécuter une tâche sur un modèle Nokido : tool MCP `ask(provider="<nom>", message="<tâche>")`.
+`ask(provider="<nom>", message="<tâche>")`.
 
-| Provider | Quoi | Quand l'utiliser |
+| Provider | Quoi | Quand |
 |---|---|---|
-| `ollama` | local (qwen2.5-coder, deepseek) | micro-tâches — **préserve le quota natif du CLI** |
-| `claude_cli` | Claude OAuth **Max/Ultra** (PAS l'API payante) | raisonnement / code lourd |
-| `gemini_cli` | Gemini OAuth | alternatif lourd, quota frais |
-| `groq` / `cerebras` | cloud rapide free-tier | itération rapide |
-| `auto` | **switchboard Nokido** : déporte la micro-tâche en local, garde le cloud pour le lourd | **défaut recommandé** |
+| `auto` | switchboard Nokido : le micro-travail en local, le lourd en cloud | **défaut recommandé** |
+| `ollama`, llama.cpp | local, zéro quota | micro-tâches, déport |
+| `claude_cli` | Claude OAuth Max (pas l'API payante) | raisonnement, code lourd |
+| `gemini_cli` | AGY (agy.exe, OAuth Google) | alternatif lourd |
+| `groq`, `cerebras`, `openrouter_free` | cloud rapide gratuit | itération rapide |
 
-## Règle quota (déport)
+⚠️ Les fournisseurs CLI d'abonnement (`claude_cli`, `gemini_cli`, `codex_cli`, `copilot_cli`) n'ont
+leur OAuth que dans le profil owner : depuis un job ou un service, ils peuvent rendre « backend non
+prêt ». Pour faire **travailler** AGY, déposer une tâche ANTIGRAVITY (voir `forge-pipeline`) : son
+exécuteur lance agy dans le bon contexte.
 
-Tout ce qui est déportable — relecture, docstring, typecheck, recherche, reformulation —
-→ `ask(provider="ollama"|"auto")`. Garde le modèle natif (Haiku/Sonnet) pour l'interactif
-court. Ne brûle pas le quota cloud sur du déportable.
+## Règle de déport
 
-> Note : ceci ne change PAS le modèle natif du CLI (impossible sans BYOK endpoint) — ça
-> DÉLÈGUE le travail à un modèle Nokido via `ask`, en gardant le CLI comme orchestrateur.
+Tout ce qui est déportable (relecture, docstring, typage, recherche, reformulation) part vers
+`ask(provider="auto")` ou `ollama`. Le modèle natif du CLI reste pour l'interactif court. Ne pas
+brûler le quota cloud sur du déportable.
 
-
-## [fusionné depuis laforge-quota]
-
-> **[archivé 2026-08-11]** Frontmatter d'origine, neutralisé. Le dossier
-> `forge-quota` a été supprimé, son contenu vit ici.
->
->     name: laforge-quota
-description: Gestion quota Gemini CLI. Pools séparés Flash/Pro/Preview. Sélection auto modèle. Reporter quota réel au hub.
----
-
-# Nokido Quota — Gestion Modèles Gemini
-
-## Règle fondamentale au boot
-
-```python
-# TOUJOURS en premier à chaque session
-import subprocess
-subprocess.run(['python', 'tools/hub_call.py', 'quota_model', 'quality=medium', 'apply=true'],
-    cwd=r'~\Script python IA\LaForge')
-```
-
-## Reporter le quota réel (après /model dans CLI)
-
-```python
-import subprocess
-subprocess.run(['python', 'tools/hub_call.py', 'quota_report',
-    'flash=100', 'flash_lite=23', 'pro=0', 'preview_pro=0'],
-    cwd=r'~\Script python IA\LaForge')
-```
-
-## Niveaux de qualité
-
-| Niveau | Modèle prioritaire | Quand |
-|--------|-------------------|-------|
-| ultra/high | gemini-3.1-pro-preview | Raisonnement complexe |
-| medium | gemini-2.5-flash-lite | Usage général |
-| low | gemini-2.5-flash-lite | Poll, routing léger |
-| local | groq / llamacpp | Fallback hors quota Google |
-
-## Si erreur 429
-
-```python
-subprocess.run(['python', 'tools/hub_call.py', 'quota_model', 'quality=low', 'apply=true'],
-    cwd=r'~\Script python IA\LaForge')
-```
-
-## Pools quota (indépendants)
-
-- Flash 2.5 + Flash-Lite = **même pool** (reset 12h)
-- Pro 2.5 = pool séparé (reset 24h)
-- Pro 3.1 preview = **pool totalement séparé** (reset 24h)
-- 0% utilisé dans /model = vraiment disponible
-
+Cette skill DÉLÈGUE une tâche à un modèle Nokido ; elle ne change pas le modèle natif du CLI. Pour
+router tout un CLI vers Nokido : `forge-route`. Pour le budget, les 429 et les pools : `forge-quota`.

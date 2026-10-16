@@ -97,8 +97,31 @@ def _node_metrics() -> dict:
     return m
 
 
+_VIDANGE_MAX = 64 * 1024  # corps NON LU vide (jamais garde ni traite) avant fermeture ; au-dela, RST assume
+
+
 class _Handler(BaseHTTPRequestHandler):
     timeout = 10  # serveur mono-fil : un client lent ne bloque pas le noeud indefiniment
+
+    def _vider_corps_non_lu(self):
+        """Apres une reponse rendue SANS lire le corps (refus avant lecture), vider au plus `_VIDANGE_MAX` octets.
+
+        Windows : fermer une connexion avec des octets recus non lus envoie un RST, et le client PERD la reponse deja
+        ecrite. Mesure du 15/10 (CI de reference 1ec53f29e) : `ConnectionAbortedError [WinError 10053]` a la lecture
+        d'un 403 OTA, intermittent. Le refus reste decide et ecrit AVANT toute lecture : ces octets ne sont ni
+        gardes ni traites, seulement retires du tampon pour que la fermeture soit propre."""
+        if getattr(self, "_corps_lu", False):
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return
+        if 0 < n <= _VIDANGE_MAX:
+            try:
+                self.connection.settimeout(2.0)
+                self.rfile.read(n)
+            except OSError:
+                pass  # muet-ok : client deja parti -- la reponse est ecrite, la vidange n'est qu'un confort de fermeture
 
     def _lire_corps(self, plafond: int):
         """Lit le corps SEULEMENT s'il est borne. Rend (octets, None) ou (None, (code, motif)) :
@@ -111,6 +134,7 @@ class _Handler(BaseHTTPRequestHandler):
             return None, (400, "Content-Length negatif")
         if n > plafond:
             return None, (413, f"corps de {n} o au-dela du plafond de {plafond} o")
+        self._corps_lu = True
         return self.rfile.read(n), None
 
     def _json(self, obj, code=200):
@@ -120,6 +144,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self._vider_corps_non_lu()
 
     def do_POST(self):
         p = self.path.rstrip("/")

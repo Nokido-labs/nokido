@@ -9,6 +9,7 @@ un module recode = resume invalide -> regenere).
 Idempotent + --limit par run (tient sous le cap 120s du trusted_script).
 Boucle externe : appeler --limit K jusqu'a remaining=0.
 """
+# nokido-compte: owner  -- ecrit tools/forge_card_summaries.json (versionne ; tools/ = RX pour les comptes du hub)
 from __future__ import annotations
 import sys, json, asyncio
 from pathlib import Path

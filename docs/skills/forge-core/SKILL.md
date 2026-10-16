@@ -1,11 +1,9 @@
 ---
 name: forge-core
 description: >
-  Nokido Sovereign Hub — orchestrateur multi-agents local-first.
-  Hub HTTP:8766, bridge stdio, RAG SQLite, 196+ modules forge_*.py,
-  7 rôles locaux (Ollama), 8 cloud roles (groq/github/mistral),
-  forge_task_queue, forge_roles, forge_trust_score, forge_mailbox.
-  Mis à jour automatiquement après chaque git commit.
+  Archive figée (juin 2026) : ancienne carte d'architecture et journal de ~465 commits
+  du 10 au 16/06, écrits par l'ancien post-commit (il n'écrit plus ici). À lire seulement
+  pour dater un changement de cette période. État actuel : skill nokido, `introspect`, `git log`.
 ---
 
 # Nokido — Knowledge Base pour IAs collaboratrices

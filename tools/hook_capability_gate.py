@@ -754,6 +754,125 @@ def verdict_forme(tool_name, entree):
     return False, ""
 
 
+# ── COMPTE D'EXECUTION DECLARE PAR LE SCRIPT (owner 15/10 : « les problemes de compte sont recurrents, corrige-le pour
+# de bon dans le process d'appel des tools ») ──────────────────────────────────────────────────────────────────────
+# La regle REGLES_JOB_ONLINE_SEULEMENT cherchait `tools/ci_local.py` dans le TEXTE de l'appel. Mesure du 15/10 : la CI
+# de reference est partie en `run_job online=true` par un RELAIS (`C:/tmp/drafts/rsi/ci_reference_<sha>.py`) -- le
+# texte ne nommait que le relais, le gate n'a rien vu, et la CI est morte en REFUS (`.git/worktrees: Permission
+# denied`, compte LaForgeSbxOnline). Un garde qui ne lit que l'emballage ne garde rien. Ici : le script DECLARE son
+# compte une fois (`# nokido-compte: hors_ligne|en_ligne|owner`, en debut de ligne, 8 premiers Ko), et le gate le lit
+# dans le script lance OU dans les `tools/*.py` qu'un relais appelle. Contradiction avec `online` = MUR d'emblee : ces
+# combinaisons sont fausses a coup sur (mesurees le 11/09 et le 15/10), un rappel promu au 3e echec y est trop tard.
+_DECLARATION_COMPTE = re.compile(r"^#\s*nokido-compte\s*:\s*(hors_ligne|en_ligne|owner)\b", re.MULTILINE)
+_OUTIL_CITE = re.compile(r"tools[/\\]([A-Za-z0-9_]+\.py)")
+_RACINE_DEPOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _tete_fichier(chemin: str, n: int = 8192) -> str:
+    try:
+        with open(chemin, encoding="utf-8", errors="replace") as fh:
+            return fh.read(n)
+    except OSError:
+        return ""
+
+
+def compte_declare(script: str, racine: str = _RACINE_DEPOT) -> tuple:
+    """(compte, source) : la declaration du script lance, sinon celle du premier outil du depot qu'il appelle (relais).
+    Aucune declaration -> (None, "") : le gate ne devine jamais un compte."""
+    chemin = script if os.path.isabs(script) else os.path.join(racine, script)
+    tete = _tete_fichier(chemin)
+    m = _DECLARATION_COMPTE.search(tete)
+    if m:
+        return m.group(1), script
+    for nom in dict.fromkeys(_OUTIL_CITE.findall(tete)):
+        m = _DECLARATION_COMPTE.search(_tete_fichier(os.path.join(racine, "tools", nom)))
+        if m:
+            return m.group(1), "tools/" + nom
+    return None, ""
+
+
+def verdict_compte(tool_name, entree, lire=compte_declare):
+    """(bloque, message). Fonction PURE (lecture injectable) : tout le NR passe par elle."""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+    entree = entree or {}
+    action = str(entree.get("action") or "")
+    if court != "run" or action not in ("run_job", "trusted_script"):
+        return False, ""
+    script = entree.get("script") if action == "run_job" else entree.get("path")
+    if not isinstance(script, str) or not script.strip():
+        return False, ""
+    compte, source = lire(script)
+    en_ligne = bool(entree.get("online") or entree.get("network"))
+    if compte == "owner":
+        return True, (
+            "[compte] %s se declare `nokido-compte: owner` : il exige le PROFIL de l'owner (reseau + ecriture que "
+            "les comptes du hub n'ont pas -- runtime/, tools/, profil). Aucun job ne peut le jouer.\n"
+            "  -> le donner a l'owner comme geste en CONSOLE au dossier Nokido : `python %s`." % (source, source))
+    if compte == "hors_ligne" and en_ligne and action == "run_job":
+        return True, (
+            "[compte] %s se declare `nokido-compte: hors_ligne`, et cet appel le lance `online=true` : le compte devient "
+            "LaForgeSbxOnline, qui n'a pas les droits git du depot. Mesures : 11/09 CI 11 failures toutes git "
+            "(`.git/index.lock: Permission denied`) ; 15/10 CI de reference REFUS (`.git/worktrees: Permission "
+            "denied`, rc=2 muet).\n  -> relancer le MEME job SANS `online` (le gate pip-audit juge la fraicheur du "
+            "temoin versionne, il ne rappelle pas PyPI)." % source)
+    if compte == "en_ligne" and not en_ligne and action == "run_job":
+        return True, (
+            "[compte] %s se declare `nokido-compte: en_ligne`, et cet appel le lance hors ligne : LaForgeSbxOffline "
+            "n'a pas d'egress, et un appel reseau y rend une sortie VIDE sans erreur.\n"
+            "  -> relancer avec `online=true`." % source)
+    return False, ""
+
+
+# ── AUCUNE CHARGE PENDANT UNE CI DE REFERENCE (regle owner du 29/09, payee 2x ; recidive du 15/10) ─────────────────
+# Le 15/10, l'agent a lance trois sessions pytest pendant la suite pure de la CI bee38e2f7 ; un worker xdist s'y est
+# ecrase (cause non etablie, chevauchement etabli). La regle n'existait qu'en memoire. forge_ci_reference pose
+# desormais `sandbox/ci_reference_en_cours.json` (pid + heure de creation) ; tant que ce processus VIT, la charge
+# est MUREE. Temoin perime (processus mort ou pid reutilise) = ignore ; sans psutil, l'age (< 3 h) tranche.
+TEMOIN_CI = os.path.join(_RACINE_DEPOT, "sandbox", "ci_reference_en_cours.json")
+_CHARGE_CI = re.compile(r"\bpytest\b|ci_local\.py|forge_ci_reference|forge_mutation", re.IGNORECASE)
+
+
+def ci_en_cours(chemin: str = TEMOIN_CI, maintenant: float | None = None) -> dict | None:
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            t = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    now = time.time() if maintenant is None else maintenant
+    try:
+        import psutil
+        p = psutil.Process(int(t.get("pid") or 0))
+        cree = t.get("cree")
+        if cree is not None and abs(p.create_time() - float(cree)) >= 1.0:
+            return None                       # pid reutilise par un autre processus
+        return t
+    except ImportError:
+        return t if now - float(t.get("debut") or 0) < 3 * 3600 else None
+    except Exception:  # noqa: BLE001 - NoSuchProcess / pid illisible : le temoin est perime
+        return None
+
+
+def verdict_ci_en_cours(tool_name, entree, etat=ci_en_cours):
+    """(bloque, message). Fonction PURE (etat injectable)."""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+    entree = entree or {}
+    action = str(entree.get("action") or "")
+    if court != "run" or action not in ("shell", "python", "run_job", "trusted_script", ""):
+        return False, ""
+    charge = action in ("run_job", "trusted_script") or bool(_CHARGE_CI.search(_texte_brut(entree) or ""))
+    if not charge:
+        return False, ""
+    t = etat()
+    if not t:
+        return False, ""
+    minutes = max(0, int((time.time() - float(t.get("debut") or time.time())) // 60))
+    return True, (
+        "[CI en cours] une CI de reference tourne sur %s depuis %d min (pid %s) : AUCUNE charge de ta part tant "
+        "qu'elle n'a pas rendu son verdict (regle owner du 29/09 ; 15/10 : 3 sessions pytest pendant la suite pure, "
+        "un worker xdist ecrase).\n  -> lecture, edition, git, job_status passent ; pytest, ci_local, run_job "
+        "attendent la fin (le moniteur de la CI te reveillera)." % (str(t.get("sha") or "?")[:9], minutes, t.get("pid")))
+
+
 def verdict_depense(tool_name, entree):
     """(bloque, message). Fonction PURE : tout le NR passe par elle.
 
@@ -923,6 +1042,24 @@ def main() -> int:
             # ne depend pas de ce canal. Journaliser ici ne servirait qu'a
             # faire echouer le garde sur sa propre trace -- exactement le
             # defaut paye le 2026-09-06 (garde RSS mort en ecrivant son journal).
+            pass
+        return 0
+
+    # --- COMPTE d'execution DECLARE par le script, puis CHARGE pendant une CI de reference : MURS, pas rappels.
+    bloque, pourquoi = verdict_compte(ev.get("tool_name") or "", entree)
+    if not bloque:
+        bloque, pourquoi = verdict_ci_en_cours(ev.get("tool_name") or "", entree)
+    if bloque:
+        print(pourquoi, file=sys.stderr)
+        try:
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": pourquoi,
+                }
+            }))
+        except Exception:  # noqa: BLE001 - muet-ok : le refus est deja sur stderr
             pass
         return 0
 

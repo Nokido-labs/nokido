@@ -1,11 +1,10 @@
 ---
 name: forge-anatomy
 description: >
-  Grille anatomique de Nokido : diagnostic différentiel organe →
-  pathologie → remède. À utiliser avant de concevoir un module
-  forge_*.py, sur un bug systémique aux symptômes diffus, pour un audit
-  d'architecture, ou pour savoir à quel organe appartient un module.
-  Autorité : census organ_map_full.json. Jumeau de
+  À utiliser avant de créer un module forge_*.py (déclarer son organe), sur un bug
+  systémique aux symptômes diffus, pour un audit d'architecture, ou pour savoir à
+  quel organe appartient un module. Diagnostic différentiel organe → pathologie →
+  remède ; le census organ_map_full.json fait autorité. Jumeau de
   forge-systematic-debugging.
 ---
 

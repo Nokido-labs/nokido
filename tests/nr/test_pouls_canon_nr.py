@@ -82,12 +82,27 @@ def _ecriture_brute(rel: str):
         return None
     pouls = set()
     nom_construit = False
+    # FAUX POSITIF FERME LE 2026-10-14. `nom_construit` vaut pour tout le module : `tools/session_anchor.py`
+    # LIT les pouls des daemons via `f"{name}.heartbeat"` et ecrit son ancre de cadence
+    # `ANCRE = ROOT / "sandbox" / "session_anchor.dernier"` -- ce `ANCRE.write_text` etait compte comme
+    # un pouls brut (26 pour un plafond de 25). Un nom dont TOUTES les affectations nomment explicitement
+    # un AUTRE fichier (litteral a extension, ni `.heartbeat` ni f-string) n'est pas un pouls. Un nom issu
+    # d'un appel (le cas `forge_task_executor` ci-dessous) n'en nomme aucun : il reste couvert.
+    autre_fichier: dict = {}
     for n in ast.walk(arbre):
         if isinstance(n, ast.Assign) and n.targets:
             if ".heartbeat" in ast.unparse(n.value):
                 for t in n.targets:
                     if isinstance(t, ast.Name):
                         pouls.add(t.id)
+            nomme_autre = (not any(isinstance(c, ast.JoinedStr) for c in ast.walk(n.value))
+                           and ".heartbeat" not in ast.unparse(n.value)
+                           and any(isinstance(c, ast.Constant) and isinstance(c.value, str)
+                                   and "." in c.value.replace("\\", "/").rsplit("/", 1)[-1]
+                                   for c in ast.walk(n.value)))
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    autre_fichier[t.id] = autre_fichier.get(t.id, True) and nomme_autre
         # ANGLE MORT FERME LE 2026-09-05. `forge_task_executor` ecrivait TROIS pouls
         # (`task_executor`, `_worker_code`, `_antigravity`) via
         # `SANDBOX / f"task_executor_{slug}.heartbeat"`, puis `_hb.write_text(...)` ou
@@ -107,7 +122,8 @@ def _ecriture_brute(rel: str):
             base = f.value
             while isinstance(base, ast.Attribute):
                 base = base.value
-            if isinstance(base, ast.Name) and (base.id in pouls or nom_construit):
+            if isinstance(base, ast.Name) and (base.id in pouls
+                                               or (nom_construit and not autre_fichier.get(base.id))):
                 sites.append(n.lineno)
         elif isinstance(f, ast.Name) and f.id == "open" and n.args:
             a0 = n.args[0]
@@ -154,6 +170,24 @@ def test_cliquet_est_serre_sur_la_mesure():
         "le plafond (%d) est LARGE de %d par rapport a la mesure (%d) : le descendre, "
         "sinon la dette peut revenir sans declencher le garde"
         % (PLAFOND_ECRIVAINS_BRUTS, PLAFOND_ECRIVAINS_BRUTS - len(bruts), len(bruts)))
+
+
+def test_le_detecteur_distingue_une_ancre_d_un_pouls_construit(tmp_path):
+    # Faux positif du 2026-10-14 : une ancre nommee en clair n'est pas un pouls, meme dans un module qui
+    # construit des noms de pouls. L'angle mort du 2026-09-05 (pouls issu d'un APPEL) reste ferme.
+    module = tmp_path / "module_temoin.py"
+    module.write_text(
+        "from pathlib import Path\n"
+        "ROOT = Path('.')\n"
+        "ANCRE = ROOT / 'sandbox' / 'session_anchor.dernier'\n"
+        "def lit(name):\n"
+        "    return (ROOT / 'sandbox' / f'{name}.heartbeat').exists()\n"
+        "def ancre():\n"
+        "    ANCRE.write_text('1', encoding='utf-8')\n"
+        "def pouls(slug):\n"
+        "    _hb = _chemin(slug)\n"
+        "    _hb.write_text('{}', encoding='utf-8')\n", encoding="utf-8")
+    assert _ecriture_brute(str(module)) == [10]
 
 
 def test_beat_daemon_inscrit_pid_et_horodatage(tmp_path, monkeypatch):

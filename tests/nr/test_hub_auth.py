@@ -56,6 +56,30 @@ def _coffre_suit_l_environnement(monkeypatch):
                         raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _rend_les_modules_web_hub():
+    """Rend a la fin de chaque test les modules `app.web_hub*` que ses fixtures purgent pour tout reimporter.
+
+    POURQUOI (mesure 2026-10-14, calibration `--turbo`). Ce fichier vide `app.web_hub*` de `sys.modules` et ne le
+    rendait jamais. Un fichier collecte AVANT lui dans le meme processus garde ses references aux anciens modules,
+    alors que `forge_authz_http` importe `app.web_hub.auth` PARESSEUSEMENT, au moment de l'appel : il recevait
+    l'instance NEUVE, non patchee, dont `from_env()` genere un secret. `test_garde_ui_mutation_nr` echouait ainsi
+    (2 tests, prouve par ordre force : ce fichier puis celui-la = 2 failed) des que l'ordre les reunissait.
+    """
+    def _cle(k):
+        return k == "app.web_hub" or k.startswith("app.web_hub.")
+
+    avant = {k: v for k, v in sys.modules.items() if _cle(k)}
+    yield
+    for k in [k for k in sys.modules if _cle(k) and k not in avant]:
+        del sys.modules[k]
+    sys.modules.update(avant)
+    for k, mod in avant.items():
+        parent, _, enfant = k.rpartition(".")
+        if parent in sys.modules:
+            setattr(sys.modules[parent], enfant, mod)
+
+
 @pytest.fixture
 def admin_token():
     return "super-secret-admin-token-42"

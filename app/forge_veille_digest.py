@@ -650,6 +650,17 @@ def _hub_json(provider: str, prompt: str) -> dict:
         _s.path.insert(0, app)
     from nokido_agent.app.forge_agent_proxy import ask
 
+    # CAVIARDER AVANT D'ENVOYER (15/10). `pre_flight` est un garde BINAIRE, pas un redacteur :
+    # une seule donnee sensible dans la matiere de veille (courriel, IP...) et TOUT le lot est
+    # refuse. Mesure : « digest lot KO … [FIREWALL] envoi cloud bloque (groq) : DLP » a chaque
+    # passage du 15/10. Le digest n'a besoin d'aucune de ces valeurs pour suggerer.
+    try:
+        from nokido_agent.app.forge_semantic_firewall import redact_text
+
+        prompt, _carte = redact_text(prompt, session_id="veille_digest")
+    except Exception as exc:  # noqa: BLE001 - redacteur indisponible : le garde binaire tranche, et on le dit
+        logger.warning("digest : caviardage indisponible (%s) -- envoi soumis au seul pre_flight",
+                       type(exc).__name__)
     res = asyncio.run(ask(provider, prompt, rag_context=False, raw=True,
                           max_tokens=700, timeout=90))
     if not res.get("ok"):

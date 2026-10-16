@@ -84,17 +84,32 @@ def hash_plan(pure_tests, blocs_isoles=(), exclusions=()) -> str:
     })
 
 
-def hash_contrat(chemins):
+def hash_contrat(chemins, racine=None):
     """(empreinte, illisibles) — les REGLES qui transforment l'execution en verdict.
 
     Un fichier illisible n'est pas un fichier absent : on ne l'ignore pas, on le
     NOMME et l'appelant decide. Hacher ce qu'on a pu lire en se taisant sur le
     reste produirait une empreinte qui a l'air complete.
+
+    INDEPENDANT DE L'EMPLACEMENT (2026-10-14). Les cles etaient les chemins ABSOLUS et le contenu les octets
+    BRUTS : la reference (worktree sous `nokido_proof\\ci-reference-<h>`, LF) et le runner (checkout
+    `C:\\laforge-runner\\_work\\...`, CRLF par autocrlf) ne pouvaient JAMAIS concorder au meme sha -- mesure sur
+    973191f54 : c819c46f... contre 2a87803a..., reprise refusee. Avec `racine`, la cle est le chemin RELATIF
+    (posix) et le contenu est normalise CRLF -> LF : ce qui change le verdict, pas l'endroit ni l'encodage des
+    fins de ligne. Un fichier hors `racine` garde son chemin absolu -- la cle dit alors elle-meme qu'elle est
+    propre a une machine.
     """
     parts, illisibles = {}, []
+    base = Path(racine) if racine else None
     for c in sorted({str(x) for x in (chemins or ())}):
+        cle = c
+        if base is not None:
+            try:
+                cle = Path(c).relative_to(base).as_posix()
+            except ValueError:
+                cle = c
         try:
-            parts[c] = hashlib.sha256(Path(c).read_bytes()).hexdigest()
+            parts[cle] = hashlib.sha256(Path(c).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
         except OSError as e:
             illisibles.append("%s (%s)" % (c, type(e).__name__))
     return hash_canonique(parts), illisibles
@@ -301,3 +316,62 @@ def lire(chemin):
         return None, "ABSENT(%s)" % p
     except (OSError, ValueError) as e:
         return None, "ILLISIBLE(%s: %s)" % (type(e).__name__, str(e)[:120])
+
+
+# ── REPRISE D'UNE PREUVE PAR UN AUTRE OBSERVATEUR (option A, decision owner du 2026-10-14) ──────────────────────────
+# Mesure : la CI de reference (compte de job) puis le runner GitHub (compte du poste) rejouaient la MEME suite pure de
+# 14 255 tests sur le MEME silicium, ~20 min chacun. Le runner peut desormais REPRENDRE la preuve de la reference pour
+# le meme sha -- a condition que TOUT ce qui ne depend pas du compte concorde. L'environnement complet ne peut PAS
+# concorder (`empreinte_contexte` porte le compte et les fichiers residents du profil, que chaque compte voit
+# differemment : c'est voulu) ; ces deux axes sont donc DECLARES non re-mesures, jamais tus.
+AXES_NON_REMESURES = ("compte", "fichiers residents du profil")
+_SUBSTRAT_MEME_MACHINE = ("os", "arch", "modele_cpu", "processeur")
+
+
+def reprenable(m, sha, attendu):
+    """(bool, motif). `attendu` = ce que le REPRENEUR mesure chez lui : plan, contrat, lock (hash), match (sa propre
+    reconciliation au lock), substrat. Liste BLANCHE : un champ absent ou different refuse."""
+    ok, motif = certifie(m, exiger=("dependency_lock_hash",))
+    if not ok:
+        return False, motif
+    if not sha or (m.get("observed_head") or "") != sha:
+        return False, "sha observe %s != %s" % (str(m.get("observed_head"))[:12], str(sha)[:12])
+    for cle, champ in (("plan", "test_plan_hash"), ("contrat", "ci_contract_hash"), ("lock", "dependency_lock_hash")):
+        if not attendu.get(cle) or m.get(champ) != attendu[cle]:
+            return False, "%s different (preuve %s, repreneur %s)" % (
+                champ, str(m.get(champ))[:12], str(attendu.get(cle))[:12])
+    if attendu.get("match") != "CONFORME":
+        return False, ("environnement du repreneur %s au lock : il ne peut rien reprendre"
+                       % (attendu.get("match") or "NON RECONCILIE"))
+    sub_m, sub_a = m.get("substrate") or {}, attendu.get("substrat") or {}
+    for k in _SUBSTRAT_MEME_MACHINE:
+        if not sub_m.get(k) or sub_m.get(k) != sub_a.get(k):
+            return False, "substrat %s different (%r != %r) : pas la meme machine" % (k, sub_m.get(k), sub_a.get(k))
+    return True, ""
+
+
+def chercher_reprise(sha, racines, attendu):
+    """(chemin, manifeste, refus) -- la preuve reprenable la plus recente pour `sha` sous les racines, sinon
+    (None, None, motifs). Une racine absente et une preuve illisible sont DITES dans les motifs."""
+    refus, candidats = [], []
+    for rac in racines:
+        base = Path(rac)
+        if not base.is_dir():
+            refus.append("racine absente ou illisible : %s" % base)
+            continue
+        try:
+            candidats += [(p.stat().st_mtime, p) for p in base.glob("*/artefacts/ci_proof.json")]
+        except OSError as e:
+            refus.append("racine ILLISIBLE %s (%s)" % (base, type(e).__name__))
+    for _t, p in sorted(candidats, key=lambda x: -x[0]):
+        m, motif = lire(p)
+        if m is None:
+            refus.append(motif)
+            continue
+        if (m.get("observed_head") or "") != sha:
+            continue
+        ok, pourquoi = reprenable(m, sha, attendu)
+        if ok:
+            return p, m, refus
+        refus.append("%s : %s" % (p.parent.parent.name, pourquoi))
+    return None, None, refus

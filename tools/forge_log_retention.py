@@ -1675,6 +1675,12 @@ def _racines_de_preuve(fw) -> tuple:
         racines.append(Path(_chemin_tmp_sandbox()) / "nokido_proof")
     except Exception as e:  # noqa: BLE001
         illisibles.append("chemin_tmp_sandbox illisible (%s)" % type(e).__name__)
+    # 15/10 : les racines INSCRITES par les comptes qui jugent (hook pre-push de l'owner : D:/Temp/nokido_proof,
+    # 44 worktrees accumules hors de vue de ce service).
+    try:
+        racines.extend(Path(r) for r in fw.racines_de_preuve_inscrites())
+    except Exception as e:  # noqa: BLE001
+        illisibles.append("registre des racines illisible (%s)" % type(e).__name__)
     uniques = []
     for rac in racines:
         if all(os.path.normcase(str(rac)) != os.path.normcase(str(u)) for u in uniques):
@@ -1732,10 +1738,15 @@ def _purger_une_racine_de_preuve(fw, base: Path, dry: bool) -> dict:
         # suppression a la main apres un refus de git » le gardait POUR TOUJOURS. Aucun worktree
         # vivant ne le reference ; les metadonnees pointant vers un .git absent sont celles que
         # `git worktree prune` nettoie en fin de passage -- supprimer ne cree aucune reference orpheline.
-        if (e / "worktree" / ".git").exists():
-            r = fw.retirer_worktree(e / "worktree")
-        elif (e / ".git").exists():
-            r = fw.retirer_worktree(e)
+        wt_git = e / "worktree" if (e / "worktree" / ".git").exists() else (e if (e / ".git").exists() else None)
+        if wt_git is not None:
+            # SANS PERTE d'abord (owner 15/10) : `git worktree remove --force` effacerait aussi un travail non
+            # commite ou un commit que seul ce worktree porte. Raison dite, worktree garde.
+            perte = fw.perte_possible(wt_git) if hasattr(fw, "perte_possible") else "controle sans perte INDISPONIBLE"
+            if perte:
+                erreurs.append({"entree": e.name, "msg": "GARDE (perte possible) : %s" % perte})
+                continue
+            r = fw.retirer_worktree(wt_git)
         else:
             cibles = {os.path.normcase(os.path.normpath(str(p))) for p in (e, e / "worktree")}
             if not liste_lisible or cibles & connus:
@@ -1863,9 +1874,19 @@ def main() -> int:
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--daemon", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--preuves", action="store_true",
+                    help="avec --once : SEULEMENT la purge des worktrees de preuve, sur les racines du compte "
+                         "qui l'execute (le runner CI appelle ceci pour SA racine, que le service ne voit pas)")
     args = ap.parse_args()
     if not args.once and not args.daemon:
         ap.error("--once or --daemon required")
+
+    if args.once and args.preuves:
+        # Mesure du 2026-10-14 : 38 worktrees de preuve sous D:/Temp/nokido_proof (TEMP du compte du RUNNER),
+        # le plus ancien du 26/09. Le service (autre compte) ne parcourt que SA racine et celle des comptes de job :
+        # chaque compte qui CREE des preuves purge desormais la sienne, avec les memes regles (PROOF_KEEP / PROOF_DAYS).
+        print(json.dumps(_purge_worktrees_de_preuve(dry=args.dry_run), indent=2, default=str))
+        return 0
 
     if args.once:
         print(json.dumps(run_retention(dry=args.dry_run), indent=2, default=str))

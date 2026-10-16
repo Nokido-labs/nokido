@@ -91,40 +91,32 @@ def check_db_contention(armed: bool) -> dict:
 
 # ── 3. Dette glymphatique (orphelins/débris) ─────────────────────────────────
 def check_orphans(armed: bool) -> dict:
+    # CONTRAT DU FAUCHEUR (15/10). `_managed_scripts` n'existe plus depuis c2705bb03 (le faucheur est
+    # devenu moissonneur d'orphelins llama hors registre) : l'import levait a CHAQUE passage, la dette
+    # glymphatique n'etait plus jamais mesuree, et la branche armee passait `--arm`, que le faucheur
+    # ignore (il attend `--kill`) tout en ecrivant `auto_reaped: True`. On lit desormais SON inventaire.
     try:
-        import psutil
-        from nokido_agent.tools.forge_orphan_reaper import _managed_scripts
-        scripts = {s.lower() for s in _managed_scripts()}
-        if not scripts:
-            return {"candidates": 0}
-        skip = {os.getpid(), os.getppid()}
-        cand = 0
-        for p in psutil.process_iter(["pid", "name"]):
-            try:
-                if (p.info["name"] or "").lower() not in ("python.exe", "pythonw.exe"):
-                    continue
-                if p.info["pid"] in skip:
-                    continue
-                cll = " ".join(p.cmdline()).replace("\\", "/").lower()
-                if "miniforge" in cll and any(s in cll for s in scripts):
-                    cand += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-    except Exception as e:
-        return {"error": str(e)[:120]}
-    out = {"candidates": cand}
+        from nokido_agent.tools.forge_orphan_reaper import survey
+        res = survey()
+    except Exception as e:  # noqa: BLE001 - faucheur illisible : INCONNU, jamais « 0 orphelin »
+        return {"etat": "INCONNU", "error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+    if not res.get("ok"):
+        return {"etat": "INCONNU", "raison": str(res.get("reason") or "inventaire refuse")[:160]}
+    cand = len(res.get("candidates") or [])
+    out = {"candidates": cand, "epargnes": len(res.get("spared") or [])}
     if cand > 0:
         if armed:
             try:
-                r = subprocess.run([sys.executable, str(ROOT / "tools" / "forge_orphan_reaper.py"), "--arm"],
-                                   capture_output=True, text=True, timeout=20, errors="replace")
-                out["auto_reaped"] = True
+                r = subprocess.run([sys.executable, str(ROOT / "tools" / "forge_orphan_reaper.py"), "--kill"],
+                                   capture_output=True, text=True, timeout=60, errors="replace")
                 out["rc"] = r.returncode
-            except Exception as e:
+                out["moissonnes"] = r.stdout.count("REAPED pid=")
+            except Exception as e:  # noqa: BLE001 - dit, jamais compte comme fait
                 out["reap_error"] = str(e)[:120]
         else:
             out["signaled"] = _signal("orphan_debris", "warn",
-                                      {"candidates": cand, "remedy": "armer forge_orphan_reaper (--arm)"})
+                                      {"candidates": cand,
+                                       "remedy": "tools/forge_orphan_reaper.py --kill (ou remediation --armed)"})
     return out
 
 

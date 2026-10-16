@@ -27,8 +27,11 @@ def _assets():
 
 
 def _pieges(monkeypatch):
-    """Doubles des deux exporteurs : on compte qui est appele, rien n'est exporte."""
-    appels = {"non_filtre": [], "essentiel": []}
+    """Doubles des exporteurs : on compte qui est appele, rien n'est exporte.
+
+    2026-10-15 (decision owner) : la release construit le pack NATIF ; le pack selection (`export_pack`, troue en
+    v0.20.11) ne doit plus etre appele par la release -- compte a part, `selection`."""
+    appels = {"non_filtre": [], "essentiel": [], "selection": []}
     nf = type(sys)("forge_knowledge_pack")
     nf.export_pack = lambda **kw: appels["non_filtre"].append(kw)
     es = type(sys)("forge_knowledge_pack_export")
@@ -38,7 +41,8 @@ def _pieges(monkeypatch):
         Path(kw["output"]).write_bytes(b"pack")
         return {"retenus": 1, "sha256": "0" * 64}
 
-    es.export_pack = _essentiel
+    es.export_pack_natif = _essentiel
+    es.export_pack = lambda **kw: appels["selection"].append(kw)
     monkeypatch.setitem(sys.modules, "nokido_agent.tools.forge_knowledge_pack", nf)
     monkeypatch.setitem(sys.modules, "nokido_agent.tools.forge_knowledge_pack_export", es)
     return appels
@@ -50,7 +54,7 @@ def test_sans_clone_du_dist_refus_avant_tout_export(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as e:
         m.build_rag_pack(tmp_path, "9.9.9")
     assert "--repo" in str(e.value) and "--skip-pack" in str(e.value)
-    assert appels == {"non_filtre": [], "essentiel": []}
+    assert appels == {"non_filtre": [], "essentiel": [], "selection": []}
     assert list(tmp_path.iterdir()) == []
 
 
@@ -59,6 +63,7 @@ def test_avec_le_clone_seul_l_export_essentiel_est_appele(tmp_path, monkeypatch)
     appels = _pieges(monkeypatch)
     dest = m.build_rag_pack(tmp_path, "9.9.9", tmp_path / "dist")
     assert appels["non_filtre"] == [], "l'export NON FILTRE a ete appele : la base partirait dans la release"
+    assert appels["selection"] == [], "le pack SELECTION (troue en v0.20.11) a ete appele au lieu du natif"
     assert len(appels["essentiel"]) == 1 and appels["essentiel"][0]["dist"] == tmp_path / "dist"
     assert dest.name == "nokido_knowledge_pack_v9.9.9.npz"
 
@@ -82,4 +87,4 @@ def test_le_point_d_entree_sans_repo_ni_skip_pack_refuse(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as e:
         m.main()
     assert "--repo" in str(e.value)
-    assert appels == {"non_filtre": [], "essentiel": []}
+    assert appels == {"non_filtre": [], "essentiel": [], "selection": []}

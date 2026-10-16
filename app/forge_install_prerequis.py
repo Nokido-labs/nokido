@@ -77,6 +77,32 @@ PREREQUIS: tuple[dict, ...] = (
                     "macos": "brew install git"},
     },
     {
+        # Decision owner 15/10 : Nokido porte Lean, DANS son arborescence (runtime/elan, version epinglee par
+        # formel/lean-toolchain), jamais dans un profil utilisateur -- illisible par le hub et absent du public.
+        "cle": "lean",
+        "binaires": ("lake", "lean"),
+        "niveau": OPTIONNEL,
+        "capacite": "preuve formelle : juge forge_lean_verify (gate) et boucle forge_lean_prove",
+        "absent_alors": "le juge rend INCONNU (jamais un vert) et la boucle de preuve ne tourne pas",
+        "install": {"*": "python tools/forge_lean_provision.py  (elan v4.2.4 epingle, chaine de formel/lean-toolchain, "
+                         "ELAN_HOME=runtime/elan, sans toucher au PATH)"},
+        "chemins_usuels": (str(ROOT / "runtime" / "elan" / "bin" / "lake.exe"),
+                           str(ROOT / "runtime" / "elan" / "bin" / "lake")),
+    },
+    {
+        # Decision owner 15/10 « les deux » (matrice puis Promptfoo) : Promptfoo DANS l'arborescence (runtime/promptfoo,
+        # version epinglee), jamais en npm global d'un profil -- celui de mai etait invisible des comptes du hub.
+        "cle": "promptfoo",
+        "binaires": ("promptfoo",),
+        "niveau": OPTIONNEL,
+        "capacite": "comparaison des voies de la matrice (forge_promptfoo_pont : cles au coffre, correcteurs fixes)",
+        "absent_alors": "--eval rend INCONNU ; la matrice et son axe competence restent la mesure",
+        "install": {"*": "python tools/forge_promptfoo_pont.py --provisionner  (npm local, promptfoo epingle, "
+                         "prefixe runtime/promptfoo, jamais -g)"},
+        "chemins_usuels": (str(ROOT / "runtime" / "promptfoo" / "node_modules" / ".bin" / "promptfoo.cmd"),
+                           str(ROOT / "runtime" / "promptfoo" / "node_modules" / ".bin" / "promptfoo")),
+    },
+    {
         "cle": "deno",
         "binaires": ("deno",),
         "niveau": ESSENTIEL,

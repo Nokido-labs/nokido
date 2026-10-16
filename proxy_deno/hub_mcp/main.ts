@@ -174,7 +174,7 @@ let TOOL_CATALOG: Array<{name: string; description: string; inputSchema: unknown
   { name: "route_task", description: "Route tache vers provider LLM gratuit (ollama/gemini/groq)",
     inputSchema: { type: "object", properties: { task: { type: "string" }, hint: { type: "string" } }, required: ["task"] }
   },
-  { name: "ask", description: "RPC LLM: provider=claude|gemini|groq|ollama|gpt4o_github|gem",
+  { name: "ask", description: "RPC LLM: provider=claude|gemini|groq|ollama|gem",
     inputSchema: { type: "object", properties: { provider: { type: "string" }, prompt: { type: "string" }, system: { type: "string" } }, required: ["provider", "prompt"] }
   },
   { name: "hub", description: "Etat hub: action=get_mode|set_mode|poll|notify|list_providers",

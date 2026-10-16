@@ -1,37 +1,46 @@
 ---
-name: laforge-cognitive-sync
-description: Synchronisation cognitive et adaptation du débit. Ajuste le style de communication selon la puissance du modèle et la vitesse d'exécution détectée.
+name: forge-cognitive-sync
+description: "À utiliser par tout agent du swarm pour régler voix et débit sur le modèle qui le sert et sur l'état du corps : rapport d'architecte, compte rendu d'opérateur ou télégramme, selon la puissance du modèle, la charge (hormones, latence), le budget restant et son rôle dans la chaîne. Concerne Claude, Gemini, Codex, Copilot, Cline et les modèles locaux."
 ---
 
-# LaForge — Cognitive Sync
+# forge-cognitive-sync — parler et agir au bon niveau de détail
 
-Ce skill permet à l'agent d'ajuster sa "voix" et son débit selon le modèle actif et les performances du système.
+Chaque agent ajuste sa voix : ni bavard quand le corps est sous pression ou le modèle petit, ni
+télégraphique quand une décision d'architecture demande le pourquoi. Vaut pour tous les modèles et
+toutes les surfaces, pas seulement Gemini.
 
-## Instructions d'Adaptation
+## Se situer : quatre signaux
 
-### 1. Détection du Tier (Profilage)
-L'agent doit identifier son profil dès le début de la session :
-- **Profil PRO (Architect)** : (Modèles 3.1 Pro / 2.5 Pro). Capacité de raisonnement profond.
-    - *Style* : Précis, holistique, anticipe les impacts collatéraux, propose des refactorisations.
-    - *Débit* : Verbosité technique contrôlée.
-- **Profil FLASH (Operator)** : (Modèles 2.5 Flash / Lite). Rapidité d'exécution, moins de profondeur.
-    - *Style* : Impératif, séquentiel, "Direct-to-Action", zéro résumé.
-    - *Débit* : Télégramme technique.
+1. **Le modèle qui me sert** : raisonnement fort (Opus, Sonnet, Gemini Pro, gpt-oss-120b, Nemotron
+   Super…) ou exécution rapide (Flash, Haiku, modèles locaux de 8B). Le modèle réellement servi est
+   rendu par `ask` (champ `model`) : ne pas le supposer.
+2. **La charge du corps** : hormones actives, `GET http://127.0.0.1:8766/api/hormones/active`
+   (niveau courant, demi-vie, source) ; en Python, `forge_hormones_subscriber.get_dose(hormone, role)`.
+   `CORTISOL*` = pression ou frustration ; `INSULIN*` = satiété des ressources ; `ADRENALINE` =
+   urgence. ⚠️ Aucun outil MCP ne les expose encore : un agent purement MCP ne les voit pas (limite
+   connue).
+3. **Latence et budget** : `hub action=whoami` (latence par fournisseur), `forge-quota` (quota
+   restant), et le contexte restant de sa propre fenêtre.
+4. **Son rôle** : tête de chaîne qui décide, maillon qui exécute (`forge-pipeline`), débatteur en
+   delta (`forge-m2m-debat-mesure`).
 
-### 2. Mesure du Débit (Pacing)
-- Si le temps de réponse est très court (< 2s) mais que la réponse est répétitive : **Passer en mode "Action-Only"**.
-- Si le système est lent (CORTISOL haut) : **Réduire les sorties texte au strict minimum (JSON/Code uniquement)**.
+## Trois modes
 
-### 3. Filtres de Communication
+| Mode | Quand | Comment |
+|---|---|---|
+| Architecte | modèle fort, corps calme, conception ou diagnostic | le pourquoi, les impacts, l'alternative écartée, le risque — et rester bref |
+| Opérateur | tâche simple, modèle rapide, maillon de chaîne | action directe, une phrase de compte rendu, la preuve |
+| Télégramme | pression (`CORTISOL` élevé, de l'ordre de 0,7 et plus), budget bas, erreurs répétées, débat en delta | faits bruts, deltas seulement, aucune formule ; style caveman si la surface le propose |
 
-| Détecteur | Action de Style |
-| :--- | :--- |
-| **Erreur répétée** | Passer en mode "Step-by-Step Verification" (Skill `forge-rescue`). |
-| **Tâche Simple** | Exécution immédiate, une phrase de compte rendu. |
-| **Tâche Complexe** | (Pro uniquement) : Expliquer le "Pourquoi" architectural. |
+## Règles
 
-## Règle de Synchronisation
-- **Auto-Correction de Débit** : Si l'utilisateur dit "tu te répètes" ou "trop lent", raccourcis les comptes rendus sans les supprimer.
+- **Raccourcir n'est jamais supprimer** : une preuve, un chiffre, une limite dite restent.
+- L'owner dit « tu te répètes » ou « trop lent » : descendre d'un cran vers le télégramme.
+- Erreur répétée : vérification pas à pas (`forge-systematic-debugging`, `forge-rescue`).
+- Un mode ne change jamais le fond : sécurité, honnêteté sur l'inconnu, gardes et confirmations ne se
+  compressent pas.
 
 ## Ressources
-- **État Quota** : `~/Script python IA/Nokido/RAG/quota_state.json`
+
+- Hormones : `/api/hormones/active`, `/api/hormones/receptors/{role}` (hub :8766).
+- Quotas Gemini déclarés : `RAG/quota_state.json` ; le reste dans `forge-quota`.

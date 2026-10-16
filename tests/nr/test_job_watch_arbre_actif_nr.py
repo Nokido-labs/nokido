@@ -62,3 +62,47 @@ def test_une_activite_illisible_est_dite_au_verdict(tmp_path):
     cli.surveiller("job_c", gel_s=900, max_s=999999, intervalle=1, ecrire=vues.append, jobs_dir=tmp_path,
                    horloge=horloge, dormir=dormir, activite=lambda pid: None)
     assert any("FIGE" in l and "ILLISIBLE" in l for l in vues), vues
+
+
+def test_un_client_qui_attend_un_serveur_n_est_pas_fige(tmp_path):
+    """15/10 : pack natif en attente de l'embedder :8099 -- CPU et octets lus/ecrits plats, seules ses operations
+    d'E/S (reseau, `other_count` sous Windows) avancent. Il etait dit FIGE."""
+    _job(tmp_path, "job_d")
+    t, horloge, dormir = _temps()
+    cumul = {"ops": 0}
+
+    def activite(pid):
+        cumul["ops"] += 2700
+        return 49.3, 45_000_000, cumul["ops"]
+
+    vues = []
+    cli.surveiller("job_d", gel_s=900, max_s=3000, intervalle=1, ecrire=vues.append, jobs_dir=tmp_path,
+                   horloge=horloge, dormir=dormir, activite=activite)
+    assert not any("FIGE —" in l for l in vues), vues
+    assert any("arbre travaille" in l and "operations" in l for l in vues), vues
+
+
+def test_trois_champs_stables_restent_fige_inactif(tmp_path):
+    _job(tmp_path, "job_e")
+    t, horloge, dormir = _temps()
+    vues = []
+    cli.surveiller("job_e", gel_s=900, max_s=999999, intervalle=1, ecrire=vues.append, jobs_dir=tmp_path,
+                   horloge=horloge, dormir=dormir, activite=lambda pid: (10.0, 1000, 7))
+    assert any("FIGE" in l and "INACTIF" in l for l in vues), vues
+
+
+def test_le_vrai_capteur_compte_les_operations(tmp_path):
+    """Chemin reel : `_activite_arbre` sur le process courant rend trois champs, et une ecriture fait avancer les
+    operations (pas seulement une fonction verifiee « par lecture »)."""
+    import os
+
+    avant = cli._activite_arbre(os.getpid())
+    assert avant is not None and len(avant) == 3, avant
+    f = tmp_path / "temoin.bin"
+    for _ in range(80):
+        with open(f, "wb") as fh:
+            fh.write(b"x" * 4096)
+            fh.flush()
+            os.fsync(fh.fileno())
+    apres = cli._activite_arbre(os.getpid())
+    assert apres[2] > avant[2], (avant, apres)

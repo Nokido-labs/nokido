@@ -123,6 +123,17 @@ def test_routes_du_hub_et_relais_du_portail():
     assert "/api/providers/acces" in (RACINE / "app" / "web_hub" / "static" / "providers.js").read_text(encoding="utf-8")
 
 
+def test_un_403_sans_session_est_nomme_pas_affiche_en_erreur_brute():
+    """14/10 : sans session VERIFIEE, le relais n'a pas de delegation (decision owner 2a) -> 403 VOULU. La page
+    affichait « Lecture refusee : ring <= 1 required » ; elle nomme desormais ce refus, AVANT la branche d'erreur
+    generique (un 403 tombe donc jamais dans « Lecture refusee »)."""
+    js = (RACINE / "app" / "web_hub" / "static" / "providers.js").read_text(encoding="utf-8")
+    i403 = js.find("r.status === 403")
+    igen = js.find('"Lecture refusée : "')
+    assert i403 != -1 and "Réservé à l'owner connecté au portail" in js
+    assert igen != -1 and i403 < igen, "le 403 doit etre traite avant l'erreur generique"
+
+
 def test_une_cle_illisible_n_est_pas_absente_et_ne_leve_pas(monkeypatch):
     """MESURE pre-controle 2026-09-25 : Settings trouve desormais le chemin de la cle (coffre ou
     Nokido.env), et `Path.exists()` LEVE PermissionError sous un compte qui ne peut pas lire le

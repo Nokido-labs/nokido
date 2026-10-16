@@ -32,17 +32,51 @@ from nokido_agent.app.forge_secrets import get_secret  # noqa: E402
 
 HUB_TOKEN = get_secret("FORGE_TOKEN_GEMINI") or ""
 
-# ── 1. Quota tracking ──────────────────────────────────────────────────────
-model = os.environ.get("GEMINI_MODEL", "")
-input_tok = int(get_secret("GEMINI_INPUT_TOKENS") or 0 or 0)
-output_tok = int(get_secret("GEMINI_OUTPUT_TOKENS") or 0 or 0)
+def resolve_caller_model() -> str:
+    """Résout le modèle de l'appelant en priorité sur toute variable globale figée.
 
-if model:
+    Ordre de priorité (décision owner 15/10/2026) :
+    1. Argument CLI passé au hook (ex: --model <m>, ou argument nommant un modèle)
+    2. Variable d'environnement de l'appelant CLI (GEMINI_CLI_MODEL, AGY_MODEL)
+    3. Configuration active du client CLI (~/.gemini/settings.json -> model.name)
+    4. Variable d'environnement GEMINI_MODEL (repli)
+    """
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a in ("--model", "-m") and i + 1 < len(args):
+            return args[i + 1].strip()
+        if a.startswith("--model="):
+            return a.split("=", 1)[1].strip()
+        if not a.startswith("-") and ("gemini" in a.lower() or "pro" in a.lower() or "flash" in a.lower()):
+            return a.strip()
+
+    for k in ("GEMINI_CLI_MODEL", "AGY_MODEL"):
+        val = os.environ.get(k, "").strip()
+        if val:
+            return val
+
+    try:
+        settings_path = Path.home() / ".gemini" / "settings.json"
+        if settings_path.exists():
+            data = json.loads(settings_path.read_text(encoding="utf-8"))
+            m = data.get("model", {}).get("name", "").strip()
+            if m:
+                return m
+    except Exception:  # muet-ok : repli suit
+        pass
+
+    return os.environ.get("GEMINI_MODEL", "").strip()
+
+
+def track_quota(model_name: str, input_tokens: int, output_tokens: int, state_file: Path = STATE_FILE) -> dict:
+    """Comptabilise les tokens consommés sous le bucket du modèle de l'appelant."""
+    if not model_name:
+        return {}
     state = {}
     try:
-        if STATE_FILE.exists():
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except Exception:
+        if state_file.exists():
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+    except Exception:  # muet-ok : state reste vide
         pass
 
     # Mapping des quotas. Chaque modèle possède son propre bucket.
@@ -51,19 +85,30 @@ if model:
         "gemini-3.1-flash-lite-preview": "preview_lite",
         "gemini-2.5-pro": "pro",
         "gemini-2.5-flash": "flash",
-        "gemini-2.5-flash-lite": "flash_lite",  # corrected
+        "gemini-2.5-flash-lite": "flash_lite",
+        "gemini-flash-lite-latest": "flash_lite",
     }
-    pool = pool_map.get(model, "unknown")
-    tokens = input_tok + output_tok
+    pool = pool_map.get(model_name, "unknown")
+    tokens = input_tokens + output_tokens
     key = f"tokens_{pool}"
     state[key] = state.get(key, 0) + tokens
-    state["last_model"] = model
+    state["last_model"] = model_name
     state["last_tokens"] = tokens
     state["last_update"] = datetime.now().isoformat()
     state["ts"] = datetime.now().isoformat()
 
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    return state
+
+
+# ── 1. Quota tracking ──────────────────────────────────────────────────────
+model = resolve_caller_model()
+input_tok = int(get_secret("GEMINI_INPUT_TOKENS") or 0 or 0)
+output_tok = int(get_secret("GEMINI_OUTPUT_TOKENS") or 0 or 0)
+
+if model:
+    track_quota(model, input_tok, output_tok)
 
 
 # ── 2. Poll hub volatile queue → inject as Gemini context ─────────────────

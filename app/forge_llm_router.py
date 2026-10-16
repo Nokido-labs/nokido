@@ -754,7 +754,13 @@ _MARGE_PONT_S = 30  # au-dela du timeout de l'appel, le pont synchrone rend la m
 _ECHEC_CAPACITE = ("429", "rate limit", "rate_limit", "ratelimit", "resourceexhausted", "quota",
                    "402", "payment", "insufficient", "tier_not_allowed", "invalid_api_key", "invalid api key",
                    "401", "unauthorized", "ecartee", "indisponible", "unavailable", "cooldown", "timeout",
-                   "timed out", "connection", "refused", "refusee", "reponse vide", "502", "503", "504")
+                   "timed out", "connection", "refused", "refusee", "reponse vide", "502", "503", "504",
+                   # Depassement de TAILLE (audit ChatGPT 15/10, verifie : absent de la liste alors que le
+                   # routeur documente le depassement de contexte de Codestral). Marqueurs PRECIS : jamais
+                   # « context » ou « too large » seuls, qu'un refus de moderation pourrait contenir.
+                   "413", "request too large", "payload too large", "request entity too large",
+                   "context_length_exceeded", "context length", "maximum context", "context window",
+                   "too many tokens", "prompt is too long")
 # Plafond de replis OAuth par heure (debat tour 2) : sans lui, une panne large des API gratuites
 # draine le quota des abonnements OAuth. Compte les TENTATIVES de repli, pas les reussites.
 _REPLI_OAUTH_PLAFOND_H = 30
@@ -909,6 +915,16 @@ def _resident_local_model(name: str) -> str:
     """Modele local reellement CHARGE (capte par _slot_local_ready), '' sinon."""
     hit = _LOCAL_READY_CACHE.get(name)
     return hit[2] if hit and len(hit) > 2 else ""
+
+
+def _modele_servi(resp) -> str:
+    """Le modele que le FOURNISSEUR dit avoir servi (`resp.model`), sinon "UNKNOWN".
+
+    Audit ChatGPT web du 15/10, verifie : les retours ne portaient que le modele DEMANDE
+    (`slot.config["models"][0]`, ou le resident local) -- un alias dynamique cote fournisseur
+    faussait l'attribution des scores et des limites. Jamais deduit de la configuration."""
+    m = getattr(resp, "model", None)
+    return str(m) if m else "UNKNOWN"
 
 
 def _capter_capacite(provider: str, source) -> None:
@@ -1658,6 +1674,8 @@ class LLMRouter:
                     "text": text,
                     "provider": slot_name,
                     "model": model,
+                    "requested_model": model,
+                    "served_model": _modele_servi(resp),
                     "elapsed_ms": elapsed,
                     "tokens": getattr(resp.usage, "total_tokens", 0) if hasattr(resp, "usage") else 0,
                     "cache": _cache_stats,
@@ -1812,6 +1830,8 @@ class LLMRouter:
                 "text": text,
                 "provider": slot.name,
                 "model": model,
+                "requested_model": model,
+                "served_model": _modele_servi(resp),
                 "elapsed_ms": elapsed,
                 "tokens": getattr(resp.usage, "total_tokens", 0),
                 "use_case": use_case,
@@ -1901,6 +1921,8 @@ class LLMRouter:
                 "text": text,
                 "provider": slot.name,
                 "model": model,
+                "requested_model": model,
+                "served_model": _modele_servi(resp),
                 "elapsed_ms": round((time.monotonic() - t0) * 1000, 1),
                 "tokens": getattr(resp.usage, "total_tokens", 0),
                 "use_case": use_case,

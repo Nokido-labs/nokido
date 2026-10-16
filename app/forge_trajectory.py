@@ -255,6 +255,11 @@ class Trajectory:
             "started_at": self.started_at,
         }
 
+    @property
+    def ok(self) -> bool:
+        """True si la trajectoire contient au moins une étape et toutes sont 'completed'."""
+        return bool(self.steps) and all(s.status == "completed" for s in self.steps)
+
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
 

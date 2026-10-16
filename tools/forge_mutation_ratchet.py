@@ -111,11 +111,77 @@ SURFACES = [
 ]
 
 
-def mesurer() -> dict:
-    """{module|genre: nb_survivants} sur toutes les surfaces + meta par surface."""
+# ── REPRISE PAR SURFACE (owner 2026-10-15 : « les accelerations CI oui bien sur ») ──────
+# Mesure : ce cliquet coute ~5 min a CHAQUE CI (4 min 53 s sur le runner, 5 min en local)
+# alors que ses surfaces changent rarement. Le resultat d'une surface ne depend que de son
+# module, de sa suite, du moteur de mutation, des conftest, du plafond et de l'interpreteur :
+# leur EMPREINTE identique rend le meme verdict. Une surface dont l'empreinte a bouge est
+# REJOUEE ; une surface non propre n'est jamais reprise (INDETERMINE, comme avant).
+# Limite assumee : un module importe par la suite mais hors empreinte peut changer sans
+# invalider la reprise -- d'ou l'age maximal (7 j) et `--sans-reprise` (ou
+# LAFORGE_MUTATION_REPRISE=0) pour forcer une mesure complete. `--ecrire-socle` mesure toujours.
+REPRISE_AGE_MAX_S = 7 * 24 * 3600
+_FICHIERS_COMMUNS = ("tools/forge_mutation_test.py", "tests/conftest.py", "tests/nr/conftest.py")
+
+
+def _racine_principale() -> str:
+    """L'arbre PRINCIPAL : la CI de reference tourne dans un worktree neuf a chaque run (la
+    reprise y serait toujours vide), et Nokido est un sous-module (`--git-common-dir` pointe
+    alors dans .git/modules, pas dans l'arbre). `git worktree list` nomme l'arbre principal en tete."""
+    import subprocess
+
+    try:
+        sortie = subprocess.run(["git", "-c", "safe.directory=*", "-C", ROOT, "worktree", "list", "--porcelain"],
+                                capture_output=True, text=True, errors="replace", timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ROOT  # muet-ok : git illisible -> reprise locale a cet arbre (au pire jamais trouvee)
+    for ligne in sortie.splitlines():
+        if ligne.startswith("worktree "):
+            return ligne[len("worktree "):].strip() or ROOT
+    return ROOT
+
+
+def _fichier_reprise() -> str:
+    return (os.environ.get("LAFORGE_MUTATION_REPRISE_FICHIER")
+            or os.path.join(_racine_principale(), "sandbox", "mutation_ratchet_reprise.json"))
+
+
+def _empreinte_surface(module: str, tests: str, cap: int) -> str:
+    import hashlib
+    import platform
+
+    h = hashlib.sha256(("%s|%s|%s|%s" % (module, tests, cap, platform.python_version())).encode())
+    for rel in (module, *tests.split(), *_FICHIERS_COMMUNS):
+        h.update(rel.encode())
+        try:
+            with open(os.path.join(ROOT, rel), "rb") as fh:
+                h.update(fh.read())
+        except FileNotFoundError:
+            h.update(b"<absent>")
+    return h.hexdigest()[:24]
+
+
+def _lire_reprise(chemin: str) -> dict:
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            return dict(json.load(fh).get("surfaces") or {})
+    except (OSError, ValueError, AttributeError):
+        return {}  # muet-ok : reprise absente ou illisible -> tout est rejoue (plus lent, jamais faux)
+
+
+def mesurer(reprise: bool = False) -> dict:
+    """{module|genre: nb_survivants} sur toutes les surfaces + meta par surface.
+
+    `reprise` : une surface propre dont l'empreinte est celle d'une mesure de moins de 7 jours
+    reprend ce resultat au lieu de muter a nouveau ; la meta le dit (`repris`)."""
+    import time
+
     sys.path.insert(0, ROOT)
     from nokido_agent.tools import forge_mutation_test as M
 
+    chemin = _fichier_reprise() if reprise else ""
+    memoire = _lire_reprise(chemin) if reprise else {}
+    maintenant = time.time()
     par_cle: dict[str, int] = {}
     surfaces_meta = []
     for module, test, cap in SURFACES:
@@ -123,17 +189,30 @@ def mesurer() -> dict:
         if not propre:
             surfaces_meta.append({"module": module, "erreur": f"non propre : {motif}"})
             continue
-        res = M.executer(module, test, cap)
+        empreinte = _empreinte_surface(module, test, cap)
+        prec = memoire.get(module) or {}
+        repris = bool(reprise and prec.get("empreinte") == empreinte and isinstance(prec.get("res"), dict)
+                      and maintenant - float(prec.get("ts") or 0) < REPRISE_AGE_MAX_S)
+        res = prec["res"] if repris else M.executer(module, test, cap)
         if res.get("erreur"):
             surfaces_meta.append({"module": module, "erreur": res["erreur"]})
             continue
+        if reprise and not repris:
+            memoire[module] = {"empreinte": empreinte, "ts": maintenant, "res": res}
         for s in res.get("survivants", []):
             cle = f"{module}|{s['genre']}"
             par_cle[cle] = par_cle.get(cle, 0) + 1
         surfaces_meta.append({"module": module, "mutants": res.get("mutants"),
                               "tues": res.get("tues"),
                               "survivants": len(res.get("survivants", [])),
-                              "score": res.get("score")})
+                              "score": res.get("score"), "repris": repris})
+    if reprise:
+        try:
+            os.makedirs(os.path.dirname(chemin), exist_ok=True)
+            with open(chemin, "w", encoding="utf-8") as fh:
+                json.dump({"surfaces": memoire}, fh, ensure_ascii=False)
+        except OSError as exc:
+            print(f"[mutation-ratchet] reprise NON ecrite ({type(exc).__name__}) : prochain run complet")
     return {"par_cle": par_cle, "surfaces": surfaces_meta}
 
 
@@ -165,6 +244,8 @@ def main() -> int:
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--ecrire-socle", action="store_true")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--sans-reprise", action="store_true",
+                    help="mute toutes les surfaces, meme celles dont l'empreinte n'a pas bouge")
     # UN VERDICT QUI NE VIT QUE SUR STDOUT EST PERDU. Mesure du 2026-09-10 : le
     # cliquet a tourne en job detache, et TOUS les fichiers du job (.log, .err,
     # .json, .rc) avaient disparu au moment de lire le resultat — 25 min de
@@ -175,7 +256,9 @@ def main() -> int:
                     help="ecrit le rapport JSON (avec son code) a ce chemin absolu")
     a = ap.parse_args()
 
-    courant = mesurer()
+    reprise = not (a.ecrire_socle or a.sans_reprise
+                   or os.environ.get("LAFORGE_MUTATION_REPRISE", "1").strip() == "0")
+    courant = mesurer(reprise=reprise)
 
     if a.ecrire_socle:
         os.makedirs(os.path.dirname(SOCLE), exist_ok=True)
@@ -210,7 +293,8 @@ def main() -> int:
             print(f"   ERREUR  {s['module']} — {s['erreur']}")
         else:
             print(f"   {s['module']:<34} {s['tues']}/{s['mutants']} tues "
-                  f"({s['survivants']} survivants, score {s['score']}%)")
+                  f"({s['survivants']} survivants, score {s['score']}%)"
+                  + ("  [repris : surface inchangee]" if s.get("repris") else ""))
     for k, v in rapport.get("nouveaux", {}).items():
         print(f"   + NOUVELLE FAIBLESSE  {k}  -> {v}")
     if rapport.get("raison"):

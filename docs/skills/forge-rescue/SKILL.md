@@ -1,11 +1,10 @@
 ---
 name: forge-rescue
 description: >
-  Canal de secours Nokido : diagnostic, restart services, restore config,
-  ET génération auto de prompt de reprise pour agent perdu (resync
-  complet inter-sessions). Utilise quand un agent (Claude/Gemini/Cline)
-  vient d'ouvrir une nouvelle session et est désorienté, ou quand
-  il faut redémarrer un service critique.
+  À utiliser quand une session s'ouvre désorientée (contexte perdu, reprise
+  inter-sessions, agent qui ne sait plus où il en est), pour générer un prompt de
+  reprise, ou quand un service critique doit être diagnostiqué, redémarré ou sa
+  configuration restaurée. Canal de secours de Nokido.
 ---
 
 # Nokido Rescue — Canal de Secours + Resync Inter-Sessions
@@ -15,7 +14,7 @@ description: >
 | Symptôme | Action |
 |---|---|
 | Agent ouvre nouvelle session, perdu, demande où en sont les choses | `--resume-prompt <agent>` ou `--resync <agent>` |
-| Hub :8766 ne répond plus (CLOSE_WAIT, timeout) | `--restart-hub` |
+| Hub :8766 ne répond plus (CLOSE_WAIT, timeout) | d'abord `hub action=redemarrer_stack` (LaForge-Master :8765 est propriétaire du hub, dialogue owner) ; `--restart-hub` seulement en dernier recours, avec l'accord de l'owner |
 | netcfg-agent-mcp DOWN selon INSPECTOR | `--restart-netcfg` |
 | Tout est cassé, plus rien ne répond | `--full` |
 | Diagnostic rapide état système | `--status` |
@@ -73,7 +72,8 @@ LAFORGE_PYTHON tools/forge_rescue.py --status
 # Restore claude_desktop_config.json (si MCP cassé)
 LAFORGE_PYTHON tools/forge_rescue.py --restore --force
 
-# Restart hub via NSSM (admin auto-elevate)
+# DERNIER RECOURS, accord owner : NSSM direct (admin auto-elevate). LaForge-Master :8765 est
+# proprietaire exclusif du hub (regle d'or) ; la voie normale est `hub action=redemarrer_stack`.
 LAFORGE_PYTHON tools/forge_rescue.py --restart-hub
 
 # Restart netcfg-agent-mcp.exe
@@ -120,9 +120,9 @@ forge_rescue.py
 # Si pas de contexte récent, query auto-prompt :
 import os, subprocess
 r = subprocess.run([
-    os.path.expanduser("~/miniforge3/python.exe"),
+    os.path.expanduser("~/miniforge3/python.exe"),  # LAFORGE_PYTHON
     "tools/forge_rescue.py",
-    "--resume-prompt", "gemini"  # ou "claude"
+    "--resume-prompt", "gemini"  # ou "claude", "codex"... : l'agent qui se reveille
 ], capture_output=True, text=True, encoding="utf-8")
 print(r.stdout)
 # → 17KB+ prompt avec état live, à utiliser comme contexte de boot
@@ -132,7 +132,7 @@ print(r.stdout)
 
 ```bash
 # Génère + écrit + notify hub
-python tools/forge_rescue.py --resync gemini
+LAFORGE_PYTHON tools/forge_rescue.py --resync gemini
 # → sandbox/resume_prompt_gemini.md écrit
 # → notify CLAUDE via hub action=notify
 # → user copie/colle dans nouvelle session GEMINI
@@ -142,16 +142,16 @@ python tools/forge_rescue.py --resync gemini
 
 ```bash
 # 1. Diagnostic
-python tools/forge_rescue.py --status
+LAFORGE_PYTHON tools/forge_rescue.py --status
 
-# 2. Si hub coma : restart
-python tools/forge_rescue.py --restart-hub
+# 2. Si hub coma : hub action=redemarrer_stack (propriétaire : LaForge-Master) ;
+#    --restart-hub seulement en dernier recours, accord owner (coupe toutes les sessions)
 
 # 3. Vérifier
-python tools/forge_rescue.py --status
+LAFORGE_PYTHON tools/forge_rescue.py --status
 
 # 4. Re-générer prompt reprise pour agent affecté
-python tools/forge_rescue.py --resync gemini
+LAFORGE_PYTHON tools/forge_rescue.py --resync gemini
 ```
 
 ## Intégrations

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from nokido_agent.app import forge_autonomous_loops as al
+from nokido_agent.app import forge_mutation_judge as juge
 from nokido_agent.app import forge_proposal_applier as ap
 
 PLAN = [
@@ -21,8 +22,12 @@ PLAN = [
 
 
 @pytest.fixture()
-def espions(monkeypatch):
+def espions(monkeypatch, tmp_path):
     faits, marques = [], []
+    # La cle et le frein REELS de l'owner (sandbox/evolution.armed|halt) ne doivent jamais armer
+    # ni freiner un test : mesure du 15/10, cle `l1` posee -> « desarme » lu ARME, NR rouge.
+    monkeypatch.setattr(juge, "_CLE_ARMEMENT", tmp_path / "evolution.armed")
+    monkeypatch.setattr(juge, "_FREIN_EVOLUTION", tmp_path / "evolution.halt")
     monkeypatch.setattr(ap, "plan", lambda: [dict(x) for x in PLAN])
     monkeypatch.setattr(ap, "_executer", lambda a: faits.append(a["type"]) or {"ok": True})
     monkeypatch.setattr(ap, "_observable", lambda a: {"valeur_go": None, "source": "aucune"})

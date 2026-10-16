@@ -68,8 +68,8 @@ Ajoute dans `inputSchema.properties` de **tous** les tools (string, optionnel).
   ```
   LAFORGE_EXPLANATION_MODE=error
   ```
-- **Deadline mode=error** : **2026-08-01**. Apres cette date, le defaut bascule
-  sur `error`. Les agents doivent s'y preparer.
+- **Mode** : `warn` par defaut ; `LAFORGE_EXPLANATION_MODE=error` rend le champ
+  obligatoire. Aucune bascule datee n'est codee.
 
 ## API publique
 

@@ -229,11 +229,37 @@ def _scan_attestation_contredite() -> list[dict]:
     return out
 
 
+_FUSEAU_LOCAL = None   # None = fuseau du poste ; un test le FIXE pour etre deterministe sur tout runner
+
+
+def _creation_au_plus_tot(raw: str | None):
+    """Instant UTC le plus TOT plausible d'une date de tasks.db.
+
+    Mesure du 15/10 : tasks.db porte des dates NAIVES ecrites en HEURE LOCALE (tache deposee a 12:25 locale,
+    enregistree `12:25:16`), alors que le test du 23/07 les supposait en UTC -- plusieurs ecrivains, deux
+    conventions. Lire une date naive comme de l'UTC la decalait de +2 h (CEST) et a fabrique deux fausses
+    accusations contre AGY (commits 20 et 22 min APRES la creation, lus « 97-99 min avant »). Une date naive est
+    donc AMBIGUE : on prend la plus tot des deux lectures -- on n'accuse que ce qui est vrai dans les deux."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.strip())
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc)
+    en_local = (dt.replace(tzinfo=_FUSEAU_LOCAL) if _FUSEAU_LOCAL is not None else dt.astimezone()).astimezone(
+        timezone.utc)
+    return min(dt.replace(tzinfo=timezone.utc), en_local)
+
+
 def _scan_false_attestations() -> list[dict]:
     """Une preuve doit etre POSTERIEURE a ce qu'elle prouve.
 
     Un `pointer_ref: commit:<sha>` anterieur a la creation de la task ne peut
     pas en etre le livrable : le code existait avant que le travail soit demande.
+    La creation se lit au plus TOT (`_creation_au_plus_tot`) : une date naive est ambigue, et le cout des deux
+    erreurs n'est pas symetrique -- accuser a tort un agent coute plus que rater un cas douteux.
     """
     out: list[dict] = []
     if not TASKS_DB.exists():
@@ -250,7 +276,7 @@ def _scan_false_attestations() -> list[dict]:
         if not m:
             continue
         sha = m.group(1)
-        created_dt = _as_utc(created)
+        created_dt = _creation_au_plus_tot(created)
         raw = _git(ROOT, "show", "-s", "--format=%cI", sha)
         if raw is None:
             # git muet : on ne peut pas distinguer « sha absent » de « git indisponible ».

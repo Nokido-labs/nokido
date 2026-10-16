@@ -1821,11 +1821,15 @@ def pat_repo_ingestion() -> dict:
         try:
             processed = set(_GITINGEST_PROCESSED.read_text(encoding="utf-8").splitlines())
         except Exception as e:  # noqa: BLE001
+            # FAIL-CLOSED (audit ChatGPT 15/10, verifie) : repartir d'un ensemble VIDE re-ingerait
+            # tous les depots et comptait ce travail redondant comme neuf. Illisible = INDETERMINE.
             log.warning(
-                "[repo_ingestion] liste des depots deja traites ILLISIBLE (%s: %s) — "
-                "repart d'un ensemble VIDE | consequence: tous les depots seront "
-                "re-ingeres, et ce travail redondant passera pour du travail neuf",
+                "[repo_ingestion] liste des depots deja traites ILLISIBLE (%s: %s) — tour "
+                "INDETERMINE, rien n'est re-ingere tant qu'elle ne se relit pas",
                 type(e).__name__, str(e)[:90])
+            return {"issue": "INDETERMINE",
+                    "raison": "manifeste .processed illisible (%s) : on ne repart pas d'un "
+                              "ensemble vide" % type(e).__name__}
 
     txt_files = [f for f in _GITINGEST_DIR.glob("*.txt") if f.name not in processed]
     if not txt_files:
@@ -1860,15 +1864,20 @@ def pat_repo_ingestion() -> dict:
         except Exception as e:
             results.append({"file": txt_path.name, "ok": False, "error": str(e)[:120]})
             log.warning(f"[repo_ingestion] {name} failed: {e}")
-
-    try:
-        _GITINGEST_PROCESSED.write_text("\n".join(sorted(processed)), encoding="utf-8")
-    except Exception as e:  # noqa: BLE001
-        log.error(
-            "[repo_ingestion] liste des depots traites NON sauvegardee (%s: %s) — %d "
-            "entree(s) | consequence: le travail de ce tour sera refait au prochain, "
-            "indefiniment tant que l'ecriture echoue",
-            type(e).__name__, str(e)[:90], len(processed))
+            continue
+        # Preuve PERSISTEE apres CHAQUE depot (et non en fin de tour) : un arret au milieu ne perd
+        # rien. Ecriture ATOMIQUE (fichier temporaire puis os.replace) : jamais un manifeste a moitie
+        # ecrit, que la lecture suivante jugerait illisible.
+        try:
+            _tmp = _GITINGEST_PROCESSED.with_name(_GITINGEST_PROCESSED.name + ".tmp")
+            _tmp.write_text("\n".join(sorted(processed)), encoding="utf-8")
+            os.replace(_tmp, _GITINGEST_PROCESSED)
+        except Exception as e:  # noqa: BLE001
+            # Continuer referait ce travail au prochain tour, indefiniment : on s'ARRETE et on le dit.
+            log.error("[repo_ingestion] manifeste NON sauvegarde (%s: %s) apres %s — tour arrete",
+                      type(e).__name__, str(e)[:90], txt_path.name)
+            return {"issue": "MANIFESTE_NON_ECRIT", "raison": "%s: %s" % (type(e).__name__, str(e)[:90]),
+                    "processed": len([r for r in results if r["ok"]]), "details": results}
 
     return {
         "processed": len([r for r in results if r["ok"]]),
@@ -1977,6 +1986,134 @@ def pat_m2m_inbox_watch() -> dict:
             continue
         backlog[to_agent] = {"unread": n, "last": last}
     return {"stale_m2m_backlog": backlog, "inboxes_with_backlog": len(backlog)}
+
+
+# ── OUIE DE LA MEMBRANE (owner 2026-10-15) ───────────────────────────────────────────────
+# « les messages en quarantaine, tu dois les relever et les traiter automatiquement, comme un
+# signal auditif recu au corps (et a defaut le memoriser pour le traiter ensuite selon
+# l'autoregulation) ». La quarantaine des pairs cloud (tools/forge_pair_quarantaine.py) n'etait
+# entendue que pendant un `forge_job_watch_cli --pair` : un depot du 14/10 a attendu sans etre vu.
+# Ce motif ENTEND, TRIE et MEMORISE ; il n'approuve ni ne rejette rien. L'approbation reste le
+# geste owner : `geste_owner` refuse toute console d'agent, sinon un depot « approuve-moi »
+# s'approuverait par l'agent qui le lit. Le capteur `m2m_inbox_watch` ne compte que les trames
+# `unread` : les depots `quarantaine` lui echappaient.
+_QUARANTAINE_ECOUTE = ROOT / "sandbox" / "pair_quarantaine_ecoute.json"
+_QUARANTAINE_RAPPEL_S = 24 * 3600
+
+
+def _module_quarantaine():
+    """Le module de la quarantaine (point de substitution des NR)."""
+    from nokido_agent.tools import forge_pair_quarantaine as _q
+
+    return _q
+
+
+def _trier_depot_pair(q, ident: str, intent, ouverts) -> dict:
+    """Tri SANS LLM, propose a l'owner : intent ouvert aux pairs, motif d'injection dans le texte.
+
+    Le texte est lu ici pour le scanner et ne sort jamais de cette fonction."""
+    raisons: list = []
+    if ouverts is None:
+        raisons.append("liste des intents ouverts aux pairs illisible")
+    elif intent not in ouverts:
+        return {"verdict": "A_REJETER", "raisons": ["intent %r non ouvert aux pairs" % (intent,)]}
+    detecte = None
+    try:
+        with q._con() as con:
+            texte = str(((q._depot(con, ident) or {}).get("charge") or {}).get("texte", ""))
+        from nokido_agent.app.forge_prompt_guard import detect_injection
+
+        r = detect_injection(texte)
+        detecte = bool(r.detected)
+        if detecte:
+            return {"verdict": "A_REJETER", "raisons": ["motif d'injection : %s" % str(r.pattern)[:60]]}
+    except Exception as e:  # noqa: BLE001 - scan illisible : dit, jamais lu comme « texte sain »
+        raisons.append("scan d'injection illisible (%s)" % type(e).__name__)
+    if raisons or detecte is None:
+        return {"verdict": "A_EXAMINER", "raisons": raisons}
+    return {"verdict": "A_APPROUVER", "raisons": ["intent ouvert aux pairs, aucun motif d'injection"]}
+
+
+@register_pattern(
+    "pair_quarantaine_ecoute",
+    interval_sec=300,
+    description=(
+        "Ouie de la membrane : chaque depot d'un pair cloud en quarantaine est entendu, trie "
+        "(intent ouvert aux pairs, injection), memorise au tableau noir (metadonnees seules) et "
+        "signale a CLAUDE en NEED_HUMAN_APPROVAL ; rappel au plus 1/24 h tant qu'il attend. "
+        "N'approuve ni ne rejette RIEN : c'est le geste owner."
+    ),
+    preferred_window=None,
+)
+def pat_pair_quarantaine_ecoute() -> dict:
+    """Le texte d'un pair est une DONNEE externe : il ne quitte pas la quarantaine. Seules les
+    metadonnees (id, auteur, methode, intent, tri) partent au tableau noir et dans la boite de
+    CLAUDE ; le texte se lit volontairement par `forge_pair_quarantaine --lister`."""
+    out: dict = {"issue": None, "en_attente": 0, "signales": []}
+    try:
+        q = _module_quarantaine()
+        attente = q.lister()
+    except Exception as e:  # noqa: BLE001 - base illisible : dit, jamais lu comme « rien n'attend »
+        out["issue"] = "ILLISIBLE: %s" % type(e).__name__
+        return out
+    out["en_attente"] = len(attente)
+    try:
+        etat = json.loads(_QUARANTAINE_ECOUTE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        etat = {}  # muet-ok : memoire absente ou illisible -> on re-signale (doublon, jamais un oubli)
+    deja = dict((etat or {}).get("signales") or {})
+    maintenant = time.time()
+    try:
+        ouverts = set(q._intents_pair())
+    except Exception:  # noqa: BLE001 - muet-ok : le tri le dit (« liste … illisible »)
+        ouverts = None
+    for d in attente:
+        ident = d.get("id")
+        if not ident or maintenant - float(deja.get(ident, 0) or 0) < _QUARANTAINE_RAPPEL_S:
+            continue
+        tri = _trier_depot_pair(q, ident, d.get("intent"), ouverts)
+        meta = {"id": ident, "de": d.get("de"), "methode": d.get("methode"),
+                "destinataire": d.get("destinataire"), "intent": d.get("intent"),
+                "genre": d.get("genre"), "recu_a": d.get("recu_a"), "tri": tri}
+        signal = {"memorise": None, "signale": None}
+        try:
+            from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
+
+            r = apply_fact_sync("discovered_facts", json.dumps(meta, ensure_ascii=False),
+                                category="signal_pair", trust=0.8, key="pair_quarantaine_%s" % ident,
+                                source="autonomous_loops", ring=2)
+            signal["memorise"] = bool((r or {}).get("ok") or (r or {}).get("planifie"))
+        except Exception as e:  # noqa: BLE001 - dit dans le resultat, jamais tu
+            signal["memorise"] = "echec: %s" % type(e).__name__
+        try:
+            from nokido_agent.app.forge_postal import facteur, post
+
+            corps = json.dumps({"intent": "NEED_HUMAN_APPROVAL", "pointer_ref": "pair:%s" % ident,
+                                "confidence": 0.8, "tri": tri["verdict"], "de": d.get("de"),
+                                "methode": d.get("methode"), "intent_pair": d.get("intent"),
+                                "lecture": "forge_pair_quarantaine --lister",
+                                "accord": "demander_ordre pair-approuver"}, ensure_ascii=False)
+            r2 = post("OUIE_MEMBRANE", "CLAUDE", corps,
+                      dedup_key="pair_quarantaine_%s_%d" % (ident, int(maintenant // _QUARANTAINE_RAPPEL_S)))
+            facteur(r2.get("recipient_channel", ""))
+            signal["signale"] = r2.get("id") or True
+        except Exception as e:  # noqa: BLE001 - dit dans le resultat, jamais tu
+            signal["signale"] = "echec: %s" % type(e).__name__
+        # Entendu = memorise OU signale : sinon on retente au cycle suivant (doublon, jamais un oubli).
+        entendu = signal["memorise"] is True or (
+            signal["signale"] is not None and not str(signal["signale"]).startswith("echec"))
+        if entendu:
+            deja[ident] = maintenant
+        out["signales"].append({"id": ident, "tri": tri["verdict"], **signal})
+    vivants = {d.get("id") for d in attente}
+    try:
+        _QUARANTAINE_ECOUTE.parent.mkdir(parents=True, exist_ok=True)
+        _QUARANTAINE_ECOUTE.write_text(json.dumps({"signales": {k: v for k, v in deja.items() if k in vivants}},
+                                                  ensure_ascii=False), encoding="utf-8")
+    except OSError as e:
+        out["memoire"] = "non ecrite (%s) : rappel au prochain cycle" % type(e).__name__
+    out["issue"] = ("NO_SIGNAL" if not out["signales"] else "SIGNALE:%d" % len(out["signales"]))
+    return out
 
 
 # ── Actionneur M2M ───────────────────────────────────────────────────
@@ -2801,6 +2938,22 @@ def _m2m_ecrit_etat(d: dict) -> None:
                     f"pourra relancer un tour au prochain tick")
 
 
+def _sujet_antiregression(m: dict) -> bool:
+    """Le courrier du pair parle-t-il du debat ANTI-REGRESSION que ce relais sert ?
+
+    Mesure 2026-10-14 : le relais relancait backtest ET arene sur N'IMPORTE QUEL courrier
+    d'ANTIGRAVITY -- dont les accuses de tache et les resultats que l'auto-repondeur relaie
+    ([GEMINI-AUTO·...]) -- deux fois le meme soir, pour une demande sans rapport (avis sur les skills).
+    """
+    import re as _re
+
+    corps = str(m.get("body") or m.get("payload") or m.get("text") or "")
+    if corps.lstrip().startswith("[GEMINI-AUTO"):
+        return False  # machinerie de l'auto-repondeur : accuse de tache, resultat relaye, conversation
+    return bool(_re.search(r"(?i)anti.?r[ée]gression|backtest|forge_axis_backtest|regression_sweep|"
+                           r"debat_ssot_antiregression|\bACK-|\baxes?\b|\bax\d+", corps))
+
+
 def _frames_du_pair(wm: str) -> list:
     """Frames brutes du pair (table agent_messages), au-dela du watermark.
 
@@ -2905,8 +3058,19 @@ def pat_m2m_debate_relay() -> dict:
     # les frames 'read' des qu'il les affiche, donc filtrer sur 'unread' ferait rater
     # tout message qu'un autre consommateur a vu avant nous (piege vecu le 13/08).
     du_pair = [m for m in boite if _M2M_PAIR in _exp(m)]
+    # SUJET : un courrier hors du debat anti-regression avance les curseurs et se DIT ; il ne relance
+    # ni backtest ni arene (voir _sujet_antiregression).
+    hors_sujet = [m for m in du_pair if not _sujet_antiregression(m)]
+    du_pair = [m for m in du_pair if _sujet_antiregression(m)]
     out["reponses_pair"] = len(du_pair)
+    if hors_sujet:
+        out["hors_sujet"] = len(hors_sujet)
     if not du_pair:
+        if hors_sujet or frames:
+            _m2m_ecrit_etat({**_m2m_etat(),
+                             "dernier_frame_ts": max((f[2] for f in frames), default=wm),
+                             "dernier_postal_ts": max([postal_wm] + [float(m.get("ts_delivered") or 0)
+                                                                     for m in hors_sujet])})
         return out
 
     etat = _m2m_etat()
@@ -3064,6 +3228,7 @@ def pat_epistemic_consolidation() -> dict:
     # `/api/ps` rendait `{"models":[]}`. Le premier appel paie alors le
     # chargement a froid (>55 s pour un 7B) et monopolise un tick de 60 s.
     # On exige donc MODEL_READY, avec la meme primitive que le digest.
+    _mod_epi = None
     try:
         from nokido_agent.app.forge_veille_digest import etat_provider as _etat_prov  # noqa: PLC0415
         from nokido_agent.app.forge_veille_digest import sonde_ollama as _sonde_ol  # noqa: PLC0415
@@ -3077,9 +3242,12 @@ def pat_epistemic_consolidation() -> dict:
         # Ne pas conclure a « pret » sur une sonde qu'on n'a pas pu faire.
         _etat, _raison = "UNKNOWN", "sonde du modele local IMPOSSIBLE (%s)" % type(exc).__name__
     if _etat != "READY":
+        # Q5 du debat tour 3 : la nuit, on ne saute plus -- un job DETACHE reveille le modele sans
+        # contrainte de tick, consolide un lot borne puis le decharge. Le jour, l'abstention reste.
+        _nuit = _consolidation_de_nuit(_mod_epi)
         return {"skipped": "fournisseur_indisponible", "etat_modele": _etat,
-                "raison": _raison,
-                "note": "aucun lot consomme, la matiere reste entiere"}
+                "raison": _raison, "nuit": _nuit,
+                "note": "aucun lot consomme dans le tick, la matiere reste entiere"}
     try:
         tools_dir = str(ROOT / "tools")
         if tools_dir not in sys.path:
@@ -3089,6 +3257,52 @@ def pat_epistemic_consolidation() -> dict:
         return consolider(limit=int(_os.environ.get("LAFORGE_EPISTEMIC_BATCH", "20")))
     except Exception as e:
         return {"error": str(e)[:300]}
+
+
+_NUIT_CONSOLIDATION = (2, 6)   # fenetre locale [2 h, 6 h)
+
+
+def _consolidation_de_nuit(modele=None, maintenant: float | None = None, lancer=None) -> dict:
+    """Lance AU PLUS un job de consolidation par nuit, dans la fenetre, hors recul. Ne bloque jamais le tick.
+
+    Recul apres echecs consecutifs (issue MUET / ERREUR / LANE_REFUSEE ecrite par le job) : 1, 2, 4 nuits,
+    plafonne a 7. Etat illisible : on lance quand meme (le job s'admet lui-meme par la lane)."""
+    t = time.time() if maintenant is None else maintenant
+    heure = time.localtime(t).tm_hour
+    if not (_NUIT_CONSOLIDATION[0] <= heure < _NUIT_CONSOLIDATION[1]):
+        return {"etat": "HORS_FENETRE", "heure": heure}
+    try:
+        _tools = str(ROOT / "tools")
+        if _tools not in sys.path:
+            sys.path.insert(0, _tools)
+        from nokido_agent.tools.forge_epistemic_extract_claims import ecrire_etat_nuit, lire_etat_nuit
+        etat = lire_etat_nuit()
+    except Exception as exc:  # noqa: BLE001 - etat illisible : le job s'admettra lui-meme, on le dit
+        etat, ecrire_etat_nuit = {}, None
+        log.warning("[consolidation_nuit] etat illisible (%s) : lancement sans recul", type(exc).__name__)
+    depuis = t - float(etat.get("lance_ts") or 0)
+    if depuis < 20 * 3600:
+        return {"etat": "DEJA_LANCEE_CETTE_NUIT", "il_y_a_h": round(depuis / 3600, 1)}
+    echecs = int(etat.get("echecs_consecutifs") or 0)
+    if echecs:
+        recul_j = min(2 ** (echecs - 1), 7)
+        if t - float(etat.get("fin_ts") or 0) < recul_j * 86400 - 4 * 3600:
+            return {"etat": "RECUL", "echecs_consecutifs": echecs, "recul_nuits": recul_j}
+    script = ROOT / "tools" / "forge_epistemic_extract_claims.py"
+    cmd = [sys.executable, "-u", str(script), "--nuit",
+           "--limit", os.environ.get("LAFORGE_EPISTEMIC_BATCH", "20")]
+    try:
+        if lancer is not None:
+            pid = lancer(cmd)
+        else:
+            pid = subprocess.Popen(cmd, cwd=str(ROOT), creationflags=_NO_WINDOW,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+    except Exception as exc:  # noqa: BLE001 - non lance : dit, rien n'est marque
+        return {"etat": "NON_LANCEE", "erreur": "%s: %s" % (type(exc).__name__, str(exc)[:120])}
+    if ecrire_etat_nuit is not None:
+        ecrire_etat_nuit({"lance_ts": t, "pid": pid, "modele": modele})
+    log.info("[consolidation_nuit] job detache lance, pid=%s", pid)
+    return {"etat": "LANCEE", "pid": pid}
 
 
 def run_due_patterns(force: bool = False) -> list[dict]:
@@ -3438,7 +3652,9 @@ def pat_self_improvement() -> dict:
     """
     import re as _re  # le module n'importe pas `re` au niveau global (mesure : NameError)
 
-    out: dict = {"aveugle": []}
+    # `issue` EN TETE : le planificateur trace `str(resultat)[:300]` dans autonomous_loop_audit.
+    out: dict = {"issue": None, "aveugle": []}
+    _issues: list = []
 
     # 1. Les diagnostics que le corps s'ecrit a lui-meme.
     soins: list[dict] = []
@@ -3570,6 +3786,7 @@ def pat_self_improvement() -> dict:
                    "symptome traite, cause intacte. Couplage par FLUX : %s"
                    % (x["soin"], x["cycles"], eff, x.get("preuve_flux", "n/d")),
             confidence=round(conf, 2),
+            issues=_issues,
             evidence={"effecteur": eff, "verdict": p["verdict"],
                       "rafale_par_heure": p.get("rafale_h"),
                       "budget_par_heure": p.get("budget_h"),
@@ -3620,6 +3837,7 @@ def pat_self_improvement() -> dict:
             reason="symptome memoire persistant ET leviers reversibles disponibles : "
                    "etage REFLEXE. %s" % _pire["texte"][:150],
             confidence=round(_c, 2),
+            issues=_issues,
             evidence={"soin": _pire["cle"], "cycles": _pire["persistance"],
                       "reclaimers": _rec,
                       # C'est CE bloc qui rend la proposition applicable. Sans lui,
@@ -3629,6 +3847,11 @@ def pat_self_improvement() -> dict:
             out["propositions"] += 1
             out["proposition_reflexe"] = True
 
+    # Issue du cycle (debat RSI 15/10) : « ok » seul ne distinguait pas absence de signal,
+    # doublon, ecriture et erreur. Mesure d'AGY le 15/10 : aucun croisement depuis des semaines
+    # -- ce producteur ne propose que sur PANNE, et « rien a proposer » doit se LIRE comme tel.
+    out["issue"] = ("NO_SIGNAL" if not _issues else
+                    ",".join("%s:%d" % (k, _issues.count(k)) for k in sorted(set(_issues))))
     if out["aveugle"]:
         # Trois etats, jamais deux : une source illisible n'est pas une source vide.
         _log_run("self_improvement_watch", "partial",
@@ -3640,7 +3863,7 @@ _PROPOSAL_DEDUP_S = 86400.0
 
 
 def _proposer(param: str, current_value: str, suggested_value: str, reason: str,
-              confidence: float, evidence: dict | None = None) -> bool:
+              confidence: float, evidence: dict | None = None, issues: list | None = None) -> bool:
     """Depose une proposition d'amelioration. Rend True si elle a ete ECRITE.
 
     Deduplique sur 24 h par `param` tant que la proposition n'est pas appliquee :
@@ -3674,6 +3897,9 @@ def _proposer(param: str, current_value: str, suggested_value: str, reason: str,
             return True
 
         ecrite = bool(write_retry(_corps))
+        # Issue de la tentative (debat RSI 15/10, Codex) : `False` confondait doublon et erreur.
+        if issues is not None:
+            issues.append("WRITTEN" if ecrite else "DEDUPLICATED")
         if ecrite:
             try:
                 exp = record_evolution_experience({
@@ -3685,13 +3911,74 @@ def _proposer(param: str, current_value: str, suggested_value: str, reason: str,
                 log.info(f"[self_improvement] expérience d'évolution ouverte: {exp} ({param})")
             except Exception as exc:
                 log.warning(f"[self_improvement] ledger évolution non écrit ({exc})")
+                if issues is not None:
+                    issues[-1] = "WRITTEN_SANS_REGISTRE"
         return ecrite
     except Exception as e:  # noqa: BLE001
         # Jamais muet : une proposition perdue est une amelioration qui n'a pas eu lieu,
         # et rien en aval ne pourrait s'en apercevoir.
         log.warning(f"proposition non deposee ({param}): {type(e).__name__}: {e}")
+        if issues is not None:
+            issues.append("WRITE_ERROR")
         return False
 
+
+
+@register_pattern(
+    "l1_calibration",
+    interval_sec=6 * 3600,
+    description=(
+        "Producteur L1 (debat RSI 15/10) : pour chaque reglage DECLARE dans PARAMS_L1 (mesure + "
+        "bruit), propose une variation bornee de +/-25 % autour de la valeur courante, en action "
+        "set_param. Ne mute RIEN : l'applicateur decide (porte, plafonds, mesure avant/apres)."
+    ),
+    preferred_window=None,
+)
+def pat_l1_calibration() -> dict:
+    """Le producteur qui manquait (AGY, tour 1 : « en regime nominal, aucun module ne propose de
+    variation : le corps ne reagit qu'aux pannes »). Il propose, il n'applique jamais.
+
+    Sens ALTERNE et deterministe : haut quand le nombre d'actes deja faits sur ce reglage est
+    pair, bas sinon ; une borne atteinte retourne le sens. Chaque action porte un `exp_id`
+    UNIQUE : c'est lui qui relie l'entree posee au magasin a son acte, pour qu'une reprise apres
+    crash sache defaire CET acte et pas un autre. Deduplication 24 h par `_proposer`."""
+    import time as _t
+
+    from nokido_agent.app import forge_mutation_controller as _ctl
+    from nokido_agent.app import forge_proposal_applier as _pa
+
+    out: dict = {"issue": None, "candidats": []}
+    issues: list = []
+    entrees = _ctl._lire_registre()
+    for nom, decl in sorted(_pa.PARAMS_L1.items()):
+        if decl.get("type") != "int" or not decl.get("mesure") or not isinstance(decl.get("bruit"), dict):
+            continue  # muet-ok : un reglage sans mesure ne s'applique jamais seul (_etage_set_param)
+        cur = _pa.valeur_l1(nom, decl.get("defaut"))
+        if not isinstance(cur, int) or isinstance(cur, bool):
+            continue  # muet-ok : valeur courante illisible -> rien a calibrer, l'applicateur le dit
+        n_actes = sum(1 for e in entrees
+                      if e.get("kind") == "application" and e.get("cible") == "param:%s" % nom)
+        lo, hi = decl.get("min", cur), decl.get("max", cur)
+        sens = (1.25, 0.75) if n_actes % 2 == 0 else (0.75, 1.25)
+        cand = cur
+        for f in sens:
+            cand = max(lo, min(hi, int(round(cur * f))))
+            if cand != cur:
+                break
+        if cand == cur:
+            continue
+        _proposer(
+            param="l1:%s" % nom, current_value=str(cur), suggested_value=str(cand),
+            reason="calibration L1 de %s : %d -> %d, mesuree avant et apres sur %s ; retour "
+                   "arriere si recul hors bruit" % (nom, cur, cand, decl["mesure"]),
+            confidence=0.8, issues=issues,
+            evidence={"action": {"type": "set_param", "param": nom, "valeur": cand,
+                                 "exp_id": "l1cal-%s-%d" % (nom, int(_t.time()))},
+                      "valeur_courante": cur, "actes_precedents": n_actes})
+        out["candidats"].append({"param": nom, "de": cur, "vers": cand})
+    out["issue"] = ("NO_SIGNAL" if not issues else
+                    ",".join("%s:%d" % (k, issues.count(k)) for k in sorted(set(issues))))
+    return out
 
 
 @register_pattern(
@@ -3700,7 +3987,8 @@ def _proposer(param: str, current_value: str, suggested_value: str, reason: str,
     description=(
         "Ferme la chaine PROPOSER -> APPLIQUER : l'etage REFLEXE (reversible pur, confiance "
         ">= 0.75, sante lisible) des propositions de self_improvement_watch. Cortical, "
-        "diagnostic et refuse ne sont JAMAIS executes. Sans LAFORGE_APPLIER_ARMED=1 : plan seul."
+        "diagnostic et refuse ne sont JAMAIS executes. Desarme (ni LAFORGE_APPLIER_ARMED=1 ni "
+        "cle sandbox/evolution.armed, ou frein evolution.halt pose) : plan seul."
     ),
     preferred_window=None,
 )
@@ -3718,7 +4006,8 @@ def pat_proposal_applier() -> dict:
 
     r = _ap.appliquer()
     actes = r.get("actes") or []
-    return {"ok": True, "arme": r.get("arme"), "dry_run": r.get("dry_run"),
+    return {"ok": True, "arme": r.get("arme"), "portee": r.get("portee"), "dry_run": r.get("dry_run"),
+            "hors_portee": len(r.get("hors_portee") or []),
             "reflexe": r.get("reflexe"), "cortical": r.get("cortical"),
             "diagnostic": r.get("diagnostic"), "refuse": r.get("refuse"),
             "actes": len(actes), "succes": sum(1 for a in actes if a.get("succes")),
@@ -4206,6 +4495,9 @@ if __name__ == "__main__":
             print(f"ERR: {e}")
             sys.exit(1)
     elif args.daemon:
+        # Le superviseur ne transmet pas le nom du service a l'enfant : le demon le declare lui-meme,
+        # pour que ses actes RSI se rendent non evincables (veto de sommeil, forge_mutation_controller).
+        os.environ.setdefault("LAFORGE_SERVICE_SELF", "NokidoAutonomousLoops")
         daemon_loop(tick_sec=args.tick)
     else:
         ap.print_help()

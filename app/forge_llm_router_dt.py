@@ -62,7 +62,7 @@ PROVIDERS = [
     "ollama",
     "gemini",
     "llamacpp",
-    "gpt4o_github",
+    "gpt4o_github",  # RETIRE 15/10 (410 Gone) : emplacement GARDE -- le modele joblib predit des INDICES
     "openrouter_free",
     "deepseek",
     "kimi",
@@ -72,6 +72,9 @@ PROVIDERS = [
 ]
 P2I = {p: i for i, p in enumerate(PROVIDERS)}
 I2P = {i: p for i, p in enumerate(PROVIDERS)}
+# Fournisseurs RETIRES dont l'emplacement reste dans PROVIDERS (stabilite des indices du modele
+# persiste) : une prediction qui y tombe est redirigee, jamais servie (owner 15/10).
+_RETIRES_REDIRIGES = {"gpt4o_github": "groq"}
 
 FEATURE_DIM = 36
 FEATURE_NAMES = [
@@ -412,7 +415,7 @@ _BOOTSTRAP = [
     ("security audit vulnerability cve", "security_audit", "claude"),
     ("analyse large fichier entier ctx", "analyze_large", "gemini"),
     ("write docs docstring readme guide", "write_docs", "gemini"),
-    ("code review pull request check", "code_review", "gpt4o_github"),
+    ("code review pull request check", "code_review", "groq"),
     ("synthèse résultats rapport final", "synthesize_short", "groq"),
     ("watch veille github pypi release", "research", "groq"),
     ("translate traduction english french", "classify_domain", "groq"),
@@ -445,7 +448,7 @@ _BOOTSTRAP = [
     ("security audit cve vulnerability pentest auth", "security_audit", "claude"),
     ("docker kubernetes deploy ops service restart", "classify_domain", "groq"),
     ("write docs docstring readme explain guide api", "write_docs", "gemini"),
-    ("code review pr check quality review pull", "code_review", "gpt4o_github"),
+    ("code review pr check quality review pull", "code_review", "groq"),
     ("sql sqlite schema query local data analyze", "analyze_code", "ollama"),
     ("embed local pipeline rag index vectorize", "vectorize", "ollama"),
     ("fast classify filter synthesize short quick", "filter_results", "groq"),
@@ -556,7 +559,8 @@ def predict(prompt: str, task_type: str = "", confidence_threshold: float = 0.6)
         conf = float(proba[idx])
         if conf < confidence_threshold:
             return "", conf
-        return I2P.get(idx, "groq"), conf
+        p = I2P.get(idx, "groq")
+        return _RETIRES_REDIRIGES.get(p, p), conf
     except Exception as e:
         logger.debug(f"[DTRouter] predict error: {e}")
         return "", 0.0

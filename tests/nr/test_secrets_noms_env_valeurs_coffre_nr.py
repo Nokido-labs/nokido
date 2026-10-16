@@ -98,6 +98,19 @@ def test_aucune_nouvelle_boucle_qui_recopie_un_env_dans_l_environnement():
         "site corrige mais encore au socle : %s -- le retirer de SOCLE" % sorted(set(SOCLE) - trouves))
 
 
+def test_artificialanalysis_lit_sa_cle_au_coffre_d_abord(monkeypatch, tmp_path):
+    """15/10 : la cle ArtificialAnalysis ne se lisait QUE dans l'environnement et le fichier ; le retrait du clair
+    (regle owner) la lui aurait otee. Le coffre passe d'abord, le fichier n'est plus qu'un repli."""
+    aa = importlib.import_module("nokido_agent.app.forge_artificialanalysis")
+    m = importlib.import_module("nokido_agent.app.forge_secrets")
+    monkeypatch.setattr(m, "get_secret", lambda k: "cle-du-coffre" if k == "ARTIFICIALANALYSIS.AI" else None)
+    for k in ("ARTIFICIALANALYSIS_AI", "ARTIFICIALANALYSIS.AI", "AA_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    (tmp_path / "Nokido.env").write_text("ARTIFICIALANALYSIS.AI=cle-du-fichier\n", encoding="utf-8")
+    monkeypatch.setattr(aa, "ROOT", tmp_path)
+    assert aa._load_api_key() == "cle-du-coffre"
+
+
 def test_l_enrobage_des_chargeurs_dit_l_echec_sans_tomber(monkeypatch, capsys, tmp_path):
     """injecter_env_ou_dire (2026-10-02) : enrobage UNIQUE des chargeurs de demarrage. Une injection
     qui leve se DIT (qui, type d'erreur) et rend None ; le processus ne tombe pas."""

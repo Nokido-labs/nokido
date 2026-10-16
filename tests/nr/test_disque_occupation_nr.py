@@ -42,7 +42,12 @@ def test_le_canal_disque_est_declare_en_serie():
     assert "dbsy" in vc.SCHEMA and "dq" in vc.SCHEMA
 
 
-def test_premiere_collecte_ne_publie_aucune_valeur():
+def test_premiere_collecte_ne_publie_aucune_valeur(monkeypatch):
+    # L'amorcage vit dans le MODULE (`_PDH["amorce"]`, une requete PDH par processus), pas dans `etat` : un autre
+    # test du meme processus qui a deja collecte rendait cette « premiere » collecte deuxieme. CI de reference du
+    # 15/10 (2dfc7bea1) : compteurs lisibles ce soir-la (d'ordinaire refuses, donc test saute), ordre defavorable ->
+    # {'dbsy': 67.83, 'dq': 2.0}. Le contrat produit est par processus ; le test l'isole.
+    monkeypatch.setitem(vc._PDH, "amorce", False)
     etat: dict = {}
     vals, note = vc.grp_disque(etat)
     if "ILLISIBLE" in note:

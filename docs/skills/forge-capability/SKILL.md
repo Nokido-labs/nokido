@@ -1,12 +1,11 @@
 ---
 name: forge-capability
 description: >-
-  Fonctionnement EXACT de Nokido (hub souverain :8766) — carte des capacites par
-  organe (census 727 modules), tools MCP, doctrine (RULES_SHARED + economie tokens),
-  et acces a l'etat vivant (SSoT, MEMORY, blackboard, RAG). Genere depuis le census
-  (0-token, auto-courant). A charger quand un agent (n'importe quel CLI) demande
-  'que sait faire Nokido', 'comment marche Nokido', 'ou vit X', 'quel organe',
-  'liste les capacites/outils', ou doit se reperer dans l'ecosysteme forge_*.
+  À utiliser quand un agent (toute surface) se demande ce que Nokido sait faire, où
+  vit un module, quel organe porte une capacité, quels outils MCP existent, ou doit
+  vérifier la doctrine avant d'agir. Donne la carte des capacités par organe (census),
+  les outils MCP clés, les règles d'or et où lire l'état vivant (SSoT, mémoire,
+  tableau noir, RAG).
 metadata:
   source: census organ_map_full.json + forge_ssot + RULES_SHARED (deterministe)
   generated: 2026-06-19
@@ -20,7 +19,12 @@ metadata:
 
 Nokido = système souverain local-first. **Cerveau = hub MCP HTTP `:8766`** (`tools/nokido_hub.py`). Tout client (Claude Code/Desktop, Antigravity agy/agi, Codex, VSCode, LM Studio) s'y branche en MCP et **dérive** règles + état depuis là (émanation, pas copie). Tu es un **CLIENT**, pas l'exécuteur : déporte le travail au hub.
 
-## Carte des capacités — 727 modules / 15 organes
+## Carte des capacités — instantané du 19/06 (727 modules / 15 organes)
+
+Ces compteurs et la table qui suit datent de la génération du 19/06 ; ils dérivent.
+L'état courant : le census `sandbox/workspace/organ_map_full.json` (régénéré par
+`tools/forge_module_census.py`), et pour les silos du moteur, `app/forge_silo_engine.py`
+(`SiloDomain` : 6 domaines depuis le 01/09).
 
 | Organe | Modules | Représentatifs |
 |---|---|---|
@@ -64,26 +68,35 @@ Clé : `run` (shell/python/run_job déporté), `rag`/`query` (retrieval condens�
 2. JAMAIS de creation de module app/forge_*.py sans query rag_fts prealable
 3. JAMAIS d INSERT INTO rag_chunks sans id explicite (TEXT PRIMARY KEY)
 4. JAMAIS d envoi cloud sans SemanticFirewall.pre_flight + .post_flight
-5. TOUJOURS read_lessons(3000) en debut de session
-6. TOUJOURS anchor_solution apres decision architecturale
-7. TOUJOURS session_summary apres bloc de commits
-8. TOUJOURS documenter les liens entre modules co-modifies
-9. TOUJOURS tqdm sur toutes boucles longues dans scripts generes via task assign
-10. JAMAIS nssm restart LaForgeMCP direct — LaForge-Master :8765 est
+5. TOUJOURS anchor_solution apres decision architecturale
+6. TOUJOURS documenter les liens entre modules co-modifies
+7. TOUJOURS tqdm sur toutes boucles longues dans scripts generes via task assign
+8. JAMAIS nssm restart LaForgeMCP direct — LaForge-Master :8765 est
     proprietaire exclusif du hub. Crash loop = conflit port 8766. Toujours
     passer par LaForge-Master ou redemarrer les 2 ensembles.
-11. JAMAIS Bash/curl vers hub — utiliser les tools mcp__laforge-sovereign-hub__*
-    directement (token economy, moins de roundtrips)
-12. JAMAIS code Python inline de plus de 5 lignes dans un tool call — creer
-    un script tools/tmp_*.py via Write, puis appel hub run action=python 1 ligne
-13. JAMAIS d['result'] sur reponse hub — toujours .get('result') car hub
+9. Agir via le hub : outils mcp__laforge-sovereign-hub__*. Sonder le hub lui-meme :
+    Bash + curl vers :8766 (un seul segment) -- jamais un `run` qui interroge :8766,
+    le hub s'attendrait lui-meme.
+10. Code Python de plus de quelques lignes : l'ecrire HORS du depot (C:/tmp/...),
+    puis le lancer par `run` (court) ou `run_job` (long). Dans le depot, toute ecriture
+    passe par `governed_edit` : Write natif y est refuse par forge_tool_gate.
+11. JAMAIS d['result'] sur reponse hub — toujours .get('result') car hub
     retourne {'error': '...'} sans cle result sur exception
-14. "POINT SUR <domain>" (roadmap, et futurs memory/rules/...) — LIRE le SSoT
+12. "POINT SUR <domain>" (roadmap, et futurs memory/rules/...) — LIRE le SSoT
     AVANT de repondre : `forge_ssot.point(query)` (ou `docs/<domain>_state.json`).
     Source unique STRUCTUREE (state determinist capte + roadmap) -> reponse
     UNIFORME cross-CLI. Ne PAS re-deriver de la memoire de session (= la
-    d
+    divergence qu'on a tuee). Le portier (forge_knowledge_concierge.plan) route
+    deja "point/statut/ou en est" -> extra['ssot_domain']. Maintainer auto =
+    schtask LaForge-SSoTMaintainer (5min) + hook POST_COMMIT.
 ```
+
+Source : `CLAUDE.md` du dépôt Nokido, §7 « Règles d'or », recopiée le 15/10. La copie
+précédente (19/06) comptait 14 règles, se coupait au milieu de la dernière, et sa
+règle 11 (« jamais curl vers le hub ») contredisait la règle 9 actuelle. Les anciennes
+règles « read_lessons en début de session » et « session_summary après des commits »
+sont portées côté Claude Code par les hooks SessionStart et Stop. **En cas d'écart, le
+fichier source fait foi.**
 
 ## État vivant — interroger, ne pas supposer
 
@@ -92,6 +105,23 @@ Clé : `run` (shell/python/run_job déporté), `rag`/`query` (retrieval condens�
 - **blackboard** : `blackboard_read_zone` (mission/architecture_rules/discovered_facts/active_bugs/scratch).
 - **RAG** : `rag action=search` / `rag_fts` (FTS5 BM25) — jamais SQL LIKE brut.
 - **Santé** : tail logs hub, `forge_organ_pulse`, heartbeats.
+
+## Familles de skills (index, 15/10)
+
+Chaque skill de `docs/skills` figure ici exactement une fois ; le NR
+`test_skills_frontmatter_nr` le vérifie. Une skill nouvelle s'ajoute à sa famille.
+
+| famille | skills |
+|---|---|
+| Noyau et posture | `nokido`, `forge-capability`, `forge-autonomie`, `forge-cognitive-sync`, `forge-core` |
+| Hub, environnement, modèles | `forge-hub`, `forge-env`, `forge-ops`, `forge-models`, `forge-quota`, `forge-route` |
+| Chaînage et coopération | `forge-pipeline`, `forge-m2m-agy`, `forge-m2m-debat-mesure`, `forge-workflow-autopsy` |
+| Mémoire et digestion | `forge-memory-ssot`, `forge-veille-rapide`, `forge-veille-approfondie`, `forge-skill-seekers`, `forge-database-state` |
+| Qualité, diagnostic, immunité | `forge-anatomy`, `forge-systematic-debugging`, `forge-tdd`, `forge-security-scan`, `forge-immunity-opsec`, `forge-rescue`, `forge-code-governance` |
+| Effecteurs et passerelles | `forge-skills`, `forge-connectors`, `forge-marketplace`, `forge-android`, `netcfg-agent`, `smithery-ai-cli` |
+
+`forge-core` est un journal figé (113 Ko, juin) : son sort est une décision owner.
+Proposée, pas encore écrite : une skill pour les silos métiers spécialisés (décision owner).
 
 ## Se brancher (nouveau CLI)
 

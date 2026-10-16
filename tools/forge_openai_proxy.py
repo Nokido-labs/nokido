@@ -405,7 +405,7 @@ MODEL_TO_PROVIDER = {
     "deepseek-v3": "deepseek",
     "grok-2": "grok",
     "mistral-large": "mistral",
-    "gpt-4o-github": "gpt4o_github",
+    # "gpt-4o-github" -> gpt4o_github RETIRE 15/10 (GitHub Models : 410 Gone)
     "kimi-think": "kimi_think",
     "glm5": "glm5",
     "perplexity": "perplexity",

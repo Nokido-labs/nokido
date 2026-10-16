@@ -869,6 +869,9 @@ class ClaudeOpenRouter(Provider):
 
 
 class ClaudeGitHub(Provider):
+    # RETIRE le 15/10 (owner : « gpt4o_github n'existe plus, a supprimer ») : GitHub Models rend
+    # 410 Gone depuis le 18/08. La classe est GELEE, plus enregistree dans `_init_registry` ; un
+    # appel rend la raison (forge_provider_alias.RETIRES) au lieu d'un AttributeError opaque.
     # GitHub Models = AzureML proxy, donne acces a GPT-4o (PAS Claude malgre le nom de la classe).
     # Garde le nom claude_github pour compat avec les premieres versions, mais c est GPT-4o.
     name = "gpt4o_github"
@@ -925,7 +928,11 @@ class Gemini(Provider):
         from google.genai import types
 
         client = genai.Client(api_key=_load_api_key(self.api_key_env))
-        model_name = _load_api_key("GEMINI_MODEL") or self.model
+        # Le modele de l'APPELANT d'abord (owner 15/10 : « la valeur doit dependre de qui l'appelle, pas etre
+        # figee ») : `ask(model=...)` le pose sur une copie, sinon le defaut de la classe (famille flash-lite,
+        # la seule servie par le palier gratuit). L'ancien ordre faisait passer GEMINI_MODEL global AVANT : le
+        # choix de l'appelant etait ignore. GEMINI_MODEL ne sert plus que si aucun modele n'est connu.
+        model_name = self.model or _load_api_key("GEMINI_MODEL") or "gemini-flash-lite-latest"
 
         history_str = ""
         for m in thread_messages:
@@ -2053,6 +2060,34 @@ class ZaiGLM52(Provider):
         return resp.choices[0].message.content
 
 
+class MistralFree(MistralLarge):
+    """Mistral, modele du palier de l'abonnement ACTUEL (meme clef, meme endpoint que `mistral`).
+
+    Mesure 15/10 (appels reels) : mistral-large-latest -> 403 code 1910 « not available in your
+    subscription tier » ; mistral-medium-latest et mistral-small-latest -> 429 code 1300 (debit) ;
+    open-mistral-nemo -> « OK » en 0,3 s ; ministral-8b-latest -> « OK » en 0,4 s."""
+
+    name = "mistral_free"
+    model = "open-mistral-nemo"
+    cost_tier = 0
+    display_name = "Mistral Nemo (palier de l'abonnement)"
+
+
+class ZaiGLMFlash(ZaiGLM52):
+    """GLM-4.5-Flash (z.ai) — PALIER GRATUIT, meme clef que zai_glm5_2, meme endpoint.
+
+    Mesure 15/10 (appels reels) : la clef zAI est valide mais SANS solde -- glm-5.2, glm-5.3-flash et
+    glm-5.3-flashx rendent 429/1113 « Insufficient balance » ; glm-4.5-flash repond (« OK » en 22 s) ;
+    glm-4.7-flash rend 429/1305 « temporarily overloaded » (surcharge du palier gratuit, a re-sonder).
+    Modele a RAISONNEMENT : avec max_tokens=8 il rend un texte VIDE (le budget part dans la reflexion) ;
+    prevoir >= 300."""
+
+    name = "zai_glm_flash"
+    model = "glm-4.5-flash"
+    cost_tier = 0
+    display_name = "GLM-4.5-Flash (z.ai, palier gratuit)"
+
+
 class NvidiaNIM(Provider):
     """NVIDIA NIM — free dev API key, 40 RPM, 70+ models, OpenAI-compat.
     Signup: build.nvidia.com — needs NVIDIA_API_KEY in Nokido.env."""
@@ -3076,7 +3111,6 @@ def _init_registry():
     global _PROVIDERS
     for cls in [
         ClaudeOpenRouter,
-        ClaudeGitHub,
         Gemini,
         GeminiFlashLite,
         GeminiGemma,
@@ -3098,6 +3132,7 @@ def _init_registry():
         RouterLocalProvider,
         OpenAI_GPT,
         MistralLarge,
+        MistralFree,
         Cohere,
         Perplexity,
         TavilySearch,
@@ -3113,6 +3148,7 @@ def _init_registry():
         Cerebras,
         TogetherAI,
         ZaiGLM52,
+        ZaiGLMFlash,
         NvidiaNIM,
         Pollinations,
         LlamaEdgeWasm,
@@ -3151,6 +3187,27 @@ def list_providers(only_available: bool = False) -> List[Dict[str, Any]]:
             continue
         result.append(info)
     return result
+
+
+def fournisseurs_joignables() -> List[str]:
+    """Noms qu'un appelant (swarm, debat, cascade) PEUT appeler : enregistres, cle PRESENTE
+    (`is_available`), et absents de `forge_provider_alias.CLEF_REFUSEE` (cle refusee ET
+    fournisseur prepaye sans palier gratuit : renouveler la cle ne suffirait pas).
+
+    Owner 15/10 : « si des cles sont absentes, pourquoi tenter de les joindre ? ». Un swarm
+    batissait ses candidats sur une liste FIGEE : openai et perplexity (cles absentes) etaient
+    sondes a chaque debat. Les fournisseurs RETIRES ne sont plus enregistres, donc jamais rendus.
+    Table de refus illisible -> on ne retire rien de plus (la sonde dira le refus)."""
+    try:
+        from nokido_agent.app.forge_provider_alias import CLEF_REFUSEE
+    except Exception:  # noqa: BLE001 - muet-ok : sans la table, seul is_available() filtre, et la sonde dit le reste
+        CLEF_REFUSEE = {}
+    try:  # clef valide mais modele sans solde (zai_glm5_2, 15/10) : l'appeler rend 429/1113 a coup sur
+        from nokido_agent.app.forge_provider_alias import SANS_SOLDE
+    except Exception:  # noqa: BLE001 - muet-ok : sans la table, la sonde dira le refus
+        SANS_SOLDE = {}
+    return [nom for nom, p in _PROVIDERS.items()
+            if nom not in CLEF_REFUSEE and nom not in SANS_SOLDE and p.is_available()]
 
 
 def usable_free() -> List[str]:
@@ -3211,9 +3268,11 @@ def refresh_openrouter_free_slugs() -> int:
 
 
 def _raison_alias(name: str) -> str:
-    """Si `name` est un alias REFUSE pour infidelite, la raison ; sinon rien (message d'erreur d'ask)."""
+    """Si `name` est un alias REFUSE pour infidelite, ou un fournisseur RETIRE, la raison ; sinon rien."""
     try:
-        from nokido_agent.app.forge_provider_alias import ALIAS, refus_de_resolution
+        from nokido_agent.app.forge_provider_alias import ALIAS, RETIRES, refus_de_resolution
+        if name in RETIRES:
+            return " -- RETIRE : %s" % RETIRES[name]
         cible = ALIAS.get(name)
         p = _PROVIDERS.get(cible) if cible else None
         if p is not None:
@@ -3310,6 +3369,60 @@ def _journaliser_echec_fournisseur(provider_name: str, modele: str, motif: str, 
         logger.warning("issue d'echec NON journalisee pour %s (%s)", provider_name, type(exc).__name__)
 
 
+# BASCULE PAR LA MATRICE MODELE x FOURNISSEUR (owner 15/10 : « des LLM peuvent etre injoignables par un
+# provider et joignables par un autre »). Un refus de SOLDE ou de PALIER qualifie le COUPLE appele, pas le
+# modele : on cherche la meme famille chez un autre fournisseur MESURE joignable
+# (tools/forge_provider_catalogue.py --matrice), une seule fois, et la reponse le DIT.
+# Etiquette du catalogue -> slot enregistre qui appelle ce fournisseur (dialecte OpenAI, `model` honore).
+_SLOT_DU_CATALOGUE = {"groq": "groq", "xai": "grok", "sambanova": "sambanova", "openrouter": "openrouter_free",
+                      "mistral": "mistral", "cerebras": "cerebras", "deepseek": "deepseek",
+                      "together": "together_ai", "nvidia": "nvidia_nim", "nvidia_nim": "nvidia_nim",
+                      "zai": "zai_glm5_2", "hf": "hf"}
+
+
+def _refus_de_couple(err) -> Optional[str]:
+    """SANS_SOLDE / HORS_PALIER d'apres le texte de l'exception (code HTTP + detail), sinon None :
+    un DEBIT, une clef refusee ou une panne ne sont pas des raisons de changer de fournisseur ici."""
+    import re as _re
+
+    s = str(err)
+    m = _re.search(r"(?:Error code|status(?:_code)?)\D{0,4}(\d{3})", s)
+    try:
+        from nokido_agent.tools.forge_provider_catalogue import classer_reponse
+    except Exception:  # noqa: BLE001 - classement indisponible : pas de bascule, l'echec reste dit
+        return None
+    etat = classer_reponse(int(m.group(1)) if m else -1, s)
+    return etat if etat in ("SANS_SOLDE", "HORS_PALIER") else None
+
+
+async def _bascule_par_matrice(provider_name: str, modele: str, err, appel: dict) -> Optional[Dict[str, Any]]:
+    """Reessaie la MEME famille chez un autre fournisseur mesure JOIGNABLE (au plus 2 essais). None = rien fait."""
+    refus = _refus_de_couple(err)
+    if not refus:
+        return None
+    try:
+        from nokido_agent.tools.forge_provider_catalogue import voies_joignables
+        voies = voies_joignables(modele)
+    except Exception as exc:  # noqa: BLE001 - matrice illisible : pas de bascule, et c'est dit
+        logger.warning("bascule impossible pour %s/%s : matrice illisible (%s)", provider_name, modele,
+                       type(exc).__name__)
+        return None
+    essais = 0
+    for label, mid, _lat in voies.get("voies") or []:
+        slot = _SLOT_DU_CATALOGUE.get(label)
+        if not slot or slot == provider_name or slot not in _PROVIDERS or essais >= 2:
+            continue
+        essais += 1
+        res = await ask(slot, model=mid, _bascule=False, **appel)
+        if res.get("ok"):
+            res["bascule"] = {"de": provider_name, "modele_refuse": modele, "refus": refus, "vers": slot,
+                              "modele": mid, "matrice": voies.get("etat"), "age_j": voies.get("age_j")}
+            return res
+    logger.warning("bascule sans issue pour %s/%s (%s) : %d voie(s) essayee(s), matrice %s", provider_name,
+                   modele, refus, essais, voies.get("etat"))
+    return None
+
+
 async def ask(
     provider_name: str,
     message: str,
@@ -3322,6 +3435,7 @@ async def ask(
     container_name: Optional[str] = None,
     model: Optional[str] = None,
     raw: bool = False,
+    _bascule: bool = True,
 ) -> Dict[str, Any]:
     """
     RPC generique vers n'importe quel provider du registry.
@@ -3598,6 +3712,12 @@ async def ask(
             _journaliser_echec_fournisseur(provider_name, provider.model, f"{type(e).__name__}: {str(e)[:200]}",
                                            round((time.monotonic() - t0) * 1000, 1), tid)
         _emit(f"rpc.{provider_name}.response", "error", {"thread_id": tid, "error": str(e)[:200]}, corr_id=corr_id)
+        if _bascule:
+            _ailleurs = await _bascule_par_matrice(provider_name, provider.model, e, {
+                "message": message, "thread_id": thread_id, "rag_context": rag_context, "max_tokens": max_tokens,
+                "timeout": timeout, "raw": raw})
+            if _ailleurs:
+                return _ailleurs
         return {
             "ok": False,
             "thread_id": tid,

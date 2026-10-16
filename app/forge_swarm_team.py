@@ -520,6 +520,11 @@ def _default_team() -> SwarmTeam:
 # ── Lead Orchestrator ─────────────────────────────────────────────────────────
 
 
+import re as _re_swarm
+
+_RX_REPONSE_ERREUR = _re_swarm.compile(r"^\[[\w ./-]{0,40}\berror\]|^litellm\.\w*(Error|Exception)\b|^Traceback \(", _re_swarm.I)
+
+
 class LeadOrchestrator:
     """
     Orchestre les requêtes vers les participants actifs.
@@ -638,6 +643,15 @@ class LeadOrchestrator:
             "all_failed": all_failed,
         }
 
+    @staticmethod
+    def _reponse_reelle(response) -> bool:
+        """Faux vert mesure le 15/10 (debat anatomie) : 3 participants sur 9 rendaient `[groq error] HTTP 403` ou
+        `litellm.BadRequestError ...` -- les branches `_xxx_call` rendent leurs erreurs EN TEXTE, et la surface les
+        comptait `ok=True`. Une reponse vide, non textuelle ou d'erreur n'est jamais un succes."""
+        if not isinstance(response, str) or not response.strip():
+            return False
+        return not _RX_REPONSE_ERREUR.match(response.strip())
+
     async def _call_participant(self, p: Participant, prompt: str, context: str) -> dict:
         """Appelle un participant et retourne son résultat."""
         t0 = time.monotonic()
@@ -661,8 +675,8 @@ class LeadOrchestrator:
                 "participant_id": p.id,
                 "label": p.label,
                 "kind": p.kind,
-                "ok": True,
-                "response": response,
+                "ok": self._reponse_reelle(response),
+                "response": response if isinstance(response, str) else "[non texte : %s]" % type(response).__name__,
                 "duration_ms": dur,
             }
         except asyncio.TimeoutError:
@@ -896,13 +910,18 @@ class LeadOrchestrator:
         api_base = config.get("api_base") or os.environ.get("LITELLM_API_BASE", "http://localhost:11434")
         api_key = config.get("api_key") or os.environ.get("LITELLM_API_KEY", "")
         try:
+            import asyncio as _aio
+
             from nokido_agent.app.forge_litellm_bridge import ask as litellm_ask
 
-            return litellm_ask(
+            # `forge_litellm_bridge.ask` est ASYNCHRONE : l'appeler sans l'attendre rendait un objet coroutine comme
+            # « reponse » -- mesure du 15/10 (debat anatomie) : `'coroutine' object has no attribute 'strip'`, session
+            # swarm entiere perdue. Ce participant tourne dans un thread de l'executeur, sans boucle : asyncio.run.
+            return _aio.run(litellm_ask(
                 task=prompt,
                 context=context[:400],
                 max_tokens=config.get("max_tokens", 500),
-            )
+            ))
         except Exception as e:
             return f"[litellm error] {e}"
 

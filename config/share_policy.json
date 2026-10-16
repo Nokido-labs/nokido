@@ -60,7 +60,7 @@
     },
     "ouvert": {
       "description": "Tout fournisseur du catalogue, pour du public uniquement.",
-      "providers": ["gemini", "gemini_cli", "groq", "mistral", "openrouter", "sambanova", "cerebras", "gpt4o_github", "claude", "zai"]
+      "providers": ["gemini", "gemini_cli", "groq", "mistral", "openrouter", "sambanova", "cerebras", "claude", "zai"]
     }
   }
 }

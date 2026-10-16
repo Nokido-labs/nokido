@@ -1,6 +1,6 @@
 ---
 name: forge-m2m-debat-mesure
-description: Workflow VERIFIE du 2026-08-13 pour (a) debattre entre agents Nokido (Claude <-> Antigravity) sur un canal qui marche reellement, et (b) admettre un axe de detection de regression UNIQUEMENT sur mesure executable (backtest git). Declencher quand un agent propose d etendre la detection de regressions, quand un debat M2M doit etre lance ou repris, quand un pair "ne repond pas", quand un score de couverture semble trop beau (100%, 0 rate), ou avant d ajouter un axe/capteur a forge_regression_sweep. Contient les 7 pieges qui ont coute une journee entiere : canal coupe en deux transports, delivered != lu, deux espaces de noms de providers, sandbox offline qui fait croire qu un tiers est mort, juge LLM qui fabrique des faux-verts a chaque mise en forme, dossier re-envoye a chaque tour, axes admis sans detecteur.
+description: "À utiliser pour lancer ou reprendre un débat entre agents, quand un pair ne répond pas, quand un score paraît trop beau (100 %, 0 raté), ou avant d'admettre un axe ou un capteur anti-régression. Donne le canal qui marche (tableau noir, accusé ACK vérifié en base), l'admission d'un axe sur backtest git seulement, et les pièges déjà payés."
 ---
 
 # Debat M2M mesure — workflow verifie (2026-08-13)
@@ -8,6 +8,10 @@ description: Workflow VERIFIE du 2026-08-13 pour (a) debattre entre agents Nokid
 > Ne pas reconstruire ce workflow : il existe, il tourne, ses pieges sont payes.
 
 ## 1. Le canal M2M : ce qui marche, ce qui ment
+
+> **14/10 :** pour faire TRAVAILLER AGY (tâche, artefact, relais du résultat), la voie
+> prouvée est dans la skill `forge-m2m-agy`. Le tableau ci-dessous date du 13/08 : le
+> postal vers GEMINI est depuis routé vers l'exécuteur quand il porte du travail.
 
 | Transport | Ce que c est | Verdict mesure |
 |---|---|---|

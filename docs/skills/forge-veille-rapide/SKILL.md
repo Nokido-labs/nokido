@@ -1,6 +1,11 @@
 ---
 name: forge-veille-rapide
-description: "Veille bibliographique rapide LaForge — ingestion directe d'URL connue dans le RAG sans pipeline LLM. Économie maximale de tokens (zéro appel cloud LLM, juste crawl + embedding NPU). Triggers : utilisateur fournit une **URL précise** et veut \"ajouter au RAG\", \"ingère cette page\", \"veille rapide\", \"quick crawl\", \"garde cette URL en mémoire\", \"indexe cette doc\", \"ajoute ce site à la bibliographie sans recherche élargie\", ou tout cas où la cible est connue et où la recherche SearXNG serait du gaspillage. Utilise `mcp_laforge-sovereign- hub_crawl` puis `/ingest/url` du Hub :8766. Pour 1-N URLs déjà identifiées. **Distinction critique** avec `forge-veille-approfondie` : rapide = URL connue, zéro LLM cloud, ~5s/URL. Approfondie = thème exploratoire, pipeline 7 étapes SearXNG + Groq, plusieurs minutes."
+description: >
+  À utiliser quand l'owner donne une ou plusieurs URL précises à garder en mémoire :
+  « ingère cette page », « ajoute au RAG », « indexe cette doc ». Récupère le contenu
+  (source .md ou crawl), le découpe et l'insère dans rag_chunks et rag_fts, sans LLM
+  cloud. /ingest/url seul ne crée qu'une fiche biblio. Thème sans URL :
+  forge-veille-approfondie.
 ---
 
 # forge-veille-rapide — Ingestion directe URL → RAG
@@ -18,11 +23,9 @@ description: "Veille bibliographique rapide LaForge — ingestion directe d'URL 
 >    (`raw.githubusercontent.com/...` — les sites Google/GitHub Docs sont des
 >    shells JS, trafilatura y rend ~400 octets) ; sinon `crawl` (Crawl4AI).
 > 2. **Chunk** : `forge_rag_store.MarkdownChunker.chunk(md, 2000, 200)`.
-> 3. **Insert** : `INSERT OR IGNORE INTO rag_chunks (id, source, text, domain)`
->    avec `id = sha256(source+text)[:16]` (règle d'or 3), puis si `rowcount`
->    (seule preuve que l'INSERT mord) :
->    `INSERT INTO rag_fts (chunk_id, text, source, domain)` — le schéma FTS
->    est `fts5(chunk_id UNINDEXED, text, source UNINDEXED, domain UNINDEXED)`,
+> 3. **Écriture** : corrigée le 15/10, voir Workflow §3 ci-dessous
+>    (`forge_db_path.ecrire_chunk` dans `write_retry`, depuis un job côté hub). Le schéma
+>    de `rag_fts` est `fts5(chunk_id UNINDEXED, text, source UNINDEXED, domain UNINDEXED)`,
 >    PAS `(id, source, text)`.
 > 4. Exécuter en **`run_job` détaché online** (multi-URLs = long ; cap 70 s hub).
 >    Modèle : `sandbox/workspace/veille_github_bp3.py` (job du 21/08).
@@ -50,9 +53,40 @@ description: "Veille bibliographique rapide LaForge — ingestion directe d'URL 
 - Veille récurrente sur un thème large → `forge-veille-approfondie`.
 - URL inconnue / à découvrir → `forge-veille-approfondie`.
 
-## Workflow
+## Workflow (chemin PROUVÉ le 21/08 : le contenu devient cherchable)
 
-### 1. Crawl direct via MCP
+1. **Contenu** : GET direct de la source `.md` quand elle existe (`raw.githubusercontent.com/...`) ;
+   sinon l'outil `crawl` du hub (Crawl4AI). Les sites Google/GitHub Docs sont des coquilles JS :
+   le crawl n'y rend que ~400 octets.
+2. **Découpe** : `forge_rag_store.MarkdownChunker.chunk(md, 2000, 200)`.
+3. **Écriture** (corrigée le 15/10) : dans `forge_db_path.write_retry(lambda c: ...)`, un appel
+   à `forge_db_path.ecrire_chunk(c, source, domain, texte)` par fragment, depuis le job côté hub,
+   jamais depuis un processus client ni par un `sqlite3.connect()` nu.
+   - `ecrire_chunk` pose l'`id` canonique `chunk_id(source, texte)` = `sha256(source|texte)[:16]`
+     (règle d'or 3). L'ancienne recette hachait `source+text` sans séparateur : identifiants
+     non canoniques, déduplication ratée. Il ne tronque jamais en silence (`cap` dit ce qu'il écarte).
+   - Les triggers du 01/09 (`fba78f3f1`) indexent alors `rag_chunks_fts`, **que lit la recherche du
+     moteur** (`RAGEngine._scores_lexicaux`, vérifié par Codex le 15/10).
+   - `rag_fts` est une AUTRE table, toujours lue par une quarantaine de modules (`introspect`,
+     `hook_recon_first`, le preflight des leçons, le connecteur des pairs) : pour que la veille y
+     soit visible aussi, y insérer `(chunk_id, text, source, domain)`, comme le font `anchor_*`.
+   - ⚠️ **Jamais `WHERE chunk_id = ?` sur `rag_fts`** (ni DELETE ni SELECT) : la colonne est `UNINDEXED`,
+     chaque appel est un PLEIN SCAN de la table, et un DELETE tient le verrou d'écriture pendant tout ce temps
+     (payé le 15/10 : veille figée 20 min à 17 Mo/s de lecture, `introspect` du hub expiré, job tué).
+     Forme qui marche : existence par la clef primaire `SELECT 1 FROM rag_chunks WHERE id = ?` ; si le fragment
+     existe déjà, sa présence dans `rag_fts` se vérifie par `rag_fts MATCH '"<mots du texte>"' AND chunk_id = ?`
+     (indexé). Une transaction par source (`BEGIN IMMEDIATE` … `COMMIT`) : un arrêt ne laisse pas de demi-écriture.
+     Modèle : `C:/tmp/drafts/rsi/veille_claude_desktop.py`.
+4. **Exécution** : un `run_job` détaché (plusieurs URL = long ; plafond 70 s des appels hub).
+   Modèle : `sandbox/workspace/veille_github_bp3.py`.
+5. **Vérifier** là où le moteur lit : `rag_chunks_fts MATCH '<terme témoin de la page>'` doit
+   rendre des fragments (et `rag_fts MATCH`, si on l'a alimentée). Un `inserted:1` ne prouve rien.
+
+Le FTS/BM25 est cherchable aussitôt ; l'embedding suit quand le daemon embed-trigger se réveille.
+
+## Fiche biblio seule (ancien chemin, traçabilité — ne met PAS le contenu dans le RAG)
+
+### Crawl direct via MCP
 
 ```python
 # Tool MCP : mcp_laforge-sovereign-hub_crawl
@@ -62,10 +96,7 @@ result = crawl(url="https://example.com/release-notes/v4.0",
 # result = { "url": ..., "title": ..., "content_md": ..., "links": [...] }
 ```
 
-Pour multi-URLs, **boucle simple** côté client. Pas de SearXNG, pas
-d'expansion de keywords.
-
-### 2. Ingestion RAG via /ingest/url
+### Fiche via /ingest/url
 
 ```bash
 curl -X POST "http://127.0.0.1:8766/ingest/url" \
@@ -74,14 +105,12 @@ curl -X POST "http://127.0.0.1:8766/ingest/url" \
   -d '{"url": "https://example.com/release-notes/v4.0",
        "tags": ["spin", "fermyon", "release"],
        "domain": "ia",
-       "agent": "CLAUDE_VEILLE_RAPIDE"}'
+       "agent": "<TON_AGENT_ID>_VEILLE_RAPIDE"}'
 ```
 
-Le hub gère :
-- Déduplication via hash md5 chain (cf `forge_biblio_core.insert_biblio_raw`)
-- Chunking markdown (`MarkdownChunker`, headers + overlap)
-- Embedding via `forge_npu_embedder` (ONNX NPU Radeon 780M, gratuit)
-- Insert dans `rag_chunks` + `rag_fts` (BM25 indexable immédiatement)
+Ce que fait réellement /ingest/url (mesuré le 21/08) : une fiche `biblio_raw` (titre, URL,
+description), dédupliquée par `forge_biblio_core.insert_biblio_raw`. Le CONTENU n'atteint pas
+`rag_chunks`/`rag_fts` : pour le rendre cherchable, suivre le Workflow ci-dessus.
 
 ### 3. Anchor solution (optionnel mais recommandé)
 

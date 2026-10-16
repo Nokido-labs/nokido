@@ -77,7 +77,10 @@ def _gs(k: str) -> str:
 
 _load_env()
 
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+# Modèle par défaut sur la voie clé API (palier gratuit) : seule la famille flash-lite répond.
+# Ne dépend plus d'un GEMINI_MODEL global figé qui pointerait sur pro ou flash.
+DEFAULT_GEMINI_API_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = DEFAULT_GEMINI_API_MODEL
 GEMINI_MAX_TOKENS = int(_gs("GEMINI_MAX_TOKENS") or "2048")
 GEMINI_TEMPERATURE = float(os.environ.get("GEMINI_TEMPERATURE", "0.7"))
 
@@ -101,20 +104,20 @@ class GeminiBridge:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = GEMINI_MODEL,
+        model: Optional[str] = None,
         max_tokens: int = GEMINI_MAX_TOKENS,
         temperature: float = GEMINI_TEMPERATURE,
     ) -> None:
         """Init.
 
         Args:
-            api_key: Description.
-            model: Description.
+            api_key: Clé API Gemini (voie clé API gratuite).
+            model: Modèle demandé par l'appelant. Si omis, famille flash-lite par défaut.
             max_tokens: Description.
             temperature: Description.
         """
         self.api_key = api_key or _gs("GEMINI_API_KEY")
-        self.model = model
+        self.model = model or DEFAULT_GEMINI_API_MODEL
         self.max_tokens = max_tokens
         self.temperature = temperature
         self._client = None
@@ -170,6 +173,7 @@ class GeminiBridge:
         agent_id: str = "gemini",
         session_id: str = "",
         wrap_context: bool = True,
+        model: Optional[str] = None,
     ) -> str:
         """
         Envoie un prompt à Gemini avec sécurité intégrée.
@@ -181,10 +185,13 @@ class GeminiBridge:
             agent_id:     Identité pour les logs
             session_id:   Session courante
             wrap_context: Envelopper le contexte avec FORGE_SENTRY
+            model:        Modèle choisi par l'appelant (prioritaire)
 
         Returns:
             Réponse texte de Gemini, validée par loopback
         """
+        target_model = model or self.model or DEFAULT_GEMINI_API_MODEL
+
         # ── 1. Construire le payload ──────────────────────────────────────
         if context and wrap_context and self._has_sec:
             safe_context = self._wrap_chunk(
@@ -231,11 +238,11 @@ class GeminiBridge:
         try:
             from nokido_agent.app.forge_metrics import get_collector as _gc
 
-            with _gc().measure("gemini", self.model, mode=mode, session_id=session_id) as _m:
+            with _gc().measure("gemini", target_model, mode=mode, session_id=session_id) as _m:
                 response = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: client.models.generate_content(
-                        model=self.model,
+                        model=target_model,
                         contents=full_prompt,
                     ),
                 )
@@ -263,13 +270,18 @@ class GeminiBridge:
         return raw_response
 
     async def ask_with_history(
-        self, messages: List[Dict[str, str]], mode: str = "ANALYZE", session_id: str = ""
+        self,
+        messages: List[Dict[str, str]],
+        mode: str = "ANALYZE",
+        session_id: str = "",
+        model: Optional[str] = None,
     ) -> str:
         """
         Conversation multi-tours avec Gemini.
         messages = [{"role": "user"|"model", "text": "..."}]
         """
         client = self._get_client()
+        target_model = model or self.model or DEFAULT_GEMINI_API_MODEL
 
         # Construire les contents Gemini
         contents = [{"role": m["role"], "parts": [{"text": m["text"]}]} for m in messages]
@@ -278,7 +290,7 @@ class GeminiBridge:
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: client.models.generate_content(
-                    model=self.model,
+                    model=target_model,
                     contents=contents,
                 ),
             )
@@ -303,6 +315,7 @@ class GeminiBridge:
         rag_ctx: str = "",
         system_extra: str = "",
         max_tokens: int = 800,
+        model: Optional[str] = None,
     ) -> str:
         """
         Interface compatible LiteLLMBridge.propose().
@@ -317,6 +330,7 @@ class GeminiBridge:
                 context=rag_ctx,
                 mode="ANALYZE",
                 agent_id="gemini_fallback",
+                model=model,
             )
         except Exception as e:
             logger.warning(f"[GeminiBridge.propose] {e}")
@@ -340,13 +354,19 @@ class GeminiBridge:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def gemini_ask(prompt: str, context: str = "", mode: str = "ANALYZE", session_id: str = "") -> str:
+async def gemini_ask(
+    prompt: str,
+    context: str = "",
+    mode: str = "ANALYZE",
+    session_id: str = "",
+    model: Optional[str] = None,
+) -> str:
     """
     Fonction utilitaire utilisable comme _nokido_ask() ou _ollama_ask()
     dans forge_collab_modes.py.
     """
-    bridge = get_gemini_bridge()
-    return await bridge.ask(prompt, context=context, mode=mode, session_id=session_id)
+    bridge = get_gemini_bridge(model=model)
+    return await bridge.ask(prompt, context=context, mode=mode, session_id=session_id, model=model)
 
 
 async def run_mode_gemini_ping(
@@ -405,11 +425,11 @@ async def run_mode_gemini_ping(
 _bridge: Optional[GeminiBridge] = None
 
 
-def get_gemini_bridge() -> GeminiBridge:
+def get_gemini_bridge(model: Optional[str] = None) -> GeminiBridge:
     """Get gemini bridge."""
     global _bridge
-    if _bridge is None:
-        _bridge = GeminiBridge()
+    if _bridge is None or (model is not None and _bridge.model != model):
+        _bridge = GeminiBridge(model=model)
     return _bridge
 
 

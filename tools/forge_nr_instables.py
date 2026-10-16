@@ -70,6 +70,11 @@ def comparer(passes: list[dict[str, str] | None]) -> dict:
     }
 
 
+# 2026-10-14 (sonde passive de la CI turbo) : ce pytest imbrique etait le seul sous-processus du perimetre sans delai.
+# Une passe pendue bloquait l'outil sans fin ; 15 min par passe couvrent largement une liste de NR.
+DELAI_PASSE_S = 900
+
+
 def rejouer(tests: list[str], passes: int) -> dict:
     dossier = Path(tempfile.mkdtemp(prefix="nr_instables_"))
     rapports = []
@@ -79,7 +84,14 @@ def rejouer(tests: list[str], passes: int) -> dict:
         # meurt en PermissionError avant le premier test (mesure ci_local 2026-09-03).
         cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
                "--basetemp", str(dossier / ("tmp_%d" % i)), "--junitxml", str(junit), *tests]
-        subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, errors="replace")
+        try:
+            subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, errors="replace",
+                           timeout=DELAI_PASSE_S)
+        except subprocess.TimeoutExpired:
+            # Une passe qui ne finit pas n'est ni verte ni rouge : sans JUnit, elle est comptee ILLISIBLE
+            # ci-dessous -- et on dit POURQUOI, plutot qu'un processus pendu qui bloque toutes les passes.
+            print("[instables] passe %d/%d : DELAI DEPASSE (%d s) -- comptee ILLISIBLE" % (i, passes, DELAI_PASSE_S),
+                  flush=True)
         rapports.append(issues_junit(junit))
         print("[instables] passe %d/%d : %s" % (i, passes, "ILLISIBLE (pas de JUnit)" if rapports[-1] is None
                                                else "%d tests lus" % len(rapports[-1])), flush=True)

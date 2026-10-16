@@ -184,14 +184,9 @@ opérer sur un worktree git dédié — isolation physique > protocole coopérat
 
 ### Le worktree dédié n'est plus une suggestion : la phase 0 en DÉPEND (2026-09-07)
 
-Mesuré deux fois le 2026-09-06 : la CI locale passe au vert **et refuse de capturer un
-sha**, en le disant — `[generation] working tree non propre — pas de capture (le sha ne
-representerait pas l'etat teste)`. Or la phase 0 de la roadmap longue exige *« une CI de
-référence sur arbre strictement stable, puis un statut FERMÉ PAR COMMIT »*. **Tant qu'un
-agent laisse des fichiers modifiés non commités dans l'arbre partagé, ce critère est
-inatteignable — quelle que soit la qualité du code.** Ce jour-là, `README.md` et
-`docs/skills/nokido/SKILL.md` étaient modifiés **hors du claim** de leur auteur (son verrou
-portait sur `CLAUDE.md` et `docs/ROADMAP.md`).
+La CI de référence ne capture un sha que sur un arbre propre (`[generation] working tree non
+propre — pas de capture`). **Tant qu'un agent laisse des fichiers modifiés non commités dans
+l'arbre partagé, aucun verdict de CI ne se rattache à un commit**, quelle que soit la qualité du code.
 
 La convention EXISTE déjà — `laforge-cowork` est un worktree sur la branche `agent/cowork`.
 On l'étend, on n'en invente pas une autre :

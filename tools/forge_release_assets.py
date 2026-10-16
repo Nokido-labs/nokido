@@ -508,6 +508,11 @@ def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
     d'auteur. Refuse le jour meme (ff0f31bd6), jamais publie. Il n'appelle plus que
     `forge_knowledge_pack_export.export_pack`, dont le critere exige que chaque texte se retrouve mot pour mot dans
     un fichier publie du DEPOT PUBLIC -- d'ou `depot` obligatoire : sans clone du dist, rien a prouver, refus.
+
+    2026-10-15 (decision owner, apres mesure) : la release construit le pack NATIF (`export_pack_natif`). Le pack
+    selection v0.20.11 etait troue (509 des 604 .md publies sans fragment, README/CHANGELOG/wiki absents) : il ne
+    rendait que ce que le RAG prive avait deja ingere. Le natif decoupe l'arbre publie lui-meme, vectorise par
+    bge-m3 local (:8099) SEUL, et REFUSE de sortir si un essentiel n'a aucun fragment.
     """
     if depot is None:
         raise SystemExit("[rag] pack refuse : il se prouve contre le clone du dist (--repo), absent ici. "
@@ -515,8 +520,8 @@ def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
     from nokido_agent.tools import forge_knowledge_pack_export as kpe
 
     dest = out_dir / BUILDERS["rag_pack"].format(version=version)
-    print(f"[rag] pack essentiel -> {dest.name} (fragments prouves publics contre {Path(depot).name})")
-    stats = kpe.export_pack(dist=Path(depot), output=dest, version=version)
+    print(f"[rag] pack natif -> {dest.name} (arbre publie de {Path(depot).name}, bge-m3 local)")
+    stats = kpe.export_pack_natif(dist=Path(depot), output=dest, version=version)
     print(f"[rag] {stats['retenus']} fragments, {dest.stat().st_size / 1e6:.1f} MB, sha256 {stats['sha256'][:12]}")
     return dest
 

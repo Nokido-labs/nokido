@@ -130,13 +130,31 @@ def test_kill_switch(monkeypatch):
 
 def test_DESARMEE_par_defaut(monkeypatch):
     """Degat mesure 24-07 : cette selection a endormi Qdrant, l'embedder ET le
-    reranker — les trois piliers du RAG. Sans variable, elle ne doit RIEN rendre."""
+    reranker — les trois piliers du RAG. Sans variable et SANS URGENCE, elle ne doit RIEN rendre.
+
+    HERMETIQUE depuis le 2026-10-14. Le defaut n'est plus « desarme » mais `conditioned` (decision owner du
+    03/08) : sans variable, l'eviction s'arme sur la RAM libre lue EN DIRECT. Ce test lisait donc la memoire
+    reelle de la machine -- vert au calme, rouge des que 4 workers xdist la faisaient passer sous 2,5 Go (runner
+    du poste, run 38582102965). La condition est desormais POSEE, dans les deux sens."""
     _wire(monkeypatch,
           [_Proc(15860, "llama-server.exe", 5.59)],
           {8099: ("NokidoLlamaChat", 15860)},
           {})
     monkeypatch.delenv("LAFORGE_EVICT_DYNAMIC", raising=False)
+    monkeypatch.setattr(rm, "_evict_conditions_met", lambda: {"ok": False, "raison": "pas d'urgence (test)"})
     assert rm._heavy_evictable_services() == []
+
+
+def test_le_defaut_conditionne_ne_s_arme_que_sur_urgence(monkeypatch):
+    # Jumeau du precedent : meme variable absente, mais urgence mesuree -> la selection s'ouvre. Sans ce cas, le
+    # test « desarme » ne disait rien du mode reellement en vigueur.
+    _wire(monkeypatch,
+          [_Proc(15860, "llama-server.exe", 5.59)],
+          {8099: ("NokidoLlamaChat", 15860)},
+          {})
+    monkeypatch.delenv("LAFORGE_EVICT_DYNAMIC", raising=False)
+    monkeypatch.setattr(rm, "_evict_conditions_met", lambda: {"ok": True, "raison": "urgence (test)"})
+    assert rm._heavy_evictable_services() != []
 
 
 def test_les_petits_process_sont_ignores(monkeypatch):

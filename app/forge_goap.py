@@ -115,6 +115,30 @@ class SubGoal:
     actions: List[Dict[str, Any]] = field(default_factory=list)
 
 
+def plafonner_plan(plan, max_steps: int) -> dict:
+    """Coupe le plan a `max_steps` ACTIONS (ordre des sous-buts conserve) AVANT toute execution.
+
+    Audit ChatGPT 15/10, verifie et diff propose par AGY : `loop_orchestrate` lisait `max_steps` sans
+    jamais l'appliquer. Rend {"prevu", "garde", "ecartees"} pour que l'appelant DISE ce qu'il a coupe.
+    Un plafond negatif ou illisible vaut 0 (rien n'est execute) -- jamais « illimite »."""
+    try:
+        plafond = max(0, int(max_steps))
+    except (TypeError, ValueError):
+        plafond = 0
+    prevu = sum(len(sg.actions) for sg in plan.subgoals)
+    garde, gardes = 0, []
+    for sg in plan.subgoals:
+        reste = plafond - garde
+        if reste <= 0:
+            continue
+        if len(sg.actions) > reste:
+            sg.actions = sg.actions[:reste]
+        garde += len(sg.actions)
+        gardes.append(sg)
+    plan.subgoals = gardes
+    return {"prevu": prevu, "garde": garde, "ecartees": prevu - garde}
+
+
 @dataclass
 class PlanTree:
     goal: str
@@ -659,15 +683,28 @@ async def _execute_subgoal(sg: SubGoal, dispatch_fn: Any, traj: Trajectory) -> N
             # Dispatcher strict ALLOWED_METHODS via forge_trajectory
             result = await dispatch_fn(action)
 
-            # Gestion des erreurs JSON-RPC
-            if isinstance(result, dict) and result.get("error"):
-                err = result["error"]
+            # 1. Vérification réponse présente et lisible : aucun succès sans réponse lue, illisible = UNKNOWN
+            if result is None:
+                traj.fail(idx, "UNKNOWN: absence de reponse du dispatcher (None)")
+                raise GOAPExecutionError("Action failed: UNKNOWN: absence de reponse du dispatcher (None)", idx, traj)
+
+            if not isinstance(result, dict):
+                traj.fail(idx, f"UNKNOWN: reponse illisible (type {type(result).__name__})")
+                raise GOAPExecutionError(f"Action failed: UNKNOWN: reponse illisible (type {type(result).__name__})", idx, traj)
+
+            if not result:
+                traj.fail(idx, "UNKNOWN: reponse vide du hub / dispatcher")
+                raise GOAPExecutionError("Action failed: UNKNOWN: reponse vide du hub / dispatcher", idx, traj)
+
+            # 2. Gestion des échecs explicites : error OU ok == False OU status == 'UNKNOWN'
+            if result.get("error") or result.get("ok") is False or result.get("status") == "UNKNOWN":
+                err = result.get("error") or result.get("stderr") or result.get("message") or result.get("reason") or "ok: false"
                 msg = err.get("message") if isinstance(err, dict) else str(err)
                 traj.fail(idx, msg)
                 raise GOAPExecutionError(f"Action failed: {msg}", idx, traj)
 
-            # Succès
-            res_data = result.get("result") if isinstance(result, dict) else result
+            # Succès vérifié
+            res_data = result.get("result") if "result" in result else result
             traj.complete(idx, res_data)
 
         except GOAPExecutionError:

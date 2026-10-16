@@ -82,7 +82,7 @@ def render_run_form():
     parts.append('</label>')
     parts.append('<input name="script_args" id="f_run_script_args" class="lf-input" type="text">')
     parts.append('<small class="lf-field__hint">')
-    parts.append('CLI args for trusted_script (chaine style shell, parsee via shlex)')
+    parts.append('Arguments CLI du script (chaine style shell, parsee via shlex) : trusted_script ET run_job')
     parts.append('</small>')
     parts.append('</div>')
     parts.append('<div class="lf-field">')

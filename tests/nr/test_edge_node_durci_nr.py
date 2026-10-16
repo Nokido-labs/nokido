@@ -116,6 +116,17 @@ def test_ota_fermee_sans_jeton(noeud, tmp_path):
     assert _fichiers_ota(tmp_path) == []
 
 
+def test_le_refus_avant_lecture_arrive_toujours_au_client(noeud, tmp_path):
+    """15/10 (CI de reference 1ec53f29e) : `ConnectionAbortedError [WinError 10053]` a la lecture d'un 403 OTA,
+    intermittent -- le noeud fermait avec le corps NON LU dans son tampon, Windows envoyait un RST et le client
+    perdait la reponse deja ecrite. La course se repete : 25 refus d'affilee doivent tous arriver."""
+    port = noeud()
+    for i in range(25):
+        code, rep = _post(port, "/ota", b"#!/bin/sh\necho pris %d\n" % i * 40, {"X-OTA-Path": "evil.sh"})
+        assert code == 403 and "aucun jeton" in rep["error"], (i, code, rep)
+    assert _fichiers_ota(tmp_path) == [], "un refus ne doit jamais ecrire"
+
+
 def test_ota_refuse_un_jeton_faux(noeud, tmp_path):
     port = noeud(jeton=secrets.token_hex(16))
     code, rep = _post(port, "/ota", b"abc", {"X-OTA-Path": "a.bin",

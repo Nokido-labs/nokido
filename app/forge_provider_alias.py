@@ -67,16 +67,15 @@ ALIAS: Dict[str, Optional[str]] = {
     "openrouter_gpt_oss": "openrouter_free",
     "openrouter_glm_air": "openrouter_free",
     "openrouter_qwen_coder": "openrouter_free",
-    # GitHub Models -- NOTE : mesure 2026-09-02, le service rend HTTP 410
-    # `github_models_retirement_brownout`. L'alias reste declare pour que la
-    # disparition soit LISIBLE plutot que muette.
-    "github_gpt41_mini": "gpt4o_github",
-    "github_gpt4o_mini": "gpt4o_github",
-    "github_llama_70b": "gpt4o_github",
-    "github_phi4_mini": "gpt4o_github",
-    "github_deepseek_v3": "gpt4o_github",
-    "github_codestral": "gpt4o_github",
-    "github_cohere_rp": "gpt4o_github",
+    # GitHub Models -- mesure 2026-09-02 : HTTP 410 `github_models_retirement_brownout`.
+    # RETIRE le 15/10 (owner) : aucun equivalent, d'ou `None` -- la disparition reste LISIBLE.
+    "github_gpt41_mini": None,
+    "github_gpt4o_mini": None,
+    "github_llama_70b": None,
+    "github_phi4_mini": None,
+    "github_deepseek_v3": None,
+    "github_codestral": None,
+    "github_cohere_rp": None,
     # HuggingFace
     "hf_qwen_coder": "hf",
     "hf_llama": "hf",
@@ -119,6 +118,49 @@ ABSENTS_DE_ASK: List[str] = [
 # code fait accuser le credit ou le palier. Avec un User-Agent de navigateur,
 # la meme clef rend `401 invalid_api_key` -- le vrai motif. Verifier d'abord
 # que la reponse vient de l'API et non d'un pare-feu place devant elle.
+# Fournisseurs RETIRES : plus enregistres dans `ask()`, mais nommes avec leur raison pour qu'un
+# appel dise POURQUOI au lieu de rendre un « inconnu » muet (owner 15/10 : « a supprimer »).
+RETIRES: Dict[str, str] = {
+    "gpt4o_github": "GitHub Models ne sert plus (HTTP 410 `github_models_retirement_brownout` "
+                    "mesure le 02/09 ; backend retire le 18/08). Retire le 15/10 sur demande "
+                    "owner ; revue de code routee vers groq.",
+}
+# Les slots GitHub du registre du hub (forge_llm_router.PROVIDERS, marques `perime`) disent la
+# meme raison : un appel par leur nom explique sa mort au lieu de rendre un vide.
+RETIRES.update({n: "slot GitHub Models PERIME (410 Gone, backend retire le 18/08) ; aucun "
+                   "equivalent -- " + RETIRES["gpt4o_github"]
+                for n in ("github_gpt41_mini", "github_gpt4o_mini", "github_llama_70b", "github_phi4_mini",
+                          "github_deepseek_v3", "github_codestral", "github_cohere_rp")})
+
+# QUATRIEME ETAT : la clef est refusee, MAIS la politique du fournisseur laisse une voie gratuite --
+# une clef REGENEREE suffirait. A l'inverse de CLEF_REFUSEE, ces fournisseurs restent joignables
+# (la rotation ecarte la clef morte avec son TTL) : c'est un geste owner a faire, pas une impasse.
+CLEF_A_RENOUVELER: Dict[str, str] = {
+    # sambanova : clef RENOUVELEE par l'owner le 15/10 (migree au coffre) -> voir SANS_SOLDE.
+}
+
+# CINQUIEME ETAT : la clef est VALIDE, mais le modele exige un solde que le compte n'a pas. Ni une clef
+# regeneree ni l'attente n'y changent rien ; le fournisseur a peut-etre un autre modele gratuit, servi
+# alors par un slot distinct. Exclu des fournisseurs joignables comme CLEF_REFUSEE.
+# PORTEE (owner 15/10 : « des LLM peuvent etre injoignables par un provider et joignables par un
+# autre ») : chaque entree qualifie un SLOT, c.-a-d. le couple fournisseur x modele, JAMAIS le modele.
+# glm-5.x refuse ici en direct chez zAI peut etre servi par un autre fournisseur (OpenRouter...) : un
+# lecteur qui en conclurait « modele injoignable » ecarterait une voie vivante.
+SANS_SOLDE: Dict[str, str] = {
+    "zai_glm5_2": "clef zAI VALIDE (/models 200), mais glm-5.2, glm-5.3-flash et glm-5.3-flashx rendent "
+                  "429 code 1113 « Insufficient balance or no resource package » (mesure 15/10). Le "
+                  "palier GRATUIT de zAI est servi par le slot `zai_glm_flash` (glm-4.5-flash). Geste "
+                  "owner pour glm-5.x : recharger le compte zAI.",
+    "mistral": "slot `mistral` = mistral-large-latest EN DIRECT : 403 code 1910 « not available in your "
+               "subscription tier » (mesure 15/10, deux fois). Le palier de l'abonnement est servi par "
+               "le slot `mistral_free` (open-mistral-nemo, « OK » en 0,3 s). medium/small : 429 code "
+               "1300 (debit) au moment de la mesure, non classes. Geste owner pour large : abonnement.",
+    "sambanova": "clef RENOUVELEE par l'owner et migree au coffre le 15/10 : acceptee (plus de 401), mais le "
+                 "COMPTE rend 402 code PAYMENT_METHOD_REQUIRED, balance_units 0, sur tous les modeles essayes "
+                 "(Llama-3.3-70B, Llama-3.1-8B). L'offre « Free » de la page de tarifs exige donc un moyen de "
+                 "paiement enregistre. Geste owner : ajouter un moyen de paiement (cloud.sambanova.ai/plans/billing).",
+}
+
 CLEF_REFUSEE: Dict[str, str] = {
     "together_ai": "PAYANT SANS PALIER GRATUIT + clef invalide. Doc Together "
                    "(2026-09-02) : 'does not currently offer free trials', acces "
@@ -225,7 +267,8 @@ def diagnostic() -> Dict[str, object]:
     except Exception as e:  # noqa: BLE001
         return {"etat": "ILLISIBLE", "raison": str(e)[:100]}
 
-    non_mappes = sorted(n for n in hub if resoudre(n) is None)
+    # Une entree marquee `perime` dans le registre du hub est DECLAREE morte : elle n'a pas a router.
+    non_mappes = sorted(n for n in hub if resoudre(n) is None and not (_HUB.get(n) or {}).get("perime"))
     casses = sorted(n for n, cible in ALIAS.items()
                     if cible is not None and cible not in executables)
     orphelins = sorted(n for n in ALIAS if n not in hub)

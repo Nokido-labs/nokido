@@ -61,6 +61,28 @@ def lire(url: str, cle: str = "", charge: bytes | None = None,
         return -1, f"{type(exc).__name__}", {}
 
 
+CONTENEURS = ("data", "models", "results", "items")
+
+
+def modeles_de(brut) -> list[dict]:
+    """Liste normalisee `[{"id": ..., ...}]` quelle que soit la forme. Mesure du 2026-09-03 (matrice) : Cohere rend
+    `{"models": [{"name": ...}]}` -- le parseur mono-format `{"data": [{"id": ...}]}` rendait « 200 -- 0 modele » et
+    20 modeles reels devenaient ABSENTS. La matrice l'avait corrige pour elle seule ; le module commun (4 sondes) gardait
+    le defaut (15/10). Une absence TOTALE sur une reponse reussie accuse le parseur, jamais le fournisseur."""
+    donnees = brut
+    if isinstance(brut, dict):
+        donnees = next((brut[c] for c in CONTENEURS if isinstance(brut.get(c), list)), [])
+    out = []
+    for m in donnees if isinstance(donnees, list) else []:
+        if isinstance(m, str):
+            out.append({"id": m})
+        elif isinstance(m, dict):
+            ident = m.get("id") or m.get("name") or m.get("model")
+            if ident:
+                out.append(dict(m, id=str(ident)))
+    return out
+
+
 def catalogue(base: str, cle: str = "", timeout: int = TIMEOUT) -> tuple[int, list[dict], dict]:
     """(code, modeles, en-tetes). Les en-tetes portent parfois le quota."""
     code, corps, entetes = lire(f"{base.rstrip('/')}/models", cle, timeout=timeout)
@@ -70,8 +92,7 @@ def catalogue(base: str, cle: str = "", timeout: int = TIMEOUT) -> tuple[int, li
         brut = json.loads(corps)
     except ValueError:
         return code, [], entetes
-    donnees = brut.get("data") if isinstance(brut, dict) else brut
-    return code, [m for m in (donnees or []) if isinstance(m, dict)], entetes
+    return code, modeles_de(brut), entetes
 
 
 def taille_apparente(identifiant: str) -> float:

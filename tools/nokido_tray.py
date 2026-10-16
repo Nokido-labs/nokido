@@ -468,31 +468,102 @@ def _quit(icon, item):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+FENETRE_AGENTS_S = 900  # « actif » = vu par la porte ou le hub dans les 15 dernieres minutes
+
+
+def _mode_dev() -> str:
+    """Mode DEV de l'owner (forge_dev_mode) : arme, desarme, ou jeton present mais non valide -- jamais « desarme »
+    par defaut quand on ne sait pas lire (UNKNOWN != NO)."""
+    try:
+        from nokido_agent.tools import forge_dev_mode as dm
+
+        if not dm.TOKEN_FILE.exists():
+            return "désarmé"
+        arme, reste = dm.is_armed()
+        return f"ARMÉ — reste {max(1, reste // 60)} min" if arme else "jeton présent mais non valide (expiré ou illisible)"
+    except Exception as exc:  # noqa: BLE001
+        return f"illisible ({type(exc).__name__})"
+
+
+def _lire_corps() -> None:
+    """Etat LOCAL lu sans le hub (fichiers du corps) : presence fusionnee + provenance, ordres recents, mode DEV.
+    Demande owner 15/10 : « le mode, les agents utilises (dynamiques, avec leur provenance exacte) et les ordres
+    ne s'affichent pas ». La liste d'agents de get_mode etait un fichier d'etat FIGE (4 noms) : elle n'est plus lue."""
+    try:
+        from nokido_agent.tools.forge_presence import etat_presence
+
+        _state["presence"] = etat_presence(FENETRE_AGENTS_S)
+        _state["presence_why"] = ""
+    except Exception as exc:  # noqa: BLE001
+        _state["presence"], _state["presence_why"] = [], f"{type(exc).__name__}: {exc}"[:80]
+    try:
+        from nokido_agent.app.forge_ordres_bureau import recents
+
+        _state["ordres"] = recents(6)
+    except Exception as exc:  # noqa: BLE001
+        _state["ordres"] = [{"evenement": f"journal illisible ({type(exc).__name__})"}]
+    _state["mode_dev"] = _mode_dev()
+
+
+def _ligne_agent(e: dict) -> str:
+    age = e.get("age_s") or 0
+    quand = f"{int(age)} s" if age < 90 else f"{int(age // 60)} min"
+    if e.get("declare"):
+        prov = f"{e.get('kind')} · {e.get('canal')}/{e.get('transport')} @{e.get('machine')}"
+    else:
+        prov = "provenance NON DÉCLARÉE"
+    if e.get("client"):
+        prov += f" · client {e['client']}" + (f" ({e['reseau']})" if e.get("reseau") else "")
+    outil = f" · {e['dernier_outil']}" if e.get("dernier_outil") else ""
+    return f"{e['agent']} — {quand} — {prov} — ring {e.get('ring', '?')}{outil}"
+
+
+def _ligne_ordre(o: dict) -> str:
+    ts = o.get("ts")
+    h = time.strftime("%H:%M", time.localtime(ts)) if isinstance(ts, (int, float)) else "--:--"
+    quoi = o.get("ordre") or o.get("action") or o.get("id") or "?"
+    qui = o.get("demandeur") or o.get("consommateur") or ""
+    issue = {True: " ✓", False: " ✗"}.get(o.get("ok"), "")
+    return f"{h}  {quoi} — {o.get('evenement', '?')}{(' — ' + qui) if qui else ''}{issue}"
+
+
 def _build_menu(icon) -> pystray.Menu:
     hub_status = f"Hub v{_state['version']} — {'UP ✓' if _state['hub_up'] else 'DOWN ✗'}"
     last_ok = f"Dernier ping : {_state['last_ok'] or 'jamais'}"
     mode_why = _state.get("mode_why") or ""
+    presence = _state.get("presence") or []
+    interlocuteurs = [e for e in presence if e.get("interlocuteur")]
+    organes = [e for e in presence if not e.get("interlocuteur")]
 
-    agents_items = []
-    for ag, info in (_state.get("agents") or {}).items():
-        status = info.get("status", "?") if isinstance(info, dict) else str(info)
-        agents_items.append(pystray.MenuItem(f"  {ag} — {status}", None, enabled=False))
+    def _sous_menu(titre, lignes, vide):
+        if not lignes:
+            return pystray.MenuItem(vide, None, enabled=False)
+        return pystray.MenuItem(titre, pystray.Menu(*[pystray.MenuItem(t, None, enabled=False) for t in lignes]))
+
+    autorite = []
+    if _state.get("master_dev") and not _state.get("master_expired"):
+        autorite = [pystray.MenuItem(f"Autorité dev : {_state['master_dev']} (reste {_state['master_ttl'] // 60} min)",
+                                     None, enabled=False)]
+    agents_items = [
+        _sous_menu(f"Agents actifs ({len(interlocuteurs)}, < 15 min)", [_ligne_agent(e) for e in interlocuteurs],
+                   "Agents actifs : aucun < 15 min" + (f" ({_state['presence_why']})" if _state.get("presence_why") else "")),
+        _sous_menu(f"Organes internes ({len(organes)}, < 15 min)", [_ligne_agent(e) for e in organes],
+                   "Organes internes : aucun < 15 min"),
+    ]
 
     return pystray.Menu(
         pystray.MenuItem(hub_status, None, enabled=False),
         pystray.MenuItem(last_ok, None, enabled=False),
         *(
-            [pystray.MenuItem(f"Mode {_state['mode']} — {mode_why}", None, enabled=False)]
+            [pystray.MenuItem(f"Mode hub {_state['mode']} — {mode_why}", None, enabled=False)]
             if mode_why
-            else [pystray.MenuItem(f"Mode : {_state['mode']}", None, enabled=False)]
+            else [pystray.MenuItem(f"Mode hub : {_state['mode']}", None, enabled=False)]
         ),
+        pystray.MenuItem(f"Mode DEV : {_state.get('mode_dev') or '?'}", None, enabled=False),
+        *autorite,
         pystray.Menu.SEPARATOR,
-        # Agents
-        *(
-            [pystray.MenuItem("Agents :", None, enabled=False)] + agents_items
-            if agents_items
-            else [pystray.MenuItem("Agents : aucun", None, enabled=False)]
-        ),
+        # Agents : presence REELLE (porte + hub) et provenance, plus la liste figee de get_mode
+        *agents_items,
         pystray.Menu.SEPARATOR,
         # Navigation
         pystray.MenuItem("📊 Network Monitor", _open_network, default=True),
@@ -510,6 +581,8 @@ def _build_menu(icon) -> pystray.Menu:
         pystray.MenuItem("🌐 Tailscale : statut du Funnel", _panneau("tailscale-statut")),
         pystray.MenuItem("🌐 Tailscale : OUVRIR le Funnel (:8793)", _panneau("funnel-ouvrir")),
         pystray.MenuItem("🌐 Tailscale : FERMER le Funnel", _panneau("funnel-fermer")),
+        _sous_menu("Ordres récents (journal)", [_ligne_ordre(o) for o in reversed(_state.get("ordres") or [])],
+                   "Ordres récents : aucun"),
         *(
             [pystray.MenuItem(f"Ordres : {_state['ordre_why']}", None, enabled=False)]
             if _state.get("ordre_why")
@@ -527,6 +600,7 @@ def _build_menu(icon) -> pystray.Menu:
 
 def _poll_loop(icon: pystray.Icon):
     while True:
+        _lire_corps()
         _poll_hub()
         _prendre_ordre()
         # Mettre à jour icône + title + menu

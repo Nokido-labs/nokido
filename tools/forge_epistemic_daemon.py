@@ -286,7 +286,7 @@ def _noter_emission(sig: str, sev: str) -> None:
         print(f"[epistemic] escalade NON retenue ({type(e).__name__}) : elle sera redite", flush=True)
 
 
-def _interoceptive_split(limit: int = 8) -> dict:
+def _interoceptive_split(limit: int = 8, ecrire: bool = True) -> dict:
     """Sépare SOIN (défaut à réparer) et SOIF (mécanisme à comprendre).
 
     Rend {"soif": [questions], "soin": [défauts]}, jamais d'exception : une
@@ -339,8 +339,9 @@ def _interoceptive_split(limit: int = 8) -> dict:
             soin.append({"fault": clean[:180], "cycles": n, "sig": sig, "severity": sev,
                          "sev_emise": prec["sev_emise"]})
     try:
-        (base / "self_care_state.json").write_text(
-            _json.dumps(live, ensure_ascii=False), encoding="utf-8")
+        if ecrire:   # `ecrire=False` : lecture a blanc (--enquete-a-blanc), les compteurs n'avancent pas
+            (base / "self_care_state.json").write_text(
+                _json.dumps(live, ensure_ascii=False), encoding="utf-8")
     except OSError:
         pass
     # LE PLUS GRAVE D'ABORD. Sans ce tri, l'ordre de traitement était celui du
@@ -594,6 +595,204 @@ def _reveiller_piliers(attente_s=None):
         time.sleep(10)
 
 
+# ── EFFECTEUR DE SOIF (debat tour 3, Q4 ; owner 15/10 : « desarme, 1 enquete a blanc ») ──────────
+# Une douleur CHRONIQUE que le soin ne guerit pas est une question de DIAGNOSTIC. L'effecteur la
+# confie a une ENQUETE en lecture seule (tache M2M a ANTIGRAVITY) qui rend un rapport et un verdict
+# RESOLU | NON_RESOLU | INDECIDABLE. Il PROPOSE, n'applique jamais.
+# Bornes : 1 enquete par 24 h ; par douleur, recul 24 -> 48 -> 96 h ; 3 enquetes sans guerison ->
+# QUARANTAINE_EPISTEMIQUE 30 j. CLOTURE par le CAPTEUR seul : la douleur absente du diagnostic
+# 2 cycles de suite. Un rapport « RESOLU » ne clot rien : declare n'est pas observe.
+# DESARME par defaut (LAFORGE_EFFECTEUR_ENQUETE=1, geste owner) : desarme, il calcule ce qu'il
+# AURAIT confie et le rend, sans rien deposer. Etat illisible : rien n'est depose, et c'est dit.
+_EFFECTEUR_ETAT = ROOT / "sandbox" / "enquetes" / "effecteur_etat.json"
+_WORKTREE_AGY = ROOT.parent / "nokido_worktrees" / "antigravity"
+_ENQUETE_BUDGET_S = 24 * 3600        # au plus une enquete deposee par fenetre
+_ENQUETE_RECUL_S = 24 * 3600         # recul par douleur : x1, x2, x4 apres chaque enquete
+_ENQUETE_MAX = 3                     # enquetes sans guerison avant quarantaine
+_QUARANTAINE_S = 30 * 86400
+_CLOTURE_CYCLES = 2
+_RAPPORT_DELAI_S = 24 * 3600
+_VERDICTS = ("RESOLU", "NON_RESOLU", "INDECIDABLE")
+
+
+def _effecteur_arme() -> bool:
+    return os.environ.get("LAFORGE_EFFECTEUR_ENQUETE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _lire_effecteur():
+    """Etat de l'effecteur ; absent = neuf ; ILLISIBLE = None (on ne depose rien sur un etat inconnu)."""
+    try:
+        d = json.loads(_EFFECTEUR_ETAT.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"sigs": {}, "derniere_ts": 0.0}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(d, dict) or not isinstance(d.get("sigs"), dict):
+        return None
+    return d
+
+
+def _ecrire_effecteur(etat: dict) -> bool:
+    try:
+        _EFFECTEUR_ETAT.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _EFFECTEUR_ETAT.with_suffix(".tmp")
+        tmp.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, _EFFECTEUR_ETAT)
+        return True
+    except OSError as e:
+        print(f"[epistemic] etat de l'effecteur NON ecrit ({type(e).__name__})", flush=True)
+        return False
+
+
+def _presence_capteur():
+    """Signatures de TOUS les defauts du dernier diagnostic (pas seulement les 8 soins rendus) ;
+    None = capteur illisible : une absence illisible ne clot jamais une enquete."""
+    try:
+        brut = json.loads(_ETAT_SOIN.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return None
+    return set(brut) if isinstance(brut, dict) else None
+
+
+def _verdict_du_rapport(chemin: Path):
+    """Verdict ecrit par l'enquete (`VERDICT: X`), ou None si absent / non reconnu."""
+    try:
+        texte = chemin.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = re.search(r"VERDICT\s*:\s*\**\s*(RESOLU|NON_RESOLU|INDECIDABLE)", texte)
+    return m.group(1) if m else None
+
+
+def description_enquete(item: dict, rapport_rel: str) -> str:
+    return (
+        "Enquete epistemique (effecteur de soif, LECTURE SEULE). Douleur CHRONIQUE du corps depuis "
+        "%s cycles : « %s » (sig %s, severite %s). Le soin ne la guerit pas : c'est une question de "
+        "DIAGNOSTIC.\n"
+        "1. Lis avec l'outil `read` du hub, sur l'ARBRE PRINCIPAL : sandbox/health_diagnostic.json et le "
+        "LOG de l'organe concerne (le log porte la dimension temps). Consulte `introspect` puis "
+        "`tools/forge_symptom_index.py --ask` sur ce symptome avant toute hypothese.\n"
+        "2. N'edite RIEN hors de ton rapport : aucun commit de code, aucune relance de service.\n"
+        "3. Rapport %s dans ton worktree : cause probable avec preuves (file:line, extraits de log), ce "
+        "qui CONTREDIRAIT cette cause, remede PROPOSE (jamais applique), ce que tu n'as pas pu voir, et "
+        "une ligne `VERDICT: RESOLU|NON_RESOLU|INDECIDABLE` (RESOLU = cause etablie sur pieces et remede "
+        "precis ; la cloture reste au capteur).\n"
+        'Ligne finale exigee : {"intent":"OK_DONE","pointer_ref":"%s"}'
+        % (item.get("cycles"), str(item.get("fault"))[:180], item.get("sig"), item.get("severity"),
+           rapport_rel, rapport_rel))
+
+
+def _deposer_enquete(description: str) -> dict:
+    """Depose la tache ANTIGRAVITY par le hub (meme voie que le repondeur GEMINI). {"task_id"} | {"error"}."""
+    try:
+        from nokido_agent.app.forge_hub_client import HubClient
+
+        txt = HubClient(agent="EPISTEMIC", timeout=30.0).tool("task", {
+            "action": "assign", "agent": "ANTIGRAVITY", "intent": "HANDOFF_NEXT", "description": description})
+    except Exception as e:  # noqa: BLE001 - rendu a l'effecteur, qui le classe BLOQUE_PAR_DEPENDANCE
+        return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+    try:
+        d = json.loads(txt or "")
+    except ValueError:
+        return {"error": "reponse du hub illisible : %s" % (txt or "vide")[:120]}
+    tid = d.get("task_id") if isinstance(d, dict) else None
+    return {"task_id": tid} if tid else {"error": "pas de task_id : %s" % (txt or "")[:160]}
+
+
+def effecteur_enquete(soin: list, maintenant: float | None = None, arme: bool | None = None,
+                      deposer=None) -> dict:
+    """Un passage de l'effecteur. Rend {"etat", "evenements", ...} ; ne leve pas sur un etat illisible."""
+    t = time.time() if maintenant is None else maintenant
+    arme = _effecteur_arme() if arme is None else arme
+    etat = _lire_effecteur()
+    if etat is None:
+        return {"etat": "ETAT_ILLISIBLE", "evenements": [],
+                "detail": "%s illisible : aucune enquete deposee" % _EFFECTEUR_ETAT.name}
+    sigs = etat.setdefault("sigs", {})
+    evenements = []
+
+    # 1. Cloture par le CAPTEUR seul.
+    presents = _presence_capteur()
+    if presents is not None:
+        presents |= {x.get("sig") for x in soin}
+        for sig, e in sigs.items():
+            if e.get("statut") == "CLOS_PAR_LE_CAPTEUR":
+                continue
+            if sig in presents:
+                e["absent"] = 0
+                continue
+            e["absent"] = int(e.get("absent", 0)) + 1
+            if e["absent"] >= _CLOTURE_CYCLES:
+                e.update(statut="CLOS_PAR_LE_CAPTEUR", clos_ts=t)
+                evenements.append("CLOS_PAR_LE_CAPTEUR %s (absent %d cycles)" % (sig, e["absent"]))
+
+    # 2. Rapports rendus (ou absents au-dela du delai).
+    for sig, e in sigs.items():
+        if e.get("statut") != "ENQUETE_EN_COURS":
+            continue
+        v = _verdict_du_rapport(_WORKTREE_AGY / e.get("rapport", ""))
+        if v:
+            e.update(statut="RAPPORT_RENDU", verdict=v, rendu_ts=t)
+            evenements.append("RAPPORT %s : %s" % (sig, v))
+        elif t - float(e.get("depose_ts", t)) > _RAPPORT_DELAI_S:
+            e.update(statut="RAPPORT_ABSENT", verdict=None)
+            evenements.append("RAPPORT ABSENT %s apres %d h" % (sig, _RAPPORT_DELAI_S // 3600))
+
+    # 3. Candidat : le plus grave d'abord (ordre de `soin`), chronique, hors recul et hors quarantaine.
+    candidat, ecartes = None, {}
+    for x in soin:
+        sig = x.get("sig")
+        if not sig or int(x.get("cycles") or 0) < _CHRONIC_AFTER:
+            continue
+        e = sigs.get(sig) or {}
+        if e.get("statut") == "QUARANTAINE_EPISTEMIQUE" and t < float(e.get("quarantaine_jusqu_a", 0)):
+            ecartes[sig] = "QUARANTAINE_EPISTEMIQUE"
+            continue
+        if e.get("statut") == "ENQUETE_EN_COURS":
+            ecartes[sig] = "ENQUETE_EN_COURS"
+            continue
+        # Le recul AVANT le constat d'echec : la 3e enquete a droit, elle aussi, a sa fenetre (96 h)
+        # pour que le capteur voie une guerison ; ce n'est qu'a son terme, douleur presente, qu'on conclut.
+        if t < float(e.get("prochaine_ts", 0)):
+            ecartes[sig] = "RECUL"
+            continue
+        if int(e.get("tentatives", 0)) >= _ENQUETE_MAX:
+            e.update(statut="QUARANTAINE_EPISTEMIQUE", quarantaine_jusqu_a=t + _QUARANTAINE_S, tentatives=0)
+            sigs[sig] = e
+            evenements.append("QUARANTAINE_EPISTEMIQUE %s : %d enquetes sans guerison" % (sig, _ENQUETE_MAX))
+            ecartes[sig] = "QUARANTAINE_EPISTEMIQUE"
+            continue
+        candidat = x
+        break
+
+    res = {"evenements": evenements, "ecartes": ecartes, "arme": arme}
+    if candidat is None:
+        res["etat"] = "RIEN_A_ENQUETER"
+    elif t - float(etat.get("derniere_ts", 0)) < _ENQUETE_BUDGET_S:
+        res.update(etat="BUDGET", aurait_confie=candidat.get("sig"))
+    elif not arme:
+        res.update(etat="DESARME", aurait_confie=candidat.get("sig"))
+    else:
+        sig = candidat["sig"]
+        rapport = "sandbox/enquetes/%s_%s.md" % (sig, time.strftime("%Y%m%d", time.localtime(t)))
+        r = (deposer or _deposer_enquete)(description_enquete(candidat, rapport))
+        e = sigs.setdefault(sig, {})
+        if r.get("task_id"):
+            n = int(e.get("tentatives", 0)) + 1
+            e.update(statut="ENQUETE_EN_COURS", task_id=r["task_id"], depose_ts=t, rapport=rapport,
+                     tentatives=n, fault=str(candidat.get("fault"))[:180],
+                     prochaine_ts=t + _ENQUETE_RECUL_S * 2 ** (n - 1), absent=0)
+            etat["derniere_ts"] = t
+            res.update(etat="DEPOSEE", sig=sig, task_id=r["task_id"], rapport=rapport)
+            evenements.append("ENQUETE DEPOSEE %s -> %s (%d/%d)" % (sig, r["task_id"], n, _ENQUETE_MAX))
+        else:
+            e.update(statut="BLOQUE_PAR_DEPENDANCE", erreur=r.get("error"), prochaine_ts=t + 3600)
+            res.update(etat="BLOQUE_PAR_DEPENDANCE", sig=sig, erreur=r.get("error"))
+            evenements.append("ENQUETE NON DEPOSEE %s : %s" % (sig, r.get("error")))
+    _ecrire_effecteur(etat)
+    return res
+
+
 def run_once(conn: sqlite3.Connection) -> dict:
     conn.executescript(_SCHEMA)
     seen = {r[0] for r in conn.execute("SELECT query_hash FROM epistemic_seen")}
@@ -614,6 +813,13 @@ def run_once(conn: sqlite3.Connection) -> dict:
     rows = list(rows) + [(q,) for q in _split["soif"]]
     for _item in _split["soin"]:
         _propose_care(_item)
+    # Effecteur de soif : une douleur chronique devient une enquete (desarme par defaut).
+    try:
+        _effet = effecteur_enquete(_split["soin"])
+    except Exception as _e:  # noqa: BLE001 - un effecteur qui casse ne tue pas le cycle, et le dit
+        _effet = {"etat": "ERREUR", "evenements": ["effecteur KO %s: %s" % (type(_e).__name__, _e)]}
+    for _ev in _effet.get("evenements") or ():
+        _journal("effecteur : %s" % _ev)
 
     # PORTE DE L'EXAMEN (owner 2026-09-30) : l'interoception ci-dessus a tourne ; ce qui
     # suit reveille ~4,6 Go de piliers et n'a lieu que sur declencheur.
@@ -1017,7 +1223,22 @@ def main() -> int:
     ap.add_argument("--irresolue", metavar="CLE", default=None,
                     help="DECISION OWNER : declarer IRRESOLUE la lacune CLE (exige --motif)")
     ap.add_argument("--motif", default="", help="motif de l'irresolution")
+    ap.add_argument("--enquete-a-blanc", action="store_true",
+                    help="calcule l'enquete que l'effecteur de soif confierait, l'IMPRIME (douleur, "
+                         "consignes) sans rien deposer ni ecrire")
     a = ap.parse_args()
+    if a.enquete_a_blanc:
+        # A BLANC : aucun compteur de soin avance, aucun etat d'effecteur ecrit, rien n'est depose.
+        split = _interoceptive_split(ecrire=False)
+        candidats = [x for x in split["soin"] if int(x.get("cycles") or 0) >= _CHRONIC_AFTER]
+        if not candidats:
+            print("[epistemic] aucune douleur chronique : rien a enqueter", flush=True)
+            return 0
+        x = candidats[0]
+        rapport = "sandbox/enquetes/%s_%s.md" % (x["sig"], time.strftime("%Y%m%d"))
+        print(json.dumps({"douleur": x, "rapport": rapport, "armement": _effecteur_arme(),
+                          "description": description_enquete(x, rapport)}, ensure_ascii=False, indent=1))
+        return 0
     if a.irresolue:
         r = ev.declarer_irresolue(a.irresolue, par=ev.OWNER, motif=a.motif)
         print(f"[epistemic] {r}", flush=True)

@@ -36,6 +36,22 @@ def test_un_test_absent_d_une_passe_est_instable():
     assert "a" in r["instables"], "un test qui disparait d'une passe ne peut pas etre lu STABLE"
 
 
+def test_une_passe_pendue_est_bornee_et_comptee_illisible(monkeypatch, capsys):
+    # 2026-10-14 (sonde passive de la CI turbo) : le pytest imbrique etait le seul sous-processus sans delai.
+    import subprocess as sp
+    vus = []
+
+    def _pendu(cmd, **kw):
+        vus.append(kw.get("timeout"))
+        raise sp.TimeoutExpired(cmd, kw.get("timeout"))
+
+    monkeypatch.setattr(fni.subprocess, "run", _pendu)
+    r = fni.rejouer(["tests/nr/test_inexistant_nr.py"], 2)
+    assert vus == [fni.DELAI_PASSE_S] * 2 and fni.DELAI_PASSE_S > 0
+    assert r["passes"] == 2 and r["passes_illisibles"] == 2
+    assert capsys.readouterr().out.count("DELAI DEPASSE") == 2
+
+
 def test_lecture_junit(tmp_path):
     x = tmp_path / "j.xml"
     x.write_text('<testsuites><testsuite><testcase classname="m" name="ok"/>'

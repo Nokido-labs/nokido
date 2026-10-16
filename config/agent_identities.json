@@ -353,7 +353,8 @@
       ]
     },
     "CODEX": {
-      "ring": 2,
+      "ring": 1,
+      "_note": "Ring 1 depuis le 15/10 (decision owner « aligner en ring 1 ») : le principe du 26/07 « les clients de Nokido sont a EQUIVALENCE » (71b7a1547) n'avait aligne que l'acteur AGY ; Codex etait reste en ring 2 depuis le provisionnement du 17/06, sans justification ecrite. CODEX_HOOK reste ring 4 (un hook n'est pas l'agent). Le garde reste l'intention et le videur, pas un ring rabaisse.",
       "write_paths": [
         "app/",
         "tools/",
@@ -1402,7 +1403,7 @@
       "machine": "local"
     },
     "CODEX_CLI": {
-      "ring": 2,
+      "ring": 1,
       "kind": "surface",
       "actor": "CODEX",
       "surface": "interactive",
@@ -1417,7 +1418,7 @@
       "machine": "local"
     },
     "CODEX_DAEMON": {
-      "ring": 2,
+      "ring": 1,
       "kind": "daemon",
       "actor": "CODEX",
       "surface": "autonomous",
@@ -1432,7 +1433,7 @@
       "machine": "local"
     },
     "CODEX_HEADLESS": {
-      "ring": 2,
+      "ring": 1,
       "kind": "daemon",
       "actor": "CODEX",
       "surface": "autonomous",

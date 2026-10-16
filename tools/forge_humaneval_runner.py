@@ -203,6 +203,14 @@ def _msg_content(d: dict) -> str:
         return ""
 
 
+def _quota_journalier(reponse: str) -> bool:
+    """429 sur un quota JOURNALIER (« per day », TPD, RPD) : il ne se resorbe pas en secondes. Mesure du 15/10 (banc
+    164) : groq `openai/gpt-oss-120b` epuise ses 200 000 jetons/jour a la tache 98, puis ~60 taches x 14 s de
+    `llm_error` CERTAINES par bras. Un 429 de debit (par minute) n'est PAS vise : il passe, on continue."""
+    r = (reponse or "").lower()
+    return "429" in r and any(m in r for m in ("per day", "(tpd)", "(rpd)", "daily"))
+
+
 def call_llm(prompt: str, provider: str = "mistral") -> str:
     if provider == "router":
         return _router_call(prompt)
@@ -643,6 +651,7 @@ def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
         pass
     _jid = __import__("os").environ.get("LAFORGE_JOB_ID") or f"humaneval_{provider}"
 
+    quota_epuise = None  # message du 429 journalier qui arrete le run (None = joue jusqu'au bout)
     for i, entry in enumerate(subset):
         if _emit:
             try:
@@ -667,6 +676,8 @@ def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
         if response.startswith("[ERR]"):
             passed, reason, code_body = False, "llm_error", ""
             errors += 1
+            if _quota_journalier(response):
+                quota_epuise = response[:240]
         elif self_repair > 0:
             # Chemin HONNETE : la boucle ne voit QUE les tests auto-generes
             # (doctests de la docstring + asserts LLM ecrits sans la solution).
@@ -807,6 +818,10 @@ def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
                 "selftests": auto or None,
             }
         )
+        if quota_epuise:
+            print(f"  [quota] ARRET : quota JOURNALIER epuise ({quota_epuise[:140]}) -- "
+                  f"{len(subset) - i - 1} tache(s) NON jouee(s), dites dans le resume", flush=True)
+            break
         time.sleep(0.8)
 
     # Frame FINAL : la boucle emet AVANT chaque entree -> jamais total/total,
@@ -831,6 +846,9 @@ def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
         "self_repair_budget": self_repair,
         "repaired_fixed": repaired_fixed,
         "errors": errors,
+        # Un run arrete par quota JOURNALIER le DIT : combien de taches n'ont pas ete jouees, et pourquoi.
+        "arret_quota": quota_epuise,
+        "non_joues": len(subset) - len(results),
         "elapsed_s": elapsed_total,
         "fail_reasons": fail_reasons,
         "results": results,

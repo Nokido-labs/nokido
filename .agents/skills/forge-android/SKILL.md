@@ -1,20 +1,6 @@
 ---
 name: forge-android
-description: >
-  Connecteur Android pour Nokido — intégration de CursorTouch/Android-MCP
-  (10 tools UI/shell sur device Android via ADB) dans l'écosystème hub.
-  Triggers : utilisateur veut piloter un device Android (test app,
-  automation UI, capture d'écran, debug d'app, scroll/tap/swipe), évoque
-  "device Android", "émulateur", "ADB", "scrcpy", "app mobile",
-  installation/uninstall APK, lecture notifications, exécution shell sur
-  device, parle d'un projet Expo/React Native/Flutter, demande "clique sur
-  X dans l'app", "tape ce texte sur le téléphone", "screenshot du device",
-  "swipe up", "ouvre les paramètres Android", "lance l'app YouTube sur
-  l'émulateur". Le skill route vers Android-MCP en stdio (uvx
-  --python 3.13 android-mcp), avec préfixe android_* pour distinguer du
-  netcfg-agent. Soumis aux Règles d'Or Nokido : SovereignMembrane wrap
-  pour les paths/credentials, SemanticFirewall pre_flight avant tout
-  appel, anchor_solution après chaque interaction validée.
+description: "À utiliser pour tester ou automatiser une app mobile (Expo, React Native, Flutter) ou déboguer sur un appareil ou un émulateur Android : toucher, saisie, glisser, capture, installation et lancement d'app, shell ADB, notifications. Outils android_* d'Android-MCP, distincts de netcfg-agent."
 ---
 
 # forge-android — Bras prosthétique Android
@@ -117,10 +103,18 @@ Ou via le hub Nokido (qui gère cette config) :
 
 ```bash
 # Activer le serveur (à coupler avec un edit manuel pour ajouter l'entrée)
+# PORTEUR EXIGÉ depuis le 2026-09-21 : cette route écrit dans
+# claude_desktop_config.json, et un serveur MCP activé sans identité est un
+# chemin d'exécution ouvert. Sans l'en-tête, elle rend 401 — mesuré.
 curl -s -X POST http://127.0.0.1:8766/api/mcp/toggle \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $LAFORGE_TOKEN" \
   -d '{"name":"Android","enabled":true}'
 ```
+
+> Le jeton se lit au coffre (`forge_secrets.get_secret`), jamais en clair dans
+> un script. `_admin_tok_ok` n'accepte un jeton propre que pour
+> `_ADMIN_ORGANES = {"SUPERVISOR"}` : hors de cet organe, seul le maître passe.
 
 ### Étape 3 : redémarrer Claude Desktop
 

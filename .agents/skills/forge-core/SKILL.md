@@ -1,11 +1,6 @@
 ---
 name: forge-core
-description: >
-  Nokido Sovereign Hub — orchestrateur multi-agents local-first.
-  Hub HTTP:8766, bridge stdio, RAG SQLite, 196+ modules forge_*.py,
-  7 rôles locaux (Ollama), 8 cloud roles (groq/github/mistral),
-  forge_task_queue, forge_roles, forge_trust_score, forge_mailbox.
-  Mis à jour automatiquement après chaque git commit.
+description: "Nokido Sovereign Hub — orchestrateur multi-agents local-first. Hub HTTP:8766, bridge stdio, RAG SQLite, 196+ modules forge_*.py, 7 rôles locaux (Ollama), 8 cloud roles (groq/github/mistral), forge_task_queue, forge_roles, forge_trust_score, forge_mailbox. Mis à jour automatiquement après chaque git commit."
 ---
 
 # Nokido — Knowledge Base pour IAs collaboratrices
@@ -4316,9 +4311,6 @@ description: >
 - `docs/archive/audits/INVENTAIRE_REDONDANCES_20260428.md`
 - `docs/archive/audits/LLM_REACHABILITY_2026-05-02.md`
 - `docs/archive/audits/PLAN_BATAILLE_2026-04-26.md`
-- `docs/archive/ctf/CH88_BENCHMARK.md`
-- `docs/archive/ctf/CH88_STRATEGY.md`
-- `docs/archive/ctf/ch88_advanced_payloads.md`
 
 
 ## Commit fdc61126 — 2026-05-30 20:21
@@ -4809,7 +4801,7 @@ Nokido est le tronc cérébral. Les LLM sont des workers périphériques.
 
 ## Chemins Critiques
 - PYTHON = ~/miniforge3/python.exe
-- ROOT   = ~/Script python IA/LaForge
+- ROOT   = ~/Script python IA/Nokido
 
 
 
@@ -4828,7 +4820,7 @@ description: Chemins et constantes système Nokido. Python, Node, répertoires, 
 ```
 PYTHON  = ~/miniforge3/python.exe   ← TOUJOURS utiliser celui-ci
 NODE    = C:/Program Files/nodejs/node.exe
-ROOT    = ~/Script python IA/LaForge
+ROOT    = ~/Script python IA/Nokido
 HOME    = ~
 GEMINI  = ~/.gemini
 HUB     = http://127.0.0.1:8766/mcp
@@ -4867,8 +4859,8 @@ import subprocess
 p = subprocess.Popen(
     [r'~/miniforge3/python.exe',
      'tools/gemini_hub_relay.py', '--interval', '15'],
-    cwd=r'~/Script python IA/LaForge',
-    stdout=open(r'~/Script python IA/LaForge/sandbox/gemini_hub_relay.log','a'),
+    cwd=r'~/Script python IA/Nokido',
+    stdout=open(r'~/Script python IA/Nokido/sandbox/gemini_hub_relay.log','a'),
     stderr=subprocess.STDOUT
 )
 print('Relay PID:', p.pid)
@@ -4892,19 +4884,19 @@ Toujours utiliser **run action=python** avec des chemins absolus :
 # Lire quota_state.json
 import json
 from pathlib import Path
-f = Path(r'~/Script python IA/LaForge/RAG/quota_state.json')
+f = Path(r'~/Script python IA/Nokido/RAG/quota_state.json')
 print(json.loads(f.read_text()) if f.exists() else 'absent')
 
 # Lire embeddings.db
 import sqlite3
-conn = sqlite3.connect(r'~/Script python IA/LaForge/RAG/embeddings.db')
+conn = sqlite3.connect(r'~/Script python IA/Nokido/RAG/embeddings.db')
 rows = conn.execute('SELECT COUNT(*) FROM rag_chunks').fetchone()
 conn.close()
 print(rows)
 
 # Lire les logs
 from pathlib import Path
-log = Path(r'~/Script python IA/LaForge/sandbox/hub.log')
+log = Path(r'~/Script python IA/Nokido/sandbox/hub.log')
 print(log.read_text(encoding='utf-8', errors='replace')[-2000:])
 ```
 
@@ -4953,7 +4945,7 @@ import subprocess
 r = subprocess.run(
     ['python', 'tools/hub_call.py', 'quota_model', 'quality=medium', 'apply=true'],
     capture_output=True, text=True,
-    cwd=r'~\Script python IA\LaForge'
+    cwd=r'~\Script python IA\Nokido'
 )
 print(r.stdout)
 ```
@@ -5135,7 +5127,7 @@ L'agent doit identifier son profil dès le début de la session :
 - **Auto-Correction de Débit** : Si l'utilisateur dit "tu te répètes" ou "trop lent", l'agent doit immédiatement activer le filtre "Direct-to-Action" (plus de texte, que des outils).
 
 ## Ressources
-- **État Quota** : `~/Script python IA/LaForge/RAG/quota_state.json`
+- **État Quota** : `~/Script python IA/Nokido/RAG/quota_state.json`
 - **Mémoire Sémantique** : `~/Script python IA/GUIDE_SURVIE.md`
 
 

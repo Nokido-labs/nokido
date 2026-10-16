@@ -1,0 +1,150 @@
+{
+  "_doc": "Declencheurs de skills : QUAND une skill s'applique. Lu par tools/forge_skill_hint.py, appele par hook_context_firewall (PostToolUse : sortie de run/Bash/PowerShell) et claude_inbox_tick (UserPromptSubmit : demande de l'owner). 'tous' = chaque motif doit trouver, 'un_de' = au moins un. Un rappel par skill et par session toutes les 30 min. Chaque skill nommee doit exister dans docs/skills et ne pas etre retiree (verifie par forge_skill_hint --verifier, NR test_skill_hint_nr).",
+  "declencheurs": [
+    {
+      "skill": "forge-systematic-debugging",
+      "evenement": "PostToolUse",
+      "outils": ["mcp__laforge-sovereign-hub__run", "Bash", "PowerShell"],
+      "un_de": [
+        "(?m)^=+ .*\\b\\d+ (failed|errors?)\\b.* in [0-9.]+s",
+        "Traceback \\(most recent call last\\)",
+        "(?m)^(FAILED|ERROR) tests[/\\\\]"
+      ],
+      "pourquoi": "un test ou une commande vient d'échouer ; cause racine avant tout correctif"
+    },
+    {
+      "skill": "forge-workflow-autopsy",
+      "evenement": "PostToolUse",
+      "outils": ["mcp__laforge-sovereign-hub__run"],
+      "un_de": ["\"status\": \"(failed|dead|killed|lost|orphan|zombie)\""],
+      "pourquoi": "un job ou un daemon autonome est mort ou figé ; autopsier la chaîne producteur → consommateur avant de relancer"
+    },
+    {
+      "skill": "forge-systematic-debugging",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(bug|plant[ée]e?s?|ne marche (pas|plus)|r[ée]gression|[ée]choue(nt)?)\\b"],
+      "pourquoi": "l'owner signale une panne ou une régression ; cause racine avant tout correctif"
+    },
+    {
+      "skill": "forge-workflow-autopsy",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(tourne(-t-il)? vraiment|rien ne se passe|ne fait rien|coinc[ée]e?s? en (pending|queued)|backlog)\\b"],
+      "pourquoi": "l'owner doute qu'un pipeline autonome produise un effet ; vérifier consommateur vivant, backlog et dépendances"
+    },
+    {
+      "skill": "forge-veille-rapide",
+      "evenement": "UserPromptSubmit",
+      "tous": ["https?://\\S+"],
+      "un_de": ["(?i)\\b(ing[eè]re[rz]?|dig[eè]re[rz]?|indexe[rz]?|ajoute[rz]? au rag|garde[rz]? en m[ée]moire|veille rapide|lis cette (page|doc))\\b"],
+      "pourquoi": "l'owner donne une URL précise à ingérer ; crawl et embedding local, sans LLM cloud"
+    },
+    {
+      "skill": "forge-veille-approfondie",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\bveille (approfondie|active|bibliographique|sur)\\b",
+        "(?i)\\b(recherche approfondie|état de l'art|tout ce qui existe sur|monte un dossier)\\b"
+      ],
+      "pourquoi": "l'owner veut explorer un thème sans URL connue ; pipeline autonome en 7 étapes"
+    },
+    {
+      "skill": "forge-m2m-debat-mesure",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(d[ée]bat(tre|s)?|M2M)\\b",
+        "(?i)\\b(AGY|antigravity|gemini)\\b[^\\n]{0,60}\\bne r[ée]pond (pas|plus)\\b"
+      ],
+      "pourquoi": "débat entre agents ou pair silencieux ; canal qui marche réellement, axe admis seulement sur mesure"
+    },
+    {
+      "skill": "forge-m2m-agy",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(AGY|antigravity)\\b",
+        "(?i)\\bM2M\\b"
+      ],
+      "pourquoi": "travail ou message pour AGY ; voie prouvée (tâche ANTIGRAVITY, exécuteur, artefact vérifié par git) et pièges payés"
+    },
+    {
+      "skill": "forge-memory-ssot",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(point sur|o[ùu] en est|SSoT|tableau noir|blackboard|anchor_(solution|error))\\b",
+        "(?i)\\b(existe d[ée]j[àa]|d[ée]j[àa] fait|on a d[ée]j[àa])\\b"
+      ],
+      "pourquoi": "état d'un domaine, existence d'une chose ou décision à consigner ; lire le SSoT et le RAG avant, écrire sans doublon"
+    },
+    {
+      "skill": "forge-immunity-opsec",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(secrets?|cl[ée]s? (API|priv[ée]es?)|coffre|pare-feu|firewall|pre_flight|membrane)\\b",
+        "(?i)\\b(envoie|partage|donne)\\b[^\\n]{0,60}\\b(chatgpt|gemini web|cloud|pair externe)\\b"
+      ],
+      "pourquoi": "secret, envoi vers un modèle cloud ou un pair externe ; chaîne pre_flight/post_flight, coffre, rings"
+    },
+    {
+      "skill": "forge-code-governance",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(modifie|corrige|r[ée]pare|ajoute|cr[ée]e|[ée]cris|refactor\\w*)\\b[^\\n]{0,50}\\b(code|module|fichier|fonction|script|outil)\\b"
+      ],
+      "pourquoi": "lire ou écrire dans le dépôt ; existant d'abord, lecture fenêtrée, governed_edit, verrous, NR, commit propre"
+    },
+    {
+      "skill": "forge-database-state",
+      "evenement": "PostToolUse",
+      "outils": ["mcp__laforge-sovereign-hub__run", "mcp__laforge-sovereign-hub__memory", "Bash", "PowerShell"],
+      "un_de": [
+        "database is locked",
+        "OperationalError: no such (column|table)"
+      ],
+      "pourquoi": "erreur SQLite : base propriétaire, write_retry, schéma lu et non supposé"
+    },
+    {
+      "skill": "forge-database-state",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(sqlite|embeddings\\.db|tasks\\.db|WAL|base de donn[ée]es)\\b"
+      ],
+      "pourquoi": "lire ou écrire une base de Nokido ; qui porte quel état, primitives d'accès, pièges de mesure"
+    },
+    {
+      "skill": "forge-tdd",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(TDD|tests? d'abord|RED-GREEN)\\b"],
+      "pourquoi": "l'owner demande d'écrire le test avant le code ; NR rouge d'abord"
+    },
+    {
+      "skill": "forge-anatomy",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(quel organe|anatomi(e|que)|organe [àa] qui)\\b"],
+      "pourquoi": "question d'organe ou d'architecture ; le census organ_map_full.json fait autorité"
+    },
+    {
+      "skill": "forge-rescue",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(d[ée]sorient[ée]e?|perdu le contexte|prompt de reprise)\\b"],
+      "pourquoi": "session désorientée ; resynchronisation et prompt de reprise"
+    },
+    {
+      "skill": "forge-android",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(android|adb|[ée]mulateur|expo|react native|flutter)\\b"],
+      "pourquoi": "app mobile ou appareil Android ; outils android_* d'Android-MCP"
+    },
+    {
+      "skill": "forge-security-scan",
+      "evenement": "UserPromptSubmit",
+      "un_de": ["(?i)\\b(semgrep|codeql|revue statique|analyse statique|scan de s[ée]curit[ée])\\b"],
+      "pourquoi": "analyse statique demandée ; Semgrep et CodeQL, findings au RAG"
+    },
+    {
+      "skill": "forge-skill-seekers",
+      "evenement": "UserPromptSubmit",
+      "tous": ["(?i)\\b(cr[ée]e|fais|transforme|g[ée]n[èe]re)\\b[^\\n]{0,40}\\bskills?\\b"],
+      "un_de": ["https?://\\S+", "(?i)\\bdoc(umentation)?\\b"],
+      "pourquoi": "faire une skill depuis une documentation ; outil hub skill_forge, proposition soumise à l'owner"
+    }
+  ]
+}

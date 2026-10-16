@@ -17,7 +17,10 @@ Ce que ce NR fige :
 from __future__ import annotations
 
 import ast
+import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -56,7 +59,39 @@ def registre(tmp_path, monkeypatch):
     monkeypatch.setenv("LAFORGE_JTI_DB", str(db))
     monkeypatch.setattr(az, "_JOURNAL", tmp_path / "authz_http.jsonl")
     monkeypatch.setattr(wa.AuthConfig, "from_env", classmethod(lambda cls: _cfg()))
+    # CI de reference du 15/10 (fae2aa2f2) : les deux tests a session valide retombaient. Ce n'etait plus
+    # test_hub_auth (corrige le 14/10) mais N'IMPORTE QUEL des ~15 fichiers test_hub_* qui vident `app.web_hub*` de
+    # sys.modules (reproduit avec test_hub_config) : `wa` est lie a la COLLECTE, l'import paresseux de
+    # forge_authz_http recoit une instance NEUVE, non patchee. On patche donc AUSSI l'instance vivante, celle que
+    # la garde importera a l'appel -- robuste a tout purgeur, present ou futur.
+    import importlib
+
+    vivant = importlib.import_module("app.web_hub.auth")
+    if vivant is not wa:
+        monkeypatch.setattr(vivant.AuthConfig, "from_env", classmethod(lambda cls: _cfg()))
     return db
+
+
+@pytest.mark.timeout(180)
+def test_un_voisin_qui_purge_le_web_hub_ne_casse_plus_la_garde(tmp_path):
+    # Mesure 2026-10-14 (calibration turbo) : test_hub_auth purgeait `app.web_hub*` de sys.modules sans le rendre.
+    # Execute AVANT ce fichier dans le meme processus, l'import paresseux de forge_authz_http recevait une instance
+    # NEUVE, non patchee -- from_env() generait un secret -- et les deux tests a session valide echouaient. Chemin
+    # reel : le meme ordre force, dans un vrai pytest.
+    env = {k: v for k, v in os.environ.items() if k not in ("NOKIDO_CI_LISTE", "PYTEST_ADDOPTS")}
+    env.update(PYTHONPATH=str(RACINE / "app"), PYTEST_DISABLE_PLUGIN_AUTOLOAD="1", PYTHONNOUSERSITE="1",
+               PYTHONIOENCODING="utf-8")
+    ici = "tests/nr/test_garde_ui_mutation_nr.py::"
+    r = subprocess.run([sys.executable, "-m", "pytest", "tests/nr/test_hub_auth.py",
+                        ici + "test_session_valide_origine_locale_autorise_et_principal_prouve",
+                        ici + "test_referer_local_accepte_a_defaut_d_origin", "-q", "--tb=line",
+                        "-p", "pytest_timeout", "-p", "pytest_asyncio.plugin", "-p", "pytest_mock",
+                        "-p", "no:cacheprovider",
+                        # HERMETIQUE (2026-10-14) : sans basetemp, le pytest imbrique prenait la racine temporaire du
+                        # COMPTE (`D:\Temp\pytest-of-user` sur le runner du poste) -> PermissionError [WinError 5].
+                        "--basetemp=%s" % (tmp_path / "bt")],
+                       cwd=RACINE, env=env, capture_output=True, text=True, errors="replace", timeout=170)
+    assert r.returncode == 0 and " failed" not in r.stdout, r.stdout[-2000:] + r.stderr[-1000:]
 
 
 def test_sans_aucune_preuve_refus(registre):

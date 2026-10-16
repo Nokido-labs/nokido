@@ -1,12 +1,10 @@
 ---
 name: forge-android
 description: >
-  Connecteur Android pour Nokido : pilote un appareil ou un émulateur
-  Android (ADB) via Android-MCP — interface (toucher, saisie, glisser,
-  capture), apps (installer, lancer), shell et notifications. À utiliser
-  pour tester ou automatiser une app mobile (Expo, React Native, Flutter) ou
-  déboguer sur appareil. Outils préfixés android_*, distincts de
-  netcfg-agent.
+  À utiliser pour tester ou automatiser une app mobile (Expo, React Native, Flutter)
+  ou déboguer sur un appareil ou un émulateur Android : toucher, saisie, glisser,
+  capture, installation et lancement d'app, shell ADB, notifications. Outils
+  android_* d'Android-MCP, distincts de netcfg-agent.
 ---
 
 # forge-android — Bras prosthétique Android

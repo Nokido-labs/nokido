@@ -3,15 +3,15 @@ type: reference
 title: Modules Reference
 status: stable
 resource: repo://docs/wiki/20-Modules-Reference.md
-generated: {by: forge_wiki_modules@127cf924a1d23865e7377c57001c16a1ee1a1c24, at: 2026-10-13T22:20:29+00:00}
-empreinte: b5b93c060b2da0ad
+generated: {by: forge_wiki_modules@f3b7c7490ffa4abecc8bdaa84e453d2965e4b82c, at: 2026-10-15T12:26:36+00:00}
+empreinte: c8e42efab975d1bc
 ---
-<!-- nokido:genere outil=tools/forge_wiki_modules.py sha=127cf924a1d23865e7377c57001c16a1ee1a1c24 le=2026-10-13T22:20:29Z empreinte=b5b93c060b2da0ad -->
+<!-- nokido:genere outil=tools/forge_wiki_modules.py sha=f3b7c7490ffa4abecc8bdaa84e453d2965e4b82c le=2026-10-15T12:26:36Z empreinte=c8e42efab975d1bc -->
 
 # 20 — Modules Reference
 
-<!-- revu-le: 2026-10-13 -->
-> Updated: 2026-10-13
+<!-- revu-le: 2026-10-15 -->
+> Updated: 2026-10-15
 
 > 🌐 **English** · [Français](20-Modules-Reference.fr.md)
 
@@ -20,7 +20,7 @@ empreinte: b5b93c060b2da0ad
 > the single source of truth. A definition copied here would drift
 > from the code within a week.
 >
-> Generated from commit `127cf924a1d23865e7377c57001c16a1ee1a1c24` on 2026-10-13T22:20:29Z. If this commit is not the current HEAD, this page describes an EARLIER state of the code: regenerate rather than annotate.
+> Generated from commit `f3b7c7490ffa4abecc8bdaa84e453d2965e4b82c` on 2026-10-15T12:26:36Z. If this commit is not the current HEAD, this page describes an EARLIER state of the code: regenerate rather than annotate.
 
 Each definition is the first sentence of the module docstring, as
 written by its author — never a paraphrase of the file name. It is
@@ -29,7 +29,7 @@ a translation here would be a second source, drifting from the code.
 Modules **without a docstring** are listed at the end of the page:
 they are measured documentation gaps, not display omissions.
 
-**2460 modules** scanned in `app/`, `tools/`, `forge_desktop/` (excluding `_attic`) — **1805 defined (73.4%)**, **655 without a docstring**.
+**2468 modules** scanned in `app/`, `tools/`, `forge_desktop/` (excluding `_attic`) — **1813 defined (73.5%)**, **655 without a docstring**.
 
 The public symbols listed are the API the module exposes (top-level
 functions and classes without a leading underscore): what a caller
@@ -37,7 +37,7 @@ can use without reading the implementation.
 
 ## Infra/Bootstrap/Config
 
-*243 modules · 56,222 lines*
+*243 modules · 56,380 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -64,17 +64,17 @@ can use without reading the implementation.
 | `app/forge_env_alias.py` | shim de renommage progressif LAFORGE_* -> NOKIDO_* (dual-read) | `apply` | 50 |
 | `app/forge_env_crypt.py` | CONTRAINTE: header HD batch | `encrypt_value`, `decrypt_value`, `load_secrets`, `set_secret` *(+3)* | 568 |
 | `app/forge_env_sync.py` | CONTRAINTE: header HD batch | `sync_env`, `env_report` | 292 |
-| `app/forge_gemini_bridge.py` | CONTRAINTE: header HD batch | `GeminiBridge`, `gemini_ask`, `run_mode_gemini_ping`, `get_gemini_bridge` *(+1)* | 447 |
+| `app/forge_gemini_bridge.py` | CONTRAINTE: header HD batch | `GeminiBridge`, `gemini_ask`, `run_mode_gemini_ping`, `get_gemini_bridge` *(+1)* | 467 |
 | `app/forge_gui_debug.py` | CONTRAINTE: header HD batch | `gui_debug_log`, `gui_debug_clear`, `patch_app_for_debug` | 354 |
 | `app/forge_health_diagnostic.py` | Diagnostic de santé Nokido (lacunes + métriques) | `audit_rag_chunks`, `audit_biblio`, `audit_messages`, `audit_tables_empty` *(+18)* | 2420 |
 | `app/forge_host_capabilities.py` | Detection capacite hote Nokido ============================================================= Determine ce que la machine hote peut faire tourner localement (CPU+RAM+VRAM+disk) | `suggerer_modeles`, `detect_host`, `get_host_info`, `can_run_locally` *(+2)* | 430 |
 | `app/forge_hw.py` | CONTRAINTE: +0 docs | `hw`, `hw_all`, `hw_ready`, `hw_summary` | 86 |
 | `app/forge_hw_allocator.py` | DEPRECATED: forge_hw_allocator.py → app/hardware/allocator.py This is a backward-compatibility stub | — | 24 |
-| `app/forge_install_prerequis.py` | registre des prerequis EXTERNES de Nokido, et sonde de presence | `etat_toml_services`, `vars_machine`, `ecrire_vars_local`, `verifier` *(+8)* | 847 |
+| `app/forge_install_prerequis.py` | registre des prerequis EXTERNES de Nokido, et sonde de presence | `etat_toml_services`, `vars_machine`, `ecrire_vars_local`, `verifier` *(+8)* | 860 |
 | `app/forge_lifecycle_tool.py` | MCP tool: manage_forge_lifecycle =========================================================== Façade unifiée START/STOP/RESTART/STATUS/LIST/SHUTDOWN_ALL/BOOT_ALL des services Nokido | `handle_manage_forge_lifecycle` | 364 |
 | `app/forge_litellm_bridge.py` | CONTRAINTE: header HD batch | `LiteLLMBridge`, `get_litellm_bridge`, `ask` | 348 |
 | `app/forge_llm_format_bridge.py` | moteur partagé des ingress LLM-API multi-format | `load_token`, `hub_call`, `messages_to_prompt`, `AskResult` *(+3)* | 223 |
-| `app/forge_machine_vault.py` | coffre de secrets cross-OS | `resoudre_chemin_coffre`, `chemin_coffre`, `available`, `vault_get` *(+7)* | 624 |
+| `app/forge_machine_vault.py` | coffre de secrets cross-OS | `resoudre_chemin_coffre`, `chemin_coffre`, `available`, `vault_get` *(+7)* | 718 |
 | `app/forge_mixin_ai.py` | CONTRAINTE: header HD batch | `AiMixin` | 269 |
 | `app/forge_mixin_ui.py` | CONTRAINTE: +0 | `init_onnx_backend`, `init_registry`, `UiMixin` | 968 |
 | `app/forge_npu_env.py` | CONTRAINTE: header HD batch | `conda_run`, `env_exists`, `create_env`, `install_wheels` *(+5)* | 150 |
@@ -158,7 +158,7 @@ can use without reading the implementation.
 | `tools/forge_db_writetest.py` | Diagnostic : pourquoi les writes embedding ne persistent pas | `main` | 55 |
 | `tools/forge_dev_mode.py` | arm/disarm the privileged-execution escape hatch | `arm`, `disarm`, `is_armed`, `main` | 249 |
 | `tools/forge_dist_install_probe.py` | ce qu'une WHEEL INSTALLEE sait reellement faire | `imports_plats_du_depot`, `sonder`, `rendre`, `main` | 302 |
-| `tools/forge_dist_publish.py` | recurring publish of one version into the persistent, SEPARATE distribution repo (nokido-dist) | `run`, `ensure_dist_repo`, `generiser_texte`, `sync_snapshot` *(+7)* | 1451 |
+| `tools/forge_dist_publish.py` | recurring publish of one version into the persistent, SEPARATE distribution repo (nokido-dist) | `run`, `ensure_dist_repo`, `generiser_texte`, `sync_snapshot` *(+7)* | 1453 |
 | `tools/forge_echo_argv.py` | smoke-test pour l'action hub trusted_script | — | 15 |
 | `tools/forge_ensure_service.py` | BACKEND du « Bouton Rouge » MCP nokido_ensure_service | `declencher_tache`, `marquer_usage`, `marquer_pilotage`, `est_pilote` *(+3)* | 997 |
 | `tools/forge_env_backup_relocate.py` | Deplace les backups plaintext laisses par forge_vault_migrate dans _backups/secrets/ (gitignore) | `main` | 41 |
@@ -220,7 +220,7 @@ can use without reading the implementation.
 | `tools/forge_pip_ensure.py` | installe un paquet manquant dans un env Python cible | `main` | 35 |
 | `tools/forge_privileged_bridge.py` | pont GOUVERNÉ de commandes privilégiées | `sign_request`, `verify_request`, `enqueue_pending`, `govern` *(+9)* | 555 |
 | `tools/forge_process_manager.py` | Gestionnaire unifie des process Nokido v18.3 Remplace: launcher.py + restart_claude.py + tray Popen + services_launcher (partiel) | `port_pid`, `kill_port`, `restart_hub`, `worker_status` *(+3)* | 179 |
-| `tools/forge_provision_clients.py` | provisionne les tokens par-agent + émet les configs client | `main` | 325 |
+| `tools/forge_provision_clients.py` | provisionne les tokens par-agent + émet les configs client | `main` | 335 |
 | `tools/forge_proxy_reload.py` | recharge un service proxy local (defaut forge_openai_proxy :7777) | `reload_proxy`, `main` | 66 |
 | `tools/forge_public_mirror.py` | fabrique un SNAPSHOT public sans historique | `classer_fuite`, `construire`, `historique_nettoye`, `main` | 551 |
 | `tools/forge_push_sovereign.py` | pousse une branche vers GitHub + Codeberg en lisant les tokens AU VAULT | `git`, `say`, `refspec`, `main` | 329 |
@@ -233,7 +233,7 @@ can use without reading the implementation.
 | `tools/forge_restore_from_head.py` | restaure UN fichier tracke depuis HEAD | `main` | 44 |
 | `tools/forge_retrieval_baseline.py` | Gel de la BASELINE de ranking de `RAGEngine.search` — temoin experimental | `main` | 236 |
 | `tools/forge_rule_distiller.py` | distiller un GARDE depuis un correctif reel | `fichiers_corriges`, `source`, `racines_importees`, `appels` *(+8)* | 327 |
-| `tools/forge_runas_launcher.py` | de-privilege + Job-Object launcher for the Nokido supervisor `runAs` field | `utilisateur_posix`, `main_posix`, `main` | 340 |
+| `tools/forge_runas_launcher.py` | de-privilege + Job-Object launcher for the Nokido supervisor `runAs` field | `utilisateur_posix`, `main_posix`, `main` | 344 |
 | `tools/forge_sandbox_setup.py` | provision the Nokido code-execution sandbox | `racines_python`, `ancetres_a_traverser`, `ps`, `is_admin` *(+19)* | 677 |
 | `tools/forge_seed_nokido_entity.py` | 3b rebrand : ajoute l'entity RBAC wrk_nokido comme MIROIR EXACT de wrk_laforge (ring 0, hub souverain) dans forge_entities (embeddings.db) | `main` | 47 |
 | `tools/forge_service_ondemand.py` | bascule des services en ON-DEMAND | `main` | 110 |
@@ -283,11 +283,11 @@ can use without reading the implementation.
 | `tools/patch_query_schema_20260708.py` | One-shot patcher (CRITICAL_FILE path) : ajoute action=schema a l'outil query | `main` | 59 |
 | `tools/patch_reflex_gate.py` | le garde anti-reinvention, en AVERTISSEMENT | `main` | 199 |
 | `tools/patch_shell_batch_serialize.py` | Patcher one-shot : serialiser le batch shell par RESSOURCE EXCLUSIVE | `main` | 123 |
-| `tools/publish_multi.py` | Multi-platform publish au go-public AGPLv3 | `miroirs_publics`, `fuites_vitrine`, `vitrine_hf`, `fiche_conforme` *(+13)* | 765 |
+| `tools/publish_multi.py` | Multi-platform publish au go-public AGPLv3 | `miroirs_publics`, `fuites_vitrine`, `vitrine_hf`, `fiche_conforme` *(+13)* | 780 |
 
 ## SNC (cerveau/moelle/SNP)
 
-*180 modules · 72,845 lines*
+*180 modules · 73,074 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -322,7 +322,7 @@ can use without reading the implementation.
 | `app/forge_mcp_elicitation.py` | le hub demande une confirmation a l'OWNER (elicitation MCP) | `enregistrer_session`, `capacite`, `Canal`, `sse_requis` *(+6)* | 260 |
 | `app/forge_mcp_federation.py` | le hub Nokido devient CLIENT MCP (federation/proxy) | `discover`, `probe`, `call`, `main` | 211 |
 | `app/forge_mcp_protocole.py` | negociation de version MCP et consignes serveur du hub (cote SERVEUR) | `negocier_version` | 51 |
-| `app/forge_mcp_registry.py` | CONTRAINTE: Unified Handler Registry with WebSearch & Agent RPC + SecretGuard v3 (2026-04-25) : - Branchement de forge_secret_guard sur handle_read, handle_write, handle_run.python et handle_query - L'ancienne defense honeytoken (3 paths en dur, ring > 0) est | `check_unicode_concealment`, `resolve_tool_name`, `classer_retour_intent`, `enforce_explanation` *(+4)* | 9397 |
+| `app/forge_mcp_registry.py` | CONTRAINTE: Unified Handler Registry with WebSearch & Agent RPC + SecretGuard v3 (2026-04-25) : - Branchement de forge_secret_guard sur handle_read, handle_write, handle_run.python et handle_query - L'ancienne defense honeytoken (3 paths en dur, ring > 0) est | `check_unicode_concealment`, `resolve_tool_name`, `classer_retour_intent`, `enforce_explanation` *(+4)* | 9431 |
 | `app/forge_mcp_safe.py` | execution du code Python recu par MCP | `safe_exec`, `run_b64`, `mcp_safe` | 76 |
 | `app/forge_mcp_security.py` | CONTRAINTE: header HD batch | `SecretGuardViolation`, `check_db_quality`, `safe_path`, `validate_run_action` *(+12)* | 608 |
 | `app/forge_message_frame.py` | Enveloppe JSON normalisée inter-agents ================================================================ Nokido est le tronc cérébral | `ToolDef`, `MessageFrame`, `ttl_for_action`, `InboxRegistry` *(+4)* | 396 |
@@ -350,11 +350,11 @@ can use without reading the implementation.
 | `app/mcp_bridge.py` | CONTRAINTE: header HD batch | `handle_list_tools`, `handle_call_tool`, `main` | 608 |
 | `app/mcp_nr.py` | CONTRAINTE: header HD batch | `run_fast`, `run_all` | 582 |
 | `app/mcp_server_tools.py` | CONTRAINTE: header HD batch | `rag_search`, `rag_ingest_text`, `rag_stats`, `swarm_status` *(+47)* | 1659 |
-| `tools/after_model_hook.py` | Hook AfterModel Gemini CLI 1 | — | 163 |
+| `tools/after_model_hook.py` | Hook AfterModel Gemini CLI 1 | `resolve_caller_model`, `track_quota` | 208 |
 | `tools/claude_capture.py` | Hook Claude Code : capture UserPromptSubmit + Stop | `handle_user_prompt_submit`, `handle_stop`, `main` | 207 |
-| `tools/claude_inbox_tick.py` | RÉFLEXE UserPromptSubmit (0 token, event-driven) | `main` | 593 |
+| `tools/claude_inbox_tick.py` | RÉFLEXE UserPromptSubmit (0 token, event-driven) | `main` | 648 |
 | `tools/claude_precompact.py` | Hook PreCompact Claude Code =================================================== Déclenché juste avant que Claude Code compacte le contexte | `main` | 664 |
-| `tools/claude_session_start.py` | Hook SessionStart Claude Code Au boot Claude : 1 | `modele_normalise`, `version_du_transcript`, `rappel_audit`, `section_audit` *(+14)* | 642 |
+| `tools/claude_session_start.py` | Hook SessionStart Claude Code Au boot Claude : 1 | `modele_normalise`, `version_du_transcript`, `rappel_audit`, `section_audit` *(+14)* | 644 |
 | `tools/claude_session_stop.py` | Hook Stop Claude Code Quand session Claude termine son tour : 1 | `load_token`, `main` | 153 |
 | `tools/cli_capture_lib.py` | Helper partage pour la capture des conversations CLI | `record_turn`, `normalize_anthropic_content` | 246 |
 | `tools/cli_tail_capture.py` | Tail-watcher pour Gemini CLI + Cline | `capture_gemini`, `capture_cline`, `capture_claude`, `run_once` *(+1)* | 432 |
@@ -389,7 +389,7 @@ can use without reading the implementation.
 | `tools/forge_github_bridge_mcp.py` | transport MCP (stdio) des cinq operations GitHub | `description_outil`, `outils_exposes`, `habilitation_du_processus`, `habilitation_appelant_exigee` *(+8)* | 443 |
 | `tools/forge_hub_blackbox.py` | la boite noire du hub | `echantillon`, `main` | 197 |
 | `tools/forge_hub_reload.py` | restart du hub (NokidoMCP) via supervisor, DÉTACHÉ | `main` | 62 |
-| `tools/forge_hub_token_rotation.py` | rotation OWNER-DRIVEN des bearer tokens hub :8766 | `fp`, `inventory`, `execute`, `cleanup` *(+1)* | 613 |
+| `tools/forge_hub_token_rotation.py` | rotation OWNER-DRIVEN des bearer tokens hub :8766 | `fp`, `inventory`, `execute`, `cleanup` *(+1)* | 659 |
 | `tools/forge_identity_registry_upgrade.py` | __FORGE_COLOR__ = "immunitaire/registre-identites" MIGRATION du SSoT `config/agent_identities.json` vers le SCHEMA 2 : acteur canonique, alias, surface, boite aux lettres, audience (RFC 8707) | `main` | 268 |
 | `tools/forge_ingest_github_repo.py` | Ingere un DEPOT GitHub entier dans le RAG Nokido, cible PARAMETRABLE | `parse_slug`, `fetch`, `index`, `main` | 246 |
 | `tools/forge_intent_audit.py` | chaque module réalise-t-il l'INTENTION derrière lui ? Demande owner (02/08) : « audite chaque module, capte l'intention derrière, vois si c'est FAIT » | `audit`, `main` | 198 |
@@ -437,7 +437,7 @@ can use without reading the implementation.
 | `tools/hook_bash_compact.py` | Hook Claude Code PreToolUse(Bash) : réécrit une commande VERBEUSE pour piper sa sortie dans forge_cmd_compactor AVANT qu'elle entre dans le contexte (les hooks ne peuvent PAS réécrire la SORTIE — seul updatedInput.command, cf | `main` | 93 |
 | `tools/hook_capability_gate.py` | gate de CAPACITÉS : la bonne forme AVANT l'erreur | `verdict_forme`, `verdict_depense`, `empreinte_rappel`, `promotion_verdict` *(+1)* | 1021 |
 | `tools/hook_instructions_loaded.py` | capteur `InstructionsLoaded` de Claude Code (observation seule) | `consigner`, `bilan`, `main` | 113 |
-| `tools/hook_recon_first.py` | Garde PreToolUse : interroger la MEMOIRE avant d'instrumenter un domaine neuf | `main` | 369 |
+| `tools/hook_recon_first.py` | Garde PreToolUse : interroger la MEMOIRE avant d'instrumenter un domaine neuf | `main` | 374 |
 | `tools/hook_tool_budget_gate.py` | Gouverneur silencieux du budget d'outils -- empeche la boucle, ne commente pas | `empreinte`, `verdict_pre`, `noter_mutation`, `noter_echec` *(+2)* | 273 |
 | `tools/hub_call.py` | Interface universelle hub Nokido pour Gemini Usage: python tools/hub_call.py <action_ou_tool> [key=value ...] Actions hub (passent via tool=hub, arguments={action:...}) : poll notify message="..." whoami quota_model quality=medium apply=true quota_report flash | — | 109 |
 | `tools/hub_call_antigravity.py` | Interface universelle hub Nokido pour Antigravity Usage: python tools/hub_call_antigravity.py <action_ou_tool> [key=value ...] | — | 99 |
@@ -449,7 +449,7 @@ can use without reading the implementation.
 | `tools/mcp_bridge_selftest.py` | valide B : _write_out (lock) + watcher capabilities | `main` | 64 |
 | `tools/mcp_nr.py` | NR automatique lancé par Claude via MCP sandbox ================================================================= Chaque fonction est courte (<50 lignes) pour passer la sentinelle | `check_ast`, `check_globals_fh`, `check_no_self`, `check_registry` *(+10)* | 698 |
 | `tools/mcp_stdio_bridge.py` | Bridge stdio → HTTP Nokido Hub v3.0 =========================================================== Permet à Claude Desktop de parler en stdio pendant que le vrai serveur MCP Nokido tourne en service Windows permanent (nssm) | `get_secret`, `run_bridge` | 846 |
-| `tools/nokido_hub.py` | Ã¢â‚¬â€� Nokido Hub v18.3 \| Network Monitor redesign ============================================================= v18.2 : UI /forge/network entiÃƒÂ¨rement redesignÃƒÂ©e | `watch_ui`, `watch_jobs_api`, `watch_create_api`, `watch_stream_api` *(+6)* | 7273 |
+| `tools/nokido_hub.py` | Ã¢â‚¬â€� Nokido Hub v18.3 \| Network Monitor redesign ============================================================= v18.2 : UI /forge/network entiÃƒÂ¨rement redesignÃƒÂ©e | `watch_ui`, `watch_jobs_api`, `watch_create_api`, `watch_stream_api` *(+6)* | 7290 |
 | `tools/nokido_hub_cli.py` | point d'entree CONSOLE du hub, synchrone et mince | `main` | 97 |
 | `tools/nokido_mcp_server.py` | Nokido MCP Server (STDIO) v17.02 ========================================================= Unified with forge_mcp_registry (Chantier C) | `handle_list_tools`, `handle_call_tool`, `main` | 197 |
 | `tools/nokido_web_hub.py` | Launcher du hub FastAPI Nokido | `main` | 286 |
@@ -465,7 +465,7 @@ can use without reading the implementation.
 | `tools/quota_hook.py` | v3 — Hook SessionStart Gemini CLI ================================================ Au boot : Gemini rapporte son état quota via hub notify, puis injecte le contexte dans GEMINI.md projet | `hub_call`, `read_quota_state`, `get_best_available`, `get_rag_filters` | 174 |
 | `tools/recon_hub_data.py` | Recon des vraies sources pour cabler les vues /hub (federation/cap/persona) | — | 54 |
 | `tools/restart_hub.py` | Restart hub: kill current process then start fresh | — | 32 |
-| `tools/session_anchor.py` | Hook Stop Claude: session_summary + resync Gemini + daemons | — | 72 |
+| `tools/session_anchor.py` | Hook Stop Claude: session_summary + resync Gemini + daemons | — | 97 |
 | `tools/store_github_token.py` | ============================ Stocke le GITHUB_TOKEN dans Windows Credential Manager | `store` | 34 |
 | `tools/store_openrouter_key.py` | ============================== Stocke la clé OpenRouter dans Windows Credential Manager | `store_key` | 61 |
 | `tools/test_hub_endpoints.py` | Appelle directement les endpoints /api/hub/overview + /api/hub/federation (async, env serveur) -> prouve qu'ils renvoient de la VRAIE donnee | `main` | 21 |
@@ -474,7 +474,7 @@ can use without reading the implementation.
 
 ## Memoire (hippocampe/RAG)
 
-*170 modules · 46,338 lines*
+*170 modules · 46,443 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -482,7 +482,7 @@ can use without reading the implementation.
 | `app/forge_biblio_worker.py` | Nokido Bibliography Worker | `process_entry`, `run_loop`, `main`, `process_one_entry` | 368 |
 | `app/forge_body_world_model.py` | World Model du corps (P2-1) | `load_services_config`, `get_live_supervisor_status`, `build_dependency_graph`, `predict_impact` *(+1)* | 251 |
 | `app/forge_dist_storage.py` | Distribution storage R2/HF/OneDrive + sanitize pipeline | `sanitize_text`, `is_whitelisted_source`, `sanitize_chunk`, `export_sanitized` *(+3)* | 247 |
-| `app/forge_embed_router.py` | cascade embedding providers | `masquer_pour_cloud`, `declare_wanted`, `declare_embed_wanted`, `embed_batch` *(+6)* | 1384 |
+| `app/forge_embed_router.py` | cascade embedding providers | `masquer_pour_cloud`, `declare_wanted`, `declare_embed_wanted`, `embed_batch` *(+7)* | 1489 |
 | `app/forge_epistemic_retrieve.py` | Step 5 epistemic: cluster-aware retrieval wrap autour RAGEngine | `cluster_aware_retrieve`, `qualifier_resultats`, `format_for_llm`, `main` | 353 |
 | `app/forge_generation.py` | le corps garde ses ETATS, pas seulement ses fichiers | `capacites_normalisees`, `verdict_recul`, `frein_si_recul`, `capturer` *(+8)* | 837 |
 | `app/forge_graph_rag.py` | Graph-RAG Layer for Nokido ================================================= Transforms flat vector RAG (embeddings.db) into a navigable knowledge graph | `GNode`, `GEdge`, `TraversalResult`, `GraphRAG` | 421 |
@@ -651,7 +651,7 @@ can use without reading the implementation.
 
 ## unclassified
 
-*154 modules · 49,521 lines*
+*162 modules · 50,538 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -690,9 +690,10 @@ can use without reading the implementation.
 | `app/forge_intent_risk.py` | risque semantique d'une intention d'outil, evalue AVANT le dispatch MCP | `evaluate_intent` | 108 |
 | `app/forge_mcp_securite_reseau.py` | couche RESEAU de la securite MCP (restauree, corrigee) | `JournalSecurite`, `SecuriteReseau`, `create_token_envelope`, `detect_ssrf_beacon` *(+6)* | 312 |
 | `app/forge_rag_usage_signal.py` | le journal d'USAGE du RAG, hors de la base RAG | `noter`, `marquer_cite`, `triplets`, `main` | 213 |
+| `app/forge_tools_dynamic/tool_constantes_du_corps.py` | forge_tool_dynamic: constantes_du_corps Description: Constantes du corps en LECTURE SEULE -- reglages DECLARES (bornes, defaut, valeur du magasin, qui peut changer) a cote des constantes OBSERVEES (forge_physiology) | `constantes_du_corps` | 78 |
 | `app/forge_tools_dynamic/tool_metier_dispatch.py` | forge_tool_dynamic: metier_dispatch Description: Route une tache vers la bonne persona metier (89) + assemble sa KB et son system_prompt | `metier_dispatch` | 25 |
 | `app/hardware/allocator.py` | CONTRAINTE: header HD batch | `get_memory_state`, `detect_best_ep`, `compute_optimal_config`, `apply_config` *(+9)* | 401 |
-| `app/hardware/mem_watchdog.py` | CONTRAINTE: header HD batch | `MemWatchdog`, `get_watchdog`, `mem_checkpoint` | 309 |
+| `app/hardware/mem_watchdog.py` | CONTRAINTE: header HD batch | `MemWatchdog`, `get_watchdog`, `mem_checkpoint` | 325 |
 | `app/legacy/boitaswitch.py` | Agent de récupération de config pour équipements réseau | `SwitchResult`, `NetworkRecoveryAgent` | 358 |
 | `app/legacy/codesandbox.py` | Sandbox de test et génération de code pour OctoDevOps ======================================================================= OctoDevOps v5 Intègre la logique de codetesteur.py dans l'architecture Nokido : - Génération de code via Ollama (modèle local) - Analy | `SandboxResult`, `analyze_ast`, `SafeRunner`, `AgentHistory` *(+5)* | 583 |
 | `app/legacy/danger_guard.py` | Protection contre les commandes SSH dangereuses ================================================================= OctoDevOps v5 Ce module intercepte les commandes avant exécution et : 1 | `DangerLevel`, `DangerCheck`, `DangerGuard`, `danger_confirmation_message` *(+2)* | 418 |
@@ -723,7 +724,7 @@ can use without reading the implementation.
 | `app/tui_adapters/tasks_adapter.py` | Adapter Tasks | `recent_tasks`, `task_counts` | 54 |
 | `app/ui/commands_via_facade.py` | app/ui/commands_via_facade.py - Commandes TUI qui utilisent EXCLUSIVEMENT la facade | `cmd_ask_llm`, `cmd_ask_llm_sync`, `cmd_status`, `cmd_status_sync` *(+4)* | 172 |
 | `app/ui/facade_accessor.py` | app/ui/facade_accessor.py - Point d acces UI vers NokidoFacade | `get_ui_facade`, `get_ui_facade_sync`, `attach_facade_to_app`, `FacadeMixin` *(+2)* | 121 |
-| `app/web_hub/app.py` | /web_hub/app.py - Hub FastAPI Nokido | `AuthMiddleware`, `redirect_graph_slash`, `health`, `favicon` *(+58)* | 2297 |
+| `app/web_hub/app.py` | /web_hub/app.py - Hub FastAPI Nokido | `AuthMiddleware`, `redirect_graph_slash`, `health`, `favicon` *(+58)* | 2308 |
 | `app/web_hub/auth.py` | app/web_hub/auth.py - Auth JWT pour le hub Nokido | `AuthConfig`, `issue_token`, `verify_token`, `admin_token_ok` *(+4)* | 528 |
 | `app/web_hub/config.py` | app/web_hub/config.py - Configuration persistante du hub Nokido | `ConfigField`, `schema`, `load`, `patch` *(+1)* | 316 |
 | `app/web_hub/csp.py` | app/web_hub/csp.py - Centralisation de la Content-Security-Policy | `build_csp` | 158 |
@@ -791,15 +792,22 @@ can use without reading the implementation.
 | `tools/bench/forge_ogb_arxiv_bench.py` | Benchmark OGB-Arxiv pour Nokido ============================================================= Évalue la capacité de Nokido à raisonner sur des graphes de citations scientifiques (169K nœuds, 1.2M arêtes, 40 classes) | `load_arxiv_pyg`, `GraphSAGE`, `train_graphsage`, `g2p_few_shot_eval` *(+2)* | 331 |
 | `tools/bench/forge_snn_bench.py` | Benchmark Neuro-Spin / SNN sur graphes de type malware ============================================================================= Implémente le concept Neuro-Spin de Gemini: | `SpikeFunction`, `SpikingLayer`, `NeuroSpinGNN`, `run_snn_benchmark` *(+1)* | 284 |
 | `tools/forge_autophagie_attic.py` | resorption des modules qui ne servent plus | `declared_nature`, `imported_modules`, `plan`, `apply` *(+1)* | 170 |
+| `tools/forge_banc_collectif.py` | l'intelligence COLLECTIVE se mesure : equipe contre modele seul, a budget egal | `comparer`, `main` | 110 |
 | `tools/forge_changelog.py` | le CHANGELOG du depot : une section par push, tiree des messages de commit | `git`, `rubrique`, `est_commit_de_changelog`, `commits` *(+5)* | 223 |
+| `tools/forge_ci_reference.py` | CI de REFERENCE d'un sha, en UN etage par defaut | `plan`, `jouer`, `main` | 88 |
 | `tools/forge_composants.py` | pose sur CETTE machine les composants natifs EPINGLES (distribution/packs/local-llm.toml) | `plateforme`, `composant`, `telecharger`, `sh` *(+12)* | 305 |
+| `tools/forge_dependabot_verdict.py` | Verdict des PR Dependabot, pose en UN commentaire -- la fusion reste HUMAINE (decision owner du 2026-10-14) | `lire_pr`, `poser`, `main` | 92 |
 | `tools/forge_docstring_masquee.py` | rend a Python les docstrings de module masquees par un `from __future__` place AVANT elles | `diagnostiquer`, `demasquer`, `modules`, `masquees` *(+2)* | 260 |
 | `tools/forge_install_acceptance.py` | Acceptation de l'installation COMPLETE sur une machine vierge (runner GitHub windows-latest / ubuntu-latest) | `plateforme`, `etape`, `sh`, `composants` *(+17)* | 1075 |
+| `tools/forge_lean_prove.py` | la boucle de PREUVE de Nokido : un modele propose, Lean juge, l'erreur revient au modele | `preuve_interdite`, `extraire_preuve`, `substituer`, `demander` *(+2)* | 157 |
+| `tools/forge_lean_provision.py` | Nokido installe LUI-MEME sa chaine Lean, dans son arborescence, a la version epinglee | `chaine_epinglee`, `archive_elan`, `env_lean`, `version_installee` *(+3)* | 133 |
+| `tools/forge_lean_verify.py` | l'organe de VERIFICATION formelle de Nokido : Lean juge, Nokido porte | `controler_sources`, `lire_axiomes`, `trouver_lake`, `verifier` *(+1)* | 160 |
 | `tools/forge_logboot.py` | amorceur de JOURNAL SANS PIPE pour les services Python du superviseur | `horodatage`, `tailler`, `Relais`, `installer` *(+2)* | 206 |
 | `tools/forge_readme_pip.py` | Le bloc `pip install` du README annonce ce que PyPI SERT -- ni plus, ni moins | `version_servie`, `rendre`, `bloc`, `lire` *(+5)* | 257 |
+| `tools/forge_skill_hint.py` | le rappel d'une skill arrive au MOMENT ou elle s'applique | `charger`, `suggerer`, `verifier` | 171 |
 | `tools/forge_stats_publiques.py` | Statistique publique de la vitrine : une petite carte SVG en bas du README de Nokido-labs/nokido | `collecter`, `fusionner`, `resume`, `rendre_svg` *(+1)* | 185 |
 | `tools/forge_wiki_github.py` | Construit le wiki GitHub du depot public depuis `docs/wiki` du DIST (deja filtre et scanne par le promoteur) | `retirer_yaml`, `reecrire_liens`, `titre_de`, `barre_laterale` *(+3)* | 174 |
-| `tools/hook_stop_attente_passive.py` | Hook Stop : un tour ne se termine pas sur une ATTENTE PASSIVE | `decider`, `dernier_message`, `main` | 105 |
+| `tools/hook_stop_attente_passive.py` | Hook Stop : un tour ne se termine pas sur une ATTENTE PASSIVE | `decider`, `dernier_message`, `main` | 106 |
 | `tools/intel/forge_git_worker.py` | CONTRAINTE: header HD batch | `GitWorker` | 154 |
 | `tools/intel/forge_github_intel.py` | Nokido Engrid · Intelligence GitHub ============================================================= fetch_github_intelligence() : extrait l'intelligence publique de GitHub (issues, PRs, discussions, wiki) pour nourrir les shards OSS/Alignement de ForgeEngridEngi | `fetch_github_intelligence` | 251 |
 | `tools/nomad/bios_wol_probe.py` | Sonde BIOS/UEFI en LECTURE SEULE, pour le diagnostic Wake-on-LAN | `is_elevated`, `enable_privilege`, `read_uefi_var`, `smbios_wakeup` *(+1)* | 286 |
@@ -812,7 +820,7 @@ can use without reading the implementation.
 
 ## Immunitaire (firewall/garde)
 
-*152 modules · 45,665 lines*
+*152 modules · 45,934 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -836,7 +844,7 @@ can use without reading the implementation.
 | `app/forge_guardrails_colang.py` | Couche déclarative Colang-style ADVISORY (shadow-only) | `parse_guardrails_co`, `check_guardrails`, `shadow_compare` | 135 |
 | `app/forge_immune_adaptive.py` | Immunité adaptative biomimétique (anticorps appris) | `learn_from_audit`, `check_request`, `stats`, `run_cycle` *(+1)* | 271 |
 | `app/forge_integrity.py` | CONTRAINTE: Args/Returns/Raises | `IntegrityRing`, `is_at_least`, `attenuer_ou_refuser`, `CapabilityToken` *(+7)* | 1278 |
-| `app/forge_key_rotation.py` | __FORGE_COLOR__ : immunitaire / métabolisme (clés providers) forge_key_rotation — POOL multi-clés par provider + SANTÉ + rotation/skip automatique | `etat_du_ledger`, `resolve`, `quarantine_info`, `healthy_key` *(+4)* | 450 |
+| `app/forge_key_rotation.py` | __FORGE_COLOR__ : immunitaire / métabolisme (clés providers) forge_key_rotation — POOL multi-clés par provider + SANTÉ + rotation/skip automatique | `etat_du_ledger`, `resolve`, `quarantine_info`, `healthy_key` *(+4)* | 538 |
 | `app/forge_key_validator.py` | Validation format + liveness + tier des cles API Nokido Auteur: CLAUDE \| Session: 2026-04-26 | `check_format`, `check_live`, `validate_one`, `validate_all` | 150 |
 | `app/forge_mcp_rbac.py` | RBAC mapping outils MCP → ring minimal (Phase 35) | `check_tool_capability`, `tool_required_ring`, `list_tools_by_ring` | 226 |
 | `app/forge_metric_integrity.py` | __FORGE_COLOR__ : metacognition / immunitaire (organe, READ-ONLY) ORGANE : INTEGRITE DES METRIQUES — « mes scores internes mentent-ils sous la pression ? » | `scan`, `history` | 169 |
@@ -890,7 +898,7 @@ can use without reading the implementation.
 | `tools/forge_couverture_perimetre.py` | DEUX metriques de couverture, jamais fusionnees | `est_ecarte`, `mesurer_couverture`, `main` | 169 |
 | `tools/forge_db_sanitize.py` | Sanitize embeddings.db avant upload (R2/HF/cloud) | `list_tables`, `phase_A_drop`, `phase_B_sanitize`, `phase_C_audit_whitelist` *(+3)* | 420 |
 | `tools/forge_demand_proxy.py` | Proxy HTTP générique on-demand + idle-kill ================================================================== Usage: python forge_demand_proxy.py --service <name> Chaque service définit: proxy_port : port exposé à Nokido (permanent, ~20 MB) real_port : port du | `DemandProxy`, `build_app`, `main` | 304 |
-| `tools/forge_deps_reconcilier.py` | Reconcilie MANIFESTE, ENVIRONNEMENT et VULNERABILITES, et classe les montees par risque | `date_du_nom`, `rapport_courant`, `a_des_binaires`, `lire_manifestes` *(+6)* | 445 |
+| `tools/forge_deps_reconcilier.py` | Reconcilie MANIFESTE, ENVIRONNEMENT et VULNERABILITES, et classe les montees par risque | `date_du_nom`, `rapport_courant`, `a_des_binaires`, `lire_manifestes` *(+10)* | 522 |
 | `tools/forge_dpop_tpm_cli.py` | ecrit sur stdout une preuve DPoP signee par la cle TPM d'un agent | `main` | 75 |
 | `tools/forge_firehose_guard.py` | garde anti-régression "firehose / fuite" pour le gate git | `scan`, `main` | 136 |
 | `tools/forge_gen_tls_cert.py` | Génère un certificat TLS auto-signé local pour le hub | `gen_cert`, `main` | 103 |
@@ -914,7 +922,7 @@ can use without reading the implementation.
 | `tools/forge_log_guard.py` | sécurité anti-log-géant (épure les logs qui enflent) | `scan_once`, `main` | 123 |
 | `tools/forge_log_redact.py` | RedactingFormatter : secrets/PII jamais écrits sur disque | `RedactingFormatter`, `install`, `redact`, `rediger_fichier` *(+1)* | 216 |
 | `tools/forge_merge_gate.py` | porte de merge wip/<agent> -> alpha, jugee sur le GAIN | `suite_nr`, `evaluer`, `merger`, `main` | 165 |
-| `tools/forge_migrate_env_secret.py` | Migre un secret de Nokido.env vers le vault DPAPI sous un nom PROPRE | — | 58 |
+| `tools/forge_migrate_env_secret.py` | Migre un secret de Nokido.env vers le vault DPAPI sous un nom PROPRE, puis RETIRE la ligne en clair | `lire_source`, `retirer_du_clair`, `main` | 135 |
 | `tools/forge_mtls_probe.py` | preuve REELLE du handshake mTLS, sur un port ISOLE | `run`, `main` | 339 |
 | `tools/forge_npsc.py` | NPSC — Nokido Protocol & Standards Conformance : le JUGE | `charger_registre`, `applicabilite`, `exigences`, `executer_exigence` *(+7)* | 540 |
 | `tools/forge_npsc_decouverte.py` | NPSC — DECOUVERTE des surfaces, par mesure et non par liste a priori | `decouvrir`, `main` | 220 |
@@ -952,7 +960,7 @@ can use without reading the implementation.
 | `tools/forge_tls_caddy.py` | Terminaison TLS du hub via Caddy (méthode retenue panel multi-LLM 2026-06-01, après l'échec asyncio SSL Windows) | `write_config`, `cmd_run`, `cmd_start`, `cmd_stop` *(+2)* | 266 |
 | `tools/forge_tls_proxy.py` | Reverse-proxy TLS-terminant devant le hub HTTP:8766 | `main` | 131 |
 | `tools/forge_token_probe.py` | Demande a GitHub ce que chaque token peut REELLEMENT faire | `empreinte`, `sources`, `main` | 152 |
-| `tools/forge_tool_gate.py` | gate UNIFIÉ des appels d'outils, partagé cross-CLI (Claude/Gemini/Codex) | `decide`, `admettre_transient`, `main` | 601 |
+| `tools/forge_tool_gate.py` | gate UNIFIÉ des appels d'outils, partagé cross-CLI (Claude/Gemini/Codex) | `decide`, `admettre_transient`, `main` | 606 |
 | `tools/forge_trust_broker.py` | SecretAnonymizer + OrchestratorTrustBroker ========================================================================= Protège la PI avant envoi Cloud et synthétise les échecs multi-agents en feedback actionnable sans trahir l'identité des agents | `SecretAnonymizer`, `DiagnosticSynthesizer`, `OrchestratorTrustBroker` | 360 |
 | `tools/forge_trust_domains.py` | M0.1 — domaines de confiance : QUI reste digne de confiance quand le client peut ecrire dans le depot ? __FORGE_COLOR__ = "immunitaire/enforcement : domaines de confiance, racine, autorites partagees" LA QUESTION, ET ELLE N'EST PAS « OU VIT LE FICHIER » Sortir | `Noeud`, `autorites_partagees`, `chemins_auto_modifiants`, `non_mesures` *(+6)* | 808 |
 | `tools/forge_vault_copy_key.py` | Range une cle du coffre sous un AUTRE nom, sans repasser par le clair | `empreinte`, `main` | 88 |
@@ -960,7 +968,7 @@ can use without reading the implementation.
 | `tools/forge_wiring_view.py` | VUE FEDEREE du cablage | `sources`, `couverture`, `module`, `certification` *(+3)* | 495 |
 | `tools/forge_zai_fix_key.py` | Extrait la VRAIE cle z.ai de la ligne malformee .env (...API_KEY_ID=<id> API_KEY=<key>) et la stocke en ZAI_API_KEY au vault DPAPI | — | 39 |
 | `tools/forge_zai_inspect.py` | Inspecte la STRUCTURE de la zone z.ai dans Nokido.env (zero valeur affichee) | — | 26 |
-| `tools/hook_context_firewall.py` | Context firewall -- reduire ce que Claude RECOIT, sans rien lui cacher | `reduire`, `traiter`, `main` | 232 |
+| `tools/hook_context_firewall.py` | Context firewall -- reduire ce que Claude RECOIT, sans rien lui cacher | `reduire`, `traiter`, `main` | 254 |
 | `tools/hook_integrity_check.py` | SessionStart : vérifie le filet de hooks AVANT la session | `run_check`, `main` | 439 |
 | `tools/hook_pretool_guard.py` | Hook PreToolUse anti-regression Nokido | `main` | 119 |
 | `tools/hook_search_guard.py` | PreToolUse guard (Read \| Grep \| Glob) | `main` | 70 |
@@ -971,7 +979,7 @@ can use without reading the implementation.
 
 ## Cognition/Agentique/Raisonnement
 
-*145 modules · 47,781 lines*
+*145 modules · 48,534 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -1026,7 +1034,7 @@ can use without reading the implementation.
 | `app/forge_metacognition_gate.py` | Nokido Engrid v3 · Couche 1 ============================================================ MetaCognitionGate : filtre intelligent entre le prompt entrant et le backend LLM | `GateDecision`, `GateResult`, `SiloScore`, `ConfidenceScorer` *(+1)* | 629 |
 | `app/forge_mpc.py` | Phase 5 - AMI roadmap: Model Predictive Control (closed-loop planning) | `MPCStep`, `MPCResult`, `plan_horizon`, `mpc_step` *(+1)* | 437 |
 | `app/forge_mpc_executor.py` | Phase C — MPC real execute_fn | `execute_fn`, `run_real_mpc` | 193 |
-| `app/forge_mutation_judge.py` | LE JUGE des mutations — le milieu implacable, sans lequel l'arbre ne vaut rien | `perimetre_immuable`, `zone_evaluateur_touchee`, `evolution_autorisee`, `poser_frein_evolution` *(+16)* | 873 |
+| `app/forge_mutation_judge.py` | LE JUGE des mutations — le milieu implacable, sans lequel l'arbre ne vaut rien | `perimetre_immuable`, `zone_evaluateur_touchee`, `portee_cle`, `evolution_autorisee` *(+17)* | 939 |
 | `app/forge_narrator.py` | __FORGE_COLOR__ = cognition/narrative-self NARRATEUR AUTOBIOGRAPHIQUE — tisse les faits isoles en RECIT continu de soi | `weave`, `narrate`, `consolidate`, `inject_into_context` *(+1)* | 279 |
 | `app/forge_novelty_organ.py` | Organe de Nouveauté (Autoencoder PyTorch + FlowRegulator) ==================================================================================== Détecte les anomalies par erreur de reconstruction MSE | `NoveltyEngine`, `FlowRegulator`, `AugmentedNovelty` | 146 |
 | `app/forge_novelty_search.py` | Novelty Search (Stanley/Lehman 2011) Récompense la NOUVEAUTÉ, pas l'objectif | `compute_novelty`, `archive_behavior`, `is_exploration_mode`, `combined_score` *(+4)* | 384 |
@@ -1054,9 +1062,9 @@ can use without reading the implementation.
 | `app/forge_typed_task.py` | ControlFlow-style typed task contract for Nokido | `run_typed_task_async`, `run_typed_task`, `run_typed_schema_async`, `run_typed_schema` *(+1)* | 233 |
 | `app/forge_user_layer.py` | Couche USER / TENANT / MFA (scaffold compliance #3+#4) | `generate_totp_secret`, `totp_now`, `verify_totp`, `totp_provisioning_uri` *(+10)* | 317 |
 | `app/forge_value_net.py` | Value Network (Hassabis / AlphaZero pillar) | `ValueNet`, `train`, `get_model`, `predict_value` | 214 |
-| `app/forge_veille_digest.py` | __FORGE_COLOR__ : cognition / metacognition (organe) ORGANE : DIGEST -> SUGGEST — « tirer les leçons de ce qu'on vient d'apprendre » | `noms_organes`, `organes_valides`, `valider_organe`, `tag_complet` *(+16)* | 1119 |
-| `app/forge_watch_agent.py` | Veille active intelligente (Watch Agent) PIPELINE N8N-STYLE (reprise possible à chaque étape) : THÈME → [LLM local] génère mots-clés raffinés (step: keywords) → [vérification] pertinence des mots-clés (step: verify_kw) → [SearXNG] recherche par mot-clé (step: | `register_sse_callback`, `verdict_chaine`, `run_watch_job`, `create_job` *(+2)* | 1911 |
-| `app/forge_workflow.py` | Workflow SOUVERAIN DÉPORTÉ (équivalent local du tool Workflow) | `run_plan`, `submit` | 189 |
+| `app/forge_veille_digest.py` | __FORGE_COLOR__ : cognition / metacognition (organe) ORGANE : DIGEST -> SUGGEST — « tirer les leçons de ce qu'on vient d'apprendre » | `noms_organes`, `organes_valides`, `valider_organe`, `tag_complet` *(+16)* | 1130 |
+| `app/forge_watch_agent.py` | Veille active intelligente (Watch Agent) PIPELINE N8N-STYLE (reprise possible à chaque étape) : THÈME → [LLM local] génère mots-clés raffinés (step: keywords) → [vérification] pertinence des mots-clés (step: verify_kw) → [SearXNG] recherche par mot-clé (step: | `register_sse_callback`, `verdict_chaine`, `run_watch_job`, `create_job` *(+2)* | 1909 |
+| `app/forge_workflow.py` | Workflow SOUVERAIN DÉPORTÉ (équivalent local du tool Workflow) | `run_plan`, `ecrire_plan`, `submit` | 201 |
 | `app/legacy/skilltree.py` | Ancienne application Textual qui affiche un arbre de compétences coloré par état | `SkillNode`, `SkillTree`, `AdvancedRagTUI` | 105 |
 | `app/skilltree.py` | CONTRAINTE: docstrings Args/Returns/Raises | `detect_skills`, `get_dependencies`, `get_subtree`, `SkillState` *(+3)* | 914 |
 | `tools/agent_notify.py` | Notification inter-agents bidirectionnelle | `resolve_agent`, `send`, `main` | 150 |
@@ -1072,12 +1080,12 @@ can use without reading the implementation.
 | `tools/forge_debate_run_job.py` | worker DEPORTE du debat inter-agents (params-driven) | `main` | 69 |
 | `tools/forge_dpo_extractor.py` | Extraction paires DPO depuis execution_traces.db | `load_traces`, `build_pairs`, `export_jsonl`, `run` | 159 |
 | `tools/forge_epistemic_calibrate.py` | Step 8 epistemic: calibration coefficients alpha/beta/gamma/delta/epsilon via regression logistique sur dataset historique de claims | `bootstrap_dataset_from_db`, `load_csv_dataset`, `calibrate`, `save_config` *(+1)* | 248 |
-| `tools/forge_epistemic_daemon.py` | la SOIF DE CONNAISSANCE, cablee sur les vraies requetes | `run_once`, `run`, `main` | 1037 |
-| `tools/forge_epistemic_extract_claims.py` | Consolidation epistemique : extraction d'assertions, reevaluation, supersession, porte | `nom_backend`, `extracteur_backend`, `juge_backend`, `process_batch` *(+3)* | 641 |
+| `tools/forge_epistemic_daemon.py` | la SOIF DE CONNAISSANCE, cablee sur les vraies requetes | `description_enquete`, `effecteur_enquete`, `run_once`, `run` *(+1)* | 1258 |
+| `tools/forge_epistemic_extract_claims.py` | Consolidation epistemique : extraction d'assertions, reevaluation, supersession, porte | `nom_backend`, `extracteur_backend`, `juge_backend`, `process_batch` *(+6)* | 726 |
 | `tools/forge_epistemic_recompute.py` | Step 3: cron daily — recalcule epistemic_weight pour chaque chunk actif | `recompute`, `main` | 254 |
 | `tools/forge_epistemic_simulator.py` | Epistemic dynamics simulator — visualise trajectoire confidence_score d'un claim dans le temps sous l'effet de l'equation: epistemic_weight(t) = alpha*trust_weight + beta*recency_decay(t) + gamma*citation_norm + delta*peer_review_bonus + epsilon*refutation_pen | `EpistemicChunk`, `epistemic_weight`, `simulate_trajectory`, `scenario_stego` *(+4)* | 281 |
 | `tools/forge_gap_direction.py` | croise CE QUI CLOCHE avec CE QU'ON VEUT | `croiser`, `point`, `main` | 302 |
-| `tools/forge_gemini_autonomous_agent.py` | GEMINI AUTONOME : daemon qui relève l'inbox postal de l'agent GEMINI, invoque gemini_cli sur chaque courrier, et POSTE la réponse — SANS humain | `tick`, `main` | 625 |
+| `tools/forge_gemini_autonomous_agent.py` | GEMINI AUTONOME : daemon qui relève l'inbox postal de l'agent GEMINI, invoque gemini_cli sur chaque courrier, et POSTE la réponse — SANS humain | `demande_de_travail`, `deposer_tache_agy`, `reponse_travail`, `relayer_resultats` *(+2)* | 810 |
 | `tools/forge_gemini_ingress.py` | ingress Gemini Dev/Vertex (generateContent) -> Nokido | `health`, `generate`, `main` | 167 |
 | `tools/forge_js_endpoint_extractor.py` | Extract hidden API endpoints from JS bundles | `extract_endpoints` | 60 |
 | `tools/forge_lats_debug_debate.py` | debat multi-LLM CIBLE bug actuel LATS | `main` | 247 |
@@ -1098,7 +1106,7 @@ can use without reading the implementation.
 | `tools/forge_skill_migrate.py` | migration skills vers la taxonomie souveraine HYBRIDE (24 -> 14) | `run` | 177 |
 | `tools/forge_skill_realisations.py` | Realisations REELLES : ce qui relie une capacite a une route gouvernee | — | 212 |
 | `tools/forge_skill_retrieval.py` | RETRIEVAL de skills — quels skills sont pertinents pour un objectif donne | `jetons`, `Candidat`, `Resultat`, `chercher` *(+1)* | 231 |
-| `tools/forge_skill_sync.py` | Matérialiseur de skills cross-CLI souverain | `AssetType`, `AssetConfig`, `discover`, `consolidate` *(+7)* | 1066 |
+| `tools/forge_skill_sync.py` | Matérialiseur de skills cross-CLI souverain | `AssetType`, `AssetConfig`, `discover`, `consolidate` *(+7)* | 1241 |
 | `tools/forge_skills_reorg.py` | migration namespace skills -> forge-* (NON-DESTRUCTIF, dry-run) | `plan`, `main` | 105 |
 | `tools/forge_snn_repo_extract.py` | __FORGE_COLOR__ = "cognition/extraction-snn" EXTRACTEUR du depot public **NokidoSNN** depuis Nokido | `main` | 284 |
 | `tools/forge_soif_demo.py` | boucle SOIF complete sur UN gap reel, de bout en bout | `main` | 62 |
@@ -1123,14 +1131,14 @@ can use without reading the implementation.
 
 ## SN vegetatif (autonome)
 
-*143 modules · 54,742 lines*
+*143 modules · 55,248 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
 | `app/brain_ping.py` | CONTRAINTE: header HD batch | — | 49 |
 | `app/forge_aer.py` | __FORGE_COLOR__ = "regulation/aer-evenementiel" AER — Address Event Representation pour les canaux vitaux de Nokido | `src_id`, `pas_de`, `Encodeur`, `Decodeur` *(+4)* | 332 |
 | `app/forge_amygdala.py` | __FORGE_COLOR__ = limbic/affect AMYGDALE — juge affectif : valence + salience PAR-EVENEMENT, modulee par l'humeur | `AmygdalaVerdict`, `appraise`, `token_budget`, `publish` *(+2)* | 238 |
-| `app/forge_autonomous_loops.py` | Boucle évolutive autonome Nokido | `Pattern`, `register_pattern`, `pat_eval_fitness`, `verifier_chaine_evolution` *(+31)* | 4212 |
+| `app/forge_autonomous_loops.py` | Boucle évolutive autonome Nokido | `Pattern`, `register_pattern`, `pat_eval_fitness`, `verifier_chaine_evolution` *(+33)* | 4504 |
 | `app/forge_circadian.py` | rythme circadien Nokido (homeostasie, autopoiese) | `Phase`, `PhaseAction`, `current_phase`, `PhysiologicalState` *(+4)* | 869 |
 | `app/forge_circadian_loop.py` | Nokido v18.5 Cycle Circadien ======================================================== Daemon asynchrone de background processing | `phase1_janitor`, `phase2_dream`, `phase3_postmortem`, `phase4_epiphany` *(+2)* | 658 |
 | `app/forge_curiosity_driver.py` | boucle fermee veille auto par gap-detection | `scan_domain_distribution`, `scan_predicate_distribution`, `scan_recency`, `detect_self_gaps` *(+9)* | 999 |
@@ -1167,12 +1175,12 @@ can use without reading the implementation.
 | `app/forge_phenomenological_buffer.py` | __FORGE_COLOR__ = cognition/phenomenal-stream PHENOMENOLOGICAL BUFFER — flux introspectif (qualia FONCTIONNEL), 1ere personne | `sense`, `update`, `get_recent_flow`, `serve` *(+1)* | 216 |
 | `app/forge_ping_monitor.py` | Ping providers en parallèle (asyncio.gather) ==================================================================== Session 5 | `ping_all_providers`, `ping_all_sync`, `get_provider_health` | 134 |
 | `app/forge_portable_supervisor.py` | Cross-OS supervisor Phase 2 reference impl | `PortableJobBox`, `ServiceDef`, `Worker`, `Supervisor` *(+2)* | 425 |
-| `app/forge_proposal_applier.py` | APPLICATEUR de propositions — reflexe medullaire vs decision corticale | `cible_protegee`, `arme`, `porte_evolution`, `empreinte_l1` *(+3)* | 608 |
+| `app/forge_proposal_applier.py` | APPLICATEUR de propositions — reflexe medullaire vs decision corticale | `cible_protegee`, `arme`, `portee_armement`, `porte_evolution` *(+5)* | 718 |
 | `app/forge_proprioception.py` | Conscience corporelle élargie Nokido | `measure_knowledge`, `measure_memory`, `measure_code`, `measure_storage` *(+6)* | 719 |
 | `app/forge_reboot_sentinel.py` | Le corps SENT son propre reboot ========================================================== Owner 2026-07-23 : "le pid X survit au stop | `check_reboot`, `run_cycle` | 225 |
-| `app/forge_remediation.py` | ================================================ ORGANE de remédiation autonomique (autophagie + glymphatique + homéostasie unifiées) | `check_embed_backlog`, `check_db_contention`, `check_orphans`, `check_phantom_slots` *(+6)* | 351 |
+| `app/forge_remediation.py` | ================================================ ORGANE de remédiation autonomique (autophagie + glymphatique + homéostasie unifiées) | `check_embed_backlog`, `check_db_contention`, `check_orphans`, `check_phantom_slots` *(+6)* | 343 |
 | `app/forge_renal_clearance.py` | Purge les fichiers .bak de plus de 7 jours, mesure les chunks RAG en double et compacte RAG/embeddings.db par VACUUM (forcé, ou si WAL > 50 Mo ou base > 500 Mo) | `FiltrationRule`, `FiltrationResult`, `filter_table`, `run_cycle` *(+2)* | 249 |
-| `app/forge_resource_manager.py` | System resource monitor + dynamic allocator for Nokido | `observer_decision`, `read_vitals_history`, `attribuer_pression`, `resume_attribution` *(+34)* | 4735 |
+| `app/forge_resource_manager.py` | System resource monitor + dynamic allocator for Nokido | `observer_decision`, `read_vitals_history`, `attribuer_pression`, `resume_attribution` *(+37)* | 4819 |
 | `app/forge_rss_watcher.py` | Veille technologique autonome Nokido ============================================================= Surveille : GitHub releases, PyPI, ArXiv, HuggingFace papers Pipeline : fetch -> ingest_pipeline L1-L3 -> RAG embeddings.db Sortie : COMMUNICATIONS.md + domain=w | `fetch_github_release`, `fetch_pypi_release`, `fetch_arxiv`, `run_watch` *(+1)* | 739 |
 | `app/forge_safe_integration.py` | CONTRAINTE: header HD batch | `log`, `version_key`, `check_syntax`, `get_version_str` *(+8)* | 443 |
 | `app/forge_sentinel.py` | Valide une instruction texte contre trois listes de regex (ring 0, 1, 2) et rend un verdict pass, warn ou block selon le mode dev/strict lu dans l'environnement | `SentinelResult`, `validate_action`, `sentinel_guard`, `is_dev_mode` *(+1)* | 337 |
@@ -1224,11 +1232,11 @@ can use without reading the implementation.
 | `tools/forge_job_liveness.py` | un job deporte TRAVAILLE-t-il vraiment ? Consigne owner du 2026-08-17 : « assure-toi systematiquement que tu ne lances pas des jobs morts » | `controler`, `main` | 159 |
 | `tools/forge_job_progress.py` | l'avancement d'un job detache, partage par tous les clients | `emit`, `read`, `all_active`, `clear` | 145 |
 | `tools/forge_job_stop.py` | arret PROPRE d'un job detache lance par `run action=run_job` | `stop_job`, `main` | 223 |
-| `tools/forge_job_watch_cli.py` | Surveille un job detache et EMET ses transitions sur stdout | `surveiller_tache`, `surveiller_pair`, `lire_bilan`, `surveiller` *(+1)* | 438 |
+| `tools/forge_job_watch_cli.py` | Surveille un job detache et EMET ses transitions sur stdout | `surveiller_tache`, `surveiller_pair`, `lire_bilan`, `surveiller` *(+1)* | 443 |
 | `tools/forge_kill_stale_executors.py` | tue les instances python de forge_task_executor.py (orphelines de restarts en rafale, injoignables par ensure_service) | `main` | 85 |
 | `tools/forge_lmstudio_keeper.py` | keeper LMStudio (:1234) pour la pool multi-agents souveraine | `server_up`, `access_ok`, `loaded_models`, `load_model` *(+4)* | 246 |
 | `tools/forge_local_pool_wake.py` | Réveil ON-DEMAND du pool LOCAL (priorité économie tokens) | `status`, `ensure_local_pool`, `main` | 145 |
-| `tools/forge_log_retention.py` | Rétention + sanitisation tiers des logs Nokido | `run_retention`, `main` | 1885 |
+| `tools/forge_log_retention.py` | Rétention + sanitisation tiers des logs Nokido | `run_retention`, `main` | 1906 |
 | `tools/forge_log_rotate.py` | Rotate logs Nokido volumineux (truncate-safe) | `rotate_file`, `main` | 139 |
 | `tools/forge_offline_trainer.py` | Batch offline training daemon for Nokido AMI nets | `run_training_cycle`, `main` | 337 |
 | `tools/forge_organ_loop_test.py` | __FORGE_COLOR__ = test/integration Harness CLOSED-LOOP INTER-ORGANES — prouve l'homeostasie de l'organisme comme un TOUT | `Probe`, `run`, `main` | 248 |
@@ -1245,7 +1253,7 @@ can use without reading the implementation.
 | `tools/forge_regulation_learner.py` | la boucle de regulation, cote APPRENTISSAGE | `charger_ledger`, `apprendre`, `main` | 231 |
 | `tools/forge_regulation_loops.py` | DEBIT MAXIMAL DE CASSE des effecteurs, confronte a un budget par gravite | `body_urgency`, `Loop`, `audit`, `validate` *(+3)* | 475 |
 | `tools/forge_regulation_proposer.py` | PREPARE l'ACT, sans jamais agir | `etat_courant`, `proposer`, `main` | 200 |
-| `tools/forge_rescue.py` | Canal de secours Nokido v2.0 (ON-DEMAND + DROITS ADMIN) =========================================================================== Script DORMANT — zéro overhead au repos | `validate_config`, `cmd_status`, `cmd_restore`, `cmd_restart_hub` *(+8)* | 1025 |
+| `tools/forge_rescue.py` | Canal de secours Nokido v2.0 (ON-DEMAND + DROITS ADMIN) =========================================================================== Script DORMANT — zéro overhead au repos | `validate_config`, `cmd_status`, `cmd_restore`, `cmd_restart_hub` *(+8)* | 1027 |
 | `tools/forge_resource_monitor.py` | ForgeMemoryGuard + Resource Monitor ====================================================================== Surveillance légère RAM/CPU pour ParallelMutationWorker | `get_usage_mb`, `backpressure`, `snapshot`, `check_nvme_temp` | 180 |
 | `tools/forge_roadmap_keeper.py` | OrganAgent : TENUE + PRÉSENTATION de la ROADMAP vivante | `regen`, `promote`, `present`, `status` *(+2)* | 701 |
 | `tools/forge_searxng_keeper.py` | wrapper supervisor pour conteneur Docker SearXNG | `main` | 328 |
@@ -1273,7 +1281,7 @@ can use without reading the implementation.
 
 ## Qualite/Build/Spec
 
-*110 modules · 30,367 lines*
+*110 modules · 30,776 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -1296,7 +1304,7 @@ can use without reading the implementation.
 | `tools/bench_qdrant_veracrypt.py` | Benchmark d'empreinte disque et latence mmap NVMe à travers VeraCrypt | `print_progress`, `generate_synthetic_chunk`, `run_benchmark` | 221 |
 | `tools/check_gemini_inbox.py` | Check gemini inbox by rowid (insertion order) to avoid UTC/local timestamp issue | — | 31 |
 | `tools/check_lazy_cycles.py` | Linter: verifie que tous les cycles d imports restent LAZY (dans fonctions), jamais au niveau MODULE | `collect_module_level_imports`, `check_cycles`, `main` | 83 |
-| `tools/ci_local.py` | miroir LOCAL COMPLET des GitHub Actions | `marque_resume`, `phrase_non_mesures`, `verdict_bloc`, `verdict_suite` *(+13)* | 6238 |
+| `tools/ci_local.py` | miroir LOCAL COMPLET des GitHub Actions | `marque_resume`, `phrase_non_mesures`, `verdict_bloc`, `verdict_suite` *(+13)* | 6495 |
 | `tools/forge_aer_sparsity_bench.py` | __FORGE_COLOR__ = "regulation/aer-evenementiel" BANC DE SPARSITE AER — chiffrer le gain evenementiel sur l'historique REEL | `main` | 253 |
 | `tools/forge_archi_lint.py` | lint architectural Nokido via Semgrep (Golden Rules) | `main` | 163 |
 | `tools/forge_ax17_backtest_job.py` | backtest DEPORTE de l'axe 17 (graphe de signaux) | `main` | 58 |
@@ -1322,7 +1330,7 @@ can use without reading the implementation.
 | `tools/forge_ci_lock.py` | le lock des outils de CI, et la RECONCILIATION avec l'installe | `normaliser`, `fermeture`, `hash_lock`, `rendu` *(+4)* | 315 |
 | `tools/forge_ci_pin_actions.py` | Epingle les actions GitHub des workflows sur un SHA, au lieu d'un tag mobile | `main` | 127 |
 | `tools/forge_ci_profil.py` | Profil et comparaison sequentiel/parallele de la suite pure de `ci_local` | `selection_pure`, `construire`, `bilan_junit`, `comparer_collecte` *(+1)* | 261 |
-| `tools/forge_ci_proof.py` | transformer un verdict de CI en PREUVE PORTABLE | `hash_canonique`, `hash_plan`, `hash_contrat`, `empreinte_substrat` *(+5)* | 304 |
+| `tools/forge_ci_proof.py` | transformer un verdict de CI en PREUVE PORTABLE | `hash_canonique`, `hash_plan`, `hash_contrat`, `empreinte_substrat` *(+7)* | 378 |
 | `tools/forge_ci_quand_ram_dispo.py` | Attend que la RAM redescende, puis lance la CI | `main` | 160 |
 | `tools/forge_ci_selection.py` | ne rejouer que les tests QUE LE DIFF PEUT AVOIR CASSES | `fichiers_modifies`, `liste_depuis_fichier`, `selectionner`, `etat_suite` *(+1)* | 215 |
 | `tools/forge_ci_stop_hook.py` | Stop hook : surface le verdict CI de la branche en fin de tour | `main` | 169 |
@@ -1349,7 +1357,7 @@ can use without reading the implementation.
 | `tools/forge_mutation_test.py` | mutation testing natif : tester les TESTS | `executer`, `main` | 305 |
 | `tools/forge_npu_bench.py` | Le NPU XDNA travaille-t-il VRAIMENT ? — banc de mesure, pas de declaration | `main` | 191 |
 | `tools/forge_npu_static_bench.py` | Le NPU refuse-t-il le modele a cause de ses formes DYNAMIQUES ? Dix variantes (2 SDK x 5 firmware/overlay) rendent toutes le debit du CPU pur, warmup <= 2 s : la chaine ne partitionne jamais vers les tuiles AIE | `main` | 190 |
-| `tools/forge_nr_instables.py` | rejoue N fois des NR cibles et NOMME ceux dont le verdict change | `issues_junit`, `comparer`, `rejouer`, `main` | 111 |
+| `tools/forge_nr_instables.py` | rejoue N fois des NR cibles et NOMME ceux dont le verdict change | `issues_junit`, `comparer`, `rejouer`, `main` | 123 |
 | `tools/forge_nr_socle.py` | gele la dette de tests existante, pour ne plus l'aggraver | `modules`, `main` | 59 |
 | `tools/forge_post_commit.py` | Automatisation post-git-commit Nokido ==================================================================== Déclenché par .git/hooks/post-commit après chaque commit | `modules_a_instrumenter`, `should_use_hub`, `reponse_refusee`, `get_changed_files` *(+4)* | 856 |
 | `tools/forge_pypi_amorce.py` | le namespace doit etre atteignable DES LE DEMARRAGE | `a_une_amorce_racine`, `candidats`, `traiter`, `main` | 235 |
@@ -1380,7 +1388,7 @@ can use without reading the implementation.
 | `tools/forge_wasm_selftest.py` | vérifie la voie wasm NATIVE de forge_wasm_cervelet | `main` | 45 |
 | `tools/forge_wiki_align.py` | aligne les noms de modules ET de commandes du wiki sur le code | `scripts_declares`, `commandes_sures`, `main` | 121 |
 | `tools/forge_wip_rescue.py` | Snapshot NON-DESTRUCTIF de tout l'uncommitted (tracked + untracked) vers une branche wip/rescue-<suffix>, SANS toucher au working tree ni à l'index réel | `main` | 67 |
-| `tools/forge_worktree.py` | isolation PHYSIQUE par agent (git worktree) = fin du clobber multi-surface | `create`, `proof_path`, `create_scratch`, `create_proof` *(+7)* | 319 |
+| `tools/forge_worktree.py` | isolation PHYSIQUE par agent (git worktree) = fin du clobber multi-surface | `racines_de_preuve_inscrites`, `inscrire_racine_de_preuve`, `perte_possible`, `create` *(+10)* | 385 |
 | `tools/generate_stub.py` | Génère les signatures (squelette) d'un fichier Python | `generate_stub` | 41 |
 | `tools/hook_posttool_validate.py` | PostToolUse hook (Write\|Edit) | `main` | 128 |
 | `tools/nokido_cutover_verify.py` | GATE de securite du rename protege | `count`, `main` | 81 |
@@ -1506,14 +1514,14 @@ can use without reading the implementation.
 
 ## Locomoteur/Orchestration
 
-*108 modules · 44,060 lines*
+*108 modules · 44,421 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
 | `app/forge_at_dispatch.py` | Implémente les commandes @ de la TUI Nokido et les expose dans la table AT_DISPATCH | `handle_at_ssh`, `handle_at_scan`, `handle_at_ids`, `handle_at_agentic` *(+6)* | 1370 |
 | `app/forge_autonomous_orchestrator.py` | CONTRAINTE: header HD batch | `DAGNode`, `DAGGraph`, `DAGBuilder`, `OneMCPMultiplexer` *(+3)* | 498 |
 | `app/forge_bounded_queue.py` | Bounded queue avec backpressure + leptin release | `BoundedQueue`, `EcrivainDiffere` | 299 |
-| `app/forge_chain_executor.py` | Exécute en boucle les étapes des chaînes de veille stockées dans agent_chain_nodes | `ChainExecutor` | 1024 |
+| `app/forge_chain_executor.py` | Exécute en boucle les étapes des chaînes de veille stockées dans agent_chain_nodes | `ChainExecutor` | 1066 |
 | `app/forge_cli_harness.py` | generic unattended harness for arbitrary CLI processes | `kill_tree`, `CliHarness`, `agent_bin`, `harness_for` | 309 |
 | `app/forge_cost_module.py` | Phase 1 — AMI roadmap: Cost Module | `intrinsic_cost`, `intrinsic_cost_wired`, `task_cost`, `epistemic_cost` *(+2)* | 178 |
 | `app/forge_dag_runner.py` | Nokido v18.5 ======================================== Exécution parallèle des plans agent_tasks en DAG | `DAGRunner`, `log_concurrent`, `execute_task_plan` | 255 |
@@ -1530,9 +1538,9 @@ can use without reading the implementation.
 | `app/forge_jobid.py` | Phase 2.2 JobID standardization ================================================= "Hémoglobine" du Nokido | `generate_job_id`, `JobContext`, `trace_link`, `persist_job` *(+2)* | 220 |
 | `app/forge_local_inference_pool.py` | pool d'inférence locale (ForgeSwarm M3) | `estimate_tokens`, `dynamic_n_ctx`, `make_openrouter_free_backend`, `warm_models` *(+3)* | 462 |
 | `app/forge_lock_manager.py` | Phase 2.3 Lock Manager sémantique ========================================================== "Enzymes de régulation" du cytoplasme Nokido | `cle_workdir_agy`, `etat_holder`, `LockState`, `LockManager` *(+1)* | 473 |
-| `app/forge_mutation_controller.py` | le KERNEL DE MUTATION (brief §6, §9, §11) | `ecarts_hors_bande`, `mesurer_apres`, `appliquer_et_mesurer`, `mesurer_apres_merge` *(+2)* | 497 |
+| `app/forge_mutation_controller.py` | le KERNEL DE MUTATION (brief §6, §9, §11) | `ecarts_hors_bande`, `mesurer_apres`, `application_id_de`, `actes_orphelins` *(+5)* | 617 |
 | `app/forge_nlgraph_runner.py` | NLGraph Benchmark Runner for Nokido =============================================================== Tests LLM graph reasoning across 8 tasks of increasing complexity | `TestCase`, `GraphGenerator` | 209 |
-| `app/forge_orchestration_gate.py` | classifieur de VOIE du Gate d'orchestration | `Lane`, `Action`, `Decision`, `classify` *(+3)* | 323 |
+| `app/forge_orchestration_gate.py` | classifieur de VOIE du Gate d'orchestration | `Lane`, `Action`, `Decision`, `classify` *(+3)* | 347 |
 | `app/forge_orchestrator.py` | Nokido Engrid v3 · Couche 2 ====================================================== ForgeOrchestrator : chaîne complète multi-silos | `LatencyMetric`, `SiloResult`, `OrchestratorResult`, `PromptSegmenter` *(+3)* | 811 |
 | `app/forge_orchestrator_scaller.py` | CONTRAINTE: auto-tuning Nokido base sur metriques mesurables, aucune application automatique | `Recommendation`, `scan`, `scan_and_store`, `list_pending` *(+3)* | 842 |
 | `app/forge_plan_validator.py` | Nokido v18.5 ======================================== Validation stricte des plans agent_tasks | `PlanValidationResult`, `PlanValidator`, `get_plan_validator` | 277 |
@@ -1562,8 +1570,8 @@ can use without reading the implementation.
 | `app/forge_tag_dispatch.py` | route a task to fleet peers chosen by label/purpose | `dispatch`, `main` | 85 |
 | `app/forge_task_bus.py` | CONTRAINTE: Args/Returns/Raises | `ensure_schema`, `create_task`, `inject_rag_context`, `claim_task` *(+11)* | 696 |
 | `app/forge_task_queue.py` | File d attente persistante pour les rôles ================================================================ Remplace l envoi de 18 tâches en batch par un système de queue | `enqueue`, `enqueue_many`, `queue_status`, `get_results` *(+3)* | 309 |
-| `app/forge_task_router.py` | v2 - Orchestrateur taches zero-token Claude Exploite TOUS les providers Nokido disponibles | `status`, `select_provider`, `route` | 468 |
-| `app/forge_trajectory.py` | Structured Agentic Trajectory Implémentation du pattern JSON-RPC inter-agent strict (vs prose chatbot) | `IntentValidationError`, `parse_intent`, `validate_intent`, `correction_prompt` *(+9)* | 633 |
+| `app/forge_task_router.py` | v2 - Orchestrateur taches zero-token Claude Exploite TOUS les providers Nokido disponibles | `status`, `select_provider`, `route` | 461 |
+| `app/forge_trajectory.py` | Structured Agentic Trajectory Implémentation du pattern JSON-RPC inter-agent strict (vs prose chatbot) | `IntentValidationError`, `parse_intent`, `validate_intent`, `correction_prompt` *(+9)* | 638 |
 | `app/forge_transient_executor.py` | PREMIER executor deterministe de preuve | `capacite_de`, `etat_llm_local`, `executer`, `verifier` | 442 |
 | `app/forge_viable_system.py` | Organisateur cybernétique (VSM) + orchestrateur multi-pool | `level_of`, `assign_provider`, `plan_orchestration`, `publish_plan` *(+7)* | 337 |
 | `tools/_batch10_send.py` | Batch 10 | — | 54 |
@@ -1590,17 +1598,17 @@ can use without reading the implementation.
 | `tools/forge_demo_runner_debate.py` | ouvre /forge/debate dans Chromium headed, les 3 providers (ollama_local / groq / cerebras) repondent en parallele au meme prompt, panneaux side-by-side affichent en typewriter | `main` | 53 |
 | `tools/forge_demo_runner_hub_tour.py` | paced Playwright headed tour de toutes les UI graphiques Nokido atteignables, pour screen recording | `scene_providers`, `scene_rag`, `scene_network`, `scene_watch` *(+3)* | 207 |
 | `tools/forge_demo_runner_terminal.py` | paced Nokido terminal demo for screen recording | `banner`, `typed`, `seq_intro`, `seq_health` *(+5)* | 228 |
-| `tools/forge_durable_workflow.py` | PoC durable execution event-sourced (replay-on-restart) | `WorkflowPaused`, `WorkflowStore`, `WorkflowContext`, `durable_run` *(+1)* | 186 |
+| `tools/forge_durable_workflow.py` | PoC durable execution event-sourced (replay-on-restart) | `WorkflowPaused`, `WorkflowDivergence`, `WorkflowStore`, `WorkflowContext` *(+2)* | 205 |
 | `tools/forge_dynamic_tool_runner.py` | Runner ISOLÉ pour outils forgés (sandbox-forced-default) | `main` | 48 |
 | `tools/forge_fleet_router.py` | routeur de flotte Nokido (role-clustering + Context Anchoring) | `Node`, `FleetRouter`, `main` | 173 |
 | `tools/forge_goap_hub_bridge.py` | GOAP planner wired to Nokido hub MCP API | `Goal`, `Action`, `GOAPPlanner`, `read_task_scorecard` *(+2)* | 564 |
 | `tools/forge_goap_online_launch.py` | exécute le planner GOAP en contexte RÉSEAU + DB-write pour que (a) le value_net ONLINE (HF MiniLM 384D aligné) soit live dans l'intuition, (b) les trajectoires soient PERSISTÉES dans execution_traces.db (keystone self-play) | `plan_online`, `run_and_record` | 99 |
 | `tools/forge_handoff_worker.py` | worker AUTONOME de dispatch multi-agents (py314t) | `taille_pool`, `free_threading_actif`, `valider_enveloppe`, `depiler_postal` *(+3)* | 280 |
-| `tools/forge_harness_worker.py` | fleet worker that drives real CLI agents via the harness | `process_job`, `main` | 187 |
+| `tools/forge_harness_worker.py` | fleet worker that drives real CLI agents via the harness | `process_job`, `main` | 191 |
 | `tools/forge_humaneval_runner.py` | HumanEval benchmark runner pour Nokido | `ensure_dataset`, `call_llm`, `run` | 891 |
-| `tools/forge_mutation_ratchet.py` | cliquet de mutation sur les surfaces critiques | `mesurer`, `main` | 223 |
+| `tools/forge_mutation_ratchet.py` | cliquet de mutation sur les surfaces critiques | `mesurer`, `main` | 307 |
 | `tools/forge_mutation_run.py` | lanceur de la boucle d'auto-amelioration | `main` | 129 |
-| `tools/forge_orchestrate_loop.py` | Autonomous agentic loop via GOAP Uses forge_goap.GoalPlanner + execute_plan + hub dispatch | `durable_run_status`, `run_loop` | 347 |
+| `tools/forge_orchestrate_loop.py` | Autonomous agentic loop via GOAP Uses forge_goap.GoalPlanner + execute_plan + hub dispatch | `durable_run_status`, `run_loop` | 411 |
 | `tools/forge_orchestrate_react.py` | ReAct agentic loop for Nokido Uses Ollama qwen3:8b with native function calling | `get_tools_schema`, `run_react` | 154 |
 | `tools/forge_planbench_runner.py` | PlanBench benchmark runner pour Nokido | `BWState`, `ensure_dataset`, `call_llm`, `run` | 639 |
 | `tools/forge_purge_redteam_runtime.py` | Purge du runtime offensif residuel — inventaire d'abord, retrait ensuite | `inventaire`, `appliquer`, `main` | 313 |
@@ -1611,7 +1619,7 @@ can use without reading the implementation.
 | `tools/forge_swarm_debate.py` | débat SWARM 3 tours, pool de spécialistes diversifiés | `main` | 119 |
 | `tools/forge_swebench_lats_runner.py` | runner SWE-bench avec stack LATS | `process_instance`, `run_generate_lats`, `main` | 1288 |
 | `tools/forge_swebench_runner.py` | SWE-bench runner pour Nokido | `ensure_dataset`, `call_llm`, `generate_patch`, `generate_patch_best_of_n` *(+4)* | 3084 |
-| `tools/forge_task_executor.py` | Daemon executor pour tasks.db ============================================================= Poll tasks.db WHERE status='pending', dispatche via hub `ask` tool, écrit résultat + marque completed | `ensure_lease_schema`, `touch_progress`, `reclaim_expired`, `est_refus_du_modele` *(+3)* | 1502 |
+| `tools/forge_task_executor.py` | Daemon executor pour tasks.db ============================================================= Poll tasks.db WHERE status='pending', dispatche via hub `ask` tool, écrit résultat + marque completed | `ensure_lease_schema`, `touch_progress`, `reclaim_expired`, `est_refus_du_modele` *(+3)* | 1508 |
 | `tools/forge_terminal_bench_runner.py` | Terminal-Bench 2.0 pour Nokido | `call_llm`, `run_task`, `run` | 891 |
 | `tools/forge_turbo_runner.py` | Exécuteur de tests parallélisé pour Ryzen 8700G ======================================================================== Utilise pytest-xdist pour distribuer les tests sur les 8 cœurs (16 threads) du Ryzen 8700G | `run_turbo`, `main` | 245 |
 | `tools/hook_gate_orchestrator.py` | Gate d'orchestration muet (Phase B) | `main` | 52 |
@@ -1621,19 +1629,19 @@ can use without reading the implementation.
 
 ## Metabolisme LLM (routage/backends)
 
-*94 modules · 34,271 lines*
+*94 modules · 35,184 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
-| `app/forge_agent_proxy.py` | CONTRAINTE: RPC multi-provider inter-agents via MCP app/forge_agent_proxy.py - RPC agent-to-agent avec registry providers extensible | `Provider`, `ClaudeOpenRouter`, `ClaudeGitHub`, `Gemini` *(+55)* | 3799 |
-| `app/forge_artificialanalysis.py` | Wrapper API ArtificialAnalysis.ai ================================================================ Fetch metrics fraiches pour modeles LLM (pricing, speed, quality scores) depuis https://artificialanalysis.ai/api-reference | `fetch_llms`, `get_model_metrics`, `get_provider_metrics`, `get_pricing` *(+9)* | 493 |
+| `app/forge_agent_proxy.py` | CONTRAINTE: RPC multi-provider inter-agents via MCP app/forge_agent_proxy.py - RPC agent-to-agent avec registry providers extensible | `Provider`, `ClaudeOpenRouter`, `ClaudeGitHub`, `Gemini` *(+58)* | 3919 |
+| `app/forge_artificialanalysis.py` | Wrapper API ArtificialAnalysis.ai ================================================================ Fetch metrics fraiches pour modeles LLM (pricing, speed, quality scores) depuis https://artificialanalysis.ai/api-reference | `fetch_llms`, `get_model_metrics`, `get_provider_metrics`, `get_pricing` *(+9)* | 504 |
 | `app/forge_baml_adapter.py` | LLM structured outputs avec retry intelligent | `structured_call`, `main` | 227 |
 | `app/forge_cache_aligner.py` | Stabilisation de PRÉFIXE pour HIT le prompt/KV cache des providers (OpenAI-compat via litellm : groq/cerebras/mistral/openrouter/github = prefix-cache AUTOMATIQUE ; le hit ne dépend QUE de la stabilité byte-à-byte du préfixe) | `stabilize`, `prefix_hash`, `align`, `align_messages` *(+1)* | 169 |
 | `app/forge_cascade_oracle.py` | Oracle CE pour décision S1/S2 ========================================================= Implémentation de la décision hybride basée sur le score CrossEncoder | `RetrievalResult`, `CascadeOracle` | 352 |
 | `app/forge_coagulation_cascade.py` | Isolation localisée des crashes workers (cascade fibrinogène) | `detect_breaches`, `capture_state`, `open_clot`, `check_embolie` *(+4)* | 353 |
 | `app/forge_cognitive_router.py` | CONTRAINTE: header HD batch | `build_proactive_system`, `prune_rag_context`, `route_task` | 521 |
 | `app/forge_contract_net.py` | Élection de worker style Contract-Net (switchboard backlog) | `collect_bids`, `elect_worker` | 123 |
-| `app/forge_conv_indexer.py` | Indexation conversations CLI (Claude, Gemini, AGY, Codex) dans RAG ========================================================================================== Transforme les sessions JSONL/JSON des CLIs en chunks RAG searchables | `racines_couvertes`, `fichiers_couverts`, `iter_claude_chunks`, `iter_agy_chunks` *(+16)* | 1192 |
+| `app/forge_conv_indexer.py` | Indexation conversations CLI (Claude, Gemini, AGY, Codex) dans RAG ========================================================================================== Transforme les sessions JSONL/JSON des CLIs en chunks RAG searchables | `racines_couvertes`, `fichiers_couverts`, `tours_epures`, `moelle` *(+23)* | 1485 |
 | `app/forge_distiller.py` | CONTRAINTE: +0 docs | `Distiller`, `get_distiller`, `distill`, `ring_from_token` | 325 |
 | `app/forge_dspy_router.py` | DSPy Signatures pour rendus structures | `signature_call` | 180 |
 | `app/forge_dt_router.py` | DT router: SpikeRouter SNN -> cognitive pipeline hookup | `DTResult`, `dt_route` | 75 |
@@ -1641,13 +1649,13 @@ can use without reading the implementation.
 | `app/forge_frugal_cascade.py` | Cascade LLM small→large pattern FrugalGPT (Chen et al | `cascade`, `main` | 371 |
 | `app/forge_ghost_router.py` | CONTRAINTE: header HD batch | `detect_task`, `GhostRouter`, `get_router`, `ghost_generate` | 481 |
 | `app/forge_jwt_router.py` | Middleware JWT HS256 + routage par aud ============================================================ 4 piliers de sécurité : 1 | `has_perm`, `forge_frame_token`, `verify_frame_token`, `jwt_routing_middleware` *(+1)* | 218 |
-| `app/forge_litellm_connector.py` | CONTRAINTE: +0 docs | `is_proxy_alive`, `complete`, `propose_via_connector`, `start_proxy` | 334 |
+| `app/forge_litellm_connector.py` | CONTRAINTE: +0 docs | `is_proxy_alive`, `complete`, `propose_via_connector`, `start_proxy` | 337 |
 | `app/forge_litellm_router.py` | Façade litellm.Router (PR-C switchboard) | `build_model_list`, `build_router`, `get_router` | 99 |
 | `app/forge_llamacpp.py` | Moteur LLM local via llama-cpp-python OU llama-server HTTP =============================================================================== Priorité 1 : llama-cpp-python pip (in-process) Priorité 2 : llama-server HTTP fallback (port 8080, Vulkan 780M) Config No | `get_llm`, `strip_think`, `is_available`, `llamacpp_call` *(+5)* | 442 |
 | `app/forge_llm.py` | CONTRAINTE: header HD batch | `AgentType`, `ollama_parallel`, `IntentClassifier`, `looks_like_shell_command` | 548 |
 | `app/forge_llm_budget.py` | budget_manager + cooldown_per_provider | `BudgetManager`, `wrap_llm_call`, `main` | 278 |
-| `app/forge_llm_router.py` | CONTRAINTE: header HD batch — statut initial API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) : - `repli_oauth` — AGY puis Claude Code quand la cascade est epuisee par la CAPACITE ; None si non permis ou si les deux echouent | `chaine_active`, `repli_oauth_autorise`, `repli_oauth`, `ProviderSlot` *(+6)* | 2093 |
-| `app/forge_llm_router_dt.py` | Routeur LLM par DecisionTree sklearn ============================================================= Couche additionnelle AU-DESSUS de forge_task_router | `TextFeatureExtractor`, `predict`, `log_decision`, `update_provider_health` *(+2)* | 778 |
+| `app/forge_llm_router.py` | CONTRAINTE: header HD batch — statut initial API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) : - `repli_oauth` — AGY puis Claude Code quand la cascade est epuisee par la CAPACITE ; None si non permis ou si les deux echouent | `chaine_active`, `repli_oauth_autorise`, `repli_oauth`, `ProviderSlot` *(+6)* | 2115 |
+| `app/forge_llm_router_dt.py` | Routeur LLM par DecisionTree sklearn ============================================================= Couche additionnelle AU-DESSUS de forge_task_router | `TextFeatureExtractor`, `predict`, `log_decision`, `update_provider_health` *(+2)* | 782 |
 | `app/forge_llm_transport.py` | Socle commun de transport LLM Nokido v18.5 ==================================================================== Centralise les appels HTTP (urllib) vers tous les providers | `LLMTransport` | 250 |
 | `app/forge_lmstudio.py` | CONTRAINTE: OpenAI-Compatible Bridge for LM Studio (Port 1234) | `lms_call`, `lms_stream`, `is_available` | 120 |
 | `app/forge_md_router.py` | __FORGE_COLOR__ = "#a78bfa" # purple — semantic router for Markdown docs Markdown Semantic Router for Nokido — BAML-backed lazy loader | `build_index`, `route_query`, `extract_adr`, `extract_spec` *(+4)* | 532 |
@@ -1659,14 +1667,14 @@ can use without reading the implementation.
 | `app/forge_openrouter.py` | CONTRAINTE: +0 | `budget_status`, `get_daily_usage`, `generate_code`, `generate_code_swarm` *(+3)* | 805 |
 | `app/forge_perception_vlm.py` | Perception multimodale (VLM local via Ollama) | `get_vlm_model`, `capture_screen`, `analyze_image`, `scan_environment` *(+2)* | 320 |
 | `app/forge_prompt_cache.py` | Prompt caching pour Nokido Anthropic (via OpenRouter) : cache_control = {"type": "ephemeral"} - Cache write : 1.25x base (TTL 5min) ou 2.0x (TTL 1h) - Cache hit : 0.10x base (-90%) - Min tokens : 1024 - TTL default : 5 min, se rafraichit a chaque hit Gemini (i | `build_cached_system`, `build_cached_messages`, `start_keepalive`, `stop_keepalive` *(+2)* | 242 |
-| `app/forge_provider_admin.py` | Web UI admin pour LLM providers | `list_providers`, `set_provider_key`, `delete_provider_key`, `etat_des_acces` *(+17)* | 1111 |
-| `app/forge_provider_alias.py` | la verite a UNE adresse : `forge_agent_proxy.ask` | `refus_de_resolution`, `resoudre`, `diagnostic` | 248 |
+| `app/forge_provider_admin.py` | Web UI admin pour LLM providers | `list_providers`, `set_provider_key`, `delete_provider_key`, `etat_des_acces` *(+17)* | 1195 |
+| `app/forge_provider_alias.py` | la verite a UNE adresse : `forge_agent_proxy.ask` | `refus_de_resolution`, `resoudre`, `diagnostic` | 291 |
 | `app/forge_provider_canonical.py` | ====================================================== SOURCE DE VÉRITÉ unique des providers LLM (Option B, tranchée par multiplan souverain 2026-06-09, B_module unanime) | `all_providers`, `provider`, `vault_key_for`, `vault_key_map` *(+2)* | 129 |
 | `app/forge_provider_quota.py` | Quota tracker + cascade gate ======================================================= Suit la consommation par provider et bloque les appels qui depasseraient le quota mensuel (cf | `usage_this_month`, `usage_today`, `quota_status`, `check_quota` *(+5)* | 244 |
 | `app/forge_provider_specs.py` | Catalogue specifications providers Nokido ===================================================================== Source de verite pour : - Tier (local / free / subscription_quota / paid_api) - Quota mensuel/quotidien (post 2026-06-15 Agent SDK quota) - Speciali | `get_spec`, `get_tier`, `is_free`, `is_subscription_quota` *(+6)* | 502 |
 | `app/forge_provider_watcher.py` | Daemon surveillance providers (on-demand) Session 5 | `start`, `stop` | 104 |
 | `app/forge_quota_manager.py` | Gestion dynamique quota Gemini CLI ============================================================ RÈGLE FONDAMENTALE : - 0% vu dans /model CLI = vraiment disponible (pool propre) - None (pas de logs) = inconnu → ne pas assumer disponible - 100% = épuisé → skip P | `fetch_live_quota`, `read_gemini_logs`, `get_pool_usage`, `is_available` *(+4)* | 262 |
-| `app/forge_quota_tracker.py` | Tracker quota multi-provider unifie ============================================================= Recolte la metrique de quota/usage par provider depuis 3 sources : 1 | `record_response_headers`, `record_429`, `get_quota`, `get_all_quotas` *(+4)* | 555 |
+| `app/forge_quota_tracker.py` | Tracker quota multi-provider unifie ============================================================= Recolte la metrique de quota/usage par provider depuis 3 sources : 1 | `record_response_headers`, `record_429`, `get_quota`, `get_all_quotas` *(+4)* | 554 |
 | `app/forge_reconstruction_loss.py` | Validation de fidélité de reconstruction SAE-like | `calculate_jaccard`, `load_golden_tools`, `validate_and_adapt` | 122 |
 | `app/forge_retry_strategies.py` | Strategies de retry LLM-aware pour Nokido =========================================================================== Trois additions a tenacity pour les appels cloud (Groq/Gemini/OpenRouter) : wait_retry_after : lit le header HTTP Retry-After de la reponse 42 | `wait_retry_after`, `wait_rpm_budget`, `retry_if_rate_limited`, `wait_exp_jitter` *(+1)* | 340 |
 | `app/forge_router_gateway.py` | CONTRAINTE: header HD batch | `GenerateRequest`, `AcquireRequest`, `ReleaseRequest`, `TransferRequest` *(+5)* | 359 |
@@ -1702,7 +1710,7 @@ can use without reading the implementation.
 | `tools/forge_night_trainer.py` | Trainer nocturne : backprop global + DPO LoRA | `phase1_pytorch_training`, `phase2_dpo_extraction`, `phase3_lora_finetune`, `anchor_results` *(+3)* | 338 |
 | `tools/forge_openai_proxy.py` | OpenAI-compatible bridge for LobeHub / Cline / others | `load_token`, `hub_call`, `health`, `list_models` *(+4)* | 1597 |
 | `tools/forge_provider_auth_audit.py` | ======================================================= Audit AUTH live de tous les providers LLM : ping minimal (max_tokens=3) via ask() et classe l'échec (OAUTH_REAUTH / AUTH_FAIL / NO_CREDIT / RATE / FORBIDDEN / TIMEOUT / NO_KEY / BAD_MODEL / OTHER) | `classify`, `test_one`, `main`, `admin_status` | 169 |
-| `tools/forge_provider_catalogue.py` | Quels modeles ce fournisseur autorise-t-il A CETTE CLE ? Un `403` ou un `404` sur un appel de generation a deux causes tres differentes, et les confondre coute des heures : la cle est morte, ou le MODELE demande a ete retire | `interroger`, `modeles_cables`, `candidates_du_clair`, `main` | 250 |
+| `tools/forge_provider_catalogue.py` | Quels modeles ce fournisseur autorise-t-il A CETTE CLE ? Un `403` ou un `404` sur un appel de generation a deux causes tres differentes, et les confondre coute des heures : la cle est morte, ou le MODELE demande a ete retire | `interroger`, `modeles_cables`, `famille_de`, `classer_reponse` *(+10)* | 584 |
 | `tools/forge_provider_reachability.py` | dimension REACHABILITY des providers | `analyser`, `main` | 187 |
 | `tools/forge_pytorch_nets.py` | ValueNet + PolicyNet + CostNet PyTorch autograd | `ValueNetPT`, `PolicyNetPT`, `CostNetPT`, `get_value_net_pt` *(+6)* | 466 |
 | `tools/forge_route_solver.py` | allocation tâche→provider sous contraintes DURES (anti-Goodhart) | `critical_capable_providers`, `solve_route`, `selftest` | 117 |
@@ -1722,7 +1730,7 @@ can use without reading the implementation.
 
 ## Digestif/Sens (ingestion/web)
 
-*79 modules · 22,032 lines*
+*79 modules · 22,076 lines*
 
 | Module | Definition | Public API | LOC |
 |---|---|---|---|
@@ -1737,7 +1745,7 @@ can use without reading the implementation.
 | `app/forge_ui_autocomplete.py` | CONTRAINTE: Unification AutocompleteEngine | `AutocompleteEngine` | 86 |
 | `app/forge_unified_discovery.py` | CONTRAINTE: header HD batch | `refine_and_anchor`, `unified_discovery` | 467 |
 | `app/forge_web.py` | CONTRAINTE: header HD batch | `is_web_search_enabled`, `toggle_web_search`, `WebSearchEngine`, `get_web_engine` *(+1)* | 710 |
-| `app/forge_web_fallback.py` | Fallback SearXNG: engines generaux -> duckduckgo -> vide Pas de LLM externe | `web_search_with_fallback`, `format_results` | 79 |
+| `app/forge_web_fallback.py` | Fallback SearXNG: engines generaux -> duckduckgo -> vide Pas de LLM externe | `web_search_diag`, `web_search_with_fallback`, `format_results` | 107 |
 | `app/forge_web_fetch.py` | Fetcher + extracteur texte + ingestion RAG qualifiee Pipeline: URL -> fetch HTML -> extract texte -> chunk -> qualifier -> rag_chunks | `extract_text`, `extract_title`, `classify_url`, `chunk_text` *(+1)* | 233 |
 | `app/forge_web_service.py` | CONTRAINTE: Args/Returns/Raises | `hub_health`, `hub_metrics`, `hub_live_bridge_json`, `hub_live_tasks` *(+48)* | 1342 |
 | `tools/check_gitingest_status.py` | Compte gitingest disponibles vs indexés dans RAG | `main` | 33 |
@@ -1761,7 +1769,7 @@ can use without reading the implementation.
 | `tools/forge_netcfg_docset_normalize.py` | normalise les references normatives des docsets vendor de netcfg-agent (docs/vendor_knowledge/<vendor>/NN_sujet.md) | `normalise_texte`, `run`, `main` | 203 |
 | `tools/forge_patch_crawl_offload.py` | deporte les appels bloquants de handle_crawl | `main` | 84 |
 | `tools/forge_playwright_browser.py` | Browser headed isolé + Oracle UI pour Nokido | `inventaire_magasin`, `candidats_lancement`, `choisir_lancement`, `PlaywrightBrowser` *(+1)* | 529 |
-| `tools/forge_regression_matrix.py` | Transforme l'historique reel en matrice anti-regression | `cmd_stats`, `cmd_extract`, `cmd_check`, `main` | 443 |
+| `tools/forge_regression_matrix.py` | Transforme l'historique reel en matrice anti-regression | `cmd_stats`, `cmd_extract`, `cmd_check`, `main` | 459 |
 | `tools/forge_regression_sweep.py` | les trois familles que la sentinelle d'ancres ne voit pas | `axe_valeur_et_config`, `axe_imports_orphelins`, `axe_backends_supprimes`, `main` | 450 |
 | `tools/forge_reingest_gitingest.py` | Reingestion PROPRE des dumps gitingest : purge -> reingere -> vectorise | `main` | 108 |
 | `tools/forge_source_discovery.py` | Enrichissement RAG par découverte web ciblée ========================================================================= Recherche des sources pertinentes sur le web et les injecte dans le RAG de Nokido pour enrichir le contexte des mutations | `ForgeSourceDiscovery` | 1053 |
@@ -1963,9 +1971,9 @@ the next generation.
 | `app/Nokido.py` | `create_settings`, `run_ssh`, `get_orchestrator`, `looks_like_shell_command` | 4913 |
 | `app/forge_agents.py` | `AgentRole`, `IntentRouter`, `ModelBenchmark`, `ModelBenchmarker` | 3401 |
 | `app/forge_mixin_patch.py` | `shutdown_onnx_backend`, `PatchMixin` | 1411 |
-| `tools/gemini_poll_daemon.py` | `log`, `load_token`, `mcp_call`, `poll_notifications` | 1049 |
+| `tools/gemini_poll_daemon.py` | `log`, `load_token`, `mcp_call`, `poll_notifications` | 1053 |
+| `app/forge_goap.py` | `SubGoal`, `plafonner_plan`, `PlanTree`, `GOAPError` | 948 |
 | `app/forge_versioning.py` | `SurgeryResult`, `CodeSurgeon`, `ForgeSaveOrchestrator`, `VersionManager` | 926 |
-| `app/forge_goap.py` | `SubGoal`, `PlanTree`, `GOAPError`, `GoalPlanner` | 911 |
 | `app/forge_hub_handlers.py` | `handle_ci_remote`, `handle_workflow_hub`, `tui_auto_patch`, `hub_notification_poll` | 857 |
 | `app/forge_ui_widgets.py` | `AgentType`, `AgentSelector`, `MetricsPanel`, `SkillNode` | 649 |
 | `app/forge_tool_forger.py` | `forge_forge_tool`, `forge_call_dynamic`, `forge_list_dynamic_tools` | 549 |

@@ -836,7 +836,7 @@ ANATOMY / ORGANISM
   CI architectural gate           ✅ achieved          `anatomie` gate, blocking since 2026-09-06
   M2M memory separation           ✅ achieved          `forge_db_path`: one switch read by every process
   Emergency homeostasis           ✅ achieved          `NokidoHomeostasis` + `forge_homeostasis_orchestrator`
-  Sleep / circadian regulation    🟡 partial           `forge_circadian` beats; 7 of 9 phase targets disabled or undeclared
+  Sleep / circadian regulation    🟡 partial           all 6 phases fire (supervisor); 6 of their 8 service targets disabled by policy
 
 COMMUNICATION
   MCP                             ✅ operational       `NokidoMCP` hub, enabled by default

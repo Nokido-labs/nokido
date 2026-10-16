@@ -48,92 +48,156 @@ def _ask(prompt: str, provider: str = "ollama", max_tokens: int = 600) -> str:
         return raw
 
 
+async def _safe_hub_call(tool: str, **kwargs) -> tuple:
+    """Appelle le hub MCP de manière sûre.
+    Retourne (ok: bool, data: Any, err: str).
+    - Exception réseau/process -> (False, None, 'UNKNOWN: ...')
+    - Réponse vide -> (False, None, 'UNKNOWN: reponse vide du hub')
+    - Erreur hub explicite ('ERR ...', 'Error: ...') -> (False, None, err)
+    """
+    try:
+        raw = await _hub_async(tool, **kwargs)
+    except Exception as e:  # noqa: BLE001
+        return False, None, f"UNKNOWN: appel hub {tool} echoue ({type(e).__name__}: {e})"
+    if raw is None or raw == "":
+        return False, None, f"UNKNOWN: reponse vide du hub pour {tool}"
+    if isinstance(raw, str) and (raw.startswith("ERR") or raw.startswith("Error:")):
+        return False, None, raw
+    return True, raw, ""
+
+
 async def _hub_dispatch(intent: dict) -> dict:
-    """Dispatch un intent JSON-RPC vers le hub MCP."""
+    """Dispatch un intent JSON-RPC vers le hub MCP avec vérification des verdicts."""
     method = intent.get("method", "")
     params = intent.get("params", {})
 
     if method in ("run_python", "llm_call"):
         code = params.get("code") or params.get("prompt", "")
-        raw = await _hub_async("run", action="python", code=code)
+        ok, raw, err = await _safe_hub_call("run", action="python", code=code)
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         try:
             res = json.loads(raw)
             r = res[0] if isinstance(res, list) else res
+            if not isinstance(r, dict):
+                return {"ok": False, "error": f"UNKNOWN: reponse JSON inattendue ({type(r).__name__})", "status": "UNKNOWN"}
+            cmd_ok = bool(r.get("ok", True))
+            if not cmd_ok or r.get("error") or (r.get("returncode", 0) != 0 and "returncode" in r):
+                return {
+                    "ok": False,
+                    "error": r.get("error") or r.get("stderr") or "command returned ok=false",
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                }
             return {
-                "ok": r.get("ok", True),
+                "ok": True,
                 "stdout": r.get("stdout", ""),
                 "stderr": r.get("stderr", ""),
+                "result": r.get("stdout", "") or r.get("result", ""),
             }
-        except Exception:
-            return {"ok": True, "stdout": raw}
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "error": f"UNKNOWN: reponse non-JSON illisible: {str(raw)[:200]}", "status": "UNKNOWN"}
 
     elif method == "run_shell":
         cmd = params.get("command", "")
-        raw = await _hub_async("run", action="shell", commands=[cmd])
+        ok, raw, err = await _safe_hub_call("run", action="shell", commands=[cmd])
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         try:
             res = json.loads(raw)
             r = res[0] if isinstance(res, list) else res
+            if not isinstance(r, dict):
+                return {"ok": False, "error": f"UNKNOWN: reponse JSON inattendue ({type(r).__name__})", "status": "UNKNOWN"}
+            cmd_ok = bool(r.get("ok", True))
+            if not cmd_ok or r.get("error") or (r.get("returncode", 0) != 0 and "returncode" in r):
+                return {
+                    "ok": False,
+                    "error": r.get("error") or r.get("stderr") or "command returned ok=false",
+                    "stdout": r.get("stdout", ""),
+                    "stderr": r.get("stderr", ""),
+                }
             return {
-                "ok": r.get("ok", True),
+                "ok": True,
                 "stdout": r.get("stdout", ""),
                 "stderr": r.get("stderr", ""),
+                "result": r.get("stdout", "") or r.get("result", ""),
             }
-        except Exception:
-            return {"ok": True, "stdout": raw}
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "error": f"UNKNOWN: reponse non-JSON illisible: {str(raw)[:200]}", "status": "UNKNOWN"}
 
     elif method in ("rag_search", "embed"):
         query = params.get("query", params.get("text", ""))
-        raw = await _hub_async("rag", action="search", topic=query, limit=params.get("limit", 5))
-        return {"ok": True, "results": raw}
+        ok, raw, err = await _safe_hub_call("rag", action="search", topic=query, limit=params.get("limit", 5))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
+        return {"ok": True, "results": raw, "result": raw}
 
     elif method in ("rag_ingest", "ingest"):
-        raw = await _hub_async(
+        ok, raw, err = await _safe_hub_call(
             "rag",
             action="index",
             task_id=params.get("task_id", ""),
             result=params.get("text", params.get("content", params.get("result", ""))),
             topic=params.get("topic", params.get("query", "")),
         )
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "read_file":
         path = params.get("path", "")
-        raw = await _hub_async("read", path=path, limit=params.get("limit", 200))
-        return {"ok": True, "content": raw}
+        ok, raw, err = await _safe_hub_call("read", path=path, limit=params.get("limit", 200))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
+        return {"ok": True, "content": raw, "result": raw}
 
     elif method == "web_search":
-        raw = await _hub_async("web_search", query=params.get("query", ""))
+        ok, raw, err = await _safe_hub_call("web_search", query=params.get("query", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "crawl":
-        raw = await _hub_async("crawl", url=params.get("url", ""))
+        ok, raw, err = await _safe_hub_call("crawl", url=params.get("url", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "get_file_skeleton":
-        raw = await _hub_async("get_file_skeleton", file_path=params.get("file_path", ""))
+        ok, raw, err = await _safe_hub_call("get_file_skeleton", file_path=params.get("file_path", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "read_function_body":
-        raw = await _hub_async("read_function_body", file_path=params.get("file_path", ""),
-                               function_name=params.get("function_name", ""))
+        ok, raw, err = await _safe_hub_call("read_function_body", file_path=params.get("file_path", ""),
+                                            function_name=params.get("function_name", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "get_function_dependencies":
-        raw = await _hub_async("get_function_dependencies",
-                               function_name=params.get("function_name", ""),
-                               file_path=params.get("file_path", ""))
+        ok, raw, err = await _safe_hub_call("get_function_dependencies",
+                                            function_name=params.get("function_name", ""),
+                                            file_path=params.get("file_path", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "blackboard_read_zone":
-        raw = await _hub_async("blackboard_read_zone", zone_name=params.get("zone_name", ""))
+        ok, raw, err = await _safe_hub_call("blackboard_read_zone", zone_name=params.get("zone_name", ""))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     elif method == "blackboard_propose_fact":
-        raw = await _hub_async("blackboard_propose_fact",
-                               zone_name=params.get("zone_name", ""),
-                               fact=params.get("fact", ""),
-                               category=params.get("category", ""),
-                               trust=params.get("trust", 0.5))
+        ok, raw, err = await _safe_hub_call("blackboard_propose_fact",
+                                            zone_name=params.get("zone_name", ""),
+                                            fact=params.get("fact", ""),
+                                            category=params.get("category", ""),
+                                            trust=params.get("trust", 0.5))
+        if not ok:
+            return {"ok": False, "error": err, "status": "UNKNOWN" if "UNKNOWN" in err else "failed"}
         return {"ok": True, "result": raw}
 
     else:

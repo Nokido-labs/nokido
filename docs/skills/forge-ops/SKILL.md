@@ -1,5 +1,5 @@
 ---
-name: laforge-ops
+name: forge-ops
 description: "Contraintes d'exécution dans Nokido : interpréteur LAFORGE_PYTHON, lancement des tests, erreurs \"Tool execution failed\" / \"Hub error 400\". À charger avant de lancer du Python ou pytest sur le dépôt, ou sur une panne du hub ou du pont MCP."
 ---
 

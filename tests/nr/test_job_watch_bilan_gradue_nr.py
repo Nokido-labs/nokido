@@ -36,6 +36,25 @@ def _bilan(texte, rc):
     return cli.lire_bilan(texte, rc)
 
 
+def test_un_resume_pytest_vert_est_declare_jamais_verifie():
+    """15/10 : `74 passed in 9.30s` + `26 passed in 0.81s` etaient lus « sans ligne de bilan »."""
+    b = _bilan("== passe 1 ==\n74 passed in 9.30s\nrc pytest: 0\n26 passed, 2 skipped in 0.81s\nBILAN ok\n", "0")
+    assert b["etat"] == "DECLARE", b
+    assert "100 verts" in b["motif"] and "NON verifie" in b["motif"], b
+
+
+def test_un_pytest_rouge_derriere_un_rc_zero_est_un_echec():
+    """Un relais qui avale le rc d'un pytest rouge ne passe plus pour un succes."""
+    b = _bilan("10 failed, 30 passed in 12.30s\nrc relais: 0\n", "0")
+    assert b["etat"] == "ECHEC", b
+    assert "10 echec" in b["motif"], b
+
+
+def test_xfailed_et_xpassed_ne_sont_pas_des_echecs():
+    b = _bilan("5 passed, 2 xfailed, 1 xpassed in 1.00s\n", "0")
+    assert b["etat"] == "DECLARE", b
+
+
 def test_rc_zero_sans_bilan_n_est_pas_une_reussite():
     b = _bilan("ingest a.txt: +10 chunks\n", "0")
     assert b["etat"] == "TERMINE_NON_VERIFIE", b

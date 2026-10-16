@@ -48,6 +48,67 @@ WT_ROOT = ROOT.parent / "nokido_worktrees"          # hors du repo (pas de nesti
 PROOF_ROOT = Path(os.environ.get("NOKIDO_PROOF_ROOT")
                   or (Path(tempfile.gettempdir()) / "nokido_proof"))
 
+# REGISTRE DES RACINES DE PREUVE (owner 15/10 : « reconcilier, le travail ne doit pas etre perdu »).
+# PROOF_ROOT depend du TEMP du compte qui juge : le hook pre-push (session owner) ecrit sous
+# D:/Temp/nokido_proof, que le service de retention (autre compte) ne peut pas deviner -- 44
+# worktrees de preuve s'y etaient accumules. Le proprietaire DIT ou il ecrit, a chaque preuve.
+REGISTRE_RACINES = ROOT / "sandbox" / "proof_roots.json"
+# Ce qu'un worktree de preuve porte NORMALEMENT hors de son commit (mesure du 15/10 sur 94 worktrees) :
+# suppressions du filtrage de la racine de preuve, artefacts sous sandbox/, temoin de vitalite des gardes.
+ARTEFACTS_DE_PREUVE = (r"^ D ", r"^\?\? sandbox/", r"^ M sandbox/", r"^ M tests/nr/vitalite_gardes\.json$")
+
+
+def racines_de_preuve_inscrites() -> list:
+    """Racines inscrites par les comptes qui ont cree des preuves. Illisible ou absent -> []."""
+    try:
+        d = json.loads(REGISTRE_RACINES.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [str(x) for x in d if isinstance(x, str)] if isinstance(d, list) else []
+
+
+def inscrire_racine_de_preuve(racine=None) -> bool:
+    """Ajoute la racine (defaut : PROOF_ROOT du compte courant) au registre, sans doublon. Faux = non inscrite."""
+    r = str(Path(racine or PROOF_ROOT))
+    vues = racines_de_preuve_inscrites()
+    if any(os.path.normcase(os.path.normpath(x)) == os.path.normcase(os.path.normpath(r)) for x in vues):
+        return True
+    try:
+        REGISTRE_RACINES.parent.mkdir(parents=True, exist_ok=True)
+        tmp = REGISTRE_RACINES.with_suffix(".tmp")
+        tmp.write_text(json.dumps(vues + [r], ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, REGISTRE_RACINES)
+        return True
+    except OSError:
+        return False
+
+
+def perte_possible(wt) -> str | None:
+    """Retirer ce worktree perdrait-il du travail ? None = non (prouve) ; sinon la RAISON, et on ne retire pas.
+
+    Prouve « sans perte » : HEAD accessible depuis au moins une reference ET `git status` ne porte que
+    des ARTEFACTS_DE_PREUVE. Toute lecture impossible vaut perte possible (INCONNU n'est pas NON)."""
+    import re as _re
+
+    wt = Path(wt)
+    st = _git(["status", "--porcelain", "--untracked-files=all"], cwd=wt)
+    if st.returncode != 0:
+        return "status illisible (%s)" % (st.stderr or "").strip()[:120]
+    hors = [l for l in st.stdout.splitlines()
+            if l.strip() and not any(_re.match(p, l) for p in ARTEFACTS_DE_PREUVE)]
+    if hors:
+        return "%d chemin(s) hors artefacts, ex. %s" % (len(hors), hors[0][:100])
+    head = _git(["rev-parse", "HEAD"], cwd=wt)
+    if head.returncode != 0 or not head.stdout.strip():
+        return "HEAD illisible"
+    refs = _git(["for-each-ref", "--contains", head.stdout.strip(), "--format=%(refname)", "--count=1"], cwd=ROOT)
+    if refs.returncode != 0:
+        return "references illisibles"
+    if not refs.stdout.strip():
+        return "COMMIT_ORPHELIN : HEAD %s accessible depuis aucune reference" % head.stdout.strip()[:12]
+    return None
+
+
 # surfaces autonomes = celles qui clobbent (RULES_SHARED). Interactif (claude+user) peut rester alpha.
 AUTONOMOUS = ["gemini", "cowork", "claude_cli", "codex"]
 
@@ -206,6 +267,11 @@ def create_proof(target_sha: str, execution_id: str = None) -> dict:
         return {"error": f"sha inconnu dans ce depot : {sha[:40]}"}
     sha = resolu.stdout.strip()
     wt = proof_path(sha, execution_id)
+    # La retention, sous un autre compte, saura ou chercher. JAMAIS sous pytest : des tests repointent
+    # PROOF_ROOT vers leur dossier temporaire, et 15 de ces racines s'etaient inscrites dans le VRAI
+    # registre au premier rejeu (15/10) -- un test n'ecrit pas dans l'etat reel.
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        inscrire_racine_de_preuve()
 
     # Un refus d'ACL est une reponse, pas une panne (mesure du 2026-09-11 :
     # PermissionError WinError 5 quand la racine visait le profil owner). La

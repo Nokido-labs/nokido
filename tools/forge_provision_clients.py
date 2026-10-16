@@ -11,7 +11,8 @@ CE QUE ÇA FAIT :
      (secrets.token_hex) + set_secret (DPAPI). Idempotent (garde l'existant).
   2. Lit les tokens du vault.
   3. ÉMET les blocs de config client (avec les VRAIS tokens) -> C:/tmp/mcp_client_configs.txt.
-     (N'écrase AUCUN client en cours : tu colles/revues toi-même.)
+     (N'écrase AUCUN client en cours : tu colles/revues toi-même.) Seulement sans mode
+     ciblé (--apply, --patch-codex, --check), ou sur demande explicite (--emettre).
   4. --apply : POSE les jetons en variables d'environnement UTILISATEUR (HKCU\\Environment).
      C'est le geste qui manquait. Mesure 2026-08-03 : `~/.codex/config.toml` déclare
      `bearer_token_env_var = 'FORGE_TOKEN_CODEX'` et l'URL correcte, le jeton est au coffre
@@ -289,15 +290,24 @@ def main() -> int:
     # relire (post-seed)
     tok = {a: (get_secret(f"FORGE_TOKEN_{a}") or "<MISSING>") for a in AGENTS}
     missing = [a for a in AGENTS if tok[a] == "<MISSING>"]
-    if not dry:
+    # Les modes CIBLES n'ont pas besoin des blocs de config. Les ecrire quand meme deposait
+    # en clair les jetons de TOUS les agents dans C:\tmp -- dossier que l'audit ACL du
+    # 2026-09-28 a trouve lisible par des comptes de bac a sable -- a chaque reparation d'UN
+    # client (2026-10-15 : reparer le jeton perime de codex passait par --patch-codex, donc
+    # par cette ecriture). L'emission reste le defaut sans mode cible, ou sur --emettre.
+    cible = any(f in sys.argv for f in ("--apply", "--patch-codex", "--check"))
+    emettre = not dry and ("--emettre" in sys.argv or not cible)
+    if emettre:
         Path(OUT).write_text(_cfg_blocks(tok), encoding="utf-8")
     print("=== provisioning tokens par-agent ===")
     print("\n".join(report))
     print(f"\nmissing après seed: {missing or 'aucun'}")
-    if not dry:
+    if emettre:
         print(f"configs (VRAIS tokens, en clair) -> {OUT}")
         print("  ATTENTION : ce fichier porte les jetons de TOUS les agents en clair, hors"
               " coffre. Le supprimer une fois les configs collees.")
+    elif not dry:
+        print("configs NON emises (mode cible) ; --emettre pour les ecrire en clair dans %s" % OUT)
     else:
         print("[dry-run] aucune config écrite")
     if "--patch-codex" in sys.argv:

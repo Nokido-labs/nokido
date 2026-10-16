@@ -351,45 +351,25 @@ def _llm_local(prompt: str, timeout: int = 180) -> str:
     except Exception:
         get_secret = lambda k: os.environ.get(k, "")  # noqa: E731
 
-    # Cerebras llama3.3-70b — ultra fast (~200-500ms), 50k tok/min free
-    try:
-        k = get_secret("CEREBRAS_API_KEY") or get_secret("CEREBRAS_API_KEY") or ""
-        if k:
-            return _llm_call_openai_compat(
-                "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", k, prompt, timeout=20, max_tokens=600
-            )
-    except Exception as e:
-        logger.debug(f"cerebras KO: {e}")
-
-    # Groq llama-3.3-70b versatile — free 30 req/min
-    try:
-        k = get_secret("GROQ_API_KEY") or get_secret("GROQ_API_KEY") or ""
-        if k:
-            return _llm_call_openai_compat(
-                "https://api.groq.com/openai/v1/chat/completions",
-                "llama-3.3-70b-versatile",
-                k,
-                prompt,
-                timeout=20,
-                max_tokens=600,
-            )
-    except Exception as e:
-        logger.debug(f"groq KO: {e}")
-
-    # Mistral small — free
-    try:
-        k = get_secret("MISTRAL_API_KEY") or get_secret("MISTRAL_API_KEY") or ""
-        if k:
-            return _llm_call_openai_compat(
-                "https://api.mistral.ai/v1/chat/completions",
-                "mistral-small-latest",
-                k,
-                prompt,
-                timeout=25,
-                max_tokens=600,
-            )
-    except Exception as e:
-        logger.debug(f"mistral KO: {e}")
+    # REPONSE VIDE = ECHEC, fournisseur suivant (15/10). Mesure : la curiosite du 14/10 a recu une chaine VIDE
+    # (« char 0 ») et rendu 0 theme sur 50 lacunes, trois cycles de suite -- un `return` sur la reponse brute
+    # acceptait le vide comme succes (un modele qui RAISONNE, gpt-oss, peut epuiser max_tokens en reflexion et
+    # rendre un contenu vide). Le vide ne s'accepte plus : il se DIT et la cascade continue.
+    for _nom, _url, _modele, _env, _delai in (
+            ("cerebras", "https://api.cerebras.ai/v1/chat/completions", "gpt-oss-120b", "CEREBRAS_API_KEY", 20),
+            ("groq", "https://api.groq.com/openai/v1/chat/completions", "llama-3.3-70b-versatile",
+             "GROQ_API_KEY", 20),
+            ("mistral", "https://api.mistral.ai/v1/chat/completions", "mistral-small-latest", "MISTRAL_API_KEY", 25)):
+        try:
+            k = get_secret(_env) or ""
+            if not k:
+                continue
+            _rep = _llm_call_openai_compat(_url, _modele, k, prompt, timeout=_delai, max_tokens=600)
+            if _rep and _rep.strip():
+                return _rep
+            logger.warning("[llm_local] %s/%s : reponse VIDE -> fournisseur suivant", _nom, _modele)
+        except Exception as e:
+            logger.debug(f"{_nom} KO: {e}")
 
     # Fallback Ollama local (lent sur APU mais fonctionne hors-ligne)
     try:
@@ -1334,6 +1314,9 @@ def _step_ingest(conn, job_id: str, theme: str, refined: list[dict]) -> int:
 
     n = 0
     n_skipped = 0
+    # Echecs de synchro lexicale (audit ChatGPT 15/10, verifie) : avant, un `except` en DEBUG
+    # avalait l'echec ET le chunk etait compte ingere -- present en base, invisible en BM25.
+    n_fts_ko, fts_exemple = 0, None
     seen_bodies: dict[str, str] = {}
     for r in refined:
         # SEUIL ALIGNE SUR CELUI DE LA RETENTION (2026-07-27, diagnostic AGY verifie).
@@ -1558,12 +1541,27 @@ def _step_ingest(conn, job_id: str, theme: str, refined: list[dict]) -> int:
                     " VALUES (?, ?, ?, ?)",
                     (cid, text_chunk, r["url"], "watch_veille"),
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[veille] sync rag_fts KO chunk={cid}: {e}")
+            except Exception as e:  # noqa: BLE001 - compte, journalise en WARNING, signale apres la boucle
+                n_fts_ko += 1
+                fts_exemple = fts_exemple or cid
+                if n_fts_ko <= 3:
+                    logger.warning(f"[veille] sync rag_fts KO chunk={cid} : present en base, "
+                                   f"INVISIBLE en lexical ({type(e).__name__}: {str(e)[:120]})")
 
             n += 1   # NB : n compte desormais des CHUNKS, plus des sources.
     if n_skipped:
         logger.warning(f"[veille] job={job_id}: {n_skipped} resultat(s) rejete(s) (sans corps / corps duplique)")
+    if n_fts_ko:
+        logger.warning(f"[veille] job={job_id}: {n_fts_ko}/{n} chunk(s) SANS ligne rag_fts -- "
+                       "trouvables en dense seulement")
+        try:  # l'ecart doit se VOIR : l'axone critique est remonte a chaque tour par le hook de sens
+            from nokido_agent.app.forge_critical_events import persist as _crit
+
+            _crit("fts_desync:watch_veille", "warn",
+                  {"job_id": job_id, "chunks_sans_fts": n_fts_ko, "chunks": n, "exemple": fts_exemple,
+                   "remede": "reindexer en lexical les chunks watch_veille sans ligne rag_fts"})
+        except Exception as e:  # noqa: BLE001 - le warning ci-dessus reste, et on dit que l'alerte n'est pas partie
+            logger.warning(f"[veille] alerte fts_desync NON emise ({type(e).__name__})")
     conn.commit()
     # Fix counter bug : COUNT(*) DB query plutot que increment local.
     # Evite ecrasement n_ingested=0 si re-run d'un job qui avait deja chunks.

@@ -69,9 +69,10 @@ PROXY_DEFAULT_MODEL = _ENV.get("LITELLM_PROXY_MODEL", "default")
 #
 #     UNE REGLE ECRITE QU'AUCUNE PORTE NE CONSULTE NE GARDE RIEN.
 #
-# Et resoudre au CHARGEMENT rend une rotation de cle invisible jusqu'au
-# redemarrage. La cle se demande donc a chaque appel, par `_cle_gemini()`.
-GEMINI_MODEL = _ENV.get("GEMINI_MODEL", "gemini/gemini-2.5-flash-preview")
+# Modèle par défaut sur la voie clé API (palier gratuit) : seule la famille flash-lite répond.
+# Ne dépend plus d'un GEMINI_MODEL global figé qui pointerait sur pro ou flash (décision owner 15/10).
+DEFAULT_GEMINI_API_MODEL = "gemini/gemini-2.5-flash-lite"
+GEMINI_MODEL = DEFAULT_GEMINI_API_MODEL
 
 
 # Le coffre est importe SOUS SON NOM, et pas derriere une indirection.
@@ -206,9 +207,10 @@ async def complete(
     # ── Mode A : SDK direct Gemini ───────────────────────────────────────────
     _cle = _cle_gemini()
     if _cle:
-        _model = model or GEMINI_MODEL
-        if not _model.startswith("gemini/"):
-            _model = f"gemini/{_model}" if "gemini" in _model else GEMINI_MODEL
+        if model:
+            _model = model if model.startswith("gemini/") else f"gemini/{model}"
+        else:
+            _model = DEFAULT_GEMINI_API_MODEL
         # La cle transite par l'environnement parce que c'est la voie que cette
         # bibliotheque documente, mais elle n'y RESTE PAS : l'ecriture permanente
         # elargissait sa portee a tout module charge dans ce processus et a tout
@@ -269,6 +271,7 @@ async def propose_via_connector(
     task: str,
     rag_ctx: str = "",
     max_tokens: int = 800,
+    model: Optional[str] = None,
 ) -> str:
     """Interface propose() compatible LiteLLMBridge."""
     messages = []
@@ -276,7 +279,7 @@ async def propose_via_connector(
         messages.append({"role": "system", "content": f"Contexte:\n{rag_ctx}"})
     messages.append({"role": "user", "content": task})
     try:
-        return await complete(messages, max_tokens=max_tokens)
+        return await complete(messages, model=model, max_tokens=max_tokens)
     except Exception as e:
         logger.warning(f"[propose_via_connector] {e}")
         return ""

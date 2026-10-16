@@ -14,28 +14,53 @@ ROOT = Path(__file__).resolve().parent.parent
 PYTHON = __import__("os").path.expanduser(r"~\miniforge3\python.exe")
 sys.path.insert(0, str(ROOT))
 
-# 1. session_summary → lessons_learned.md
-try:
-    from nokido_agent.app.forge_self_correction import session_summary
+# Le hook Stop tire a CHAQUE FIN DE TOUR, pas en fin de session. Mesure du 2026-10-14 : une entree vide
+# « Session Claude end » par tour dans lessons_learned.md, et un message RESCUE que Claude s'adressait a lui-meme a
+# chaque tour (18 non lus en une matinee). Resume et resync : une fois par fenetre de 30 min ; les daemons (3.) a
+# chaque passage, c'est une simple lecture de pouls.
+ANCRE = ROOT / "sandbox" / "session_anchor.dernier"
+PERIODE_S = 1800
 
-    session_summary(commits=[], tests="auto-hook", notes="Session Claude end")
-    print("[session_anchor] session_summary OK")
-except Exception as e:
-    print(f"[session_anchor] session_summary skip: {e}", file=sys.stderr)
 
-# 2. resync gemini — écrit sandbox/resume_prompt_gemini.md + notify hub
-try:
-    r = subprocess.run(
-        [PYTHON, str(ROOT / "tools" / "forge_rescue.py"), "--resync", "gemini"],
-        capture_output=True,
-        text=True,
-        timeout=20,
-        cwd=str(ROOT),
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    errors="replace")
-    print("[session_anchor] resync gemini:", r.stdout.strip()[:120] or r.stderr.strip()[:80])
-except Exception as e:
-    print(f"[session_anchor] resync gemini skip: {e}", file=sys.stderr)
+def _recent(maintenant: float) -> bool:
+    try:
+        return maintenant - float(ANCRE.read_text(encoding="utf-8").strip()) < PERIODE_S
+    except (OSError, ValueError):
+        return False  # muet-ok : ancre absente ou illisible = on agit, comme avant le 2026-10-14
+
+
+_maintenant = __import__("time").time()
+if _recent(_maintenant):
+    print("[session_anchor] resume + resync SAUTES : dernier passage il y a moins de %d min" % (PERIODE_S // 60))
+else:
+    try:
+        ANCRE.write_text("%.0f" % _maintenant, encoding="utf-8")
+    except OSError as e:
+        print(f"[session_anchor] ancre NON ecrite ({type(e).__name__}) : le prochain tour refera le resume",
+              file=sys.stderr)
+    # 1. session_summary → lessons_learned.md
+    try:
+        from nokido_agent.app.forge_self_correction import session_summary
+
+        session_summary(commits=[], tests="auto-hook", notes="Session Claude end")
+        print("[session_anchor] session_summary OK")
+    except Exception as e:
+        print(f"[session_anchor] session_summary skip: {e}", file=sys.stderr)
+
+    # 2. resync gemini — écrit sandbox/resume_prompt_gemini.md ; --sans-notifier : c'est Claude qui l'appelle, il
+    #    n'a pas a se prevenir lui-meme.
+    try:
+        r = subprocess.run(
+            [PYTHON, str(ROOT / "tools" / "forge_rescue.py"), "--resync", "gemini", "--sans-notifier"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=str(ROOT),
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        errors="replace")
+        print("[session_anchor] resync gemini:", r.stdout.strip()[:120] or r.stderr.strip()[:80])
+    except Exception as e:
+        print(f"[session_anchor] resync gemini skip: {e}", file=sys.stderr)
 
 # 3. vérifier daemons critiques — relancer si morts (heartbeat > 5 min)
 DAEMONS = [

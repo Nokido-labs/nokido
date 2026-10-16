@@ -1,6 +1,11 @@
 ---
 name: forge-workflow-autopsy
-description: Diagnostic des workflows/pipelines AUTONOMES stalles ou morts dans Nokido (daemons, veille, workers, chaines producteur->consommateur). Declencher quand un job est "completed" mais rien ne se passe en aval, des entrees sont coincees a un statut (unverified/queued/pending/reviewed), un backlog gonfle, un daemon ne tourne plus (heartbeat fige), une capacite "qui marchait avant" ne marche plus, "c'est casse mais les tests passent", une etape autonome n'a aucun effet observable, ou l'utilisateur dit "verifie le workflow autonome / la veille / le worker / le pipeline tourne vraiment ?". Specialise forge-systematic-debugging pour les PIPELINES : verifie consumer-vivant, vocab producteur/consommateur, backlog, dependance, angle-mort du health-check.
+description: >
+  À utiliser quand un job est « completed » sans effet en aval, qu'un daemon ne bat
+  plus (heartbeat STALE), que des entrées restent coincées (queued, pending) ou qu'un
+  backlog gonfle alors que les tests passent. Autopsie la chaîne producteur →
+  consommateur : consommateur vivant, vocabulaire partagé, dépendances, angle mort du
+  health-check.
 ---
 
 # forge-workflow-autopsy - autopsie d'un workflow autonome stalle

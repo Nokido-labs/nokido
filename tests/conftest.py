@@ -62,9 +62,19 @@ import pytest
 # importer, les fichiers de test absents de la liste (et les dossiers qui n'en contiennent aucun),
 # puis on rejoue l'ORDRE declare. La variable est RETIREE a la configuration : un test qui relance
 # pytest en sous-processus ne doit pas heriter du filtre.
+#
+# xdist (2026-10-14) : la variable etant retiree AVANT que xdist lance ses workers, ceux-ci ne
+# l'avaient jamais -- et ci_local retombait, en --turbo, sur les ~1 100 fichiers en arguments.
+# Mesure ce jour-la (`ci_local --only pytest --turbo --turbo-workers 3`) : chaque worker a passe
+# PLUS DE 10 MIN en collecte (13 M d'operations de metadonnees, zero lecture, aucun test importe)
+# avant d'etre arrete ; la calibration mesurait la collecte quadratique, pas le parallelisme.
+# Le controleur transmet donc le chemin a chaque worker par le canal de xdist (`workerinput`,
+# pose avant la configuration du worker), jamais par l'environnement.
 _LISTE_CI: set | None = None
 _DOSSIERS_CI: set = set()
 _ORDRE_CI: dict = {}
+_CHEMIN_CI: str | None = None
+_CLE_XDIST = "nokido_ci_liste"
 
 
 def _rel_depot(p) -> str | None:
@@ -75,16 +85,54 @@ def _rel_depot(p) -> str | None:
         return None
 
 
+# ── Plantage NATIF d'un worker : la trace part dans un FICHIER (2026-10-14) ───
+# Mesure du jour : un worker xdist est mort sans aucune trace (« node down: Not properly terminated ») et le journal
+# Windows compte 15 plantages de `envs\laforge_py314\python.exe` dans `pyarrow\arrow.dll` (0xc0000005) depuis
+# minuit. Le faulthandler natif de pytest ecrit sur le stderr du worker, qu'on ne relit pas. Quand ci_local pose
+# NOKIDO_FAULTHANDLER_DIR, chaque processus (worker ou principal) y ouvre son fichier : un prochain plantage natif y
+# laissera la pile Python de TOUS les threads, et ci_local la montre a la fin du run.
+_FAULTHANDLER_FICHIER = None
+
+
+def _armer_faulthandler(config) -> str | None:
+    global _FAULTHANDLER_FICHIER
+    dossier = os.environ.get("NOKIDO_FAULTHANDLER_DIR")
+    if not dossier:
+        return None
+    import faulthandler
+    qui = (getattr(config, "workerinput", None) or {}).get("workerid", "principal")
+    try:
+        Path(dossier).mkdir(parents=True, exist_ok=True)
+        chemin = Path(dossier) / ("faulthandler_%s_%d.log" % (qui, os.getpid()))
+        _FAULTHANDLER_FICHIER = open(chemin, "w", encoding="utf-8")  # garde OUVERT : faulthandler y ecrit au crash
+        faulthandler.enable(file=_FAULTHANDLER_FICHIER, all_threads=True)
+        return str(chemin)
+    except OSError:
+        return None  # le dossier illisible n'empeche pas la suite : ci_local le dira (aucun fichier)
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_configure(config):
-    global _LISTE_CI, _DOSSIERS_CI, _ORDRE_CI
-    chemin = os.environ.pop("NOKIDO_CI_LISTE", None)
+    global _LISTE_CI, _DOSSIERS_CI, _ORDRE_CI, _CHEMIN_CI
+    # trylast : APRES le faulthandler natif de pytest, qui reecrirait sinon la cible vers le stderr du worker.
+    _armer_faulthandler(config)
+    chemin = (os.environ.pop("NOKIDO_CI_LISTE", None)
+              or (getattr(config, "workerinput", None) or {}).get(_CLE_XDIST))
     if not chemin:
         return
+    _CHEMIN_CI = chemin
     lignes = [l.strip().replace("\\", "/") for l in
               Path(chemin).read_text(encoding="utf-8").splitlines() if l.strip()]
     _LISTE_CI = set(lignes)
     _ORDRE_CI = {l: i for i, l in enumerate(lignes)}
     _DOSSIERS_CI = {"/".join(l.split("/")[:k]) for l in lignes for k in range(1, l.count("/") + 1)}
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_configure_node(node):
+    """Controleur xdist : chaque worker recoit le chemin de la liste avant sa propre configuration."""
+    if _CHEMIN_CI:
+        node.workerinput[_CLE_XDIST] = _CHEMIN_CI
 
 
 def pytest_ignore_collect(collection_path, config):

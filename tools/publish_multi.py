@@ -76,9 +76,11 @@ MIROIRS_PUBLICS = {
     "sourceforge": {"url": "ssh://user@git.code.sf.net/p/nokido/code",
                     "cle_ssh": "~/.ssh/id_rsa", "secret_phrase": "SOURCEFORGE_SSH_PASSKEY"},
 }
-# Branches et tags SEULEMENT : un clone de GitHub porte aussi refs/pull/*, que les autres forges
-# refusent et qui n'ont rien a faire dans un miroir.
-_REFSPECS = ["refs/heads/*:refs/heads/*", "refs/tags/*:refs/tags/*"]
+# `main` et les tags SEULEMENT : un clone de GitHub porte aussi refs/pull/*, que les autres forges refusent, et des
+# branches JETABLES (essai/installation-complete, dependabot/*) reecrites a chaque essai -- mesure du 2026-10-14,
+# publication 0.20.11 : SourceForge, Codeberg et GitLab ont refuse essai/** en non fast-forward (push rc=1 alors que
+# main et le tag etaient bien partis). Rien de cela n'a sa place dans un miroir de version.
+_REFSPECS = ["refs/heads/main:refs/heads/main", "refs/tags/*:refs/tags/*"]
 
 
 def _secret(nom: str):
@@ -352,11 +354,24 @@ def fiche_conforme(voulu: dict, relu: dict) -> list:
     return ecarts
 
 
+def _egress():
+    """`forge_git_egress`, importable QUEL QUE SOIT l'ordre des appels.
+
+    Mesure du 2026-10-14 (publication 0.20.11) : `--integration-forges` est mort en
+    `ModuleNotFoundError: nokido_agent` -- on inserait ROOT/app dans sys.path, or le paquet se resout depuis ROOT.
+    Le 13/10 la meme commande passait parce qu'un appel anterieur (`_secret`) avait deja insere ROOT dans le
+    meme processus : une dependance d'ORDRE, invisible tant que le premier appel restait le meme.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from nokido_agent.app import forge_git_egress as eg
+    return eg
+
+
 def wiki_public_verifie(tmp: Path) -> dict:
     """Clone nu du wiki public + juge de secrets (profil public) sur TOUTES les versions de tous ses fichiers."""
     import os
-    sys.path.insert(0, str(ROOT / "app"))
-    from nokido_agent.app import forge_git_egress as eg
+    eg = _egress()
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
     nu = tmp / "wiki.git"
     r = _git(["clone", "--bare", "--quiet", WIKI_SOURCE, str(nu)], env)

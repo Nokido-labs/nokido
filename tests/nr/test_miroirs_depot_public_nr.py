@@ -293,3 +293,19 @@ def test_logo_unique_pose_si_absent_et_verdict_relu(monkeypatch, agir, poses_att
     out = P.logo_miroirs("https://gitlab.com/api/v4/projects/x", {}, "https://codeberg.org/api/v1/repos/x", {}, agir)
     assert poses == poses_attendues
     assert out == {"gitlab": gitlab_attendu, "codeberg": True}
+
+
+def test_l_egress_s_importe_meme_en_PREMIER_appel_hors_du_depot(tmp_path):
+    """Publication 0.20.11 (14/10) : `--integration-forges` est mort en ModuleNotFoundError: nokido_agent -- ROOT/app
+    etait insere au lieu de ROOT, et ca ne marchait que si `_secret` avait deja tourne dans le processus. Chemin
+    reel : interpreteur NEUF, lance hors du depot, sans PYTHONPATH, `_egress()` appele en premier."""
+    import os
+    script = ("import importlib.util\n"
+              "spec = importlib.util.spec_from_file_location('pm', %r)\n"
+              "m = importlib.util.module_from_spec(spec)\n"
+              "spec.loader.exec_module(m)\n"
+              "print('EGRESS', m._egress().__name__)\n" % str(ROOT / "tools" / "publish_multi.py"))
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    r = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, errors="replace",
+                       cwd=str(tmp_path), env=env, timeout=120)
+    assert r.returncode == 0 and "EGRESS" in r.stdout and "forge_git_egress" in r.stdout, r.stderr[-800:]

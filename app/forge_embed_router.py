@@ -1051,7 +1051,7 @@ def embed_batch(texts: list, timeout: float = 60.0, prefer: str | None = None) -
         # Ce POST est HORS cascade : sans cette porte, la politique du corps n'aurait
         # ferme que `PROVIDERS`. On rend la main au chemin batch gouverne (un lot par
         # appel), jamais a N appels unitaires qui couteraient N aller-retours.
-        return [v if v else [] for v in embed_batch_fast(texts, batch_size=32)]
+        return [v if v else [] for v in embed_batch_fast(texts)]  # lot = reglage L1 (defaut 32)
     try:
         data = _post_embeddings_8099(texts, timeout)["data"]
         vecs = [d["embedding"] for d in sorted(data, key=lambda x: x.get("index", 0))]
@@ -1206,7 +1206,108 @@ def _essais_selon_politique(essais: list[tuple[str, "callable"]], autorises: lis
     return sorted(filtres, key=lambda e: autorises.index(e[0]))
 
 
-def embed_batch_fast(texts: list[str], batch_size: int = 32, max_workers: int = 4) -> list[list[float] | None]:
+# ── Reglage L1 `embed.batch_size` (debat M2M RSI du 15/10 : AGY, Codex, Claude ; owner Q3) ──
+# Premier reglage confie a la boucle d'auto-amelioration : reversible a l'instant, mesurable en
+# quelques secondes. Son consommateur REEL est le drain d'embedding (forge_embed_auto_trigger),
+# qui appelle embed_batch_fast SANS taille. Un appelant qui imposait 32 en dur ne verrait jamais
+# la valeur L1 (Codex, tour 2) : embed_batch passe donc None.
+_BATCH_DEFAUT = 32
+_BATCH_BORNES = (1, 2048)  # garde de TYPE et de bon sens ; les bornes du reglage (8..128) sont
+                           # celles de sa declaration L1, verifiees a l'ecriture de la valeur
+
+
+def _batch_size_l1() -> int:
+    """Taille de lot quand l'appelant n'en impose pas : valeur L1 courante, sinon 32.
+
+    Entier strict exige (AGY, tour 2) : un float ou None dans `range(...)` leverait TypeError
+    et paralyserait tout le RAG. Valeur refusee ou lecteur indisponible : le defaut, DIT."""
+    try:
+        from nokido_agent.app.forge_proposal_applier import valeur_l1
+
+        v = valeur_l1("embed.batch_size", _BATCH_DEFAUT)
+    except Exception as exc:  # noqa: BLE001 - lecteur indisponible : le chemin d'avant
+        logger.debug("[L1] embed.batch_size illisible (%r) -- defaut %d", exc, _BATCH_DEFAUT)
+        return _BATCH_DEFAUT
+    if isinstance(v, int) and not isinstance(v, bool) and _BATCH_BORNES[0] <= v <= _BATCH_BORNES[1]:
+        return v
+    logger.warning("[L1] embed.batch_size=%r refuse (entier %d..%d attendu) -- defaut %d",
+                   v, _BATCH_BORNES[0], _BATCH_BORNES[1], _BATCH_DEFAUT)
+    return _BATCH_DEFAUT
+
+
+# Corpus FIXE de la mesure L1 : 64 textes deterministes, de longueurs variees, jamais ecrits en base.
+_BASES_MESURE_L1 = (
+    "Le hub Nokido route les appels MCP vers les organes du corps.",
+    "Un reglage L1 se mesure avant et apres, et revient s'il regresse.",
+    "The embedding router batches texts to the local llama server.",
+    "La soif epistemique formule des questions sur ce que le corps ignore.",
+    "Each experiment in the evolution ledger is chained by its hash.",
+    "Les arbres d'evolution isolent chaque mutation dans un worktree separe.",
+    "A regression test borrows the real entry point, not only the function.",
+    "Le frein d'evolution est un fichier : sa presence suffit a tout arreter.",
+)
+_CORPUS_MESURE_L1 = tuple(
+    "%s (texte de mesure %d/64)%s" % (_BASES_MESURE_L1[k % 8], k + 1,
+                                      (" " + _BASES_MESURE_L1[(k + 3) % 8]) * (k % 4))
+    for k in range(64)
+)
+
+
+def mesurer_capacite_batch(repetitions: int = 5, appel=None, max_workers: int = 4,
+                           taille: int | None = None) -> dict:
+    """Mesure du reglage L1 `embed.batch_size` : {textes_par_seconde, taux_succes}, plus haut = mieux.
+
+    LOCAL STRICT : seul :8099 est appele, sans le repli de `embed_batch_fast` (texte par texte,
+    qui peut partir vers un backend cloud PAYANT et mesurerait autre chose). Un lot en echec
+    compte en vecteurs MANQUANTS -- c'est ce qu'on veut voir : un lot trop gros fait echouer
+    :8099. `taux_succes` = 1 - part manquante (AGY, tour 2 : la PERTE qui monte serait lue comme
+    un gain par le controleur). Meme decoupage que le chemin reel : taille L1, 4 fils.
+    :8099 interdit par l'arbitre ou injoignable : {} -- mesure INDISPONIBLE, le controleur
+    s'abstient au lieu de juger sur du vide.
+
+    `max_workers` / `taille` (debat tour 3, Q1 -- Codex : « la mesure FIXE 4 workers ») : pour
+    mesurer `embed.max_workers` AVANT de le declarer. Par defaut, comportement inchange (4 fils,
+    taille L1). Une mesure de workers exige au moins autant de lots que de fils : AGY a mesure
+    en lots de 16 (64 textes -> 4 lots)."""
+    import statistics
+    from concurrent.futures import ThreadPoolExecutor
+
+    if appel is None:
+        if not _role_embed_local_autorise():
+            return {}
+
+        def appel(lot):
+            return _llama8099_call(lot, timeout=60.0)
+
+        try:
+            sonde = appel([_CORPUS_MESURE_L1[0]])
+        except Exception:  # noqa: BLE001 - muet-ok : injoignable = mesure indisponible, dit par {}
+            sonde = None
+        if not sonde:
+            return {}
+    taille = int(taille) if taille else _batch_size_l1()
+    corpus = list(_CORPUS_MESURE_L1)
+    lots = [corpus[i : i + taille] for i in range(0, len(corpus), taille)]
+
+    def _un_lot(lot):
+        try:
+            v = appel(lot)
+        except Exception:  # noqa: BLE001 - muet-ok : un lot en echec COMPTE en vecteurs manquants
+            return 0
+        return sum(1 for x in v if x) if v and len(v) == len(lot) else 0
+
+    debits, ok, total = [], 0, 0
+    for _ in range(max(1, int(repetitions))):
+        t0 = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=max(1, int(max_workers))) as exe:
+            ok += sum(exe.map(_un_lot, lots))
+        debits.append(len(corpus) / max(time.perf_counter() - t0, 1e-6))
+        total += len(corpus)
+    return {"textes_par_seconde": round(statistics.median(debits), 3),
+            "taux_succes": round(ok / total, 4) if total else 0.0}
+
+
+def embed_batch_fast(texts: list[str], batch_size: int | None = None, max_workers: int = 4) -> list[list[float] | None]:
     """Throughput optimal :
        1. Group texts en batches de batch_size
        2. Pour chaque batch, essai cascade BATCH API (1 call N textes)
@@ -1217,7 +1318,8 @@ def embed_batch_fast(texts: list[str], batch_size: int = 32, max_workers: int = 
 
     Args:
         texts: liste textes a vectoriser
-        batch_size: taille batch par appel API (32 = sweet spot Jina free tier)
+        batch_size: taille de lot imposee par l'appelant ; None = reglage L1 `embed.batch_size`
+            (defaut 32, l'ancien sweet spot Jina free tier)
         max_workers: threads paralleles (4 = safe pour rate limit cloud)
 
     Returns:
@@ -1226,6 +1328,9 @@ def embed_batch_fast(texts: list[str], batch_size: int = 32, max_workers: int = 
     if not texts:
         return []
 
+    # Taille : celle de l'appelant s'il l'impose, sinon le reglage L1 relu a CHAQUE appel.
+    if batch_size is None:
+        batch_size = _batch_size_l1()
     # Split en batches
     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
     results: dict[int, list[float] | None] = {}

@@ -44,6 +44,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,6 +73,13 @@ class AssetConfig:
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "sandbox" / "skill_sync_manifest.json"
+# Skills RETIREES du service (2026-10-14). Sans ce registre, `consolidate` prenait la copie restee
+# dans un dir CLI pour une skill nee cote CLI et la ressuscitait dans le canonical : mesure le
+# 2026-09-26, 9 skills absorbees le 2026-08-11 (arbitrage owner) rapatriees par --apply --overwrite.
+RETIRES = ROOT / "docs" / "skills_attic" / "retires.json"
+# Ce qui sort d'un dir CLI (skill retiree, skill deautorisee par --prune) est DEPLACE ici, jamais
+# supprime ; --rollback le remet en place.
+MISE_DE_COTE = ROOT / "sandbox" / "skill_sync_mis_de_cote"
 CONSOLIDATE_NOTE = "<!-- consolidé dans le canonical par forge_skill_sync (origine: {origin}) -->"
 
 HOME = Path.home()
@@ -83,6 +92,12 @@ ASSET_REGISTRY = {
             "claude": {"dir": HOME / ".claude" / "skills", "fmt": "skillmd"},
             "gemini": {"dir": HOME / ".gemini" / "skills", "fmt": "skillmd"},
             "copilot": {"dir": None, "fmt": "copilot"},  # résolu dynamiquement
+            # Owner 2026-10-14 : TOUS les CLI au meme geste. Codex lit ~/.codex/skills
+            # (forge_client_bootstrap.SURFACES) ; `.agents/skills` du DEPOT est lu par Antigravity,
+            # Cline et Codex (docs/skills_attic/README.md) et n'etait plus tenu par personne depuis
+            # le 23/08 (repertoire suivi a part, plus une jonction vers docs/skills).
+            "codex": {"dir": HOME / ".codex" / "skills", "fmt": "skillmd"},
+            "agents_depot": {"dir": ROOT / ".agents" / "skills", "fmt": "skillmd"},
         }
     ),
     AssetType.HOOK: AssetConfig(
@@ -126,11 +141,16 @@ COPILOT_ROOTS = [
 
 # Skills volontairement liés à UN client (ne pas universaliser) — cf décision user
 # 2026-06-10 "tout sauf client-only".
+# agents_depot (2026-10-14, owner) : ces 4 skills etaient dans .agents/skills du depot avant que le
+# sync ne le tienne ; --prune les en avait sorties le soir meme, et forge-core n'etait alors plus lue
+# par AUCUN agent (exclue de Gemini par son anneau). Etat d'avant retabli en attendant la revue
+# skill par skill (utilite, intention, contenu unique) demandee par l'owner.
 CLIENT_ONLY = {
-    "forge-connectors": ["claude"],
-    "forge-marketplace": ["claude"],
-    "forge-models": ["gemini"],          # pools quota Gemini Flash/Pro/Preview
-    "forge-core": ["gemini"],  # adaptation débit propre au runtime Gemini
+    "forge-connectors": ["claude", "agents_depot"],
+    "forge-marketplace": ["claude", "agents_depot"],
+    # forge-models : plus ici depuis le 2026-10-14 -- les pools Gemini sont partis dans forge-quota,
+    # le choix de modele vaut pour toutes les surfaces (owner : « pour le swarm et toutes les surfaces »).
+    "forge-core": ["gemini", "agents_depot"],  # adaptation débit propre au runtime Gemini
 }
 # Préfixes client-only (familles de plugins).
 CLIENT_ONLY_PREFIX = {
@@ -142,7 +162,38 @@ CLIENT_ONLY_PREFIX = {
 # de droits) : un CLI reçoit un skill si son ring <= min_ring (is_at_least). La POLITIQUE min_ring
 # (map + résolution) = SOURCE UNIQUE dans forge_skill_policy (app/), partagée avec le hub
 # (forge_mcp_registry.handle_skill). Fallback permissif si app/ injoignable (le sync tourne quand même).
-CLI_RING = {"claude": 2, "gemini": 3, "copilot": 3}
+# codex : le ring de CODEX se LIT au registre (_rings_du_registre, plus bas) -- ring 1 depuis le 15/10
+# (decision owner, 9fdfbe8f2) ; le 2 de la table n'est que le repli si le registre est illisible.
+# agents_depot : lu par plusieurs CLI, il recoit ce que le MOINS privilegie de ses lecteurs a le droit de
+# voir. Il reste a 2 tant que ses lecteurs ne sont pas recenses : l'abaisser ELARGIT l'exposition.
+CLI_RING = {"claude": 2, "gemini": 3, "copilot": 3, "codex": 2, "agents_depot": 2}
+# ALIGNEMENT SUR LE REGISTRE VIVANT (owner 15/10, « aligner + rafraichir » forge-core) : la table
+# ci-dessus est une COPIE, et elle avait derive -- GEMINI y valait 3 quand config/agent_identities.json
+# (la source que le hub recharge a chaud) le dit ring 1 ; forge-core, client-only gemini, n'etait alors
+# deployee chez AUCUN CLI. On lit desormais le ring de l'identite au registre ; la table reste le repli
+# (registre illisible ou identite absente : comportement d'avant, et le synchroniseur le DIT).
+# `claude` lu au registre lui aussi (identite CLAUDE) : decision owner du 15/10, « aligner sur le
+# registre » -- une seule source ; l'ecart avec CLAUDE_CLI = 2 au seed du hub n'est plus recopie ici.
+_CLI_IDENTITE = {"claude": "CLAUDE", "gemini": "GEMINI", "copilot": "COPILOT", "codex": "CODEX",
+                 "agents_depot": "CODEX"}
+
+
+def _rings_du_registre() -> dict | None:
+    try:
+        agents = json.loads((ROOT / "config" / "agent_identities.json").read_text(encoding="utf-8"))["agents"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        print("[skill_sync] registre des identites ILLISIBLE (%s) : rings de la table recopiee" % type(e).__name__,
+              file=sys.stderr)
+        return None
+    out = {}
+    for cli, ident in _CLI_IDENTITE.items():
+        r = (agents.get(ident) or {}).get("ring") if isinstance(agents, dict) else None
+        if isinstance(r, int) and not isinstance(r, bool):
+            out[cli] = r
+    return out
+
+
+CLI_RING.update(_rings_du_registre() or {})
 try:
     sys.path.insert(0, str(ROOT))
     from nokido_agent.app.forge_skill_policy import DEFAULT_MIN_RING, skill_min_ring as _shared_min_ring  # type: ignore
@@ -152,7 +203,7 @@ except Exception:
     def _shared_min_ring(slug, fm=None):
         return DEFAULT_MIN_RING
 
-ALL_CLIS = ["claude", "gemini", "copilot"]
+ALL_CLIS = ["claude", "gemini", "copilot", "codex", "agents_depot"]
 
 
 # ───────────────────────── frontmatter ─────────────────────────
@@ -492,14 +543,111 @@ def _deploy_one(slug: str, src: Path, dest_dir: Path, cli: str, copy: bool, mani
     return {"cli": cli, "slug": slug, "mode": mode, "replaced": prev_sha is not None}
 
 
+def _retires() -> dict:
+    """{slug: fiche} des skills RETIREES (registre `docs/skills_attic/retires.json`).
+
+    Registre ILLISIBLE != registre vide : on leve. Un sync qui le lirait vide ressusciterait chaque
+    skill retiree sans le dire -- exactement le defaut que ce registre ferme. Absent = aucun retrait
+    declare. Les dossiers `_attic_*` n'en disent rien : plusieurs portent le nom d'une skill VIVANTE
+    (`_attic_nokido`, `_attic_forge-veille-approfondie`)."""
+    if not RETIRES.exists():
+        return {}
+    data = json.loads(RETIRES.read_text(encoding="utf-8"))
+    return {k: v for k, v in data.items() if not k.startswith("_")}
+
+
+def _versions_connues(slug: str) -> set:
+    """Empreintes (fins de ligne LF, contenu brut ET nettoye) de toutes les versions VERSIONNEES de
+    la skill. Une copie CLI qui en porte une est un ancien deploiement du sync, pas une edition
+    locale : la remplacer ne perd rien, git la garde.
+
+    Mesure 2026-10-14 : ~/.claude/skills/forge-core portait encore les 7 identites fantomes retirees
+    le 2026-08-11 ; faute de savoir qu'elle venait du depot, le sync la classait « conflit » et ne la
+    rafraichissait jamais. git illisible -> ensemble vide : on retombe sur le conflit, jamais sur un
+    remplacement non prouve."""
+    chemins = ["docs/skills/%s/SKILL.md" % slug, ".agents/skills/%s/SKILL.md" % slug]
+    git = ["git", "-c", "safe.directory=*", "-C", str(ROOT)]
+    try:
+        revs = subprocess.run(git + ["rev-list", "HEAD", "--", *chemins], capture_output=True,
+                              text=True, errors="replace", timeout=30).stdout.split()
+        demandes = "".join("%s:%s\n" % (r, c) for r in revs for c in chemins).encode("utf-8")
+        sortie = subprocess.run(git + ["cat-file", "--batch"], input=demandes, capture_output=True,
+                                timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):  # muet-ok : vide = retour au « conflit », dit au rapport
+        return set()
+    connues, i = set(), 0
+    while i < len(sortie):
+        fin = sortie.find(b"\n", i)
+        if fin < 0:
+            break
+        entete = sortie[i:fin].split()
+        i = fin + 1
+        if len(entete) != 3 or entete[1] != b"blob":
+            continue  # « <rev>:<chemin> missing » : ce chemin n'existait pas a cette revision
+        taille = int(entete[2])
+        brut = sortie[i:i + taille].replace(b"\r\n", b"\n")
+        i += taille + 1
+        connues.add(_sha_bytes(brut))
+        try:
+            nettoye = _sanitize_fm(brut.decode("utf-8", errors="replace")).encode("utf-8")
+            connues.add(_sha_bytes(nettoye.replace(b"\r\n", b"\n")))
+        except Exception:  # noqa: BLE001 — muet-ok : l'empreinte brute reste, seule la nettoyee manque
+            pass
+    return connues
+
+
+def _est_ancien_deploiement(slug: str, dest: Path, cache: dict) -> bool:
+    if slug not in cache:
+        cache[slug] = _versions_connues(slug)
+    try:
+        return _sha_bytes(dest.read_bytes().replace(b"\r\n", b"\n")) in cache[slug]
+    except OSError:  # muet-ok : copie illisible = pas prouvee ancienne, reste un conflit rapporte
+        return False
+
+
+def _mettre_de_cote(sub: Path, cli: str, lot: Path, raison: str, manifest_actions: list) -> str:
+    """Deplace le dossier d'une skill hors du dir CLI (jamais de suppression), trace au manifest."""
+    vers = lot / cli / sub.name
+    vers.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(sub), str(vers))
+    manifest_actions.append({"cli": cli, "slug": sub.name, "dest": str(sub / "SKILL.md"),
+                             "mode": "mise_de_cote", "vers": str(vers), "raison": raison, "prev_sha": None})
+    return str(vers)
+
+
+def _retirer_des_cli(apply: bool, manifest_actions: list) -> list:
+    """Copies CLI des skills RETIREES : mises de cote. Sans ca le CLI continue de les charger, et
+    le prochain `consolidate` les ressusciterait."""
+    retires = _retires()
+    lot = MISE_DE_COTE / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = []
+    for cli in ALL_CLIS:
+        for d in _cli_dirs(cli):
+            if not d or not d.exists():
+                continue
+            for slug in sorted(retires):
+                sub = d / slug
+                if not (sub / "SKILL.md").exists():
+                    continue
+                rec = {"cli": cli, "slug": slug, "dir": str(d), "fiche": retires[slug]}
+                if apply:
+                    try:
+                        rec["vers"] = _mettre_de_cote(sub, cli, lot, "retiree", manifest_actions)
+                    except Exception as e:  # noqa: BLE001 — dit dans le rapport, pas avale
+                        rec["error"] = "%s: %s" % (type(e).__name__, e)
+                out.append(rec)
+    return out
+
+
 def _cli_only_sources() -> dict:
     """slugs présents dans un dir CLI mais ABSENTS du canonical → {slug: Path(SKILL.md)}.
 
     Dedup : 1er CLI qui porte le slug gagne (les copies inter-CLI sont censées être
     le même skill). Permet de compléter le canonical avec les skills nés côté CLI.
+    Une skill RETIREE n'en est jamais une : sa copie CLI est un reste, pas une naissance.
     """
     CLI_TARGETS["copilot"]["dir"] = _resolve_copilot_dir()
-    canon = set(_canonical_index().keys())
+    canon = set(_canonical_index().keys()) | set(_retires())
     out: dict = {}
     for cli, spec in CLI_TARGETS.items():
         d = spec["dir"]
@@ -547,7 +695,9 @@ def _cli_dirs(cli: str) -> list:
     ça créerait des DOUBLONS (chaque CLI lit son dir propre + ~/.agents = 'skill conflict').
     Chaque CLI lit son dir propre ; ~/.agents = à garder propre (nettoyage manuel des dups)."""
     d = CLI_TARGETS.get(cli, {}).get("dir")
-    return [d] if d else []
+    # CLI absent du poste (son dossier parent n'existe pas) : on ne cree RIEN pour lui ; le
+    # deploiement le rapporte en « dir CLI introuvable ».
+    return [d] if d and Path(d).parent.exists() else []
 
 
 def _token_budget(canon: dict) -> dict:
@@ -584,6 +734,10 @@ def plan_or_apply(apply: bool, copy: bool, overwrite: bool = False, firewall: bo
     manifest_actions: list = []
     skipped: list = []
     firewall_blocked: list = []
+    connues: dict = {}  # slug -> empreintes des versions versionnees (calcul paresseux)
+
+    # Étape 0 — copies CLI de skills RETIREES : mises de côté AVANT toute consolidation.
+    retirees = _retirer_des_cli(apply, manifest_actions)
 
     # Étape 1 — consolidation : skills CLI-only → canonical docs/skills/.
     consolidated = consolidate(apply, manifest_actions)
@@ -635,6 +789,8 @@ def plan_or_apply(apply: bool, copy: bool, overwrite: bool = False, firewall: bo
                 elif dsha == meta["sha"]:
                     # ancien déploiement non-nettoyé (notre stale) -> re-nettoyage, PAS un conflit.
                     act = "REPLACE"
+                elif _est_ancien_deploiement(slug, dest, connues):
+                    act = "REPLACE"  # une version versionnee d'avant : notre ancien deploiement
                 else:
                     act = "REPLACE"
                     if not overwrite:
@@ -652,6 +808,7 @@ def plan_or_apply(apply: bool, copy: bool, overwrite: bool = False, firewall: bo
     result = {
         "ts": _now(),
         "mode": "apply" if apply else "plan",
+        "retirees_mises_de_cote": retirees,
         "consolidated": consolidated,
         "planned": actions_preview,
         "skipped": skipped,
@@ -660,18 +817,27 @@ def plan_or_apply(apply: bool, copy: bool, overwrite: bool = False, firewall: bo
         "copilot_dir": str(CLI_TARGETS["copilot"]["dir"]) if CLI_TARGETS["copilot"]["dir"] else None,
     }
     if apply:
-        MANIFEST.parent.mkdir(parents=True, exist_ok=True)
-        prev = []
-        if MANIFEST.exists():
-            try:
-                prev = json.loads(MANIFEST.read_text(encoding="utf-8")).get("history", [])
-            except Exception:
-                prev = []
-        prev.append({"ts": _now(), "actions": manifest_actions})
-        MANIFEST.write_text(json.dumps({"history": prev}, indent=2, ensure_ascii=False), encoding="utf-8")
+        _ajouter_au_manifest(manifest_actions)
         result["applied"] = len(manifest_actions)
         result["manifest"] = str(MANIFEST)
     return result
+
+
+def _ajouter_au_manifest(actions: list) -> None:
+    MANIFEST.parent.mkdir(parents=True, exist_ok=True)
+    prev = []
+    if MANIFEST.exists():
+        try:
+            prev = json.loads(MANIFEST.read_text(encoding="utf-8")).get("history", [])
+        except Exception as e:
+            # Repartir de zero en silence effacait l'historique de --rollback : on garde l'illisible.
+            garde = MANIFEST.with_name(MANIFEST.stem + ".illisible.json")
+            MANIFEST.replace(garde)
+            print("[skill_sync] manifeste illisible (%s), mis de cote : %s" % (type(e).__name__, garde),
+                  file=sys.stderr)
+            prev = []
+    prev.append({"ts": _now(), "actions": actions})
+    MANIFEST.write_text(json.dumps({"history": prev}, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def rollback() -> dict:
@@ -686,6 +852,10 @@ def rollback() -> dict:
     for a in last.get("actions", []):
         dest = Path(a["dest"])
         try:
+            if a.get("mode") == "mise_de_cote":
+                shutil.move(a["vers"], str(dest.parent))
+                undone.append({"slug": a["slug"], "cli": a["cli"], "op": "remis"})
+                continue
             if a["prev_sha"] is None:
                 # création → supprimer + nettoyer le dir slug si vide
                 if dest.exists() or dest.is_symlink():
@@ -716,7 +886,7 @@ def diff_conflicts() -> dict:
     for slug, meta in canon.items():
         for cli in meta["targets"]:
             dd = CLI_TARGETS[cli]["dir"]
-            if not dd or cli not in ("claude", "gemini", "copilot"):
+            if not dd or cli not in ALL_CLIS:
                 continue
             dest = dd / slug / "SKILL.md"
             if not dest.exists() or _sha(dest) == meta["sha"]:
@@ -736,10 +906,13 @@ def diff_conflicts() -> dict:
 def prune(apply: bool) -> dict:
     """Moindre-privilège (P1) — retire d'un dir CLI les skills canonical qui n'y sont PLUS
     autorisés (ring/targets). Ne touche QUE les slugs présents au canonical (jamais les skills
-    propres du CLI). Idempotent : l'état déployé = exactement le set autorisé par la grille."""
+    propres du CLI). Idempotent : l'état déployé = exactement le set autorisé par la grille.
+    Retirer = DÉPLACER vers MISE_DE_COTE (jamais supprimer) ; --rollback remet en place."""
     CLI_TARGETS["copilot"]["dir"] = _resolve_copilot_dir()
     canon = _canonical_index()
     removed: list = []
+    manifest_actions: list = []
+    lot = MISE_DE_COTE / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     for cli in ALL_CLIS:
         for dest_dir in _cli_dirs(cli):
             if not dest_dir or not dest_dir.exists():
@@ -748,17 +921,21 @@ def prune(apply: bool) -> dict:
                 slug = sub.name
                 if slug not in canon or cli in canon[slug]["targets"]:
                     continue  # inconnu au canonical (skill propre du CLI) OU autorisé -> garder
+                if not _native(slug):
+                    # Skill EXTERNE (Smithery, Claude...) : le sync ne la deploie jamais, il ne la
+                    # retire pas non plus. Mesure 2026-10-14 : smithery-ai-cli, jonction posee par
+                    # l'owner dans ~/.claude/skills, sortie par --prune parce qu'une copie trainait
+                    # au canonical -- l'ancien code supprimait meme le SKILL.md A TRAVERS la jonction.
+                    continue
                 rec = {"cli": cli, "slug": slug, "dir": str(dest_dir)}
                 removed.append(rec)
                 if apply:
                     try:
-                        sk = sub / "SKILL.md"
-                        if sk.exists():
-                            sk.unlink()
-                        if sub.is_dir() and not any(sub.iterdir()):
-                            sub.rmdir()
+                        rec["vers"] = _mettre_de_cote(sub, cli, lot, "deautorisee", manifest_actions)
                     except Exception as e:
                         rec["error"] = str(e)
+    if apply and manifest_actions:
+        _ajouter_au_manifest(manifest_actions)
     return {"mode": "prune" if apply else "prune-dry", "removed": removed}
 
 

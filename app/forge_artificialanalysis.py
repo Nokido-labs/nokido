@@ -61,7 +61,7 @@ PROVIDER_AA_MAP = {
     "gemini_pro": "gemini-2-5-pro",
     # OpenAI
     "openai": "gpt-4o",
-    "gpt4o_github": "gpt-4o",
+    # "gpt4o_github" RETIRE 15/10 (GitHub Models : 410 Gone)
     "github_gpt41_mini": "gpt-4-1-mini",
     "github_gpt4o_mini": "gpt-4o-mini",
     # Groq
@@ -112,7 +112,18 @@ PROVIDER_AA_MAP = {
 
 
 def _load_api_key() -> Optional[str]:
-    """Lit cle depuis Nokido.env. Pas d'echo cle."""
+    """Lit la cle AU COFFRE d'abord (`forge_secrets.get_secret`), puis l'ancien chemin. Pas d'echo cle.
+
+    15/10 : la regle owner retire du clair de Nokido.env tout secret relu identique au coffre ; ce lecteur ne
+    consultait QUE l'environnement et le fichier -- la cle lui aurait disparu au premier retrait."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+        for k in ("ARTIFICIALANALYSIS.AI", "ARTIFICIALANALYSIS_AI", "AA_API_KEY"):
+            v = get_secret(k)
+            if v:
+                return v
+    except Exception:  # noqa: BLE001 - muet-ok : coffre injoignable -> ancien chemin ci-dessous
+        pass
     # 1. env var direct (avec point ou underscore)
     for k in ("ARTIFICIALANALYSIS_AI", "ARTIFICIALANALYSIS.AI", "AA_API_KEY"):
         if k in os.environ:

@@ -1,26 +1,13 @@
 ---
 name: forge-anatomy
-description: >
-  Grille de lecture anatomique de Nokido — diagnostic différentiel
-  par analogie biomimétique. Utiliser quand : conception d'un nouveau
-  module forge_*.py (avant l'écriture), bug systémique avec symptômes
-  diffus, audit architectural, formation d'un nouvel LLM ou humain sur
-  l'écosystème, demande "où vit X dans Nokido ?", "à quel organe ça
-  appartient ?", "quelle pathologie correspond à ce comportement ?",
-  "diagnostique-moi ce comportement", phrase comme "le système est
-  malade", "ça paralyse tout", "il y a un cancer dans le code".
-  Charge la cartographie complète (organes → modules) + table des
-  pathologies-types + protocole d'examen. Source de vérité = section
-  10 de CLAUDE.md ; ce skill l'opérationnalise pour le diagnostic
-  différentiel actif. Skill jumeau de forge-systematic-debugging
-  (qui utilise la grille Phase 1).
+description: "À utiliser avant de créer un module forge_*.py (déclarer son organe), sur un bug systémique aux symptômes diffus, pour un audit d'architecture, ou pour savoir à quel organe appartient un module. Diagnostic différentiel organe → pathologie → remède ; le census organ_map_full.json fait autorité. Jumeau de forge-systematic-debugging."
 ---
 
 # forge-anatomy — Diagnostic différentiel par biomimétisme
 
 ## Pourquoi cette grille existe
 
-Une architecture logicielle complexe (Nokido = 196+ modules forge_*)
+Une architecture logicielle complexe (Nokido : nombre de modules dans le census)
 devient **illisible** si on la lit module-par-module. La grille
 anatomique :
 - **Compresse** la complexité en 7 systèmes biologiques familiers
@@ -62,7 +49,7 @@ Cervelet, Moelle Épinière). Ce skill généralise et opérationnalise.
 - Onboarding d'un nouveau LLM ou humain sur Nokido
 - Réponse à "qu'est-ce que Nokido sait faire ?" sous angle anatomique
 
-## Cartographie complète (source : CLAUDE.md §10)
+## Cartographie complète (autorité : census `sandbox/workspace/organ_map_full.json` ; vue humaine : `docs/CLAUDE_CARTOGRAPHIE_ANATOMIQUE.md`)
 
 ### 🧠 Système Nerveux Central
 
@@ -121,7 +108,7 @@ Cervelet, Moelle Épinière). Ce skill généralise et opérationnalise.
 |---|---|---|
 | Muscles striés (volontaire) | 7 SiloDomain (`app/forge_silo_engine.py`) | code/security/strategy/synthesis/recon/exploit/doc |
 | Squelette / fascia | `app/forge_runtime.py`, `app/forge_runner.py` | Spawn fire-forget, mmap IPC |
-| Articulations | `app/forge_message_frame.py`, `app/forge_broker_base.py` | Cinématique inter-modules |
+| Articulations | `app/forge_message_frame.py`, `tools/forge_broker_base.py` | Cinématique inter-modules |
 | Bras prosthétique externe | `forge-android` (Android-MCP) | Effecteur device Android |
 
 ### 👁️ Sens (Perception)
@@ -262,7 +249,7 @@ ciblé (logs, métriques, query RAG par domaine).
 
 ### Phase 3 — Hypothèse diagnostique
 Une seule pathologie suspectée à la fois (cf. table pathologies-types
-de CLAUDE.md §10).
+de docs/CLAUDE_CARTOGRAPHIE_ANATOMIQUE.md).
 
 ### Phase 4 — Test thérapeutique
 - **Anti-inflammatoire** : timeout, circuit breaker, période réfractaire
@@ -323,7 +310,7 @@ case départ : preflight RAG et lecture des modules existants.
 
 ## Liens
 
-- **Source de vérité** : `CLAUDE.md` §10 (cartographie + pathologies)
+- **Source de vérité** : census `sandbox/workspace/organ_map_full.json` ; vue humaine `docs/CLAUDE_CARTOGRAPHIE_ANATOMIQUE.md`
 - Skill jumeau : `forge-systematic-debugging` (Phase 1 = examen
   systémique anatomique)
 - Skill jumeau : `forge-tdd` (greffe contrôlée d'un nouveau muscle)
