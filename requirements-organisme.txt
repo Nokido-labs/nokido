@@ -32,7 +32,7 @@ torch-geometric==2.7.0
 # ne le voyait pas avant de suivre les lanceurs delegants. Version du poste de reference.
 # 1.27.2 -> 1.28.1 le 2026-10-12 : alerte Dependabot #282 (controle Host/Origin du transport WebSocket),
 # installee d'abord sur le poste de reference.
-mcp==1.28.1
+mcp==1.30.0
 
 # NokidoNetcfgMCP et NokidoNetcfgUI : netcfg livre en paquets PyPI (decision owner du 2026-10-08, publication du
 # 2026-10-11). Plus de depot voisin : `-m netcfg_mcp` et `-m netcfg.demo.serve_ui`. [complet] = terminal, tui,
