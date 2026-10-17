@@ -250,257 +250,8 @@
   }
  },
  "dernier": {
-  "ci_runs": {
-   "36704811535": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-09-30",
-    "workflow": "release.yml"
-   },
-   "36730796650": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-09-30",
-    "workflow": "release.yml"
-   },
-   "36733507784": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-09-30",
-    "workflow": "release.yml"
-   },
-   "36833717993": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-10-01",
-    "workflow": "release.yml"
-   },
-   "36972595943": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-10-02",
-    "workflow": "release.yml"
-   },
-   "36972664955": {
-    "comptes": {},
-    "inconnus": 0,
-    "jour": "2026-10-02",
-    "workflow": "release.yml"
-   },
-   "37192296188": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-10-04",
-    "workflow": "release.yml"
-   },
-   "37465824739": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-10-06",
-    "workflow": "release.yml"
-   },
-   "37606292156": {
-    "comptes": {
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-07",
-    "workflow": "installation-complete.yml"
-   },
-   "37619507906": {
-    "comptes": {
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-07",
-    "workflow": "installation-complete.yml"
-   },
-   "37658087897": {
-    "comptes": {
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-07",
-    "workflow": "installation-complete.yml"
-   },
-   "37753729373": {
-    "comptes": {
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "installation-complete.yml"
-   },
-   "37770128972": {
-    "comptes": {
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "installation-complete.yml"
-   },
-   "37777312534": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "release.yml"
-   },
-   "37816375828": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "installation-complete.yml"
-   },
-   "37829075961": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "installation-complete.yml"
-   },
-   "37846238481": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-08",
-    "workflow": "installation-complete.yml"
-   },
-   "37917879256": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-09",
-    "workflow": "installation-complete.yml"
-   },
-   "38162661913": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-11",
-    "workflow": "installation-complete.yml"
-   },
-   "38208586691": {
-    "comptes": {
-     "netcfg-agent": 3,
-     "netcfg-agent-mcp": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-12",
-    "workflow": "installation-complete.yml"
-   },
-   "38465361779": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-13",
-    "workflow": "installation-complete.yml"
-   },
-   "38533864383": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-14",
-    "workflow": "installation-complete.yml"
-   },
-   "38536079233": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-14",
-    "workflow": "installation-complete.yml"
-   },
-   "38549343800": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-14",
-    "workflow": "installation-complete.yml"
-   },
-   "38552229130": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-10-14",
-    "workflow": "release.yml"
-   },
-   "38851827198": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-16",
-    "workflow": "installation-complete.yml"
-   },
-   "38859494631": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-10-16",
-    "workflow": "release.yml"
-   },
-   "38860541728": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "nokido-agent": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-16",
-    "workflow": "installation-complete.yml"
-   },
-   "38863059811": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "nokido-agent": 3,
-     "pack": 2
-    },
-    "inconnus": 0,
-    "jour": "2026-10-16",
-    "workflow": "installation-complete.yml"
-   }
-  },
-  "date": "2026-10-16",
+  "ci_runs": {},
+  "date": "2026-10-17",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -523,14 +274,16 @@
     "2026-10-12": 17,
     "2026-10-13": 22,
     "2026-10-14": 23,
-    "2026-10-15": 1
+    "2026-10-15": 1,
+    "2026-10-16": 21
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 17,
     "2026-10-12": 15,
     "2026-10-13": 22,
     "2026-10-14": 23,
-    "2026-10-15": 1
+    "2026-10-15": 1,
+    "2026-10-16": 21
    },
    "nokido-agent": {
     "2026-10-04": 14,
@@ -540,7 +293,8 @@
     "2026-10-09": 3,
     "2026-10-13": 3,
     "2026-10-14": 13,
-    "2026-10-15": 1
+    "2026-10-15": 1,
+    "2026-10-16": 31
    }
   },
   "pypi_robots": {
@@ -555,7 +309,8 @@
     "2026-10-11": 94,
     "2026-10-12": 14,
     "2026-10-14": 2,
-    "2026-10-15": 5
+    "2026-10-15": 5,
+    "2026-10-16": 4
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -569,7 +324,8 @@
     "2026-10-12": 1,
     "2026-10-13": 3,
     "2026-10-14": 71,
-    "2026-10-15": 10
+    "2026-10-15": 10,
+    "2026-10-16": 90
    }
   },
   "releases": {
@@ -703,6 +459,15 @@
    }
   },
   "2026-10-16": {
+   "pypi": {
+    "netcfg-agent": 21,
+    "netcfg-agent-mcp": 21,
+    "nokido-agent": 31
+   },
+   "pypi_robots": {
+    "netcfg-agent-mcp": 4,
+    "nokido-agent": 90
+   },
    "runs_ci": 3
   }
  }
