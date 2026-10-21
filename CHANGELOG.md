@@ -3,6 +3,16 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 4c2ae4a5e..301807ecf -->
+## 2026-10-21 — alpha `4c2ae4a5e..301807ecf` (3 commits)
+
+### Corrections
+- **db_backup** : le controle FTS s'annonce avant de commencer et dit sa duree (`708754427`)
+- **securite** : aiohttp 3.14.4 pillow 13.0.0 certifi 2026.10.19 claude-agent-sdk 0.2.121 ; tokenizers 0.22.2 (`301807ecf`)
+
+### Maintenance
+- **db_backup** : RED -- le controle FTS est annonce avant de commencer et sa duree dite (`78453a6f6`)
+
 <!-- changelog: 9e516a617..3548d87fb -->
 ## 2026-10-21 — alpha `9e516a617..3548d87fb` (5 commits)
 

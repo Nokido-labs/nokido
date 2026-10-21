@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -82,6 +83,29 @@ def test_la_place_minimum_est_exigee(tmp_path):
     m = _mod()
     assert m.place_suffisante(tmp_path, 1) is True
     assert m.place_suffisante(tmp_path, 10 ** 18) is False
+
+
+def test_le_controle_est_annonce_avant_de_commencer_puis_sa_duree_dite(monkeypatch, tmp_path, capsys):
+    """21/10 (owner, sortie collee) : apres « [3] Rotation » la console ne disait plus rien pendant l'integrity-check
+    -- des heures sur HDD -- un silence qui se lit « fige ». L'etape est annoncee AVANT, sa duree dite APRES."""
+    m = _mod()
+    monkeypatch.setattr(m, "DB", _base(tmp_path / "vivante.db"))
+    monkeypatch.setattr(m, "place_suffisante", lambda d, minimum: True)
+    vu_au_lancement = {}
+    vrai = m.controler_fts
+
+    def espion(copie, tables):
+        vu_au_lancement["sortie"] = capsys.readouterr().out
+        return vrai(copie, tables)
+
+    monkeypatch.setattr(m, "controler_fts", espion)
+    monkeypatch.setattr(sys, "argv", ["forge_db_backup.py", "--dir", str(tmp_path / "copies"),
+                                      "--controle-fts", "rag_fts"])
+    assert m.main() == 0
+    avant = vu_au_lancement.get("sortie", "")
+    assert "[4]" in avant and "rag_fts" in avant and "copies" in avant, avant
+    apres = capsys.readouterr().out
+    assert re.search(r"rag_fts : OK .*en \d+(\.\d+)? s", apres), apres
 
 
 def test_le_point_d_entree_copie_controle_et_rapporte(monkeypatch, tmp_path):

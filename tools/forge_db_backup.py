@@ -228,9 +228,13 @@ def main() -> int:
 
     # 4. Controle FTS sur la copie brute ; le rapport s'ecrit TOUJOURS, corruption comprise (20/10)
     if args.controle_fts:
+        # 21/10 (owner) : sans annonce, des heures de lectures aleatoires sur HDD se lisaient « fige ».
+        print(f"\n[4] Controle FTS {', '.join(args.controle_fts)} sur la copie {raw_path} "
+              f"(integrity-check complet : peut durer des heures sur disque mecanique)...", flush=True)
+        t0 = time.monotonic()
         fts = controler_fts(raw_path, args.controle_fts)
         for table, etat in fts.items():
-            print(f"[4] FTS {table} : {etat}")
+            print(f"[4] FTS {table} : {etat} en {time.monotonic() - t0:.1f} s")
         if args.rapport:
             Path(args.rapport).write_text(json.dumps(
                 {"copie": str(raw_path), "fts": fts, "horodatage": ts, "octets": r1["src_bytes"]},
