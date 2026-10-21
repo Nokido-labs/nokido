@@ -200,7 +200,8 @@ jobs:
     # source ne publie donc plus ; `verify`, `publish` et `create-release` en
     # dependent et sautent avec lui.
     if: vars.NOKIDO_EDITEUR == 'true'
-    needs: build
+    # 21/10 (0.20.13 grillee) : televerser EST publier, et TestPyPI interdit tout re-televersement -- l'audit d'abord.
+    needs: [build, audit-deps]
     runs-on: ubuntu-24.04
     environment: testpypi
     permissions:

@@ -3,6 +3,15 @@
 Une section par push, générée par `tools/forge_changelog.py` à partir des messages de
 commit (rien n'est reformulé). Le détail de chaque changement est dans son commit.
 
+<!-- changelog: 4a259ea58..release-0.20.14 -->
+## 2026-10-21 — 0.20.14 (contenu de 4a259ea58, certifie)
+
+### Corrections
+- **release** : TestPyPI attend l'audit des dependances livrees (needs: [build, audit-deps]) ; 0.20.13 a ete grillee sur TestPyPI par un build televerse avant le verdict de l'audit, PyPI n'a rien recu (`3115857f5`)
+
+### Maintenance
+- **release** : 0.20.14 -- preuve HERITEE de 4a259ea58 (ecart limite a la version, au CHANGELOG et aux workflows, decision owner 21/10) (`b98f97c89`)
+
 <!-- changelog: 4c2ae4a5e..301807ecf -->
 ## 2026-10-21 — alpha `4c2ae4a5e..301807ecf` (3 commits)
 
