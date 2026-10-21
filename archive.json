@@ -247,11 +247,92 @@
    "inconnus": 0,
    "jour": "2026-10-16",
    "workflow": "installation-complete.yml"
+  },
+  "39490856286": {
+   "comptes": {
+    "netcfg-agent": 6,
+    "netcfg-agent-mcp": 6,
+    "pack": 3
+   },
+   "inconnus": 0,
+   "jour": "2026-10-20",
+   "workflow": "installation-complete.yml"
+  },
+  "39511140080": {
+   "comptes": {
+    "netcfg-agent": 6,
+    "netcfg-agent-mcp": 6,
+    "pack": 3
+   },
+   "inconnus": 0,
+   "jour": "2026-10-20",
+   "workflow": "installation-complete.yml"
+  },
+  "39555932863": {
+   "comptes": {
+    "netcfg-agent": 6,
+    "netcfg-agent-mcp": 6,
+    "pack": 3
+   },
+   "inconnus": 0,
+   "jour": "2026-10-21",
+   "workflow": "installation-complete.yml"
+  },
+  "39574404792": {
+   "comptes": {
+    "netcfg-agent": 6,
+    "netcfg-agent-mcp": 6,
+    "pack": 3
+   },
+   "inconnus": 0,
+   "jour": "2026-10-21",
+   "workflow": "installation-complete.yml"
   }
  },
  "dernier": {
-  "ci_runs": {},
-  "date": "2026-10-20",
+  "ci_runs": {
+   "39490856286": {
+    "comptes": {
+     "netcfg-agent": 6,
+     "netcfg-agent-mcp": 6,
+     "pack": 3
+    },
+    "inconnus": 0,
+    "jour": "2026-10-20",
+    "workflow": "installation-complete.yml"
+   },
+   "39511140080": {
+    "comptes": {
+     "netcfg-agent": 6,
+     "netcfg-agent-mcp": 6,
+     "pack": 3
+    },
+    "inconnus": 0,
+    "jour": "2026-10-20",
+    "workflow": "installation-complete.yml"
+   },
+   "39555932863": {
+    "comptes": {
+     "netcfg-agent": 6,
+     "netcfg-agent-mcp": 6,
+     "pack": 3
+    },
+    "inconnus": 0,
+    "jour": "2026-10-21",
+    "workflow": "installation-complete.yml"
+   },
+   "39574404792": {
+    "comptes": {
+     "netcfg-agent": 6,
+     "netcfg-agent-mcp": 6,
+     "pack": 3
+    },
+    "inconnus": 0,
+    "jour": "2026-10-21",
+    "workflow": "installation-complete.yml"
+   }
+  },
+  "date": "2026-10-21",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -275,7 +356,8 @@
     "2026-10-13": 22,
     "2026-10-14": 23,
     "2026-10-15": 1,
-    "2026-10-16": 21
+    "2026-10-16": 21,
+    "2026-10-20": 12
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 17,
@@ -283,7 +365,8 @@
     "2026-10-13": 22,
     "2026-10-14": 23,
     "2026-10-15": 1,
-    "2026-10-16": 21
+    "2026-10-16": 21,
+    "2026-10-20": 12
    },
    "nokido-agent": {
     "2026-10-04": 14,
@@ -307,7 +390,8 @@
     "2026-10-15": 7,
     "2026-10-17": 5,
     "2026-10-18": 2,
-    "2026-10-19": 2
+    "2026-10-19": 2,
+    "2026-10-20": 1
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 94,
@@ -317,7 +401,8 @@
     "2026-10-16": 4,
     "2026-10-17": 7,
     "2026-10-18": 3,
-    "2026-10-19": 2
+    "2026-10-19": 2,
+    "2026-10-20": 2
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -335,12 +420,13 @@
     "2026-10-16": 90,
     "2026-10-17": 14,
     "2026-10-18": 17,
-    "2026-10-19": 11
+    "2026-10-19": 11,
+    "2026-10-20": 9
    }
   },
   "releases": {
-   "n": 7,
-   "total": 88
+   "n": 8,
+   "total": 100
   },
   "runs_ci": {
    "2026-10-07": 3,
@@ -350,7 +436,9 @@
    "2026-10-12": 1,
    "2026-10-13": 1,
    "2026-10-14": 3,
-   "2026-10-16": 3
+   "2026-10-16": 3,
+   "2026-10-20": 2,
+   "2026-10-21": 2
   }
  },
  "jours": {
@@ -503,6 +591,21 @@
     "netcfg-agent-mcp": 2,
     "nokido-agent": 11
    }
+  },
+  "2026-10-20": {
+   "pypi": {
+    "netcfg-agent": 12,
+    "netcfg-agent-mcp": 12
+   },
+   "pypi_robots": {
+    "netcfg-agent": 1,
+    "netcfg-agent-mcp": 2,
+    "nokido-agent": 9
+   },
+   "runs_ci": 2
+  },
+  "2026-10-21": {
+   "runs_ci": 2
   }
  }
 }
