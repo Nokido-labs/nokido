@@ -89,19 +89,19 @@ continua dependendo de como você o implanta — e o que o Nokido **não** afirm
 
 ## 🚀 Início rápido
 
-<!-- PIP:BEGIN nokido-agent version=0.20.12 -->
-**From PyPI** — [`nokido-agent 0.20.12`](https://pypi.org/project/nokido-agent/0.20.12/), published after the
+<!-- PIP:BEGIN nokido-agent version=0.20.14 -->
+**From PyPI** — [`nokido-agent 0.20.14`](https://pypi.org/project/nokido-agent/0.20.14/), published after the
 install proof on Linux, Windows and macOS. The complete organism, its pinned components
 (checksums verified), then the hub:
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.12"
+pip install "nokido-agent[organisme]==0.20.14"
 nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token
 nokido-doctor                     # what this machine has, lacks, or cannot read
 nokido-hub                        # then: curl http://localhost:8766/health
 ```
 
-Client only (talks to an existing hub): `pip install nokido-agent==0.20.12`.
+Client only (talks to an existing hub): `pip install nokido-agent==0.20.14`.
 <!-- PIP:END -->
 
 **A partir de um clone** — o caminho que a própria CI usa ([detalhes](#-instalação)):
