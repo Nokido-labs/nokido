@@ -17,7 +17,11 @@ class BundleSession:
         self.endpoint = endpoint or os.environ.get(
             "LAFORGE_HUB_BUNDLE_URL", "http://127.0.0.1:8766/bundle"
         )
-        self.token = token or os.environ.get("FORGE_MCP_TOKEN", "")
+        if not token:
+            from nokido_agent.app.forge_secrets import get_secret  # coffre d'abord, env en dernier repli (16/10)
+
+            token = get_secret("FORGE_MCP_TOKEN") or ""
+        self.token = token
         self.calls = []
 
     def __enter__(self):

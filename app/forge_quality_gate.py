@@ -104,7 +104,7 @@ def block_if_failing(file_path: str) -> GateResult:
                 domain="systeme",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quality_gate.py', 106, exc_info=True)
         raise QualityGateError(f"Gate failed for {file_path}: {result.errors}")
     return result
 
@@ -135,7 +135,7 @@ def gate_check_result(task_id: str, result_text: str) -> List[str]:
             try:
                 tmp.unlink(missing_ok=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quality_gate.py', 137, exc_info=True)
     return errors
 
 

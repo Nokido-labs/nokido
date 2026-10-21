@@ -50,6 +50,9 @@ USAGE
     python tools/forge_backup_hotswap.py online
     python tools/forge_backup_hotswap.py offline
     python tools/forge_backup_hotswap.py list
+    python tools/forge_backup_hotswap.py archive-flux --source <db> --cible <arc.7z>
+    python tools/forge_backup_hotswap.py archive-verifier --archive <arc.7z>
+    python tools/forge_backup_hotswap.py archive-restaurer --archive <arc.7z> --dest <db>
 
 A ADAPTER avant premiere utilisation : la section CONFIGURATION ci-dessous
 (chemins SOURCES, ROOT, DISK_NUMBER si le disque est reinstalle ailleurs).
@@ -66,11 +69,19 @@ _RACINE_AMORCE = str(_Path_amorce(__file__).resolve().parent.parent)
 if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
 
+# python 3.14 : dataclasses._is_type lit sys.modules[cls.__module__].__dict__ SANS garde :
+# un module charge par spec.loader.exec_module (chemin des NR) doit etre enregistre par son
+# CHARGEUR avant exec, sinon `None.__dict__` au premier @dataclass. Le module ne
+# s'amorce PAS lui-meme ici -- voir _charger_le_module dans tests/nr.
+
 __FORGE_COLOR__ = "infra/deploy : backup hot-swap"  # organe declare le 2026-09-06 (audit de raccordement)
 
 import argparse
+import base64
+import hashlib
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -148,7 +159,10 @@ RETENTION_GENERATIONS = 5   # nombre de sauvegardes horodatees a conserver sur F
 # LOGGING
 # ---------------------------------------------------------------------------
 
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backup_hotswap.py', 164, exc_info=True)
 logger = logging.getLogger("Nokido.HotswapBackup")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
@@ -370,6 +384,282 @@ def export_sqlite(src: Path, dest: Path) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# ARCHIVE CHIFFREE EN FLUX (roadmap p1_archive_chiffree_flux_2026-10-14)
+# Une base vivante est archivee SANS aucun octet en clair sur disque : le
+# contenu (schema + lignes, FTS comprises) part en parts JSONL dans un .7z
+# AES-256 a entetes chiffres ; le manifeste porte l'empreinte sha256 de
+# chaque part. `archive-flux` / `archive-verifier` / `archive-restaurer`.
+# ---------------------------------------------------------------------------
+
+PART_OCTETS = 64 << 20        # taille cible d'une part JSONL en memoire
+WAL_MAX = 4 << 30             # WAL au-dela duquel l'archive abandonne (garde)
+
+
+def _cle_archive() -> str:
+    """Cle AES des archives : LUE au coffre, jamais generee ici.
+
+    `_backup_key` genere une cle si le coffre n'en a pas ; pour une archive c'est un piege :
+    une cle jamais sequestree (`export-key`) rend l'archive irrecuperable le jour ou le coffre
+    est perdu -- precisement le jour ou on en a besoin. Absente : REFUS, et le geste est dit.
+    """
+    sys.path.insert(0, str(ROOT))
+    from nokido_agent.app.forge_secrets import get_secret
+
+    k = get_secret(BACKUP_ENC_KEY_NAME, required=False)
+    if not k:
+        raise SystemExit(
+            "cle d'archive ABSENTE ou illisible pour ce compte : refus. Geste : "
+            "`forge_backup_hotswap.py export-key` sous le compte owner, puis relancer.")
+    return k
+
+
+def _q(nom: str) -> str:
+    return '"%s"' % nom.replace('"', '""')
+
+
+def _cellule(v):
+    return {"$b64": base64.b64encode(v).decode()} if isinstance(v, (bytes, bytearray, memoryview)) else v
+
+
+def _decellule(v):
+    return base64.b64decode(v["$b64"]) if isinstance(v, dict) and "$b64" in v else v
+
+
+def tables_a_exporter(con) -> tuple[list, list, list]:
+    """(schema SQL ordonne, tables ordinaires, tables virtuelles FTS) -- tables internes FTS ecartees."""
+    lignes = con.execute(
+        "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL "
+        "AND name NOT LIKE 'sqlite_%' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, rowid").fetchall()
+    virtuelles = [n for t, n, s in lignes if t == "table" and s.upper().startswith("CREATE VIRTUAL TABLE")]
+    # 19/10 (relecture avant integration) : SEULS les suffixes d'ombre de SQLite FTS3/4/5 sont internes -- un simple
+    # prefixe « <virtuelle>_ » ecartait aussi une table ORDINAIRE au nom voisin (rag_fts_sauvegarde), perdue en silence.
+    _OMBRE = ("_data", "_idx", "_content", "_docsize", "_config", "_segments", "_segdir", "_stat")
+    internes = {n for n in (x[1] for x in lignes)
+                for v in virtuelles if n in {v + suf for suf in _OMBRE}}
+    schema = [s for t, n, s in lignes if n not in internes]
+    ordinaires = [n for t, n, s in lignes if t == "table" and n not in virtuelles and n not in internes]
+    return schema, ordinaires, virtuelles
+
+
+def tables_sans_rowid(con) -> set[str]:
+    """Tables WITHOUT ROWID : `SELECT rowid, *` y est une erreur SQL. L'export se fait
+    sans la colonne rowid, et la restauration suit les colonnes annoncees par l'entete
+    de part -- donc aussi sans rowid."""
+    import re
+
+    return {n for n, s in con.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL")
+            if not s.upper().startswith("CREATE VIRTUAL TABLE")
+            and re.search(r"\bWITHOUT\s+ROWID\b", s, re.IGNORECASE)}
+
+
+def _ecrire_part(z, manifeste, table, k, lignes) -> None:
+    data = ("\n".join(lignes) + ("\n" if lignes else "")).encode()
+    nom = "donnees/%s/%05d.jsonl" % (table, k)
+    z.writestr(data, nom)
+    manifeste["parts"][nom] = {"octets": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def archive_exporter(src: Path, dest_7z: Path, cle: str) -> dict:
+    """Archive LOGIQUE chiffree en flux : instantane fige (BEGIN), parts JSONL dans un .7z
+    AES-256 a entetes chiffres, aucun fichier en clair sur disque. Rend le manifeste."""
+    import py7zr
+    if not cle:
+        raise SystemExit("cle d'archive ABSENTE : refus (jamais de cle generee ici, elle differerait des autres)")
+    con = sqlite3.connect("file:%s?mode=ro" % src.resolve().as_posix(), uri=True, timeout=30)
+    con.execute("BEGIN")                     # instantane fige pour TOUTE l'archive
+    manifeste = {"source": str(src), "debut": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 "tables": {}, "parts": {}}
+    filtres = [{"id": py7zr.FILTER_COPY}, {"id": py7zr.FILTER_CRYPTO_AES256_SHA256}]
+    dest_7z.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest_7z.with_suffix(".7z.partiel")
+    try:
+        schema, ordinaires, virtuelles = tables_a_exporter(con)
+        sans_rowid = tables_sans_rowid(con)
+        with py7zr.SevenZipFile(tmp, "w", password=cle, header_encryption=True, filters=filtres) as z:
+            z.writestr(";\n".join(schema).encode(), "schema.sql")
+            for table in ordinaires + virtuelles:
+                cols = [r[1] for r in con.execute("PRAGMA table_info(%s)" % _q(table))]
+                # WITHOUT ROWID : ni rowid dans le SELECT, ni rowid dans l'entete annoncee.
+                entete = cols if table in sans_rowid else ["rowid"] + cols
+                requete = ("SELECT * FROM %s" if table in sans_rowid
+                           else "SELECT rowid, * FROM %s") % _q(table)
+                n, k, tampon, taille = 0, 0, [], 0
+                for ligne in con.execute(requete):
+                    s = json.dumps([_cellule(c) for c in ligne], ensure_ascii=False)
+                    tampon.append(s)
+                    taille += len(s) + 1
+                    n += 1
+                    if taille >= PART_OCTETS:
+                        _ecrire_part(z, manifeste, table, k,
+                                     [json.dumps({"colonnes": entete})] + tampon)
+                        k, tampon, taille = k + 1, [], 0
+                        wal = Path(str(src) + "-wal")
+                        if wal.exists() and wal.stat().st_size > WAL_MAX:
+                            raise RuntimeError("WAL > %d Go pendant l'archive : abandon propre"
+                                               % (WAL_MAX >> 30))
+                if tampon or n == 0:
+                    _ecrire_part(z, manifeste, table, k,
+                                 [json.dumps({"colonnes": entete})] + tampon)
+                manifeste["tables"][table] = {"lignes": n, "colonnes": entete,
+                                              "fts": table in virtuelles}
+                logger.info("[archive] %s : %d lignes", table, n)
+            manifeste["fin"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+            z.writestr(json.dumps(manifeste, ensure_ascii=False, indent=1).encode(), "manifeste.json")
+        os.replace(tmp, dest_7z)
+    finally:
+        con.rollback()
+        con.close()
+        tmp.unlink(missing_ok=True)
+    size = dest_7z.stat().st_size
+    logger.info("[archive] %s -> %s (%.1f Mo)", src.name, dest_7z.name, size / 1e6)
+    return manifeste
+
+
+def _fabrique(sur_membre):
+    """WriterFactory py7zR : chaque membre est rejoue dans `sur_membre` (morceau/fin),
+    avec l'empreinte sha256 calculee en vol. Rien n'est ecrit en clair sur disque."""
+    from py7zr.io import Py7zIO, WriterFactory
+
+    class _Ecrivain(Py7zIO):
+        def __init__(self, nom):
+            self.nom, self._n, self._h = nom, 0, hashlib.sha256()
+
+        def write(self, s):
+            self._n += len(s)
+            self._h.update(s)
+            sur_membre.morceau(self.nom, bytes(s))
+            return len(s)
+
+        def read(self, size=None):
+            return self._h.hexdigest().encode()
+
+        def seek(self, offset, whence=0):
+            return 0
+
+        def flush(self):
+            return None
+
+        def size(self):
+            return self._n
+
+        def close(self):
+            sur_membre.fin(self.nom, self._h.hexdigest())
+
+    class _Fabrique(WriterFactory):
+        def create(self, filename):
+            return _Ecrivain(filename)
+
+    return _Fabrique()
+
+
+class _Verificateur:
+    def __init__(self):
+        self.empreintes, self.petits = {}, {}
+
+    def morceau(self, nom, b):
+        if not nom.startswith("donnees/"):
+            self.petits[nom] = self.petits.get(nom, b"") + b
+
+    def fin(self, nom, emp):
+        self.empreintes[nom] = emp
+
+
+def archive_verifier(archive: Path, cle: str) -> dict:
+    """Relit chaque part en UN passage (archive solide : extraire part par part serait
+    O(n^2)), recalcule l'empreinte de CHAQUE part et la compare au manifeste."""
+    import py7zr
+    v = _Verificateur()
+    with py7zr.SevenZipFile(archive, "r", password=cle) as z:
+        z.extract(factory=_fabrique(v))
+    man = json.loads(v.petits["manifeste.json"].decode())
+    fautes = [n for n, m in man["parts"].items() if v.empreintes.get(n) != m["sha256"]]
+    return {"parts": len(man["parts"]), "fautes": fautes,
+            "tables": {t: x["lignes"] for t, x in man["tables"].items()}}
+
+
+class _Restaurateur:
+    """Schema en DEUX TEMPS, puis insertion ligne a ligne de chaque part a mesure
+    qu'elle arrive (memoire bornee a une ligne).
+
+    Temps 1 (fin du membre schema.sql) : CREATE TABLE / CREATE VIRTUAL TABLE SEUL,
+    les donnees ont besoin des tables. Temps 2 (apres TOUTES les donnees, avant
+    commit, cf. `appliquer_schema_differe`) : CREATE INDEX / CREATE TRIGGER /
+    CREATE VIEW -- un declencheur pose AVANT les donnees re-indexe pendant la
+    restauration ce que la table FTS archivee contient deja (double indexation).
+    """
+
+    def __init__(self, con):
+        self.con, self.tampon, self.colonnes = con, {}, {}
+        self.schema, self.schema_differe = b"", []
+
+    def morceau(self, nom, b):
+        if nom == "schema.sql":
+            self.schema += b
+            return
+        if not nom.startswith("donnees/"):
+            return
+        t = self.tampon.get(nom, b"") + b
+        *completes, reste = t.split(b"\n")
+        self.tampon[nom] = reste
+        table = nom.split("/")[1]
+        for ligne in completes:
+            if not ligne:
+                continue
+            o = json.loads(ligne.decode())
+            if isinstance(o, dict) and "colonnes" in o:
+                self.colonnes[nom] = o["colonnes"]
+                continue
+            cols = self.colonnes[nom]
+            self.con.execute(
+                "INSERT INTO %s (%s) VALUES (%s)" % (_q(table), ",".join(_q(c) for c in cols),
+                                                     ",".join("?" * len(cols))),
+                [_decellule(c) for c in o])
+
+    def fin(self, nom, _emp):
+        if nom == "schema.sql":
+            for instr in self.schema.decode().split(";\n"):
+                if not instr.strip():
+                    continue
+                haut = instr.lstrip().upper()
+                if haut.startswith("CREATE TABLE") or haut.startswith("CREATE VIRTUAL TABLE"):
+                    self.con.execute(instr)
+                else:
+                    self.schema_differe.append(instr)
+
+    def appliquer_schema_differe(self) -> None:
+        """Index, declencheurs, vues : APRES toutes les donnees, avant commit."""
+        for instr in self.schema_differe:
+            self.con.execute(instr)
+        self.schema_differe = []
+
+
+def archive_restaurer(archive: Path, cle: str, dest_db: Path) -> dict:
+    """Restaure une archive chiffree dans une base NEUVE : tables et FTS crees d'abord,
+    donnees inserees, puis index/declencheurs/vues -- le FTS se RECONSTRUIT a l'insertion
+    de son contenu archive (ses tables internes ne le sont jamais), sans double indexation."""
+    import py7zr
+    con = sqlite3.connect(str(dest_db))
+    r = _Restaurateur(con)
+    try:
+        with py7zr.SevenZipFile(archive, "r", password=cle) as z:
+            z.extract(factory=_fabrique(r))
+        r.appliquer_schema_differe()
+        con.commit()
+        _schema, ordinaires, virtuelles = tables_a_exporter(con)
+        out = {t: con.execute("SELECT COUNT(*) FROM %s" % _q(t)).fetchone()[0]
+               for t in ordinaires + virtuelles}
+    except Exception:
+        con.close()
+        dest_db.unlink(missing_ok=True)     # jamais de base partielle qui refuserait un re-essai
+        raise
+    con.close()
+    logger.info("[restauration] %s : %s", dest_db.name, out)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # COPIE ARBORESCENCE (robocopy)
 # ---------------------------------------------------------------------------
 
@@ -538,7 +828,7 @@ def cmd_backup(dry_run: bool = False, do_offline: bool = True,
                 try:
                     disk_offline()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backup_hotswap.py', 830, exc_info=True)
             return 1
         _bk = _backup_key()
 
@@ -687,7 +977,21 @@ def main() -> int:
     p_backup.add_argument("--no-offline", action="store_true",
                            help="Ne remet pas le disque offline en fin de backup")
     p_backup.add_argument("--cible-fixe", default=None,
-                           help="Racine sur un disque FIXE (ex. E:\\Nokido_backups) : sans diskpart")
+                          help="Racine sur un disque FIXE (ex. E:\\Nokido_backups) : sans diskpart")
+
+    p_af = sub.add_parser("archive-flux",
+                          help="Archive LOGIQUE chiffree en flux d'une base SQLite vivante (aucun clair sur disque)")
+    p_af.add_argument("--source", required=True, help="fichier .db a archiver")
+    p_af.add_argument("--cible", required=True, help="fichier .7z de sortie (disque FIXE)")
+
+    p_av = sub.add_parser("archive-verifier",
+                          help="Relit chaque part en un passage, compare au manifeste (rc!=0 si ecart)")
+    p_av.add_argument("--archive", required=True, help="fichier .7z a verifier")
+
+    p_ar = sub.add_parser("archive-restaurer",
+                          help="Restaure une archive chiffree dans une base NEUVE (jamais par-dessus)")
+    p_ar.add_argument("--archive", required=True, help="fichier .7z a restaurer")
+    p_ar.add_argument("--dest", required=True, help="base SQLite de destination (doit etre ABSENTE)")
 
     args = parser.parse_args()
 
@@ -706,6 +1010,22 @@ def main() -> int:
     if args.command == "backup":
         return cmd_backup(dry_run=args.dry_run, do_offline=not args.no_offline,
                           cible_fixe=args.cible_fixe)
+    if args.command == "archive-flux":
+        cle = _cle_archive()
+        man = archive_exporter(Path(args.source), Path(args.cible), cle)
+        v = archive_verifier(Path(args.cible), cle)     # relecture IMMEDIATE, toujours
+        print(json.dumps({"tables": v["tables"], "parts": v["parts"], "fautes": v["fautes"]}, indent=1))
+        attendu = {t: x["lignes"] for t, x in man["tables"].items()}
+        return 0 if not v["fautes"] and v["tables"] == attendu else 1
+    if args.command == "archive-verifier":
+        v = archive_verifier(Path(args.archive), _cle_archive())
+        print(json.dumps(v, indent=1))
+        return 0 if not v["fautes"] else 1
+    if args.command == "archive-restaurer":
+        if Path(args.dest).exists():
+            raise SystemExit("destination EXISTANTE : refus (jamais de restauration par-dessus une base)")
+        print(json.dumps(archive_restaurer(Path(args.archive), _cle_archive(), Path(args.dest)), indent=1))
+        return 0
 
     return 1
 

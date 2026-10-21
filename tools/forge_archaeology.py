@@ -163,7 +163,7 @@ def main() -> int:
         with open(a.out, "w", encoding="utf-8") as fh:
             json.dump(res, fh, ensure_ascii=False, indent=1)
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_archaeology.py', 165, exc_info=True)
 
     if a.json:
         print(json.dumps(res, ensure_ascii=False, indent=2))

@@ -305,7 +305,7 @@ class ByteDataRouter:
             json.loads(data.decode("utf-8"))
             return ("json", data)
         except (ValueError, UnicodeDecodeError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_byte_router.py', 307, exc_info=True)
         return ("raw", data)
 
     def peek_and_route_sync(self, data: bytes) -> tuple[str, bytes]:

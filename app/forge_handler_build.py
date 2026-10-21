@@ -172,7 +172,7 @@ async def build_with_retry_loop(
                     [c["source"] for c in _callers[:5]],
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_build.py', 174, exc_info=True)
 
         # 3. Run Tests
         res_test = _step_run_python(test_cmd)

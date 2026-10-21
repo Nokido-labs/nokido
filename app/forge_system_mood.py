@@ -113,7 +113,7 @@ def _collect_metrics() -> dict:
         metrics["ram"] = psutil.virtual_memory().percent / 100.0
     except ImportError:
         # Fallback sans psutil — estimation depuis /proc si dispo
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_system_mood.py', 114, exc_info=True)
 
     metrics["uptime_h"] = (time.time() - _start_time) / 3600.0
 
@@ -131,7 +131,7 @@ def _collect_metrics() -> dict:
         conn.close()
         metrics["req_per_min"] = float(count)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_system_mood.py', 133, exc_info=True)
 
     return metrics
 

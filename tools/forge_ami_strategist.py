@@ -259,7 +259,7 @@ def hub_ask(
                         "raw_error": inner.get("error", "provider error"),
                     }
         except (json.JSONDecodeError, TypeError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ami_strategist.py', 261, exc_info=True)
         return {"ok": True, "text": text}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "text": "", "raw_error": str(e)}

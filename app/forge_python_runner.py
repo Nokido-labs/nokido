@@ -112,7 +112,7 @@ def _run_isolated(code: str, timeout: int = 30) -> dict:
         try:
             os.unlink(tmp)
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runner.py', 114, exc_info=True)
 
 
 @dataclass
@@ -171,7 +171,7 @@ class PythonRunner:
             try:
                 proc.kill()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runner.py', 173, exc_info=True)
             raise RuntimeError(f"Worker init failed: {ready}")
         return _Worker(proc=proc)
 
@@ -180,11 +180,11 @@ class PythonRunner:
             try:
                 dead.proc.kill()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runner.py', 182, exc_info=True)
             try:
                 self._all.remove(dead)
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runner.py', 186, exc_info=True)
             try:
                 w = self._spawn_worker()
                 self._all.append(w)
@@ -200,7 +200,7 @@ class PythonRunner:
                 try:
                     w.proc.kill()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runner.py', 202, exc_info=True)
             self._all.clear()
 
     # ── IPC ──────────────────────────────────────────────────────────────────

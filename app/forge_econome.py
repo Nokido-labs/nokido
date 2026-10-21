@@ -58,7 +58,7 @@ def _quota_pressure() -> float:
             if should_skip(p):
                 exhausted += 1
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_econome.py', 60, exc_info=True)
     return (exhausted / n) if n else 0.0
 
 
@@ -109,7 +109,7 @@ def govern_budget(daily_budget: Optional[float] = None, emit: bool = True) -> di
             )
             emitted = True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_econome.py', 111, exc_info=True)
 
     return {
         "ok": True,

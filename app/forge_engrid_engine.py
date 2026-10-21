@@ -581,7 +581,7 @@ class ForgeEngridEngine:
                 if vision and len(vision) > 50:
                     final = vision
             except Exception:
-                pass  # fallback : on garde le final existant
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_engrid_engine.py', 583, exc_info=True)
 
         return CycleResult(
             task=task,

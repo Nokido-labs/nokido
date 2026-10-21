@@ -47,7 +47,7 @@ def main():
                     parts.append(f"===== juicedata/{r}/{p.relative_to(dst)} =====\n"
                                  + p.read_text(encoding="utf-8", errors="ignore")[:5000])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/veille_juicedata_docker.py', 49, exc_info=True)
         if parts:
             (GI / f"juicedata_{r}.txt").write_text(
                 "\n\n".join(parts)[:400000], encoding="utf-8")

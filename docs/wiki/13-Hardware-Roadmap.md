@@ -13,7 +13,7 @@ empreinte: INCONNUE
 > Updated: 2026-09-17
 
 Nokido is designed to **follow the silicon**, not lock into a paradigm.
-This page is the technical companion to [MANIFESTO.md §6](../../MANIFESTO.md#6-évolution-matérielle--roadmap-par-puce).
+This page is the technical companion to [Manifesto §6](../i18n/MANIFESTO.en.md#6-hardware-evolution--roadmap-by-chip).
 
 ## 🎯 The big picture
 
@@ -81,6 +81,8 @@ implemented) will :
 2. Route ONNX inference per task type to the best backend :
    `DirectML > Vulkan > OpenVINO > HailoRT > EdgeTPU > CPU`.
 3. Surface a `/api/accelerators` endpoint for monitoring.
+
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
 
 ## 🦋 Phase B — Neuromorphic (12-24 months)
 
@@ -255,7 +257,7 @@ Nokido is ready for this world because :
 
 ## ⚡ Energy argument
 
-See [MANIFESTO §6.0](../../MANIFESTO.md#60-pourquoi-le-matériel-est-la-vraie-question--largument-énergétique).
+See [Manifesto §6.0](../i18n/MANIFESTO.en.md#60-why-hardware-is-the-real-question--the-energy-argument).
 Summary :
 
 - Human brain : ~500 B param equivalent, 20 W.

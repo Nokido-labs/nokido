@@ -571,7 +571,7 @@ def loop_status() -> dict:
             , errors="replace")
             branches = [b.strip().lstrip("* ") for b in r.stdout.splitlines() if b.strip()]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_web_service.py', 573, exc_info=True)
         return {
             "ok": True,
             "active": loop_info.get("active", False),
@@ -1338,4 +1338,4 @@ class _svc_ext:
 try:
     svc.__class__ = type("svc_extended", (svc.__class__, _svc_ext), {})
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_web_service.py', 1340, exc_info=True)

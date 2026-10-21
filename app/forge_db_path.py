@@ -621,6 +621,23 @@ def checkpoint_wal(seuil_mo: float = 512.0, *, truncate: bool = False,
             "wal_mo_apres": apres_mo}
 
 
+def _constater_verrou(signal: str, op) -> None:
+    """Compte une reprise / un abandon sur verrou AU NOM DU PRODUCTEUR (19/10, analyse 02 de l'audit).
+
+    Sans ce compte, la contention de la base partagee etait inmesurable : on ne savait ni QUI la subit ni
+    si elle croit. Ecrit dans la base DEDIEE de forge_signal_coupling (jamais la base RAG, qui est
+    precisement celle qui est verrouillee). Ne leve jamais : l'instrument ne casse pas l'ecriture.
+    """
+    try:
+        from nokido_agent.app.forge_signal_coupling import emit_signal
+
+        producteur = "%s.%s" % (getattr(op, "__module__", "?"),
+                                getattr(op, "__qualname__", type(op).__name__))
+        emit_signal(signal, emitter=producteur)
+    except Exception:  # noqa: BLE001  # muet-ok : l'observabilite ne casse pas l'ecriture observee
+        pass
+
+
 def write_retry(op, *, attempts: int = 6, base_delay: float = 0.2,
                 timeout: float | None = None, path: str | None = None):
     """Execute `op(conn)` en ECRITURE, en attendant son tour au lieu d'abandonner.
@@ -673,6 +690,7 @@ def write_retry(op, *, attempts: int = 6, base_delay: float = 0.2,
                 raise  # pas un verrou : la reprise serait un deni du vrai probleme
             if i == attempts - 1:
                 break
+            _constater_verrou("sqlite.verrou.reprise", op)
             time.sleep(base_delay * (2 ** i) + random.uniform(0, 0.15))
         finally:
             try:
@@ -682,6 +700,7 @@ def write_retry(op, *, attempts: int = 6, base_delay: float = 0.2,
                 # lever ICI masquerait l'erreur d'ecriture qu'on est en train de
                 # remonter.
                 pass
+    _constater_verrou("sqlite.verrou.abandon", op)
     raise sqlite3.OperationalError(
         f"ecriture abandonnee apres {attempts} tentatives sur verrou ({last}) — "
         "un voisin tient une transaction trop longue ; chercher un "

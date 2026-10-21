@@ -352,11 +352,19 @@ _WHOAMI_HEALTHY_STATES = {"running", "sleeping", "starting", "disabled"}
 _WHOAMI_HARD_STATES = ("crashed", "quarantine", "error", "failed")
 
 
-def whoami_degraded_services(services: dict) -> list:
-    """Services hors états sains, depuis le dict /supervisor/status. Pur (testable)."""
+def whoami_degraded_services(services: dict, desactives=None) -> list:
+    """Services hors états sains, depuis le dict /supervisor/status. Pur (testable).
+
+    `desactives` : noms declares `disabled = true` dans services.toml. Le superviseur ne publie pas ce drapeau :
+    un service a la demande ARRETE sortait « stopped », donc degrade (NokidoEmbedTrigger, 18/10). Seul l'arret est
+    explique par la politique ; un crash reste degrade. DISABLED_BY_POLICY n'est pas une panne.
+    """
+    desactives = set(desactives or ())
     out = []
     for name, sv in (services or {}).items():
         st = (sv.get("status") if isinstance(sv, dict) else None) or "?"
+        if name in desactives and st == "stopped":
+            continue
         if st not in _WHOAMI_HEALTHY_STATES:
             out.append(
                 {
@@ -547,7 +555,7 @@ class ToolRegistry:
         cmd = f'"{_PY}" "{script}" --service {svc} --state {state}'
         try:
             from nokido_agent.app.forge_sandbox_exec import spawn_as_trusted
-            r = await _aio.to_thread(lambda: spawn_as_trusted(cmd, timeout=200))
+            r = await _aio.to_thread(lambda: spawn_as_trusted(cmd, timeout=200, classe="CRITIQUE"))
         except Exception as e:  # noqa: BLE001
             return {"error": f"ensure_service: {type(e).__name__}: {str(e)[:120]}"}
         out = (r.get("stdout") or "").strip() if isinstance(r, dict) else str(r)
@@ -600,6 +608,14 @@ class ToolRegistry:
             def _classer_explore(_h, _q, **_k):
                 return _h[:60]
         files = sorted({h.get("file", "") for h in hits})
+        # PHASE 2 des gardes (owner 17/10) : une recon deleguee EST une consultation du domaine -- la trace du hub la
+        # retient (intention + fichiers vus), sinon le gate cognitif de governed_edit ignorerait la voie qu'il recommande.
+        try:
+            from nokido_agent.app.forge_introspect import noter_consultation as _noter
+
+            _noter(agent, "%s %s" % (intent, args.get("target") or ""), {"fichiers_procedures": files[:40]})
+        except Exception:  # noqa: BLE001 - muet-ok : la trace ne casse jamais la recon
+            pass
         _parts = []
         montres = _classer_explore(hits, query, par_fichier=2, plafond=affichage)
         for h in montres:
@@ -833,7 +849,7 @@ class ToolRegistry:
                     _sys.path.insert(0, _tp)
                 from nokido_agent.tools import forge_recon_breaker as _brk
                 _islf = _brk.is_nokido_args(args)
-                _v, _why, _n = _brk.verdict(str(agent or "HUB"), "read", _islf)
+                _v, _why, _n = _brk.verdict(_brk.cle_de_garde(str(agent or "HUB")), "read", _islf)
                 try:
                     with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
                         _lf.write(f"{int(_tm.time())} read agent={agent} islf={_islf} v={_v} n={_n}\n")
@@ -847,6 +863,70 @@ class ToolRegistry:
                     with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
                         _lf.write(f"BRK_ERR {type(_e).__name__}: {str(_e)[:140]}\n")
                 except Exception:
+                    pass
+
+        # PHASE 2 des gardes COTE HUB (owner 17/10 : « les garde fous doivent emaner du hub... et pareil pour les autres
+        # cli »). Un `run` python/shell qui ouvre un fichier de CODE du depot est une LECTURE : meme compteur, meme verdict
+        # que `read` -- mesure 17/10, CLAUDE relisait le depot par read_text dans run APRES le disjoncteur. Observation par
+        # defaut (compte + journal) ; refus si LAFORGE_GARDES_HUB=refus (Nokido.env, interrupteur owner).
+        if name == "run" and str(args.get("action") or "") in ("python", "shell"):
+            try:
+                from nokido_agent.tools import forge_recon_breaker as _brk2
+                from nokido_agent.app.forge_introspect import mode_gardes_hub as _mode_gh
+
+                _code2 = " ".join([str(args.get("code") or "")] + [str(c) for c in (args.get("commands") or [])])
+                if _brk2.lit_le_depot(_code2):
+                    import time as _tm2
+
+                    _v2, _why2, _n2 = _brk2.verdict(_brk2.cle_de_garde(str(agent or "HUB")), "read", True)
+                    _m2 = _mode_gh()
+                    try:
+                        with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
+                            _lf.write(f"{int(_tm2.time())} run-lecture agent={agent} v={_v2} n={_n2} mode={_m2}\n")
+                    except Exception:  # muet-ok : le journal du garde ne casse jamais le dispatch
+                        pass
+                    if _v2 == "deny" and _m2 == "refus":
+                        return {"error": "recon_throttled", "reason": "lecture du depot par run : " + _why2,
+                                "tool": name,
+                                "delegate_to": "read_function_body / get_file_skeleton / forge_deep_explore"}
+            except Exception as _e2:
+                try:
+                    with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
+                        _lf.write(f"BRK_ERR run {type(_e2).__name__}: {str(_e2)[:140]}\n")
+                except Exception:  # muet-ok : le journal du garde ne casse jamais le dispatch
+                    pass
+
+        # IMPULSION comptee par le HUB, par identite (phase 2, brique E) : meme coeur que le hook de Claude
+        # (hook_capability_gate.compter_tour), pour TOUS les clients MCP -- agy, vibe et opencode n'ont pas les hooks de
+        # Claude Code. Rafale de run python/shell/job_status ; une ecriture remet la fenetre a zero. Observation par defaut.
+        # Revue adverse de Codex (17/10, CONFIRME) : la remise a zero se faisait ICI, avant le handler -- un governed_edit
+        # trivial ou rate vidait la fenetre. Elle vit desormais dans le handler governed_edit, APRES l'ecriture reussie.
+        if name == "run":
+            try:
+                from nokido_agent.tools import forge_recon_breaker as _brk3
+                from nokido_agent.app.forge_introspect import mode_gardes_hub as _mode_gh3
+                from nokido_agent.tools.hook_capability_gate import est_sonde as _est_sonde3
+
+                # Meme classifieur que le hook (18/10) : un acte (commit, run_job, ecriture) n'est pas une sonde.
+                if _est_sonde3("run", dict(args or {})):
+                    _s3, _msg3 = _brk3.impulsion(_brk3.cle_de_garde(str(agent or "HUB")))
+                    _m3 = _mode_gh3()
+                    if _s3:
+                        import time as _tm3
+
+                        try:
+                            with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
+                                _lf.write(f"{int(_tm3.time())} impulsion agent={agent} statut={_s3} mode={_m3}\n")
+                        except Exception:  # muet-ok : le journal du garde ne casse jamais le dispatch
+                            pass
+                    if _s3 == "refus" and _m3 == "refus":
+                        return {"error": "impulsion", "reason": _msg3, "tool": name,
+                                "delegate_to": "UN script (run_job) qui rend un bilan"}
+            except Exception as _e3:
+                try:
+                    with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
+                        _lf.write(f"BRK_ERR impulsion {type(_e3).__name__}: {str(_e3)[:140]}\n")
+                except Exception:  # muet-ok : le journal du garde ne casse jamais le dispatch
                     pass
 
         # ITEM SECURITY: Détection d'injection MCP Claude Desktop
@@ -2771,7 +2851,18 @@ class ToolRegistry:
             headers = {"Content-Type": "application/json"}
             # NETCFG_MCP_TOKEN = bearer token direct :8767 (depuis ~/.netcfg-agent-mcp/token)
             # FORGE_TOKEN_NETCFG = token identité hub (différent — ne pas utiliser ici)
-            token = os.environ.get("NETCFG_MCP_TOKEN", "")
+            # Coffre d'abord (derogation owner du 16/10 ; mesure sous SYSTEM : une seule valeur, coffre machine) ;
+            # get_secret replie lui-meme sur l'env, et un coffre illisible replie sur l'env en le DISANT.
+            try:
+                from nokido_agent.app.forge_secrets import get_secret
+
+                token = get_secret("NETCFG_MCP_TOKEN") or ""
+            except Exception as _e_nc:  # noqa: BLE001
+                import logging as _lg
+
+                _lg.getLogger(__name__).warning("coffre illisible pour NETCFG_MCP_TOKEN (%s) -> repli env",
+                                                type(_e_nc).__name__)
+                token = os.environ.get("NETCFG_MCP_TOKEN", "")
             if not token:
                 _tf = Path.home() / ".netcfg-agent-mcp" / "token"
                 try:
@@ -3467,9 +3558,30 @@ class ToolRegistry:
         _allow_crit = bool(args.get("allow_critical"))
         if _allow_crit and ring > 1:
             return f"SECURITY: allow_critical refuse pour ring {ring} (reserve au ring <= 1)"
+        # GATE COGNITIF (phase 2 cote hub, owner 17/10) : un symbole neuf ou un fichier cree sans consultation de CE
+        # domaine par CET agent (forge_introspect.verdict_cognitif). Juge AVANT l'ecriture : en mode refus
+        # (LAFORGE_GARDES_HUB, interrupteur owner) une absence PROUVEE bloque ; en observation, l'avertissement
+        # accompagne l'ecriture reussie. Mesure 17/10 : 3 fonctions ajoutees dans des modules jamais consultes.
+        _cog = None
+        try:
+            from nokido_agent.app.forge_introspect import mode_gardes_hub as _mode_gh, verdict_cognitif as _vcog
+
+            _cog = _vcog(agent, str(path), content)
+            if _cog and _cog.startswith("COGNITIF :") and _mode_gh() == "refus":
+                return f"GOVERNED EDIT BLOCKED (cognitif): {_cog}"
+        except Exception as _e:  # noqa: BLE001 - le gate ne casse jamais l'edition
+            _cog = "COGNITIF INCONNU : gate indisponible (%s)" % type(_e).__name__
         verdict = governed_write(str(path), content, agent=agent, allow_critical=_allow_crit)
         if not verdict.get("ok"):
             return f"GOVERNED EDIT BLOCKED ({verdict.get('blocked')}): {verdict.get('reason')}"
+        if _cog:
+            verdict["avertissement_cognitif"] = _cog
+        try:  # impulsion : seule une edition REUSSIE remet la fenetre a zero (revue adverse Codex 17/10)
+            from nokido_agent.tools import forge_recon_breaker as _brk4
+
+            _brk4.impulsion_remise(_brk4.cle_de_garde(str(agent or "HUB")))
+        except Exception:  # noqa: BLE001 - muet-ok : un garde ne casse jamais l'edition
+            pass
         self.state_mgr.add_notification(f"governed_edit: {path.name}", source=agent)
         import json as _j
 
@@ -3992,61 +4104,26 @@ class ToolRegistry:
 
             # Admission control : 1 job lourd par lane (anti-stacking -> anti-wedge hub).
             # lane optionnel ; si fourni et deja tenu -> refus REACTIF (router ailleurs, pas empiler).
-            _lane = args.get("lane")
-            if not _lane:
-                # LANE DEDUITE (2026-08-29). Sans lane, l'anti-stacking ne s'armait
-                # PAS : cinq jobs lourds empiles le meme jour ont sature la RAM et
-                # fait tomber le hub. Un garde optionnel n'est pas un garde.
-                # On ne serialise pour autant RIEN de plus que necessaire : la lane
-                # porte le NOM DU FICHIER lance, donc deux lancements du MEME travail
-                # s'excluent, tandis que des fichiers DIFFERENTS restent paralleles
-                # -- swarm et fan-out intacts. « Ne jamais serialiser par prudence ».
-                _src = str(args.get("script") or args.get("path") or "").replace("\\", "/")
-                _lane = "auto:%s" % (_src.rsplit("/", 1)[-1] or "job")
-                if bool(args.get("online", False)):
-                    # Meme fichier, AUTRE compte (egress) : pas le meme travail. Vecu le
-                    # 2026-09-27 : une mesure lancee online puis offline etait refusee
-                    # (« lane occupee ») alors que les deux jobs etaient distincts.
-                    _lane += "@online"
+            _lane = args.get("lane") or ""
             _lane_acq = None
-            # CONTROLE D'EMBOLIE, avec lane OU SANS (2026-08-02) : sans lane ce chemin
-            # ne verifiait RIEN, et avec lane il ne verifiait que l occupation. Un job
-            # relance sur une machine a 96 % de RAM a gonfle jusqu a la famine memoire
-            # (dwm.exe tue, bureau fige, redemarrage manuel de l owner). check_ressources
-            # est FAIL-CLOSED (mesure impossible -> refus) et tente de LIBERER avant de
-            # refuser ; il ne prend aucun bail, donc les jobs ne sont pas serialises.
+            # ADMISSION UNIQUE (2026-10-16) : LANE DEDUITE (2026-08-29), embolie FAIL-CLOSED, lane
+            # occupee -- dans l'organe qui lance (forge_job_runner.admettre_lancement, l'historique de
+            # chaque garde y est ecrit), appelee aussi par POST /admin/run_job qui lancait sans aucun
+            # des trois. Le marqueur ci-dessus est celui de tools/forge_patch_lane_auto.py : present,
+            # le patch historique se sait applique et ne reinjecte jamais l'ancien bloc.
+            # HORS DE LA BOUCLE (2026-10-01, GO owner) : appele ici en direct, ce controle a fige la
+            # boucle du hub 567 s en 7 jours (292 gels, jusqu'a 5,5 s -- journal de forge_loop_sentinel).
+            from nokido_agent.app.forge_job_runner import admettre_lancement as _admettre
+
+            _adm = await asyncio.to_thread(_admettre, args.get("script") or args.get("path") or "",
+                                           bool(args.get("online", False)), _lane)
+            if not _adm.get("ok"):
+                return json.dumps(_adm, ensure_ascii=False)
+            _lane = _adm["lane"]
             try:
-                from nokido_agent.app.forge_lane_admission import check_ressources as _check_res
-
-                # HORS DE LA BOUCLE (2026-10-01, GO owner) : appele ici en direct, ce controle
-                # a fige la boucle du hub 567 s en 7 jours (292 gels, jusqu'a 5,5 s -- journal
-                # de forge_loop_sentinel) : mesure CPU dormante, puis `_try_reserve` qui libere
-                # et RE-mesure. Le verdict est le meme ; seul le fil qui attend change.
-                _resv = await asyncio.to_thread(_check_res, heavy=True)
-                if not _resv.get("ok"):
-                    return json.dumps({"ok": False, "admit": False, "lane": _lane or "",
-                                       "reason": _resv.get("reason"),
-                                       "reserve": _resv.get("reserve"),
-                                       "freed_gb": _resv.get("freed_gb"),
-                                       "alt_cloud": _resv.get("alt"),
-                                       "react": "machine saturee : alleger, attendre, ou router cloud :free"},
-                                      ensure_ascii=False)
+                from nokido_agent.app.forge_lane_admission import acquire as _lane_acq
             except ImportError:
-                pass  # muet-ok: module du depot absent -> on ne bloque pas le hub pour autant
-            if _lane:
-                try:
-                    from nokido_agent.app.forge_lane_admission import current as _lane_cur, acquire as _lane_acq, ALT_CLOUD as _ALTC
-
-                    _busy = _lane_cur(_lane)
-                    if _busy:
-                        return json.dumps({"ok": False, "admit": False, "lane": _lane,
-                                           "busy_by": _busy.get("holder"),
-                                           "reason": f"lane '{_lane}' occupee (1 job lourd/lane)",
-                                           "alt_cloud": _ALTC,
-                                           "react": "ne pas empiler : router cloud :free / autre lane / attendre"},
-                                          ensure_ascii=False)
-                except ImportError:
-                    _lane = None  # module absent -> pas d'admission, on laisse passer
+                _lane = None  # module absent -> pas d'admission, on laisse passer
 
             res = launch_job(
                 args.get("script") or args.get("path") or "", bool(args.get("online", False)),
@@ -5023,9 +5100,18 @@ class ToolRegistry:
             ).fetchone()
 
             # 6. Resource Discovery — providers, tools, RAG domains
-            _providers = _conn.execute(
-                "SELECT provider, ttft_ms, grade FROM provider_scores WHERE status='ok' ORDER BY ttft_ms ASC LIMIT 5"
-            ).fetchall()
+            # 17/10 (dette whoami_classe_vivant_un_modele_mort, derogation owner) : seuls les PROUVES vivants -- mesure
+            # de moins de 7 j, slot non perime, modele non prouve mort ; chaque ecarte est DIT dans la reponse.
+            try:
+                import time as _t_wh
+                from nokido_agent.app.forge_llm_router import scores_vivants as _scores_vivants
+                _providers, _providers_ecartes = _scores_vivants(
+                    [dict(r) for r in _conn.execute(
+                        "SELECT provider, ttft_ms, grade, measured_at FROM provider_scores WHERE status='ok' "
+                        "ORDER BY ttft_ms ASC LIMIT 50").fetchall()], _t_wh.time())
+                _providers = _providers[:5]
+            except Exception as _e_wh:  # noqa: BLE001
+                _providers, _providers_ecartes = [], {"_filtre": "ILLISIBLE (%s) : aucun vivant prouve" % type(_e_wh).__name__}
             # `_conn` lit legitimement la base RAG (biblio, scores, chunks) ; seule
             # la table d'AUTORITE en sort. Connexion dediee, fermee aussitot.
             from nokido_agent.app.forge_db_path import (
@@ -5078,7 +5164,13 @@ class ToolRegistry:
 
                 with _u.urlopen("http://127.0.0.1:8765/supervisor/status", timeout=3) as _r:
                     _svcs = _j.loads(_r.read()).get("services", {})
-                _degraded = whoami_degraded_services(_svcs)
+                try:
+                    from nokido_agent.app.forge_sensor_fusion_probe import _declared_services  # noqa: PLC0415
+
+                    _desactives = {n for n, d in _declared_services().items() if d.get("disabled")}
+                except Exception:  # noqa: BLE001 - registre illisible : AUCUN service excuse (sens prudent)
+                    _desactives = set()
+                _degraded = whoami_degraded_services(_svcs, _desactives)
             except Exception:
                 _degraded = []
             _health_actions = whoami_health_actions(_degraded)
@@ -5151,6 +5243,7 @@ class ToolRegistry:
                 "last_action": _last["created_at"] if _last else None,
                 # Resource Discovery — ce que Gemini Ultra appellait check_privileges()
                 "resources": {
+                    "providers_ecartes": _providers_ecartes,
                     "providers_available": [
                         {"model": p["provider"], "ttft_ms": p["ttft_ms"], "grade": p["grade"]} for p in _providers
                     ],
@@ -6581,12 +6674,19 @@ class ToolRegistry:
             import json as _json
             from nokido_agent.app import forge_ordres_bureau as _ob
 
+            # 19/10 (derogation owner, P1_demandes_admin) : la preuve d'identite posee par nokido_hub.py:3139 pour
+            # CETTE requete monte au bureau des ordres -- un CLI pilote prouve est questionne dans SA session.
+            try:
+                from nokido_agent.tools.forge_recon_breaker import IDENTITE_PROUVEE as _idp
+                _prouve = _idp.get() is True
+            except Exception:  # noqa: BLE001 - preuve illisible = non prouve : le dialogue reste la regle
+                _prouve = False
             if action == "redemarrer_stack":
-                r = await _ob.redemarrer_stack(agent, str(args.get("message") or ""))
+                r = await _ob.redemarrer_stack(agent, str(args.get("message") or ""), demandeur_prouve=_prouve)
             elif action == "demander_ordre":
                 r = await _ob.demander_ordre(agent, str(args.get("ordre") or ""), str(args.get("message") or ""),
                                              cible=str(args.get("cible") or ""), texte=str(args.get("texte") or ""),
-                                             pointeur=str(args.get("pointeur") or ""))
+                                             pointeur=str(args.get("pointeur") or ""), demandeur_prouve=_prouve)
             else:
                 r = _ob.prendre(agent)
             return _json.dumps(r, ensure_ascii=False)
@@ -7020,9 +7120,29 @@ class ToolRegistry:
         # chemins qui produisent cette trace, pas seulement par le chemin noble.
         self._log_query(topic, {"mode": "bm25"}, [r["id"] for r in rows if r["id"]],
                         int((_t_bm25.time() - _t0_bm25) * 1000))
+        # LoRA palier 2 (derogation owner 19/10) : le repli -- majorite des recherches reelles -- note aussi, et chaque
+        # extrait porte [chunk:<id>] pour qu'un CLI externe puisse citer ; pied [rag_recherche:<rid>] si note.
+        # import LOCAL : cette fonction s'execute aussi hors des globales du module (NR test_rag_lexical_exclut_inactifs)
+        from nokido_agent.app.forge_mcp_registry import ToolRegistry as _TR
+        _pied = _TR._noter_rag_citable(topic, [r["id"] for r in rows if r["id"]], None, "bm25")
         return "\n\n".join(
-            f"[{r['source']}] ({r['domain']}, bm25={r['rank']:.1f})\n{(r['text'] or '')[:400]}" for r in rows
-        )
+            f"[{r['source']}] ({r['domain']}, bm25={r['rank']:.1f}) [chunk:{r['id']}]\n{(r['text'] or '')[:400]}"
+            for r in rows
+        ) + _pied
+
+    @staticmethod
+    def _noter_rag_citable(topic, ids, scores, mode) -> str:
+        """Note la recherche (journal d'usage HORS base RAG) et rend le pied `[rag_recherche:<rid>]`, ou "" si coupe
+        (NOKIDO_RAG_SIGNAL=0) ou non note. Ne leve jamais : noter() journalise lui-meme ses pertes."""
+        if os.environ.get("NOKIDO_RAG_SIGNAL", "1") == "0" or not ids:
+            return ""
+        try:  # UN seul appel au journal d'usage, garde (invariant NR test_journal_usage_rag, accord owner 02/10)
+            from nokido_agent.app.forge_rag_usage_signal import noter as _noter_usage
+
+            rid = (_noter_usage(topic, list(ids), scores, source="handle_rag", mode=mode) or {}).get("id")
+        except Exception:  # noqa: BLE001  # muet-ok : noter() journalise lui-meme ses pertes
+            rid = None
+        return "\n\n[rag_recherche:%s]" % rid if rid else ""
 
     @staticmethod
     def _rag_query_filter(topic: str) -> dict:
@@ -7128,8 +7248,10 @@ class ToolRegistry:
         `LAFORGE_VEC_SIDECAR_PORT=8098`. Le cutover etait DECLARE et pas EFFECTIF : le
         drapeau n'etait lu que par `forge_rag_engine`, qui n'est meme pas importe ici.
         Quand le sidecar repond, on ne demande donc plus la colonne `embedding` et on
-        n'alloue plus de matrice. On garde `ids`, `meta`, `exts`, `folders` : le rerank
-        et l'affichage en dependent, et ils pesent 264 Mo, pas 4,7 Go.
+        n'alloue plus de matrice. On garde `ids`, `exts`, `folders` : le rerank et
+        l'affichage en dependent. La meta du cache est VIDE en delegation : ses 264 Mo
+        portaient surtout le texte des 1,15 M chunks, relu a chaque recharge pour un
+        rerank qui n'en consulte que 80 — `_meta_par_ids` le lit a la demande.
         """
         import sqlite3
         import struct as _st
@@ -7171,14 +7293,17 @@ class ToolRegistry:
             _ids, _meta, _exts, _folders = [], {}, [], []
             # Meme filtre `embedding IS NOT NULL` que le mode local : le jeu d'ids doit
             # rester celui que Qdrant indexe, sinon `idpos` ne remappe plus rien.
-            for _cid, _src, _dom, _txt, _ext, _fold in _conn.execute(
-                "SELECT id, source, domain, text, ext, folder FROM rag_chunks "
+            # NI source, NI domain, NI text (owner 19/10 : disque 100 %, RAM > 80 %) :
+            # ce SELECT relisait 1,15 M lignes de texte (46,5 Go) a CHAQUE recharge du
+            # cache alors que la recherche n'en consulte que 80 — le texte n'est lu que
+            # pour les candidats, par `_meta_par_ids`. `_meta` reste donc VIDE ici.
+            for _cid, _ext, _fold in _conn.execute(
+                "SELECT id, ext, folder FROM rag_chunks "
                 "WHERE embedding IS NOT NULL"
             ):
                 if not _cid:
                     continue
                 _ids.append(_cid)
-                _meta[_cid] = {"source": _src, "domain": _dom, "text": (_txt or "")[:512]}
                 _exts.append(_ext or "")
                 _folders.append(_fold or "")
             _conn.close()
@@ -7304,6 +7429,35 @@ class ToolRegistry:
             "folders": _np.array(folders),
             "ts": _t.time(),
         }
+
+    def _meta_par_ids(self, ids) -> dict:
+        """{id: {source, domain, text[:512]}} des SEULS ids demandes, lus par cle (dense delegue, 19/10).
+
+        Remplace la meta du corpus entier que `_load_dense_cache` relisait a chaque recharge (1,15 M
+        lignes, 46,5 Go, 7 fois le 19/10). Id absent de la base = absent du resultat ; base illisible
+        = {} et warning, jamais d'exception vers la recherche (qui ecarte alors ses candidats)."""
+        import sqlite3
+
+        voulus = [i for i in dict.fromkeys(ids or []) if i]
+        out: dict = {}
+        if not voulus:
+            return out
+        try:
+            conn = sqlite3.connect(str(self.db_path), timeout=20)
+            try:
+                for k in range(0, len(voulus), 500):
+                    lot = voulus[k:k + 500]
+                    for cid, src, dom, txt in conn.execute(
+                            "SELECT id, source, domain, text FROM rag_chunks WHERE id IN (%s)"
+                            % ",".join("?" * len(lot)), lot):
+                        out[cid] = {"source": src, "domain": dom, "text": (txt or "")[:512]}
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            logging.getLogger(__name__).warning(
+                "[rag] meta a la demande ILLISIBLE (%s) : %d id(s) sans meta", type(e).__name__, len(voulus))
+            return {}
+        return out
 
     def _dense_refresh_bg(self) -> None:
         """Pre-warm/refresh du cache dense en thread daemon, race-garde.
@@ -7488,16 +7642,12 @@ class ToolRegistry:
             cache["idpos"] = idpos
         # Multi-Query : si demande, reformule la requete en variantes (LLM).
         queries = self._rag_multi_query(topic) if multi else [topic]
-        body = _j.dumps({"input": queries}).encode()
-        req = _u.Request(
-            "http://127.0.0.1:8099/v1/embeddings",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with _u.urlopen(req, timeout=20) as r:
-            qd = _j.loads(r.read())["data"]
-        qm = _np.asarray([it["embedding"] for it in sorted(qd, key=lambda x: x.get("index", 0))], dtype=_np.float32)
+        # 19/10 (voie longue, derogation owner) : requetes BORNEES par le routeur, meme embedder :8099 (espace Qdrant).
+        from nokido_agent.app.forge_embed_router import _llama8099_call
+        _vecs = _llama8099_call(list(queries), timeout=20)
+        if not _vecs:
+            raise RuntimeError("embedder :8099 indisponible ou requete refusee")
+        qm = _np.asarray(_vecs, dtype=_np.float32)
         qm /= _np.linalg.norm(qm, axis=1, keepdims=True) + 1e-9
         flt = self._rag_query_filter(topic)
         mode = "hybride"
@@ -7584,6 +7734,18 @@ class ToolRegistry:
             if i not in seen:
                 seen.add(i)
                 cand.append(i)
+        # DENSE DELEGUE (19/10) : la meta du cache est vide -- source, domaine et texte des SEULS
+        # candidats (<= 100) lus par cle. Un candidat sans meta (chunk disparu entre deux lectures)
+        # est ECARTE et compte au journal, jamais affiche vide.
+        _manquants = [ids[i] for i in cand if ids[i] not in meta]
+        if _manquants:
+            meta = dict(meta)
+            meta.update(self._meta_par_ids(_manquants))
+            _avant = len(cand)
+            cand = [i for i in cand if ids[i] in meta]
+            if len(cand) < _avant:
+                logging.getLogger(__name__).warning(
+                    "[rag] %d candidat(s) sans meta ecarte(s) sur %d", _avant - len(cand), _avant)
         # TRACE BRUTE hors du canal de connaissance. `session:auto_*` indexe les
         # tool_calls VERBATIM, requete comprise : la recherche retrouvait en tete
         # l'appel d'outil ou la question figurait mot pour mot — le RAG rendait son
@@ -7645,17 +7807,16 @@ class ToolRegistry:
         out = []
         for i in final:
             m = meta[ids[i]]
-            out.append(f"[{m['source']}] ({m['domain']}, {mode})\n{(m['text'] or '')[:400]}")
+            out.append(f"[{m['source']}] ({m['domain']}, {mode}) [chunk:{ids[i]}]\n{(m['text'] or '')[:400]}")
         out = self._reorder_mid(out)
         self._log_query(topic, flt, [ids[i] for i in final], int((_t.time() - _t0) * 1000))
-        try:  # journal d'usage HORS base RAG (LoRA retrieval, 2026-10-02) ; ne bloque jamais
-            from nokido_agent.app.forge_rag_usage_signal import noter as _noter_usage
-            _noter_usage(topic, [ids[i] for i in final],
-                         [x.get("relevance_score") for x in res[:len(final)]] if "+rerank" in mode else None,
-                         source="handle_rag", mode=mode)
-        except Exception:  # noqa: BLE001  # muet-ok : noter() journalise lui-meme ses pertes
-            pass
-        return "\n\n".join(out) if out else "Aucun resultat."
+        # journal d'usage HORS base RAG (LoRA, 2026-10-02) ; palier 2 (19/10) : [chunk:] + pied [rag_recherche:],
+        # interrupteur NOKIDO_RAG_SIGNAL dans _noter_rag_citable ; ne bloque jamais
+        from nokido_agent.app.forge_mcp_registry import ToolRegistry as _TR
+        _pied = _TR._noter_rag_citable(
+            topic, [ids[i] for i in final],
+            [x.get("relevance_score") for x in res[:len(final)]] if "+rerank" in mode else None, mode)
+        return ("\n\n".join(out) + _pied) if out else "Aucun resultat."
 
     def _log_query(self, topic: str, flt: dict, retrieved: list = None, latency_ms: int = 0) -> None:
         """Journalise la requete RAG (schema riche : query, filtres, ids
@@ -8401,7 +8562,7 @@ class ToolRegistry:
                 from nokido_agent.app.forge_python_bin import LAFORGE_PYTHON
 
                 _script = str(self.root / "app" / "forge_docker_agent.py")
-                _r = spawn_as_trusted(f'"{LAFORGE_PYTHON}" "{_script}" --ensure-daemon', timeout=30)
+                _r = spawn_as_trusted(f'"{LAFORGE_PYTHON}" "{_script}" --ensure-daemon', timeout=30, classe="CRITIQUE")
                 return (_r.get("stdout") or "").strip() or _j.dumps(
                     {"ok": False, "error": "ensure: no output", "stderr": (_r.get("stderr") or "")[:300]})
             except Exception as e:  # noqa: BLE001

@@ -86,7 +86,7 @@ class wait_retry_after(wait_base):
                     try:
                         return float(after)
                     except (TypeError, ValueError):
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_retry_strategies.py', 88, exc_info=True)
         return wait_exponential()(retry_state)
 
     def __repr__(self) -> str:
@@ -178,14 +178,14 @@ def retry_if_rate_limited():
             if isinstance(_rle, type) and isinstance(exc, _rle):
                 return True
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_retry_strategies.py', 180, exc_info=True)
         try:
             import httpx as _hx
 
             if isinstance(exc, _hx.HTTPStatusError):
                 return exc.response.status_code == 429
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_retry_strategies.py', 187, exc_info=True)
         if isinstance(exc, TimeoutError):
             return True
         return any(kw in str(exc).lower() for kw in ("rate_limit", "429", "quota", "too many", "slow down"))

@@ -80,7 +80,7 @@ def _refresh_expired() -> None:
             with _lock:
                 _cache[key] = {"token": token, "forged_at": now, "ttl": INTENTS.get(intent, 30)}
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_payload_cache.py', 82, exc_info=True)
 
 
 def get(to_agent: str, intent: str) -> Optional[str]:

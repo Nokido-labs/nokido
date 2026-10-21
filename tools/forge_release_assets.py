@@ -165,11 +165,14 @@ SCHEMA = "nokido-distribution"
 VERSION_SCHEMA = 1
 AU_BUILD = "au_build"
 SOURCES = ("depot", "url", "construit")
+# rag_pack_source (owner 20/10) : un pack par SOURCE documentaire = par licence, tar non compresse lisible en mmap.
 BUILDERS = {"code": "nokido-{version}-src.tar.gz", "vendor_lock": "vendor.lock",
-            "rag_pack": "nokido_knowledge_pack_v{version}.npz"}
+            "rag_pack": "nokido_knowledge_pack_v{version}.npz",
+            "rag_pack_source": "nokido_pack_{famille}_v{version}.tar"}
 STATUTS_PACK = ("PRET", "A_EPINGLER")
 _CLES_COMPOSANT = {"id", "description", "source", "chemin", "url", "construit", "sha256",
-                   "taille", "licence", "obligatoire"}
+                   "taille", "licence", "obligatoire", "famille", "domaine", "conditions", "preuve"}
+_LICENCES_NON_AFFIRMEES = ("NOASSERTION", "INCONNU", "UNKNOWN")
 _CLES_REQUISES = ("id", "source", "sha256", "taille", "licence", "obligatoire")
 _HEX64 = frozenset("0123456789abcdef")
 
@@ -240,6 +243,15 @@ def _valider_composant(c: dict, ou: str, racine: Path, erreurs: list, avert: lis
         if sha != AU_BUILD or taille != AU_BUILD:
             erreurs.append("%s : un composant construit porte sha256 = taille = %r"
                            % (ou, AU_BUILD))
+        if c.get("construit") == "rag_pack_source":
+            # Source TIERCE redistribuee : sa licence est AFFIRMEE et PROUVEE, sinon elle ne part pas (owner 20/10).
+            for k in ("famille", "conditions"):
+                if not str(c.get(k) or "").strip():
+                    erreurs.append("%s : un pack par source porte `%s`" % (ou, k))
+            if not str(c.get("preuve") or "").startswith("https://"):
+                erreurs.append("%s : `preuve` de licence en https requise (%r)" % (ou, c.get("preuve")))
+            if str(c.get("licence") or "").strip().upper() in _LICENCES_NON_AFFIRMEES:
+                erreurs.append("%s : licence d'une source tierce non affirmee (%r)" % (ou, c.get("licence")))
         return
     if not (isinstance(sha, str) and len(sha) == 64 and set(sha) <= _HEX64):
         erreurs.append("%s : sha256 manquante ou mal formee (%r)" % (ou, sha))
@@ -401,7 +413,8 @@ def sceller_manifeste(dossier=None, racine=None) -> dict:
     return {"changes": changes}
 
 
-def verifier_lot(out_dir: Path, version: str, manifeste: dict | None = None, racine=None) -> dict:
+def verifier_lot(out_dir: Path, version: str, manifeste: dict | None = None, racine=None,
+                 packs_sources: bool = True) -> dict:
     """Le LOT construit tient-il le manifeste ? Fail-closed.
 
     * chaque composant `construit` obligatoire est present ET liste dans SHA256SUMS avec sa
@@ -433,6 +446,19 @@ def verifier_lot(out_dir: Path, version: str, manifeste: dict | None = None, rac
             elif sommes.get(nom) != sha256_file(f):
                 erreurs.append("%s : somme de %s absente ou fausse dans SHA256SUMS"
                                % (c.get("id"), nom))
+    # 20/10 (GREEN OPENCODE_GPTOSS 53f28d7f2, corrige) : chaque `rag_pack_source` OBLIGATOIRE du pack knowledge tient
+    # dans le lot avec sa somme. Sans ce controle une release sortait sans AUCUN de ces packs, sans erreur. Il ne
+    # s'eteint que DIT (`packs_sources=False`, repetition --skip-packs-sources), jamais selon la forme de l'appel.
+    if packs_sources:
+        for c in (man.get("packs", {}).get("knowledge", {}).get("composants") or []):
+            if c.get("construit") != "rag_pack_source" or not c.get("obligatoire"):
+                continue
+            nom = nom_pack_source(c.get("famille"), version)
+            f = out_dir / nom
+            if not f.is_file():
+                erreurs.append("%s : %s absent du lot" % (c.get("id"), nom))
+            elif sommes.get(nom) != sha256_file(f):
+                erreurs.append("%s : somme de %s absente ou fausse dans SHA256SUMS" % (c.get("id"), nom))
     # Le chemin tel quel, en / et en \\, et SANS sa racine de volume : un membre d'archive
     # ne porte jamais de « / » initial ni de lecteur (tar les retire) -- « home/u/nokido/x ».
     posix = racine.as_posix()
@@ -500,6 +526,36 @@ def build_code_tarball(out_dir: Path, version: str, branch: str, repo: Path | No
     return dest
 
 
+def _relire_par_l_importeur_du_dist(pack: Path, depot: Path) -> int:
+    """Le pack construit est RELU par l'importeur que l'utilisateur executera : celui du dist publie (pas celui de
+    l'atelier, qui peut avoir avance). Mesure 0.20.12 (16/10) : le pack natif declarait `.../3-natif`, l'importeur
+    livre dans la meme version ne lisait que `.../2` -- « format inconnu », RAG vide chez l'utilisateur, vu
+    seulement APRES publication. Illisible ou importeur absent -> refus, et le pack est mis de cote (`.refuse`) :
+    un upload du dossier d'assets ne peut plus l'emporter."""
+    import importlib.util
+
+    src = depot / "tools" / "forge_knowledge_pack_import.py"
+
+    def _refus(raison: str):
+        refuse = pack.with_name(pack.name + ".refuse")
+        pack.replace(refuse)
+        raise SystemExit("[rag] pack REFUSE : %s -- l'importeur que l'utilisateur executera ne le lit pas. "
+                         "Pack mis de cote : %s" % (raison, refuse.name))
+
+    if not src.is_file():
+        _refus("importeur absent du dist (tools/forge_knowledge_pack_import.py)")
+    spec = importlib.util.spec_from_file_location("kp_import_du_dist", src)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        lu = mod.lire_pack(pack)
+    except Exception as e:  # toute raison de ne pas lire est un refus, DIT avec sa cause
+        _refus("%s: %s" % (type(e).__name__, e))
+    n = len((lu or {}).get("texts") or [])
+    print(f"[rag] relu par l'importeur du dist : {n} fragments")
+    return n
+
+
 def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
     """Knowledge Pack ESSENTIEL : fragments PROUVES publics, prouves contre le clone du dist.
 
@@ -523,7 +579,37 @@ def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
     print(f"[rag] pack natif -> {dest.name} (arbre publie de {Path(depot).name}, bge-m3 local)")
     stats = kpe.export_pack_natif(dist=Path(depot), output=dest, version=version)
     print(f"[rag] {stats['retenus']} fragments, {dest.stat().st_size / 1e6:.1f} MB, sha256 {stats['sha256'][:12]}")
+    _relire_par_l_importeur_du_dist(dest, Path(depot))
     return dest
+
+
+def nom_pack_source(famille, version: str) -> str:
+    """Nom de l'asset d'un pack par source -- UN seul calcul pour la construction, le lot et les NR (20/10)."""
+    from nokido_agent.tools import forge_knowledge_pack_export as kpe
+    return BUILDERS["rag_pack_source"].format(famille=kpe.slug_famille(str(famille or "")), version=version)
+
+
+def build_rag_packs_sources(out_dir: Path, version: str, man: dict | None = None, base=None) -> list:
+    """Construit en UN passage les packs par source (rag_pack_source) OBLIGATOIRES du pack knowledge ; une source
+    declaree a 0 fragment REFUSE la release (GREEN OPENCODE_GPTOSS 53f28d7f2, decisions owner 20/10)."""
+    from nokido_agent.tools import forge_knowledge_pack_export as kpe
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    man = valider_manifeste() if man is None else man
+    composants = man.get("packs", {}).get("knowledge", {}).get("composants") or []
+    sources = [c for c in composants if c.get("construit") == "rag_pack_source" and c.get("obligatoire")]
+    if not sources:
+        return []
+    stats = kpe.exporter_sources(Path(base) if base is not None else kpe.base_rag(), sources, out_dir, version)
+    tars = []
+    for c in sources:
+        s = stats.get(str(c.get("famille") or ""))
+        if not s or not s.get("retenus"):
+            raise SystemExit("[packs] REFUS : aucun fragment pour la source declaree %s (%s)"
+                             % (c.get("famille"), c.get("id")))
+        tars.append(Path(s["out_path"]))
+    return tars
 
 
 def write_vendor_lock(dest=None) -> Path:
@@ -619,11 +705,16 @@ def main() -> int:
                          "du dist : le clone dist, avec --branch = son commit D.")
     ap.add_argument("--out", default=None)
     ap.add_argument("--skip-pack", action="store_true")
+    ap.add_argument("--skip-packs-sources", action="store_true",
+                    help="REPETITION : sauter les packs par source (le lot ne les exige alors pas)")
     ap.add_argument("--vendor-lock-only", action="store_true")
     ap.add_argument("--verifier-manifeste", action="store_true",
                     help="valider distribution/ (fail-closed) et sortir : 0 valide, 1 refuse")
     ap.add_argument("--sceller-manifeste", action="store_true",
                     help="MAINTENANCE : recalculer sha256/taille des composants `depot`")
+    ap.add_argument("--pack-seul", action="store_true",
+                    help="REPETITION : construire le SEUL Knowledge Pack du snapshot (--repo = son clone) pour la "
+                         "release BROUILLON que l'essai importera sur les 3 OS (decision owner 16/10)")
     args = ap.parse_args()
 
     if args.vendor_lock_only:
@@ -647,6 +738,23 @@ def main() -> int:
     ) / "laforge-release" / f"v{args.version}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.pack_seul:
+        # Pack CANDIDAT : construit AVANT l'essai, depuis le snapshot essaye, relu par l'importeur du dist
+        # (build_rag_pack refuse sinon). 0.20.12 : le pack n'etait construit qu'a la promotion et jamais essaye.
+        if not args.repo:
+            print("[pack-seul] --repo (clone du snapshot de repetition) requis", file=sys.stderr)
+            return 1
+        import hashlib as _h
+        pack = build_rag_pack(out_dir, args.version, args.repo)
+        sha = _h.sha256(pack.read_bytes()).hexdigest()
+        print(json.dumps({"pack": str(pack), "sha256": sha, "version": args.version}, ensure_ascii=False))
+        print("[pack-seul] depot sur la release BROUILLON (session owner) :\n"
+              "  gh release create v%s --draft --repo <depot public> --title \"v%s (brouillon de repetition)\" "
+              "--notes \"Knowledge Pack candidat, sha256 %s\" %s\n"
+              "  (brouillon deja cree : gh release upload v%s --clobber --repo <depot public> %s)"
+              % (args.version, args.version, sha, pack, args.version, pack))
+        return 0
+
     assets = []
     assets.append(build_code_tarball(out_dir, args.version, args.branch, args.repo))
     # Dans le LOT, jamais dans le depot : une construction ne mute pas sa
@@ -655,9 +763,12 @@ def main() -> int:
     assets.append(write_vendor_lock(out_dir / "vendor.lock"))
     if not args.skip_pack:
         assets.append(build_rag_pack(out_dir, args.version, args.repo))
+    avec_sources = not (args.skip_pack or args.skip_packs_sources)
+    if avec_sources:
+        assets.extend(build_rag_packs_sources(out_dir, args.version, man))
     write_sha256sums(out_dir, assets)
     write_manifest(out_dir, args.version, args.branch, assets)
-    lot = verifier_lot(out_dir, args.version, man)
+    lot = verifier_lot(out_dir, args.version, man, packs_sources=avec_sources)
     if not lot["ok"]:
         print("[lot] REFUSE :\n  " + "\n  ".join(lot["erreurs"]), file=sys.stderr)
         return 1

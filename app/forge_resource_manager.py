@@ -529,6 +529,16 @@ def _sample_top_procs(n: int = 5) -> list[dict]:
 _ATTRIB_TTL_S = 60.0
 _ATTRIB_CACHE: dict = {"ts": 0.0, "val": None}
 _ATTRIB_DERNIER_AUDIT_TS = 0.0
+# La PENTE d'une fuite se lit sur plusieurs mesures (owner 19/10 : audiodg gagnait
+# ~200 handles/min depuis le boot). Une seule mesure ne dit rien : un pid sans pente
+# mesurable est ABSENT du rendu, jamais a 0 -- « pas mesure » n'est pas « ca va ».
+_HANDLES_HIST: dict = {}
+_HANDLES_HIST_MAXLEN = 30
+_FENETRE_PENTE_S = 600.0
+_REMEDE_TTL_S = 6 * 3600.0
+_REMEDE_NOTIFIES: dict = {}
+_GONFLE_NOTIFIES: dict = {}      # pid du hub -> derniere alerte organe_gonfle (meme TTL que les remedes)
+_ALERTE_GONFLE_DERNIER = 0.0
 
 
 def _perf_systeme() -> dict | None:
@@ -557,6 +567,35 @@ def _perf_systeme() -> dict | None:
         return None
 
 
+_IDENT_JOBS_TTL_S = 300.0
+_IDENT_JOBS_CACHE: dict = {"ts": 0.0, "val": None, "source": None}
+
+
+def _identites_corps(procs: dict) -> dict:
+    """Identites PROUVEES des runtimes (owner 19/10 « tout doit etre identifiable ») : demandees a l'organe qui sait,
+    forge_process_inventory.identifier_processus (job et battement coherents dans le temps, parente), jamais a un nom.
+    L'index des fiches de jobs (~4 400 fichiers, ~1 s mesure 20/10) est cache 300 s : ce calcul tourne sur le hub."""
+    if not procs:
+        return {}
+    try:
+        from nokido_agent.tools import forge_process_inventory as _inv
+    except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+        import forge_process_inventory as _inv
+    now = time.time()
+    source = _inv._jobs_par_pid
+    if (_IDENT_JOBS_CACHE["val"] is None or _IDENT_JOBS_CACHE["source"] is not source
+            or now - _IDENT_JOBS_CACHE["ts"] > _IDENT_JOBS_TTL_S):
+        _IDENT_JOBS_CACHE.update(ts=now, val=source(), source=source)
+    vivants = {}
+    for pid, p in procs.items():
+        try:
+            cree = p.create_time()
+        except Exception:  # noqa: BLE001 - creation illisible : None, aucune preuve temporelle possible
+            cree = None
+        vivants[pid] = {"nom": (p.info or {}).get("name"), "ppid": (p.info or {}).get("ppid"), "cree": cree}
+    return _inv.identifier_processus(vivants, {}, _IDENT_JOBS_CACHE["val"], _inv._battements_par_pid())[0]
+
+
 def attribuer_pression(force: bool = False) -> dict:
     """Qui porte la memoire ENGAGEE : SOI (le corps), NON_SOI (le reste de la machine), NOYAU.
 
@@ -569,7 +608,7 @@ def attribuer_pression(force: bool = False) -> dict:
         return _ATTRIB_CACHE["val"]
     out: dict = {"verdict": "INCERTAIN", "soi_gb": 0.0, "non_soi_gb": 0.0, "incertain_gb": 0.0,
                  "illisibles": 0, "top_non_soi": [], "top_handles": [], "raison": "",
-                 "mesure_ts": now}
+                 "fuyards": [], "mesure_ts": now}
     out.update(_perf_systeme() or {})
     if not _PSUTIL_OK:
         out["raison"] = "psutil indisponible"
@@ -586,6 +625,14 @@ def attribuer_pression(force: bool = False) -> dict:
         procs[p.info["pid"]] = p
     parent = {pid: p.info.get("ppid") for pid, p in procs.items()}
     lanceurs = {parent.get(pid) for pid in corps} - {None}
+    # 19/10 (owner « tout identifiable ») : un job DETACHE ou un organe qui bat hors registre est du corps quand son
+    # identite est PROUVEE (job / battement coherents dans le temps) ; illisible -> dit, le registre seul decide.
+    out["soi_par_identite"] = []
+    try:
+        ids = _identites_corps(procs) or {}
+    except Exception as e:  # noqa: BLE001
+        ids = {}
+        out["identification_illisible"] = type(e).__name__
 
     def _du_corps(pid: int) -> bool:
         vus, cur = set(), pid
@@ -612,6 +659,9 @@ def attribuer_pression(force: bool = False) -> dict:
             classe = "incertain"
         elif _du_corps(pid):
             classe = "soi"
+        elif (ids.get(pid) or {}).get("preuve") in ("job", "battement", "parente"):
+            classe = "soi"
+            out["soi_par_identite"].append(pid)
         else:
             classe = "non_soi"
             non_soi.append((prive, pid, nom))
@@ -620,6 +670,7 @@ def attribuer_pression(force: bool = False) -> dict:
             handles.append((p.num_handles(), pid, nom, classe))
         except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
             pass  # muet-ok : les illisibles de handles ne changent pas le verdict memoire
+    out["soi_par_identite"].sort()
     for k, v in parts.items():
         out[k + "_gb"] = round(v, 2)
     non_soi.sort(reverse=True)
@@ -627,6 +678,11 @@ def attribuer_pression(force: bool = False) -> dict:
     out["top_non_soi"] = [{"name": n, "pid": pid, "gb": round(g, 2)} for g, pid, n in non_soi[:3]]
     out["top_handles"] = [{"name": n, "pid": pid, "handles": h, "classe": c}
                           for h, pid, n, c in handles[:3]]
+    # Historique pour la pente : les 5 plus gros detenteurs (le top 3 du rendu ne suit pas
+    # une fuite qui monte hors du podium), puis pente mesuree sur la fenetre glissante.
+    _verser_hist_handles(handles[:5], now, set(procs))
+    pentes = pente_handles(_HANDLES_HIST)
+    out["fuyards"] = fuyards_hors_corps(out["top_handles"], pentes)
     if not corps:
         out["raison"] = out["raison"] or "registre superviseur muet : soi non prouvable"
     else:
@@ -640,6 +696,9 @@ def attribuer_pression(force: bool = False) -> dict:
             out["verdict"] = rang[0][0]
             out["raison"] = "part dominante de la memoire engagee lisible"
     _ATTRIB_CACHE.update(ts=now, val=out)
+    # HORS DU CACHE : le remede est un effet de bord de la mesure, jamais du rendu mis en
+    # cache (une lecture depuis le cache ne redit jamais un remede).
+    _proposer_remedes_hors_corps(out.get("fuyards") or [], now)
     return out
 
 
@@ -654,11 +713,225 @@ def resume_attribution(a: dict | None) -> str:
         s += ", noyau %.1f+%.1f Go, %s handles systeme" % (
             a["noyau_pagine_gb"], a["noyau_non_pagine_gb"], a.get("handles_systeme"))
     s += ")"
-    if a.get("top_non_soi"):
-        s += " | non-soi: " + ", ".join("%s %.1f Go" % (t["name"], t["gb"]) for t in a["top_non_soi"])
+    # Les detenteurs de handles AVANT le hors-corps : l'audit tronque vers 200 caracteres et le 19/10 la ligne
+    # finissait sur « | handles: » -- audiodg.exe (690 705 handles) etait coupe, le remede invisible.
     if a.get("top_handles"):
         s += " | handles: " + ", ".join("%s %s" % (t["name"], t["handles"]) for t in a["top_handles"])
+    if a.get("top_non_soi"):
+        s += " | non-soi: " + ", ".join("%s %.1f Go" % (t["name"], t["gb"]) for t in a["top_non_soi"])
     return s
+
+
+def pente_handles(historique, fenetre_s: float = 600.0) -> dict:
+    """Pente en handles/min par pid, mesuree SUR la fenetre qui se termine a la derniere mesure.
+
+    Contrat (owner 19/10) : ne retenir que les points de [max_ts - fenetre_s, max_ts] ; un
+    pid n'apparait que s'il porte >= 2 points DONT la duree couverte vaut au moins la moitie
+    de la fenetre. Sinon il est ABSENT -- jamais 0 : une pente non mesuree n'est pas une pente
+    nulle (audiodg montait de ~200 handles/min depuis le boot ; un 0 se serait lu « ca va »,
+    alors que la fuite est exactement la)."""
+    if not historique or fenetre_s <= 0:
+        return {}
+    points: dict = {}
+    for pid, pts in historique.items():
+        if not pts:
+            continue
+        try:
+            points[pid] = sorted((float(ts), float(h)) for ts, h in pts)
+        except (TypeError, ValueError):
+            continue  # muet-ok : point illisible, ce pid n'est pas mesure ici (pente ABSENTE, jamais 0)
+    if not points:
+        return {}
+    max_ts = max(pts[-1][0] for pts in points.values())
+    bas = max_ts - fenetre_s
+    out: dict = {}
+    for pid, pts in points.items():
+        fen = [p for p in pts if bas <= p[0] <= max_ts]
+        if len(fen) < 2:
+            continue
+        duree = fen[-1][0] - fen[0][0]
+        if duree < fenetre_s / 2.0:
+            continue
+        out[pid] = (fen[-1][1] - fen[0][1]) / duree * 60.0
+    return out
+
+
+def _seuil_env(valeur, cle, defaut) -> float:
+    """Seuil : valeur explicite, sinon variable d'env, sinon defaut ; illisible -> defaut (jamais une exception)."""
+    try:
+        return float(valeur if valeur is not None else os.environ.get(cle, defaut))
+    except (TypeError, ValueError):
+        return float(defaut)
+
+
+def gonflement_organe(points, facteur=None, plancher_gb=None) -> dict:
+    """Un organe du CORPS gonfle-t-il par rapport a SA PROPRE baseline ? (audit pair F, 19/10 : hub 0,45 -> 8,5 Go en
+    10 min, RAM 95,5 %, Hamilton muet car verdict global NON_SOI.) `points` = [(ts, rss_gb)], le dernier = maintenant ;
+    baseline = mediane des points de plus de 10 min dans l'heure et demie. GONFLE si le dernier RSS >= max(plancher,
+    facteur x baseline) ; moins de 5 points de baseline -> INCONNU. Constat seulement : jamais de suspension d'un VITAL."""
+    f = _seuil_env(facteur, "NOKIDO_GONFLEMENT_FACTEUR", 3)
+    plancher = _seuil_env(plancher_gb, "NOKIDO_GONFLEMENT_PLANCHER_GO", 2)
+    pts = sorted((float(t), float(r)) for t, r in (points or []) if r is not None)
+    if not pts:
+        return {"etat": "INCONNU", "motif": "aucun point"}
+    t_fin, rss = pts[-1]
+    base = sorted(r for t, r in pts if t_fin - 5400.0 <= t <= t_fin - 600.0)
+    if len(base) < 5:
+        return {"etat": "INCONNU", "motif": "%d point(s) de baseline < 5" % len(base), "rss_gb": rss}
+    med = base[len(base) // 2] if len(base) % 2 else (base[len(base) // 2 - 1] + base[len(base) // 2]) / 2.0
+    etat = "GONFLE" if rss >= max(plancher, f * med) else "NORMAL"
+    return {"etat": etat, "rss_gb": rss, "baseline_gb": round(med, 3),
+            "rapport": round(rss / med, 1) if med > 0 else None, "seuil_gb": round(max(plancher, f * med), 3)}
+
+
+def fuyards_hors_corps(top_handles, pentes, seuil_handles=None, seuil_pente=None) -> list:
+    """Les entrees HORS CORPS (classe `non_soi`) au-dessus d'un seuil de handles OU de pente.
+
+    Meme ordre que `top_handles`. Le corps n'y figure jamais : ses fuites relevent de
+    l'executif Hamilton, pas d'un remede de bureau. `pente_min` complete chaque fuyard
+    (None si cette pente n'est pas mesuree). Defauts d'env : NOKIDO_FUITE_HANDLES (100000)
+    et NOKIDO_FUITE_PENTE_MIN (100 handles/min)."""
+
+    sh, sp = _seuil_env(seuil_handles, "NOKIDO_FUITE_HANDLES", 100000), _seuil_env(
+        seuil_pente, "NOKIDO_FUITE_PENTE_MIN", 100)
+    p = pentes or {}
+    fuyards = []
+    for ent in top_handles or []:
+        if not isinstance(ent, dict) or ent.get("classe") != "non_soi":
+            continue
+        pente = p.get(ent.get("pid"))
+        try:
+            pente = None if pente is None else float(pente)
+        except (TypeError, ValueError):
+            pente = None  # pente illisible : traitee comme non mesuree, pas comme nulle
+        try:
+            handles = float(ent.get("handles") or 0)
+        except (TypeError, ValueError):
+            handles = 0.0
+        if handles >= sh or (pente is not None and pente >= sp):
+            fuyards.append({**ent, "pente_min": pente})
+    return fuyards
+
+
+def _verser_hist_handles(top, maintenant, vivants) -> None:
+    """Alimente `_HANDLES_HIST` (deque maxlen 30) pour les pids du top 5 mesure, et purge les
+    pids morts. Best-effort : la mesure doit passer meme si l'historique reste muet. Un registre
+    vide ne prouve pas la mort d'un pid -- on ne purge que face a des pids vivants observes."""
+    try:
+        for h, pid, _nom, _classe in (top or []):
+            _HANDLES_HIST.setdefault(
+                pid, collections.deque(maxlen=_HANDLES_HIST_MAXLEN)
+            ).append((float(maintenant), float(h)))
+        if vivants:
+            for pid in [p for p in _HANDLES_HIST if p not in vivants]:
+                _HANDLES_HIST.pop(pid, None)
+    except Exception as e:  # noqa: BLE001 - historique muet : la mesure rend quand meme
+        logging.getLogger(__name__).debug("[handles] historique NON alimente (%s)", type(e).__name__)
+
+
+def _fuyard_vise(prop: dict, fuyards: list):
+    """Relie une proposition au fuyard qu'elle concerne : pid, puis nom, puis unicite."""
+    pid = prop.get("pid")
+    if pid is not None:
+        for f in fuyards:
+            if f.get("pid") == pid:
+                return f
+    nom = prop.get("name") or prop.get("fuyard")
+    if nom:
+        for f in fuyards:
+            if f.get("name") == nom:
+                return f
+    return fuyards[0] if len(fuyards) == 1 else None
+
+
+def _alerter_organe_gonfle(maintenant=None, chemin=None) -> dict:
+    """Efferent de gonflement_organe (audit pair F, 19/10 : hub 0,45 -> 8,5 Go, aucun organe ne l'a dit). Lit la
+    queue de sandbox/hub_blackbox.jsonl (pid courant du hub) ; GONFLE -> audit `organe_gonfle` que le pilote relit,
+    remede = relance du hub par l'owner, au plus 1 fois / 6 h par pid. Jamais d'action automatique sur un VITAL."""
+    import json as _j
+
+    f = Path(chemin) if chemin else Path(__file__).resolve().parent.parent / "sandbox" / "hub_blackbox.jsonl"
+    try:
+        taille = f.stat().st_size
+        with open(f, "rb") as h:
+            h.seek(max(0, taille - 300_000))
+            brut = h.read().decode("utf-8", "replace").splitlines()
+    except OSError as e:
+        return {"etat": "INCONNU", "motif": "boite noire illisible (%s)" % type(e).__name__}
+    points = []
+    for ligne in (brut[1:] if taille > 300_000 else brut):
+        try:
+            r = _j.loads(ligne)
+            hub = r.get("hub") or {}
+            points.append((hub["pid"], float(r["ts"]), float(hub["rss_gb"])))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            continue  # muet-ok : ligne coupee ou sans hub, la suite de la queue reste lisible
+    if not points:
+        return {"etat": "INCONNU", "motif": "aucun point du hub dans la boite noire"}
+    pid = points[-1][0]
+    v = dict(gonflement_organe([(t, g) for p, t, g in points if p == pid]), pid=pid)
+    maintenant = time.time() if maintenant is None else maintenant
+    if v.get("etat") != "GONFLE" or maintenant - _GONFLE_NOTIFIES.get(pid, -1e18) < _REMEDE_TTL_S:
+        return v
+    _GONFLE_NOTIFIES[pid] = maintenant
+    _audit_lifecycle("organe_gonfle", "ram",
+                     "hub pid %s : %.2f Go vs baseline %.2f Go (x%s) -- remede owner : relance du hub "
+                     "(redemarrer_stack), jamais automatique" % (pid, v["rss_gb"], v["baseline_gb"], v.get("rapport")),
+                     target="hub", pid=pid, ordre="restart")
+    return v
+
+
+def _proposer_remedes_hors_corps(fuyards, maintenant=None) -> list:
+    """Propose le remede de bureau pour chaque fuyard et le DIT au pilote (owner 19/10 :
+    « faut solutionner ca durablement », sans console administrateur).
+
+    Import de `forge_ordres_bureau` PROTEGE : module absent ou `proposer_remedes` encore
+    absent (le chantier des ordres de bureau vit ailleurs) -> rien d'invente, rien n'echoue.
+    Ce module ne porte aucun canal M2M : sa voix est l'audit de cycle de vie que le pilote
+    relit -- `remede_propose`, au plus 1 fois par (fuyard, ordre) toutes les 6 h."""
+    if not fuyards:
+        return []
+    maintenant = time.time() if maintenant is None else maintenant
+    for k in [k for k, ts in _REMEDE_NOTIFIES.items() if maintenant - ts >= _REMEDE_TTL_S]:
+        _REMEDE_NOTIFIES.pop(k, None)
+    try:
+        from nokido_agent.app import forge_ordres_bureau as _ob
+    except Exception:  # noqa: BLE001
+        try:
+            import forge_ordres_bureau as _ob
+        except Exception:  # noqa: BLE001
+            _ob = None
+    fn = getattr(_ob, "proposer_remedes", None)
+    if not callable(fn):
+        return []
+    try:
+        propositions = fn(fuyards) or []
+    except Exception as e:  # noqa: BLE001 - pas de remede : le diagnostic tient sans lui
+        logging.getLogger(__name__).debug("[remede] proposer_remedes KO (%s)", type(e).__name__)
+        return []
+    notifiees = []
+    for prop in propositions:
+        if not isinstance(prop, dict):
+            continue
+        fuyard = _fuyard_vise(prop, fuyards)
+        cle = (str(fuyard.get("pid") if fuyard else prop.get("name")),
+               str(prop.get("pointer_ref") or prop.get("ordre") or ""))
+        derniere = _REMEDE_NOTIFIES.get(cle)
+        if derniere is not None and maintenant - derniere < _REMEDE_TTL_S:
+            continue  # deja dit il y a moins de 6 h : la meme fuite, le meme ordre
+        _REMEDE_NOTIFIES[cle] = maintenant
+        notifiees.append(prop)
+        src = fuyard or prop
+        pente = src.get("pente_min")
+        _audit_lifecycle(
+            "remede_propose", "ram",
+            "%s -> %s : %s handles, pente %s/min" % (
+                src.get("name", "?"), prop.get("pointer_ref") or prop.get("ordre") or "?",
+                src.get("handles", "?"),
+                "non mesuree" if pente is None else "%.0f" % pente),
+            target=src.get("name"), pid=src.get("pid"),
+            ordre=prop.get("pointer_ref") or prop.get("ordre"))
+    return notifiees
 
 
 def _sample_once() -> dict[str, Any]:
@@ -859,7 +1132,7 @@ def lever_veto_sommeil(service: str) -> bool:
     try:
         _fichier_veto(service).unlink()
     except FileNotFoundError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_resource_manager.py', 861, exc_info=True)
     except OSError:
         return False
     return True
@@ -1074,17 +1347,31 @@ _last_supervisor_sleep_ts: float = 0.0
 _last_supervisor_wake_ts: float = 0.0
 
 
-def _supervisor_auth_headers() -> dict:
+def _supervisor_auth_headers(nom: str = "RESOURCE_MANAGER") -> dict:
     """Phase 23A : supervisor Deno :8765 exige Bearer sur /supervisor/* mutations.
     Sans ce header, POST /sleep/<X> retournait 401 silencieux → brain_worker
-    restait UP même au-dessus seuil RAM (bug critique observe 2026-05-25)."""
+    restait UP même au-dessus seuil RAM (bug critique observe 2026-05-25).
+
+    2026-10-17 : la brique UNIQUE des en-tetes vers le superviseur. Jeton lu au COFFRE d'abord (get_secret, puis
+    l'environnement en repli) -- depuis 6b82355ea le hub tient ses jetons du coffre ; `nom` : chaque appelant se nomme
+    (manage_forge_lifecycle envoyait ses ordres SANS en-tete : START/RESTART en 401, STATUS passait)."""
     import os as _os
 
-    tok = _os.environ.get("LAFORGE_SUPERVISOR_TOKEN") or _os.environ.get("FORGE_MCP_TOKEN") or ""
+    tok = ""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret as _gs
+
+        tok = _gs("LAFORGE_SUPERVISOR_TOKEN") or _gs("FORGE_MCP_TOKEN") or ""
+    except Exception as e:  # noqa: BLE001
+        import logging as _logging
+
+        _logging.getLogger("Nokido.ResourceManager").warning(
+            "[superviseur] coffre illisible pour le jeton (%s) : repli sur l'environnement", type(e).__name__)
+    tok = tok or _os.environ.get("LAFORGE_SUPERVISOR_TOKEN") or _os.environ.get("FORGE_MCP_TOKEN") or ""
     # 2026-09-24 : se NOMMER. Le superviseur journalise desormais l'appelant de chaque ordre
     # (sandbox/supervisor_ordres.jsonl) ; sans nom, les mises en sommeil du regulateur etaient
     # indiscernables de celles de n'importe quel porteur du jeton partage. Declare != prouve.
-    h = {"LaForge-Agent-Name": "RESOURCE_MANAGER"}
+    h = {"LaForge-Agent-Name": nom}
     if tok:
         h["Authorization"] = f"Bearer {tok}"
     return h
@@ -1096,7 +1383,9 @@ def _supervisor_sleep_non_essential() -> None:
         import urllib.request as _ur
 
         _h = _supervisor_auth_headers()
-        for svc in _non_essential_sains():
+        sains = _non_essential_sains()
+        _observer_hamilton(sains)   # OBSERVATION (audit RAM 18/10) : la liste reste seule a decider
+        for svc in sains:
             try:
                 req = _ur.Request(f"{_SUPERVISOR_URL}/sleep/{svc}", method="POST", headers=_h)
                 with _ur.urlopen(req, timeout=3):
@@ -1942,6 +2231,42 @@ def _sampler_loop() -> None:
                 logging.getLogger(__name__).debug(
                     "[bail] tick d'expiration ignore (%s)", type(_e).__name__)
 
+            # REGULATION DISQUE (owner 2026-10-19 : « disque toujours a 100 % »). Le canal
+            # disque.occupation_pct existe depuis le 05/09 sans aucun effecteur : on branche
+            # ici l'executif Hamilton sur le debit d'E/S, meme patron que les baux -- cadence
+            # 60 s (la fenetre de couts fait deja ~3 s), en THREAD (ordres superviseur).
+            try:
+                global _REGULATION_DISQUE_DERNIER
+                if time.time() - _REGULATION_DISQUE_DERNIER >= 60.0:
+                    _REGULATION_DISQUE_DERNIER = time.time()
+                    threading.Thread(target=_regulation_disque_tick,
+                                     name="forge_regulation_disque", daemon=True).start()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "[regulation_disque] tick declenchement ignore (%s)", type(_e).__name__)
+
+            # EXECUTIF HAMILTON ARME (decision owner 19/10) : a CHAQUE cycle de 60 s, pas seulement au-dessus de
+            # 78 % -- sinon la reprise apres calme n'arriverait jamais. Arme, il remplace la liste figee ci-dessous.
+            try:
+                global _REGULATION_HAMILTON_DERNIER
+                if _hamilton_arme() and time.time() - _REGULATION_HAMILTON_DERNIER >= 60.0:
+                    _REGULATION_HAMILTON_DERNIER = time.time()
+                    threading.Thread(target=_regulation_hamilton_tick,
+                                     name="forge_hamilton_arme", daemon=True).start()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "[hamilton] tick declenchement ignore (%s)", type(_e).__name__)
+            # ORGANE DU CORPS GONFLE (audit pair F, 19/10) : toutes les 5 min, constat dit au pilote, jamais d'action.
+            try:
+                global _ALERTE_GONFLE_DERNIER
+                if time.time() - _ALERTE_GONFLE_DERNIER >= 300.0:
+                    _ALERTE_GONFLE_DERNIER = time.time()
+                    threading.Thread(target=lambda: _alerter_organe_gonfle(),
+                                     name="forge_organe_gonfle", daemon=True).start()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "[organe_gonfle] tick declenchement ignore (%s)", type(_e).__name__)
+
             ram_pct = float(new.get("ram_pct") or 0.0)
             now = time.time()
             # DETRESSE VITALE mesuree, jamais supposee. Trois etats : une valeur
@@ -1970,8 +2295,11 @@ def _sampler_loop() -> None:
                     daemon=True,
                 ).start()
             # Soft eviction: sleep non-essential services via supervisor at 78%
+            # Liste figee seulement si Hamilton est DESARME (NOKIDO_HAMILTON_ARME=0) : deux regulateurs sur les
+            # memes services, l'un endormant et l'autre reveillant, oscilleraient.
             if (
-                ram_pct >= _SUPERVISOR_SLEEP_RAM_THRESHOLD
+                not _hamilton_arme()
+                and ram_pct >= _SUPERVISOR_SLEEP_RAM_THRESHOLD
                 and (now - _last_supervisor_sleep_ts) > _AUTO_EVICT_COOLDOWN_S
             ):
                 _last_supervisor_sleep_ts = now
@@ -1981,7 +2309,8 @@ def _sampler_loop() -> None:
                     daemon=True,
                 ).start()
             # Wake: restore services when RAM drops below 65%
-            elif ram_pct < _SUPERVISOR_WAKE_RAM_THRESHOLD and (now - _last_supervisor_wake_ts) > 300.0:
+            elif (not _hamilton_arme() and ram_pct < _SUPERVISOR_WAKE_RAM_THRESHOLD
+                  and (now - _last_supervisor_wake_ts) > 300.0):
                 _last_supervisor_wake_ts = now
                 threading.Thread(
                     target=_supervisor_wake_non_essential,
@@ -3997,6 +4326,558 @@ def _cout_des_pids(pids: dict) -> dict:
     return out
 
 
+# ── Executif a priorites Hamilton (owner 2026-10-18, audit RAM) ─────────────
+# Premier pas PUR : classer, puis ordonner le delestage. Aucune E/S ici -- l'appelant fournit le TOML, le
+# verdict d'attribuer_pression et la RAM mesuree. Liste BLANCHE : n'est DIFFERABLE que ce qui est PROUVE
+# differable sur tous ses champs ; un champ absent ou inattendu reste UTILE (jamais delestable par defaut).
+_HAMILTON_TIERS_LENTS = ("slow", None)
+_HAMILTON_RANG = {"DIFFERABLE": 0, "UTILE": 1}
+
+
+def classe_hamilton(decl: dict, critique: bool = False) -> str:
+    """VITAL / UTILE / DIFFERABLE / ETEINT d'apres une declaration de services.toml.
+
+    VITAL : essential vrai, neverSleep, vague 1-2 (socle, proxys) ou porteur d'une capacite critique.
+    DIFFERABLE : essential explicitement False, vague entiere >= 4, battement lent ou non declare.
+    Tout le reste est UTILE -- y compris un essential absent ou une vague illisible."""
+    if decl.get("disabled"):
+        return "ETEINT"
+    vague = decl.get("wave")
+    vague_ok = isinstance(vague, int) and not isinstance(vague, bool)
+    if critique or decl.get("essential") is True or decl.get("neverSleep") or (vague_ok and vague in (1, 2)):
+        return "VITAL"
+    if (decl.get("essential") is False and vague_ok and vague >= 4
+            and decl.get("heartbeat_tier") in _HAMILTON_TIERS_LENTS):
+        return "DIFFERABLE"
+    return "UTILE"
+
+
+def ordre_delestage(candidats: list, verdict: str | None, detresse: bool = False,
+                    grandeur: str = "rss_mb") -> dict:
+    """Qui ceder, dans quel ordre, et pourquoi -- chaque decision porte son motif.
+
+    Seule une pression SOI (le corps la porte) se deleste : NON_SOI, NOYAU, INCERTAIN ou un verdict
+    inconnu rendent une liste vide et le DISENT -- endormir le corps n'y rendrait rien (pilote mtkbtsvc,
+    18/10). Sous SOI : DIFFERABLE d'abord, les plus gros en tete (grandeur illisible en dernier) ; UTILE
+    seulement en detresse ; VITAL et classe inconnue jamais. `grandeur` : la mesure qui ordonne --
+    rss_mb par defaut (RAM), io_mo_s pour la regulation disque (debit d'E/S, owner 19/10)."""
+    if verdict != "SOI":
+        motif = "pression %s : signalee, jamais delestee" % (verdict or "ILLISIBLE")
+        return {"delester": [], "motif": motif,
+                "epargnes": [{"service": c.get("service"), "classe": c.get("classe"), "motif": motif}
+                             for c in candidats]}
+    admis = ("DIFFERABLE", "UTILE") if detresse else ("DIFFERABLE",)
+    delester, epargnes = [], []
+    for c in candidats:
+        classe = c.get("classe")
+        if classe in admis:
+            delester.append(c)
+        elif classe == "UTILE":
+            epargnes.append({"service": c.get("service"), "classe": classe,
+                             "motif": "UTILE : delestable en detresse seulement"})
+        elif classe == "VITAL":
+            epargnes.append({"service": c.get("service"), "classe": classe, "motif": "VITAL : jamais deleste"})
+        else:
+            epargnes.append({"service": c.get("service"), "classe": classe,
+                             "motif": "classe %r non prouvee delestable" % (classe,)})
+
+    def _cle(c):
+        val = c.get(grandeur)
+        mesure = isinstance(val, (int, float)) and not isinstance(val, bool)
+        return (_HAMILTON_RANG[c["classe"]], 0 if mesure else 1, -(val if mesure else 0))
+
+    ordre = [{"service": c.get("service"), "classe": c["classe"], grandeur: c.get(grandeur),
+              "motif": "%s sous pression SOI%s" % (c["classe"], " (detresse)" if c["classe"] == "UTILE" else "")}
+             for c in sorted(delester, key=_cle)]
+    return {"delester": ordre, "epargnes": epargnes,
+            "motif": "pression SOI : %d a ceder, %d epargne(s)%s" % (
+                len(ordre), len(epargnes), " -- detresse" if detresse else "")}
+
+
+def _registre_corps() -> dict | None:
+    """{service: pid} des services vivants au registre du superviseur ; None = illisible (jamais {})."""
+    try:
+        from nokido_agent.app.forge_service_rss_watch import _registre
+
+        return {str(k): int(v) for k, v in (_registre() or {}).items()}
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).debug("[hamilton] registre illisible (%s)", type(e).__name__)
+        return None
+
+
+def _memoire_privee_mb(pid: int) -> float | None:
+    """Memoire PRIVEE du pid en Mo (meme grandeur qu'attribuer_pression) ; None = illisible."""
+    if not _PSUTIL_OK:
+        return None
+    try:
+        mi = psutil.Process(int(pid)).memory_info()
+        return round(float(getattr(mi, "private", None) or mi.rss) / 2 ** 20, 1)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        return None
+
+
+def plan_hamilton(attrib: dict | None = None, detresse: bool = False) -> dict:
+    """Ce que l'executif Hamilton FERAIT maintenant -- mode OBSERVATION, aucune action.
+
+    Candidats = services vivants au registre ET declares au TOML (hors TOML : jamais candidat), classes
+    par `classe_hamilton` (capacite critique illisible = VITAL), memoire privee mesuree, ordonnes par
+    `ordre_delestage` selon le verdict d'`attribuer_pression`."""
+    if attrib is None:
+        try:
+            attrib = attribuer_pression()
+        except Exception as e:  # noqa: BLE001
+            attrib = {"verdict": "INCERTAIN", "raison": "attribution KO: %s" % type(e).__name__}
+    verdict = attrib.get("verdict")
+    toml = _services_du_toml()
+    registre = _registre_corps()
+    if toml is None or registre is None:
+        motif = "services.toml ILLISIBLE" if toml is None else "registre du superviseur ILLISIBLE"
+        return {"mode": "OBSERVATION", "verdict": "ILLISIBLE", "delester": [], "epargnes": [],
+                "motif": motif + " : aucun plan"}
+    try:
+        from nokido_agent.app import forge_service_capabilities as _caps
+    except Exception:  # noqa: BLE001 - sans la garde des capacites, tout candidat est VITAL
+        _caps = None
+    candidats = []
+    for nom, pid in registre.items():
+        decl = toml.get(nom)
+        if decl is None:
+            continue
+        try:
+            critique = bool(_caps.is_critical(nom)) if _caps is not None else True
+        except Exception:  # noqa: BLE001 - capacite illisible : liste blanche, VITAL
+            critique = True
+        classe = classe_hamilton(decl, critique)
+        if classe != "ETEINT":
+            candidats.append({"service": nom, "classe": classe, "rss_mb": _memoire_privee_mb(pid)})
+    plan = ordre_delestage(candidats, verdict, detresse)
+    plan.update(mode="OBSERVATION", verdict=verdict or "ILLISIBLE")
+    return plan
+
+
+_HAMILTON_PAUSE_MAX_S = float(os.environ.get("NOKIDO_HAMILTON_PAUSE_MAX_S", "45"))
+_HAMILTON_CALME_MIN_S = float(os.environ.get("NOKIDO_HAMILTON_CALME_MIN_S", "120"))
+_HAMILTON_RECHUTE_FENETRE_S = float(os.environ.get("NOKIDO_HAMILTON_RECHUTE_FENETRE_S", "900"))
+
+
+def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: float | None = None,
+                    calme_min_s: float | None = None) -> tuple:
+    """Pause AVANT arret, reprise apres calme durable (decision owner 19/10) -- pur, aucune action.
+
+    `delester` = services que le plan cederait maintenant ; `etat` = {service: {pause_ts, calme_ts}} des pauses en
+    cours. Rend ({service: SUSPENDRE|MAINTENIR_PAUSE|ARRETER|REPRENDRE}, nouvel etat). Une suspension gele croissance
+    et CPU mais ne libere PAS la memoire privee : une pression qui dure au-dela de `pause_max_s` mene a ARRETER.
+    Reprise seulement apres `calme_min_s` hors de la liste sans interruption (une rechute remet le calme a zero)."""
+    pause_max = _HAMILTON_PAUSE_MAX_S if pause_max_s is None else pause_max_s
+    calme_min = _HAMILTON_CALME_MIN_S if calme_min_s is None else calme_min_s
+    etat = {k: dict(v) for k, v in (etat or {}).items()}
+    # HYSTERESIS (19/10, oscillation mesuree : sleep/wake toutes les ~3 min, le demarrage du service recreant la
+    # pression) : une rechute moins de _HAMILTON_RECHUTE_FENETRE_S apres une reprise double le calme exige (x16 max).
+    # L'historique `_rechutes` voyage avec l'etat persiste ; ce n'est jamais un service.
+    rechutes = etat.pop("_rechutes", {}) or {}
+    gestes = {}
+    for s in delester:
+        e = etat.get(s)
+        if e is None:
+            h = rechutes.get(s) or {}
+            recent = h and maintenant - float(h.get("ts") or 0) < _HAMILTON_RECHUTE_FENETRE_S
+            etat[s] = {"pause_ts": maintenant, "calme_ts": None, "rechutes": (int(h.get("n") or 0) + 1) if recent else 0}
+            gestes[s] = "SUSPENDRE"
+        elif e.get("arrete"):
+            # deja arrete : on attend le calme (20/10 : sans ce suivi, un nouveau SUSPENDRE partait tous les 2 ticks)
+            e["calme_ts"] = None
+            gestes[s] = "MAINTENIR_PAUSE"
+        elif maintenant - float(e.get("pause_ts") or maintenant) > pause_max:
+            # l'arret est MEMORISE (20/10) : l'effacer laissait le service endormi a jamais, aucun REPRENDRE possible
+            e["arrete"] = True
+            e["calme_ts"] = None
+            gestes[s] = "ARRETER"
+        else:
+            e["calme_ts"] = None
+            gestes[s] = "MAINTENIR_PAUSE"
+    for s in [k for k in etat if k not in delester]:
+        e = etat[s]
+        exige = calme_min * (2 ** min(int(e.get("rechutes") or 0), 4))
+        if e.get("calme_ts") is None:
+            e["calme_ts"] = maintenant
+            gestes[s] = "MAINTENIR_PAUSE"
+        elif maintenant - float(e["calme_ts"]) >= exige:
+            etat.pop(s)
+            rechutes[s] = {"n": int(e.get("rechutes") or 0), "ts": maintenant}
+            gestes[s] = "REPRENDRE"
+        else:
+            gestes[s] = "MAINTENIR_PAUSE"
+    rechutes = {s: h for s, h in rechutes.items()
+                if maintenant - float(h.get("ts") or 0) < _HAMILTON_RECHUTE_FENETRE_S}
+    if rechutes:
+        etat["_rechutes"] = rechutes
+    return gestes, etat
+
+
+def _observer_hamilton(endormis: list) -> None:
+    """Journalise `hamilton_observe` a cote d'un delestage doux : ce que Hamilton aurait cede, ce que la
+    liste figee a endormi, et les gestes pause/arret/reprise qu'il AURAIT faits (pauses VIRTUELLES tenues dans
+    sandbox/hamilton_pauses_observe.json). Ne decide RIEN et ne casse jamais le delestage qu'il observe. Limite
+    dite : appele seulement sur un delestage, il ne voit le calme qu'au delestage suivant."""
+    try:
+        plan = plan_hamilton(attrib=attribuer_pression())
+        delester = [d["service"] for d in plan.get("delester", [])]
+        gestes = {}
+        try:
+            import json as _js
+            from pathlib import Path as _P
+            f = _P(__file__).resolve().parents[1] / "sandbox" / "hamilton_pauses_observe.json"
+            etat = _js.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+            gestes, etat = gestes_observes(delester, etat, time.time())
+            f.write_text(_js.dumps(etat), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001 - les gestes se disent illisibles, le journal suit
+            gestes = {"_illisible": type(e).__name__}
+        _audit_lifecycle("hamilton_observe", "ram", str(plan.get("motif"))[:300], target="supervisor_sleep",
+                         verdict=plan.get("verdict"),
+                         aurait_deleste=delester, gestes=gestes,
+                         endormis_par_la_liste=list(endormis))
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[hamilton] observation impossible (%s)", type(e).__name__)
+
+
+# ── Regulation de la pression DISQUE (owner 2026-10-19 : « disque toujours a 100 % ») ─────
+# Mesure du 19/10, 14:04-14:12 : NokidoDeportEmbed ~96 Mo/s, NokidoMCP 42 Mo/s ;
+# `disque.occupation_pct` (grp_disque) entre 56 et 83 % pendant tout l'episode et AUCUN
+# regulateur ne lisait ce canal -- capteur sans effecteur, alors que les deux saturateurs
+# sont DIFFERABLE au TOML et que l'executif Hamilton sait deja les ordonner (seulement pour
+# la RAM et par taille memoire). On etend le meme executif au debit d'E/S.
+# Seuil MESURE, pas suppose : `dbsy` est le `% Disk Time` de `_Total`, MOYENNE sur les disques physiques --
+# l'owner voyait 100 % sur UN disque pendant que `dbsy` valait 45 a 83 (tempete du 19/10 14:04-14:15), 1 a 3
+# au calme. A 80 la fenetre de 4 n'aurait JAMAIS ete saturee ce jour-la : capteur dilue, seuil a sa mesure.
+_DISQUE_SATURE_PCT = float(os.environ.get("NOKIDO_DISQUE_SATURE_PCT", "40"))
+_DISQUE_FENETRE_N = int(os.environ.get("NOKIDO_DISQUE_FENETRE_N", "4"))
+_DISQUE_IO_MIN_MO_S = float(os.environ.get("NOKIDO_DISQUE_IO_MIN_MO_S", "5"))
+_DISQUE_ETAT_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "hamilton_pauses_disque.json"
+_REGULATION_DISQUE_DERNIER = 0.0
+
+
+def pression_disque(echantillons, seuil: float | None = None, n: int | None = None) -> str:
+    """SATUREE / NORMALE / ILLISIBLE lus sur une FENETRE des n derniers echantillons.
+
+    Un fait qui dure se lit sur une fenetre, jamais sur un point : SATUREE seulement si TOUS les
+    n derniers echantillons sont >= seuil. Fenetre incomplete ou trouee (None) -> ILLISIBLE :
+    UNKNOWN != NO, « je ne peux pas voir » n'est jamais « ca va bien »."""
+    s = _DISQUE_SATURE_PCT if seuil is None else float(seuil)
+    k = _DISQUE_FENETRE_N if n is None else int(n)
+    liste = list(echantillons or [])
+    fenetre = liste[-k:] if k > 0 else []
+    if len(fenetre) < k or any(v is None for v in fenetre):
+        return "ILLISIBLE"
+    try:
+        return "SATUREE" if all(float(v) >= s for v in fenetre) else "NORMALE"
+    except (TypeError, ValueError):
+        return "ILLISIBLE"
+
+
+def attribuer_pression_disque(couts: dict | None, total_mo_s: float | None,
+                              part_min: float = 0.5) -> dict:
+    """Le debit disque mesure porte-t-il par le CORPS (SOI) ou le reste (NON_SOI) ?
+
+    Meme question qu'attribuer_pression pour la memoire, en Mo/s d'E/S. `couts` =
+    {service: (io_mo_s, cpu)} ; part = min(1, somme io / total). Cout ou total
+    illisible (None, {}, <= 0) -> ILLISIBLE, jamais NON_SOI : un compteur muet ne
+    prouve pas que le corps n'en est pas responsable."""
+    if not couts or total_mo_s is None:
+        return {"verdict": "ILLISIBLE", "part": None,
+                "motif": "couts ou total disque ILLISIBLE : attribution impossible"}
+    try:
+        total = float(total_mo_s)
+        if total <= 0:
+            raise ValueError("total <= 0")
+        somme = sum(float(v[0]) for v in couts.values())
+    except (TypeError, ValueError, KeyError, IndexError):
+        return {"verdict": "ILLISIBLE", "part": None,
+                "motif": "couts ou total disque ILLISIBLE : attribution impossible"}
+    part = min(1.0, somme / total)
+    verdict = "SOI" if part >= part_min else "NON_SOI"
+    return {"verdict": verdict, "part": round(part, 3),
+            "motif": "le corps porte %.0f%% du debit disque mesure (%.1f Mo/s sur %.1f)"
+                     % (part * 100.0, somme, total)}
+
+
+def regulation_disque(echantillons, couts, total_mo_s, toml, registre, etat, maintenant,
+                      est_critique=None, seuil: float | None = None, n: int | None = None,
+                      io_min_mo_s: float | None = None) -> dict:
+    """Compose pression_disque + attribuer_pression_disque + ordre_delestage + gestes_observes.
+
+    Candidats = services du registre declares au TOML (hors TOML : jamais candidat), classes par
+    `classe_hamilton` (est_critique None -> forge_service_capabilities.is_critical, exception ->
+    critique=True, liste blanche), ETEINT excludes, io_mo_s pris dans `couts` -- seuls les services
+    qui lisent/ecrivent VRAIMENT au-dessus de `io_min_mo_s` (env NOKIDO_DISQUE_IO_MIN_MO_S=5)
+    sont rendus candidats : un DIFFERABLE muet sur le disque n'a rien a rendre. Delestage seulement
+    si pression SATUREE ET verdict SOI, sinon liste vide -- puis `gestes_observes` (pause avant
+    arret, reprise apres calme, decision owner 19/10). Motif toujours non vide."""
+    pression = pression_disque(echantillons, seuil=seuil, n=n)
+    attrib = attribuer_pression_disque(couts, total_mo_s)
+    verdict = attrib.get("verdict")
+    io_min = _DISQUE_IO_MIN_MO_S if io_min_mo_s is None else float(io_min_mo_s)
+    if not registre or not toml:
+        return {"pression": pression, "verdict": verdict, "delester": [], "gestes": {},
+                "etat": dict(etat or {}),
+                "motif": "registre%s ou services.toml ILLISIBLE : aucun candidat disque" % (
+                    "" if registre else " du superviseur")}
+    try:
+        from nokido_agent.app import forge_service_capabilities as _caps
+    except Exception:  # noqa: BLE001 - sans la garde des capacites, tout candidat est VITAL
+        _caps = None
+    candidats = []
+    for nom in registre:
+        decl = toml.get(nom)
+        if decl is None:
+            continue
+        if est_critique is not None:
+            try:
+                critique = bool(est_critique(nom))
+            except Exception:  # noqa: BLE001 - capacite illisible : liste blanche, VITAL
+                critique = True
+        elif _caps is not None:
+            try:
+                critique = bool(_caps.is_critical(nom))
+            except Exception:  # noqa: BLE001 - capacite illisible : liste blanche, VITAL
+                critique = True
+        else:
+            critique = True
+        classe = classe_hamilton(decl, critique)
+        if classe == "ETEINT":
+            continue
+        cout = (couts or {}).get(nom)
+        try:
+            io = float(cout[0])
+        except (TypeError, ValueError, KeyError, IndexError):
+            continue  # muet-ok : muet sur le disque (ou cout illisible) : rien a rendre
+        if io < io_min:
+            continue
+        candidats.append({"service": nom, "classe": classe, "rss_mb": None, "io_mo_s": io})
+    if pression == "SATUREE" and verdict == "SOI":
+        ordre = ordre_delestage(candidats, verdict, grandeur="io_mo_s")
+        motif = "disque %s, %s -- %s" % (pression, attrib.get("motif"), ordre.get("motif"))
+    else:
+        motif = "pression %s, verdict %s : rien a delester (saturation non prouvee sur la " \
+                "fenetre, ou pression hors corps)" % (pression, verdict)
+        ordre = {"delester": [], "motif": motif}
+    noms = [d["service"] for d in ordre["delester"]]
+    gestes, nouvel_etat = gestes_observes(noms, etat or {}, maintenant)
+    return {"pression": pression, "verdict": verdict, "delester": ordre["delester"],
+            "gestes": gestes, "etat": nouvel_etat, "motif": motif}
+
+
+def _echantillons_disque(n: int | None = None) -> list:
+    """Les n dernieres valeurs `dbsy` (disque.occupation_pct) de la serie vitale ; [] si illisible.
+
+    Lecture par QUEUE (seek depuis la fin, 64 Kio max) : la serie fait jusqu'a 32 Mio et la
+    fenetre de regulation n'a besoin que des dernieres lignes -- jamais tout le fichier."""
+    import json as _j
+
+    k = _DISQUE_FENETRE_N if n is None else int(n)
+    try:
+        with _VITALS_HISTORY_PATH.open("rb") as f:
+            f.seek(max(0, _VITALS_HISTORY_PATH.stat().st_size - 65536))
+            bloc = f.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    vals: list = []
+    for ligne in bloc.splitlines():
+        ligne = ligne.strip()
+        if not ligne:
+            continue
+        try:
+            v = (_j.loads(ligne) or {}).get("dbsy")
+        except ValueError:
+            continue  # muet-ok : ligne de queue corrompue ignoree, la suite de la queue reste lisible
+        if v is None:
+            continue
+        try:
+            vals.append(float(v))
+        except (TypeError, ValueError):
+            vals.append(None)  # trou dans la fenetre : ILLISIBLE plutot que NORMALE
+    return vals[-k:]
+
+
+def _ordre_superviseur(svc: str, geste: str) -> None:
+    """SUSPENDRE -> POST /sleep/<svc>, REPRENDRE -> POST /wake/<svc>, autres gestes rien.
+
+    REQUESTED != ACHIEVED : un ordre non delivre se dit en warning, il ne se deduit pas d'un
+    etat. En-tetes par la brique unique `_supervisor_auth_headers` (jeton coffre + nom)."""
+    import urllib.request as _ur
+
+    if geste == "SUSPENDRE":
+        url, mot = f"{_SUPERVISOR_URL}/sleep/{svc}", "sommeil"
+    elif geste == "REPRENDRE":
+        url, mot = f"{_SUPERVISOR_URL}/wake/{svc}", "reveil"
+    else:
+        return  # MAINTENIR_PAUSE / ARRETER : rien a ordonner pour l'instant
+    try:
+        req = _ur.Request(url, method="POST",
+                          headers=_supervisor_auth_headers("RESOURCE_MANAGER"))
+        with _ur.urlopen(req, timeout=3):
+            pass
+    except Exception as e:  # noqa: BLE001 -- ordre NON delivre : REQUESTED != ACHIEVED, dit
+        logging.getLogger(__name__).warning(
+            "[regulation_disque] %s de %s NON delivre au superviseur (%s)",
+            mot, svc, type(e).__name__)
+
+
+def _regulation_disque_tick() -> dict:
+    """Un tick de regulation disque -- ne leve JAMAIS, retourne le resultat pour mesurage.
+
+    Registre du superviseur, couts E/S par pid (fenetre ~3 s, enfants compris), total du debit
+    disque pris sur la MEME fenetre via un delta psutil.disk_io_counters (lu+ecrit). Etat des
+    pauses persiste dans sandbox/hamilton_pauses_disque.json (la reprise survit au restart).
+    Mode observer (env NOKIDO_REGULATION_DISQUE=observer) : aucun ordre au superviseur, seule
+    l'audit trace -- la reversal se fait par la variable, sans toucher au code."""
+    import json as _j
+
+    try:
+        registre = _registre_corps()
+        if not registre:
+            return {"pression": "ILLISIBLE", "verdict": "ILLISIBLE", "delester": [],
+                    "gestes": {}, "etat": {},
+                    "motif": "registre du superviseur ILLISIBLE : regulation disque en abstention"}
+        toml = _services_du_toml()
+        io0 = None
+        if _PSUTIL_OK:
+            try:
+                c0 = psutil.disk_io_counters()
+                io0 = float(c0.read_bytes + c0.write_bytes) if c0 else None
+            except Exception:  # noqa: BLE001 -- muet-ok : total illisible -> attribution ILLISIBLE, dite par le motif
+                io0 = None
+        couts = _cout_des_pids(registre)
+        total_mo_s = None
+        if io0 is not None:
+            try:
+                c1 = psutil.disk_io_counters()
+                io1 = float(c1.read_bytes + c1.write_bytes) if c1 else None
+                if io1 is not None and io1 >= io0:
+                    total_mo_s = (io1 - io0) / _BAIL_FENETRE_COUT_S / 2 ** 20
+            except Exception:  # noqa: BLE001 -- muet-ok : total illisible -> attribution ILLISIBLE, dite par le motif
+                total_mo_s = None
+        try:
+            etat = _j.loads(_DISQUE_ETAT_PATH.read_text(encoding="utf-8")) if _DISQUE_ETAT_PATH.exists() else {}
+        except (OSError, ValueError):
+            etat = {}  # fichier d'etat abime : on repart d'un calme, dit via le motif du plan
+        r = regulation_disque(_echantillons_disque(), couts, total_mo_s, toml, registre,
+                              etat, time.time())
+        try:
+            _DISQUE_ETAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _DISQUE_ETAT_PATH.write_text(_j.dumps(r.get("etat") or {}), encoding="utf-8")
+        except OSError as e:  # noqa: BLE001 -- etat non persiste : la reprise repartira de zero, dit
+            logging.getLogger(__name__).warning(
+                "[regulation_disque] etat des pauses non persiste (%s)", type(e).__name__)
+        if os.environ.get("NOKIDO_REGULATION_DISQUE") != "observer":
+            for svc, geste in (r.get("gestes") or {}).items():
+                _ordre_superviseur(svc, geste)
+        if r.get("gestes"):
+            try:
+                _audit_lifecycle("regulation_disque", "disque", str(r.get("motif"))[:300],
+                                 pression=r.get("pression"), verdict=r.get("verdict"),
+                                 gestes=r.get("gestes"))
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort
+                pass
+        return r
+    except Exception as e:  # noqa: BLE001 -- ne leve jamais, dit l'illisible
+        logging.getLogger(__name__).warning(
+            "[regulation_disque] tick en echec (%s)", type(e).__name__)
+        return {"pression": "ILLISIBLE", "verdict": "ILLISIBLE", "delester": [],
+                "gestes": {}, "etat": {},
+                "motif": "tick ILLISIBLE (%s) : regulation disque en abstention" % type(e).__name__}
+
+
+# ── Executif Hamilton ARME pour la RAM (decision owner 19/10 : « Armer, DIFFERABLE seuls ») ────────────
+# 113 hamilton_observe dont 16 en pression SOI (« 36 a ceder ») : la liste figee _SUPERVISOR_NON_ESSENTIAL
+# cede la place au plan, mais PROGRESSIVEMENT -- 36 services d'un coup serait une seconde panne.
+_HAMILTON_ETAT_RAM_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "hamilton_pauses_ram.json"
+_HAMILTON_CIBLE_PCT = float(os.environ.get("NOKIDO_HAMILTON_CIBLE_PCT", str(_SUPERVISOR_WAKE_RAM_THRESHOLD)))
+_REGULATION_HAMILTON_DERNIER = 0.0
+
+
+def _hamilton_arme() -> bool:
+    """Interrupteur (defaut ARME, decision owner 19/10) ; NOKIDO_HAMILTON_ARME=0 rend la liste figee, rien d'autre."""
+    return os.environ.get("NOKIDO_HAMILTON_ARME", "1") != "0"
+
+
+def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos=None,
+                            seuil_sommeil=None, cible=None) -> dict:
+    """Pur. Sous pression (ram_pct >= seuil) ET verdict SOI : suspend les DIFFERABLE du plan, plus gros d'abord,
+    seulement jusqu'a couvrir la memoire a rendre ((ram_pct - cible) % de la RAM totale) ; vetos ecartes ;
+    puis gestes_observes (pause avant arret, reprise apres calme durable). Motif toujours dit."""
+    seuil = _SUPERVISOR_SLEEP_RAM_THRESHOLD if seuil_sommeil is None else float(seuil_sommeil)
+    vise = _HAMILTON_CIBLE_PCT if cible is None else float(cible)
+    vetos, plan, choisis = vetos or {}, plan or {}, []
+    if ram_pct is None:
+        motif = "RAM ILLISIBLE : aucun nouveau sommeil"
+    elif float(ram_pct) < seuil:
+        motif = "RAM %.1f %% < seuil %.0f %% : rien de neuf a ceder" % (float(ram_pct), seuil)
+    elif plan.get("verdict") != "SOI" or not plan.get("delester"):
+        motif = plan.get("motif") or "plan Hamilton sans candidat"
+    else:
+        besoin_mb = max(0.0, (float(ram_pct) - vise) / 100.0 * float(ram_total_gb or 0.0) * 1024.0)
+        rendu = 0.0
+        for d in plan["delester"]:
+            svc = d.get("service")
+            if not svc or svc in vetos:
+                continue
+            if rendu >= besoin_mb and choisis:
+                break
+            choisis.append(svc)
+            rss = d.get("rss_mb")
+            rendu += float(rss) if isinstance(rss, (int, float)) and not isinstance(rss, bool) else 0.0
+        motif = "%s : %d service(s) pour %.0f Mo a rendre (%.0f Mo vises)" % (
+            plan.get("motif") or "pression SOI", len(choisis), besoin_mb, rendu)
+    gestes, nouvel = gestes_observes(choisis, etat or {}, maintenant)
+    return {"gestes": gestes, "etat": nouvel, "choisis": choisis, "motif": motif}
+
+
+def _regulation_hamilton_tick() -> dict:
+    """Un tick de l'executif ARME, a chaque cycle (sinon la reprise n'arrive jamais) -- ne leve JAMAIS.
+
+    RAM = PLANCHER sur 60 s du dernier echantillon (aacbc6e2f : une garde RAM decide sur une fenetre), repli sur
+    l'instant ; plan_hamilton n'est calcule que sous pression ; etat des pauses persiste ; ordres par
+    _ordre_superviseur (sleep/wake), journalises quand un geste existe."""
+    import json as _j
+
+    try:
+        if _registre_corps() is None:
+            return {"gestes": {}, "etat": {}, "choisis": [],
+                    "motif": "registre du superviseur ILLISIBLE : Hamilton en abstention"}
+        snap = dict(globals().get("_SNAPSHOT") or {})
+        ram = snap.get("ram_pct_plancher_60s", snap.get("ram_pct"))
+        libre = float(snap.get("ram_free_gb") or 0.0)
+        detresse = 0.0 < libre < float(os.environ.get("LAFORGE_DETRESSE_LIBRE_GB", "1.5"))
+        total = float(snap.get("ram_total_gb") or 0.0)
+        if not total and _PSUTIL_OK:
+            total = psutil.virtual_memory().total / 2 ** 30
+        sous_pression = ram is not None and float(ram) >= _SUPERVISOR_SLEEP_RAM_THRESHOLD
+        plan = plan_hamilton(detresse=detresse) if sous_pression else {"verdict": None, "delester": []}
+        try:
+            etat = (_j.loads(_HAMILTON_ETAT_RAM_PATH.read_text(encoding="utf-8"))
+                    if _HAMILTON_ETAT_RAM_PATH.exists() else {})
+        except (OSError, ValueError):
+            etat = {}  # etat abime : on repart d'un calme, dit par le motif
+        r = regulation_hamilton_ram(plan, ram, total, etat, time.time(), vetos=vetos_sommeil_actifs())
+        try:
+            _HAMILTON_ETAT_RAM_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _HAMILTON_ETAT_RAM_PATH.write_text(_j.dumps(r.get("etat") or {}), encoding="utf-8")
+        except OSError as e:
+            logging.getLogger(__name__).warning("[hamilton] etat des pauses non persiste (%s)", type(e).__name__)
+        for svc, geste in (r.get("gestes") or {}).items():
+            _ordre_superviseur(svc, geste)
+        if r.get("gestes"):
+            try:
+                _audit_lifecycle("hamilton_arme", "ram", str(r.get("motif"))[:300], gestes=r.get("gestes"))
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort
+                pass
+        return r
+    except Exception as e:  # noqa: BLE001 -- ne leve jamais, dit l'illisible
+        logging.getLogger(__name__).warning("[hamilton] tick en echec (%s)", type(e).__name__)
+        return {"gestes": {}, "etat": {}, "choisis": [],
+                "motif": "tick ILLISIBLE (%s) : Hamilton en abstention" % type(e).__name__}
+
+
 def _candidats_bail() -> tuple[list | None, str]:
     """Qui CEDERAIT a une tache prioritaire : (liste, motif). Liste None = illisible, et dit pourquoi.
 
@@ -4083,6 +4964,23 @@ def services_tenus_par_un_bail(sauf: str | None = None) -> set:
             for s in b.get("interrompus", []) if s.get("endormi")}
 
 
+def travail_differe(service: str) -> bool:
+    """Reponse GRADUEE d'un organe neverSleep lourd (18/10) : il bat son pouls mais DIFFERE sa passe lourde tant qu'un
+    bail prioritaire ARME est ACTIF, et la reprend a l'expiration. Bail en observation -> rien n'est differe ; baux
+    illisibles -> pas de report (on ne bloque pas le travail sur une lecture ratee), et on le DIT."""
+    if not _bail_arme():
+        return False
+    try:
+        baux = _lire_baux()
+    except Exception as exc:  # noqa: BLE001
+        import logging as _lg
+        _lg.getLogger(__name__).warning("[bail] baux illisibles pour %s (%s) : passe lourde NON differee",
+                                        service, type(exc).__name__)
+        return False
+    maintenant = time.time()
+    return any(b.get("etat") == "ACTIF" and _expire_le(b) > maintenant for b in baux)
+
+
 def acquerir_bail(principal: str, motif: str, classe: str = "court", ttl_s: float = 3600.0) -> dict:
     """La tache prioritaire declare ; le hub choisit, inscrit et (arme) endort. Rend le bail."""
     candidats, note = _candidats_bail()
@@ -4161,7 +5059,21 @@ def expirer_baux() -> list:
 
 
 def _decider_bail(principal: str, ring: int, demande) -> tuple[int, dict, dict]:
-    """Decision de `POST /api/resource/request` avec un corps `{"bail": {...}}`."""
+    """Decision de `POST /api/resource/request` avec un corps `{"bail": {...}}`.
+
+    20/10 : chaque decision laisse UNE ligne au journal du hub (0 ligne du 16/10 au 20/10 alors que la CI
+    lisait « PRIS bail (ARME) » ; un 403 etait invisible). Ni le motif ni le corps ne sont journalises."""
+    code, corps, entetes = _decider_bail_brut(principal, ring, demande)
+    action = demande.get("action") if isinstance(demande, dict) else None
+    bail = corps.get("bail") if isinstance(corps, dict) and isinstance(corps.get("bail"), dict) else {}
+    logging.getLogger(__name__).info(
+        "[bail] %s (ring %s) action=%s -> %s %s classe=%s id=%s", principal, ring, action, code,
+        corps.get("error", "ok") if isinstance(corps, dict) else "?", bail.get("classe", "-"), bail.get("id", "-"))
+    return code, corps, entetes
+
+
+def _decider_bail_brut(principal: str, ring: int, demande) -> tuple[int, dict, dict]:
+    """Decision sans journal (voir `_decider_bail`)."""
     if not isinstance(demande, dict) or demande.get("action") not in ("acquerir", "renouveler", "liberer", "etat"):
         return 400, {"ok": False, "error": "invalid_request",
                      "detail": "bail.action attendu : acquerir | renouveler | liberer | etat"}, {}
@@ -4201,9 +5113,13 @@ def _decider_bail(principal: str, ring: int, demande) -> tuple[int, dict, dict]:
     return (200 if bail.get("etat") == "ACTIF" else 503), {"ok": bail.get("etat") == "ACTIF", "bail": bail}, {}
 
 
-def demander_bail(action: str, **champs) -> dict:
+def demander_bail(action: str, agent: str | None = None, **champs) -> dict:
     """Cote tache prioritaire : envoie la demande au hub. Ne leve jamais ; une tache prioritaire ne
-    doit pas echouer parce que la regulation est injoignable -- elle le DIT et continue."""
+    doit pas echouer parce que la regulation est injoignable -- elle le DIT et continue.
+
+    `agent` : l'identite d'organe qui demande, EXPLICITE (2026-10-16). Sans lui, le nom venait de
+    l'environnement : la CI de reference devait alors s'y nommer, et ses etages pytest auraient herite
+    du nom et parle au hub sous son identite. Arme, le bail exige ring <= 3 : sans nom, 403."""
     import json as _json
     import urllib.error as _ue
     import urllib.request as _ur
@@ -4212,7 +5128,7 @@ def demander_bail(action: str, **champs) -> dict:
         from nokido_agent.app import forge_hub_client as _hc
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": "CLIENT_HUB_INDISPONIBLE(%s)" % type(e).__name__}
-    nom = os.environ.get("LAFORGE_AGENT_NAME") or os.environ.get("FORGE_AGENT_NAME") or ""
+    nom = agent or os.environ.get("LAFORGE_AGENT_NAME") or os.environ.get("FORGE_AGENT_NAME") or ""
     req = _ur.Request(_hc._BASE_URL + "/api/resource/request", method="POST",
                       data=_json.dumps({"bail": dict(champs, action=action)}).encode(),
                       headers=_hc.entetes_organe(nom))
@@ -4226,17 +5142,18 @@ def demander_bail(action: str, **champs) -> dict:
 
 
 @contextlib.contextmanager
-def bail_priorite(motif: str, classe: str = "court", ttl_s: float = 3600.0):
-    """`with bail_priorite("CI de reference 741c65341"):` -- acquiert, rend la main, LIBERE toujours.
+def bail_priorite(motif: str, classe: str = "court", ttl_s: float = 3600.0, agent: str | None = None):
+    """`with bail_priorite("CI de reference 741c65341", agent="CI_REFERENCE"):` -- acquiert, rend la
+    main, LIBERE toujours, sous la MEME identite aux deux bouts.
 
     Si la tache meurt sans passer par le `finally`, le bail expire et le hub rend ce qu'il avait pris."""
-    res = demander_bail("acquerir", motif=motif, classe=classe, ttl_s=ttl_s)
+    res = demander_bail("acquerir", agent=agent, motif=motif, classe=classe, ttl_s=ttl_s)
     ident = ((res or {}).get("bail") or {}).get("id")
     try:
         yield res
     finally:
         if ident:
-            demander_bail("liberer", id=ident)
+            demander_bail("liberer", agent=agent, id=ident)
 
 
 def _deleguer_au_hub(needed: float):

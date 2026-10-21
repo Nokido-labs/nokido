@@ -311,7 +311,7 @@ def _sanitize_plan(plan, goal: str):
                     if zn.endswith(".py") or "/" in zn or "\\" in zn:
                         params["zone_name"] = "discovered_facts"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 313, exc_info=True)
     return plan
 
 
@@ -444,7 +444,7 @@ def _parse_plan_response(raw: str, goal: str, ring_max: int) -> PlanTree:
                     continue  # skip action dépassant le ring
                 sg.actions.append(validated)
             except IntentValidationError:
-                pass  # action invalide ignorée
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 446, exc_info=True)
         plan.subgoals.append(sg)
 
     return plan
@@ -533,7 +533,7 @@ async def decompose_goal(
                     if isinstance(r, dict) and r.get("ok") and (r.get("text") or "").strip():
                         return r["text"]
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 535, exc_info=True)
             return await asyncio.to_thread(_sync_ollama_call, p, s)  # fallback / local-only
 
         llm_call_fn = _default_llm_call
@@ -555,7 +555,7 @@ async def decompose_goal(
                     + "\n".join(_rows)
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 557, exc_info=True)
     system = GOAP_SYSTEM_PROMPT.format(
         ring_max=ring_max,
         methods=", ".join(sorted(methods_available)),
@@ -648,7 +648,7 @@ def make_reconstruction_aware_dispatch(base_dispatch, max_expansions: int = 1):
                     _logger.info(f"[GOAP] Expansion #{expansions[0]} for {task_id} | patterns={r}")
                     return await base_dispatch(action)
             except (GOAPExecutionError, Exception):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 650, exc_info=True)
             raise first_err from None
 
     return _wrapped
@@ -825,7 +825,7 @@ async def run_queue(
                     tasks.append(t)
                     msg_ids.append(row_id)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 827, exc_info=True)
 
     # Resume stale 'processing' messages (crashed mid-run, > 5 min ago)
     try:
@@ -845,7 +845,7 @@ async def run_queue(
                         tasks.append(t)
                         msg_ids.append(sid)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 847, exc_info=True)
         # Reset stale to unread so they go through normal path
         if stale:
             _rc.execute(
@@ -855,7 +855,7 @@ async def run_queue(
             _rc.commit()
         _rc.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 857, exc_info=True)
 
     if not tasks:
         return {"ok": True, "tasks": 0, "skipped": len(rows)}
@@ -873,7 +873,7 @@ async def run_queue(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 875, exc_info=True)
 
     traj = await execute_plan(plan, dispatch_fn=dispatch_fn, rollback=False)
     done = sum(1 for s in traj.steps if s.status == "completed")
@@ -889,7 +889,7 @@ async def run_queue(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap.py', 891, exc_info=True)
 
     return {"ok": True, "plan_id": plan.plan_id, "tasks": len(tasks), "completed": done, "failed": failed}
 

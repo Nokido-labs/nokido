@@ -163,6 +163,7 @@ class GeminiACP:
             try:
                 msg = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_keeper.py', 165, exc_info=True)
                 continue
             if msg.get("id") == rpc_id and ("result" in msg or "error" in msg):
                 return msg, updates
@@ -192,7 +193,7 @@ class GeminiACP:
         try:
             self.proc.terminate()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_keeper.py', 194, exc_info=True)
 
 
 # ── Backend REPL (fallback) ──────────────────────────────────────────────────
@@ -292,7 +293,7 @@ def _beat(mode: str) -> None:
                                          "pid": os.getpid(), "mode": mode, "port": PORT,
                                          **_code_identity()}))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_keeper.py', 294, exc_info=True)
 
 
 def _selftest() -> int:

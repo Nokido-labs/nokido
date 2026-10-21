@@ -89,6 +89,7 @@ class _Buddy:
             try:
                 msg = json.loads(raw.decode("utf-8", "replace"))
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ble_buddy.py', 91, exc_info=True)
                 continue
             prompt = msg.get("prompt") if isinstance(msg, dict) else None
             if isinstance(prompt, dict) and prompt.get("id"):
@@ -140,12 +141,12 @@ async def main() -> int:
         while True:
             await asyncio.sleep(3600)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ble_buddy.py', 142, exc_info=True)
     finally:
         try:
             await server.stop()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ble_buddy.py', 147, exc_info=True)
     return 0
 
 

@@ -16,6 +16,7 @@ import {
   type ServiceDef,
 } from "./service_loader.ts";
 import { memUsagePct, totalRamKo } from "./platform.ts";
+import { doitTirer } from "./circadian_fenetre.ts";
 
 const ROOT = resolve(Deno.cwd());
 const LOG_DIR = join(ROOT, "logs", "supervisor");
@@ -788,6 +789,8 @@ interface ServiceState {
   // driver GPU AMD (TDR cascade). Cap absolu en plus du backoff exponentiel.
   restartHistory: number[];
   quarantineUntilMs: number;
+  // SOMMEIL VOULU (17/10) : echeance d'un POST /supervisor/sleep ; le reveil RAM ne le leve pas avant.
+  sommeilVouluJusquaMs?: number;
   // Phase 3 autodiagnostic — dernier heartbeat lu (null si pas configure
   // ou pas encore scrute).
   heartbeat: HeartbeatSnapshot | null;
@@ -1168,6 +1171,23 @@ const DEP_INTENT: Record<number, string> = {
   8080: "llama.wanted",
   1234: "lmstudio.wanted",
 };
+
+// Intention FRAICHE pour le port d'un service (16/10, mesure : « Sleeping NokidoLlamaEmbed » a 89 % de RAM, en
+// pleine requete, alors que le pack natif de la promotion venait de poser embed.wanted). Meme semantique que
+// forge_llama_keeper._intention_voulue : sandbox/<drapeau> present et modifie depuis moins de 900 s ; illisible =
+// pas d'intention (n'autorise rien, ne bloque rien). Lu par le delestage RAM, qui ne lisait pas ce vocabulaire
+// alors que ce superviseur l'ecrit (declareDepWanted).
+const INTENTION_TTL_MS = 900_000;
+function _intentionFraiche(port: number | undefined): string | null {
+  const flag = port === undefined ? undefined : DEP_INTENT[port];
+  if (!flag) return null;
+  try {
+    const mt = Deno.statSync(join(ROOT, "sandbox", flag)).mtime;
+    return mt && Date.now() - mt.getTime() < INTENTION_TTL_MS ? flag : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Déclare que le corps VEUT la dépendance fermée qui bloque un service.
@@ -1570,6 +1590,17 @@ async function startService(state: ServiceState) {
   }
 }
 
+// RELANCE APRES QUARANTAINE (2026-10-17). Mesure : veille du poste 05:46 -> reveil 10:11 ; les executeurs interactifs,
+// relances aussitot, echouent 3 fois (session sans jeton juste apres le reveil) -> quarantaine rapide -> levee en
+// « stopped » SANS relance : delegation morte jusqu'a la relance owner de 12:12. Le minuteur de levee n'agit que si le
+// service est ENCORE en quarantaine (garde existante) : un arret ordonne entre-temps l'en a deja fait sortir, il n'est
+// donc jamais relance ici contre un ordre. La reprise est DITE dans le journal.
+function _relancerApresQuarantaine(state: ServiceState) {
+  if (state.status !== "stopped") return;
+  log(`${state.def.name}: relance apres quarantaine (service attendu, levee sans ordre d'arret)`);
+  scheduleRestart(state);
+}
+
 function scheduleRestart(state: ServiceState) {
   const now = Date.now();
   // Phase 6 reflexe spinal — circuit breaker rapide. Si QUICK_FAIL_COUNT
@@ -1590,6 +1621,7 @@ function scheduleRestart(state: ServiceState) {
         state.status = "stopped";
         state.backoffIdx = 0;
         state.quickFailCount = 0;
+        _relancerApresQuarantaine(state);
       }
     }, QUICK_QUARANTINE_MS);
     return;
@@ -1613,6 +1645,7 @@ function scheduleRestart(state: ServiceState) {
         state.status = "stopped";
         state.backoffIdx = 0;
         state.restartHistory = [];
+        _relancerApresQuarantaine(state);
       }
     }, QUARANTINE_MS);
     return;
@@ -1724,6 +1757,9 @@ const RAM_SLEEP_PCT = 88;
 // NR : tests/nr/test_delestage_ram_par_cout_nr.py.
 const RAM_WAKE_PCT = 82;
 const WAKE_BATCH = 2;
+// SOMMEIL VOULU (17/10) : echeance par defaut d'un POST /supervisor/sleep (bail de priorite d'une CI, ~1 h).
+// Jamais eternel : un appelant qui compterait sur le reveil RAM ne perd pas son service pour toujours.
+const SOMMEIL_VOULU_TTL_MS = 3_600_000;
 const RAM_CRITIQUE_PCT = 94;
 // Ni le delestage ne descend plus bas, ni le reveil ne monte plus haut.
 const RAM_CIBLE_PCT = 84;
@@ -1891,6 +1927,15 @@ async function resourceLoop() {
       let ecartesKo = 0;
       for (const { state, ko } of candidats) {
         if (endormis >= DELESTAGE_MAX_PAR_CYCLE || pct <= RAM_CIBLE_PCT) break;
+        // Un job TIENT ce service (intention fraiche) : sous la pression ordinaire on l'epargne ; au-dela du
+        // seuil critique la survie de l'organisme passe d'abord.
+        if (!critique && _intentionFraiche(state.def.port)) {
+          log(
+            `Epargne ${state.def.name} : intention ${_intentionFraiche(state.def.port)} fraiche ` +
+              `(RAM ${pct.toFixed(1)}% < critique ${RAM_CRITIQUE_PCT}%) -- un consommateur la tient`,
+          );
+          continue;
+        }
         if (!critique && (ko === null || ko < DELESTAGE_GAIN_MIN_KO)) {
           ecartes++;
           ecartesKo += ko ?? 0;
@@ -1942,8 +1987,11 @@ async function resourceLoop() {
         // endormi par la regulation se rallumait des que la RAM redescendait :
         // le gel d'un ecrivain RAG (QdrantSync) ne tenait qu'au hasard du seuil.
         // Un service gele ne revient que par INTENTION (/service/start).
+        // SOMMEIL VOULU (17/10) : mesure 16/10, 21:36:16 POST sleep NokidoDeportEmbed (bail de la CI) puis 21:37:07
+        // « Waking » par ce reveil, 51 s apres, en pleine CI. Avant l'echeance, seule une intention (wake) le leve.
         if (
           !state.def.essential && !state.def.llmPool && !state.def.disabled &&
+          !((state.sommeilVouluJusquaMs ?? 0) > Date.now()) &&
           state.status === "sleeping"
         ) {
           log(`Waking ${state.def.name} (RAM now ${pct.toFixed(1)}%, ` +
@@ -2150,12 +2198,17 @@ async function saveCircadianState(): Promise<void> {
 // complet ~50min, NMLP+JEPA+H-JEPA passent en LATE phase).
 const CIRCADIAN_SKIP_IF_RUNNING_MS = 90 * 60_000; // 90 min
 
+// Decision owner 2026-10-18 : eteints par defaut, REVEILLES par leur phase (liste blanche). NokidoWatchdog exclu :
+// service NSSM standalone, le reveiller ici recreerait la dependance circulaire du 2026-06-02.
+const CIRCADIAN_REVEIL_A_LA_DEMANDE = new Set(["NokidoNightTrainer", "NokidoOfflineTrainer", "NokidoSelfPatcher"]);
+
 async function firePhase(phase: Phase): Promise<{ phase: Phase; results: unknown[] }> {
   const actions = PHASE_PROGRAM[phase];
   const results: unknown[] = [];
   log(`[circadian] FIRE phase=${phase} actions=${actions.length} organs=${actions.map(a=>a.organ).join(",")}`);
   for (const act of actions) {
-    const state = states.get(act.service);
+    const state = states.get(act.service) ??
+      (CIRCADIAN_REVEIL_A_LA_DEMANDE.has(act.service) ? etatALaDemande(act.service, false) : undefined);
     if (!state) {
       // TROIS ETATS, JAMAIS DEUX (2026-09-20). `states` ne contient PAS les services
       // `disabled` (cf. `if (def.disabled) continue` au peuplement) : un service
@@ -2244,6 +2297,48 @@ async function firePhase(phase: Phase): Promise<{ phase: Phase; results: unknown
         log(`[circadian] proprioception audit job=${j.job_id ?? "?"} ok=${j.ok}`);
       } catch (e) {
         log(`[circadian] proprioception audit fail: ${(e as Error).message}`);
+      }
+    })();
+
+    // VEILLE DES COMPOSANTS (owner 20/08 « a chaque mise a jour ... pareil pour tous les cli » ; 17/10 « veille
+    // introspective de chacun de tes composants »). tools/forge_cli_version_watch.py n'avait plus tourne depuis le
+    // 24/09 : une veille sans declencheur n'est pas une veille. Detection seule (versions + empreinte des docs) ;
+    // l'absorption automatique des changelogs dans la grande base attend la decision owner (P0 du 19/09). En ligne.
+    (async () => {
+      try {
+        const script = join(ROOT, "tools", "forge_cli_version_watch.py");
+        const headers = await _entetesAdminAvecPreuve("POST", "/admin/run_job");
+        const r = await fetch("http://127.0.0.1:8766/admin/run_job", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ script, online: true }),
+          signal: AbortSignal.timeout(30_000), // detache : on n'attend QUE l'accuse
+        });
+        const j = await r.json().catch(() => ({}));
+        log(`[circadian] veille composants job=${j.job_id ?? "?"} ok=${j.ok}`);
+      } catch (e) {
+        log(`[circadian] veille composants fail: ${(e as Error).message}`);
+      }
+    })();
+
+    // REGISTRE DES DEMANDES OWNER (owner 17/10 : « a l'avenir aucune demande ne doit se perdre, ancre le ! » ;
+    // « tu n'es qu'un client parmi d'autres »). Point du 17/10 : des demandes sans trace dans le code NI suivi au
+    // SSoT. Chaque nuit, toutes surfaces confondues (conversations ingerees + tours captures en direct), chaque
+    // demande orpheline est inscrite dans la zone perenne demandes_owner. Lecture locale seule : hors ligne.
+    (async () => {
+      try {
+        const script = join(ROOT, "tools", "forge_intent_verifier.py");
+        const headers = await _entetesAdminAvecPreuve("POST", "/admin/run_job");
+        const r = await fetch("http://127.0.0.1:8766/admin/run_job", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ script, script_args: "--registre", online: false }),
+          signal: AbortSignal.timeout(30_000), // detache : on n'attend QUE l'accuse
+        });
+        const j = await r.json().catch(() => ({}));
+        log(`[circadian] registre demandes owner job=${j.job_id ?? "?"} ok=${j.ok}`);
+      } catch (e) {
+        log(`[circadian] registre demandes owner fail: ${(e as Error).message}`);
       }
     })();
 
@@ -2345,14 +2440,15 @@ async function firePhase(phase: Phase): Promise<{ phase: Phase; results: unknown
 
 async function circadianLoop(): Promise<void> {
   await loadCircadianState();
-  log("[circadian] loop started (60s tick, phase-fire si debt >= 20h)");
+  log("[circadian] loop started (60s tick, phase-fire si pas encore tiree dans sa fenetre courante)");
   while (true) {
     await delay(60_000);
     if (!circadianEnabled) continue;
     const phase = currentPhase();
     const lastTs = circadianLastFired.get(phase) ?? 0;
-    const hoursSince = (Date.now() / 1000 - lastTs) / 3600;
-    if (hoursSince >= 20) {
+    // 19/10 : « dernier tir >= 20 h » laissait un RATTRAPAGE hors fenetre bloquer la vraie fenetre suivante (NREM3
+    // tire a 10:27 en rattrapage -> rien a 02:00, cycle decale pour toujours). On demande a la FENETRE.
+    if (doitTirer(phase, lastTs)) {
       try {
         await firePhase(phase);
       } catch (e) {
@@ -2544,6 +2640,10 @@ async function handleCtrl(req: Request): Promise<Response> {
   const p = url.pathname;
   // Phase 23A gate global pour /supervisor/* mutations
   if (p.startsWith("/supervisor/") && !_supervisor_auth_ok(req)) {
+    // Revue d'integration (17/10) : ce nom est fourni par l'APPELANT -- seuls les imprimables passent, borne a 64 :
+    // un retour a la ligne y forgerait une fausse ligne de journal. Jamais le jeton, sa fin ni son empreinte.
+    const agent = (req.headers.get("LaForge-Agent-Name") ?? "").replace(/[^\x20-\x7E]/g, "?").slice(0, 64).trim() || "inconnu";
+    log(`[auth] REFUS 401 ${req.method} ${p} (agent declare: ${agent})`);
     return jsonResp({ error: "unauthorized", path: p }, 401);
   }
   // Phase 29 step 2 — trace context cross-process Python <-> Deno
@@ -2742,6 +2842,7 @@ async function handleCtrl(req: Request): Promise<Response> {
       // counters so a fixed-code restart isn't blocked by a stale cooldown.
       state.quickFailCount = 0;
       state.quarantineUntilMs = 0;
+      state.sommeilVouluJusquaMs = 0;
       await startService(state);
       return jsonResp({ ok: true, action: "restart", name, def_refreshed: defRefreshed });
     }
@@ -2750,9 +2851,14 @@ async function handleCtrl(req: Request): Promise<Response> {
         try { state.proc.kill("SIGTERM"); } catch (_) {}
       }
       state.status = "sleeping";
-      return jsonResp({ ok: true, action: "sleep", name });
+      // SOMMEIL VOULU (17/10) : le reveil RAM ne le leve pas avant l'echeance (`?ttl_s=`, 60 s a 6 h, defaut 1 h).
+      const ttlS = Number(url.searchParams.get("ttl_s") ?? "");
+      const ttlMs = Number.isFinite(ttlS) && ttlS >= 60 && ttlS <= 21_600 ? ttlS * 1000 : SOMMEIL_VOULU_TTL_MS;
+      state.sommeilVouluJusquaMs = Date.now() + ttlMs;
+      return jsonResp({ ok: true, action: "sleep", name, voulu_jusqua_ms: state.sommeilVouluJusquaMs });
     }
     if (action === "wake") {
+      state.sommeilVouluJusquaMs = 0; // une intention leve le sommeil voulu
       if (state.status === "sleeping" || state.status === "quarantine") {
         state.status = "stopped";
         state.backoffIdx = 0;

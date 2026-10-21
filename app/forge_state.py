@@ -262,7 +262,7 @@ class SharedState:
             self._dirty = False
             self._last_flush = time.monotonic()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state.py', 264, exc_info=True)
 
     def set(self, key: str, value, flush: bool = True) -> None:
         """Cold path — notation dot, objets complexes."""
@@ -326,12 +326,12 @@ class SharedState:
                 try:
                     self._mm.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state.py', 328, exc_info=True)
             if self._fd:
                 try:
                     self._fd.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state.py', 333, exc_info=True)
 
 
 # Singleton process-local

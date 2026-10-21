@@ -60,7 +60,7 @@ try:
         if _age < _DEV_TTL_S:
             _dev_armed = True
 except OSError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bash_guard.py', 62, exc_info=True)
 
 # ─────────────────────────────────────────────────────────────────────────
 # LAYER 1 — DENYLIST SECRETS. Scan de la commande ENTIERE. Inconditionnel.
@@ -168,7 +168,7 @@ if _dev_armed:
         with _AUDIT_LOG.open("a", encoding="utf-8") as _f:
             _f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} BYPASS {command[:300]}\n")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bash_guard.py', 170, exc_info=True)
     sys.exit(0)
 
 # ─────────────────────────────────────────────────────────────────────────

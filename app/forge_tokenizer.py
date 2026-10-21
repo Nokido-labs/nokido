@@ -93,7 +93,7 @@ def _fallback_tiktoken(text: str, model: Optional[str] = None, why: str = "") ->
         try:
             return len(enc.encode(text))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tokenizer.py', 95, exc_info=True)
     # Ultime fallback : heuristique
     if why:
         log.warning("tokenizer fallback heuristic (%s) - estim. +/-30%%", why)
@@ -159,7 +159,7 @@ def _count_anthropic(text: str, model: Optional[str] = None, online: bool = Fals
         if tok is not None:
             return len(tok.encode(text).ids)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tokenizer.py', 161, exc_info=True)
     # 3) Fallback tiktoken
     return _fallback_tiktoken(text, model, why="anthropic tokenizer indispo")
 

@@ -38,7 +38,7 @@ def _up(port: int, path: str = "", timeout: float = 1.5) -> bool:
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout)
         except Exception:
-            pass  # port ouvert = up (warmup/auth possible)
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_local_pool_wake.py', 40, exc_info=True)
     return True
 
 
@@ -66,7 +66,7 @@ def _wake_ollama() -> str:
         if get_resource_manager().start_ollama():
             return "resource_manager.start_ollama"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_local_pool_wake.py', 68, exc_info=True)
     return "spawn:ollama serve" if _spawn(["ollama", "serve"]) else "fail"
 
 
@@ -76,7 +76,7 @@ def _wake_docker() -> str:
         ensure_docker()
         return "docker_keeper.ensure_docker"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_local_pool_wake.py', 78, exc_info=True)
     return "spawn:Docker Desktop" if _spawn(["cmd", "/c", "start", "", "Docker Desktop"]) else "manual"
 
 

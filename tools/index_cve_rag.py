@@ -51,6 +51,7 @@ def _load_cves() -> list[tuple[str, str]]:
                 desc = next((d["value"] for d in descs if d.get("lang") == "en"), "no description")
                 result.append((cve_id, desc))
             except (KeyError, StopIteration):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/index_cve_rag.py', 53, exc_info=True)
                 continue
         if result:
             return result

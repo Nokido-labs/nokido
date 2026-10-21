@@ -82,7 +82,7 @@ def broadcast(event: dict) -> None:
         payload = json.dumps(event, ensure_ascii=False)[:65000].encode("utf-8")
         _get_bcast_sock().sendto(payload, (BROADCAST_HOST, BROADCAST_PORT))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 84, exc_info=True)
 
 
 def make_broadcast_listener() -> socket.socket:
@@ -241,7 +241,7 @@ class SwarmStateMachine:
             bridge.json_set("swarm.seq", self._seq)
             bridge.json_set("swarm.ts", time.time())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 243, exc_info=True)
 
     def set_thinking(self, agent: str, task: str = "") -> None:
         """Set thinking.
@@ -378,6 +378,7 @@ class SwarmQueue:
             try:
                 task = self._q.get(timeout=0.5)
             except Empty:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 380, exc_info=True)
                 continue
             # Attendre IDLE (max 60s)
             t0 = time.monotonic()
@@ -455,7 +456,7 @@ class SwarmCoordinator:
 
             beat(agent, "thinking", task=task[:40])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 457, exc_info=True)
         try:
             yield
         except Exception as e:
@@ -477,7 +478,7 @@ class SwarmCoordinator:
 
             beat(agent, "streaming")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 479, exc_info=True)
         # MMap Context — écriture pensée en cours (60fps GUI)
         _ctx = None
         try:
@@ -486,7 +487,7 @@ class SwarmCoordinator:
             _ctx = AgentContext(agent)
             _ctx.start_thinking("streaming", progress=5)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 488, exc_info=True)
         accumulated: list[str] = []
         try:
             async for token in gen:
@@ -514,12 +515,12 @@ class SwarmCoordinator:
 
                     beat(agent, "idle")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 516, exc_info=True)
             if _ctx:
                 try:
                     _ctx.done()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 521, exc_info=True)
 
     async def _sync_rag(self, agent: str, text: str) -> None:
         """Met à jour le RAG après streaming — SYNCING_RAG → IDLE."""
@@ -538,7 +539,7 @@ class SwarmCoordinator:
 
                 beat(agent, "idle")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 540, exc_info=True)
 
     def _rag_index(self, agent: str, text: str) -> None:
         """Indexe dans rag_chunks — exécuté dans thread executor."""
@@ -562,7 +563,7 @@ class SwarmCoordinator:
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm.py', 564, exc_info=True)
 
     def recent_events(self, n: int = 20, agent: str | None = None) -> list:
         """Retourne les N derniers events depuis event_log."""

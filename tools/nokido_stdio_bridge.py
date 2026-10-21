@@ -210,6 +210,7 @@ async def run_bridge():
                 raw = await asyncio.wait_for(reader.readline(), timeout=60.0)
             except TimeoutError:
                 # Keep-alive : pas de message depuis 60s, on continue
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_stdio_bridge.py', 211, exc_info=True)
                 continue
             except Exception:
                 break
@@ -224,6 +225,7 @@ async def run_bridge():
             try:
                 msg = json.loads(raw_str)
             except json.JSONDecodeError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_stdio_bridge.py', 226, exc_info=True)
                 continue
 
             bid = msg.get("id")

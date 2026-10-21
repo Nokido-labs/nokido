@@ -87,7 +87,7 @@ def load_vault() -> list[dict]:
                     "ts": d.get("timestamp", "")[:16],
                 }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dashboard.py', 89, exc_info=True)
     return sorted(seen.values(), key=lambda x: -x["score"])
 
 
@@ -138,7 +138,7 @@ def load_active_runs() -> list[dict]:
                 }
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dashboard.py', 140, exc_info=True)
     return runs[:12]
 
 

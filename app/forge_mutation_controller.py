@@ -62,6 +62,7 @@ sys.path.insert(0, str(ROOT))
 
 # Verdicts de la mesure apres application. Ceux de REVERTS comptent pour le frein.
 CONSERVE = "CONSERVE"
+SURVIT_SANS_GAIN = "SURVIT_SANS_GAIN"   # 18/10 : aucun recul, aucun gain hors bruit -> defait, sans frein
 REVERTE = "REVERTE"
 REVERT_NON_PROUVE = "REVERT_NON_PROUVE"
 REVERTS = (REVERTE, REVERT_NON_PROUVE)
@@ -148,9 +149,20 @@ def _nombre(v) -> float | None:
     return f if math.isfinite(f) else None
 
 
+def _delta_oriente(m: float, r: float, dim: str, orientation: dict | None):
+    """Delta tel que POSITIF = mieux : MAX (defaut) m - r, MIN r - m ; orientation inconnue -> None."""
+    o = (orientation or {}).get(dim, "MAX")
+    if o == "MAX":
+        return m - r
+    if o == "MIN":
+        return r - m
+    return None
+
+
 def ecarts_hors_bande(reference: dict, mesure: dict | None, bruit: dict,
-                      sens: str = "recul") -> list[dict]:
-    """Dimensions de `reference` sorties de la bande. Plus haut = mieux, par convention.
+                      sens: str = "recul", orientation: dict | None = None) -> list[dict]:
+    """Dimensions de `reference` sorties de la bande. Plus haut = mieux, sauf `orientation[dim] == "MIN"`
+    (cycles, duree, RAM : chantier 1 du takehome, 18/10) ; une orientation inconnue compte comme ecart.
 
     `sens="recul"` : regression seulement (delta < -bruit) -- le critere pour REVERTER.
     `sens="ecart"` : tout ecart (|delta| > bruit) -- le critere « REVENU dans la bande ».
@@ -169,7 +181,11 @@ def ecarts_hors_bande(reference: dict, mesure: dict | None, bruit: dict,
             out.append({"dimension": dim, "reference": ref, "mesure": mesure.get(dim),
                         "motif": "dimension absente ou non numerique apres l'acte"})
             continue
-        d = m - r
+        d = _delta_oriente(m, r, dim, orientation)
+        if d is None:
+            out.append({"dimension": dim, "reference": r, "mesure": m,
+                        "motif": "orientation inconnue %r (attendu MIN ou MAX)" % (orientation or {}).get(dim)})
+            continue
         if d < -b or (sens == "ecart" and d > b):
             out.append({"dimension": dim, "reference": r, "mesure": m,
                         "delta": round(d, 6), "bruit": b})
@@ -205,7 +221,8 @@ def _mesure_sure(mesurer) -> tuple[dict | None, str | None]:
 # ── Le maillon : mesurer APRES, garder ou revenir et le PROUVER ─────────────────────
 def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
                   empreinte_avant: str | None, mesurer, reverter, empreinte, bruit: dict,
-                  application: dict | None = None, apres_conserve=None) -> dict:
+                  application: dict | None = None, apres_conserve=None,
+                  orientation: dict | None = None) -> dict:
     """Mesure APRES un acte deja fait ; garde, ou revient en arriere et le PROUVE.
 
     `reference`       mesure d'AVANT l'acte, {dimension: score} (plus haut = mieux) ;
@@ -222,6 +239,8 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
            "reference": reference, "apres": apres, "bruit": bruit,
            "empreinte_avant": empreinte_avant, "application": application or {},
            "generation_avant": _generation_avant()}
+    if orientation:
+        rec["orientation"] = dict(orientation)  # relue par convergence_rsi : sans elle, une baisse MIN = un recul
     if not _dimensions_jugeables(reference):
         # Aucune dimension numerique a laquelle comparer : « rien n'a recule » serait vrai
         # PAR VIDE. On ne defait pas un acte que le juge a admis, mais la boucle ne continue
@@ -232,9 +251,17 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
         frein = _poser_frein("mesure apres INDECIDABLE (%s, %s) : reference vide" % (niveau, cible))
         return {"verdict": "INDECIDABLE", "exp_id": exp_id, "post_id": rec_id, "applique": True,
                 "reference": reference, "apres": apres, "frein": frein}
-    ecarts = ecarts_hors_bande(reference, apres, bruit)
+    ecarts = ecarts_hors_bande(reference, apres, bruit, orientation=orientation)
     if err_apres:
         ecarts = [{"dimension": "*", "motif": "mesure APRES illisible : %s" % err_apres}]
+    # SURVIT != AMELIORE (audit 18/10, decision owner) : sans recul MAIS sans gain hors bruit, l'acte est defait
+    # comme un recul, sans compter pour le frein -- la doctrine du juge L2. Avant : CONSERVE, et le reglage derivait.
+    sans_gain = not ecarts and not any(
+        (_delta_oriente(_nombre(apres.get(d)) or 0.0, _nombre(r) or 0.0, d, orientation) or 0.0)
+        > abs(_nombre(bruit.get(d)) or 0.0)
+        for d, r in reference.items() if _nombre(r) is not None)
+    if sans_gain:
+        ecarts = [{"dimension": "*", "motif": "aucun gain hors bande de bruit : SURVIT_SANS_GAIN"}]
 
     if not ecarts:
         rec["verdict"] = CONSERVE
@@ -256,7 +283,7 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
         rev = {"ok": False, "detail": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
     empreinte_revert = _empreinte_sure(empreinte)
     mesure_revert, err_rev = _mesure_sure(mesurer)
-    hors = ecarts_hors_bande(reference, mesure_revert, bruit, sens="ecart")
+    hors = ecarts_hors_bande(reference, mesure_revert, bruit, sens="ecart", orientation=orientation)
     preuve = {"revert_ok": bool(rev.get("ok")),
               "empreinte_identique": (empreinte_avant is not None
                                       and empreinte_revert == empreinte_avant),
@@ -266,7 +293,7 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
               "detail_revert": rev}
     prouve = (preuve["revert_ok"] and preuve["empreinte_identique"]
               and preuve["mesure_revenue_dans_bande"])
-    verdict = REVERTE if prouve else REVERT_NON_PROUVE
+    verdict = (SURVIT_SANS_GAIN if sans_gain else REVERTE) if prouve else REVERT_NON_PROUVE
     rec.update({"verdict": verdict, "status": verdict, "ecarts": ecarts, "preuve": preuve})
     rec_id = _inscrire(rec)
 
@@ -274,7 +301,7 @@ def mesurer_apres(niveau: str, cible: str, exp_id: str | None, reference: dict,
     if not prouve:
         frein = _poser_frein("revert NON PROUVE (%s, %s) : etat sur non garanti"
                              % (niveau, cible))
-    else:
+    elif not sans_gain:
         n = _reverts_consecutifs()
         if n >= REVERTS_CONSECUTIFS_FREIN:
             frein = _poser_frein("%d reverts consecutifs (dernier : %s, %s) -- le producteur "
@@ -360,7 +387,8 @@ def garde_plafonds(maintenant: float | None = None, entrees: list | None = None)
 
 
 def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer, reverter,
-                         mesurer, empreinte, bruit: dict, apres_conserve=None) -> dict:
+                         mesurer, empreinte, bruit: dict, apres_conserve=None,
+                         orientation: dict | None = None) -> dict:
     """Porte -> reference AVANT -> acte -> `mesurer_apres`. Le chemin L1.
 
     Porte FERMEE (HALTED, DESARMEE, VERROU_HUMAIN, INCONNU) : rien n'est mesure, rien
@@ -379,6 +407,11 @@ def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer,
         return {"verdict": "INDECIDABLE", "applique": False, "exp_id": exp_id,
                 "pourquoi": "mesure d'AVANT illisible (%s) : sans reference, l'apres ne se "
                             "juge pas -- acte NON fait" % err}
+    if not _dimensions_jugeables(reference):
+        # Cause de l'arret RSI du 15/10 : reference {} rendue SANS erreur, acte fait quand meme, frein pose apres.
+        return {"verdict": "INDECIDABLE", "applique": False, "exp_id": exp_id,
+                "pourquoi": "reference d'AVANT vide (aucune dimension jugeable) : l'apres ne se juge pas -- "
+                            "acte NON fait, abstention sans frein"}
     empreinte_avant = _empreinte_sure(empreinte)
     if empreinte_avant is None:
         return {"verdict": "INDECIDABLE", "applique": False, "exp_id": exp_id,
@@ -408,7 +441,7 @@ def appliquer_et_mesurer(niveau: str, cible: str, exp_id: str | None, appliquer,
             # L'acte a echoue MAIS l'etat a bouge : on le traite comme une regression.
         r = mesurer_apres(niveau, cible, exp_id, reference, empreinte_avant, mesurer, reverter,
                           empreinte, bruit, application=dict(fait, application_id=app_id),
-                          apres_conserve=apres_conserve)
+                          apres_conserve=apres_conserve, orientation=orientation)
         r["application_id"] = app_id
         return r
     finally:

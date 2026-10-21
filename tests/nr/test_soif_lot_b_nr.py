@@ -46,7 +46,8 @@ def _services(score):
     def urlopen(req, timeout=None):
         url = req.full_url
         if ":8099/" in url:
-            return _Rep({"data": [{"embedding": [0.1, 0.2]}]})
+            # 19/10 : la requete passe par la borne du routeur, qui REJETTE un vecteur de dimension < 256.
+            return _Rep({"data": [{"embedding": [0.1, 0.2] + [0.0] * 1022}]})
         if ":6333/" in url:
             return _Rep({"result": [{"payload": {"chunk_id": "c1"}}]})
         if ":8100/" in url:

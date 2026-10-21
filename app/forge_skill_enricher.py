@@ -107,7 +107,7 @@ def _heartbeat(stats: dict) -> None:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_enricher.py', 109, exc_info=True)
 
 
 def scan_recent_lessons(conn: sqlite3.Connection, since_ts: float) -> list[dict]:
@@ -141,7 +141,7 @@ def scan_recent_lessons(conn: sqlite3.Connection, since_ts: float) -> list[dict]
                 if len(parts) == 2 and parts[1].isdigit():
                     t = float(parts[1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_enricher.py', 143, exc_info=True)
         if t > since_ts:
             out.append(
                 {
@@ -170,10 +170,19 @@ def existing_skill_path(slug: str) -> Path | None:
     return p if p.exists() else None
 
 
+def _nom_fichier(slug: str) -> str:
+    """Nom de fichier valide sous Windows : le slug d'un nouveau skill vient d'un domaine de lecon (texte libre) --
+    un « : » ou un « / » y faisait lever Errno 22 a chaque passage horaire, AVANT le pouls (20/10)."""
+    import re as _re
+
+    nom = _re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", str(slug)).strip(" .")[:120]
+    return nom or "_sans_nom"
+
+
 def propose_skill_update(slug: str, lessons: list[dict], topics: list[tuple[str, int]]) -> Path:
     """Génère une proposition d'update dans sandbox/skill_proposals/<slug>.md."""
     PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = PROPOSALS_DIR / f"{slug}.md"
+    out_path = PROPOSALS_DIR / f"{_nom_fichier(slug)}.md"
     skill_md = existing_skill_path(slug)
 
     lines = [
@@ -323,7 +332,7 @@ def _review_proposal(path: Path, slug: str) -> dict:
         verdict, score, reason = result if isinstance(result, tuple) else (str(result), 0.0, "")
         review_dir = PROPOSALS_DIR / "_review"
         review_dir.mkdir(parents=True, exist_ok=True)
-        (review_dir / f"{slug}.json").write_text(
+        (review_dir / f"{_nom_fichier(slug)}.json").write_text(
             json.dumps(
                 {"slug": slug, "verdict": verdict, "score": score, "reason": reason, "ts": datetime.now().isoformat()},
                 indent=2,
@@ -357,7 +366,7 @@ def main() -> int:
             pid_dump.parent.mkdir(parents=True, exist_ok=True)
             pid_dump.write_text(str(os.getpid()), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_enricher.py', 359, exc_info=True)
 
     while True:
         since = state.get("last_run_ts", 0)

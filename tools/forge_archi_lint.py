@@ -89,8 +89,43 @@ def _env() -> dict:
     return env
 
 
+HISTORIQUE = os.path.join(ROOT, "sandbox", "archi_lint_history")
+# Meme perimetre que golden-rules (tools/forge_golden_rules_ast.py::_SKIP_DIRS), qui applique les memes six regles :
+# la 1re mesure owner (18/10) comptait le code ARCHIVE de app/_attic dans ses 158 findings.
+EXCLUSIONS = ("_attic", "__pycache__")
+
+
+def resume_mesure(data: dict, jour: str, sha: str) -> "dict | None":
+    """Resume d'une mesure REELLE (>= 1 fichier lu), ou None : zero fichier lu n'est pas une mesure.
+
+    Decision owner 2026-10-18 : semgrep meurt sous les comptes du hub (ca-certs, `CertOpenSystemStore`), il tourne
+    donc sous le compte owner et la CI juge ce resume. `ok` suit la regle du gate : aucun finding ERROR.
+    """
+    scannes = (data.get("paths") or {}).get("scanned") or []
+    if not scannes:
+        return None
+    par_sev: dict[str, int] = {}
+    for f in data.get("results") or []:
+        sev = (f.get("extra") or {}).get("severity", "?")
+        par_sev[sev] = par_sev.get(sev, 0) + 1
+    return {"jour": jour, "sha": sha, "fichiers_scannes": len(scannes), "findings": par_sev,
+            "erreurs_config": len(data.get("errors") or []), "ok": not par_sev.get("ERROR", 0),
+            "compte": os.environ.get("USERNAME", "?")}
+
+
+def ecrire_mesure(resume: dict, dossier=None):
+    """Ecrit `archi_lint_<jour>.json` : la date vit dans le NOM (un checkout rajeunit les mtime)."""
+    from pathlib import Path  # noqa: PLC0415
+
+    d = Path(dossier or HISTORIQUE)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / ("archi_lint_%s.json" % resume["jour"])
+    p.write_text(json.dumps(resume, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return p
+
+
 def main() -> int:
-    args = [a for a in sys.argv[1:] if a not in ("--all", "--debug")]
+    args = [a for a in sys.argv[1:] if a not in ("--all", "--debug", "--ecrire-mesure")]
     if "--all" in sys.argv:
         targets = [ROOT]
     else:
@@ -106,7 +141,7 @@ def main() -> int:
 
     cmd = [sg, "--config", CONFIG, "--json", "--quiet",
            "--metrics=off", "--disable-version-check", "--timeout", "20",
-           "--no-git-ignore", *targets]
+           "--no-git-ignore", *[a for x in EXCLUSIONS for a in ("--exclude", x)], *targets]
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=900,
                            errors="replace", env=_env())
@@ -155,6 +190,13 @@ def main() -> int:
         rid = f["check_id"].split(".")[-1]
         print(f"  [{f.get('extra', {}).get('severity', '?')}] {rid}  {rel}:{f['start']['line']}")
     errors = by_sev.get("ERROR", 0)
+    if "--ecrire-mesure" in sys.argv:
+        import time  # noqa: PLC0415
+
+        sha = subprocess.run(["git", "-c", "safe.directory=*", "-C", ROOT, "rev-parse", "--short=12", "HEAD"],
+                             capture_output=True, text=True, errors="replace").stdout.strip() or "?"
+        p = ecrire_mesure(resume_mesure(data, jour=time.strftime("%Y-%m-%d"), sha=sha))
+        print(f"[archi_lint] mesure deportee ecrite : {p} (a versionner : la CI de reference ne voit que le suivi)")
     return 1 if errors else 0
 
 

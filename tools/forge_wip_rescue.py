@@ -59,7 +59,7 @@ def main() -> int:
         try:
             os.remove(tmp_index)
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wip_rescue.py', 61, exc_info=True)
 
 
 if __name__ == "__main__":

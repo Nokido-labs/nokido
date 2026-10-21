@@ -30,6 +30,10 @@ SANDBOX = ROOT / "sandbox"
 
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
+# --- amorce namespace (point d'entree) : lance PAR CHEMIN, `sys.path[0]` vaut tools/, pas la racine
+# ou vit le package `nokido_agent` -> ModuleNotFoundError a chaque relance (mesure 18/10, service rallume).
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 logger = logging.getLogger("Nokido.MemoryConsolidator")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
@@ -57,13 +61,21 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_memory_consolidator.py', 63, exc_info=True)
     return {"last_consolidated_ts": 0.0}
 
 
 def _save_state(state: dict) -> None:
     SANDBOX.mkdir(exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def _attente_avant_cycle(state: dict, maintenant: float) -> float:
+    """20/10 : au reveil du daemon, aucun cycle avant la fin de l'intervalle."""
+    debut = state.get("dernier_cycle_debut")
+    if not debut:
+        return 0.0
+    return max(0.0, float(INTERVAL_S) - (float(maintenant) - float(debut)))
 
 
 def _write_heartbeat(results: dict) -> None:
@@ -159,18 +171,25 @@ def _summarise_group(task_type: str, traces: list[dict]) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _ingest_experience(task_type: str, summary: str, n_traces: int) -> bool:
-    """Insert consolidated experience chunk into rag_chunks."""
+def _ingest_experience(task_type: str, summary: str, n_traces: int) -> str | None:
+    """Insert consolidated experience chunk into rag_chunks.
+
+    20/10 : renvoie l'id du chunk s'il vient d'etre CREE, None s'il existait
+    deja ou en cas d'erreur (le cycle ne retire ensuite que ce qu'il a cree).
+    """
     source = f"experience/consolidated/{task_type}"
     text = f"[{task_type}] {summary} (consolidated from {n_traces} traces)"
     chunk_id = sha256((source + text).encode()).hexdigest()[:16]
     try:
         con = sqlite3.connect(str(EMBEDDINGS_DB))
-        con.execute(
-            "INSERT OR REPLACE INTO rag_chunks (id, source, text) VALUES (?, ?, ?)",
-            (chunk_id, source, text),
-        )
-        con.commit()
+        # 20/10 : presence verifiee AVANT l'INSERT -> deja present = pas cree.
+        deja_la = con.execute("SELECT 1 FROM rag_chunks WHERE id=?", (chunk_id,)).fetchone() is not None
+        if not deja_la:
+            con.execute(
+                "INSERT OR REPLACE INTO rag_chunks (id, source, text) VALUES (?, ?, ?)",
+                (chunk_id, source, text),
+            )
+            con.commit()
         con.close()
 
         # Reveil du daemon d'embedding, via le helper qui VERIFIE l'ecouteur.
@@ -191,10 +210,10 @@ def _ingest_experience(task_type: str, summary: str, n_traces: int) -> bool:
                 "[consolidateur] reveil d'embedding impossible (%s: %s) | consequence: "
                 "cette experience consolidee reste sans vecteur jusqu'au prochain drain",
                 type(e).__name__, str(e)[:90])
-        return True
+        return None if deja_la else chunk_id
     except Exception as e:
         logger.error("ingest_experience %s: %s", task_type, e)
-        return False
+        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -202,8 +221,24 @@ def _ingest_experience(task_type: str, summary: str, n_traces: int) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _retirer_chunks(ids: list[str]) -> None:
+    """20/10 : retour arriere CIBLE — DELETE des seuls ids crees par ce cycle."""
+    if not ids:
+        return
+    try:
+        con = sqlite3.connect(str(EMBEDDINGS_DB))
+        con.executemany("DELETE FROM rag_chunks WHERE id=?", [(i,) for i in ids])
+        con.commit()
+        con.close()
+    except Exception as e:  # noqa: BLE001
+        logger.error("retour arriere de %d chunks: %s", len(ids), e)
+
+
 def run_consolidation_cycle(state: dict) -> dict:
     t0 = time.monotonic()
+    # 20/10 : debut du cycle sauve AVANT le travail lourd (reveil du regulateur).
+    state["dernier_cycle_debut"] = time.time()
+    _save_state(state)
     groups = _fetch_high_value_traces(state["last_consolidated_ts"])
 
     total_traces = sum(len(v) for v in groups.values())
@@ -213,23 +248,31 @@ def run_consolidation_cycle(state: dict) -> dict:
         return {"skipped": "no new high-value traces", "groups": 0}
 
     results = {"total_traces": total_traces, "groups": {}}
+    ids_crees: list[str] = []
     from tqdm import tqdm
 
-    # Gate anti-régression : INSERT OR REPLACE dans rag_chunks -> snapshot
-    # knowledge avant + rollback auto si régression détectée.
-    with guarded_change("memory_consolidator: consolidation", db_snapshot=True):
-        for task_type, traces in tqdm(groups.items(), desc="consolidate", unit="task_type"):
-            if len(traces) < MIN_GROUP_SIZE:
-                logger.debug("skip %s: only %d traces", task_type, len(traces))
-                continue
-            logger.info("Consolidating %s (%d traces)...", task_type, len(traces))
-            summary = _summarise_group(task_type, traces)
-            ok = _ingest_experience(task_type, summary, len(traces))
-            results["groups"][task_type] = {
-                "n_traces": len(traces),
-                "ingested": ok,
-                "summary_len": len(summary),
-            }
+    # 20/10 : plus de db_snapshot (base de 50 Go, integrity_check ~47 min) ; le
+    # retour arriere retire les SEULS chunks CREES par ce cycle.
+    try:
+        with guarded_change("memory_consolidator: consolidation"):
+            for task_type, traces in tqdm(groups.items(), desc="consolidate", unit="task_type"):
+                if len(traces) < MIN_GROUP_SIZE:
+                    logger.debug("skip %s: only %d traces", task_type, len(traces))
+                    continue
+                logger.info("Consolidating %s (%d traces)...", task_type, len(traces))
+                summary = _summarise_group(task_type, traces)
+                nouveau = _ingest_experience(task_type, summary, len(traces))
+                if nouveau:
+                    ids_crees.append(nouveau)
+                results["groups"][task_type] = {
+                    "n_traces": len(traces),
+                    "ingested": bool(nouveau),
+                    "summary_len": len(summary),
+                }
+    except Exception:
+        # 20/10 : panne en cours de cycle -> on ne retire que ce qu'on a cree.
+        _retirer_chunks(ids_crees)
+        raise
 
     state["last_consolidated_ts"] = time.time()
     results["elapsed_s"] = round(time.monotonic() - t0, 1)
@@ -267,6 +310,11 @@ def main() -> int:
         return 0
 
     logger.info("Memory consolidator daemon started — interval=%ds pid=%d", INTERVAL_S, os.getpid())
+    # 20/10 : reveil du regulateur -> attendre la fin de l'intervalle avant tout cycle.
+    attente = _attente_avant_cycle(state, time.time())
+    if attente > 0:
+        logger.info("Premier cycle differe de %ds (debut du dernier cycle deja enregistre)", int(attente))
+        time.sleep(attente)
     while True:
         try:
             results = run_consolidation_cycle(state)

@@ -224,7 +224,7 @@ def ingest_file(path: Path, conn: sqlite3.Connection, pendant=None,
                         (chunk_id, chunk, source),
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gitingest_sdk_ingest.py', 226, exc_info=True)
             else:
                 skipped += 1
 
@@ -246,7 +246,7 @@ def main():
         conn.execute("ALTER TABLE rag_chunks ADD COLUMN created_at INTEGER")
         conn.commit()
     except sqlite3.OperationalError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gitingest_sdk_ingest.py', 248, exc_info=True)
 
     total_inserted = total_skipped = 0
     for fp in tqdm(files, desc="gitingest files", unit="file"):

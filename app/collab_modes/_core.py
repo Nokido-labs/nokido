@@ -47,7 +47,7 @@ def _is_dev_mode() -> bool:
                     val = line.split("=", 1)[-1].strip()
                     break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_core.py', 49, exc_info=True)
     return val.lower() == "dev"
 
 
@@ -116,7 +116,7 @@ def _get_session_id() -> str:
                 if sn:
                     return sn
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_core.py', 118, exc_info=True)
     return "collab"
 
 

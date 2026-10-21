@@ -38,7 +38,7 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 try:  # dogfood : stdout UTF-8 (le scanner affiche 🔴 + détails accentués) — l'embolie qu'il détecte
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embolie_scanner.py', 40, exc_info=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 

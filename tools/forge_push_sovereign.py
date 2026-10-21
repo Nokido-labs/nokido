@@ -234,11 +234,11 @@ def main() -> int:
                 _REPO = Path(lignes[1].strip()).resolve()
                 print("[marqueur] depot cible : %s" % _REPO)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_push_sovereign.py', 236, exc_info=True)
         try:
             marker.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_push_sovereign.py', 240, exc_info=True)
         args.push = True
         print("[marqueur] push ARME pour '%s' (marqueur consomme)" % br)
 

@@ -205,7 +205,7 @@ def _registry_load() -> dict:
         try:
             return json.loads(_REGISTRY_PATH.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 207, exc_info=True)
     return {}
 
 
@@ -331,7 +331,7 @@ def forge_forge_tool(name: str, description: str, signature: str) -> dict:
 
         invalidate_plan_cache()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 333, exc_info=True)
 
     # Signal capability-changed sur le bus (observable : SSE /api/swarm/stream).
     # NB : ce n'est PAS notifications/tools/list_changed MCP (le bridge ne push pas
@@ -344,7 +344,7 @@ def forge_forge_tool(name: str, description: str, signature: str) -> dict:
                      {"name": name, "signature": signature, "description": description},
                      topic="capabilities")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 346, exc_info=True)
 
     # Anchor dans RAG
     try:
@@ -357,7 +357,7 @@ def forge_forge_tool(name: str, description: str, signature: str) -> dict:
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 359, exc_info=True)
 
     return {
         "status": "forged",
@@ -409,7 +409,7 @@ def _call_sandboxed(name: str, kwargs: dict):
             try:
                 _f.unlink()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 411, exc_info=True)
     return None
 
 
@@ -434,7 +434,7 @@ def forge_call_dynamic(name: str, *, sandboxed: bool = True, **kwargs) -> dict:
             if _viol:
                 return {"error": f"SecretGuard: {_viol}", "tool": name}
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 436, exc_info=True)
 
     # SANDBOX-FORCED-DEFAULT (idée Ironsmith) : un outil GÉNÉRÉ s'exécute ISOLÉ par défaut.
     # Opt-out explicite (sandboxed=False). Fallback in-process si sandbox indispo -> jamais bloquer.
@@ -515,7 +515,7 @@ if __name__ == "__main__":
             try:
                 _path.unlink()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 517, exc_info=True)
             _r = _registry_load()
             _r.pop("hello_dyn", None)
             _registry_save(_r)

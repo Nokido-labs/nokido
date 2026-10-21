@@ -70,17 +70,64 @@ def test_un_composant_non_epingle_n_est_jamais_telecharge():
         _module().composant("local-llm", "bitnet_b1_58.gguf")
 
 
+def test_l_installation_complete_est_testee_sur_les_3_os():
+    """2026-10-16 : le job `installation` (protheses, embedder, pack, RAG, hub) ne tournait que sous Windows et Ubuntu
+    (les jobs paquet et organisme couvraient deja macOS). Owner : « livrer des versions sur les 3 OS pleinement
+    fonctionnelles »."""
+    texte = WORKFLOW.read_text(encoding="utf-8")
+    bloc = texte.split("\n  installation:", 1)[1].split("\n  paquet", 1)[0]
+    m = re.search(r"os:\s*\[([^\]]+)\]", bloc)
+    assert m, "matrice du job installation introuvable"
+    oss = {o.strip() for o in m.group(1).split(",")}
+    assert {"windows-latest", "ubuntu-24.04", "macos-latest"} <= oss, oss
+
+
+def test_la_repetition_teste_le_pack_CANDIDAT_de_la_release_brouillon():
+    """2026-10-16 : 0.20.12 a ete essayee avec le pack 0.20.9 (defaut fige) -- vert sur un objet qui n'etait pas le
+    livrable. Une repetition (push) lit la release BROUILLON de la version du snapshot ; absente = rouge ; installation
+    et paquet importent CE fichier (sha verifie) ; seul ce job a contents: write ; plus aucun defaut fige."""
+    # le CODE du workflow, sans ses commentaires : ils racontent l'incident et citent ce qu'on interdit (un instrument
+    # ne lit pas son propre recit -- 1re version de ce NR piegee deux fois par eux)
+    texte = "\n".join(lig for lig in WORKFLOW.read_text(encoding="utf-8").splitlines()
+                      if not lig.strip().startswith("#"))
+    assert not re.search(r"""default:\s*["']\d+\.\d+\.\d+["']""", texte), "version figee en defaut d'input"
+    assert not re.search(r"""\|\|\s*'\d+\.\d+\.\d+'""", texte), "version figee en repli d'expression"
+    job = texte.split("\n  pack-candidat:", 1)[1].split("\n  installation:", 1)[0]
+    assert "if: github.event_name == 'push'" in job
+    assert 'select(.draft and .tag_name == \\"v$V\\")' in job and "exit 1" in job
+    assert "contents: write" in job and texte.count("contents: write") == 1, "ecriture limitee au job pack-candidat"
+    for nom in ("installation", "paquet"):
+        bloc = texte.split("\n  %s:" % nom, 1)[1].split("\n  # ", 1)[0]
+        assert "needs: [pack-candidat]" in bloc and "NOKIDO_PACK_FICHIER" in bloc and "NOKIDO_PACK_SHA256" in bloc, nom
+        assert "name: pack-candidat" in bloc, "%s : le pack candidat est recupere" % nom
+
+
 def test_le_workflow_reste_sur_runners_heberges_sans_secret():
     texte = WORKFLOW.read_text(encoding="utf-8")
     assert "self-hosted" not in texte, "du code public ne tourne jamais sur le runner du poste owner"
     assert re.search(r"(?m)^permissions:\s*\n\s+contents: read\s*$", texte)
     assert "secrets." not in texte
-    assert "windows-latest" in texte and "ubuntu-latest" in texte
+    assert "windows-latest" in texte and "ubuntu-24.04" in texte
     assert "tools/forge_install_acceptance.py" in texte
     assert re.search(r'push:\s*\n\s+branches:\s*\["essai/\*\*"\]', texte), "push limite aux branches essai/**"
     assert "tags:" not in texte, "une repetition ne se declenche jamais sur un tag de release"
     for ligne in re.findall(r"uses:\s*(\S+)", texte):
         assert re.search(r"@[0-9a-f]{40}$", ligne), "action non epinglee par sha : %s" % ligne
+
+
+def test_aucun_workflow_ne_vise_ubuntu_latest():
+    """16/10 : GitHub annonce (annotation du run public 38851827198, runner-images#14748) que `ubuntu-latest`
+    migre vers Ubuntu 26 a partir du 19/10/2026. Un libelle flottant change la machine SOUS la CI sans commit :
+    un rouge du lendemain ne se rattacherait a aucun changement. Les runners Ubuntu sont EPINGLES (`ubuntu-24.04`) ;
+    passer a 26 sera un commit, apres un essai dedie. Seules les lignes `runs-on:` / `os:` comptent (pas les
+    commentaires historiques)."""
+    fautifs = []
+    for wf in sorted((RACINE / ".github" / "workflows").glob("*.yml")):
+        for n, ligne in enumerate(wf.read_text(encoding="utf-8").splitlines(), 1):
+            code = ligne.split("#", 1)[0]
+            if "ubuntu-latest" in code and re.search(r"\b(runs-on|os)\b", code):
+                fautifs.append("%s:%d" % (wf.name, n))
+    assert not fautifs, "runner Ubuntu non epingle : %s" % fautifs
 
 
 def test_le_promoteur_embarque_le_workflow_dans_le_depot_public():
@@ -220,7 +267,7 @@ def test_le_workflow_mesure_l_organisme_sur_trois_os():
     assert re.search(r"(?m)^  organisme:\s*$", texte), "job organisme absent"
     bloc = re.split(r"(?m)^  organisme:\s*$", texte, maxsplit=1)[1]
     assert "--organisme" in bloc
-    for os_ in ("windows-latest", "ubuntu-latest", "macos-latest"):
+    for os_ in ("windows-latest", "ubuntu-24.04", "macos-latest"):
         assert os_ in bloc, "%s absent du job organisme" % os_
 
 

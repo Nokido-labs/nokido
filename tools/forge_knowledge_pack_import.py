@@ -41,9 +41,12 @@ import argparse
 import hashlib
 import json
 import logging
+import lzma
 import sqlite3
 import sys
+import tarfile
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +59,7 @@ DEFAULT_REPO = "Nokido-labs/nokido"  # vitrine publique (ex-nokido-dist) : relea
 
 
 FORMAT = "nokido-knowledge-pack/2"
+FORMAT_SOURCE = "nokido-pack-source/1"  # tar par source/licence (20/10), lu EN FLUX : voir lire_pack_source
 
 
 def _purger_fts():
@@ -101,6 +105,55 @@ def lire_pack(pack_path: Path) -> dict:
             "domains": meta["domains"], "embeddings": embeddings}
 
 
+def lire_pack_source(tar_path) -> tuple[dict, Iterator[tuple]]:
+    """(manifeste, GENERATEUR de (id, source, domaine, texte, vecteur float32)) d'un pack par source (tar).
+
+    Contrat 20/10 : un GENERATEUR, jamais le tableau entier en memoire (Docker : ~350 Mo de vecteurs). Le tar n'est
+    jamais extrait sur disque ; `manifeste` est lu et valide tout de suite (format inconnu = refus immediate), le
+    generateur ouvre ensuite le tar a la premiere iteration.
+    """
+    with tarfile.open(tar_path) as t:
+        fl = t.extractfile("manifest.json")
+        if fl is None:
+            raise ValueError("pack source sans manifest.json : refuse")
+        man = json.loads(fl.read().decode("utf-8"))
+    if man.get("format") != FORMAT_SOURCE:
+        raise ValueError(f"format inconnu : {man.get('format')!r} (attendu {FORMAT_SOURCE})")
+    return man, _generer_lignes_source(tar_path, man)
+
+
+def _generer_lignes_source(tar_path, man: dict):
+    """Le flux : en-tete npy lu par `read_magic` + `read_array_header_1_0`, puis UNE ligne de dim*2 octets a la fois
+    et `textes.jsonl.xz` ligne a ligne. Jamais `np.load` du tableau entier, jamais d'ecriture sur disque."""
+    with tarfile.open(tar_path) as t:
+        fv = t.extractfile("vecteurs.npy")
+        ft = t.extractfile("textes.jsonl.xz")
+        if fv is None or ft is None:
+            raise ValueError("pack source incomplet (vecteurs.npy / textes.jsonl.xz absent) : refuse")
+        np.lib.format.read_magic(fv)
+        shape, _fortran, dtype = np.lib.format.read_array_header_1_0(fv)
+        if len(shape) != 2:
+            raise ValueError(f"vecteurs.npy de forme inattendue : {shape!r}")
+        count, dim = int(shape[0]), int(shape[1])
+        if man.get("count") is not None and int(man["count"]) != count:
+            raise ValueError(f"pack incoherent : manifeste annonce {man['count']} vecteurs, en-tete {count}")
+        if man.get("dim") is not None and int(man["dim"]) != dim:
+            raise ValueError(f"pack incoherent : manifeste annonce dim={man['dim']}, en-tete {dim}")
+        domaine = man.get("domaine")
+        with lzma.open(ft, "rt", encoding="utf-8") as tx:
+            for _ in range(count):
+                octets = fv.read(dim * 2)
+                if len(octets) != dim * 2:
+                    raise ValueError("vecteurs.npy tronque : pack incomplet ou corrompu, refuse")
+                try:
+                    ligne = next(tx)
+                except StopIteration as exc:
+                    raise ValueError("textes.jsonl.xz plus court que vecteurs.npy : pack incomplet, refuse") from exc
+                entree = json.loads(ligne)
+                vecteur = np.frombuffer(octets, dtype=dtype).astype(np.float32)
+                yield (str(entree["id"]), str(entree["source"]), domaine, str(entree["texte"]), vecteur)
+
+
 def _download_pack(repo: str, version: str | None, dest: Path) -> Path:
     """Download knowledge pack NPZ from GitHub Releases."""
     base = f"https://github.com/{repo}/releases"
@@ -130,13 +183,80 @@ def _verify_sha256(path: Path, expected: str | None) -> str:
     return actual
 
 
+def _ecrire_lignes(conn, lignes, overwrite_existing: bool, stats: dict, verbose: bool) -> None:
+    """Boucle d'ecriture unique des deux formats (NPZ `nokido-knowledge-pack/2` et tar `nokido-pack-source/1`, 20/10).
+
+    `lignes` rend (chunk_id, text, source, domain, embedding octets) -- un ITERATEUR : le tar est consomme ligne a
+    ligne pendant l'ecriture. Le NPZ doit se comporter EXACTEMENT comme avant (meme ordre, memes comptes, un seul
+    commit rendu par l'appelant).
+    """
+    cur = conn.cursor()
+    # Regle d'or (CLAUDE.md) : toute insertion dans rag_chunks se synchronise dans rag_fts. Les triggers du schema
+    # alimentent rag_chunks_fts, PAS rag_fts -- que lit la route /api/rag/stream du hub. 3e passe du test
+    # d'installation (07/10) : pack importe, rag_fts vide, la recherche du hub n'aurait rien trouve.
+    a_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE name='rag_fts'").fetchone() is not None
+    stats["rag_fts"] = "synchronise" if a_fts else "ABSENT (schema sans rag_fts : recherche lexicale du hub vide)"
+    n = stats.get("total_in_pack") or 0
+    for i, (chunk_id, text, source, domain, embedding) in enumerate(lignes):
+        chunk_id = str(chunk_id)
+        text = str(text)
+        source = str(source)
+        domain = str(domain)
+
+        try:
+            existing = cur.execute(
+                "SELECT embedding, text FROM rag_chunks WHERE id=?", (chunk_id,)
+            ).fetchone()
+
+            if existing is None:
+                cur.execute(
+                    "INSERT INTO rag_chunks (id, text, source, domain, embedding) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (chunk_id, text, source, domain, embedding),
+                )
+                if a_fts:
+                    cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
+                                (chunk_id, text, source, domain))
+                stats["inserted"] += 1
+            elif existing[0] is None:
+                cur.execute(
+                    "UPDATE rag_chunks SET embedding=? WHERE id=?",
+                    (embedding, chunk_id),
+                )
+                stats["updated_embedding"] += 1
+            elif overwrite_existing:
+                cur.execute(
+                    "UPDATE rag_chunks SET text=?, source=?, domain=?, embedding=? WHERE id=?",
+                    (text, source, domain, embedding, chunk_id),
+                )
+                if a_fts:
+                    # Le texte change : l'entree lexicale aussi. Jamais une purge par colonne UNINDEXED (balayage
+                    # complet de l'index sous verrou d'ecriture -- hub fige le 27/09) : purger_fts restreint par
+                    # une phrase de l'ANCIEN texte, lu par cle primaire ci-dessus. Une ligne qu'il laisse est DITE.
+                    _, laissees = _purger_fts()(conn, [(chunk_id, existing[1] or "")])
+                    if laissees:
+                        stats.setdefault("rag_fts_laissees", []).extend(laissees)
+                    cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
+                                (chunk_id, text, source, domain))
+                stats["updated_embedding"] += 1
+            else:
+                stats["skipped_overwrite_forbidden"] += 1
+
+            if verbose and i % 100 == 0:
+                print(f"  [{i + 1}/{n}] processed")
+        except Exception as exc:
+            stats["errors"] += 1
+            if verbose:
+                print(f"  [err] {chunk_id}: {exc}")
+
+
 def import_pack(
     pack_path: Path,
     overwrite_existing: bool = False,
     expect_sha256: str | None = None,
     verbose: bool = False,
 ) -> dict:
-    """Import knowledge pack into the local RAG database."""
+    """Import knowledge pack into the local RAG database -- NPZ (`--from`) ou tar `nokido-pack-source/1`."""
     if not pack_path.exists():
         raise FileNotFoundError(f"Pack not found: {pack_path}")
     if not DB.exists():
@@ -147,17 +267,23 @@ def import_pack(
     sha = _verify_sha256(pack_path, expect_sha256)
     print(f"[info] SHA256 = {sha}")
 
-    pack = lire_pack(pack_path)
-    manifest = pack["manifest"]
+    if str(pack_path).endswith(".tar"):
+        manifest, source = lire_pack_source(pack_path)
+        n = int(manifest.get("count") or 0)
+        lignes = ((cid, texte, src, domaine, vecteur.astype(np.float32).tobytes())
+                  for cid, src, domaine, texte, vecteur in source)
+    else:
+        pack = lire_pack(pack_path)
+        manifest = pack["manifest"]
+        chunk_ids = pack["chunk_ids"]
+        texts = pack["texts"]
+        sources = pack["sources"]
+        domains = pack["domains"]
+        embeddings = pack["embeddings"]
+        n = len(chunk_ids)
+        lignes = ((str(chunk_ids[i]), str(texts[i]), str(sources[i]), str(domains[i]),
+                   embeddings[i].astype(np.float32).tobytes()) for i in range(n))
     print(f"[info] manifest = {json.dumps(manifest, indent=2)}")
-
-    chunk_ids = pack["chunk_ids"]
-    texts = pack["texts"]
-    sources = pack["sources"]
-    domains = pack["domains"]
-    embeddings = pack["embeddings"]
-
-    n = len(chunk_ids)
     print(f"[info] {n} chunks in pack")
 
     stats = {
@@ -177,65 +303,7 @@ def import_pack(
         if not exists:
             raise RuntimeError("Table rag_chunks missing — run forge_db_bootstrap.py first")
 
-        cur = conn.cursor()
-        # Regle d'or (CLAUDE.md) : toute insertion dans rag_chunks se synchronise dans rag_fts. Les triggers du schema
-        # alimentent rag_chunks_fts, PAS rag_fts -- que lit la route /api/rag/stream du hub. 3e passe du test
-        # d'installation (07/10) : pack importe, rag_fts vide, la recherche du hub n'aurait rien trouve.
-        a_fts = conn.execute("SELECT 1 FROM sqlite_master WHERE name='rag_fts'").fetchone() is not None
-        stats["rag_fts"] = "synchronise" if a_fts else "ABSENT (schema sans rag_fts : recherche lexicale du hub vide)"
-        for i in range(n):
-            chunk_id = str(chunk_ids[i])
-            text = str(texts[i])
-            source = str(sources[i])
-            domain = str(domains[i])
-            embedding = embeddings[i].astype(np.float32).tobytes()
-
-            try:
-                existing = cur.execute(
-                    "SELECT embedding, text FROM rag_chunks WHERE id=?", (chunk_id,)
-                ).fetchone()
-
-                if existing is None:
-                    cur.execute(
-                        "INSERT INTO rag_chunks (id, text, source, domain, embedding) "
-                        "VALUES (?, ?, ?, ?, ?)",
-                        (chunk_id, text, source, domain, embedding),
-                    )
-                    if a_fts:
-                        cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
-                                    (chunk_id, text, source, domain))
-                    stats["inserted"] += 1
-                elif existing[0] is None:
-                    cur.execute(
-                        "UPDATE rag_chunks SET embedding=? WHERE id=?",
-                        (embedding, chunk_id),
-                    )
-                    stats["updated_embedding"] += 1
-                elif overwrite_existing:
-                    cur.execute(
-                        "UPDATE rag_chunks SET text=?, source=?, domain=?, embedding=? WHERE id=?",
-                        (text, source, domain, embedding, chunk_id),
-                    )
-                    if a_fts:
-                        # Le texte change : l'entree lexicale aussi. Jamais une purge par colonne UNINDEXED (balayage
-                        # complet de l'index sous verrou d'ecriture -- hub fige le 27/09) : purger_fts restreint par
-                        # une phrase de l'ANCIEN texte, lu par cle primaire ci-dessus. Une ligne qu'il laisse est DITE.
-                        _, laissees = _purger_fts()(conn, [(chunk_id, existing[1] or "")])
-                        if laissees:
-                            stats.setdefault("rag_fts_laissees", []).extend(laissees)
-                        cur.execute("INSERT INTO rag_fts (chunk_id, text, source, domain) VALUES (?, ?, ?, ?)",
-                                    (chunk_id, text, source, domain))
-                    stats["updated_embedding"] += 1
-                else:
-                    stats["skipped_overwrite_forbidden"] += 1
-
-                if verbose and i % 100 == 0:
-                    print(f"  [{i + 1}/{n}] processed")
-            except Exception as exc:
-                stats["errors"] += 1
-                if verbose:
-                    print(f"  [err] {chunk_id}: {exc}")
-
+        _ecrire_lignes(conn, lignes, overwrite_existing, stats, verbose)
         conn.commit()
 
     # Tickle hub to reload FAISS index (best-effort, ignore failure)

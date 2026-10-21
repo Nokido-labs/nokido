@@ -102,12 +102,12 @@ async def relay(src: asyncio.StreamReader, dst: asyncio.StreamWriter, label: str
             await dst.drain()
             total += len(data)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_http_proxy.py', 104, exc_info=True)
     finally:
         try:
             dst.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_http_proxy.py', 109, exc_info=True)
     return total
 
 

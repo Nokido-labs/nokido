@@ -208,7 +208,7 @@ def _resolve_pid(pid: int):
             if info.get("port") in ports:
                 return name, info.get("pid")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_body_world_model.py', 210, exc_info=True)
     return None, None
 
 
@@ -230,6 +230,13 @@ def guard(target, action, force: bool = False, toml_path: Path = SERVICES_TOML) 
     if isinstance(target, int):
         name, claimed = _resolve_pid(target)
         if name is None:
+            # CONTROL != OWNERSHIP (owner 16/10 : « tu devrais etre sur des identites ? »). Un pid que le superviseur
+            # ne revendique pas n'a pas de proprietaire prouve : le tuer d'office, c'etait ranger l'inconnu du cote
+            # autorise. Precedent : le doublon Ollama du 07/09 a ete tue SUR AUTORISATION owner, pas d'office.
+            if destructive and not forced:
+                return {"allowed": False, "impact": {"verdict": "unknown",
+                        "reason": f"pid {target} hors registre superviseur : propriete non prouvee -> "
+                                  f"abstention (force pour passer outre)"}}
             return {"allowed": True, "impact": {"verdict": "unknown",
                     "reason": f"pid {target} hors registre superviseur (non gouverne)"}}
         if claimed is not None and target != claimed:

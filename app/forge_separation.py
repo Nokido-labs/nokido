@@ -31,7 +31,7 @@ def _sep_deny(actor: str, reason: str) -> Tuple[bool, str]:
         from nokido_agent.tools.forge_alignment_trace import emit
         emit(str(actor), "separation_of_powers", "deny", reason=reason[:200])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_separation.py', 33, exc_info=True)
     return False, reason
 
 
@@ -132,7 +132,7 @@ def enforce_separation(actor_agent: str, action: str, target: Any,
                         to_agent = row[0]
                     conn.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_separation.py', 134, exc_info=True)
                     
         if to_agent:
             to_normalized = normalize_agent(to_agent)
@@ -162,7 +162,7 @@ def enforce_separation(actor_agent: str, action: str, target: Any,
                         from_agent, to_agent = row[0], row[1]
                     conn.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_separation.py', 164, exc_info=True)
                     
         if from_agent and to_agent:
             from_normalized = normalize_agent(from_agent)

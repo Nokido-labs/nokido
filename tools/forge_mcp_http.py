@@ -330,7 +330,7 @@ def construire_app(mcp_server, project_root: Path, cfg: dict | None = None):
 
             llm = get_collector().compare_providers()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mcp_http.py', 332, exc_info=True)
 
         # Sécurité
         sec_stats: dict = {}
@@ -338,7 +338,7 @@ def construire_app(mcp_server, project_root: Path, cfg: dict | None = None):
             try:
                 sec_stats = sec.stats()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mcp_http.py', 340, exc_info=True)
 
         return JSONResponse(
             {

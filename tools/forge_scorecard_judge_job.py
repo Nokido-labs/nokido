@@ -94,7 +94,7 @@ def judge_one(
             det_score = float(prior.get("confidence_score", 1.0))
             det_critique = str(prior.get("critique", det_critique))
         except (json.JSONDecodeError, TypeError, ValueError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_scorecard_judge_job.py', 96, exc_info=True)
 
     confidence = min(det_score, sem_score)
     sc = Scorecard(

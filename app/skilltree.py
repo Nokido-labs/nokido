@@ -464,7 +464,7 @@ class SkillLearner:
             try:
                 cb(sid, status)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/skilltree.py', 466, exc_info=True)
 
     def get(self, sid: str) -> SkillState:
         """Get.
@@ -624,7 +624,7 @@ class SkillLearner:
                         learned.append(sid)
                         continue
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/skilltree.py', 626, exc_info=True)
             if discover_fn:
                 self._notify(sid, "learning")
                 _log(f"  [yellow]{sid} -> disco[/yellow]")

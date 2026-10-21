@@ -61,7 +61,7 @@ async def post_loop_safe_check(app, loop_id: str, state=None, log_fn=None) -> ob
 
                 _f.write(_r.sub(r"\[.*?\]", "", msg) + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop.py', 63, exc_info=True)
 
     def _ver_key(path: Path) -> list:
         """Ver key.
@@ -245,7 +245,7 @@ async def post_loop_safe_check(app, loop_id: str, state=None, log_fn=None) -> ob
                 version_manager._loop_id = None
                 version_manager._loop_trunk = None
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop.py', 247, exc_info=True)
 
             # Archiver l'ancienne version dans versions/
             try:
@@ -258,7 +258,7 @@ async def post_loop_safe_check(app, loop_id: str, state=None, log_fn=None) -> ob
                     (base_dir / "versions").mkdir(exist_ok=True)
                     _sh.copy2(_old, _arc)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop.py', 260, exc_info=True)
 
             _vlog(f"  ✅ Mergé       : {best_path.name} → workspace/")
             _vlog("  📦 Ancien      : archivé dans versions/")

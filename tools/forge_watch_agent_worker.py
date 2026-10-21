@@ -43,7 +43,7 @@ if "pytest" not in sys.modules:
         try:
             _stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_watch_agent_worker.py', 45, exc_info=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app"
@@ -175,7 +175,7 @@ async def _loop():
                     await asyncio.sleep(1)
                 continue
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_watch_agent_worker.py', 177, exc_info=True)
         iter_ += 1
         stats_before = _queue_stats()
         t0 = time.time()

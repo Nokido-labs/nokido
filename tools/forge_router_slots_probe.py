@@ -86,7 +86,7 @@ def correspondance(slot: str, dispo: dict[str, object]) -> str:
         if rt and rt in dispo:
             return rt
     except Exception:  # noqa: BLE001 - registre absent
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_router_slots_probe.py', 88, exc_info=True)
     famille = slot.split("_")[0]
     for nom in dispo:
         if nom == famille or nom.startswith(famille):

@@ -43,7 +43,7 @@ def collect_session_data() -> dict:
         try:
             files_changed = int(last.split()[0])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_anchor.py', 45, exc_info=True)
 
     new_files = []
     for pattern in ["app/forge_*.py", "tools/*.py", "tools/ctf/*.py"]:

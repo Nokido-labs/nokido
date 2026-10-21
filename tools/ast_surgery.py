@@ -126,6 +126,7 @@ def merge_annotations(original: str, annotated_sigs: str) -> str:
                 new_line = indent_str + new_sig.split("\n")[0] + ":\n"
                 changes.append((def_idx, old_line, new_line))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/ast_surgery.py', 128, exc_info=True)
             continue
 
     if not changes:

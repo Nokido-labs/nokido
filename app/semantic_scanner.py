@@ -143,7 +143,7 @@ async def ollama_keywords(code: str, model: str) -> tuple[list[str], str]:
             return keywords, summary
 
     except Exception as e:
-        pass  # fallback ci-dessous
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/semantic_scanner.py', 145, exc_info=True)
 
     return [], ""
 
@@ -221,7 +221,7 @@ async def run(model: str, dry_run: bool) -> None:
             vector_map = json.loads(OUT_FILE.read_text(encoding="utf-8"))
             print(f"📂 vector_map.json existant chargé ({len(vector_map)} modules)\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/semantic_scanner.py', 223, exc_info=True)
 
     tasks = [scan_file(f, model, dry_run, semaphore) for f in forge_files]
 

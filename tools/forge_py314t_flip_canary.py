@@ -51,7 +51,7 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_PATH.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_py314t_flip_canary.py', 53, exc_info=True)
     return {}
 
 
@@ -87,7 +87,13 @@ def _hub_notify(message: str) -> bool:
         import os
         import urllib.request
 
-        token = os.environ.get("FORGE_MCP_TOKEN", "")
+        try:  # coffre d'abord (16/10) ; paquet absent -> repli env, dit
+            from nokido_agent.app.forge_secrets import get_secret
+
+            token = get_secret("FORGE_MCP_TOKEN") or ""
+        except ImportError:
+            print("[flip_canary] coffre inaccessible : repli sur l'environnement", file=sys.stderr)
+            token = os.environ.get("FORGE_MCP_TOKEN", "")
         body = json.dumps(
             {
                 "jsonrpc": "2.0",

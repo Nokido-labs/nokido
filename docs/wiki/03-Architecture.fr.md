@@ -122,6 +122,8 @@ Un `trace_id` (W3C `traceparent`, ou généré par le hub et chaîné par sessio
 
 Optionnel mais recommandé pour la chorégraphie cross-organes. Pub/sub mesh écrit en TypeScript.
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 ## 📂 Structure du repo
 
 ```

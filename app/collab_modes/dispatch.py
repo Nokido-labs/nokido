@@ -81,7 +81,7 @@ async def run_collab(
                 for s in sessions:
                     chat.write(f"  [bold]{s['session_id'][:32]}[/] mode={s['mode']}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/dispatch.py', 83, exc_info=True)
         return ""
 
     elif sub == "status":

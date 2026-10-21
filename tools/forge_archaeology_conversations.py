@@ -152,7 +152,7 @@ def _ecrire_md(res: dict) -> None:
         with open(MD_OUT, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lignes))
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_archaeology_conversations.py', 154, exc_info=True)
 
 
 def main() -> int:

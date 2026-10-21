@@ -110,7 +110,7 @@ def get_settings() -> object:
 
             s = create_settings()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_app_context.py', 112, exc_info=True)
     # Dernier recours — instance minimale
     if s is None:
         try:
@@ -118,7 +118,7 @@ def get_settings() -> object:
 
             s = Settings()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_app_context.py', 120, exc_info=True)
     return s
 
 
@@ -152,7 +152,7 @@ def get_version_manager() -> object:
 
             vm = VersionManager()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_app_context.py', 154, exc_info=True)
     return vm
 
 

@@ -33,7 +33,7 @@ def _audit(msg: str) -> None:
         with open(_AUDIT, "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ring_admin.py', 35, exc_info=True)
 
 
 def set_ring(agent: str, new_ring, caller_ring: int, caller_agent: str = "") -> dict:

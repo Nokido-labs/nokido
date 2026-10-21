@@ -17,7 +17,7 @@ try:
         get_router,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/routing.py', 19, exc_info=True)
 
 __all__ = [
     "SmartRouter",

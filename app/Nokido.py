@@ -165,15 +165,15 @@ class _silent:
         try:
             _sys.stdout = self._old_out
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 167, exc_info=True)
         try:
             _sys.stderr = self._old_err
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 171, exc_info=True)
         try:
             self._wctx.__exit__(*a)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 175, exc_info=True)
 
 
 # ── Recherche Web (web.py v2 — Ollama natif, sans OpenAI) ───────────────────
@@ -761,7 +761,7 @@ try:
         _f_r = _h_r.formatter
         _h_r.setFormatter(_flr.RedactingFormatter(getattr(_f_r, "_fmt", None), getattr(_f_r, "datefmt", None)))
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 763, exc_info=True)
 
 # ── QueueHandler (non-bloquant — enfile et retourne immédiatement) ───────────
 _queue_handler = _lh.QueueHandler(_log_q)
@@ -800,7 +800,7 @@ try:
         _latest.unlink()
     _latest.symlink_to(_SESSION_LOG.name)
 except Exception:
-    pass  # symlink non supporté sur certains Windows
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 802, exc_info=True)
 
 # Purge automatique : garder les 20 dernières sessions (.log + .jsonl)
 try:
@@ -809,7 +809,7 @@ try:
         for _old in _old_logs[:-20]:
             _old.unlink(missing_ok=True)
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 811, exc_info=True)
 
 # =============================================================================
 # CONFIGURATION AVEC PYDANTIC V2
@@ -1048,9 +1048,9 @@ if HAS_TEXTUAL:
                         try:
                             self._channel.change_terminal_size(nc, nr)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1050, exc_info=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1052, exc_info=True)
 
             # ── forge_context : injection finale (toutes vars disponibles) ──
             try:
@@ -1090,7 +1090,7 @@ if HAS_TEXTUAL:
                 except Exception as _ge:
                     logger.warning(f"[boot] GeminiBridge non disponible: {_ge}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1092, exc_info=True)
 
         async def on_resize(self, _: object) -> None:
             """On resize.
@@ -1113,7 +1113,7 @@ if HAS_TEXTUAL:
                 log.refresh(layout=True)
                 log._max_width = max(40, self.size.width)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1115, exc_info=True)
 
         async def connect(self) -> bool:
             """Connect."""
@@ -1150,6 +1150,7 @@ if HAS_TEXTUAL:
                             self._stream.feed(data)
                             self._refresh()
                     except asyncio.TimeoutError:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1152, exc_info=True)
                         continue
                     except asyncio.CancelledError:
                         break
@@ -1159,7 +1160,7 @@ if HAS_TEXTUAL:
                             self._log.write(f"[PTY déconnecté: {e}]")
                         break
             except asyncio.CancelledError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1161, exc_info=True)
 
         async def _write_loop(self) -> None:
             """Write loop."""
@@ -1171,6 +1172,7 @@ if HAS_TEXTUAL:
                             self._channel.stdin.write(data)
                             await self._channel.stdin.drain()
                     except asyncio.TimeoutError:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1173, exc_info=True)
                         continue
                     except asyncio.CancelledError:
                         break
@@ -1178,7 +1180,7 @@ if HAS_TEXTUAL:
                         logger.error(f"PTY write: {e}")
                         break
             except asyncio.CancelledError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1180, exc_info=True)
 
         def _refresh(self) -> None:
             """Refresh."""
@@ -1221,7 +1223,7 @@ if HAS_TEXTUAL:
                     else:
                         self._log.write(padded)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1223, exc_info=True)
 
         KEY_MAP = {
             "enter": "\r",
@@ -1251,14 +1253,14 @@ if HAS_TEXTUAL:
                 event.stop()
                 self.focus()  # focus sur le Widget, pas le RichLog interne
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1253, exc_info=True)
 
         def on_mouse_down(self, event: object) -> None:
             """Mousedown PTY — capture pour éviter crash Textual."""
             try:
                 event.stop()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1260, exc_info=True)
 
         async def on_key(self, event: events.Key) -> None:
             """On key.
@@ -1312,7 +1314,7 @@ if HAS_TEXTUAL:
                 try:
                     self._log.write(f"$ {cmd}")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1314, exc_info=True)
             await self._input_queue.put(cmd + "\r")
 
         async def disconnect(self) -> None:
@@ -1326,7 +1328,7 @@ if HAS_TEXTUAL:
                 try:
                     self._channel.stdin.write_eof()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1328, exc_info=True)
             if self._connection:
                 self._connection.close()
                 await self._connection.wait_closed()
@@ -1407,7 +1409,7 @@ def get_orchestrator() -> OrchestratorManager:  # noqa: F811
 
             _fc_orc.orchestrator = _global_orchestrator
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1409, exc_info=True)
     return _global_orchestrator
 
 
@@ -1929,7 +1931,7 @@ if HAS_TEXTUAL:
                 try:
                     self.placeholder = f"{sugg[0]}  (Tab pour compléter)"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1931, exc_info=True)
             elif len(sugg) > 1:
                 self.placeholder = "  |  ".join(sugg[:3])
             else:
@@ -1947,7 +1949,7 @@ if HAS_TEXTUAL:
                     self.cursor_position = pos + len(text)
                     event.stop()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 1949, exc_info=True)
 
     class AgentSelector(Static):
         """AgentSelector class."""
@@ -2155,14 +2157,14 @@ if HAS_TEXTUAL:
                 try:
                     self.query_one("#skill-placeholder").update("[dim]  skilltree.py absent[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2157, exc_info=True)
                 return
             if self._tree_widget is not None:
                 return  # déjà initialisé
             try:
                 self.query_one("#skill-placeholder").remove()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2164, exc_info=True)
             try:
                 self._tree_widget = SkillTreeWidget(learner=_skill_learner, id="skill-tree-hier")
                 self.mount(self._tree_widget)
@@ -2192,7 +2194,7 @@ if HAS_TEXTUAL:
                 try:
                     self.mount(node)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2194, exc_info=True)
 
         def clear_skills(self) -> None:
             """Clear skills."""
@@ -2202,7 +2204,7 @@ if HAS_TEXTUAL:
                 try:
                     node.remove()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2204, exc_info=True)
             self._skill_nodes.clear()
 
         def render_summary(self, skills: List[Dict]) -> None:
@@ -2400,7 +2402,7 @@ if HAS_TEXTUAL:
             try:
                 self.query_one("#wizard-error", Static).update(f"[red]⚠ {msg}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2402, exc_info=True)
 
         def _apply(self, host: str, user: str, port: int, key: str) -> bool:
             """Valide et injecte dans os.environ + settings."""
@@ -2743,7 +2745,7 @@ if HAS_TEXTUAL:
                 self._chat_start_w = chat_p.size.width
                 self._term_start_w = term_p.size.width
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2745, exc_info=True)
             self.capture_mouse()
 
         def on_mouse_move(self, event: object) -> None:
@@ -2761,7 +2763,7 @@ if HAS_TEXTUAL:
                 self.app.query_one("#chat-panel").styles.width = new_chat
                 self.app.query_one("#terminal-panel").styles.width = new_term
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2763, exc_info=True)
 
         def on_mouse_up(self, event: object) -> None:
             """On mouse up.
@@ -2875,7 +2877,7 @@ if HAS_TEXTUAL:
                 self.query_one("#ai-status", Static).update(msg)
                 self.set_timer(duration, lambda: self.query_one("#ai-status", Static).update(""))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2877, exc_info=True)
 
         def action_copy_last_reply(self) -> None:
             """Ctrl+C — copie la dernière réponse IA dans le presse-papier."""
@@ -2921,7 +2923,7 @@ if HAS_TEXTUAL:
                         if len(_buf) > 2000:  # garder 2000 dernières lignes max
                             del _buf[:500]
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 2923, exc_info=True)
                     return _orig(msg, *a, **kw)
 
                 _log.write = _patched_write  # type: ignore
@@ -3145,7 +3147,7 @@ if HAS_TEXTUAL:
             try:
                 self.query_one("#staging-indicator", Static).update(icons.get(state, ""))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3147, exc_info=True)
 
         def _set_status(self, msg: str) -> None:
             """Set status.
@@ -3156,7 +3158,7 @@ if HAS_TEXTUAL:
             try:
                 self.query_one("#ai-status", Static).update(msg)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3158, exc_info=True)
 
         def _current_model(self) -> str:
             """Current model."""
@@ -3201,11 +3203,11 @@ if HAS_TEXTUAL:
                     f"[dim]@help · @run · @rag · @audit · @estim[/]"
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3203, exc_info=True)
             try:
                 self.query_one("#btn-model", Button).label = f"🤖 {self._current_model()[:18]}"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3207, exc_info=True)
             self._update_sidebar_title()
 
         def _update_sidebar_title(self) -> None:
@@ -3215,7 +3217,7 @@ if HAS_TEXTUAL:
                 self.query_one("#orc-title", Static).update("[bold #58a6ff]⚒ La Forge[/]")
                 self.query_one("#orc-version", Static).update(f"[dim]v{ver} · {self.session_name[:12]}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3217, exc_info=True)
 
         def _update_mode_buttons(self) -> None:
             """Met à jour visuellement les boutons de mode orchestrateur."""
@@ -3227,7 +3229,7 @@ if HAS_TEXTUAL:
                     else:
                         btn.remove_class("-active")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3229, exc_info=True)
 
         def _saved_sessions(self) -> List[str]:
             """Saved sessions."""
@@ -3291,13 +3293,13 @@ if HAS_TEXTUAL:
                     try:
                         self._chat_log().write(f"[bold red][CANARI] {_err}[/]")
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3293, exc_info=True)
                 try:
                     from nokido_agent.app.forge_self_correction import anchor_error as _ae
 
                     _ae(error="\n".join(_canary_errors), context="on_mount canari", solution="Vérifier imports tombeau")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3299, exc_info=True)
             else:
                 logger.info("[CANARI] ✅ tous les imports critiques OK")
             # ══ FIN CANARI ════════════════════════════════════════════════
@@ -3324,7 +3326,7 @@ if HAS_TEXTUAL:
                         try:
                             _o.unlink()
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3326, exc_info=True)
                     logger.info(f"[boot] Auto-backup -> {_dst.name}")
             except Exception as _be:
                 logger.debug(f"[boot] backup: {_be}")
@@ -3382,12 +3384,12 @@ if HAS_TEXTUAL:
                     self.refresh(layout=True)
                     self.call_later(self.refresh, layout=True)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3384, exc_info=True)
 
             try:
                 _sig.signal(_sig.SIGWINCH, _on_winch)
             except (OSError, ValueError, AttributeError):
-                pass  # SIGWINCH indisponible (Windows)
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3389, exc_info=True)
 
             self.context = SessionContext(self.session_name)
             orchestrator_state = OrchestratorState()
@@ -3416,13 +3418,13 @@ if HAS_TEXTUAL:
                             _o, _, _ = await run_ssh("hostname -f 2>/dev/null || hostname")
                             _hn = _strip_ssh_output(_o)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3418, exc_info=True)
                         _kern = ""
                         try:
                             _o2, _, _ = await run_ssh("uname -r")
                             _kern = _strip_ssh_output(_o2)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3424, exc_info=True)
                         _ks = f" · [dim]kernel {_kern}[/]" if _kern else ""
                         self._set_ssh_mode(True, hostname=_hn or settings.ssh_host)
                         self._chat_log().write(
@@ -3450,7 +3452,7 @@ if HAS_TEXTUAL:
                         _kern_out, _, _ = await run_ssh("uname -r")
                         _kern = _strip_ssh_output(_kern_out)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3452, exc_info=True)
                     _kern_str = f" · [dim]kernel {_kern}[/]" if _kern else ""
                     self._set_ssh_mode(True, hostname=_hn or settings.ssh_host)
                     self._chat_log().write(
@@ -3636,7 +3638,7 @@ if HAS_TEXTUAL:
                     sb.add_class("hidden-sidebar")
                     self._clipboard_status("[dim]Sidebar masquée — Ctrl+B pour réafficher[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3638, exc_info=True)
 
         def action_copy_all_log(self) -> None:
             """Ctrl+Shift+A ou F6 : copie tout le log chat."""
@@ -3668,7 +3670,7 @@ if HAS_TEXTUAL:
             try:
                 self.call_later(self.refresh, layout=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3670, exc_info=True)
 
         def on_error(self, error: Exception) -> None:
             """Intercepte les erreurs Textual — les redirige vers le logger, pas l'UI."""
@@ -3681,7 +3683,7 @@ if HAS_TEXTUAL:
                 try:
                     self.query_one(GuiDebugOverlay).toggle_visibility()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3683, exc_info=True)
 
         def handle_exception(self, error: Exception) -> None:
             """Override Textual App.handle_exception pour bloquer le traceback UI."""
@@ -3894,7 +3896,7 @@ if HAS_TEXTUAL:
                         _sid = getattr(self, "session_name", "") or "default"
                         _ls(_sid, "human:tui", user_input, role="user", mode="dev:llm", is_private=1)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 3896, exc_info=True)
                 # Utilisation de l'orchestrateur pour le traitement intelligent
                 self.run_worker(self._dispatch_ai(user_input), exclusive=False, thread=False)
 
@@ -4146,7 +4148,7 @@ if HAS_TEXTUAL:
                 try:
                     prefect_manager._record(f"chain:{raw_steps[0][:30]}", "success", f"{len(raw_steps)} étapes")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4148, exc_info=True)
             else:
                 chat.write("[red]❌ Chain interrompu[/]")
 
@@ -4368,7 +4370,7 @@ if HAS_TEXTUAL:
                 if _fcs.rag_engine and hasattr(_fcs.rag_engine, "_save_embeddings"):
                     _fcs.rag_engine._save_embeddings()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4370, exc_info=True)
             from nokido_agent.app.forge_loop import apply_suggestion as _fh
 
             _result = await _fh(self, sugg, _ask_restart=_ask_restart)
@@ -4409,12 +4411,12 @@ if HAS_TEXTUAL:
                         try:
                             await self.terminal.disconnect()
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4411, exc_info=True)
                         try:
                             if HAS_ONNX:
                                 shutdown_onnx_backend()
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4416, exc_info=True)
                         await _aio.sleep(0.3)
                         import os as _os, sys as _sys
 
@@ -4577,7 +4579,7 @@ def load_last_assignment() -> dict:
             if all(k in d for k in ("chat", "action", "rag")):
                 return d
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4579, exc_info=True)
     return {}
 
 
@@ -4670,17 +4672,17 @@ if __name__ == "__main__":
 
         _ct.windll.kernel32.SetConsoleTitleW(_proc_title)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4672, exc_info=True)
     try:
         import setproctitle as _spt
 
         _spt.setproctitle(_proc_title)
     except ImportError:
-        pass  # pip install setproctitle pour nommage complet
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4678, exc_info=True)
     try:
         sys.argv[0] = _proc_title
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4682, exc_info=True)
 
     # 3. Écrit le PID dans nokido.lock (vérifiable par le .bat)
     try:
@@ -4688,7 +4690,7 @@ if __name__ == "__main__":
 
         (_pl.Path(__file__).parent.parent / "nokido.lock").write_text(str(os.getpid()), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4690, exc_info=True)
 
     # ── Mode normal (déjà dans la bonne fenêtre) ─────────────────────────────
     # On n'essaie de relancer dans une nouvelle fenêtre QUE si :
@@ -4718,7 +4720,7 @@ if __name__ == "__main__":
                 _wid = _sp2.check_output(["xdotool", "getactivewindow"], stderr=_sp2.DEVNULL).strip()
                 _sp2.Popen(["xdotool", "windowminimize", _wid], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/Nokido.py', 4720, exc_info=True)
             sys.exit(0)
         # Relancement échoué → continuer normalement dans cette fenêtre
         print("⚒  Lancement direct (aucun émulateur terminal détecté).")

@@ -1,0 +1,49 @@
+# Suite pure sur runner GitHub HEBERGE -- second observateur de la CI de reference (chantier P1, GO owner 14/10).
+#
+# Pourquoi : la suite pure de tools/ci_local.py tournait sur le poste owner et saturait son disque (deux CI de
+# reference coupees par delai d'E/S le 14/10). Les runners heberges du depot PUBLIC sont gratuits. Meme liste
+# (lue dans ci_local.py par AST), meme runtime (requirements.nokido_py314.lock, --no-deps), meme borne (30 s).
+# Le poste ne garde que les gates d'organisme vivant (campagne UI, services, comptes bac a sable, V:).
+#
+# Ne publie RIEN, ne lit AUCUN secret. Declenche par la repetition (`essai/**`), comme installation-complete.
+# OBSERVATION d'abord : rc force a 0 tant que le bruit n'est pas mesure (reflexe « observer avant d'enforcer »).
+name: Suite pure (runner heberge)
+
+on:
+  push:
+    branches: ["essai/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  suite-pure:
+    name: Suite pure ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]          # meme OS que la reference ; ubuntu-latest apres calibrage
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+      - name: Runtime certifiant (versions exactes, sans resolution)
+        run: python -m pip install --no-deps -r requirements.nokido_py314.lock
+      - name: Suite pure (meme liste que ci_local)
+        env:
+          PYTHONUTF8: "1"
+          PYTHONNOUSERSITE: "1"
+        run: python tools/forge_suite_pure_portable.py --sortie _suite_pure --observation
+      - name: Rapport et JUnit
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: suite-pure-${{ matrix.os }}
+          path: |
+            _suite_pure/*.xml
+            _suite_pure/rapport_suite_pure.json
+          if-no-files-found: warn

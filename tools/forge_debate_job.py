@@ -105,7 +105,7 @@ def _rag_context(query: str) -> str:
         if getattr(pf, "ok", True):
             ctx = getattr(pf, "safe_task", None) or ctx
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_debate_job.py', 107, exc_info=True)
     return ctx
 
 
@@ -306,6 +306,7 @@ def _age_mesure(brut) -> float:
         try:
             return (datetime.now() - datetime.strptime(s.split(".")[0], fmt)).total_seconds()
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_debate_job.py', 308, exc_info=True)
             continue
     try:
         return (datetime.now() - datetime.fromtimestamp(float(s))).total_seconds()
@@ -630,7 +631,7 @@ def main():
         except Exception as exc:  # noqa: BLE001 -- la capsule ne fait jamais echouer le debat
             print("capsule NON ecrite :", type(exc).__name__)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_debate_job.py', 632, exc_info=True)
     print(json.dumps({
         "ok": True,
         "elapsed_s": result["elapsed_s"],

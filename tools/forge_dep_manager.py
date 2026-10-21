@@ -12,6 +12,7 @@ def build_dep_graph(app_dir: Path) -> dict[str, list[str]]:
         try:
             tree = ast.parse(filepath.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dep_manager.py', 14, exc_info=True)
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

@@ -103,6 +103,7 @@ def _ab(dim: int) -> dict:
         try:
             ae = enc(atext)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cognition_retrain_1024.py', 105, exc_info=True)
             continue
         if ae.shape[0] != dim:
             continue

@@ -41,7 +41,7 @@ def _token() -> str | None:
         if t:
             return t
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_hf.py', 43, exc_info=True)
     return get_secret("HF_TOKEN") or get_secret("HUGGINGFACE_TOKEN")
 
 

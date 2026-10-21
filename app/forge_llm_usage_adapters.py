@@ -54,6 +54,12 @@ COLONNES_AJOUTEES = {
     "cost_source": "TEXT",
     # Le module qui ECRIT, a sa place : ce n'est pas l'identite du client.
     "writer_component": "TEXT",
+    # Quand le routeur a servi l'appel (`RouterCascadeProvider`), le modele qui a
+    # REELLEMENT repondu et le nombre de maillons essayes avant lui. Sans ces deux
+    # colonnes, une ligne `provider='router'` nommait la cascade, jamais le modele
+    # servi (audit pair E, 19/10). NULL = inconnu, jamais un modele devine.
+    "served_model": "TEXT",
+    "attempts": "INTEGER",
 }
 
 _CHAMPS = (

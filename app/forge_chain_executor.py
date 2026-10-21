@@ -40,7 +40,7 @@ if "pytest" not in sys.modules:
         try:
             _stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 42, exc_info=True)
 
 logger = logging.getLogger("Nokido.ChainExecutor")
 ROOT = Path(__file__).resolve().parent.parent
@@ -71,6 +71,7 @@ def _age_s(created_at) -> float | None:
             t = datetime.strptime(str(created_at)[:19], fmt).replace(tzinfo=timezone.utc)
             return (datetime.now(tz=timezone.utc) - t).total_seconds()
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 73, exc_info=True)
             continue
     return None
 
@@ -138,7 +139,7 @@ class ChainExecutor:
             from nokido_agent.app.forge_durable import recover_chain_nodes
             recover_chain_nodes(self._get_conn)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 140, exc_info=True)
         conn = self._get_conn()
         nodes = conn.execute(
             "SELECT * FROM agent_chain_nodes WHERE status IN ('pending','retry_pending') ORDER BY chain_id, step_index"
@@ -1045,7 +1046,7 @@ class ChainExecutor:
                         by_status = {r[0]: r[1] for r in rows}
                         conn.close()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 1047, exc_info=True)
                     hb.write_text(
                         json.dumps(
                             {
@@ -1058,7 +1059,7 @@ class ChainExecutor:
                         encoding="utf-8",
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 1060, exc_info=True)
                 await asyncio.sleep(20)
 
         asyncio.ensure_future(_hb_ticker())

@@ -204,7 +204,7 @@ def main(argv=None) -> int:
 
         token = get_secret("LAFORGE_HUB_TOKEN") or get_secret("FORGE_TOKEN_CLAUDE") or ""
     except Exception:  # noqa: BLE001 — sans jeton le videur tranchera, et le dira
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_collective_gain.py', 206, exc_info=True)
     res = mesurer(n=a.n, politique=a.politique, agent=a.agent, token=token,
                   use_case=a.use_case)
     print(json.dumps(res, ensure_ascii=False, indent=1))

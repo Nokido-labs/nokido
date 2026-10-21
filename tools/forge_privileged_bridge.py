@@ -76,7 +76,7 @@ def _bridge_key() -> bytes:
             try:
                 set_secret(_KEY_NAME, k)
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 78, exc_info=True)
         return k.encode()
     except Exception:  # noqa: BLE001 - pas de vault (test) → clé éphémère process
         k = _secrets.token_hex(16)
@@ -308,7 +308,7 @@ def _notify_owner(msg: str) -> None:
 
         notify("OWNER", msg)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 310, exc_info=True)
 
 
 def enqueue_pending(req: dict) -> dict:
@@ -365,7 +365,7 @@ def govern(req: dict, tier: str = "user") -> dict:
             return {"ok": False, "reason": f"firewall: {getattr(pf, 'reason', 'blocked')}",
                     "ack_required": False}
     except Exception:  # noqa: BLE001 - firewall absent → ne bloque pas le tier USER
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 367, exc_info=True)
     return {"ok": True, "reason": "ok", "ack_required": bool(spec["ack"])}
 
 
@@ -463,14 +463,14 @@ def request_privileged(cls: str, args: dict, *, requester: str = "hub",
             try:
                 resp.unlink()
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 465, exc_info=True)
             return out
         time.sleep(poll)
     for p in (reqp, resp):
         try:
             p.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 472, exc_info=True)
     return {"ok": False, "error": f"priv_bridge timeout {wait_s}s"}
 
 
@@ -482,6 +482,7 @@ def process_once(tier: str = "user") -> int:
         try:
             req = json.loads(reqp.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 484, exc_info=True)
             continue
         res = process_request(req, tier)
         out = reqp.with_name(reqp.name.replace(".req.json", ".res.json"))
@@ -489,7 +490,7 @@ def process_once(tier: str = "user") -> int:
         try:
             reqp.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_privileged_bridge.py', 491, exc_info=True)
         n += 1
     return n
 

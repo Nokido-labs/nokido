@@ -1,0 +1,11 @@
+{
+  "cle": "roadmap_digestion_conv_hash_20261017",
+  "cause_racine": "la colonne hash etait NULL pour les 99 973/99 973 fragments conv : _insert_chunks n'ecrivait jamais hash, donc la deduplication par contenu (tools/forge_rag_dedup_hash.py) ne pouvait pas operer — 17,6 % de doublons mesures le 17/10",
+  "red": "tests/nr/test_conv_hash_rempli_nr.py",
+  "rouge_vu": true,
+  "green": [
+    "app/forge_conv_indexer.py"
+  ],
+  "vert_vu": true,
+  "note": "_insert_chunks pose hash = sha256(texte)[:16] (convention forge_clawhub_autoinstall), refuse un texte deja en base sous une autre source (NOT EXISTS sur hash, index idx_rag_chunks_hash idempotent construit a la premiere passe) et rattrappe le VIDE des lignes conv existantes re-rencontrees. Base sans colonne hash (tests NR anciens) : chemin identique a avant. Non-regression : test_conv_digestion_nr.py 9/9 vert, test_conv_indexer_surfaces_nr.py 13/14 — le seul echec (test_warmup_rag_echec_conv_indexer_en_warning) est anterieur : import de forge_rag_warmup qui mkdir data/ refuse par le bac a sable (PermissionError, preuve par import seul sans le changement)."
+}

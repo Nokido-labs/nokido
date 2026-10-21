@@ -125,7 +125,7 @@ def _read_state_mirror() -> Optional[Dict[str, Any]]:
         if _STATE_MIRROR.exists():
             return json.loads(_STATE_MIRROR.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 127, exc_info=True)
     return None
 
 
@@ -240,9 +240,9 @@ def get_opsec_level() -> OpsecLevel:
                 _cached_at = now
                 return lvl
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 242, exc_info=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 244, exc_info=True)
     _cached_level = _DEFAULT_LEVEL
     _cached_at = now
     return _DEFAULT_LEVEL
@@ -271,7 +271,7 @@ def _dire_illisible(cle: str, motif: str) -> None:
             "d'arret ne peut pas etre constate ; les tools mutants sont refuses",
             cle, motif)
     except Exception:  # noqa: BLE001 - le journal ne casse jamais un capteur d'arret
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 273, exc_info=True)
 
 
 def _etat_drapeau(cle: str) -> Tuple[str, str]:
@@ -482,7 +482,7 @@ def set_opsec_level(
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 484, exc_info=True)
         return {
             "ok": False,
             "rejected": True,
@@ -655,7 +655,7 @@ def sanitize_for_archive(
             ng = NoiseGuardian()
             sanitized, _ = ng.neutralize_signatures(sanitized)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 657, exc_info=True)
 
     return {
         "sanitized": sanitized,
@@ -751,7 +751,7 @@ def detect_lab_environment(text: str) -> Dict[str, Any]:
 try:
     _restore_from_mirror_if_db_empty()
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_opsec.py', 753, exc_info=True)
 
 
 # ============================================================

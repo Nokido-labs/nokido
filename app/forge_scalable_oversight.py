@@ -79,6 +79,7 @@ async def _strong_panel(get_provider, providers, n):
             if p and p.is_available():
                 picks.append(name)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scalable_oversight.py', 81, exc_info=True)
             continue
     return picks
 
@@ -101,6 +102,7 @@ async def oversee(task: str, output: str, panel: int = 3) -> dict:
                                      "errors": (jd.get("errors") or [])[:5],
                                      "why": str(jd.get("why", ""))[:140]})
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scalable_oversight.py', 103, exc_info=True)
             continue
     # agrégation : majorité. flag/reject l'emporte si >= moitié des auditeurs le disent.
     negatives = [v for v in verdicts if v["verdict"] in ("flag", "reject")]

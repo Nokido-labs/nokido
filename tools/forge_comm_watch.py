@@ -212,7 +212,7 @@ def run_once() -> list[dict]:
             encoding="utf-8",
         )
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_comm_watch.py', 214, exc_info=True)
     return changes
 
 
@@ -254,7 +254,7 @@ def main(argv: list[str]) -> int:
                     beat_daemon("comm_watch", changements=len(ch or []),
                                 interval_s=interval)
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_comm_watch.py', 256, exc_info=True)
             except Exception as e:  # noqa: BLE001
                 log.error("passage KO: %s", e)
             time.sleep(interval)

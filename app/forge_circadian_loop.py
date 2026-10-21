@@ -423,7 +423,7 @@ async def phase3_postmortem(interrupt_flag: asyncio.Event) -> dict:
                             )
                             recs_written += 1
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_circadian_loop.py', 425, exc_info=True)
             conn2.commit()
             conn2.close()
 

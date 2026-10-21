@@ -192,7 +192,7 @@ def test_arbre_arrete_meme_sans_psutil_sur_l_interpreteur_du_banc(monkeypatch, w
 def test_workflow_lance_le_parcours_sur_trois_systemes_sans_injection():
     texte = WORKFLOW.read_text(encoding="utf-8")
     bloc = texte.split("\n  paquet:", 1)[1].split("\n  organisme:", 1)[0]
-    for os_ in ("windows-latest", "ubuntu-latest", "macos-latest"):
+    for os_ in ("windows-latest", "ubuntu-24.04", "macos-latest"):
         assert os_ in bloc
     assert '--paquet=$SPEC_PAQUET' in bloc
     run = [l for l in bloc.splitlines() if l.strip().startswith("run:")]

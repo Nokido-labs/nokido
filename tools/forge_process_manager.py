@@ -92,7 +92,7 @@ def restart_hub(purge_pyc: bool = True) -> dict:
             try:
                 shutil.rmtree(ROOT / d)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_process_manager.py', 94, exc_info=True)
     subprocess.run(["nssm", "start", HUB_SERVICE], capture_output=True)
     # Wait hub UP
     for _ in range(30):
@@ -131,7 +131,7 @@ def ensure_tmp_dirs():
                 if f.stat().st_mtime < cutoff:
                     f.unlink()
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_process_manager.py', 133, exc_info=True)
 
 
 # --- CLAUDE DESKTOP ---

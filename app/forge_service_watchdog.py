@@ -388,7 +388,7 @@ class ServiceWatchdog:
                 if conn.laddr and conn.laddr.port == port and conn.status == "LISTEN" and conn.pid:
                     return int(conn.pid)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_service_watchdog.py', 390, exc_info=True)
 
         # Fallback: netstat -ano (Windows) — derniere colonne = PID des LISTENING
         try:
@@ -410,7 +410,7 @@ class ServiceWatchdog:
                     if pid_s.isdigit() and int(pid_s) > 0:
                         return int(pid_s)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_service_watchdog.py', 412, exc_info=True)
         return None
 
     # Script identitaire par service — match STRICT de cmdline pour retrouver un
@@ -445,9 +445,10 @@ class ServiceWatchdog:
                     if script in cmd:
                         return int(proc.info["pid"])
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_service_watchdog.py', 447, exc_info=True)
                     continue
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_service_watchdog.py', 449, exc_info=True)
         return None
 
 

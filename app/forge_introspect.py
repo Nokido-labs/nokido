@@ -111,11 +111,14 @@ def _code(question: str, non_consulte: list, jit=None) -> list:
             return []
     ambiguite, callers, definitions = jit.ambiguite, jit.callers, jit.definitions
     trouves = []
-    for mot in _candidats(question):
+    candidats = list(_candidats(question))
+    # UN git grep pour tous les candidats (mesure 18/10 : un par mot, 6 a 9 par appel). None = repli d'avant.
+    pre = getattr(jit, "prefiltre_definitions", lambda _m: None)(candidats)
+    for mot in candidats:
         if len(trouves) >= MAX_SYMBOLES:
             break
         try:
-            defs = definitions(mot)
+            defs = definitions(mot) if pre is None else definitions(mot, fichiers=pre.get(mot, []))
         except Exception as exc:  # noqa: BLE001
             non_consulte.append({"organe": "definitions(%s)" % mot,
                                  "raison": type(exc).__name__})
@@ -607,6 +610,27 @@ def _ecrire_trace(data: dict) -> None:
     _poser_instantane(data)
 
 
+import threading as _threading
+
+# MISE A JOUR PERDUE (mesure 17/10) : la trace est un JSON lu, modifie et RECRIT en entier ; deux appels concurrents
+# (CLAUDE, AGY et Codex en parallele) lisaient le meme instantane et le second effacait le premier -- la consultation de
+# CLAUDE revenait a « il y a 9 h », le gate cognitif repondait « JAMAIS » a tort (et l'ecriture concurrente levait parfois
+# PermissionError). Un verrou par processus (le hub) serialise lecture-modification-ecriture ; inter-processus : non couvert.
+_VERROU_TRACE = _threading.RLock()
+
+
+def _sous_verrou(fonction):
+    import functools
+
+    @functools.wraps(fonction)
+    def gardee(*args, **kwargs):
+        with _VERROU_TRACE:
+            return fonction(*args, **kwargs)
+
+    return gardee
+
+
+@_sous_verrou
 def noter_consultation(agent: str, question: str = "", resultat=None) -> None:
     """Retient AUSSI les fichiers des procedures proposees.
 
@@ -636,7 +660,38 @@ def noter_consultation(agent: str, question: str = "", resultat=None) -> None:
                 if f not in proposes:
                     proposes.append(f)
     e["fichiers_proposes"] = proposes[:40]
+    # PHASE 2 des gardes (owner 17/10 : « les garde fous doivent emaner du hub »). La trace juge aussi le DOMAINE : les
+    # modules de la question et du rendu CUMULENT, horodates -- une consultation sur un autre sujet ne couvre plus un
+    # module non consulte (mesure 17/10 : 3 fonctions ajoutees dans des modules jamais consultes).
+    doms = e.get("domaines") if isinstance(e.get("domaines"), dict) else {}
+    # Revue adverse de Codex (17/10, CONFIRME) : la QUESTION ne prouve rien -- y citer un module suffisait a passer le
+    # gate. Seuls les domaines effectivement RENDUS par la consultation comptent.
+    sources = [str(f) for f in proposes]
+    if isinstance(resultat, dict):
+        for m in resultat.get("modules_trouves") or []:
+            if isinstance(m, dict):
+                sources.append(str(m.get("chemin") or m.get("module") or ""))
+        for s in resultat.get("symboles_trouves") or []:
+            for df in (s.get("definitions") or []) if isinstance(s, dict) else []:
+                if isinstance(df, dict):
+                    sources.append(str(df.get("file") or ""))
+    for m in _domaines_de(" ".join(sources)):
+        doms[m] = e["derniere"]
+    if len(doms) > 300:  # borne : les domaines les plus anciens partent au-dela de 300 par agent
+        for k in sorted(doms, key=doms.get)[: len(doms) - 300]:
+            del doms[k]
+    e["domaines"] = doms
     _ecrire_trace(d)
+
+
+def _domaines_de(texte: str) -> set:
+    """Modules nommes dans un texte : `forge_x`, `forge_x.sync`, `tools/forge_x.py`, `core/supervisor.ts`."""
+    import re as _re
+
+    t = str(texte or "")
+    noms = {m.lower() for m in _re.findall(r"\b((?:forge|nokido|hook|ci)_[A-Za-z0-9_]+)", t)}
+    noms |= {m.lower() for m in _re.findall(r"([A-Za-z0-9_]+)\.(?:py|ts)\b", t)}
+    return noms
 
 
 def consultation_recente(agent: str, ttl: float = TTL_CONSULTATION_S) -> dict:
@@ -650,6 +705,87 @@ def consultation_recente(agent: str, ttl: float = TTL_CONSULTATION_S) -> dict:
             "age_s": round(age, 1), "question": e.get("question", "")}
 
 
+def consultation_du_domaine(agent: str, chemin: str, ttl: float = TTL_CONSULTATION_S) -> dict:
+    """(vu, etat, age_s) pour le DOMAINE de `chemin` (le module), par agent : JAMAIS / RECENTE / PERIMEE."""
+    cible = Path(str(chemin).replace("\\", "/")).stem.lower()
+    e = _lire_trace().get(str(agent or "INCONNU").upper()) or {}
+    ts = (e.get("domaines") or {}).get(cible)
+    if not ts:
+        return {"vu": False, "etat": "JAMAIS", "age_s": None, "domaine": cible}
+    age = time.time() - float(ts)
+    return {"vu": age <= ttl, "etat": "RECENTE" if age <= ttl else "PERIMEE", "age_s": round(age, 1), "domaine": cible}
+
+
+def mode_gardes_hub() -> str:
+    """Interrupteur OWNER des gardes cote hub (LAFORGE_GARDES_HUB dans Nokido.env, decision owner 17/10) : 'refus' ou
+    'observer' (defaut). Une valeur inconnue vaut 'observer' : jamais un refus fabrique par une faute de frappe."""
+    import os as _os
+
+    v = str(_os.environ.get("LAFORGE_GARDES_HUB") or "").strip().lower()
+    return "refus" if v == "refus" else "observer"
+
+
+def symboles_neufs(rel: str, contenu: str) -> tuple:
+    """(creation, {noms}) : les def/class de PREMIER niveau qu'une ecriture ajoute a un .py de app/ ou tools/. Editer un
+    symbole existant n'est pas en creer un -- sinon le garde devient un peage et on le desarme."""
+    import ast as _ast
+
+    chemin = Path(str(rel).replace("\\", "/"))
+    if chemin.suffix != ".py" or not ({"app", "tools"} & set(chemin.parts)) or "tests" in chemin.parts:
+        return (False, set())
+
+    def noms(src):
+        # Revue adverse de Codex (17/10, CONFIRME) : le premier niveau seul laissait passer une def imbriquee ou une
+        # lambda affectee. Tout l'arbre est parcouru.
+        try:
+            arbre = _ast.parse(src)
+        except (SyntaxError, ValueError):
+            return set()
+        trouves = set()
+        for n in _ast.walk(arbre):
+            if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
+                trouves.add(n.name)
+            elif isinstance(n, _ast.Assign) and isinstance(n.value, _ast.Lambda):
+                trouves |= {t.id for t in n.targets if isinstance(t, _ast.Name)}
+        return trouves
+
+    cible = chemin if chemin.is_absolute() else ROOT / chemin
+    try:
+        ancien = cible.read_text(encoding="utf-8") if cible.exists() else None
+    except OSError:  # muet-ok : ancien illisible = on ne sait pas ce qui existait, on ne signale que du neuf PROUVE
+        return (False, set())
+    if ancien is None:
+        return (True, noms(contenu))
+    return (False, noms(contenu) - noms(ancien))
+
+
+def _consultation_du_domaine(agent: str, chemin: str) -> dict:
+    return consultation_du_domaine(agent, chemin)
+
+
+def verdict_cognitif(agent: str, rel: str, contenu: str) -> str | None:
+    """Gate COGNITIF (phase 2 cote hub, owner 17/10) : un symbole neuf, ou un fichier cree, dans app/ ou tools/ sans
+    consultation de CE domaine par CET agent depuis 1 h. Mesure 17/10 : trois fonctions ajoutees dans des modules jamais
+    consultes, dont un doublon (_partir_d_alpha = forge_worktree.sync). Rend le message, ou None.
+    « COGNITIF : » = absence PROUVEE ; « COGNITIF INCONNU » = trace illisible, jamais un refus."""
+    creation, nouveaux = symboles_neufs(rel, contenu)
+    if not creation and not nouveaux:
+        return None
+    try:
+        c = _consultation_du_domaine(agent, rel)
+    except Exception as e:  # noqa: BLE001
+        return "COGNITIF INCONNU : trace de consultation illisible (%s) -- consulter le domaine avant d'ecrire" % (
+            type(e).__name__)
+    if c.get("vu"):
+        return None
+    dom = Path(str(rel).replace("\\", "/")).stem
+    quoi = ("creation de %s" % rel) if creation else (
+        "%d symbole(s) neuf(s) dans %s : %s" % (len(nouveaux), rel, ", ".join(sorted(nouveaux)[:5])))
+    return ("COGNITIF : %s sans consultation du domaine %s par %s (%s) -- `introspect` sur ce domaine puis "
+            "`tools/forge_retrieval_sweep.py %s` AVANT d'ecrire (anti-dup)" % (quoi, dom, agent, c.get("etat"), dom))
+
+
+@_sous_verrou
 def noter_edition(agent: str, avec_consultation: bool, chemin: str = "") -> None:
     """Compteurs du garde, ET le troisieme niveau : la REUTILISATION.
 

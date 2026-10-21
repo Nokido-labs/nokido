@@ -292,7 +292,13 @@ if [[ "${WITH_SANDBOX_USERS:-0}" == "1" ]]; then
                 warn "iptables rule failed (might already exist or need iptables-save)"
             ok "iptables: outbound block for laforge-sandbox-offline (run iptables-save to persist)"
         elif [[ "$OS" == "macOS" ]]; then
-            warn "macOS: configure pfctl manually to block laforge-sandbox-offline outbound"
+            # 20/10 : l'ancre pf n'est pas chargee au boot -- --pare-feu la repose ici (idempotent,
+            # meme regle que celle que le LaunchDaemon reposera a chaque demarrage).
+            if "$PY" tools/forge_sandbox_setup.py --pare-feu; then
+                ok "pf: blocage sortant repose (ancre com.apple/nokido)"
+            else
+                warn "macOS: --pare-feu echoue (root requis ?) -- relance: sudo $PY tools/forge_sandbox_setup.py --pare-feu"
+            fi
         fi
     fi
 else

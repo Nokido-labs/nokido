@@ -65,6 +65,9 @@ def veille(monkeypatch):
     monkeypatch.setattr(rw, "_load_state", lambda: etat)
     monkeypatch.setattr(rw, "_save_state", lambda s: None)
     monkeypatch.setattr(rw.time, "sleep", lambda s: None)
+    # « breaking change » leve une alerte : sans ce double, C_06c (18/10) lancait la VRAIE analyse des ruptures sur
+    # la base de production -- le worker gw0 du pre-controle turbo job_a7191907e554 y a cale (20/10).
+    monkeypatch.setattr(rw, "_impacts_ruptures", lambda alerts: "non calcule (test)")
     return etat, monkeypatch
 
 

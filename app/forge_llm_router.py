@@ -116,7 +116,7 @@ def _emit_nervous_event(event_type: str, payload: dict) -> None:
             )
             urllib.request.urlopen(req, timeout=1)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 118, exc_info=True)
 
     threading.Thread(target=_post, daemon=True).start()
 
@@ -641,6 +641,108 @@ PROVIDERS = {
     # (pas un LLM chat — search API).
 }
 
+# RED 6 du plan AGY (16/10) : les verdicts MESURES par `forge_free_tier_census --cible` (cle fournisseur:modele). Seule
+# une preuve DEFINITIVE et RECENTE ecarte : 402 (payant), 404 (absent), 410 (retire), mesuree il y a moins de 7 jours.
+# Un 429, un timeout, un 401 (notre cle, pas le modele), un verdict sans mesure ou un registre illisible n'ecartent rien :
+# ecarter a tort tue un slot sain, garder a tort coute un essai -- le cout des deux erreurs n'est pas symetrique.
+_MOTIFS_DEFINITIFS = ("HTTP 402", "HTTP 404", "HTTP 410")
+_PREUVE_TTL_J = 7
+
+
+_SEUIL_429 = 3          # RED6 (19/10) : echecs consecutifs pour qu'un 429 soit PERSISTANT
+_TTL_429_H = 6.0        # un quota 429 se rouvre vite : la preuve ne vaut que quelques heures
+
+
+def injoignables_prouves(chemin=None, maintenant=None, ttl_j: float = _PREUVE_TTL_J, ttl_429_h: float = _TTL_429_H) -> set:
+    """{fournisseur:modele} que le registre free tier PROUVE morts ; set() a la moindre incertitude. Morts DEFINITIFS
+    (402/404/410) sur `ttl_j` jours ; 429 PERSISTANT (>= _SEUIL_429 echecs consecutifs) sur `ttl_429_h` heures."""
+    import json as _json
+    import time as _time
+    from pathlib import Path as _P
+
+    chemin = _P(chemin) if chemin else _P(__file__).resolve().parent.parent / "sandbox" / "free_tier_census.json"
+    try:
+        verdicts = (_json.loads(chemin.read_text(encoding="utf-8")) or {}).get("verdicts") or {}
+    except (OSError, ValueError, AttributeError):
+        return set()
+    maintenant = _time.time() if maintenant is None else maintenant
+    prouves = set()
+    for cle, v in verdicts.items():
+        if not isinstance(v, dict) or v.get("joignable") is not False:
+            continue
+        motif = str(v.get("motif") or "")
+        definitif = motif.startswith(_MOTIFS_DEFINITIFS)
+        try:
+            persistant = motif.startswith("HTTP 429") and int(v.get("echecs_consecutifs") or 0) >= _SEUIL_429
+        except (TypeError, ValueError):  # muet-ok : compteur illisible = pas une preuve de persistance
+            persistant = False
+        if not (definitif or persistant):
+            continue
+        try:
+            quand = _time.mktime(_time.strptime(str(v.get("mesure_le")), "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, OverflowError):  # muet-ok : date illisible = pas une preuve, on s'abstient (UNKNOWN != NO)
+            continue
+        borne = ttl_j * 86400 if definitif else ttl_429_h * 3600
+        if 0 <= maintenant - quand <= borne:
+            prouves.add(cle)
+    return prouves
+
+
+_SCORE_TTL_J = 7.0
+
+
+def scores_vivants(rows, maintenant, providers=None, morts=None, ttl_j: float = _SCORE_TTL_J) -> tuple:
+    """(vivants tries par ttft, {provider: raison d'ecart}) depuis des lignes provider_scores status='ok'.
+
+    N'est vivant que ce qui est PROUVE sur tous ses champs (liste blanche) : mesure datee de moins de `ttl_j` jours,
+    slot non marque `perime` par le routeur, modele non prouve mort par le recensement free tier. Dette
+    whoami_classe_vivant_un_modele_mort_20261017 : une ligne de 5 mois et un /health 200 passaient pour des vivants."""
+    import time as _time
+    providers = PROVIDERS if providers is None else providers
+    morts = injoignables_prouves() if morts is None else morts
+    vivants, ecartes = [], {}
+    for r in rows:
+        nom = str(r.get("provider") or "")
+        try:
+            quand = _time.mktime(_time.strptime(str(r.get("measured_at"))[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S"))
+        except (ValueError, OverflowError):
+            ecartes[nom] = "date de mesure illisible : fraicheur non prouvee"
+            continue
+        if quand - maintenant > 300:    # revue Codex 17/10 : une date future passait la fenetre (300 s = derive d'horloge)
+            ecartes[nom] = "mesure datee du futur (+%.0f s) : fraicheur non prouvee" % (quand - maintenant)
+            continue
+        if maintenant - quand > ttl_j * 86400:
+            ecartes[nom] = "mesure perimee (%.0f j > %.0f j)" % ((maintenant - quand) / 86400, ttl_j)
+            continue
+        if (providers.get(nom) or {}).get("perime"):
+            ecartes[nom] = "slot perime selon le routeur : %s" % str(providers[nom]["perime"])[:80]
+            continue
+        if nom.replace("/", ":", 1) in morts:
+            ecartes[nom] = "modele prouve mort par le recensement free tier"
+            continue
+        vivants.append(r)
+    vivants.sort(key=lambda r: r.get("ttft_ms") or 0)
+    return vivants, ecartes
+
+
+def _slots_prouves_morts(noms) -> set:
+    """Slots dont TOUS les modeles sont prouves morts (`groq/openai/gpt-oss-20b` -> `groq:openai/gpt-oss-20b`). Un
+    seul modele vivant ou inconnu garde le slot : on s'abstient."""
+    prouves = injoignables_prouves()
+    if not prouves:
+        return set()
+    morts = set()
+    for n in noms:
+        cles = {str(m).replace("/", ":", 1) for m in (PROVIDERS.get(n) or {}).get("models") or []}
+        if cles and cles <= prouves:
+            morts.add(n)
+    if morts:
+        import logging as _logging
+        _logging.getLogger("Nokido.Router").info(
+            "[routeur] slot(s) ecarte(s), injoignables PROUVES au registre free tier : %s", sorted(morts))
+    return morts
+
+
 def chaine_active(use_case: str = "general") -> list[str]:
     """Chaine du cas d'usage, PRIVEE de ses slots perimes.
 
@@ -655,6 +757,8 @@ def chaine_active(use_case: str = "general") -> list[str]:
     """
     brute = list(USE_CASE_CHAINS.get(use_case) or USE_CASE_CHAINS["general"])
     active = [n for n in brute if not (PROVIDERS.get(n) or {}).get("perime")]
+    morts = _slots_prouves_morts(active)
+    active = [n for n in active if n not in morts]
     if active:
         return active
     # Une chaine entierement perimee ne doit pas rendre une liste vide (le
@@ -895,7 +999,7 @@ def _slot_local_ready(name: str, base_url: str, refresh: bool = True) -> bool:
 
                 _tok = _gs("LMSTUDIO_TOKEN") or ""
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1001, exc_info=True)
             _b = base_url.rstrip("/").rsplit("/v1", 1)[0]
             _rq = _ur.Request(_b + "/api/v0/models", headers={"Authorization": "Bearer " + _tok} if _tok else {})
             with _ur.urlopen(_rq, timeout=2.0) as _r2:
@@ -925,6 +1029,60 @@ def _modele_servi(resp) -> str:
     faussait l'attribution des scores et des limites. Jamais deduit de la configuration."""
     m = getattr(resp, "model", None)
     return str(m) if m else "UNKNOWN"
+
+
+def _enregistrer_jetons(provider: str, entree: int, sortie: int) -> None:
+    """Ecrit l'effort dans token_events (sandbox/token_usage.db) par l'enregistreur existant."""
+    from nokido_agent.app.forge_token_watchdog import record_tokens
+    record_tokens(provider, entree, sortie, session_id="llm_router")
+
+
+def _emettre_effort(provider: str, resp) -> bool:
+    """EMETTEUR de l'effort LLM (18/10) : token_events avait un recepteur et 0 ligne, personne n'ecrivait.
+
+    Usage illisible -> rien d'emis (UNKNOWN n'est pas 0 jeton). Ne leve jamais : un emetteur
+    ne fait pas echouer un appel LLM ; son echec est journalise, pas tu."""
+    usage = getattr(resp, "usage", None)
+    entree = getattr(usage, "prompt_tokens", None)
+    sortie = getattr(usage, "completion_tokens", None)
+    if not isinstance(entree, int) or not isinstance(sortie, int):
+        return False
+    try:
+        _enregistrer_jetons(provider, entree, sortie)
+        return True
+    except Exception as e:  # noqa: BLE001
+        import logging  # noqa: PLC0415 -- le module n'a pas de logger au niveau module
+        logging.getLogger(__name__).warning("[effort] token_events non ecrit pour %s : %s", provider,
+                                            type(e).__name__)
+        return False
+
+
+def capacite_epuisee(provider: str) -> str | None:
+    """Motif si la capacite OBSERVEE du fournisseur est FRAICHE et epuisee (un compteur restant a 0 avant une
+    reinitialisation a venir), sinon None. INCONNU, PERIMEE, compteur non lu ou lecteur en panne -> None : on n'ecarte
+    jamais un slot sur un inconnu (bb:p2_capacite_fournisseur_observee_0925, 19/10)."""
+    try:
+        from nokido_agent.app.forge_quota_tracker import capacite_observee
+        cap = capacite_observee(provider)
+    except Exception:  # noqa: BLE001  # muet-ok : lecteur en panne = inconnu, le slot reste candidat
+        return None
+    if cap.get("etat") != "FRAICHE":
+        return None
+    reinit = {k.replace("reinit_", ""): v for k, v in (cap.get("reinitialisation") or {}).items()}
+    for nom, c in (cap.get("compteurs") or {}).items():
+        if nom.startswith("restant_") and c.get("etat") == "CONNU" and c.get("valeur") == 0:
+            r = reinit.get(nom.replace("restant_", ""), {})
+            if r.get("etat") != "CONNU" or float(r.get("dans_s") or 0) > 0:
+                return "%s a 0 (capture FRAICHE de %s s)" % (nom, cap.get("age_s"))
+    return None
+
+
+def _noter_ttft(slot, t_appel: float) -> None:
+    """TTFT mesure (de l'envoi a la reponse) vers le slot qui sait l'enregistrer ; un slot sans record_ttft (double
+    de test, autre type de slot) n'est pas casse -- la mesure manque, elle ne s'invente pas."""
+    f = getattr(slot, "record_ttft", None)
+    if callable(f):
+        f((time.monotonic() - t_appel) * 1000)
 
 
 def _capter_capacite(provider: str, source) -> None:
@@ -980,7 +1138,7 @@ class ProviderSlot:
             if _m:
                 return _rk or ""
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1112, exc_info=True)
         try:
             from nokido_agent.app.forge_secrets import get_secret as _gs
 
@@ -1001,7 +1159,7 @@ class ProviderSlot:
             if _m:
                 return bool(_rk)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1133, exc_info=True)
         try:
             from nokido_agent.app.forge_secrets import get_secret as _gs
 
@@ -1032,6 +1190,9 @@ class ProviderSlot:
         if self.name in _LOCAL_SLOTS and not _slot_local_ready(
                 self.name, self.config.get("base_url", ""), refresh=refresh):
             return False
+        # Capacite OBSERVEE (19/10) : seule une capture FRAICHE epuisee ecarte ; un inconnu n'ecarte jamais.
+        if capacite_epuisee(self.name):
+            return False
         return self._within_rpm()
 
     def _within_rpm(self) -> bool:
@@ -1040,15 +1201,22 @@ class ProviderSlot:
         self._calls = [t for t in self._calls if now - t < 60]
         return len(self._calls) < self.config.get("rpm", 30)
 
-    def record_call(self, ttft_ms: float = 0.0) -> None:
-        """Record call."""
+    def record_call(self, ttft_ms: float | None = None) -> None:
+        """Compte l'appel (debit) AVANT l'envoi. Le registre de confiance ne recoit une latence que MESUREE, apres une
+        reponse reussie (record_ttft) -- 20/10 : la latence de CONFIGURATION y passait pour une mesure, echecs compris."""
         self._calls.append(time.monotonic())
         self._failures = 0
         self._breaker.record_success()
+        if ttft_ms is not None:
+            self.record_ttft(ttft_ms)
+
+    def record_ttft(self, ttft_ms: float) -> None:
+        """TTFT MESURE (horloge monotone, de l'envoi a la reponse) apres une reponse reussie -> registre de confiance,
+        selon son contrat (« apres chaque reponse reussie avec le TTFT mesure »)."""
         try:
             from nokido_agent.app.forge_trust_score import TrustScoreRegistry
 
-            TrustScoreRegistry.get().record_success(self.name, ttft_ms or self.config.get("latency", 1000))
+            TrustScoreRegistry.get().record_success(self.name, float(ttft_ms))
         except Exception as e:  # noqa: BLE001
             import logging as _lg
 
@@ -1154,7 +1322,7 @@ class LLMRouter:
                 best = TrustScoreRegistry.get().best_provider(available)
                 return self._slots.get(best, self._slots.get(available[0]))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1286, exc_info=True)
         return self._slots.get(available[0])
 
     def call_cascade(
@@ -1214,7 +1382,7 @@ class LLMRouter:
                     chain_rest = [p for p in chain if p not in free_slots]
                     chain = chain_free + chain_rest
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1346, exc_info=True)
 
         # ── AXE 2 : CAPACITÉ (TRANSPORT ≠ APPLICATIF) ──────────────────────────
         # Une tâche (même triviale) qui exige un PAT ou un accès réseau authentifié
@@ -1245,7 +1413,7 @@ class LLMRouter:
 
                 system = nokido_system(role_overlay=system, ring=3, turn=turn, session_id=session_id)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1377, exc_info=True)
 
         # ── JSON Mode : Phase 6 Structured Agentic Trajectory ──────────────────────────
         # Force LLM to produce strict JSON-RPC 2.0 (no prose). Auto-injecté system prompt.
@@ -1256,7 +1424,7 @@ class LLMRouter:
                 system = (system + "\n\n" + SYSTEM_PROMPT_JSON_MODE).strip() if system else SYSTEM_PROMPT_JSON_MODE
                 temperature = min(temperature, 0.2)  # baisse hallucination
             except ImportError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1388, exc_info=True)
 
         # ── Skip providers flagged dead_end (motivation Phase 6) ───────────────────────
         try:
@@ -1264,7 +1432,7 @@ class LLMRouter:
 
             chain = [s for s in chain if not is_dead_end(f"llm_call:{s}", use_case)]
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1396, exc_info=True)
 
         # ── Skip providers dont quota mensuel est epuise (post 2026-06-15) ─────────────
         # Note : forge_provider_quota check via token_usage table (source-of-truth
@@ -1281,7 +1449,7 @@ class LLMRouter:
                 if _logger:
                     _logger.info(f"[QUOTA] skip {len(skipped)} providers epuises : {sorted(skipped)}")
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1413, exc_info=True)
 
         # ── Skip providers locaux dont le modele est trop lourd pour cet hote ─────────
         # forge_host_capabilities verifie VRAM/RAM dispo vs MODEL_FOOTPRINT_GB.
@@ -1315,7 +1483,7 @@ class LLMRouter:
                         if _logger:
                             _logger.info(f"[HOST_CAP] skip locaux trop lourds : {sorted(_skipped_local)}")
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1447, exc_info=True)
 
         # ── Curiosity injection auto : si frustration sur use_case, inject exploration ──
         try:
@@ -1332,7 +1500,7 @@ class LLMRouter:
                 )
                 system = (system + "\n\n" + injection).strip() if system else injection
         except (ImportError, Exception):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1464, exc_info=True)
 
         # ── Récepteur endocrinien CORTISOL : si quotas cloud sous stress, force local ──
         # Boucle autopoïétique : forge_token_monitor.daily_report émet CORTISOL_QUOTA_CLOUD,
@@ -1353,7 +1521,7 @@ class LLMRouter:
                             self.log if hasattr(self, "log") else self.logger
                         ).info(f"[router] CORTISOL={cortisol:.2f} > 0.5 → local-only cascade")
         except Exception:
-            pass  # endocrine optional
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1485, exc_info=True)
 
         # ── Hybrid topology via SemanticFirewall existant (Nokido v16.5+) ──
         # Utilise le firewall 4 couches deja implemente (forge_semantic_firewall.py):
@@ -1434,7 +1602,7 @@ class LLMRouter:
                             "INDISPONIBLE (%s: %s) — envoi cloud NON protege",
                             type(_re).__name__, str(_re)[:90])
         except ImportError:
-            pass  # SemanticFirewall absent = degraded mode
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1566, exc_info=True)
         # ────────────────────────────────────────────────────────────────
 
         # ── DT Router : préférence apprise, priorité sur chain statique ──────
@@ -1445,7 +1613,7 @@ class LLMRouter:
             if _dt_prov and _dt_conf >= 0.6 and _dt_prov in chain:
                 chain = [_dt_prov] + [s for s in chain if s != _dt_prov]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1577, exc_info=True)
         # ─────────────────────────────────────────────────────────────────────
 
         attempts = []
@@ -1492,7 +1660,7 @@ class LLMRouter:
 
                 _scan_out(prompt, provider=slot_name, local_only=_is_local)
             except ImportError:
-                pass  # fail-open si module absent
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1624, exc_info=True)
             except Exception as _sge:
                 attempts.append((slot_name, f"SecretGuard: {_sge}"))
                 continue  # bloque ce slot, essaie le suivant
@@ -1630,14 +1798,17 @@ class LLMRouter:
                         kwargs["api_key"] = slot.api_key
 
                 slot.record_call()
+                _t_appel = time.monotonic()
                 resp = litellm.completion(**kwargs)
                 _capter_capacite(slot_name, resp)
+                _emettre_effort(slot_name, resp)  # call_cascade = chemin d'`ask router` (temoin reel du 18/10)
                 text = (resp.choices[0].message.content or "").strip()
 
                 if not text:
                     attempts.append((slot_name, "reponse vide"))
                     slot.record_failure()
                     continue
+                _noter_ttft(slot, _t_appel)
 
                 # SUCCESS (candidat) — escalade confiance-aware (inversé FrugalGPT) :
                 # réponse refus/vide/très courte + provider plus fort dispo dans la
@@ -1660,7 +1831,7 @@ class LLMRouter:
                     from nokido_agent.app.forge_swarm_bus import publish as _rp
                     _rp(kind="llm_provider_decision", data={"use_case": use_case, "provider": slot_name, "ok": True, "ms": elapsed}, topic="reasoning")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1793, exc_info=True)
                 _cache_stats = {}
                 try:  # mesure cache provider (cached_tokens) — chiffres, pas vibes
                     from nokido_agent.app.forge_cache_aligner import cache_usage as _ca_usage
@@ -1668,7 +1839,7 @@ class LLMRouter:
                     if _cache_stats.get("cached_tokens"):
                         _emit_nervous_event("cache_hit", {"provider": slot_name, **_cache_stats})
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1801, exc_info=True)
                 return {
                     "ok": True,
                     "text": text,
@@ -1700,7 +1871,7 @@ class LLMRouter:
                     if is_auth_dead("", err):
                         _auth_alert(slot_name, "cascade", err)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1833, exc_info=True)
                 # Si rate-limit, marquer cooldown 60s
                 if "429" in err or "rate" in err.lower():
                     slot.record_rate_limit(60.0)
@@ -1760,7 +1931,7 @@ class LLMRouter:
 
             _scan_out(prompt, provider=slot_name, local_only=local)
         except ImportError:
-            pass  # meme politique que call_cascade : fail-open si le module manque
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1893, exc_info=True)
         except Exception as _sge:  # noqa: BLE001
             return prompt, "SecretGuard: %s" % _sge
         return prompt, None
@@ -1820,9 +1991,12 @@ class LLMRouter:
             if slot.api_key and slot.api_key != "local":
                 kwargs["api_key"] = slot.api_key
 
+            _t_appel = time.monotonic()
             resp = litellm.completion(**kwargs)
             _capter_capacite(slot.name, resp)
+            _emettre_effort(slot.name, resp)
             text = resp.choices[0].message.content or ""
+            _noter_ttft(slot, _t_appel)
             elapsed = round((time.monotonic() - t0) * 1000, 1)
 
             return {
@@ -1856,7 +2030,7 @@ class LLMRouter:
                         try:
                             _retry_after = float(hdr)
                         except (TypeError, ValueError):
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1990, exc_info=True)
                 slot.record_rate_limit(_retry_after)
                 # Budget RPM partagé
                 if _HAS_TENACITY:
@@ -1913,9 +2087,12 @@ class LLMRouter:
                 kwargs["api_base"] = slot.config["base_url"]
             if slot.api_key and slot.api_key != "local":
                 kwargs["api_key"] = slot.api_key
+            _t_appel = time.monotonic()
             resp = litellm.completion(**kwargs)
             _capter_capacite(slot.name, resp)
+            _emettre_effort(slot.name, resp)
             text = resp.choices[0].message.content or ""
+            _noter_ttft(slot, _t_appel)
             return {
                 "ok": True,
                 "text": text,

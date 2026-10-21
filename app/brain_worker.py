@@ -36,7 +36,7 @@ try:
 
     _ct.windll.kernel32.SetConsoleTitleW("Nokido Brain Worker [NPU :5557]")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 38, exc_info=True)
 
 import argparse
 import json
@@ -340,12 +340,12 @@ class Generator:
                 if self._tok is not None:
                     del self._tok
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 342, exc_info=True)
             try:
                 if self._model is not None:
                     del self._model
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 347, exc_info=True)
             self._model = None
             self._tok = None
             self._og = None
@@ -1023,6 +1023,7 @@ class SshManager:
                 item = await _aio.wait_for(self._cmd_queue.get(), timeout=1.0)
                 _aio.create_task(self._exec(**item))
             except _aio.TimeoutError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 1025, exc_info=True)
                 continue
         if self._conn:
             self._conn.close()
@@ -1260,8 +1261,9 @@ class BrainService:
                 try:
                     _watchdog.ping()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 1262, exc_info=True)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 1264, exc_info=True)
                 continue
             try:
                 # Décodage adaptatif : msgpack ou JSON
@@ -1540,7 +1542,7 @@ if __name__ == "__main__":
         _watchdog = _IW("BrainWorker")
         _watchdog.start()
     except Exception as _we:
-        pass  # silencieux si non disponible
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_worker.py', 1542, exc_info=True)
 
     parser = argparse.ArgumentParser(description="La Forge — Brain Worker ML v2")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)

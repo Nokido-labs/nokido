@@ -304,12 +304,12 @@ class LiveBridge:
                 self._mm.flush()
                 self._mm.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/live_bridge.py', 306, exc_info=True)
         if self._fd:
             try:
                 self._fd.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/live_bridge.py', 311, exc_info=True)
 
 
 # Singleton process-local

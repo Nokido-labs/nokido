@@ -119,7 +119,7 @@ def ensure_dataset(dataset_path: Path | None = None, category: str = "simple") -
                 ans_by_id[a["id"]] = a
             cached_a.write_bytes(raw_a)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 121, exc_info=True)
 
     return qs, ans_by_id
 
@@ -380,21 +380,21 @@ def _parse_call(text: str) -> list | dict | None:
         if isinstance(parsed, (list, dict)):
             return parsed
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 382, exc_info=True)
     # Find JSON array
     m = re.search(r"\[.*\]", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(0))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 389, exc_info=True)
     # Find JSON object
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(0))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 396, exc_info=True)
     return None
 
 
@@ -419,7 +419,7 @@ def _spec_eq(pred, spec) -> bool:
         if float(pred) == float(spec):
             return True
     except (ValueError, TypeError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 421, exc_info=True)
     return False
 
 
@@ -795,7 +795,7 @@ def run(
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bfcl_runner.py', 797, exc_info=True)
 
     return summary
 

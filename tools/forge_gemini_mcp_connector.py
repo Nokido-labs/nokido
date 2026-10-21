@@ -53,7 +53,9 @@ try:
 except Exception as _e_cle:  # noqa: BLE001 - dit, jamais avale
     print("[secrets] GEMINI_API_KEY illisible (%s)" % type(_e_cle).__name__, flush=True)
     GEMINI_API_KEY = ""
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-preview-05-20")
+# Decision owner 15/10 : le modele vient de l'APPELANT (`model=`), jamais d'un GEMINI_MODEL global ; sans choix, la
+# famille flash-lite, seule servie par le palier gratuit de la cle API (Nokido.env portait gemini-2.5-pro -> 429).
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 MCP_BASE_URL = os.environ.get("MCP_BASE_URL", "http://localhost:9999")
 MCP_SCRIPT = str(ROOT / "app" / "mcp_server_tools.py")
 
@@ -97,7 +99,7 @@ def _fetch_mcp_tools() -> list[dict]:
                     print(f"  🌐 {len(tools)} outils récupérés depuis {endpoint}")
                     return tools
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_mcp_connector.py', 101, exc_info=True)
 
     # ── Fallback : introspection des fonctions mcp_server_tools.py ───────────
     import ast
@@ -263,7 +265,7 @@ def _execute_tool(tool_name: str, args: dict) -> str:
                     return content[0].get("text", str(content[0]))
                 return str(data)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_mcp_connector.py', 267, exc_info=True)
 
     # ── Fallback import direct ────────────────────────────────────────────────
     import asyncio

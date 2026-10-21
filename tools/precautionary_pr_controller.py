@@ -339,7 +339,7 @@ class PrecautionaryPRController:
                 )
                 return f"LLM-simulated history for {self.upstream_repo}:\n{result}"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/precautionary_pr_controller.py', 341, exc_info=True)
 
         return "No closed PR history found — proceed with caution."
 

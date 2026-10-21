@@ -76,7 +76,7 @@ def _trace_text(task: str, action: str, action_json: str) -> str:
             if params:
                 state = json.dumps(params, ensure_ascii=False)[:400]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_jepa_dataset.py', 78, exc_info=True)
     return f"[task:{task}] [action:{action}] {state}".strip()[:512]
 
 

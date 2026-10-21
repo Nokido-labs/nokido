@@ -132,6 +132,7 @@ def main(argv=None) -> int:
             print(f"design_handoff (Claude Design) -> {dt} ({len(dh['signals'])} signaux)")
             break
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ui_vitals_cover.py', 134, exc_info=True)
             continue
     # selftest : les signaux renvoient-ils des donnees reelles ?
     try:

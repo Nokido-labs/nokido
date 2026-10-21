@@ -27,7 +27,7 @@ local-first by default.
 
 Short version : *a high-tech hospital where every brain has a
 specialty, every exchange is filtered, and the whole thing remembers
-everything 24/7 on your machine*. See [MANIFESTO.md](../../MANIFESTO.md)
+everything 24/7 on your machine*. See [the Manifesto](../i18n/MANIFESTO.en.md)
 for the full philosophy.
 
 ### Why "Nokido" ?
@@ -119,7 +119,7 @@ The big inversion : **in Nokido the hub is the orchestrator, the LLM
 is a transient worker**. LangChain / AutoGPT make the LLM the
 orchestrator (which re-sends the full chain-of-thought each turn).
 Measured outcome : Nokido consumes **5-15× fewer tokens** for the same
-end result. See [MANIFESTO §3.5](../../MANIFESTO.md#35--le-client-est-jetable-le-système-est-permanent--économie-radicale-des-tokens).
+end result. See [Manifesto §3.5](../i18n/MANIFESTO.en.md#35-the-client-is-disposable-the-system-is-permanent--radical-token-economy).
 
 Nokido also has things they don't : Semantic Firewall, Sovereign
 Membrane, AMI cognitive stack, 6-ring RBAC, neuro-symbolic verdict
@@ -359,7 +359,7 @@ report** or **Feature request** template. For security : private email
 
 ### What's the roadmap ?
 
-See [MANIFESTO §9](../../MANIFESTO.md#9-roadmap-résumée) and
+See [Manifesto §9](../i18n/MANIFESTO.en.md#9-roadmap-summary) and
 [13 — Hardware roadmap](13-Hardware-Roadmap.md). Summary :
 
 - Phase A (current → 12 months) : NPU edge accelerator support.

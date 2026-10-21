@@ -162,7 +162,7 @@ def evaluate(input_dict: dict[str, Any]) -> dict[str, Any]:
                     try:
                         input_temp.unlink()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_policy_rego.py', 164, exc_info=True)
         except Exception as e:
             logger.warning(f"Failed to evaluate using OPA binary, falling back to Python: {e}")
 

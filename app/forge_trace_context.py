@@ -64,10 +64,18 @@ def set_trace_id(tid: Optional[str]) -> Token:
 
 
 def reset_trace_id(token: Token) -> None:
+    appeler_sans_lever(_trace_id.reset, token, ou="forge_trace_context.reset_trace_id")
+
+
+def appeler_sans_lever(fn, *args, ou: str = "") -> None:
+    """Appelle fn(*args) ; une exception est JOURNALISEE (debug, avec la trace) et jamais propagee.
+
+    Le codemod des chemins muets (19/10) avait rendu identiques 2 reinitialisations de contexte ici et 4 `log_fn`
+    de gestionnaires, qui franchissaient alors le seuil du cliquet de duplication : un seul chemin d'erreur, nomme."""
     try:
-        _trace_id.reset(token)
-    except Exception:
-        pass
+        fn(*args)
+    except Exception:  # noqa: BLE001 -- muet-ok : journalise ici, l'appelant ne tombe jamais sur un effet de bord
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s)", ou, exc_info=True)
 
 
 @contextlib.contextmanager
@@ -113,10 +121,7 @@ def set_actor(agent: str = "", *, ring=None, channel: str = "", transport: str =
 
 
 def reset_actor(token: Token) -> None:
-    try:
-        _actor.reset(token)
-    except Exception:
-        pass
+    appeler_sans_lever(_actor.reset, token, ou="forge_trace_context.reset_actor")
 
 
 @contextlib.contextmanager
@@ -187,7 +192,7 @@ def inject_headers(headers: Optional[dict] = None) -> dict:
 
         h[HEADER_W3C] = build_traceparent(tid)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trace_context.py', 189, exc_info=True)
     # Acteur cross-process : préserve l'identité PRÉCISE aux frontières (#9).
     a = _actor.get() or {}
     if a.get("agent"):

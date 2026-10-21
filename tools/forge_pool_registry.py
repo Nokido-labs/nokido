@@ -90,7 +90,7 @@ def get_member_cost(member: str) -> float:
         elif hasattr(forge_token_meter, "get_cost"):
             return float(forge_token_meter.get_cost(member))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pool_registry.py', 92, exc_info=True)
 
     # Fallback sur les tiers d'identité d'endpoints
     try:
@@ -105,7 +105,7 @@ def get_member_cost(member: str) -> float:
             if tier == "paid_api":
                 return 1.0
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pool_registry.py', 107, exc_info=True)
 
     # Coût arbitraire par défaut selon le nom du membre
     if "local" in member or "ollama" in member or "llamacpp" in member:
@@ -339,7 +339,7 @@ def best(task_type: str, need_caps: Optional[List[str]] = None) -> Optional[str]
                 if rs:
                     return rs
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pool_registry.py', 341, exc_info=True)
 
         return best_member
     except Exception as e:

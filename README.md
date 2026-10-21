@@ -11,18 +11,18 @@
 [![snnTorch](https://img.shields.io/badge/snnTorch-spiking%20substrate-8E44AD)](https://snntorch.readthedocs.io/)
 [![Qdrant](https://img.shields.io/badge/Qdrant-vector%20sidecar-DC244C)](https://qdrant.tech/)
 [![Go](https://img.shields.io/badge/Go-dispatcher-00ADD8?logo=go)](go_services/forge_dispatcher/)
-[![MCP](https://img.shields.io/badge/MCP-2025--03--26-9146FF?logo=anthropic&logoColor=white)](#-ecosystem-mcp--multi-llm)
+[![MCP](https://img.shields.io/badge/MCP-2025--03--26-9146FF?logo=anthropic&logoColor=white)](#-connect-an-external-agent)
 [![Local-First](https://img.shields.io/badge/Local--First-zero%20telemetry-2EA043)](#-security)
 [![Branch](https://img.shields.io/badge/branch-main-orange)](https://github.com/Nokido-labs/nokido)
 [![CI](https://github.com/Nokido-labs/nokido/actions/workflows/release.yml/badge.svg)](https://github.com/Nokido-labs/nokido/actions/workflows/release.yml)
 
 **MCP clients & runtimes :**
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-server%20%26%20native-orange?logo=llama)](https://github.com/ggml-org/llama.cpp)
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-MCP%20HTTP-D97757?logo=anthropic&logoColor=white)](#-ecosystem-mcp--multi-llm)
-[![Antigravity agy](https://img.shields.io/badge/Antigravity%20(agy)-MCP%20HTTP-5C2D91?logo=google&logoColor=white)](#-ecosystem-mcp--multi-llm)
-[![Codex CLI](https://img.shields.io/badge/Codex%20CLI-MCP%20HTTP-10A37F?logo=openai&logoColor=white)](#-ecosystem-mcp--multi-llm)
-[![Cline](https://img.shields.io/badge/Cline-MCP%20STDIO-5C6BC0)](#-ecosystem-mcp--multi-llm)
-[![Claude Desktop](https://img.shields.io/badge/Claude%20Desktop-MCP%20STDIO-D97757?logo=anthropic&logoColor=white)](#-ecosystem-mcp--multi-llm)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-MCP%20HTTP-D97757?logo=anthropic&logoColor=white)](#-connect-an-external-agent)
+[![Antigravity agy](https://img.shields.io/badge/Antigravity%20(agy)-MCP%20HTTP-5C2D91?logo=google&logoColor=white)](#-connect-an-external-agent)
+[![Codex CLI](https://img.shields.io/badge/Codex%20CLI-MCP%20HTTP-10A37F?logo=openai&logoColor=white)](#-connect-an-external-agent)
+[![Cline](https://img.shields.io/badge/Cline-MCP%20STDIO-5C6BC0)](#-connect-an-external-agent)
+[![Claude Desktop](https://img.shields.io/badge/Claude%20Desktop-MCP%20STDIO-D97757?logo=anthropic&logoColor=white)](#-connect-an-external-agent)
 [![claude.ai](https://img.shields.io/badge/claude.ai-MCP%20HTTPS%20(pair)-D97757?logo=anthropic&logoColor=white)](docs/wiki/24-Cloud-Peers.md)
 [![ChatGPT web](https://img.shields.io/badge/ChatGPT%20web-MCP%20HTTPS%20(pair)-10A37F?logo=openai&logoColor=white)](docs/wiki/24-Cloud-Peers.md)
 [![ZCode (z.ai)](https://img.shields.io/badge/ZCode%20(z.ai)-MCP%20HTTP-6E56CF?logoColor=white)](https://zcode.z.ai/en)
@@ -72,7 +72,7 @@ physiology that let several AIs — local models, cloud providers, coding agents
 Code, Codex CLI, OpenCode or Antigravity — work together on your machine **without becoming a
 heap of independent agents**.
 
-It starts from three observations, developed in the [Manifesto](MANIFESTO.md):
+It starts from three observations, developed in the [Manifesto](docs/i18n/MANIFESTO.en.md):
 
 1. **Most AI is external.** Prompts, code and documents travel to infrastructure you do not own.
 2. **Most AI is amnesic.** Memory is an add-on, not a foundation.
@@ -607,7 +607,8 @@ the capability that switches off, so an absence is actionable rather than alarmi
 | --------- | ------- |
 | **Python 3.12+** | 76 of the 92 declared services, and the package itself |
 | **git** | versioning, egress gate, publication path |
-| **8 GB RAM** · ~2 GB free disk | minimal installation |
+| **RAM — 24 GB host recommended** | measured 2026-10-19 on the reference host: the full organism holds **~12 GB of private memory** (hub, services, local embedder, llama-server) and the RAG cold start adds ~2 GB for ~10 min; lighter profiles (cloud-only models) are **not measured yet** |
+| **Disk — ~50 GB free** | the RAG memory alone is **~47 GB** (`embeddings.db`, 1.15 M embedded chunks); the package itself needs ~2 GB |
 
 ### Required by the default topology
 
@@ -703,8 +704,8 @@ pip install -r requirements.txt
 python tools/nokido_hub.py
 ```
 
-`pyproject.toml` declares **16 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
-`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `organisme`, `rag`, `security`, `ui` —
+`pyproject.toml` declares **17 extras** — `ami`, `bench`, `cli`, `cloud`, `dev`,
+`docker`, `docs`, `git`, `hub`, `llm`, `ml`, `netcfg`, `organisme`, `rag`, `sauvegarde`, `security`, `ui` —
 plus two aggregate bundles, `all` and `full`, which are not counted among them.
 They apply to the layout above, not to a published wheel.
 
@@ -1263,7 +1264,7 @@ The hardware roadmap explicitly follows this progression.
 ### Deep architecture
 
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](MANIFESTO.md)
+* [`MANIFESTO.md`](MANIFESTO.md) (French original) · [English translation](docs/i18n/MANIFESTO.en.md)
 
 ### Agent protocols
 

@@ -289,7 +289,7 @@ class GOAPPlanner:
                     record_trajectory_step(f"goap: {st}", act, f"goap: {st} -> {action.name}",
                                            bool(result.get("ok")), embed_fn=_ef)
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_goap_hub_bridge.py', 291, exc_info=True)
             done.append(action.name)
             results.append({"action": action.name, "result": result})
         return results

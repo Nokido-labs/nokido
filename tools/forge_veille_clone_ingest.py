@@ -104,6 +104,8 @@ REPOS = {
     "openwiki": "https://github.com/langchain-ai/openwiki",
     "gemini_cli": "https://github.com/google-gemini/gemini-cli",
     "copilot_cli": "https://github.com/github/copilot-cli",
+    # Veille owner 2026-10-16 : « une veille sur https://github.com/Authkestra/authkestra en plus des autres ».
+    "authkestra": "https://github.com/Authkestra/authkestra",
     "exploitgym": "https://github.com/sunblaze-ucb/exploitgym",
     "aichat": "https://github.com/sigoden/aichat",
     "pentestgpt": "https://github.com/greydgl/pentestgpt",

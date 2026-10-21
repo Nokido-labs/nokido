@@ -90,7 +90,7 @@ def parse_errors(log_text: str) -> list[dict[str, str]]:
                 info["raw"] = m.group(0)  # type: ignore
                 errors.append(info)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_recursive_debugger.py', 92, exc_info=True)
     return errors
 
 
@@ -396,7 +396,7 @@ class RecursiveDebugger:
                             }
                         )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_recursive_debugger.py', 398, exc_info=True)
 
             iteration.final_code = current_code
             iterations.append(iteration)
@@ -425,7 +425,7 @@ class RecursiveDebugger:
                 )
                 harvest_on_success(task, agent_out, final_code)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_recursive_debugger.py', 427, exc_info=True)
 
         return {
             "task": task,

@@ -26,7 +26,7 @@ pour charger les NOUVEAUX tokens (_AGENT_TOKENS = import-cached). Le ring, lui, 
 """
 from __future__ import annotations
 
-import hashlib
+import hmac
 import json
 import secrets as _secrets
 import sys
@@ -81,13 +81,19 @@ def _cfg_blocks(tok: dict) -> str:
     return "\n\n".join(b)
 
 
-def _empreinte(v: str) -> str:
-    """sha8 d'un jeton — de quoi COMPARER deux valeurs sans jamais en afficher une.
+def _meme(a: str, b: str) -> bool:
+    """Deux jetons sont-ils identiques ? Comparaison EN MEMOIRE, rien n'est affiche.
 
-    Un rapport de synchronisation doit pouvoir dire « ces deux-là diffèrent » sans
-    recopier le secret dans un terminal, un journal ou un transcript d'agent.
+    Un rapport de synchronisation doit pouvoir dire « ces deux-là diffèrent » sans recopier le secret dans un
+    terminal, un journal ou un transcript d'agent -- ni son empreinte : un sha8 affiche se recoupe d'un journal a
+    l'autre et confirme une valeur devinee (owner 16/10 : « booleens seulement, pas meme une empreinte »).
     """
-    return hashlib.sha256((v or "").encode()).hexdigest()[:8]
+    return hmac.compare_digest((a or "").encode(), (b or "").encode())
+
+
+def _vu(v) -> str:
+    """Ce qu'un rapport dit d'un jeton : present ou absent, rien de plus."""
+    return "present" if v else "----"
 
 
 def _poser_env_utilisateur(nom: str, valeur: str) -> str:
@@ -180,8 +186,7 @@ def _patch_codex(jeton: str, dry: bool) -> list[str]:
     rendu = "\n".join(neuf) + "\n"
 
     if dry:
-        out.append("  [dry] config codex serait reecrite (http_headers, jeton sha8=%s)"
-                   % _empreinte(jeton))
+        out.append("  [dry] config codex serait reecrite (http_headers, jeton du coffre)")
         return out
     sauve = "%s.bak-%s" % (cfg, _t.strftime("%Y%m%d-%H%M%S"))
     _sh.copy2(cfg, sauve)
@@ -196,8 +201,7 @@ def _patch_codex(jeton: str, dry: bool) -> list[str]:
         out.append("  TOML INVALIDE (%s) -> config RESTAUREE depuis %s"
                    % (type(exc).__name__, sauve))
         return out
-    out.append("  config codex reecrite (jeton sha8=%s), sauvegarde: %s"
-               % (_empreinte(jeton), sauve))
+    out.append("  config codex reecrite (jeton du coffre), sauvegarde: %s" % sauve)
     out.append("  RELANCER codex — il relit sa config au demarrage")
     return out
 
@@ -211,7 +215,7 @@ def _check_env(tok: dict) -> list[str]:
         lancé là lit ses défauts et paraît mal configuré alors que tout est en place
       - session != coffre    -> valeur PÉRIMÉE : le client s'authentifie et se fait
         refuser en 401, ce qui se manifeste par « 0 outil » sans message d'erreur
-    Aucune valeur n'est affichée, seulement des empreintes.
+    Aucune valeur n'est affichée, ni son empreinte : present/absent et le verdict.
     """
     import os as _os
 
@@ -231,22 +235,20 @@ def _check_env(tok: dict) -> list[str]:
         except Exception:  # noqa: BLE001
             reg = None
         sess = _os.environ.get(nom)
-        e_c, e_r, e_s = _empreinte(coffre or ""), _empreinte(reg or ""), _empreinte(sess or "")
         if not coffre:
             verdict = "SANS JETON AU COFFRE"
         elif not reg:
             verdict = "registre ABSENT -> relancer --apply en session owner"
-        elif e_r != e_c:
+        elif not _meme(reg, coffre):
             verdict = "registre PERIME -> --apply"
         elif not sess:
             verdict = "session ABSENTE -> ROUVRIR le terminal (registre OK)"
-        elif e_s != e_c:
+        elif not _meme(sess, coffre):
             verdict = "session PERIMEE -> ROUVRIR le terminal"
         else:
             verdict = "ALIGNE"
         out.append("  %-28s coffre=%s registre=%s session=%s  %s"
-                   % (nom, e_c if coffre else "----", e_r if reg else "----",
-                      e_s if sess else "----", verdict))
+                   % (nom, _vu(coffre), _vu(reg), _vu(sess), verdict))
     return out
 
 
@@ -260,13 +262,90 @@ def _sync_env(tok: dict, dry: bool) -> list[str]:
             continue
         nom = "FORGE_TOKEN_%s" % a
         if dry:
-            out.append("  [dry] %-22s serait pose (sha8=%s)" % (nom, _empreinte(v)))
+            out.append("  [dry] %-22s serait pose (jeton du coffre)" % nom)
         else:
-            out.append("  %-28s %s (sha8=%s)" % (nom, _poser_env_utilisateur(nom, v), _empreinte(v)))
+            out.append("  %-28s %s" % (nom, _poser_env_utilisateur(nom, v)))
     return out
 
 
+_BLOC_VIBE = """
+# Serveur MCP du hub Nokido (pose par tools/forge_provision_clients.py --vibe, owner 16/10). AUCUN jeton ici :
+# tools/nokido_vibe.py le lit au coffre et le pose dans l'environnement du seul processus vibe.
+[[mcp_servers]]
+name = "nokido"
+transport = "streamable-http"
+url = "http://127.0.0.1:8766/mcp"
+
+[mcp_servers.auth]
+type = "static"
+api_key_env = "FORGE_TOKEN_VIBE_CLI"
+headers = { "LaForge-Agent-Name" = "VIBE_CLI" }
+"""
+
+
+_URL_HUB_MCP = "http://127.0.0.1:8766/mcp"
+
+
+def _patch_vibe(home=None, dry: bool = False) -> list[str]:
+    """Ajoute le serveur MCP du hub a la config utilisateur de Vibe (VIBE_HOME, sinon ~/.vibe), SANS jeton.
+
+    Patron de _patch_codex (sauvegarde horodatee AVANT, relecture TOML APRES, restauration si invalide), mais rien de
+    secret : le jeton voyage par `api_key_env`, pose par tools/nokido_vibe.py au lancement. Une config existante
+    ILLISIBLE n'est jamais touchee -- la reecrire effacerait des reglages de l'owner. Idempotent.
+    """
+    import os as _os
+    import shutil as _sh
+    import time as _t
+    import tomllib
+
+    # Vibe lit VIBE_HOME/config.toml quand la variable est posee, et NE LIT PLUS ~/.vibe (vecu 16/10 : VIBE_HOME pointe
+    # le profil versionne du depot ; ecrire dans ~/.vibe affichait un succes sans aucun effet). `home` explicite gagne.
+    if home:
+        dossier = Path(home) / ".vibe"
+    elif _os.environ.get("VIBE_HOME"):
+        dossier = Path(_os.environ["VIBE_HOME"])
+    else:
+        dossier = Path(_os.path.expanduser("~")) / ".vibe"
+    cfg = dossier / "config.toml"
+    texte = cfg.read_text(encoding="utf-8") if cfg.exists() else ""
+    try:
+        actuel = tomllib.loads(texte) if texte else {}
+    except tomllib.TOMLDecodeError as exc:
+        return ["  config vibe ILLISIBLE (%s) -> rien touche : %s" % (type(exc).__name__, cfg)]
+    serveurs = [s for s in actuel.get("mcp_servers") or [] if isinstance(s, dict)]
+    if any(s.get("name") == "nokido" for s in serveurs):
+        return ["  serveur MCP nokido deja present dans %s -> rien touche (idempotent)" % cfg]
+    # Vibe interdit deux serveurs sur la meme URL (vecu 16/10 : nokido masque par l'ancienne entree laforge, VIBE, 401).
+    # On ne retire JAMAIS une entree de l'owner a sa place : on la NOMME et on dit le geste.
+    occupant = next((s.get("name") for s in serveurs if str(s.get("url") or "").rstrip("/") == _URL_HUB_MCP), None)
+    if occupant:
+        return ["  URL %s deja prise par le serveur `%s` -> rien touche ; geste owner : `vibe mcp remove %s` puis relancer"
+                " --vibe" % (_URL_HUB_MCP, occupant, occupant)]
+    rendu = (texte.rstrip("\n") + "\n" if texte else "") + _BLOC_VIBE
+    if dry:
+        return ["  [dry] %s recevrait le serveur MCP nokido (api_key_env, sans jeton)" % cfg]
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    sauve = None
+    if cfg.exists():
+        sauve = "%s.bak-%s" % (cfg, _t.strftime("%Y%m%d-%H%M%S"))
+        _sh.copy2(cfg, sauve)
+    cfg.write_text(rendu, encoding="utf-8")
+    try:
+        tomllib.loads(cfg.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as exc:
+        cfg.write_text(texte, encoding="utf-8")
+        return ["  TOML INVALIDE apres ecriture (%s) -> config RESTAUREE a l'identique" % type(exc).__name__]
+    return ["  serveur MCP nokido ajoute a %s (sauvegarde : %s) -- relancer vibe par tools/nokido_vibe.py"
+            % (cfg, sauve or "aucune, fichier neuf")]
+
+
 def main() -> int:
+    if "--vibe" in sys.argv:
+        # Branche FERMEE : aucun jeton lu, aucun bloc emis (le chemin par defaut ecrit les jetons de TOUS les agents
+        # en clair dans C:/tmp).
+        print("=== serveur MCP du hub dans la config utilisateur de Vibe ===")
+        print("\n".join(_patch_vibe(dry="--dry-run" in sys.argv)))
+        return 0
     dry = "--dry-run" in sys.argv
     from nokido_agent.app.forge_secrets import get_secret, set_secret  # type: ignore
     report = []
@@ -274,19 +353,17 @@ def main() -> int:
         key = f"FORGE_TOKEN_{a}"
         cur = get_secret(key)
         if cur:
-            # sha8 et NON les 6 derniers caracteres du jeton : une queue de secret
-            # affichee reste un morceau de secret, et elle atterrit dans le terminal,
-            # dans l'historique du shell et dans le transcript de l'agent qui lit la
-            # sortie. L'empreinte permet de comparer deux valeurs sans en divulguer
-            # aucune -- c'est tout ce dont un rapport de provisioning a besoin.
-            report.append(f"  have  {a:<16} sha8={_empreinte(cur)}")
+            # Ni les 6 derniers caracteres (un morceau de secret) ni le sha8 (un derive qui se recoupe d'un journal a
+            # l'autre) : le rapport atterrit dans le terminal, l'historique du shell et le transcript de l'agent qui le
+            # lit. « present au coffre » est tout ce dont un rapport de provisioning a besoin (owner 16/10).
+            report.append(f"  have  {a:<16} present au coffre")
             continue
         tok = _secrets.token_hex(24)
         if dry:
             report.append(f"  [dry] would mint+seed {a}")
         else:
             ok = set_secret(key, tok)
-            report.append(f"  SEED  {a:<16} {'ok' if ok else 'FAIL'} sha8={_empreinte(tok)}")
+            report.append(f"  SEED  {a:<16} {'ok' if ok else 'FAIL'}")
     # relire (post-seed)
     tok = {a: (get_secret(f"FORGE_TOKEN_{a}") or "<MISSING>") for a in AGENTS}
     missing = [a for a in AGENTS if tok[a] == "<MISSING>"]

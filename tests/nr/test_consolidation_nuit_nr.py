@@ -70,7 +70,7 @@ def _job(etat_tmp, reveil="ok", lane=True, consolider_leve=False):
         vus["appels"] += 1
         return '{"ok": true}' if reveil == "ok" else ""
 
-    def consolider_fn(limit):
+    def consolider_fn(limit, juge=None):
         if consolider_leve:
             raise RuntimeError("base verrouillee")
         vus["lots"] += 1

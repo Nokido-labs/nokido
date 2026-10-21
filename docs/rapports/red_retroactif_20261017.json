@@ -1,0 +1,8 @@
+{
+  "red": 2,
+  "rouge_vu": true,
+  "green": 0,
+  "vert_vu": true,
+  "job_id": "job_606c8561272f",
+  "note": "Cause de l'echec sur l'arbre principal : le test resolvait l'outil via parents[1] (tests/tools/forge_red_retroactif.py, inexistant) au lieu de parents[2] (tools/forge_red_retroactif.py) — pytest ratait l'outil (can't open file, rc=2) avant meme de produire un BILAN. Deuxieme cause, masquee par la premiere : meme avec le bon chemin, GREEN restait rouge (red=2 green=2) car la phase GREEN de l'outil ne mettait pas tools/ sur PYTHONPATH alors que l'amorce RED le faisait — un module sous tools/ n'etait donc jamais importable cote arbre courant. Correctifs : (1) parents[2] dans le test, depot temporaire rendu hermetique (GIT_CONFIG_GLOBAL=devnull, GIT_CONFIG_NOSYSTEM=1, user.name/user.email locaux) et assertions red!=0 / green==0 qui prouvent le bilan au lieu de seulement chercher la chaine 'BILAN' ; (2) forge_red_retroactif aligne le PYTHONPATH de la phase GREEN sur celui de l'amorce RED (tools/, app/, racine). Preuve finale en run_job (pas seulement worktree) : job_606c8561272f rc=0, 1 passed in 13.45s."
+}

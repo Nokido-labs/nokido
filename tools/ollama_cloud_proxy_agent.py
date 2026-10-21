@@ -10,15 +10,27 @@ import requests
 # Remplace par l'URL publique de ton Ollama Cloud (VPS, RunPod, etc.)
 OLLAMA_CLOUD_URL = os.getenv("OLLAMA_CLOUD_URL", "http://ton-vps-cloud:11434/api/chat")
 OLLAMA_MODEL = os.getenv("OLLAMA_CLOUD_MODEL", "llama3.1")  # Ou qwen2.5, mistral, etc.
-OLLAMA_API_KEY = os.getenv(
-    "OLLAMA_API_KEY", ""
-)  # Optionnel: Token Bearer si l'API Cloud est protégée
+def _secret_proxy(nom: str) -> str:
+    """Coffre d'abord (16/10) ; sans le paquet nokido_agent, repli sur l'environnement DIT sur stderr."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret(nom) or ""
+    except ImportError:
+        import sys as _sys_s
+
+        print("[ollama_cloud_proxy] coffre inaccessible : repli sur l'environnement pour %s" % nom,
+              file=_sys_s.stderr)
+        return os.environ.get(nom, "")
+
+
+OLLAMA_API_KEY = _secret_proxy("OLLAMA_API_KEY")  # Optionnel: Token Bearer si l'API Cloud est protégée
 
 # Chemin de l'exécutable Python Nokido pour appeler les outils
 PYTHON_EXE = __import__("os").path.expanduser("~/miniforge3/python.exe")
 LAFORGE_DIR = str(__import__("pathlib").Path(__file__).resolve().parents[1])
 # SECURITY 2026-05-02 : hardcoded token removed (was Token Maître Local).
-FORGE_MCP_TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
+FORGE_MCP_TOKEN = _secret_proxy("FORGE_MCP_TOKEN")
 if not FORGE_MCP_TOKEN:
     import sys as _sys
 

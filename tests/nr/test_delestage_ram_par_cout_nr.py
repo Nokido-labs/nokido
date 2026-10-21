@@ -100,6 +100,24 @@ def test_le_superviseur_reel_deleste_par_cout():
     assert v == [], "\n".join(v)
 
 
+def test_le_delestage_epargne_une_intention_fraiche_hors_critique():
+    """Mesure 16/10 07:16:55 (journal laforge-master.log) : « RAM 89.0% > 88% » puis « Sleeping NokidoLlamaEmbed
+    (uptime 739s, rss 1590 Mo) » EN PLEINE REQUETE, alors que le pack natif de la promotion 0.20.12 venait de poser
+    embed.wanted (+512 echecs). Le superviseur ECRIT ce vocabulaire (DEP_INTENT, declareDepWanted) mais son delestage
+    ne le LISAIT pas ; le plus gros consommateur partait toujours le premier. Sous la pression ordinaire une intention
+    fraiche protege ; au-dela du seuil critique, la survie passe d'abord. Meme semantique que le keeper
+    (`_intention_voulue` : sandbox/<drapeau>, TTL 900 s, illisible = pas d'intention)."""
+    src = _sans_commentaires((CORE / "supervisor.ts").read_text(encoding="utf-8"))
+    bloc = src.split("sleeping non-essential services", 1)[1].split("Sleeping ${state.def.name}", 1)[0]
+    assert "_intentionFraiche(" in bloc, "le delestage ne lit pas l'intention declaree"
+    assert re.search(r"!critique\s*&&[^;{]*_intentionFraiche\(", bloc), "l'epargne doit ceder au seuil critique"
+    assert re.search(r"Epargne \$\{", bloc), "un service epargne doit etre DIT au journal"
+    helper = src.split("function _intentionFraiche", 1)[1].split("\n}\n", 1)[0]
+    assert 'join(ROOT, "sandbox"' in helper and "DEP_INTENT[" in helper, "meme drapeau, meme dossier que l'ecrivain"
+    assert re.search(r"INTENTION_TTL_MS\s*=\s*900_?000", src), "TTL aligne sur le keeper (900 s)"
+    assert "catch" in helper, "illisible = pas d'intention (n'autorise rien, ne bloque rien)"
+
+
 def test_le_reveil_n_attend_plus_un_seuil_jamais_atteint():
     """Base mesuree du poste : 65-80 %. Un reveil sous 72 % laissait 27 organes endormis a 81,5 %."""
     c = _constantes(_sans_commentaires((CORE / "supervisor.ts").read_text(encoding="utf-8")))

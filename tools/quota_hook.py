@@ -69,7 +69,7 @@ def read_quota_state() -> dict:
         try:
             return json.loads(QUOTA_DB.read_text(encoding="utf-8"))
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/quota_hook.py', 71, exc_info=True)
     return {}
 
 

@@ -44,7 +44,7 @@ try:
     import json as _json
     _GROUPS.update(_json.loads(os.environ.get("LAFORGE_OAUTH_MUTEX_GROUPS", "{}")) or {})
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_oauth_mutex.py', 46, exc_info=True)
 
 OAUTH_CLIS = set(_GROUPS)
 
@@ -119,7 +119,7 @@ async def _heartbeat(lane: str, holder: str, ttl: float) -> None:
             await asyncio.sleep(max(1.0, ttl / 3))
             await asyncio.to_thread(_renew, lane, holder, ttl)
     except asyncio.CancelledError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_oauth_mutex.py', 121, exc_info=True)
 
 
 async def mutex_acquire(lane: str, holder: str, *, wait_timeout: float = 180.0,

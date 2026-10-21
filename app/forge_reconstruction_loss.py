@@ -116,6 +116,6 @@ def validate_and_adapt(
             domain="reconstruction",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_reconstruction_loss.py', 118, exc_info=True)
 
     return {"status": "SUCCESS", "score": score}

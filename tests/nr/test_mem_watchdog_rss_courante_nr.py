@@ -51,6 +51,63 @@ def test_psutil_donne_la_rss_courante_d_abord(monkeypatch):
     assert round(mw._rss_mb()) == 200
 
 
+def _rss_fixe(monkeypatch, mw, mo: float) -> None:
+    monkeypatch.setattr(mw, "_rss_mb", lambda: float(mo))
+
+
+def test_sans_demande_le_gardien_n_arme_jamais_tracemalloc(monkeypatch, tmp_path):
+    """Mesure 16/10 (Windows, journal NokidoMCP.log : 7 « tracemalloc active », 0 desactivation ; « RAM CRITIQUE 550MB
+    >= 500MB » encore a 09:30). La lecture ctypes d'avant 72acf25c9 ECHOUAIT sous Windows (API 0, GetLastError 6) :
+    le gardien ne se declenchait jamais. RSS lue juste + warn 300 / dump 500 Mo + hub a 500-800 Mo = hub en PERMANENCE
+    sous tracemalloc(10) -- ast.parse x6, introspect x2,6 (banc C:/tmp/diag_introspect) -- et, au-dela de 500 Mo, un
+    instantane + statistics (2,8 s) + GC force + fichier de dump TOUTES LES 30 s. Le tracage devient une DEMANDE."""
+    import tracemalloc
+    mw = _module()
+    monkeypatch.delenv("LAFORGE_MEM_TRACE", raising=False)
+    monkeypatch.setattr(mw, "_LOGS_DIR", tmp_path)
+    appels = []
+    monkeypatch.setattr(mw.gc, "collect", lambda *a: appels.append(1) or 0)
+    _rss_fixe(monkeypatch, mw, 600)
+    w = mw.MemWatchdog(warn_mb=300, dump_mb=500, poll_interval=30)
+    for _ in range(3):
+        w._check()
+    assert not w._tracing and not tracemalloc.is_tracing(), "tracemalloc arme sans demande"
+    assert list(tmp_path.glob("mem_dump_*")) == [] and appels == [], "dump ou GC force sans demande"
+
+
+def test_le_niveau_est_dit_a_la_transition_pas_a_chaque_tick(monkeypatch, caplog):
+    mw = _module()
+    monkeypatch.delenv("LAFORGE_MEM_TRACE", raising=False)
+    _rss_fixe(monkeypatch, mw, 600)
+    w = mw.MemWatchdog(warn_mb=300, dump_mb=500, poll_interval=30)
+    with caplog.at_level("INFO", logger="Nokido.MemWatchdog"):
+        for _ in range(4):
+            w._check()
+    assert sum("RAM CRITIQUE" in r.getMessage() for r in caplog.records) == 1, "le meme niveau repete a chaque tick"
+
+
+def test_sur_demande_le_dump_est_borne_dans_le_temps(monkeypatch, tmp_path):
+    """Le diagnostic reste disponible (LAFORGE_MEM_TRACE=1) : un dump + un GC force au plus par fenetre."""
+    import tracemalloc
+    mw = _module()
+    monkeypatch.setenv("LAFORGE_MEM_TRACE", "1")
+    monkeypatch.setattr(mw, "_LOGS_DIR", tmp_path)
+    appels = []
+    monkeypatch.setattr(mw.gc, "collect", lambda *a: appels.append(1) or 0)
+    _rss_fixe(monkeypatch, mw, 600)
+    w = mw.MemWatchdog(warn_mb=300, dump_mb=500, poll_interval=30)
+    try:
+        for _ in range(3):
+            w._check()
+        assert w._tracing, "le diagnostic demande doit tracer"
+        assert len(list(tmp_path.glob("mem_dump_*"))) == 1 and len(appels) == 1, "dump et GC bornes dans le temps"
+    finally:
+        if w._tracing:
+            w._stop_tracing()
+        if tracemalloc.is_tracing():
+            tracemalloc.stop()
+
+
 def test_le_controle_reel_ne_crie_pas_sur_un_hub_de_110_mo(monkeypatch):
     mw = _module()
     _sans_psutil_avec_pic(monkeypatch, "darwin", 115_617_792)

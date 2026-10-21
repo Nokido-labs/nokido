@@ -66,6 +66,7 @@ def load_traces(limit: int = 20000) -> dict:
             elif ca > COST_BAD_MIN and not success:
                 rejected.append((s_emb, action[:512], task_type))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dpo_extractor.py', 68, exc_info=True)
             continue
 
     return {"chosen": chosen, "rejected": rejected}

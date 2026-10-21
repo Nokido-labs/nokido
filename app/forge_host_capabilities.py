@@ -142,7 +142,7 @@ def _detect_cpu() -> dict:
         if freq:
             info["freq_max_mhz"] = freq.max or freq.current or 0
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_host_capabilities.py', 144, exc_info=True)
     return info
 
 
@@ -156,7 +156,7 @@ def _detect_ram() -> dict:
         info["total_gb"] = round(vm.total / 1024**3, 2)
         info["available_gb"] = round(vm.available / 1024**3, 2)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_host_capabilities.py', 158, exc_info=True)
     return info
 
 
@@ -219,7 +219,7 @@ def _detect_gpu_linux() -> list[dict]:
                         }
                     )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_host_capabilities.py', 221, exc_info=True)
     if not out:
         try:
             r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5, errors="replace")
@@ -234,7 +234,7 @@ def _detect_gpu_linux() -> list[dict]:
                         }
                     )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_host_capabilities.py', 236, exc_info=True)
     return out
 
 
@@ -299,7 +299,7 @@ def _save_cache(info: dict) -> None:
         CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
         CACHE_PATH.write_text(json.dumps(info, indent=2), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_host_capabilities.py', 301, exc_info=True)
 
 
 def _load_cache(max_age_h: float = 168.0) -> Optional[dict]:

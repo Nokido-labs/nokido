@@ -73,7 +73,7 @@ def _mark_dump(lag_ms: float) -> None:
         with open(_LOG, "a", encoding="utf-8") as f:
             f.write("--- [loop-lag] %s lag=%.0fms (dump ci-dessus) ---\n" % (ts, lag_ms))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 75, exc_info=True)
 _DEFAULT_THRESHOLD_MS = 300.0
 _MIN_DUMP_INTERVAL = 10.0  # anti-spam : 1 dump faulthandler / 10s max
 _MAX_REAL_LAG_S = 30.0     # au-delà = suspend machine / saut horloge monotonic (PAS un blocage wrapper, qui est < ~10s) -> faux positif ignoré
@@ -111,13 +111,13 @@ async def _monitor(threshold_ms: float, interval: float) -> None:
             try:
                 faulthandler.dump_traceback_later(interval + thr, repeat=False, file=fh)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 113, exc_info=True)
         await asyncio.sleep(interval)
         if fh is not None:
             try:
                 faulthandler.cancel_dump_traceback_later()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 119, exc_info=True)
         lag = (time.monotonic() - t0) - interval
         if lag > _MAX_REAL_LAG_S:
             # >30s = la machine a été suspendue (sleep/hibernate) ou saut d'horloge :
@@ -130,7 +130,7 @@ async def _monitor(threshold_ms: float, interval: float) -> None:
                     fh.write(f"=== {time.strftime('%Y-%m-%d %H:%M:%S')} lag={lag * 1000:.0f}ms (stack AU-DESSUS = coupable mid-block) ===\n")
                     fh.flush()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 132, exc_info=True)
             _record_lag(lag * 1000.0)
         _mesurer_pool(fh)
 
@@ -182,7 +182,7 @@ def start(threshold_ms: float = _DEFAULT_THRESHOLD_MS, interval: float = 0.5):
         _kill_s = float(os.environ.get("LAFORGE_LOOP_KILL_S", "60"))
         start_kill_watchdog(kill_after_s=_kill_s)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 184, exc_info=True)
     return asyncio.ensure_future(_monitor(threshold_ms, interval))
 
 
@@ -222,7 +222,7 @@ def _kill_watchdog(loop, kill_after_s: float, check_every: float, fh) -> None:
         try:
             loop.call_soon_threadsafe(_beat)  # ne s'execute QUE si le loop tourne
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 224, exc_info=True)
         stale = time.monotonic() - _last_beat
         if stale >= kill_after_s:
             try:
@@ -236,11 +236,11 @@ def _kill_watchdog(loop, kill_after_s: float, check_every: float, fh) -> None:
                     faulthandler.dump_traceback(file=fh, all_threads=True)
                     fh.flush()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 238, exc_info=True)
             try:
                 logger.critical("[loop-kill] event-loop gele %.0fs -> os._exit(1) respawn", stale)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 242, exc_info=True)
             os._exit(1)
 
 
@@ -284,7 +284,7 @@ def _selftest() -> int:
     try:
         _LOG.unlink()
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 286, exc_info=True)
 
     async def run():
         t = start(threshold_ms=100, interval=0.2)
@@ -300,7 +300,7 @@ def _selftest() -> int:
     try:
         cap = _LOG.read_text(encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_loop_sentinel.py', 302, exc_info=True)
     stack_captured = "File " in cap
     names_blocker = ("_selftest" in cap or "time.sleep" in cap or " in run" in cap)
     ok = s["lag_events"] >= 1 and stack_captured

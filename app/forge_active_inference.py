@@ -101,13 +101,15 @@ def predict_signal(signal: str, context: str) -> Dict[str, Any]:
             "mature": n >= SIGNAL_MIN_OBS}
 
 
-def signal_z(signal: str, context: str, value: float):
+def signal_z(signal: str, context: str, value: float, pred: Dict[str, Any] | None = None):
     """Écart normalisé observation/attendu. None si le modèle est immature.
 
     None n'est PAS zéro : il dit « je ne sais pas encore », et l'appelant doit alors
     retomber sur sa propre règle plutôt que de conclure à la normalité.
+    `pred` (19/10, audit pair, analyse B) : la prédiction déjà lue par l'appelant -- observe_signal
+    relisait sinon le même état (2e connexion SQLite + schéma) ; résultat numérique identique.
     """
-    p = predict_signal(signal, context)
+    p = pred if pred is not None else predict_signal(signal, context)
     if not p["mature"]:
         return None
     return (value - p["mean"]) / max(p["std"], SIGNAL_STD_FLOOR)
@@ -120,7 +122,7 @@ def observe_signal(signal: str, context: str, value: float) -> Dict[str, Any]:
     avait cours, pas à un modèle déjà corrigé par l'observation qu'on juge.
     """
     before = predict_signal(signal, context)
-    z = signal_z(signal, context, value)
+    z = signal_z(signal, context, value, pred=before)   # une seule lecture de l'état (19/10)
     surprise = round(0.5 * z * z, 4) if z is not None else None
     n = before["n"] + 1
     delta = value - before["mean"]
@@ -238,7 +240,7 @@ def get_prior(method: str, target: str = "") -> Dict[str, float]:
                 "target_class": cls,
             }
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_active_inference.py', 240, exc_info=True)
     # Default uniforme : aucune connaissance
     return {
         "n": 0,

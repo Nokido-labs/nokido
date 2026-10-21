@@ -38,8 +38,20 @@ def _log(msg: str) -> None:
     print(f"[at-rest-migrate] {msg}", flush=True)
 
 
+def _lire_cle():
+    """LAFORGE_DB_KEY : coffre d'abord (get_secret replie lui-meme sur l'env) ; coffre illisible -> env, DIT (16/10).
+    Mesure sous SYSTEM du 16/10 : une seule valeur (coffre reserve), WCM et Nokido.env absents."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("LAFORGE_DB_KEY")
+    except Exception as _e:  # noqa: BLE001
+        _log(f"coffre illisible ({type(_e).__name__}) -> repli environnement")
+        return os.environ.get("LAFORGE_DB_KEY")
+
+
 def _require_key() -> str:
-    key = os.environ.get("LAFORGE_DB_KEY")
+    key = _lire_cle()
     if not key:
         _log("ERREUR: env LAFORGE_DB_KEY absente — requise pour migrate/verify.")
         sys.exit(1)
@@ -88,7 +100,7 @@ def cmd_dry_run(db: str) -> int:
     _log(f"  chiffré      -> {_enc_path(db)}")
     _log(f"  table témoin : {table or '(aucune)'}")
     _log(f"  sqlcipher    : {'présent' if _has_cipher() else 'ABSENT (pip install pysqlcipher3)'}")
-    _log(f"  clé          : {'LAFORGE_DB_KEY définie' if os.environ.get('LAFORGE_DB_KEY') else 'ABSENTE'}")
+    _log(f"  clé          : {'LAFORGE_DB_KEY définie' if _lire_cle() else 'ABSENTE'}")
     _log("  swap auto    : NON (cutover manuel via forge_db_conn requis)")
     return 0
 

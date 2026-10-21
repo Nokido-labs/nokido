@@ -164,7 +164,7 @@ def _sys_metrics() -> dict:
             for port, name in CRITICAL_PORTS.items():
                 metrics[f"port_{port}"] = "OK" if f":{port} " in r.stdout else "DOWN"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 166, exc_info=True)
     except Exception as e:
         metrics["error"] = str(e)[:80]
     return metrics
@@ -258,7 +258,7 @@ def _kill_zombies(procs: dict) -> list:
                 killed.append({"pid": pid, "reason": "zombie:node"})
                 _log("OUT", "inspector.kill", "WARN", f"NODE ZOMBIE pid={pid}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 260, exc_info=True)
 
     return killed
 
@@ -286,7 +286,7 @@ def _check_ports() -> dict:
                 if port in CRITICAL_PORTS:
                     listeners.setdefault(port, []).append(pid)
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 288, exc_info=True)
 
         for port, name in CRITICAL_PORTS.items():
             pids = list(set(listeners.get(port, [])))
@@ -351,7 +351,7 @@ def _heal_ports(ports: dict):
                         _tok = _ln.split("=", 1)[1].strip()
                         break
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 353, exc_info=True)
             _req = _ur.Request(
                 "http://127.0.0.1:8766/mcp",
                 data=_body,
@@ -370,7 +370,7 @@ def _heal_ports(ports: dict):
                 ports[8767] = "OK_MCP"
                 return
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 372, exc_info=True)
         # Vrai DOWN — alerter une seule fois (cooldown via _last_action)
         _now = time.time()
         if _now - _last_action.get("netcfg_down", 0) > 300:
@@ -406,7 +406,7 @@ def _heal_ports(ports: dict):
                 )
                 _ur2.urlopen(_req2, timeout=3)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 408, exc_info=True)
 
 
 # ── 4. LOG AGGREGATOR — offset tracking (pas de faux positifs sur lignes anciennes)
@@ -735,7 +735,7 @@ def _loop():
                 conn.commit()
                 conn.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 737, exc_info=True)
 
         except Exception as e:
             _log("OUT", "inspector", "ERR", f"cycle error: {e}")

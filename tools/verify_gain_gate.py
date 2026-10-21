@@ -10,8 +10,12 @@ reel. Le fichier doit rester INTACT. Puis on affiche le tableau de bord.
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+# BANC, pas production (18/10, audit) : ses tentatives synthetiques faussaient le tableau de bord du juge.
+os.environ.setdefault("LAFORGE_JUGE_ORIGINE", "qualification")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))

@@ -123,7 +123,7 @@ class ContextInjector:
             if clean and len(clean) > 50 and "No tldr" not in clean:
                 return self._clean_tldr(clean)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tldr_context.py', 125, exc_info=True)
 
         # 2. GitHub raw (pas besoin d'installation)
         for prefix in ["common", "linux", "network"]:
@@ -134,7 +134,7 @@ class ContextInjector:
                 if raw and len(raw) > 50:
                     return self._clean_tldr(raw)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tldr_context.py', 136, exc_info=True)
 
         logger.debug(f"[TLDR] '{tool}' non trouvé")
         return ""

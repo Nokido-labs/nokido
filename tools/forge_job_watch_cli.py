@@ -74,8 +74,54 @@ def _etat_tache(task_id: str, db=None):
     return (ligne[0], ligne[1]) if ligne else (None, 0)
 
 
+def _progres_tache(task_id: str, db=None):
+    """`tasks.progress_at` tel que l'executeur le DECLARE (battement de delegation), ou None si absent ou illisible.
+    Un progres qui avance repousse le gel : STALE n'est pas DEAD (P2 du 17/10)."""
+    import sqlite3
+    chemin = Path(db) if db else TACHES
+    if not chemin.exists():
+        return None
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % chemin.as_posix(), uri=True, timeout=3)
+        try:
+            ligne = c.execute("SELECT progress_at FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001 — muet-ok : l'appelant recoit None et le DIT (progres ILLISIBLE)
+        return None
+    return str(ligne[0]) if ligne and ligne[0] else None
+
+
+_POULS_EMISSION_S = 600   # une ligne « EN COURS » au plus toutes les 10 min : visible sans inonder la boucle
+
+
+def _pouls_executeur(task_id: str, dossier: Path):
+    """`travail_depuis_s` du pouls d'un executeur qui DECLARE travailler sur CETTE tache, sinon None.
+
+    Mesure du 2026-10-18 : une surveillance a expire 30 min sans un evenement pendant que l'executeur
+    travaillait -- le statut de la table ne bougeait pas, et ce guetteur ne lisait que lui. Un pouls
+    illisible est ignore (on ne conclut rien d'un fichier qu'on ne sait pas lire)."""
+    import json as _json
+    try:
+        candidats = sorted(Path(dossier).glob("task_executor_*.heartbeat"))
+    except OSError:
+        return None
+    for f in candidats:
+        try:
+            d = _json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_job_watch_cli.py', 112, exc_info=True)
+            continue
+        if isinstance(d, dict) and d.get("tache") == task_id and d.get("travail_en_cours"):
+            try:
+                return float(d.get("travail_depuis_s") or 0)
+            except (TypeError, ValueError):
+                return 0.0
+    return None
+
+
 def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
-                     ecrire=print, db=None, horloge=time.time, dormir=time.sleep) -> int:
+                     ecrire=print, db=None, horloge=time.time, dormir=time.sleep, pouls_dir=None) -> int:
     """Surveille une TACHE M2M (`tasks.db`) comme `surveiller` suit un job.
 
     POURQUOI. Une reponse deposee dans l'inbox ne REVEILLE PAS la boucle du
@@ -96,7 +142,10 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
     """
     debut = horloge()
     vu, _ = _etat_tache(task_id, db)
+    progres_vu = _progres_tache(task_id, db)
     dernier_changement = debut
+    dossier_pouls = Path(pouls_dir) if pouls_dir else (Path(db).parent if db else TACHES.parent)
+    dernier_pouls_emis = debut - _POULS_EMISSION_S
     if vu is not None:
         ecrire("TACHE %s statut=%s — un statut dit ce que l'agent AFFIRME ; "
                "l'effet se lit sur l'ARTEFACT vise" % (task_id, vu))
@@ -104,6 +153,19 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
     while True:
         statut, taille = _etat_tache(task_id, db)
         maintenant = horloge()
+
+        progres = _progres_tache(task_id, db)
+        if progres is not None and progres != progres_vu:
+            progres_vu, dernier_changement = progres, maintenant   # l'executeur declare du travail : pas de gel
+
+        pouls = _pouls_executeur(task_id, dossier_pouls)
+        if pouls is not None:
+            dernier_changement = maintenant   # un executeur DECLARE travailler sur cette tache : pas un gel
+            if maintenant - dernier_pouls_emis >= _POULS_EMISSION_S:
+                dernier_pouls_emis = maintenant
+                ecrire("TACHE %s EN COURS — pouls de l'executeur : travail depuis %d min (statut %s) ; "
+                       "un pouls DECLARE, pas un effet" % (task_id, int(pouls / 60), vu if vu is not None
+                                                            else "ILLISIBLE"))
 
         if statut is not None and statut != vu:
             vu, dernier_changement = statut, maintenant
@@ -118,9 +180,11 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
             return 0
 
         if maintenant - dernier_changement > gel_s:
-            ecrire("TACHE %s FIGEE — statut %s inchange depuis %d min"
+            ecrire("TACHE %s FIGEE — statut %s et progres inchanges depuis %d min ; %s"
                    % (task_id, vu if vu is not None else "ILLISIBLE",
-                      int((maintenant - dernier_changement) / 60)))
+                      int((maintenant - dernier_changement) / 60),
+                      ("dernier progres declare %s" % progres_vu) if progres_vu
+                      else "progres ILLISIBLE (aucun progress_at lu)"))
             return 0
 
         if maintenant - debut > max_s:
@@ -146,7 +210,9 @@ _QUEUE_OCTETS = 256 * 1024
 # ARRET_GARDE sur une ligne imprimee par un NR de ci-attente qui simule des admissions.
 _QUEUE_ARRET = 30
 _BILANS = (_re.compile(r"TOTAL\s+(\d+)\s+chunks"),
-           _re.compile(r"=== RAG : \+(\d+) chunks"))
+           _re.compile(r"=== RAG : \+(\d+) chunks"),
+           # bilan JSON de tools/forge_ingest_github_repo.py (« index.inserted ») -- lu « sans bilan » le 18/10
+           _re.compile(r'"inserted":\s*(\d+)'))
 # Le bilan d'une CI (`tools/ci_local.py`) est sa ligne `[preuve]`, calculee sur le JUnit. Mesure
 # 2026-09-26 : la CI de reference job_e073b2edba52 (12 496 executes, 0 echec, SUITE_COMPLETE)
 # annoncee ECHEC -- 13 Traceback IMPRIMES par des tests qui passent, et faute de bilan

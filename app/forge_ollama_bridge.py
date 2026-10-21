@@ -82,7 +82,7 @@ def _read_model_from_env() -> str:
                 if val:
                     return val
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 84, exc_info=True)
     return "qwen2.5-coder:latest"
 
 
@@ -96,7 +96,7 @@ def _read_url_from_env() -> str:
                     m = re.match(r"(https?://[^/]+)", val)
                     return m.group(1) if m else "http://localhost:11434"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 98, exc_info=True)
     return "http://localhost:11434"
 
 
@@ -167,7 +167,7 @@ def _cache_tool_doc(session_id: str, tool_name: str, doc: str) -> None:
                 mode="dev:tool_cache",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 169, exc_info=True)
 
 
 # =============================================================================
@@ -217,7 +217,7 @@ def _sentinel_query(query: str, session_id: str = "") -> tuple[str, str]:
                 if is_paranoid(session_id):
                     return "", "session paranoïde — web_search désactivé"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 219, exc_info=True)
 
         return safe_q, ""
 
@@ -481,7 +481,7 @@ async def _tool_router(
                     logger.warning(f"[ring-fence] web_search refusé — session paranoid {session_id}")
                     return "[web_search] Refusé : session en mode paranoid (données sensibles actives)"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 483, exc_info=True)
 
         result = await _call_mcp_tool_stdio(tool_name, args, session_id=session_id)
         logger.info(f"[proxy-trigger] résultat {tool_name} ({len(result)} chars)")
@@ -659,7 +659,7 @@ class OllamaBridge:
                                 _sid = str(_m.session_name)
                                 break
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_bridge.py', 661, exc_info=True)
                     answer = await _tool_router(
                         answer,
                         task,

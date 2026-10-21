@@ -72,20 +72,23 @@ def _rag_trace(msg_id: str, agent: str, sender: str, payload: dict) -> None:
 
     def _work():
         try:
-            import sqlite3 as _sq
             body = json.dumps(payload, ensure_ascii=False)[:1200]
             text = f"[COLLAB:notify] {sender} -> {agent.upper()}\n{body}"
-            con = _sq.connect(str(ROOT / "RAG" / "embeddings.db"), timeout=10)
-            con.execute(
-                "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
-                "SELECT ?, ?, ?, ?, ?, datetime('now') "
-                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
-                (f"collab_notify_{msg_id}", f"notify:{str(sender).lower()}", text,
-                 "laforge-memory", str(sender), f"collab_notify_{msg_id}"))
-            con.commit()
-            con.close()
+            # `write_retry` ouvre sa PROPRE connexion, bornee a `path` : ecriture isolee
+            # par le chemin gouverne (socle) (lot 2 de migration des ecrivains nus, 18/10).
+            from nokido_agent.app import forge_db_path as _dbp
+
+            _dbp.write_retry(
+                lambda c: c.execute(
+                    "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
+                    "SELECT ?, ?, ?, ?, ?, datetime('now') "
+                    "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                    (f"collab_notify_{msg_id}", f"notify:{str(sender).lower()}", text,
+                     "laforge-memory", str(sender), f"collab_notify_{msg_id}")),
+                path=str(ROOT / "RAG" / "embeddings.db"),
+            )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mailbox.py', 90, exc_info=True)
 
     threading.Thread(target=_work, daemon=True, name="collab-rag-trace").start()
 
@@ -137,6 +140,7 @@ def pull(agent: str, code: str, agent_tokens: dict, since_ts: float = 0.0, limit
             if msg.get("ts", 0) > since_ts:
                 results.append(msg)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mailbox.py', 142, exc_info=True)
             continue
 
     return results[-limit:]

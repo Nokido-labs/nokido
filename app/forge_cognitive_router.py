@@ -272,7 +272,7 @@ async def _call_with_fallback(
         if answer:
             return answer, "ollama_direct"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cognitive_router.py', 274, exc_info=True)
 
     return "[Arbitre indisponible]", "error"
 
@@ -516,5 +516,5 @@ async def _onnx_simple_response(task: str) -> tuple[str, str]:
             if resp:
                 return resp, "onnx_local"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cognitive_router.py', 518, exc_info=True)
     return "", "onnx_local_miss"

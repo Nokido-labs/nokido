@@ -302,7 +302,7 @@ def _rag_stats_instantane() -> dict | None:
     try:
         age = round((datetime.now() - datetime.fromisoformat(str(d.get("ts")))).total_seconds())
     except (TypeError, ValueError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 304, exc_info=True)
     return {"total": rc["total"], "no_embedding": rc["non_vectorized"],
             "domains": [{"name": x.get("domain"), "chunks": x.get("count")}
                         for x in (rc.get("top_domains") or [])],
@@ -397,6 +397,108 @@ async def rag_search(request: Request):
                              "erreur": str(r["error"])[:200]}, status_code=502)
     return JSONResponse({"ok": True, "q": topic, "limit": limite,
                          "texte": texte or "(aucun extrait rendu par le hub)"})
+
+
+_ARBRE_WEB = Path(__file__).resolve().parents[2] / "sandbox" / "workspace" / "roadmap_arbre_web.json"
+
+
+def _doc_arbre() -> dict:
+    """Document `arbre()` du keeper (tableau noir) ; le JSON va en sandbox, jamais dans docs/ (compte sans droit)."""
+    try:
+        from nokido_agent.tools.forge_roadmap_keeper import arbre
+    except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+        from tools.forge_roadmap_keeper import arbre
+    return arbre(out=_ARBRE_WEB)
+
+
+@router.get("/api/roadmap/arbre")
+def roadmap_arbre():
+    """Arbre d'evolution de la roadmap (vue `graph_viz.html?vue=roadmap`, 19/10) : {nodes, edges} a plat."""
+    try:
+        from app.web_hub.roadmap_arbre import graphe, porteurs_en_vol
+    except ImportError:
+        from nokido_agent.app.web_hub.roadmap_arbre import graphe, porteurs_en_vol
+    try:
+        doc = _doc_arbre()
+        g = graphe(doc, porteurs_en_vol([it.get("cle") for it in doc.get("items") or []]))
+        return JSONResponse({"ok": True, "source": "roadmap_keeper.arbre", "genere_le": doc.get("genere_le"),
+                             "total": doc.get("total"), "par_etat": doc.get("par_etat"), **g})
+    except Exception as e:
+        return JSONResponse({"ok": False, "source": "roadmap_keeper.arbre",
+                             "error": f"{type(e).__name__}: {str(e)[:200]}"}, status_code=502)
+
+
+@router.get("/roadmap/arbre")
+def roadmap_arbre_page():
+    """Page arbre d'evolution de la roadmap (19/10) : graph_viz.html dans sa vue roadmap, graphe injecte. La page
+    vis-network n'etait servie par aucune route ; elle l'est ici, sans toucher a app.py (CRITICAL_FILE)."""
+    from fastapi.responses import HTMLResponse
+    try:
+        from app.web_hub.roadmap_arbre import graphe, page_html, porteurs_en_vol
+    except ImportError:
+        from nokido_agent.app.web_hub.roadmap_arbre import graphe, page_html, porteurs_en_vol
+    try:
+        doc = _doc_arbre()
+        cles = [it.get("cle") for it in doc.get("items") or []]
+        return HTMLResponse(page_html(graphe(doc, porteurs_en_vol(cles))))
+    except Exception as e:
+        return HTMLResponse("arbre roadmap ILLISIBLE : %s" % type(e).__name__, status_code=502)
+
+
+@router.get("/swarm/graphe")
+def swarm_graphe_page():
+    """Vue graphe de l'essaim (19/10) : agents -> taches de tasks.db, sur le gabarit vis-network de l'arbre roadmap."""
+    from fastapi.responses import HTMLResponse
+    try:
+        from app.web_hub import swarm_graphe as _sg
+        from app.web_hub.roadmap_arbre import page_html
+    except ImportError:
+        from nokido_agent.app.web_hub import swarm_graphe as _sg
+        from nokido_agent.app.web_hub.roadmap_arbre import page_html
+    lignes = _sg.lire_taches()
+    if lignes is None:
+        # La PAGE marche, c'est sa SOURCE qui est illisible : le dire dans le contenu, jamais en 5xx -- la CI de
+        # reference du 19/10 (worktree propre, sans tasks.db) tombait sur test_ui_pages_rendent (502).
+        return HTMLResponse("tasks.db ILLISIBLE : graphe de l'essaim non mesure (rien n'est invente)")
+    return HTMLResponse(page_html(_sg.graphe_taches(lignes)))
+
+
+def _golden():
+    try:
+        from app.web_hub import golden_relecture as _gr
+    except ImportError:
+        from nokido_agent.app.web_hub import golden_relecture as _gr
+    return _gr
+
+
+@router.get("/golden/relecture")
+def golden_relecture_page():
+    """Relecture owner LOCALE du jeu de reference RAG (19/10) : 54 questions a trancher, rien ne sort de la machine."""
+    from fastapi.responses import HTMLResponse
+    _gr = _golden()
+    q = _gr.charger()
+    if q is None:
+        return HTMLResponse("jeu de reference ILLISIBLE : relecture impossible (rien n'est invente)")
+    rel = _gr.lire_relecture()
+    if rel is None:
+        return HTMLResponse("relecture enregistree ILLISIBLE (sandbox/golden_relecture_owner.json) : "
+                            "rien n'est ecrase")
+    return HTMLResponse(_gr.page_html(q, rel))
+
+
+@router.post("/api/golden/relecture")
+async def golden_relecture_api(request: Request):
+    """Enregistre les verdicts owner : ids du jeu seulement, vocabulaire ferme, fusion (rien n'est efface)."""
+    _gr = _golden()
+    q = _gr.charger()
+    if q is None:
+        return JSONResponse({"ok": False, "motif": "jeu de reference ILLISIBLE"}, status_code=502)
+    try:
+        corps = await request.json()
+    except Exception:  # noqa: BLE001 -- corps illisible : dit, rien n'est ecrit
+        return JSONResponse({"ok": False, "motif": "corps JSON illisible"}, status_code=400)
+    r = _gr.enregistrer((corps or {}).get("choix") or {}, {str(x.get("id")) for x in q})
+    return JSONResponse(r, status_code=200 if r.get("ok") else 409)
 
 
 @router.get("/api/graph/proprioception")
@@ -535,7 +637,7 @@ async def swarm_stream(request: Request):
                                 yield f"data: {ln}\n\n"
                                 emitted = True
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 599, exc_info=True)
             idle = 0 if emitted else idle + 1
             if idle >= 15:
                 yield ": keepalive\n\n"
@@ -622,7 +724,7 @@ try:
     if _epistemic_router is not None:
         router.include_router(_epistemic_router, prefix="/epistemic")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 686, exc_info=True)
 
 
 # ── GET UIs /rag, /swarm, /postal : pages orphelines de la wave 1.
@@ -671,7 +773,7 @@ async def edge_fleet_api():
     try:
         await asyncio.to_thread(heartbeat_self)  # sync (psutil + ollama probe) hors event-loop
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 735, exc_info=True)
     try:
         await asyncio.to_thread(sonder_noeuds_http)
     except Exception:  # muet-ok : un noeud injoignable vieillit en STALE, la liste le montre
@@ -688,7 +790,7 @@ async def edge_stats_api():
     try:
         await asyncio.to_thread(heartbeat_self)  # meme refresh que /fleet -> statut coherent
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 752, exc_info=True)
     try:
         await asyncio.to_thread(sonder_noeuds_http)
     except Exception:  # muet-ok : un noeud injoignable vieillit en STALE, la liste le montre
@@ -817,13 +919,13 @@ async def debate_run_api(request: Request):
         try:
             req_f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 881, exc_info=True)
 
     if r.returncode != 0:
         try:
             out_f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 887, exc_info=True)
         return JSONResponse(
             {"ok": False, "error": f"debat rc={r.returncode}: {(r.stderr or '')[-400:]}"},
             status_code=500)
@@ -835,6 +937,6 @@ async def debate_run_api(request: Request):
         try:
             out_f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/wired_routes.py', 899, exc_info=True)
     res["ok"] = True
     return JSONResponse(res)

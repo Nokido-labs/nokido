@@ -152,6 +152,7 @@ def etat(p: Path | str) -> tuple[str, str]:
         except PermissionError:
             return "ILLISIBLE", f"ancetre non listable: {anc}"
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_owner.py', 154, exc_info=True)
             continue
     return "ILLISIBLE", "aucun ancetre lisible"
 
@@ -997,6 +998,7 @@ def verifier(nouveau: str | None = None) -> dict:
                     except OSError:
                         break
         except FileNotFoundError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_owner.py', 999, exc_info=True)
             continue
         except (PermissionError, OSError):
             res["illisibles"] += 1

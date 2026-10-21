@@ -284,5 +284,30 @@ def test_l_amorce_namespace_MORD_quand_le_script_est_lance_par_chemin():
         f"stdout={r.stdout[-500:]}\nstderr={r.stderr[-800:]}")
 
 
+def test_le_chemin_muet_de_python_journalise_la_pile(caplog, monkeypatch):
+    """TUE le mutant `booleen` (ligne 84, `exc_info=True`) du cliquet de mutation.
+
+    `_python()` avale l'echec d'import de `forge_python_bin` puis journalise un
+    « chemin muet ». Journaliser ce repli SANS la pile (`exc_info=False`) rend le
+    silence encore plus muet : la cause disparait. Rien ne contraignait ce
+    booleen — on l'exerce par le chemin d'erreur REEL (module absent de
+    `sys.modules`), pas en relisant le source.
+    """
+    import logging
+
+    import forge_bisect as B
+
+    caplog.set_level(logging.DEBUG, logger=B.__name__)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_python_bin", None)
+    chemin = B._python()  # ne doit PAS lever : repli sur l'interpreteur courant
+    assert chemin, "le repli doit rendre un interpreteur utilisable"
+    recs = [r for r in caplog.records if r.name == B.__name__]
+    assert recs, "le chemin muet n'a ete journalise par personne : rien n'a ete exerce"
+    assert any(r.exc_info for r in recs), (
+        "le journal du chemin muet a ete emis SANS la pile (exc_info=False) : "
+        "la cause de l'echec est perdue"
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

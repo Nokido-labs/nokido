@@ -560,7 +560,7 @@ def _get_tz_offset() -> int:
                 if line.startswith("TZ_OFFSET") and "=" in line:
                     return int(line.split("=", 1)[1].strip())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_timecode.py', 562, exc_info=True)
 
     # 2. Détection système (Windows met à jour l'heure via W32tm)
     try:
@@ -574,7 +574,7 @@ def _get_tz_offset() -> int:
             diff -= 24
         return diff
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_timecode.py', 576, exc_info=True)
 
     return 1  # UTC+1 fallback (France, heure d'été/hiver détecté par le système)
 
@@ -609,6 +609,7 @@ def to_local(utc_iso: str, fmt: str = "%H:%M:%S") -> str:
                 dt_utc = datetime.strptime(s[: len(pattern) + 2], pattern)
                 break
             except ValueError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_timecode.py', 611, exc_info=True)
                 continue
         else:
             return utc_iso  # fallback : retourner tel quel

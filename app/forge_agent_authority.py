@@ -71,7 +71,7 @@ class _AuthorityState:
             if STATE_PATH.exists():
                 return json.loads(STATE_PATH.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_authority.py', 73, exc_info=True)
         return self._blank()
 
     def _blank(self) -> dict:
@@ -98,7 +98,7 @@ class _AuthorityState:
             except ImportError:
                 STATE_PATH.write_text(json.dumps(self._state, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_authority.py', 100, exc_info=True)
 
     def _log(self, event: str, agent: str, detail: str = "") -> None:
         """Log.

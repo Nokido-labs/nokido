@@ -63,6 +63,7 @@
 
 <header>
   <h1>Nokido — Knowledge Graph (AST proprioception)</h1>
+  <input id="recherche" type="search" placeholder="chercher un item puis Entree..." style="display:none;margin-left:16px;margin-right:auto;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-0);color:var(--text-primary);min-width:260px">
   <span class="stats" id="stats">indexing...</span>
 </header>
 
@@ -85,7 +86,11 @@
 
 <script>
 let network = null;
-const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content || "";
+// Le hub ne sert plus de jeton (route anonyme, 19/10) : saisi une fois, garde pour l'onglet.
+const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content
+  || sessionStorage.getItem("laforge-bearer")
+  || (() => { const t = (prompt("Jeton du hub (garde pour cet onglet)") || "").trim();
+              if (t) sessionStorage.setItem("laforge-bearer", t); return t; })();
 const HUB = location.origin;  // same-origin (page servie par hub :8766)
 
 async function callApi(path) {
@@ -115,7 +120,101 @@ function nodeDef(id, label, group, size=18) {
          };
 }
 
+// Zoom branche AVANT le choix de la vue (19/10, retour owner : les boutons etaient morts dans les vues injectees, leurs
+// ecouteurs n'etant poses qu'en fin du chemin AST).
+function brancherZoom() {
+  document.getElementById("btn-zoom-in").addEventListener("click", () => {
+    if (network) network.moveTo({ scale: network.getScale() * 1.3, animation: { duration: 150 } });
+  });
+  document.getElementById("btn-zoom-out").addEventListener("click", () => {
+    if (network) network.moveTo({ scale: network.getScale() / 1.3, animation: { duration: 150 } });
+  });
+  document.getElementById("btn-fit").addEventListener("click", () => {
+    if (network) network.fit({ animation: { duration: 300 } });
+  });
+}
+brancherZoom();
+
+function echapper(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
 (async () => {
+  // Vue ROADMAP (19/10, app/web_hub/roadmap_arbre.py) : graphe injecte (page autonome) ou servi par l'API.
+  const vueRoadmap = (typeof ROADMAP_GRAPHE !== "undefined")
+    || new URLSearchParams(location.search).get("vue") === "roadmap";
+  if (vueRoadmap) {
+    const g = (typeof ROADMAP_GRAPHE !== "undefined") ? ROADMAP_GRAPHE : await callApi("/api/roadmap/arbre");
+    if (!g?.nodes) {
+      document.getElementById("graph").textContent = "arbre roadmap illisible : " + JSON.stringify(g).slice(0, 200);
+      return;
+    }
+    const nItems = g.nodes.filter(n => n.groupe === "item").length;
+    document.getElementById("stats").textContent = nItems + " " + (g.libelle || "items de roadmap")
+      + (g.ecartees ? " (+" + g.ecartees + " non affiches)" : "");
+    const titre = "Nokido — " + (g.libelle === "taches" ? "graphe de l'essaim" : "arbre d'evolution des roadmaps");
+    document.querySelector("h1").textContent = titre;
+    document.title = titre;
+    // Legende : les couleurs REELLES portees par les noeuds (etat roadmap ou statut de tache).
+    const vus = new Map();
+    for (const n of g.nodes) { const e = n.etat || n.statut; if (e && n.color && !vus.has(e)) vus.set(e, n.color); }
+    document.querySelector(".legend").innerHTML = [...vus].map(([e, c]) =>
+      '<span><span class="swatch" style="background:' + echapper(c) + '"></span>' + echapper(e) + '</span>').join("")
+      + '<span style="margin-left:auto">clic = zoom sur un noeud · double-clic sur le fond = vue d\'ensemble · molette = zoom</span>';
+    // Lisibilite (retour owner 19/10) : boites larges, police 14, disposition en FORCES (la hierarchie gauche-droite
+    // empilait 140 items en une seule colonne), figee une fois stable pour ne plus bouger sous la souris.
+    const noeuds = g.nodes.map((n) => {
+      if (n.groupe === "item") return Object.assign({}, n, { shape: "box", margin: 8,
+        widthConstraint: { maximum: 220 }, font: { color: "#ffffff", size: 14 } });
+      if (n.groupe === "priorite" || n.groupe === "agent") return Object.assign({}, n, { shape: "box", margin: 12,
+        color: n.color || C.purple, font: { color: "#ffffff", size: 22, bold: true } });
+      return Object.assign({}, n, { shape: "box", margin: 14, color: C.purple, font: { color: "#ffffff", size: 26 } });
+    });
+    const aretes = g.edges.map((e) => Object.assign({ color: { color: "#7a7a8c", opacity: 0.5 } }, e));
+    // Une SEULE couche de boutons (owner 19/10 : les fleches natives de vis chevauchaient nos + / - / ajuster).
+    const opts = { interaction: { hover: true, zoomView: true, dragView: true, keyboard: true, tooltipDelay: 150 } };
+    if (g.hierarchie) {
+      // Vraie hierarchie de RESOLUTION (owner 19/10) : de haut en bas, un item sous ce qu'il attend.
+      opts.layout = { hierarchical: { direction: "UD", sortMethod: "directed", levelSeparation: 170,
+                                      nodeSpacing: 240, treeSpacing: 260, shakeTowards: "roots" } };
+      opts.physics = false;
+      opts.edges = { arrows: { to: { enabled: true, scaleFactor: 0.6 } },
+                     smooth: { type: "cubicBezier", forceDirection: "vertical", roundness: 0.4 } };
+    } else {
+      opts.physics = { solver: "forceAtlas2Based",
+                       forceAtlas2Based: { gravitationalConstant: -60, springLength: 140, avoidOverlap: 0.6 },
+                       stabilization: { iterations: 400 } };
+    }
+    network = new vis.Network(document.getElementById("graph"),
+      { nodes: new vis.DataSet(noeuds), edges: new vis.DataSet(aretes) }, opts);
+    if (g.hierarchie) {
+      network.once("afterDrawing", () => network.fit({ animation: { duration: 600 } }));
+    }
+    network.once("stabilizationIterationsDone", () => {
+      network.setOptions({ physics: false });
+      network.fit({ animation: { duration: 600 } });
+    });
+    network.on("click", (p) => {
+      if (p.nodes.length) network.focus(p.nodes[0], { scale: 1.4, animation: { duration: 400 } });
+    });
+    network.on("doubleClick", (p) => {
+      if (!p.nodes.length) network.fit({ animation: { duration: 400 } });
+    });
+    const champ = document.getElementById("recherche");
+    champ.style.display = "inline-block";
+    function chercherNoeud(q) {
+      q = String(q || "").trim().toLowerCase();
+      if (!q) return;
+      const n = noeuds.find((x) => String(x.label || "").toLowerCase().includes(q)
+                                || String(x.id).toLowerCase().includes(q));
+      if (n) {
+        network.selectNodes([n.id]);
+        network.focus(n.id, { scale: 1.6, animation: { duration: 400 } });
+      }
+    }
+    champ.addEventListener("keydown", (ev) => { if (ev.key === "Enter") chercherNoeud(champ.value); });
+    return;
+  }
   // 1) summary stats
   const s = await callApi("/api/graph/proprioception");
   if (s?.ok && s.summary) {
@@ -179,16 +278,6 @@ function nodeDef(id, label, group, size=18) {
 
   network.once("stabilizationIterationsDone", () => {
     network.fit({ animation: { duration: 1200, easingFunction: "easeInOutQuad" } });
-  });
-
-  document.getElementById("btn-zoom-in").addEventListener("click", () => {
-    if (network) network.moveTo({ scale: network.getScale() * 1.3, animation: { duration: 150 } });
-  });
-  document.getElementById("btn-zoom-out").addEventListener("click", () => {
-    if (network) network.moveTo({ scale: network.getScale() / 1.3, animation: { duration: 150 } });
-  });
-  document.getElementById("btn-fit").addEventListener("click", () => {
-    if (network) network.fit({ animation: { duration: 300 } });
   });
 })();
 </script>

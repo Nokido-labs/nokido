@@ -353,7 +353,7 @@ class MemoryWatcher:
                 try:
                     app._chat_log().write(msg)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 355, exc_info=True)
                 logger.warning(f"[MemoryWatcher] ALERTE fuite: +{growth:.1f}MB")
 
     def report(self) -> Dict:
@@ -437,7 +437,7 @@ async def run_startup_checks(app, verbose: bool = False) -> bool:
     try:
         chat = app._chat_log()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 439, exc_info=True)
 
     if chat and (total_fail > 0 or verbose):
         lines_out = [
@@ -587,7 +587,7 @@ def _get_windows_vram() -> Optional[str]:
                     mb = int(raw) // (1024 * 1024)
                     return f"{mb} MB"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 589, exc_info=True)
     return None
 
 
@@ -669,7 +669,7 @@ def get_vitals() -> dict:
         )
         sys_info["gc_counts"] = list(gc.get_count())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 671, exc_info=True)
 
     # ── Mémoire watcher ─────────────────────────────────────────────
     mem_report = get_memory_watcher().report()
@@ -791,7 +791,7 @@ class ZmqCircuitBreaker:
 
                             get_rag_cache().invalidate()
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 793, exc_info=True)
                 return False
 
     @property
@@ -907,4 +907,4 @@ def log_master_action(
             },
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health.py', 909, exc_info=True)

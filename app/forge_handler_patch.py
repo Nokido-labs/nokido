@@ -238,7 +238,7 @@ def _validate_patch(app, new_path: Path, prev_path: Path, surgical: bool = False
             if prev_lines > 100 and new_lines < prev_lines * 0.5:
                 return f"trop court : {new_lines} lignes vs {prev_lines} (<50%)"
         except Exception:
-            pass  # lecture prev_path optionnelle — non bloquant
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_patch.py', 240, exc_info=True)
 
     # 3. Marqueurs structurels (skip en mode chirurgical)
     if not surgical:

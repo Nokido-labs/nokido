@@ -46,7 +46,7 @@ def init_db() -> None:
     try:
         conn.execute("ALTER TABLE traces ADD COLUMN trace_id TEXT")
     except Exception:
-        pass  # colonne déjà présente
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_execution_tracer.py', 48, exc_info=True)
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_id    ON traces(id)")
     conn.execute("CREATE INDEX IF NOT EXISTS        idx_trace ON traces(trace_id)")
     conn.commit()

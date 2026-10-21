@@ -98,6 +98,7 @@ async def run(limit: int, batch: int = 2):
             try:
                 code = (ROOT / mod).read_text(encoding="utf-8", errors="replace")
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_card_summarize.py', 100, exc_info=True)
                 continue
             names[name] = (mod, sha)
             blocks.append(f"### {name}\n```python\n{code[:1400]}\n```")

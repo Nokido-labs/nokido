@@ -304,33 +304,13 @@ try {
 # --- LlamaNative :8091 via supervisor pool (gate GPU, evite saturation) ---
 Write-Host ""
 Write-Host "  --- LLM gated ---" -ForegroundColor DarkCyan
-Write-Step "Llama native :8091 via supervisor pool"
-try {
-    $tok = & $pyExe -c "import sys; sys.path.insert(0, r'$AppDir'); from forge_machine_vault import vault_get; print(vault_get('LAFORGE_SUPERVISOR_TOKEN') or vault_get('FORGE_MCP_TOKEN') or '')"
-    if ([string]::IsNullOrWhiteSpace($tok)) {
-        Write-Warn "NokidoLlamaNative skipped - vault token absent"
-    } else {
-        $r = Invoke-RestMethod -Method POST `
-            -Uri http://127.0.0.1:8765/supervisor/llm/activate/NokidoLlamaNative `
-            -Headers @{Authorization = "Bearer $tok"} -TimeoutSec 10
-        if ($r.ok) { Write-Ok "NokidoLlamaNative activating"; $script:started++ }
-        else { Write-Warn "NokidoLlamaNative activate refused: $($r | ConvertTo-Json -Compress)"; $script:skipped++ }
-    }
-} catch {
-    # 'not in llm pool' / refus = ATTENDU : LlamaNative est on-demand/disabled
-    # (gate GPU pool). Activation best-effort -> pas une vraie panne : skip doux,
-    # pas de Echec (evite le faux "Certains services ont echoue").
-    $emsg = ($_.Exception.Message -split "`r?`n")[0]
-    # 2026-08-20 : ce 404 n'est PAS un incident. NokidoLlamaNative porte
-    # disabled=true (mlock 7.1 Go au boot), donc supervisor.ts:656 ne l'instancie
-    # pas dans `states`, et la route llm/activate teste `state?.def.llmPool` ->
-    # 404 "not in llm pool", toujours. Reveil volontaire = la route
-    # /supervisor/service/start/ (supervisor.ts:1726), qui porte le fix
-    # wake-disabled. ATTENTION 2026-08-20 : j'avais ecrit /supervisor/start/ en recopiant
-    # un COMMENTAIRE de services.toml sans lire le code -> cette route N'EXISTE
-    # PAS (404). Un commentaire n'est pas une mesure.
-    Write-Step "NokidoLlamaNative on-demand, NON reveille (mlock 7.1 Go, disabled=true) - reveil volontaire = POST :8765/supervisor/service/start/NokidoLlamaNative"; $script:skipped++
-}
+# 2026-10-18 (decision owner, audit RAM) : le demarrage NE REVEILLE PLUS LlamaNative. L'ancien appel
+# POST /supervisor/llm/activate/NokidoLlamaNative rendait 404 "not in llm pool" jusqu'au 15/10, donc ne
+# faisait rien ; depuis que llm/activate reveille un `disabled` (supervisor.ts, audit ChatGPT 15/10), il
+# chargeait ~7 Go (mlock) a CHAQUE relance, que RESOURCE_MANAGER rendormait 20-50 s apres (churn mesure
+# dans sandbox/supervisor_ordres.jsonl, appelant anonyme "?"). LlamaNative reste a la demande
+# (keeper, routeur) -- c'est ce que dit disabled=true. NR : tests/nr/test_lanceurs_superviseur_identifies_nr.py
+Write-Step "NokidoLlamaNative a la demande, NON reveille au demarrage (disabled=true, ~7 Go mlock)"; $script:skipped++
 
 # --- Wheel probe mensuel (2026-07-18) : deplace du schtasks LaForge-WheelProbe (3h du
 # mat, hub souvent down => notify CLAUDE perdu => tache jamais fired, rc=jamais-lance).
@@ -416,7 +396,7 @@ if ($up) {
             $dtok = & $pyExe -c "import sys; sys.path.insert(0, r'$AppDir'); from forge_machine_vault import vault_get; print(vault_get('LAFORGE_SUPERVISOR_TOKEN') or vault_get('FORGE_MCP_TOKEN') or '')"
             $dr = Invoke-RestMethod -Method POST `
                 -Uri http://127.0.0.1:8765/supervisor/service/start/NokidoEmbedTrigger `
-                -Headers @{Authorization = "Bearer $($dtok.Trim())"} -TimeoutSec 15
+                -Headers @{Authorization = "Bearer $($dtok.Trim())"; "LaForge-Agent-Name" = "NOKIDO_START"} -TimeoutSec 15
             if ($dr.ok) {
                 # ACCEPTED n'est pas ACHIEVED. `$dr.ok` dit seulement que le superviseur
                 # a PRIS la commande. Mesure du 2026-09-05 : cette ligne affichait

@@ -65,7 +65,7 @@ if "pytest" not in sys.modules:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_homeostasis_orchestrator.py', 67, exc_info=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 SANDBOX = ROOT / "sandbox"
@@ -845,7 +845,7 @@ def main() -> int:
         try:
             (SANDBOX / "homeostasis.pid").write_text(str(os.getpid()), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_homeostasis_orchestrator.py', 847, exc_info=True)
 
     # Le TICK metier reste celui de l'homeostasie ; le POULS suit le coeur.
     cad = Cadence("homeostasis_orchestrator", cycle_s=args.tick)

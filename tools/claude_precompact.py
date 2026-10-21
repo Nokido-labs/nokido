@@ -56,6 +56,21 @@ GROQ_KEY = ""
 
 def _load_env() -> None:
     global GROQ_KEY
+    try:
+        from nokido_agent.app.forge_key_rotation import resolve
+        from nokido_agent.app.forge_secrets import get_secret
+
+        _managed, _k = resolve("GROQ_API_KEY")
+        if _managed:  # sous rotation : elle decide seule ; None = sauter le fournisseur, jamais l'env (16/10)
+            GROQ_KEY = _k or ""
+            return
+        GROQ_KEY = get_secret("GROQ_API_KEY") or ""
+    except Exception as _e:
+        import logging as _lg
+
+        _lg.getLogger(__name__).warning("coffre/rotation illisible pour GROQ_API_KEY (%s) -> repli env", type(_e).__name__)
+    if GROQ_KEY:
+        return
     GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
     if GROQ_KEY:
         return
@@ -121,6 +136,7 @@ def _load_from_agent_messages(session_id: str) -> tuple[list[dict], str]:
                 turns.append({"role": role, "content": _purge_turn(p.get("content", ""))})
                 last_ts = created_at or last_ts
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 138, exc_info=True)
                 continue
         return turns[-MAX_TURNS:], last_ts
     except Exception:
@@ -151,9 +167,10 @@ def _load_transcript_after(path: str, after_ts: str) -> list[dict]:
                 content = normalize_anthropic_content(msg.get("content", ""))
                 turns.append({"role": role, "content": _purge_turn(content)})
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 168, exc_info=True)
                 continue
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 170, exc_info=True)
     return turns[-MAX_TURNS:]
 
 
@@ -249,14 +266,14 @@ def _parse_json_response(text: str) -> dict:
     try:
         return json.loads(text)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 266, exc_info=True)
     # Cherche {} dans le texte (cas markdown ```)
     m = re.search(r"\{[\s\S]+\}", text)
     if m:
         try:
             return json.loads(m.group(0))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 273, exc_info=True)
     return {}
 
 
@@ -428,7 +445,7 @@ def _call_groq(payload: str, session_id: str) -> dict:
                 r["_source"] = "groq"
                 return r
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 445, exc_info=True)
 
     # 2. Ollama local :11434 (OpenAI-compat, JSON via response_format)
     try:
@@ -445,7 +462,7 @@ def _call_groq(payload: str, session_id: str) -> dict:
             r["_source"] = "ollama"
             return r
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 462, exc_info=True)
 
     # 3. LM Studio :1234 (OpenAI-compat, pas toujours json_format)
     try:
@@ -462,7 +479,7 @@ def _call_groq(payload: str, session_id: str) -> dict:
             r["_source"] = "lmstudio"
             return r
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 479, exc_info=True)
 
     return {}  # signale qu'on doit utiliser l'extractif (géré dans main)
 
@@ -551,7 +568,7 @@ def main() -> int:
         if raw.strip():
             hook_input = json.loads(raw)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 568, exc_info=True)
 
     session_id = hook_input.get("session_id", f"unknown_{int(time.time())}")
     transcript_path = hook_input.get("transcript_path", "")
@@ -654,7 +671,7 @@ def main() -> int:
             )
             urllib.request.urlopen(req, timeout=3).read()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_precompact.py', 671, exc_info=True)
 
     return 0  # exit 0 = laisser compaction se dérouler
 

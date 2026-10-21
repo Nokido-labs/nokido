@@ -185,3 +185,31 @@ def test_un_BLOCKER_clos_ne_bloque_plus(monkeypatch):
     assert "l organe vit" not in bloqueurs, "un BLOCKER clos est encore affiche comme bloquant"
     clos = [c for c in doc["roadmap_clos"] if c.get("priorite") == "BLOCKER"]
     assert [c["cle"] for c in clos] == ["b_clos"] and clos[0]["etat"] == "CLOS", clos
+
+
+def test_le_jalon_courant_est_le_plus_RECENT_des_credibles(monkeypatch):
+    """2026-10-16 : l'arbitrage (trust, ts) gardait le CURRENT du 13/10 (trust 0,96) contre celui du 16/10 (0,95),
+    trois jours de jalon perime au demarrage. Parmi les credibles le plus recent gagne ; un detail peu fiable ne
+    devient pas le jalon (lecon du 10/08) ; un NEXT clos quitte les prochains pas et rejoint roadmap_clos."""
+    import types
+
+    faits = [
+        {"key": "c13", "value": "CURRENT: 2026-10-13 vieux jalon", "trust": 0.96, "updated_at": 13},
+        {"key": "c16", "value": "CURRENT: 2026-10-16 jalon du jour", "trust": 0.95, "updated_at": 16},
+        {"key": "c17", "value": "CURRENT: detail peu fiable", "trust": 0.5, "updated_at": 17},
+        {"key": "n_fait", "value": "NEXT: [FAIT le 2026-09-27] moisson relancee", "trust": 0.9, "updated_at": 18},
+        {"key": "n_vivant", "value": "NEXT: traiter la dette", "trust": 0.9, "updated_at": 12},
+    ]
+    faux = types.ModuleType("nokido_agent.app.forge_swarm_blackboard")
+    faux.read_zone = lambda *a, **kw: list(faits)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_swarm_blackboard", faux)
+
+    doc = M._roadmap_build_doc()
+    assert "jalon du jour" in doc["current_milestone"], doc["current_milestone"]
+    assert "traiter la dette" in doc["next_milestone"], doc["next_milestone"]
+    assert not any("moisson relancee" in n for n in doc["next_items"]), doc["next_items"]
+    assert [c["cle"] for c in doc["roadmap_clos"] if c.get("priorite") == "NEXT"] == ["n_fait"]
+    seuls_peu_fiables = [{"key": "a", "value": "CURRENT: ancien", "trust": 0.6, "updated_at": 1},
+                         {"key": "b", "value": "CURRENT: recent", "trust": 0.5, "updated_at": 2}]
+    faux.read_zone = lambda *a, **kw: list(seuls_peu_fiables)
+    assert "ancien" in M._roadmap_build_doc()["current_milestone"], "sans credible : repli (trust, ts)"

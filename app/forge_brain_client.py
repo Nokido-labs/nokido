@@ -67,7 +67,7 @@ def _zmq_req(payload: dict, timeout_ms: int = 2000) -> Optional[dict]:
 
                 payload.setdefault("trace_id", get_trace_id())
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_brain_client.py', 69, exc_info=True)
             sock.send(json.dumps(payload, ensure_ascii=False).encode())
             raw = sock.recv()
             return json.loads(raw.decode())

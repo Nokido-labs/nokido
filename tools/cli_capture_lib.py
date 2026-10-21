@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +76,22 @@ def _truncate(text: str) -> str:
         return text
     keep = _MAX_PAYLOAD_CHARS - 200
     return text[:keep] + f"\n...[TRUNCATED {len(text) - keep} chars]"
+
+
+_SPOOL_MAX_OCTETS = 5_000_000
+_RE_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _rediger_spool(texte: str) -> str:
+    """Redaction du tour avant le spool : le redacteur EXISTANT (forge_semantic_firewall.redact_text, sans jamais ecrire
+    son mapping) ; s'il est indisponible, au minimum les adresses e-mail -- jamais un tour en clair par defaut."""
+    try:
+        from nokido_agent.app.forge_semantic_firewall import redact_text
+
+        redige, _mapping = redact_text(str(texte or ""))
+        return _RE_EMAIL.sub("[EMAIL]", str(redige))
+    except Exception:  # noqa: BLE001 -- repli minimal DIT par le marqueur [EMAIL], jamais le clair
+        return _RE_EMAIL.sub("[EMAIL]", str(texte or ""))
 
 
 def record_turn(
@@ -148,13 +166,28 @@ def record_turn(
         return msg_id
     except Exception as e:
         # Fail-silent : on ecrit dans un fichier de fallback pour debug
+        # ZERO PERTE (17/10, racine R1) : le repli ne gardait QUE l'erreur -- 2 964 tours de l'owner perdus jusqu'au
+        # 01/09 (base verrouillee, disque plein). Le TOUR va au spool, que le registre des demandes relit.
+        try:
+            sp = ROOT / "sandbox" / "cli_capture_spool.jsonl"
+            sp.parent.mkdir(parents=True, exist_ok=True)
+            # Revue adverse Codex (17/10, RED cd235cf7a) : le TOUR allait au spool EN CLAIR (un secret colle dans une
+            # invite y restait) et sans borne. Redige par le redacteur existant, borne par rotation.
+            if sp.exists() and sp.stat().st_size >= _SPOOL_MAX_OCTETS:
+                os.replace(sp, sp.with_name(sp.name + ".1"))
+            with open(sp, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"surface": surface, "role": role, "content": _rediger_spool(content),
+                                    "session": session, "ts": ts, "erreur": type(e).__name__},
+                                   ensure_ascii=False) + "\n")
+        except Exception:  # noqa: BLE001 -- muet-ok : l'erreur elle-meme est journalisee juste apres
+            pass
         try:
             fb = ROOT / "sandbox" / "cli_capture_errors.log"
             fb.parent.mkdir(parents=True, exist_ok=True)
             with open(fb, "a", encoding="utf-8") as f:
                 f.write(f"[{_now_iso()}] {surface}/{role}/{session}: {e}\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_capture_lib.py', 189, exc_info=True)
         return None
 
 

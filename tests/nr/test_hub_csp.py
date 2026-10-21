@@ -4,7 +4,7 @@ tests/nr/test_hub_csp.py - NR Content-Security-Policy centralisee.
 Resout le trou Gemini #3 : la CSP etait une f-string en dur dans app.py.
 Extraite vers app/web_hub/csp.py. Ce module verifie :
 
-  - Equivalence BIT-A-BIT avec la CSP historique (zero regression).
+  - Equivalence BIT-A-BIT avec la CSP par defaut de build_csp().
   - Presence de chaque directive attendue.
   - Ordre stable des tokens (deterministe).
   - Extensibilite via extra_cdns / module_ports.
@@ -57,24 +57,23 @@ def client_auth_on(monkeypatch, admin_token):
 
 
 # -------------------------------------------------------------------
-# Equivalence bit-a-bit avec la CSP historique
+# Equivalence bit-a-bit avec la CSP par defaut
 # -------------------------------------------------------------------
-# Cette string est le SNAPSHOT de la CSP produite par app.py avant
-# la refacto (commit e1c11f7 etat). Si ce test casse, cela signifie
-# qu'on a change le contenu de la CSP et il faut mettre a jour ce
-# snapshot CONSCIEMMENT, pas par accident.
+# Snapshot de la CSP par defaut. Mis a jour consciemment le 2026-10-18 :
+# offline souverain -- Tailwind/unpkg/webfonts vendorés en /static/,
+# seuls cdnjs et cdn.jsdelivr (Vega, pas encore vendore) restent.
+# Si ce test casse : decision consciente requise (update snapshot +
+# justification dans le commit).
 EXPECTED_HISTORICAL_CSP = (
     "default-src 'self'; "
     "script-src 'self' 'unsafe-inline' "
-    "https://cdn.tailwindcss.com https://unpkg.com "
-    "https://cdnjs.cloudflare.com "
+    "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net "
     "http://127.0.0.1:7410 http://127.0.0.1:7420 http://127.0.0.1:7440 "
     "http://localhost:7410 http://localhost:7420 http://localhost:7440; "
     "style-src 'self' 'unsafe-inline' "
-    "https://cdn.tailwindcss.com https://fonts.googleapis.com "
     "http://127.0.0.1:7410 http://127.0.0.1:7420 http://127.0.0.1:7440 "
     "http://localhost:7410 http://localhost:7420 http://localhost:7440; "
-    "font-src 'self' https://fonts.gstatic.com data:; "
+    "font-src 'self' data:; "
     "img-src 'self' data: "
     "http://127.0.0.1:7410 http://127.0.0.1:7420 http://127.0.0.1:7440 "
     "http://localhost:7410 http://localhost:7420 http://localhost:7440; "
@@ -90,7 +89,7 @@ EXPECTED_HISTORICAL_CSP = (
 
 class TestHistoricalEquivalence:
     def test_default_build_matches_historical_snapshot(self, fresh_csp):
-        """La sortie par defaut = la f-string historique de app.py.
+        """La sortie par defaut = le snapshot consciemment mis a jour.
 
         Si ce test casse : decision consciente necessaire (update snapshot +
         justification dans le commit).
@@ -155,7 +154,7 @@ class TestDirectives:
         assert parsed["base-uri"] == ["'self'"]
 
     def test_script_src_has_unsafe_inline(self, fresh_csp):
-        """Requis par le dashboard HTML inline + Tailwind CDN runtime."""
+        """Requis par le dashboard HTML inline + styles inline."""
         parsed = self._parse(fresh_csp.build_csp())
         assert "'unsafe-inline'" in parsed["script-src"]
         assert "'self'" in parsed["script-src"]
@@ -210,8 +209,10 @@ class TestModuleOrigins:
         csp = fresh_csp.build_csp(module_ports=[])
         assert "127.0.0.1" not in csp
         assert "ws://" not in csp  # plus rien de local
-        # Les CDN externes restent
-        assert "https://cdn.tailwindcss.com" in csp
+        # Les CDN externes restent (offline souverain : Tailwind est vendore,
+        # il ne reste que cdnjs et cdn.jsdelivr en CDN)
+        assert "https://cdnjs.cloudflare.com" in csp
+        assert "https://cdn.jsdelivr.net" in csp
 
 
 # -------------------------------------------------------------------

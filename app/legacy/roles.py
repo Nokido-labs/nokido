@@ -1198,6 +1198,7 @@ class ModelBenchmarker:
                         try:
                             data = json.loads(line.decode("utf-8", errors="replace").strip())
                         except Exception:
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/roles.py', 1200, exc_info=True)
                             continue
                         tok = data.get("message", {}).get("content", "")
                         if tok:

@@ -51,6 +51,7 @@ def base_rag() -> str:
                 _c.close()
             return _cand
         except Exception:  # noqa: BLE001 - base absente, vide ou sans la table
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tier_policy.py', 53, exc_info=True)
             continue
     raise SystemExit("aucune base ne porte rag_chunks")
 

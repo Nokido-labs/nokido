@@ -134,19 +134,24 @@ def detect_self_gaps(max_gaps: int = 8) -> list[dict]:
     corpus et la curiosite ne parlerait plus que d'elle-meme. On remonte le SYMPTOME
     d'organe, le detail reste dans l'audit.
 
-    Fail-safe : toute erreur rend [] — un capteur de soi qui casse ne doit pas
-    eteindre la soif du corpus.
+    Fail-safe : une erreur n'eteint pas la soif du corpus -- mais elle n'est plus [] (19/10, audit pair :
+    indiscernable de « aucune lacune », UNKNOWN != NO). L'echec du capteur EST une lacune, kind capteur_illisible,
+    sans gabarit de veille (aucune recherche fabriquee sur une panne d'instrument).
     """
+    def _illisible(motif: str) -> list[dict]:
+        return [{"type": "self_regulation_gap", "organ": "proprioception", "kind": "capteur_illisible",
+                 "n": 0, "modules": ["forge_organ_agents.regulation_gaps"], "priority": 9, "motif": motif[:160]}]
+
     try:
         from nokido_agent.app import forge_organ_agents as _oa
 
         fn = getattr(_oa, "regulation_gaps", None)
         if not fn:
-            return []
+            return _illisible("regulation_gaps absent de forge_organ_agents")
         rep = fn() or {}
         by_organ = rep.get("by_organ") or {}
-    except Exception:  # noqa: BLE001
-        return []
+    except Exception as e:  # noqa: BLE001 - le capteur casse : DIT, comme lacune
+        return _illisible("%s: %s" % (type(e).__name__, e))
 
     out: list[dict] = []
     for organe, detail in by_organ.items():
@@ -197,7 +202,9 @@ def detect_stack_gaps(max_gaps: int = 6) -> list[dict]:
     try:
         inv = json.loads((ROOT / "config" / "stack_versions.json").read_text(encoding="utf-8"))
         briques = inv.get("briques") or {}
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - abstention (une veille en moins), mais DITE : la source s'est tue (audit C 19/10)
+        __import__("logging").getLogger(__name__).warning(
+            "detect_stack_gaps : inventaire config/stack_versions.json ILLISIBLE -- briques NON verifiees", exc_info=True)
         return []
 
     # CAPTEUR LEXICAL, ET NON `coverage_dense` (mesure 2026-07-27, capteur ECARTE apres
@@ -217,7 +224,9 @@ def detect_stack_gaps(max_gaps: int = 6) -> list[dict]:
         from nokido_agent.app.forge_db_path import db_path
 
         con = _sq.connect(f"file:{db_path()}?mode=ro", uri=True, timeout=15)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - abstention, mais DITE : sans corpus, aucune brique n'a ete verifiee (audit C 19/10)
+        __import__("logging").getLogger(__name__).warning(
+            "detect_stack_gaps : corpus ILLISIBLE -- %d brique(s) NON verifiee(s)", len(briques), exc_info=True)
         return []
 
     out: list[dict] = []

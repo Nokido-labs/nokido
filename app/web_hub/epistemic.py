@@ -178,6 +178,7 @@ def _heatmap_predicates(topic: str, limit_predicates: int = 30) -> list[dict]:
             try:
                 preds = json.loads(r["predicates"] or "[]")
             except json.JSONDecodeError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/epistemic.py', 180, exc_info=True)
                 continue
             for p in preds:
                 pred_stats[p]["n"] += 1

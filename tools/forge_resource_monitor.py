@@ -53,7 +53,7 @@ def get_usage_mb(pid: int | None = None, include_children: bool = True) -> float
                 try:
                     mem += child.memory_info().rss
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_resource_monitor.py', 55, exc_info=True)
 
         return round(mem / 1024 / 1024, 1)
     except Exception:
@@ -78,7 +78,7 @@ def backpressure() -> str | None:
         if ram > RAM_PRESSURE_PCT:
             return f"RAM {ram:.0f}% > {RAM_PRESSURE_PCT:.0f}% (iGPU UMA pressure)"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_resource_monitor.py', 80, exc_info=True)
     return None
 
 
@@ -107,7 +107,7 @@ def snapshot() -> dict:
                 forge_procs.append(proc.info["pid"])
                 total_forge_mb += mb
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_resource_monitor.py', 109, exc_info=True)
 
     # NVMe — espace disque C:
     nvme_free_gb = round(disk.free / 1024**3, 1)
@@ -148,7 +148,7 @@ def check_nvme_temp() -> float | None:
                     if entry.current and entry.current > 0:
                         return round(entry.current, 1)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_resource_monitor.py', 150, exc_info=True)
     return None
 
 

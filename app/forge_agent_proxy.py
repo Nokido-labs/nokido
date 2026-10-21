@@ -117,7 +117,7 @@ def _load_api_key(name: str) -> Optional[str]:
         if _managed:
             return _rk  # clé saine du pool, ou None (toutes mortes) = skip provider
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 119, exc_info=True)
     if name in _API_KEYS:
         return _API_KEYS[name]
     try:
@@ -128,7 +128,7 @@ def _load_api_key(name: str) -> Optional[str]:
             _API_KEYS[name] = _v
             return _v
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 130, exc_info=True)
     val = os.environ.get(name, "")
     if not val:
         env_file = ROOT / "Nokido.env"
@@ -180,6 +180,41 @@ def _emit(
         )
     except Exception as e:
         logger.debug(f"EventBus emit skip: {e}")
+
+
+# LoRA retrieval, palier 1 (rapport AGY 19/10) : la recherche servie a `ask` est NOTEE (forge_rag_usage_signal) et
+# deposee ici ; apres la reponse, _citer_reponse marque les morceaux CITES (positif FORT). ContextVar : meme tache
+# asyncio, aucune fuite entre deux `ask` concurrents. Interrupteur NOKIDO_RAG_SIGNAL=0 (coupe par le conftest des NR).
+_RAG_SERVI = __import__("contextvars").ContextVar("rag_servi", default=None)
+
+
+def _noter_rag_servi(query: str, results: list) -> None:
+    if os.environ.get("NOKIDO_RAG_SIGNAL", "1") == "0":
+        return
+    try:
+        from nokido_agent.app import forge_rag_usage_signal as _sig
+
+        morceaux = [{"id": str(r.get("id")), "source": r.get("source"),
+                     "content": r.get("content") or r.get("text") or ""} for r in results if r.get("id")]
+        res = _sig.noter(query, [m["id"] for m in morceaux], scores=None, source="ask", mode="rag_context")
+        if (res or {}).get("id"):
+            _RAG_SERVI.set({"rid": res["id"], "morceaux": morceaux})
+    except Exception as e:  # noqa: BLE001 - le signal ne coupe jamais le contexte
+        logger.debug("signal RAG non note (%s)", e)
+
+
+def _citer_reponse(text: str, provider_name: str) -> None:
+    servi = _RAG_SERVI.get()
+    if not servi or os.environ.get("NOKIDO_RAG_SIGNAL", "1") == "0":
+        return
+    _RAG_SERVI.set(None)
+    try:
+        from nokido_agent.app import forge_rag_usage_signal as _sig
+
+        for cid in _sig.citations(text, servi["morceaux"]):
+            _sig.marquer_cite(servi["rid"], cid, par="ask:%s" % provider_name)
+    except Exception as e:  # noqa: BLE001 - une citation ratee ne casse jamais une reponse
+        logger.debug("citations non marquees (%s)", e)
 
 
 async def _get_rag_context(query: str, k: int = 3) -> str:
@@ -264,6 +299,7 @@ async def _get_rag_context(query: str, k: int = 3) -> str:
                 "donnees rompu ? cles vues: %s", len(results),
                 sorted(results[0].keys()) if results else [])
             return ""
+        _noter_rag_servi(query, results)
         return "\n---\n".join(morceaux)[:3000]
     except Exception as e:
         logger.debug(f"RAG context unavailable: {e}")
@@ -425,6 +461,44 @@ def _noter_usage_rapporte(resp) -> None:
     })
 
 
+def _rendre_reponse(resp) -> Optional[str]:
+    """Rend le texte d'une reponse OpenAI-compat en NOTANT d'abord son usage rendu.
+
+    UN SEUL passage, pour que la note ne soit pas posee chez Groq et OUBLIEE chez
+    les 14 autres fournisseurs OpenAI-compat (mesure 19/10 : 19 appels REPORTED
+    sur 396, 4,8 %, Groq etant le seul a appeler `_noter_usage_rapporte`). Hors
+    `ask_tracked`, `_noter_usage_rapporte` est inerte : le helper ne coute rien
+    et ne peut pas mentir. `resp.usage` absent -> rien n'est note, l'estimation
+    locale reste declaree ESTIMATED (jamais un REPORTED fabrique).
+    """
+    _noter_usage_rapporte(resp)
+    return resp.choices[0].message.content
+
+
+def _noter_routage(d) -> None:
+    """Retient, pour la ligne d'usage, le modele SERVI par le routeur et le nombre
+    de maillons essayes avant lui.
+
+    Le routeur (`call_cascade`) produit ces deux faits, mais
+    `RouterCascadeProvider.ask` ne rendait QUE le texte : la ligne d'usage nommait
+    la cascade (`cascade qualite (use_case auto)`) et perdait le modele qui a
+    REELLEMENT repondu (audit pair E, 19/10). Valeur absente ou `UNKNOWN` ->
+    None (NULL en base), jamais un modele devine.
+    """
+    tiroir = _USAGE_RAPPORTE.get()
+    if tiroir is None or not isinstance(d, dict):
+        return
+    servi = d.get("served_model")
+    if not servi or str(servi).strip().upper() == "UNKNOWN":
+        servi = None
+    tentatives = d.get("attempts")
+    if isinstance(tentatives, (list, tuple)):
+        tentatives = len(tentatives)
+    elif not isinstance(tentatives, int) or isinstance(tentatives, bool):
+        tentatives = None
+    tiroir.update({"served_model": servi, "attempts": tentatives})
+
+
 def _record_provider_call(provider, prompt: str, response: str, system_prompt: str, latency_ms: float,
                           usage: Optional[dict] = None) -> None:
     """Hook post-ask : enregistre l'appel dans token_usage (forge_token_monitor).
@@ -460,6 +534,8 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
         # La nature de la mesure est DITE : sans elle, `log_call` rangeait toute
         # valeur chiffree en REPORTED -- mesure 24/09, ~730 appels fournisseurs sur
         # 7 j tous « rapportes » alors qu'aucun ne lisait l'usage de l'API.
+        # `served_model`/`attempts` : poses par le routeur dans le meme tiroir
+        # d'appel (audit pair E). Absents hors routeur -> None (NULL), jamais 0.
         log_call(
             agent_id=_actual_agent,
             provider=provider.name,
@@ -471,6 +547,8 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
             cache_read_tokens=_cache,
             measurement_kind=_kind,
             measurement_source=_src,
+            served_model=(usage or {}).get("served_model"),
+            attempts=(usage or {}).get("attempts"),
         )
         # Langfuse (chantier #3 observabilité) : DAG LLM. Fail-open + inerte
         # sans langfuse/clés ; I/O rédacté avant égress. cf forge_langfuse_hook.
@@ -480,7 +558,7 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
             _lf_emit(provider.name, provider.model, full_prompt, response,
                      prompt_tok, comp_tok, latency_ms)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 518, exc_info=True)
     except Exception as e:
         logger.debug(f"_record_provider_call({provider.name}) failed: {e}")
 
@@ -509,7 +587,7 @@ def _firewall_pre(provider, message, system_prompt):
                 message = pf.safe_task
                 fw_map = getattr(pf, "mapping", None)
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 547, exc_info=True)
         except Exception as _fwe:  # noqa: BLE001
             logger.debug(f"agentproxy firewall skipped: {_fwe}")
     return (None, message, fw_map)
@@ -523,7 +601,7 @@ def _firewall_post(response, fw_map):
 
             return get_firewall().restore(response, fw_map)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 561, exc_info=True)
     return response
 
 
@@ -783,7 +861,7 @@ class Provider(ABC):
             from nokido_agent.app.forge_cache_aligner import align as _ca_align
             system_prompt, message, _ = _ca_align(system_prompt, message)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 821, exc_info=True)
         try:
             from nokido_agent.app.forge_oauth_mutex import oauth_mutex as _oauth_mutex, OAUTH_CLIS as _OAUTH_CLIS
             _oauth_cli = getattr(self, "name", "") in _OAUTH_CLIS
@@ -808,7 +886,7 @@ class Provider(ABC):
             try:
                 _record_provider_call(self, message, "", system_prompt, latency_ms, usage=_tiroir)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 846, exc_info=True)
             raise
         finally:
             _USAGE_RAPPORTE.reset(_jeton_usage)
@@ -847,7 +925,7 @@ class ClaudeOpenRouter(Provider):
                 _safe = _membrane.wrap(message)
                 msgs[-1]["content"] = _safe.content
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 885, exc_info=True)
         resp = await asyncio.wait_for(
             client.chat.completions.create(
                 model=self.model,
@@ -859,12 +937,13 @@ class ClaudeOpenRouter(Provider):
         )
         if hasattr(resp, "usage"):
             track_cache_usage(resp.usage, "openrouter_claude")
+        _noter_usage_rapporte(resp)
         raw = resp.choices[0].message.content
         if _membrane:
             try:
                 raw = _membrane.unwrap(raw)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 902, exc_info=True)
         return raw
 
 
@@ -909,7 +988,7 @@ class ClaudeGitHub(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Gemini(Provider):
@@ -992,7 +1071,7 @@ class Grok(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class DeepSeek(Provider):
@@ -1021,7 +1100,7 @@ class DeepSeek(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Groq(Provider):
@@ -1055,8 +1134,7 @@ class Groq(Provider):
             ),
             timeout=timeout,
         )
-        _noter_usage_rapporte(resp)
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class HuggingFace(Provider):
@@ -1095,8 +1173,8 @@ class HuggingFace(Provider):
                 try:
                     mark(self.api_key_env, key, "ok")
                 except Exception:
-                    pass
-                return resp.choices[0].message.content
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1133, exc_info=True)
+                return _rendre_reponse(resp)
             except APIStatusError as e:
                 last_error = e
                 try:
@@ -1109,7 +1187,7 @@ class HuggingFace(Provider):
                               str(getattr(e, "message", "") or getattr(e, "body", "")
                                   or e)[:400])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1147, exc_info=True)
                 if e.status_code in (401, 403, 429):
                     continue
                 else:
@@ -1196,7 +1274,7 @@ class OpenAI_GPT(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class MistralLarge(Provider):
@@ -1225,7 +1303,7 @@ class MistralLarge(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Cohere(Provider):
@@ -1254,7 +1332,7 @@ class Cohere(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Perplexity(Provider):
@@ -1286,7 +1364,7 @@ class Perplexity(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class TavilySearch(Provider):
@@ -1377,7 +1455,7 @@ def _parse_gemini_json(out: str) -> str:
             if r:
                 return _strip_cli_noise(str(r))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1415, exc_info=True)
     # 2. Objet JSON noyé dans du bruit -> plus grand {...}
     m = _re.search(r"\{.*\}", cleaned or out or "", _re.DOTALL)
     if m:
@@ -1387,7 +1465,7 @@ def _parse_gemini_json(out: str) -> str:
             if r:
                 return _strip_cli_noise(str(r))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1425, exc_info=True)
     # 3. Texte nettoyé (warnings retirés) — vide si tout était du bruit
     return cleaned
 
@@ -1428,7 +1506,7 @@ class GeminiCLI(Provider):
                 _resp = _j.loads(_r.read())
                 return _resp.get("response") or ""
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1466, exc_info=True)
 
         # AGY (Antigravity CLI) : OAuth vit dans <owner>\AppData\Local\agy. On pointe
         # l'env sur le profil owner pour que agy lise son auth (le service ne tourne pas
@@ -1618,7 +1696,7 @@ class ClaudeCLI(Provider):
                 return _resp.get("response") or ""
         except Exception:
             # Fallback vers one-shot subprocess (déjà optimisé via stdin pipe)
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1655, exc_info=True)
 
         # The hub runs as SYSTEM (NSSM); the Claude Code OAuth token lives in
         # the real user's profile (~/.claude/). Point USERPROFILE/HOME at the
@@ -1694,7 +1772,7 @@ class SambaNova(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class KimiK2(Provider):
@@ -1726,7 +1804,7 @@ class KimiK2(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class KimiThinking(Provider):
@@ -1758,7 +1836,7 @@ class KimiThinking(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class OpenRouterGLM5(Provider):
@@ -1794,7 +1872,7 @@ class OpenRouterGLM5(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class OllamaMiMoV2(Provider):
@@ -1882,7 +1960,7 @@ class OpenRouterMiMoV2(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class GLM4(Provider):
@@ -1914,7 +1992,7 @@ class GLM4(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class GLM5(Provider):
@@ -1946,7 +2024,7 @@ class GLM5(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class TogetherAI(Provider):
@@ -1989,7 +2067,7 @@ class TogetherAI(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Cerebras(Provider):
@@ -2021,7 +2099,7 @@ class Cerebras(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class ZaiGLM52(Provider):
@@ -2057,7 +2135,7 @@ class ZaiGLM52(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class MistralFree(MistralLarge):
@@ -2117,7 +2195,7 @@ class NvidiaNIM(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Pollinations(Provider):
@@ -2405,12 +2483,12 @@ class CodexCLI(Provider):
                 with open(_outfile, encoding="utf-8", errors="replace") as _f:
                     _ans = _f.read().strip()
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 2443, exc_info=True)
             finally:
                 try:
                     _os.unlink(_outfile)
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 2448, exc_info=True)
             return _ans or (_p.stdout or "").strip() or (_p.stderr or "").strip()[:300]
 
         return await _a.get_event_loop().run_in_executor(None, _run)
@@ -2505,7 +2583,7 @@ def _lmstudio_attendre_charge(model: str, budget_s: float) -> bool:
             # ici conclurait « pas charge » au moment precis ou le chargement a
             # lieu : le silence du serveur est le SYMPTOME du travail en cours,
             # pas une panne. On continue d'attendre dans le budget imparti.
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 2538, exc_info=True)
         _t.sleep(2.0)
     return False
 
@@ -2516,7 +2594,7 @@ def _lmstudio_marquer_usage() -> None:
         try:
             _E.marquer_usage("lmstudio")
         except Exception:  # noqa: BLE001 - date perdue, jamais l'appel
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 2554, exc_info=True)
 
 
 class LMStudio(Provider):
@@ -2567,7 +2645,7 @@ class LMStudio(Provider):
 
             tok = get_secret("LMSTUDIO_TOKEN") or ""
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 2605, exc_info=True)
         # `__fs` n'est defini NULLE PART dans ce module, et le name mangling de Python
         # rend le defaut illisible : dans un corps de classe, `__fs` devient
         # `_LMStudio__fs`, si bien que l'erreur accuse un attribut prive inexistant au
@@ -2843,6 +2921,11 @@ class RouterCascadeProvider(Provider):
                              "error": "cascade deadline %ss depasse (backend local stuck/cold ; thread isole executor dedie, pool hub protege)" % _dl},
                             ensure_ascii=False)
         d = _fut.result()
+        # Le fait de routage est pose AVANT de rendre le texte : le modele SERVI et
+        # le nombre de tentatives atteignent la ligne d'usage (audit pair E, 19/10).
+        # Pose dans le corps de `ask` (pas dans le thread) : le tiroir depose par
+        # `ask_tracked` vit dans CE contexte, et un thread en recevrait une COPIE.
+        _noter_routage(d)
         if isinstance(d, dict) and d.get("ok"):
             return d.get("text", "")
         # échec cascade -> diagnostic structuré (jamais une string vide silencieuse)
@@ -2976,7 +3059,7 @@ class OpenRouterFree(Provider):
             ),
             timeout=timeout,
         )
-        return resp.choices[0].message.content
+        return _rendre_reponse(resp)
 
 
 class Parallax(Provider):
@@ -3165,7 +3248,7 @@ def _init_registry():
         import threading
         threading.Thread(target=refresh_openrouter_free_slugs, daemon=True).start()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3203, exc_info=True)
 
 
 _init_registry()
@@ -3549,7 +3632,7 @@ async def ask(
             _aff = {"valence": _po - _fr, "frustration": _fr, "arousal": max(_fr, _po), "urgency": 0.0}
             max_tokens = max(800, int(_amy.token_budget(_aff, max_tokens)))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3587, exc_info=True)
 
     corr_id = f"rpc_{provider_name}_{tid}_{uuid.uuid4().hex[:6]}"
     _emit(
@@ -3597,9 +3680,9 @@ async def ask(
                 with open(_tp, "a", encoding="utf-8") as _tf:
                     _tf.write("=== %s provider=%s ===\n%s\n" % (round(time.time(), 1), provider_name, _b.getvalue()))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3635, exc_info=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3637, exc_info=True)
 
     _watch = asyncio.ensure_future(_block_watch())
     # Vrai une fois la requete partie : une erreur AVANT (prompt, contexte) n'est pas un echec du
@@ -3623,7 +3706,7 @@ async def ask(
 
             log_cloud_out(provider_name, provider.model, "HUB", message, session_id=tid)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3661, exc_info=True)
         _appel_emis = True
 
         # ask_tracked (PAS ask direct) = waist unique : CacheAligner + firewall #4 +
@@ -3641,6 +3724,7 @@ async def ask(
             import logging
             logging.getLogger(__name__).warning(f"Provider {provider_name} a renvoye None, repli sur chaine vide (fix Cerebras).")
             text = ""
+        _citer_reponse(text, provider_name)
 
         if len(text) > MAX_RESPONSE_CHARS:  # CCR réversible (plus de troncature silencieuse)
             _rid = _archive_response(text, provider_name, tid)
@@ -3665,7 +3749,7 @@ async def ask(
                 _pm.remember("user", message[:4000])
                 _pm.remember("assistant", text[:4000])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3704, exc_info=True)
 
         latency = round((time.monotonic() - t0) * 1000, 1)
 
@@ -3675,7 +3759,7 @@ async def ask(
 
             log_cloud_in(provider_name, provider.model, "HUB", text, latency, session_id=tid)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3714, exc_info=True)
         _emit(
             f"rpc.{provider_name}.response",
             "msg",

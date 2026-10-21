@@ -92,7 +92,7 @@ def main() -> int:
             BACKUP_DIR.rmdir()  # ne retire le dossier QUE s'il est vide
             print(f"[purge] {BACKUP_DIR.relative_to(ROOT)} vide -> retire.")
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vault_purge_backup.py', 94, exc_info=True)
     return 0
 
 

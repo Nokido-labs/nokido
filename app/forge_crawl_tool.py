@@ -317,6 +317,9 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
                     from nokido_agent.app.forge_docker_agent import declarer_usage
 
                     declarer_usage("forge_crawl_tool.crawl4ai")
+                    from nokido_agent.app.forge_docker_agent import demander_crawl4ai
+
+                    demander_crawl4ai("forge_crawl_tool", lancer=False)  # bail du conteneur (19/10)
                 except Exception:  # noqa: BLE001 - muet-ok: jamais casser un crawl servi
                     pass
                 return _rendu(firewall_web(md, url)[0], "crawl4ai", "full")
@@ -332,6 +335,12 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
         # web de Nokido et tue silencieusement toute veille en cours". Une degradation
         # qui se lit comme un succes est pire qu'une panne franche.
         global _CRAWL4AI_KO_SIGNALE
+        try:  # 19/10 : crawl4ai demarre a la demande -- le reclamer (le keeper le leve au prochain tick)
+            from nokido_agent.app.forge_docker_agent import demander_crawl4ai
+
+            demander_crawl4ai("forge_crawl_tool", lancer=True)
+        except Exception:  # noqa: BLE001 - muet-ok: le repli continue
+            pass
         if not _CRAWL4AI_KO_SIGNALE:
             _CRAWL4AI_KO_SIGNALE = True
             logger.warning(

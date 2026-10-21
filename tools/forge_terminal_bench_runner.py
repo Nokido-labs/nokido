@@ -784,7 +784,7 @@ def run_task(
                 solved = True
                 break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_terminal_bench_runner.py', 786, exc_info=True)
 
         time.sleep(0.5)
 
@@ -801,7 +801,7 @@ def run_task(
         try:
             shutil.rmtree(tmpdir, ignore_errors=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_terminal_bench_runner.py', 803, exc_info=True)
 
     return {
         "id": task["id"],
@@ -876,7 +876,7 @@ def run(provider: str = "mistral", max_entries: int = 20, max_rounds: int = 6) -
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_terminal_bench_runner.py', 878, exc_info=True)
 
     return summary
 

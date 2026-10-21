@@ -67,7 +67,7 @@ def _load_fed_config() -> dict:
             srv = d.get("servers", d) if isinstance(d, dict) else {}
             return {k: {**v, "source": str(FED_CONFIG)} for k, v in srv.items() if isinstance(v, dict)}
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mcp_federation.py', 69, exc_info=True)
     return {}
 
 
@@ -81,6 +81,7 @@ def discover() -> dict:
                 continue
             data = json.loads(path.read_text("utf-8", "ignore"))
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mcp_federation.py', 83, exc_info=True)
             continue
         servers = data.get("mcpServers") or data.get("servers") or {}
         if not isinstance(servers, dict):

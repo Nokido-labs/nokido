@@ -55,6 +55,7 @@ def migrate_paths(root, apply):
             try:
                 t = open(p, encoding="utf-8", errors="surrogateescape").read()
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_migrate.py', 57, exc_info=True)
                 continue
             if not DIRFIX.search(t):
                 continue

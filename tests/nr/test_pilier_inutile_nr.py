@@ -61,7 +61,77 @@ def test_embedder_protege_tant_qu_il_reste_de_la_dette(perimee, monkeypatch):
 
 def test_embedder_liberable_quand_la_dette_est_resorbee(perimee, monkeypatch):
     monkeypatch.setattr(K, "_dette_embed", lambda: 0)
+    monkeypatch.setattr(K, "_activite_recente", lambda port: False)   # fenetre couverte sans decodage
     assert K._pilier_inutile(*EMBED, conns=0, up=True) is True
+
+
+def test_un_embedder_qui_decode_entre_deux_lots_n_est_pas_inutile(perimee, monkeypatch):
+    """15-16/10 (plan CI §3 bis, fait keeper_arrete_embedder_en_usage_sans_intention_20261015) : `conns == 0` A
+    L'INSTANT du tick ne dit pas « oisif » -- un client par lots (pack natif 19:36:39, mesures du 16/10) est vu idle
+    entre deux lots et l'embedder est coupe en plein travail. L'activite se juge sur une FENETRE (n_decode de /metrics)."""
+    monkeypatch.setattr(K, "_dette_embed", lambda: 0)
+    monkeypatch.setattr(K, "_activite_recente", lambda port: True, raising=False)
+    assert K._pilier_inutile(*EMBED, conns=0, up=True) is False
+
+
+def test_sous_pression_ram_un_embedder_qui_decode_n_est_pas_idle(monkeypatch):
+    """L'arret RELLEMENT journalise le 15/10 (logs/supervisor/NokidoLlamaKeeper.log, 19:36:39 « sans intention +
+    idle + ram 86% >= 80% », en plein pack natif) passe par la branche PRESSION RAM de `_piliers_on_demand`, pas par
+    `_pilier_inutile` : `conns == 0` au tick y suffisait aussi. Un pilier qui a decode sur la fenetre n'est pas idle."""
+    monkeypatch.setattr(K, "_PILIERS", (EMBED,))
+    monkeypatch.setattr(K, "_supervisor_claimed", lambda: {8099: "NokidoLlamaEmbed"})
+    monkeypatch.setattr(K, "_intention_voulue", lambda _d, **_k: False)
+    monkeypatch.setattr(K, "_pilier_accorde", lambda _d: True)
+    monkeypatch.setattr(K, "_observer_signal", lambda _s: None)
+    monkeypatch.setattr(K, "_conns_port", lambda _p: 0)
+    monkeypatch.setattr(K, "_dette_embed", lambda: 0)
+    monkeypatch.setattr(K, "_intention_perimee", lambda _d, **_k: True)
+    monkeypatch.setattr(K, "_activite_recente", lambda _p: True)
+    monkeypatch.setattr(K, "MONITOR_ONLY", True)
+    actes = K._piliers_on_demand(ram=K.FREE_AT + 6)
+    assert not [a for a in actes if "stopped" in a], actes
+
+
+def test_activite_illisible_interdit_l_arret(perimee, monkeypatch):
+    monkeypatch.setattr(K, "_dette_embed", lambda: 0)
+    monkeypatch.setattr(K, "_activite_recente", lambda port: None)
+    assert K._pilier_inutile(*EMBED, conns=0, up=True) is False
+
+
+def _releves(monkeypatch, releves):
+    """Rejoue des couples (instant, compteur /metrics) sans reseau ni horloge reelle."""
+    import types
+
+    file = list(releves)
+    courant = {}
+
+    def compteur(port):
+        courant["t"], n = file.pop(0)
+        return n
+
+    monkeypatch.setattr(K, "_compteur_metrics", compteur)
+    monkeypatch.setattr(K, "time", types.SimpleNamespace(time=lambda: courant["t"]))
+    monkeypatch.setattr(K, "_echantillons_activite", {})
+    return [K._activite_recente(8099) for _ in releves]
+
+
+def test_metrics_illisible_rend_inconnu(monkeypatch):
+    assert _releves(monkeypatch, [(0.0, None)]) == [None]
+
+
+def test_fenetre_non_couverte_rend_inconnu(monkeypatch):
+    f = K._FENETRE_ACTIVITE_S
+    assert _releves(monkeypatch, [(0.0, 5.0), (f / 3, 5.0)]) == [None, None]
+
+
+def test_fenetre_couverte_sans_decodage_rend_oisif(monkeypatch):
+    f = K._FENETRE_ACTIVITE_S
+    assert _releves(monkeypatch, [(0.0, 5.0), (f, 5.0)])[-1] is False
+
+
+def test_un_lot_dans_la_fenetre_rend_actif(monkeypatch):
+    f = K._FENETRE_ACTIVITE_S
+    assert _releves(monkeypatch, [(0.0, 5.0), (f / 3, 9.0), (f, 9.0)])[-1] is True
 
 
 def test_capteur_de_dette_muet_interdit_l_arret(perimee, monkeypatch):

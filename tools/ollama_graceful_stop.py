@@ -32,7 +32,7 @@ def unload_models():
                 urllib.request.urlopen(req, timeout=5)
                 print(f"  Unloaded: {model}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/ollama_graceful_stop.py', 34, exc_info=True)
         return len(models)
     except Exception as e:
         print(f"Ollama non disponible: {e}")

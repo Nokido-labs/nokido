@@ -166,7 +166,7 @@ def main() -> int:
         try:
             print(f"\n  {p.name} :\n    {p.read_text(encoding='utf-8', errors='replace')[:700]}")
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_npu_static_bench.py', 168, exc_info=True)
 
     npu, cpu = d.get("npu", {}), d.get("cpu", {})
     if "erreur" in npu:

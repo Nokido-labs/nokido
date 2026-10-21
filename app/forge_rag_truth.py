@@ -198,50 +198,48 @@ def superseder(ancien_id: str, nouveau_id: str, a_partir_de: str = "",
     """
     instant = a_partir_de or datetime.now(timezone.utc).isoformat()
     try:
-        from nokido_agent.app.forge_db_path import open_writer, write_retry
+        from nokido_agent.app.forge_db_path import write_retry
     except Exception as e:  # noqa: BLE001
         return {"ok": None, "raison": "ecrivain DB indisponible (%s)" % type(e).__name__}
 
-    def _op():
-        conn = open_writer()
+    # `write_retry` appelle `op(conn)` et ferme la connexion lui-meme. L'ancien `_op()` sans argument levait
+    # TypeError a CHAQUE appel : 28 fermetures sur 28 refusees en prod (audit epistemic_consolidation, 16/10).
+    def _op(conn):
+        ligne = conn.execute(
+            "SELECT meta FROM rag_chunks WHERE id = ?", (ancien_id,)).fetchone()
+        if ligne is None:
+            return {"ok": False, "raison": "assertion introuvable: %s" % ancien_id}
         try:
-            ligne = conn.execute(
-                "SELECT meta FROM rag_chunks WHERE id = ?", (ancien_id,)).fetchone()
-            if ligne is None:
-                return {"ok": False, "raison": "assertion introuvable: %s" % ancien_id}
-            try:
-                meta = json.loads(ligne[0] or "{}")
-            except Exception:  # noqa: BLE001
-                meta = {}
-            if meta.get("valid_to"):
-                return {"ok": False, "raison": "deja fermee le %s" % meta["valid_to"]}
-            meta.update({"valid_to": instant, "superseded_by": nouveau_id,
-                         "supersede_raison": raison[:200]})
-            # RECONCILIATION (2026-08-26) : `rag_chunks` porte DEJA une colonne
-            # `superseded_by` (avec `active` / `version` / `retraction_status`), que
-            # personne n'ecrivait — la dette « migration de schema a trancher » posait
-            # une question deja tranchee par le schema. Deux verites pour un meme
-            # fait (un meta JSON rempli, une colonne vide) est le defaut que ce depot
-            # paie ailleurs. On ecrit les DEUX : le meta reste ce que `est_valide_a`
-            # lit, la colonne devient requetable sans json_extract. Trois etats sur la
-            # colonne : ecrite / absente (base sans colonne, tests hermetiques).
-            colonne = "absente"
-            try:
-                cols = {r[1] for r in conn.execute("PRAGMA table_info(rag_chunks)")}
-            except Exception:  # noqa: BLE001 — pragma illisible : on le declare, on n'invente pas
-                cols = set()
-            if "superseded_by" in cols:
-                conn.execute(
-                    "UPDATE rag_chunks SET meta = ?, superseded_by = ? WHERE id = ?",
-                    (json.dumps(meta, ensure_ascii=False), nouveau_id, ancien_id))
-                colonne = "ecrite"
-            else:
-                conn.execute("UPDATE rag_chunks SET meta = ? WHERE id = ?",
-                             (json.dumps(meta, ensure_ascii=False), ancien_id))
-            return {"ok": True, "ancien": ancien_id, "nouveau": nouveau_id,
-                    "valid_to": instant, "colonne_superseded_by": colonne}
-        finally:
-            conn.close()
+            meta = json.loads(ligne[0] or "{}")
+        except Exception:  # noqa: BLE001
+            meta = {}
+        if meta.get("valid_to"):
+            return {"ok": False, "raison": "deja fermee le %s" % meta["valid_to"]}
+        meta.update({"valid_to": instant, "superseded_by": nouveau_id,
+                     "supersede_raison": raison[:200]})
+        # RECONCILIATION (2026-08-26) : `rag_chunks` porte DEJA une colonne
+        # `superseded_by` (avec `active` / `version` / `retraction_status`), que
+        # personne n'ecrivait — la dette « migration de schema a trancher » posait
+        # une question deja tranchee par le schema. Deux verites pour un meme
+        # fait (un meta JSON rempli, une colonne vide) est le defaut que ce depot
+        # paie ailleurs. On ecrit les DEUX : le meta reste ce que `est_valide_a`
+        # lit, la colonne devient requetable sans json_extract. Trois etats sur la
+        # colonne : ecrite / absente (base sans colonne, tests hermetiques).
+        colonne = "absente"
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(rag_chunks)")}
+        except Exception:  # noqa: BLE001 — pragma illisible : on le declare, on n'invente pas
+            cols = set()
+        if "superseded_by" in cols:
+            conn.execute(
+                "UPDATE rag_chunks SET meta = ?, superseded_by = ? WHERE id = ?",
+                (json.dumps(meta, ensure_ascii=False), nouveau_id, ancien_id))
+            colonne = "ecrite"
+        else:
+            conn.execute("UPDATE rag_chunks SET meta = ? WHERE id = ?",
+                         (json.dumps(meta, ensure_ascii=False), ancien_id))
+        return {"ok": True, "ancien": ancien_id, "nouveau": nouveau_id,
+                "valid_to": instant, "colonne_superseded_by": colonne}
 
     try:
         return write_retry(_op)
@@ -304,6 +302,37 @@ def retirer_versions_anterieures(source: str, ids_courants: set, conn=None) -> i
     finally:
         if ferme:
             conn.close()
+
+
+def sources_fantomes(conn, racine, prefixes) -> dict:
+    """{chemin_disparu: [sources exactes triees]} des fichiers .py de Nokido indexes mais absents de `racine`.
+
+    20/10 (decision owner ; GREEN OPENCODE_GLM adfa5c102) : PLAGE `source >= p AND source < p[:-1]+'0'` sur
+    idx_rag_source -- jamais de LIKE sur rag_chunks. Un chemin = la source coupee au premier `#` puis au premier `::`."""
+    trouves: dict = {}
+    for p in prefixes:
+        p = str(p)
+        for (source,) in conn.execute("SELECT DISTINCT source FROM rag_chunks WHERE source >= ? AND source < ?",
+                                      (p, p[:-1] + "0")):
+            chemin = str(source).split("#")[0].split("::")[0].strip()
+            if chemin.endswith(".py") and not (Path(racine) / chemin).exists():
+                trouves.setdefault(chemin, []).append(source)
+    return {c: sorted(s) for c, s in trouves.items()}
+
+
+def retirer_sources_fantomes(conn, fantomes, appliquer=False) -> int:
+    """Chunks actifs des sources fantomes : A BLANC les compte sans rien ecrire ; `appliquer` les desactive par
+    `retirer_versions_anterieures(source, set(), conn)` (active=0, superseded_by, retrait de rag_chunks_fts). Rien
+    n'est supprime. Comme la primitive : `active` jamais dans le WHERE (idx_rag_source garde la main)."""
+    total = 0
+    for sources in fantomes.values():
+        for source in sources:
+            if appliquer:
+                total += max(0, retirer_versions_anterieures(source, set(), conn=conn))
+            else:
+                total += sum(1 for (actif,) in conn.execute("SELECT active FROM rag_chunks WHERE source = ?",
+                                                             (source,)) if actif == 1)
+    return total
 
 
 def jaccard_similarity(text_a: str, text_b: str, min_word_len: int = 3) -> float:

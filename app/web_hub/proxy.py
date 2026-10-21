@@ -416,7 +416,7 @@ class ReverseProxy:
                                 try:
                                     await upstream.close(code=ev.get("code", 1000))
                                 except Exception:
-                                    pass
+                                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/proxy.py', 418, exc_info=True)
                                 return
                             if etype != "websocket.receive":
                                 continue
@@ -448,7 +448,7 @@ class ReverseProxy:
                     try:
                         await t
                     except (asyncio.CancelledError, ConnectionClosed):
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/proxy.py', 450, exc_info=True)
 
                 await safe_send_close(1000)
 

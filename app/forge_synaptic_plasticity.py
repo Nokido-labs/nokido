@@ -230,7 +230,7 @@ def feedback_loop(
             _set_metric(conn, "purged_count", cur_p)
             purged = True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_synaptic_plasticity.py', 232, exc_info=True)
 
     # Log feedback
     conn.execute(

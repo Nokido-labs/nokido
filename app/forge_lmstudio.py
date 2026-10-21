@@ -104,6 +104,7 @@ async def lms_stream(
                                 full_text.append(tok)
                                 on_token(tok)
                         except:
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lmstudio.py', 106, exc_info=True)
                             continue
 
                 on_done()

@@ -58,7 +58,7 @@ async def _handle_proxy(app: object, args: str) -> None:
             proxy_conn.close()
             await proxy_conn.wait_closed()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_network.py', 60, exc_info=True)
         proxy_conn = None
         chat.write("[yellow]🛑 Proxy arrêté[/]")
 

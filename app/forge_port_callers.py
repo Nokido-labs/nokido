@@ -87,7 +87,7 @@ def _attribuer(pid: int, reg: dict, psutil) -> tuple[str, str]:
     try:
         nom_proc = p.name()
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_port_callers.py', 89, exc_info=True)
     cur = p
     for saut in range(1, _PROFONDEUR_PARENTS + 1):
         try:
@@ -177,7 +177,7 @@ def _ecrire(etat: dict) -> None:
         ETAT.parent.mkdir(parents=True, exist_ok=True)
         ETAT.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_port_callers.py', 179, exc_info=True)
 
 
 def canaux() -> dict:

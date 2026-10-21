@@ -78,7 +78,7 @@ def embed_query(text: str, timeout_s: float = 15.0) -> list[float]:
         try:
             sock.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rag_llama_query.py', 80, exc_info=True)
 
 
 def rag_search(query: str, top_k: int) -> list[dict]:

@@ -314,7 +314,7 @@ class GraphStudio:
                 G = nx.node_link_graph(data)
                 return cls(G, name=name)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_studio.py', 316, exc_info=True)
 
         # Cas liste d'arêtes directe
         if isinstance(data, list):
@@ -337,7 +337,7 @@ class GraphStudio:
             if issparse(A):
                 A = A.toarray()
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_studio.py', 339, exc_info=True)
         if directed:
             G = nx.from_numpy_array(A, create_using=nx.DiGraph())
         else:
@@ -552,7 +552,7 @@ class GraphStudio:
             all_paths = nx.shortest_simple_paths(self.G, src, dst)
             result["k_shortest"] = list(islice(all_paths, k))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_studio.py', 554, exc_info=True)
         return result
 
     def clustering(self) -> dict:

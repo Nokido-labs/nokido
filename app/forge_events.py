@@ -79,7 +79,7 @@ async def on_button_pressed(app, event) -> None:
             _cmd, _payload = _TUI_BUTTON_MAP[bid]
             _gc().push_tui_command(_cmd, _payload, source="tui")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 81, exc_info=True)
     AgentType = _AgentType()
 
     if bid in ("btn-mode-autonome", "btn-mode-collaboration", "btn-mode-comite"):
@@ -142,7 +142,7 @@ async def _handle_orchestrated_input(app, user_input: str) -> None:
                 _ac = app.query_one("#chat-input", AutocompleteInput)._engine
                 app._autocomplete_engine = _ac
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 144, exc_info=True)
     if _ac is None:
         AutocompleteEngine = _g("AutocompleteEngine")
         if AutocompleteEngine:
@@ -196,7 +196,7 @@ async def _handle_orchestrated_input(app, user_input: str) -> None:
                 if _sid:
                     log_secure(_sid, "human:tui", user_input, role="user", mode="dev:llm", is_private=1)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 198, exc_info=True)
         asyncio.create_task(app._dispatch_ai(user_input))
 
 
@@ -234,7 +234,7 @@ def _set_agent(app, agent, _from_user: bool = True) -> None:
             _b = app.query_one(f"#{_bid}", Button)
             _b.add_class("-active") if _at == agent else _b.remove_class("-active")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 236, exc_info=True)
 
     meta = AGENT_META.get(agent, {"color": "#58a6ff", "icon": "💬", "label": "Chat"})
     app._set_status(f"[{meta['color']}]{meta['icon']} {meta['label']}[/] actif")
@@ -245,13 +245,13 @@ def _set_agent(app, agent, _from_user: bool = True) -> None:
             f" [bold {meta['color']}]{meta['icon']} {meta['label']}[/]  [dim]@help · @run · @rag · @audit · @estim[/]"
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 247, exc_info=True)
     try:
         from textual.widgets import Button
 
         app.query_one("#btn-model", Button).label = f"🤖 {app._current_model()[:18]}"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 253, exc_info=True)
     app._update_sidebar_title()
 
 
@@ -360,7 +360,7 @@ async def poll_tui_notifications(app) -> None:
                 app._safe_write(f"[{color}]🤖 Hub:[/] {message}")
 
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_events.py', 362, exc_info=True)
 
 
 async def _check_ollama_models(app) -> None:

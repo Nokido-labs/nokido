@@ -87,7 +87,7 @@ def discover() -> dict:
         try:
             importlib.import_module(mod)
         except Exception:  # noqa: BLE001 - un keeper KO ne casse pas la découverte
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_keeper_base.py', 89, exc_info=True)
     # ROSTER COMPLET des artefacts PARTAGÉS (directive user : « décline tous les keepers »).
     # Modules dédiés = roadmap + memory (importés ci-dessus). Le RESTE = pointer-declare vers
     # l'OWNER EXISTANT (anti-dup : on RÉFÉRENCE, on ne recrée pas un keeper là où il y a un

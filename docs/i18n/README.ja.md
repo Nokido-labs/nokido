@@ -57,7 +57,7 @@ Nokido は**人工生命体のためのローカルファーストなランタ�
 Claude Code・Codex CLI・OpenCode・Antigravity などのコーディングエージェントといった複数の AI が、
 **バラバラなエージェントの寄せ集めにならずに**あなたのマシン上で協調して動くための、神経系と生理機能を提供します。
 
-出発点は三つの観察で、[マニフェスト](../../MANIFESTO.md) で詳しく述べています。
+出発点は三つの観察で、[マニフェスト](MANIFESTO.en.md) で詳しく述べています。
 
 1. **多くの AI は外部にある。** プロンプト、コード、文書が、あなたの所有しないインフラを通ります。
 2. **多くの AI は記憶を持たない。** 記憶は後付けであり、土台ではありません。
@@ -1110,7 +1110,7 @@ continuous neural substrate
 ### 詳細アーキテクチャ
 
 * [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](../../MANIFESTO.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md) · [English](MANIFESTO.en.md)
 
 ### エージェントプロトコル
 

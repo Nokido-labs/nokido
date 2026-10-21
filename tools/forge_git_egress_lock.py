@@ -99,9 +99,9 @@ def _allowed_pids() -> set[int]:
                 for ch in psutil.Process(p).children(recursive=True):
                     pids.add(ch.pid)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_egress_lock.py', 101, exc_info=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_egress_lock.py', 103, exc_info=True)
     return pids
 
 
@@ -137,7 +137,7 @@ def run(enforce: bool = False, duration: float = 0.0) -> dict:
                 try:
                     w.send(pkt)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_egress_lock.py', 139, exc_info=True)
             if duration and (time.monotonic() - t0) > duration:
                 break
     return {"allowed": allowed, "blocked": blocked, "enforce": enforce}

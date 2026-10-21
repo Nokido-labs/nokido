@@ -117,6 +117,7 @@ def empreintes_en_service():
         try:
             texte = p.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_secret_rotation_check.py', 119, exc_info=True)
             continue
         except OSError as e:
             illisibles.append("%s (%s)" % (nom, type(e).__name__))

@@ -104,6 +104,7 @@ def scan(files: list[str]) -> list[str]:
         try:
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_firehose_guard.py', 106, exc_info=True)
             continue
         if ext == ".py":
             warns.extend(_subprocess_sans_errors(rel, "\n".join(lines)))

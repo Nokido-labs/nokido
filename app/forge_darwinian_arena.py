@@ -420,7 +420,7 @@ def evaluate_promotion(
                     "reason": f"En quarantaine Ring 4 pour encore {rem_s}s (jusqu'à {cand.quarantine_until})",
                 }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_darwinian_arena.py', 422, exc_info=True)
 
     # PROMOTION AU RING 1 !
     _set_status_ring(cand.candidate_id, STATUS_PROMOTED, 1)

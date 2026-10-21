@@ -381,7 +381,7 @@ def _gh_env() -> dict:
         if tok:
             env["GH_TOKEN"] = tok
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_delivery_integrity.py', 383, exc_info=True)
     return env
 
 
@@ -484,6 +484,7 @@ def _scan_uncommitted() -> list[dict]:
         try:
             mt = (ROOT / rel).stat().st_mtime
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_delivery_integrity.py', 486, exc_info=True)
             continue
         age = (now - datetime.fromtimestamp(mt, tz=timezone.utc)).days
         oldest_days = max(oldest_days, age)

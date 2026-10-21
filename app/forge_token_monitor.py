@@ -438,6 +438,8 @@ def log_call(
     measurement_kind: str = None,
     measurement_source: str = None,
     cost_source: str = None,
+    served_model: str = None,
+    attempts: int = None,
 ) -> float:
     """Enregistre un appel LLM dans token_usage. RECORDER CANONIQUE.
 
@@ -514,8 +516,8 @@ def log_call(
         "cache_read_tokens,cache_write_tokens,reasoning_tokens,"
         "provenance,execution_mode,transport,execution_id,"
         "parent_execution_id,measurement_kind,measurement_source,"
-        "cost_kind,cost_source,writer_component) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "cost_kind,cost_source,writer_component,served_model,attempts) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             str(uuid.uuid4()),
             agent_id,
@@ -542,6 +544,8 @@ def log_call(
             cost_kind,
             cost_source,
             agent_id,
+            served_model,
+            attempts,
         ),
     )
     # Alertes dans network_log.

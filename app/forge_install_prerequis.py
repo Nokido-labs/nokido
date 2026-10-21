@@ -31,9 +31,19 @@ des qu'un service neuf arrivera avec un binaire neuf. C'est pour cela que
 `test_prerequis_surface_complete_nr` compare les deux et echoue si un executable
 declare n'a aucune entree ici. Le registre ne se maintient pas par discipline,
 il se maintient par cliquet.
+
+CHIFFREMENT AT-REST, OBLIGATOIRE PAR DEFAUT (decision owner du 2026-10-20).
+VeraCrypt (windows/macos) ou cryptsetup/LUKS (linux) n'est plus une option :
+`chiffrement_at_rest` est au niveau REQUIS. Sans lui, le bilan `complet` bloque
+— sauf refus EXPLICITE et consigne : `consigner_refus_chiffrement()` ecrit la
+fiche `FICHIER_REFUS_CHIFFREMENT` (date, compte, motif), le blocage est leve et
+la presence du refus reste DITE (`refus_consignes` dans le bilan), jamais il ne
+disparait. Le profil `dev` n'est pas touche : sa cle n'est pas dans son
+ensemble — le profil change ce qui BLOQUE, pas ce qui se voit.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -43,6 +53,29 @@ __FORGE_COLOR__ = "infra/bootstrap : registre des prerequis externes et sonde de
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVICES_TOML = ROOT / "proxy_deno" / "core" / "services.toml"
+
+
+def _racine_donnees_prerequis() -> Path:
+    """Racine des DONNEES, ou une fiche doit vivre pour survivre a `pip uninstall`.
+
+    Sous un paquet installe, `racine_donnees()` rend le dossier de l'utilisateur
+    (jamais site-packages) ; dans un clone, la racine du depot. Chargement
+    autonome (NR qui charge ce fichier par son chemin) : repli sur ROOT/data,
+    `forge_db_path` n'etant alors pas sous la main.
+    """
+    try:
+        try:
+            from nokido_agent.app.forge_db_path import racine_donnees
+        except ImportError:
+            from forge_db_path import racine_donnees
+        return Path(racine_donnees())
+    except Exception:  # noqa: BLE001 -- module charge hors paquet : la racine du depot suffit
+        return ROOT / "data"
+
+
+# Fiche du refus EXPLICITE du chiffrement at-rest (decision owner 20/10) : sous la racine de donnees, pour qu'elle
+# se lise autant apres une mise a jour que le jour ou le refus a ete prononce.
+FICHIER_REFUS_CHIFFREMENT = _racine_donnees_prerequis() / "refus_chiffrement.json"
 
 # --- vocabulaire ------------------------------------------------------------
 PRESENT = "PRESENT"
@@ -183,9 +216,11 @@ PREREQUIS: tuple[dict, ...] = (
         "chemins_usuels": (str(ROOT / "sandbox" / "caddy.exe"), str(ROOT / "sandbox" / "caddy")),
     },
     {
+        # Decision owner 2026-10-20 : obligatoire par defaut a l'installation, jamais une option. Le test NR
+        # `test_chiffrement_obligatoire_par_defaut_nr` verifie le niveau : il ne doit pas retomber en OPTIONNEL.
         "cle": "chiffrement_at_rest",
         "binaires": ("veracrypt", "cryptsetup"),
-        "niveau": OPTIONNEL,
+        "niveau": REQUIS,
         "capacite": "chiffrement at-rest du volume de donnees, cross-OS "
                     "(VeraCrypt sur windows/macos, LUKS via cryptsetup sur linux) — "
                     "cf. tools/forge_at_rest_veracrypt.py",
@@ -645,6 +680,36 @@ def _compte() -> str:
     return os.environ.get("USERNAME") or os.environ.get("USER") or "inconnu"
 
 
+def consigner_refus_chiffrement(motif: str) -> Path:
+    """Ecrit le refus EXPLICITE du chiffrement at-rest (decision owner 20/10).
+
+    Un refus n'est ni un oubli ni une panne : c'est une DECISION, elle porte une
+    date, le compte qui l'a prise et son motif. Ecriture seule : rien n'est
+    installe, rien n'est desinstalle. Rend la fiche ecrite.
+    """
+    import datetime
+
+    fiche = {"date": datetime.datetime.now().isoformat(timespec="seconds"),
+             "compte": _compte(), "motif": str(motif)}
+    cible = FICHIER_REFUS_CHIFFREMENT
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text(json.dumps(fiche, ensure_ascii=False, indent=2), encoding="utf-8")
+    return cible
+
+
+def refus_chiffrement() -> dict | None:
+    """La fiche de refus consigne, ou None.
+
+    None = rien n'a ete consigne, fiche illisible, ou refus SANS MOTIF (un aveu
+    sans raison n'est pas une decision et ne leve rien).
+    """
+    try:
+        fiche = json.loads(FICHIER_REFUS_CHIFFREMENT.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return fiche if isinstance(fiche, dict) and fiche.get("motif") else None
+
+
 def _cle_os() -> str:
     return {"win32": "windows", "darwin": "macos"}.get(sys.platform, "linux")
 
@@ -831,11 +896,16 @@ def bilan(inclure_optionnels: bool = True, profil: str = "complet") -> dict:
     def _bloque(l):
         return l["cle"] in exiges if exiges is not None else l["niveau"] in critique
 
+    # Un refus consigne leve le blocage, mais ne se cache JAMAIS : `refus_consignes` le dit a chaque passage.
+    # Seules les cles qui ont un mecanisme de refus peuvent en porter un (aujourd'hui : chiffrement_at_rest).
+    refus_consignes = ["chiffrement_at_rest"] if refus_chiffrement() else []
+
     # Deux listes, jamais une. Classer un ILLISIBLE parmi les manquants
     # inventerait une panne ; le classer parmi les sains masquerait un trou.
     # La liste BLANCHE reste la regle (n'est sain que ce qui est PROUVE present),
     # mais un doute se nomme « indetermine », pas « bloquant ».
-    manquants = [l for l in lignes if l["etat"] == ABSENT and _bloque(l)]
+    manquants = [l for l in lignes if l["etat"] == ABSENT and _bloque(l)
+                 and l["cle"] not in refus_consignes]
     indetermines = [l for l in lignes if l["etat"] == ILLISIBLE]
     modeles = verifier_modeles()
     try:
@@ -855,6 +925,7 @@ def bilan(inclure_optionnels: bool = True, profil: str = "complet") -> dict:
         "absent": sum(1 for l in lignes if l["etat"] == ABSENT),
         "illisible": len(indetermines),
         "bloquants": [l["cle"] for l in manquants] + modeles_manquants,
+        "refus_consignes": refus_consignes,
         "indetermines_critiques": [l["cle"] for l in indetermines if _bloque(l)],
         "lignes": lignes,
         "modeles": modeles,

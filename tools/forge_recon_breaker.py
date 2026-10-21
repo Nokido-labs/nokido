@@ -44,6 +44,49 @@ HINT = (
 )
 
 
+# ── CLE DE GARDE = IDENTITE PROUVEE (racine R2, 17/10 ; derogations owner forge_mcp_registry + nokido_hub) ─────────
+# Les compteurs ci-dessous etaient cles par NOM declare : un appelant non prouve repartait de zero en changeant de nom.
+# Le hub pose la preuve (sujet_prouve de forge_videur, via _identite_inbox) dans cette ContextVar avant le dispatch ;
+# ToolRegistry.dispatch ne voit pas la requete. Appel interne (rien de pose) : son nom, il ne peut forger un en-tete.
+# OBSERVER AVANT D'ENFORCER : par defaut le compteur reste par nom et l'appel non prouve est JOURNALISE ;
+# LAFORGE_GARDES_PAR_PREUVE=refus fait partager UN compteur a tout appel non prouve (decision owner, sur mesure).
+import contextvars  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+
+IDENTITE_PROUVEE: contextvars.ContextVar = contextvars.ContextVar("nokido_identite_prouvee", default=None)
+NON_PROUVE = "NON_PROUVE"
+_OBSERVES: dict = {}
+_log_garde = logging.getLogger("Nokido.ReconBreaker")
+
+
+def poser_preuve(prouve):
+    """Pose la preuve de l'appel en cours ; None = appel interne, rien n'est pose. Rend le jeton de `retirer_preuve`."""
+    if prouve is None:
+        return None
+    return IDENTITE_PROUVEE.set(bool(prouve))
+
+
+def retirer_preuve(jeton) -> None:
+    if jeton is not None:
+        IDENTITE_PROUVEE.reset(jeton)
+
+
+def cle_de_garde(agent) -> str:
+    """Cle des compteurs de garde (liste blanche : seule une preuve True garde son nom en mode refus)."""
+    nom = str(agent or "HUB")
+    prouve = IDENTITE_PROUVEE.get()
+    if prouve is None:
+        return nom
+    if os.environ.get("LAFORGE_GARDES_PAR_PREUVE", "observe").strip().lower() != "refus":
+        if prouve is not True and time.time() - _OBSERVES.get(nom, 0.0) > 600:
+            _OBSERVES[nom] = time.time()
+            _log_garde.warning("[cle_de_garde] observe : appel NON PROUVE sous le nom %s -- en mode refus il "
+                               "partagerait le compteur %s (compteur par nom inchange)", nom, NON_PROUVE)
+        return nom
+    return nom.upper() if prouve is True else NON_PROUVE
+
+
 def _key(session: str, kind: str) -> Path:
     h = hashlib.sha1(f"{session}:{kind}".encode("utf-8")).hexdigest()[:16]
     return _DIR / f"{h}.json"
@@ -97,6 +140,80 @@ def is_nokido_args(args) -> bool:
     return ("laforge" in t) or ("forge_" in t) or ("script python ia" in t)
 
 
+# --- Phase 2 COTE HUB (owner 17/10 : « les garde fous doivent emaner du hub... et pareil pour les autres cli ») ----------
+# Un run qui ouvre un fichier de CODE du depot est une LECTURE. Mesure 17/10 : CLAUDE relisait le depot par read_text dans
+# `run action=python` apres le disjoncteur -- le hub executait sans compter, seul l'outil `read` passait ici. Un journal,
+# un etat (sandbox/) ou un calcul n'en sont pas : le garde vise la recon de code, pas la mesure.
+import re as _re
+
+_LECTURE = _re.compile(r"read_text|read_bytes|\bopen\s*\(|Get-Content|\btype\s|\bcat\s|\bmore\s|\bhead\s|\btail\s"
+                       r"|\bsed\s+-n", _re.I)
+_FICHIER_CODE = _re.compile(r"(?:^|[\\/\"'\s(])(?:app|tools|tests|proxy_deno)[\\/][^\s\"')]*\.(?:py|ts|toml|md)\b", _re.I)
+
+
+def lit_le_depot(code: str) -> bool:
+    """Le code passe a `run` (python ou shell) ouvre-t-il un fichier de CODE du depot ?"""
+    t = str(code or "")
+    return bool(_LECTURE.search(t) and _FICHIER_CODE.search(t))
+
+
+# IMPULSION comptee par le HUB, par identite d'agent (phase 2, brique E). Meme coeur que le hook de Claude
+# (hook_capability_gate.compter_tour) : pas une seconde logique, une seconde PORTEE -- tous les clients MCP, agy et vibe
+# compris, qui n'ont pas les hooks de Claude Code.
+IMPULSION = Path(__file__).resolve().parent.parent / "sandbox" / "impulsion_agents.json"
+
+
+def _etat_impulsion(qui: str) -> tuple:
+    """(etat de tous les agents, fenetre de `qui`) ; absent ou illisible = fenetre vide."""
+    try:
+        d = json.loads(IMPULSION.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # muet-ok : etat absent ou illisible = fenetre vide
+        d = {}
+    d = d if isinstance(d, dict) else {}
+    return d, (d.get(qui) or {})
+
+
+def impulsion(agent: str, maintenant: float | None = None) -> tuple:
+    """(statut, message) : None, 'avertissement' (2e tour en 90 s) ou 'refus' (3e et au-dela), par identite d'agent."""
+    try:
+        from nokido_agent.tools.hook_capability_gate import compter_tour
+    except ImportError:
+        from hook_capability_gate import compter_tour  # type: ignore
+    t = time.time() if maintenant is None else maintenant
+    qui = str(agent or "HUB").upper()
+    try:
+        d, a = _etat_impulsion(qui)
+        tours, dernier, n = compter_tour(a.get("tours"), a.get("dernier"), t)
+        d[qui] = {"tours": tours, "dernier": dernier}
+        IMPULSION.parent.mkdir(parents=True, exist_ok=True)
+        IMPULSION.write_text(json.dumps(d), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - muet-ok : un garde ne casse jamais son porteur
+        return (None, "")
+    if n <= 1:
+        return (None, "")
+    if n == 2:
+        return ("avertissement", "[impulsion hub] 2e tour de sondes en 90 s pour %s : au 3e, refus (mode refus). "
+                                 "Fusionner en UN script ou run_job." % qui)
+    return ("refus", "[impulsion hub] %de tour de sondes en 90 s pour %s : fusionner en UN script ou run_job." % (n, qui))
+
+
+def impulsion_remise(agent: str) -> None:
+    """Une ecriture (governed_edit) remet la fenetre de l'agent a zero, comme dans le hook."""
+    try:
+        qui = str(agent or "HUB").upper()
+        d, a = _etat_impulsion(qui)
+        if qui in d:
+            del d[qui]
+            IMPULSION.write_text(json.dumps(d), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - muet-ok : un garde ne casse jamais son porteur
+        pass
+
+
+# Le registre des CONSULTATIONS par agent existe deja cote hub : app/forge_introspect.py (consultation_recente,
+# noter_edition, lu par le handler governed_edit depuis le 31/08). C'est LUI qu'on etend au domaine -- un second
+# registre ici a ete ecrit puis retire le 17/10 (anti-dup).
+
+
 # --- Variante IN-MEMORY (hub : process long-vécu, évite WORKSPACE_GUARD / FS) ---
 _MEM: dict = {}
 
@@ -136,5 +253,5 @@ def reset(session: str) -> int:
                 p.unlink()
                 cnt += 1
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_recon_breaker.py', 255, exc_info=True)
     return cnt

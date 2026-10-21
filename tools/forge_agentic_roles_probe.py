@@ -100,7 +100,7 @@ def _json_dans(texte: str) -> dict | None:
     try:
         return json.loads(texte)
     except ValueError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_agentic_roles_probe.py', 102, exc_info=True)
     debut, fin = texte.find("{"), texte.rfind("}")
     if debut >= 0 and fin > debut:
         try:

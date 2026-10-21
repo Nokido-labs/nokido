@@ -118,6 +118,7 @@ def _mentions_tests(tools) -> dict:
                 with open(p, encoding="utf-8", errors="replace") as fh:
                     txt = fh.read()
             except OSError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_capability_crosswalk.py', 120, exc_info=True)
                 continue
             rel = os.path.relpath(p, ROOT).replace("\\", "/")
             for t, rx in motifs.items():

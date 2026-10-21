@@ -179,7 +179,7 @@ def spawn_sandbox(language_runtime: str, code_to_execute: str, timeout_s: int = 
             try:
                 container.kill()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_sandbox.py', 181, exc_info=True)
             exit_code = 124  # timeout exit code conventionnel
             timed_out = True
 

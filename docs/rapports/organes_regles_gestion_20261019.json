@@ -1,0 +1,472 @@
+{
+  "organes": [
+    {
+      "organe": "Infra/Bootstrap/Config",
+      "modules": 253,
+      "regles": [
+        {
+          "nature": "cliquet",
+          "description": "Cliquet racine des donnees : plafonds stricts (app <= 245, tools <= 420) de modules derivant leur chemin de donnees de __file__ au lieu de racine_donnees()",
+          "pointeur": "app/forge_db_path.py::racine_donnees:437",
+          "enforce_par": "tests/nr/test_cliquet_racine_donnees_nr.py"
+        },
+        {
+          "nature": "interrupteur",
+          "description": "Amorcage initial des interrupteurs access_switches vides et isolation securisee de base dediee",
+          "pointeur": "tools/forge_db_bootstrap.py::poser_interrupteurs:45",
+          "enforce_par": "tests/nr/test_bootstrap_interrupteurs_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Garde de sante des services en trois etats prouves (UP, DOWN, DISABLED_BY_POLICY) pour eviter de declarer en panne un choix de repos",
+          "pointeur": "tools/nokido_doctor.py::_coupe_par_politique:52",
+          "enforce_par": "tests/nr/test_health_check_politique_avant_panne_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Provisionnement automatique de reserve pour migration du coffre de secrets (forge_coffre_reserve_provision.py en observation manuelle)",
+        "Validation statique de dependances de composants d'installation (forge_composants.py sans gate bloquant au packaging)"
+      ]
+    },
+    {
+      "organe": "SNC (cerveau/moelle/SNP)",
+      "modules": 207,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Videur central MCP : decision unique fail-closed identite x capacite x perimetre (min_ring par outil)",
+          "pointeur": "app/forge_videur.py::authorize:606",
+          "enforce_par": "tests/nr/test_fail_closed_sur_le_privilege_nr.py"
+        },
+        {
+          "nature": "seuil",
+          "description": "Seuil minimal de securite cryptographique pour cle HMAC de jetons de session (RFC 7518 3.2)",
+          "pointeur": "app/forge_mcp_security.py::assert_can_write:290",
+          "enforce_par": "tests/nr/test_jwt_longueur_cle_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Disjoncteur de sortie console non bloquante pour prevenir le gel de boucle d'evenements du hub (WEDGE KILL)",
+          "pointeur": "app/forge_byte_router.py::_ecrire_console:15",
+          "enforce_par": "tests/nr/test_sortie_console_non_bloquante_nr.py"
+        },
+        {
+          "nature": "contrat",
+          "description": "Validation stricte de trame M2M inter-agents avec signature HMAC, horodatage et prevention de rejeu",
+          "pointeur": "app/forge_message_frame.py::validate_frame:80",
+          "enforce_par": "tests/nr/test_m2m_conformance_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Disjoncteur d'interdiction de spawn synchrone lourd dans coroutine async du hub (CRITICAL_POINTS P0 forge_mcp_registry._run_sandboxed_* dormant)",
+        "Audit de conformite protocole MCP SSE sans relance manuelle (forge_patch_hub_sse_conforme.py)"
+      ]
+    },
+    {
+      "organe": "Memoire (hippocampe/RAG)",
+      "modules": 183,
+      "regles": [
+        {
+          "nature": "seuil",
+          "description": "Ponderation d'autorite de source trust_weight (0.0 a 1.0) et filtrage de consensus multi-sources",
+          "pointeur": "app/forge_rag_qualify.py::trust_weight:321",
+          "enforce_par": "tests/nr/test_retrieval_sweep_et_rfc_freshness_nr.py"
+        },
+        {
+          "nature": "contrat",
+          "description": "Ancrage de lecon et solutions architecturales avec generation stricte d'identifiant primaire explicite sha256(source+text)[:16]",
+          "pointeur": "app/forge_self_correction.py::anchor_solution:210",
+          "enforce_par": "tests/nr/test_self_correction_roundtrip_nr.py"
+        },
+        {
+          "nature": "interrupteur",
+          "description": "Desarmement de la compaction automatique hors du rythme pour preserver la disponibilite de la base d'embeddings",
+          "pointeur": "app/forge_memory_compactor.py::compact_if_needed:65",
+          "enforce_par": "tests/nr/test_autocompact_hors_du_rythme_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Signal d'usage RAG hors base avec extraction deterministe de citations pour verite terrain d'entrainement",
+          "pointeur": "app/forge_rag_usage_signal.py::citations:85",
+          "enforce_par": "tests/nr/test_fts_rattrapage_incremental_nr.py"
+        }
+      ],
+      "cible": "probabiliste",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Seuil d'amelioration de rappel@10 (+5 points vise sur golden dataset de 54 questions, protocole EDD couche 3 en cours d'armement)",
+        "Garbage collector cognitif a decroissance exponentielle Letta (RFC memory_decay proposee au blackboard mais non codee)"
+      ]
+    },
+    {
+      "organe": "Immunitaire (firewall/garde)",
+      "modules": 164,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Pare-feu semantique 4 couches avec kill-switch egress cloud, detection d'injections et blocage Ring 0",
+          "pointeur": "app/forge_semantic_firewall.py::SemanticFirewall.pre_flight:667",
+          "enforce_par": "tests/test_forge_openai_proxy_firewall.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Secret guard DLP : interdiction stricte de lecture/ecriture directe sur tables sensibles et masquage par nature",
+          "pointeur": "app/forge_secret_guard.py::masquer_secrets:120",
+          "enforce_par": "tests/nr/test_secret_guard_ecriture_table_sensible_nr.py"
+        },
+        {
+          "nature": "cliquet",
+          "description": "Cessation de service immediate sur secret revoque avec respect strict de la periode de quarantaine",
+          "pointeur": "app/forge_secret_guard.py::revoke_secret:310",
+          "enforce_par": "tests/nr/test_un_secret_revoque_cesse_d_etre_servi_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Membrane souveraine et verification de liaison cryptographique de preuve de possession DPoP/PoP (RFC 9449)",
+          "pointeur": "app/forge_sovereign_membrane.py::wrap_payload:145",
+          "enforce_par": "tests/nr/test_pop_preuve_liee_a_la_bonne_cle_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Sentinelle immune proactive en macrophage autonome pour traque continue d'anomalies (forge_organ_agents.py P1 immune_sentinel)",
+        "Mise en quarantaine automatique des pairs reseau sans derogation manuelle owner (forge_pair_quarantaine.py)"
+      ]
+    },
+    {
+      "organe": "Cognition/Agentique/Raisonnement",
+      "modules": 153,
+      "regles": [
+        {
+          "nature": "seuil",
+          "description": "Utilitarisme hedoniste : fonction de valeur plaisir - douleur (-0.2/h temps, -0.3 non-gratuit) orientant l'assignation de modele",
+          "pointeur": "app/forge_motivation.py::valeur_resultat:282",
+          "enforce_par": "tests/nr/test_transient_gen1_observation_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Planificateur PUCT / AlphaGo a 6 portes (OWNER/RELANCE/CI/SERIE/EXECUTEUR/LIBRE) avec elagage des items dependants",
+          "pointeur": "tools/forge_roadmap_keeper.py::plan_puct:850",
+          "enforce_par": "tests/nr/test_plan_puct_v2_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Metacognition gate validant l'autorite de l'intention agent et refusant les escalades de privileges silencieuses",
+          "pointeur": "app/forge_metacognition_gate.py::validate_intent:45",
+          "enforce_par": "tests/nr/test_gate_forme_m2m_et_cles_nr.py"
+        }
+      ],
+      "cible": "exploration",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Arene darwinienne de selection de mutations en mode execution bloquante (app/forge_darwinian_arena.py aujourd'hui cablee en observation non-bloquante, ecrivain gele)",
+        "Bascule de decision d'attribution de tache entierement autonome sur ordre hedoniste (actuellement tracee en observation dans tasks.reaffectations)"
+      ]
+    },
+    {
+      "organe": "SN vegetatif (autonome)",
+      "modules": 151,
+      "regles": [
+        {
+          "nature": "seuil",
+          "description": "Regulation homeostatique should_throttle sur RAM/CPU/GPU/disque durcie de 10 points sous stress cortisol (modulateur sans veto)",
+          "pointeur": "app/forge_resource_manager.py::should_throttle:2192",
+          "enforce_par": "tests/nr/test_organ_registre_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Rythme cardiaque circadien protege contre la bradycardie excessive pour eviter la declaration de mort collective",
+          "pointeur": "app/forge_circadian.py::tick:130",
+          "enforce_par": "tests/nr/test_cycle_cardiaque_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Surveillance de consommation memoire RSS courante des processus autonomes et declenchement de nettoyage",
+          "pointeur": "app/forge_idle_watchdog.py::check_rss:75",
+          "enforce_par": "tests/nr/test_mem_watchdog_rss_courante_nr.py"
+        }
+      ],
+      "cible": "probabiliste",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Delestage physique Hamilton RED_2 (mise en sommeil automatique des processus DIFFERABLES avant allocation d'inference locale, en cours d'observation)",
+        "Boucle de regeneration fermee forge_tool_forger -> forge_quality_gate -> integration sans approbation prealable"
+      ]
+    },
+    {
+      "organe": "Qualite/Build/Spec",
+      "modules": 131,
+      "regles": [
+        {
+          "nature": "seuil",
+          "description": "Metriques d'adoption de methode dev par couche : seuil A >= 70% lots verts au premier passage, seuil B >= 90% citations RED",
+          "pointeur": "tools/forge_kpi_methode.py::lots_premier_passage:42",
+          "enforce_par": "tests/test_kpi_methode_nr.py"
+        },
+        {
+          "nature": "cliquet",
+          "description": "Cliquet d'inclusion PURE_TESTS : interdiction de committer un test NR sans l'inscrire dans la suite executee par la CI",
+          "pointeur": "tools/ci_local.py::PURE_TESTS:84",
+          "enforce_par": "tests/nr/test_blocs_isoles_dans_la_suite_pure_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Verification statique AST et garde de licences embarquees refusant les dependances interdites",
+          "pointeur": "tools/forge_license_guard.py::verifier_licences:110",
+          "enforce_par": "tests/nr/test_license_guard_declarees_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Metrique C de surveillance des regressions post-push en boucle continue fermee",
+        "Lean verify / Lean prove en pre-commit bloquant automatique (forge_lean_verify.py / forge_lean_prove.py)"
+      ]
+    },
+    {
+      "organe": "Locomoteur/Orchestration",
+      "modules": 122,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Confinement de scope de domaine par SiloDomain et filtrage des connaissances sortantes du RAG",
+          "pointeur": "app/forge_silo_engine.py::KnowledgeGuardian.filter_rag:140",
+          "enforce_par": "tests/nr/test_recon_run_consomme_le_scope_nr.py"
+        },
+        {
+          "nature": "interrupteur",
+          "description": "Isolation stricte de la base tasks.db des files de taches hors du verrou WAL d'embeddings.db",
+          "pointeur": "app/forge_task_queue.py::_get_conn:50",
+          "enforce_par": "tests/nr/test_task_queue_db_isolee_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Governed edit : verification AST et scan secret prealable avec journalisation de trace non bloquante",
+          "pointeur": "app/forge_governed_edit.py::apply_diff:180",
+          "enforce_par": "tests/nr/test_governed_edit_trace_non_bloquante_nr.py"
+        }
+      ],
+      "cible": "exploration",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Edition par fonction plutot que par fichier entier dans l'essaim local (levier b identifie le 17/10 pour debloquer le goulot des modeles locaux)",
+        "Contrat de publication synchrone complete de task_running pour la voie agent AGY"
+      ]
+    },
+    {
+      "organe": "Observabilite/Trace",
+      "modules": 122,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Borne de sortie stricte : rejet de toute charge utile sortante ne respectant pas la liste blanche de metadonnees",
+          "pointeur": "tools/forge_audit_sortie_bornee.py::borner:93",
+          "enforce_par": "tests/nr/test_borne_qui_se_nomme_nr.py"
+        },
+        {
+          "nature": "contrat",
+          "description": "Import inerte et absence totale d'impact sur la performance hot-path pour les sondes de trace sidecar",
+          "pointeur": "app/forge_trace_sidecar.py::init_sidecar:35",
+          "enforce_par": "tests/nr/test_trace_sidecar_import_inerte_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Expurgation systematique des donnees personnelles et secrets des journaux et sorties d'erreurs",
+          "pointeur": "app/forge_semantic_firewall.py::redact_for_log:480",
+          "enforce_par": "tests/nr/test_log_redact_porteur_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Instrument de mesure de volume d'octets dans promcp_tool_metrics (result_bytes actuellement a zero)",
+        "Audit proactif continue des derivees trafic-vs-canon (forge_knowledge_concierge DRIFT)"
+      ]
+    },
+    {
+      "organe": "Metabolisme LLM (routage/backends)",
+      "modules": 103,
+      "regles": [
+        {
+          "nature": "seuil",
+          "description": "Circuit breaker avec fenetres glissantes de rate-limiting (RPM/TPM) et cascade de repli sur providers gratuits puis OAuth",
+          "pointeur": "app/forge_llm_router.py::LLMRouter.call_cascade:1290",
+          "enforce_par": "tests/nr/test_router_slots_nr.py"
+        },
+        {
+          "nature": "cliquet",
+          "description": "Eviction automatique des providers et modeles injoignables ou sous 429 persistant (seuil 3 echecs / 6h)",
+          "pointeur": "app/forge_llm_router.py::injoignables_prouves:147",
+          "enforce_par": "tests/nr/test_free_tier_429_persistant_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Copie de configuration de modele par appel isolant les requetes concurrentes de toute derive d'etat",
+          "pointeur": "app/forge_agent_proxy.py::call_provider:95",
+          "enforce_par": "tests/nr/test_ask_modele_par_appel_sans_course_nr.py"
+        }
+      ],
+      "cible": "probabiliste",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Gouvernance autonome de budget cloud reliant cost_usd_today/budget a l'emission de CORTISOL_QUOTA_CLOUD (CRITICAL_POINTS P2 Econome dormant)",
+        "Injection dynamique du debit (tok/s) issu du profiling d'endpoints dans la matrice de competence"
+      ]
+    },
+    {
+      "organe": "Digestif/Sens (ingestion/web)",
+      "modules": 91,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Controle d'egress web anti-SSRF interdisant l'acces aux boucles locales, adresses RFC 1918 et metadonnees cloud",
+          "pointeur": "app/forge_crawl_tool.py::_url_interdite:197",
+          "enforce_par": "tests/nr/test_ssrf_backends_crawl_nr.py"
+        },
+        {
+          "nature": "contrat",
+          "description": "Conformite RFC 9309 obligatoire : resolution de robots.txt et identification du crawler prealables a toute ingestion",
+          "pointeur": "tools/forge_robots_rfc9309.py::can_fetch:40",
+          "enforce_par": "tests/nr/test_robots_rfc9309_nr.py"
+        },
+        {
+          "nature": "interrupteur",
+          "description": "Declenchement a la demande du service crawl4ai via drapeau de demande, prevenant le reveil systematique du conteneur",
+          "pointeur": "app/forge_docker_agent.py::demander_crawl4ai:60",
+          "enforce_par": "tests/nr/test_crawl4ai_a_la_demande.py"
+        }
+      ],
+      "cible": "exploration",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Fusion sensorielle multimodale federant vision, capture d'ecran, android et web sous contrat OrganAgent unifie (ESSENTIAL_WIRINGS P2 sensory_fusion dormant)",
+        "Epuration de restart:always et ajout de mem_limit sur docker crawl4ai"
+      ]
+    },
+    {
+      "organe": "Graph/Connaissances",
+      "modules": 55,
+      "regles": [
+        {
+          "nature": "cliquet",
+          "description": "Cache d'index JIT pour callers et definitions invalide sur mtime, preservant l'identite exacte des resultats d'analyse",
+          "pointeur": "app/forge_callgraph_jit.py::callers:280",
+          "enforce_par": "tests/nr/test_callgraph_index_nr.py"
+        },
+        {
+          "nature": "contrat",
+          "description": "Historien git : extraction incrementale deterministe des commits et correlation des fichiers sans parsing fragile par split",
+          "pointeur": "app/forge_git_historian.py::GitHistorian.extract_commits:150",
+          "enforce_par": "tests/nr/test_callgraph_index_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Seuil d'acceleration minimale x2 d'introspect callers sur grand arbre (actuellement mesure a x1.6)",
+        "Garde de coherence bloquant avant mise a jour des arêtes de connaissances (forge_coherence_gate.py non execute en pre-commit)"
+      ]
+    },
+    {
+      "organe": "Reseau/Distribue/Sync",
+      "modules": 49,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Interdiction absolue d'adresses IP locales ou privees de l'owner codees en dur dans les modules distribuables",
+          "pointeur": "app/forge_swarm_team.py::_load_config:35",
+          "enforce_par": "tests/nr/test_reseau_owner_lu_depuis_config_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Ecoute reseau strictement confinee a l'interface de boucle locale (127.0.0.1) pour tous les services",
+          "pointeur": "tools/forge_network.py::bind_socket:45",
+          "enforce_par": "tests/nr/test_dispatcher_go_boucle_locale_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Verification stricte des certificats mTLS (RFC 8705) et refus de certificats mutants portant serverAuth cote client",
+          "pointeur": "app/forge_cert_binding.py::verifier_certificat:80",
+          "enforce_par": "tests/nr/test_mtls_ca_nr.py"
+        }
+      ],
+      "cible": "déterministe",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Deploiement actif de mTLS sur la totalite des connexions de daemons (forge_cert_binding.py non importe en production, zone morte du 06/09)",
+        "Synchronisation nomade decentralisee P2P LanceDB Ring 6 (ADR 12)"
+      ]
+    },
+    {
+      "organe": "Interface/UI (peau/expression)",
+      "modules": 20,
+      "regles": [
+        {
+          "nature": "garde",
+          "description": "Content Security Policy (CSP) stricte refusant tout CDN tiers non vendorise localement en mode souverain hors-ligne",
+          "pointeur": "app/web_hub/csp.py::build_csp:35",
+          "enforce_par": "tests/nr/test_hub_csp.py"
+        },
+        {
+          "nature": "interrupteur",
+          "description": "Repli sans echec et sans affichage des widgets UI en environnement sans display ou headless (CI/SSH/daemon)",
+          "pointeur": "app/forge_ui_widgets.py::init_widgets:50",
+          "enforce_par": "tests/nr/test_ui_widgets_repli_immediat_nr.py"
+        },
+        {
+          "nature": "garde",
+          "description": "Veilleur de gel et mode de journalisation asynchrone non-bloquant sur le serveur web du portail",
+          "pointeur": "app/web_hub/app.py::setup_logging:110",
+          "enforce_par": "tests/nr/test_webhub_veilleur_de_gel_nr.py"
+        }
+      ],
+      "cible": "exploration",
+      "sans_regle": false,
+      "regle_non_cablee": [
+        "Contrat de vitalite temps-reel pour tous les widgets du tableau de bord (interdiction formelle du statut live pour sondes non mesurables)",
+        "Interface desktop complete PySide6 remplaçant definitivement Streamlit (ADR 7)"
+      ]
+    },
+    {
+      "organe": "SWE-bench",
+      "modules": 5,
+      "regles": [],
+      "cible": "exploration",
+      "sans_regle": true,
+      "regle_non_cablee": [
+        "Validation syntaxique AST de patch unitaire (app/forge_swe_ast_whole_func.py::parse_validate:38 - utilitaire technique sans garde d'enforcement ni politique)",
+        "Borne de perimetre de modifications multi-fichiers (app/forge_swe_multifile.py:generate_multifile_patch sans seuil ni test NR de gouvernance)",
+        "Validation de conformite des outils agents SWE-bench (app/forge_pydantic_tools.py::validate_args:45 teste par test_forge_pydantic_tools.py mais sans gate de gestion du corps)",
+        "Evaluation autonome Pass@1/Pass@2 sur SWE-bench Verified documentee (docs/CLAUDE_STRATEGIE_BENCHMARKS.md) mais non automatisee en gate CI"
+      ]
+    }
+  ],
+  "totaux": {
+    "organes_total": 15,
+    "modules_total": 1809,
+    "organes_avec_regles": 14,
+    "organes_sans_regle": 1,
+    "par_cible": {
+      "déterministe": 7,
+      "exploration": 5,
+      "probabiliste": 3
+    },
+    "modules_par_cible": {
+      "déterministe": 981,
+      "exploration": 391,
+      "probabiliste": 437
+    },
+    "regles_executables_total": 41,
+    "regles_non_cablees_total": 28
+  },
+  "non_lu": [
+    "Tables SQLite sensibles bloquees a la lecture directe par SECRET GUARD : ['system_rules', 'event_log', 'promotion_queue', 'shared_prompt_log']",
+    "Fichiers et scripts situes hors du worktree inspectes par le hub au lieu de ViewFile direct pour respecter la consigne d'isolation",
+    "Scripts de demarrage Windows situes dans le profil utilisateur / Bureau (nokido_start.ps1, etc.) non lisibles depuis le contexte bac a sable"
+  ]
+}

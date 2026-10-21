@@ -158,22 +158,22 @@ def run_turbo(
             try:
                 passed = int(next(x for x in line.split() if x.isdigit()))
             except StopIteration:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_turbo_runner.py', 160, exc_info=True)
         if " failed" in line:
             try:
                 failed = int(line.split(" failed")[0].rsplit(" ", 1)[-1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_turbo_runner.py', 165, exc_info=True)
         if " skipped" in line:
             try:
                 skipped = int(line.split(" skipped")[0].rsplit(" ", 1)[-1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_turbo_runner.py', 170, exc_info=True)
         if " error" in line:
             try:
                 errors = int(line.split(" error")[0].rsplit(" ", 1)[-1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_turbo_runner.py', 175, exc_info=True)
 
     # Compression de la sortie si demandée
     output = stdout
@@ -184,7 +184,7 @@ def run_turbo(
             opt = get_optimizer()
             output = opt.semantic_trim(stdout, max_chars=3000)
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_turbo_runner.py', 186, exc_info=True)
 
     result = {
         "passed": passed,

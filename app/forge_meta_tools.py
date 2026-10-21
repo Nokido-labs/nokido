@@ -432,7 +432,7 @@ async def handle_meta_tool(
             conn.commit()
             conn.close()
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_meta_tools.py', 434, exc_info=True)
         return f"SECURITY_BLOCK: {path_reason}"
 
     # ═══════════════════════════════════════════════════════════════════════════

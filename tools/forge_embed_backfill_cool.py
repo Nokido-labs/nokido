@@ -89,7 +89,7 @@ def brain_batch(texts, timeout_s=180.0):
         if vecs and len(vecs) == len(texts):
             return vecs
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_backfill_cool.py', 91, exc_info=True)
     # 2) ROBUSTESSE : le batch a échoué -> 1 chunk pathologique (trop gros / encodage)
     # empoisonne les 32. Fallback chunk-par-chunk -> liste alignée [vec|None] : les bons
     # passent, les mauvais = None (marqués SKIP_8099 côté backfill pour ne pas re-spin).

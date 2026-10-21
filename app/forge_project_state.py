@@ -51,7 +51,7 @@ def snapshot(root: str) -> ProjectState:
                     elif isinstance(node, ast.ImportFrom) and node.module:
                         modules_set.add(node.module.split(".")[0])
             except SyntaxError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_project_state.py', 53, exc_info=True)
 
             # TODOs
             for i, line in enumerate(src.splitlines(), 1):

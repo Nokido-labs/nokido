@@ -638,7 +638,7 @@ def _ensure_docker(timeout_s: int = 140) -> bool:
             try:
                 _flag.unlink(missing_ok=True)
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ensure_service.py', 640, exc_info=True)
             print("[ensure_docker] REFUS: demande FRAICHE deja posee et keeper "
                   "toujours monitor_only -> il ignore le flag (AUTOLAUNCH=0 ou "
                   "refus de lancement en session owner). Lancer Docker Desktop "
@@ -771,7 +771,7 @@ def _admission(s: str, st: str) -> dict | None:
     return None
 
 
-def _stop_docker_gouverne() -> dict:
+def _stop_docker_gouverne(delai_s: float = 20.0, pas_s: float = 2.0) -> dict:
     """Retire l'intention `docker.wanted` puis demande au keeper de relacher.
 
     Trois refus possibles, chacun DIT : une chaine de travail active (le keeper
@@ -819,15 +819,26 @@ def _stop_docker_gouverne() -> dict:
     # IMPORTEE explicitement (regle d'or `laforge-appel-nom-non-lie` : un appel resolu
     # par `globals()` n'est pas verifiable statiquement -- et un nom absent rendrait
     # `None`, c'est-a-dire un INCONNU deguise en mesure).
+    # 20/10 : `docker desktop stop` peut etre asynchrone -- on attend l'EFFET, borne (n sondes espacees de pas_s) ; et
+    # le succes est le MOTEUR eteint, pas un conteneur arrete (success=True etait rendu avec daemon_encore_up=True).
     encore = None
     try:
         from nokido_agent.tools import forge_searxng_keeper as _k
 
-        encore = _k._docker_daemon_up()
+        for i in range(max(1, int(delai_s // max(pas_s, 0.1))) + 1):
+            encore = _k._docker_daemon_up()
+            if encore is False:
+                break
+            if i < int(delai_s // max(pas_s, 0.1)):
+                time.sleep(pas_s)
     except Exception as e:  # noqa: BLE001
+        encore = None
         detail["sonde_daemon"] = f"illisible ({type(e).__name__}) -- effet NON verifie"
     detail["daemon_encore_up"] = encore
-    ok = (encore is False) or bool(detail.get("stopped"))
+    ok = encore is False
+    if not ok:
+        detail["verdict"] = ("moteur NON arrete : le daemon repond encore apres %s s" % delai_s if encore
+                             else "moteur : arret NON verifie (sonde illisible)")
     return {"service": "docker", "desired": "stopped", "success": ok, "detail": detail}
 
 

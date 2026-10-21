@@ -129,7 +129,7 @@ def _audit(action: str, reason: str = "", **extra) -> None:
 
         _record(action, reason=reason, **extra)
     except Exception:  # noqa: BLE001 - le journal ne doit jamais casser l'appelant
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 131, exc_info=True)
 
 # ────────────────────────────────────────────────────────────────────────────
 # Docker Desktop install path detection
@@ -240,11 +240,12 @@ def _decode_best_effort(b: bytes) -> str:
         try:
             return b.decode("utf-16-le", errors="replace").replace("\x00", "")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 242, exc_info=True)
     for enc in ("utf-8", "cp1252", "latin-1"):
         try:
             return b.decode(enc, errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 247, exc_info=True)
             continue
     return b.decode("latin-1", errors="replace")
 
@@ -286,9 +287,10 @@ def _docker_process_pids() -> list[int]:
                 if name in {n.lower() for n in DOCKER_PROCESS_NAMES if n != "wslhost"} or name == "docker desktop.exe":
                     pids.append(p.info["pid"])
             except (psutil.NoSuchProcess, psutil.AccessDenied):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 288, exc_info=True)
                 continue
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 290, exc_info=True)
     return pids
 
 
@@ -323,6 +325,7 @@ def _docker_ps_json() -> list[dict[str, Any]]:
         try:
             rows.append(json.loads(line))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 325, exc_info=True)
             continue
     return rows
 
@@ -355,6 +358,7 @@ def _detect_restart_loops(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         try:
             count = int(out.strip())
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 357, exc_info=True)
             continue
 
         history = _RESTART_HISTORY.setdefault(cid, [])
@@ -557,6 +561,7 @@ def _estimate_pids_ram_gb(pids: list[int]) -> float:
             p = psutil.Process(pid)
             total += p.memory_info().rss
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 559, exc_info=True)
             continue
     return round(total / 1024**3, 2)
 
@@ -617,7 +622,7 @@ def auto_heal(dry_run: bool = True) -> dict[str, Any]:
         if is_human_locked():
             dry_run = True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_monitor.py', 619, exc_info=True)
     s = docker_state()
     plan: list[dict[str, Any]] = []
     executed: list[dict[str, Any]] = []

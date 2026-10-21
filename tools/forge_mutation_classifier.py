@@ -104,7 +104,7 @@ def _extract_features(filepath: str, agent: str, temperature: float) -> list[flo
                 and sum(1 for m in n.body if isinstance(m, _ast.FunctionDef)) > 3
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_classifier.py', 106, exc_info=True)
 
     risk = min(1.0, nb_fns * 0.005 + nb_cls * 0.02)
 
@@ -162,7 +162,7 @@ def _load_training_data() -> tuple[np.ndarray, np.ndarray]:
                         and sum(1 for m in n.body if isinstance(m, _ast.FunctionDef)) > 3
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_classifier.py', 164, exc_info=True)
             else:
                 # Utiliser les stats AST stockées dans la mémoire
                 nb_fns = int(d.get("function_count", 0))
@@ -179,7 +179,7 @@ def _load_training_data() -> tuple[np.ndarray, np.ndarray]:
                     try:
                         temp = float(str(f).split("temp=")[1][:4])
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_classifier.py', 181, exc_info=True)
 
             label = 1 if d.get("evolution_status") == "Success" else 0
 
@@ -197,7 +197,7 @@ def _load_training_data() -> tuple[np.ndarray, np.ndarray]:
             )
             y.append(label)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_classifier.py', 199, exc_info=True)
 
     return np.array(X, dtype=float), np.array(y)
 
@@ -308,7 +308,7 @@ class MutationClassifier:
                         has_history = True
                         break
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_classifier.py', 310, exc_info=True)
 
         # Cold-start : fichier sans historique → GO optimiste
         if not has_history:

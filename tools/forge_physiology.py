@@ -78,6 +78,7 @@ def _lire_serie(fenetre: int) -> list[dict]:
         try:
             rows.append(json.loads(ligne))
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_physiology.py', 80, exc_info=True)
             continue
     return rows
 

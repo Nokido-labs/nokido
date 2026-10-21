@@ -202,7 +202,7 @@ def opsec_state() -> dict:
                 "by": data.get("last_change_by", "")[:12],
             }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 204, exc_info=True)
     # Fallback SQLite direct
     try:
         conn = sqlite3.connect(str(DB))
@@ -217,7 +217,7 @@ def opsec_state() -> dict:
                 "by": "sqlite",
             }
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 219, exc_info=True)
     return {"level": "?", "locked": False, "by": ""}
 
 
@@ -270,7 +270,7 @@ def fetch_evolution_tree(limit_commits: int = 15) -> list[dict]:
                 }
             )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 272, exc_info=True)
     # 2. Tools forgés Phase G
     try:
         forged_dir = ROOT / "nokido_persist" / "forged_tools"
@@ -297,9 +297,9 @@ def fetch_evolution_tree(limit_commits: int = 15) -> list[dict]:
                         }
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 299, exc_info=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 301, exc_info=True)
     return items
 
 
@@ -476,7 +476,7 @@ class NokidoTUI(App):
             pane.clear()
             pane.write("[bold #FFC107]── MASTER ──[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 478, exc_info=True)
 
     def _load_session(self) -> None:
         # v2 : try bind mount d'abord, puis legacy sandbox/
@@ -503,7 +503,7 @@ class NokidoTUI(App):
                     self._unread_filter = bool(data.get("unread_filter", False))
                     return
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 505, exc_info=True)
 
     def _save_session(self) -> None:
         SESSION_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -528,7 +528,7 @@ class NokidoTUI(App):
             }
             SESSION_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 530, exc_info=True)
 
     # Jusqu'a quand #status_pane montre un message VOULU (aide, usage d'une commande) :
     # la boucle de 2 s ne l'ecrase pas avant. Mesure 2026-09-24 (Pilot headless) : l'aide
@@ -622,7 +622,7 @@ class NokidoTUI(App):
                     self._render_pty()
                 self._render_status()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 624, exc_info=True)
             await asyncio.sleep(2.0)
 
     def _render_msg(self, pane: RichLog, m: dict, agent: dict) -> None:
@@ -665,12 +665,12 @@ class NokidoTUI(App):
                 pane.write("")
                 pane.write(f"[bold]unread user:[/] {unread}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 667, exc_info=True)
             # Filter mode
             if self._unread_filter:
                 pane.write("[bold magenta]FILTER: unread only[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 672, exc_info=True)
 
     def _render_evolution(self) -> None:
         """Phase I — EVOLUTION_TREE pane (skilltree v13.6 inspired).
@@ -715,7 +715,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]evolution err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 717, exc_info=True)
 
     def _render_rag(self) -> None:
         """Affiche les derniers anchors dans pane RAG (toggle Ctrl+K)."""
@@ -732,7 +732,7 @@ class NokidoTUI(App):
                 pane.write(f"  [dim]{a['preview']}[/]")
                 pane.write("")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 734, exc_info=True)
 
     async def on_input_submitted(self, message: Input.Submitted) -> None:
         text = message.value.strip()
@@ -757,7 +757,7 @@ class NokidoTUI(App):
                     self._statut_fige_jusqua = time.time() + 10.0
                     pane.write("[red]/ssh <host> <port> <user>[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 759, exc_info=True)
                 return
             host, port, user = parts[1], parts[2], parts[3]
             if _pty_a is None:
@@ -770,7 +770,7 @@ class NokidoTUI(App):
                 pane.clear()
                 pane.write(f"[yellow]connecting {user}@{host}:{port}...[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 772, exc_info=True)
             # Auth interactive — pas dans le compose (DLP). Pour MVP : password
             # vide (clé SSH/auth pubkey). Étendre via vault plus tard.
             asyncio.create_task(self._pty_open(host, int(port), user))
@@ -873,7 +873,7 @@ class NokidoTUI(App):
             pane.write("")
             pane.write("[dim]Press Ctrl+R to restore status[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 875, exc_info=True)
 
     def action_toggle_rag(self) -> None:
         """Ctrl+K : toggle pane MASTER ↔ RAG anchors view."""
@@ -992,7 +992,7 @@ class NokidoTUI(App):
                 for line in str(result).splitlines()[:20]:
                     pane.write(f"  {line}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 994, exc_info=True)
 
     async def _pty_open(self, host: str, port: int, user: str) -> None:
         if _pty_a is None:
@@ -1006,7 +1006,7 @@ class NokidoTUI(App):
             else:
                 pane.write(f"[red]✗ {reason}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1008, exc_info=True)
 
     def action_toggle_pty(self) -> None:
         """Ctrl+P : toggle pane MASTER ↔ PTY (live SSH terminal)."""
@@ -1047,7 +1047,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]pty err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1049, exc_info=True)
 
     def action_toggle_rbac(self) -> None:
         """Ctrl+G : toggle pane MASTER ↔ RBAC (read-only — édition web :7400/rbac)."""
@@ -1096,7 +1096,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]rbac err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1098, exc_info=True)
 
     def action_view_cycle(self) -> None:
         """F3 : cycle vue suivante dans le registry."""
@@ -1158,7 +1158,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]events err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1160, exc_info=True)
 
     def _render_forge(self) -> None:
         if _fge_a is None:
@@ -1220,7 +1220,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]forge err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1222, exc_info=True)
 
     def _render_services(self) -> None:
         if _svc_a is None:
@@ -1229,7 +1229,7 @@ class NokidoTUI(App):
                 pane.clear()
                 pane.write("[red]services_adapter indisponible[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1231, exc_info=True)
             return
         try:
             pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
@@ -1265,7 +1265,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]services err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1267, exc_info=True)
 
     def _render_tasks(self) -> None:
         if _tsk_a is None:
@@ -1296,7 +1296,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]tasks err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1298, exc_info=True)
 
     def _render_health(self) -> None:
         if _hlt_a is None:
@@ -1331,7 +1331,7 @@ class NokidoTUI(App):
                 pane = self.query_one("#pane_agt_master_llamacpp", RichLog)
                 pane.write(f"[red]health err: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1333, exc_info=True)
 
     def action_toggle_unread_filter(self) -> None:
         """Ctrl+U : cache panes sans nouveaux msgs."""
@@ -1344,7 +1344,7 @@ class NokidoTUI(App):
                 else:
                     pane.styles.display = "block"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1346, exc_info=True)
         self._render_status()
 
     def action_toggle_opsec_lock(self) -> None:
@@ -1359,7 +1359,7 @@ class NokidoTUI(App):
             else:
                 pane.write(f"[bold red]OPSEC toggle FAIL: {result.get('error', '?')[:60]}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_tui.py', 1361, exc_info=True)
         self._render_status()
 
     async def on_unmount(self) -> None:

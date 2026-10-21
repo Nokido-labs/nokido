@@ -162,12 +162,12 @@ class NPUManager:
             try:
                 os.add_dll_directory(str(_ryzen_bin))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_npu.py', 164, exc_info=True)
         if _ryzen_depl.exists():
             try:
                 os.add_dll_directory(str(_ryzen_depl))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_npu.py', 169, exc_info=True)
 
         if "VitisAIExecutionProvider" in eps:
             cfg = self._find_vitisai_config()

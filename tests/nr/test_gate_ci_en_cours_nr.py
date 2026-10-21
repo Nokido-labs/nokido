@@ -67,5 +67,7 @@ def test_la_ci_pose_et_retire_son_temoin_mais_pas_un_test_simule(tmp_path, monke
     def faux(cmd, **k):
         vu.append(cmd)
         return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-    ref.main(["--sha", "abc"], executer=faux)
+    # --dossier : sans lui le journal ci_complete_abc.txt allait dans le VRAI C:/tmp/corrections, ou l'instrument
+    # KPI (tools/forge_kpi_methode.py) le comptait comme un passage ILLISIBLE de CI de reference (20/10).
+    ref.main(["--sha", "abc", "--dossier", str(tmp_path / "journaux")], executer=faux)
     assert vu and not (tmp_path / "jamais.json").exists() and not ref.TEMOIN_CI.exists()

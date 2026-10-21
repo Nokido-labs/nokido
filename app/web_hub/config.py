@@ -97,10 +97,12 @@ _SCHEMA: list[ConfigField] = [
     ),
     ConfigField("rate_limit_login_window_s", "int", 60, "Fenetre rate-limit login (s)", min_=10, max_=3600),
     ConfigField("theme", "enum", "dark", "Theme UI", options=["dark", "light"]),
-    ConfigField("feature_ctf", "bool", True, "Afficher le module CTF dans le dashboard"),
+    # GELES 2026-10-18 (decision owner) : feature_ctf et feature_tui n'ont plus de carte (modules retires de
+    # SERVICES). Gardes pour qu'une config existante qui les porte reste valide ; ils ne commandent plus rien.
+    ConfigField("feature_ctf", "bool", True, "[GELE 2026-10-18 : module retire] Afficher le module CTF dans le dashboard"),
     ConfigField("feature_recon", "bool", True, "Afficher le module Recon"),
     ConfigField("feature_graph", "bool", True, "Afficher le module Graph Studio"),
-    ConfigField("feature_tui", "bool", True, "Afficher le module TUI Terminal"),
+    ConfigField("feature_tui", "bool", True, "[GELE 2026-10-18 : module retire] Afficher le module TUI Terminal"),
     # Security : activation explicite du start/stop de modules via API.
     # False par defaut : UI affiche les statuts mais les POST start/stop 403.
     ConfigField("enable_remote_start", "bool", False, "Autoriser start/stop de modules via API (security flag)"),
@@ -300,7 +302,7 @@ def _reset_for_tests() -> None:
         try:
             CONFIG_PATH.unlink()
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/config.py', 304, exc_info=True)
 
 
 __all__ = [

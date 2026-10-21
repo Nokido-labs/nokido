@@ -55,7 +55,7 @@ def load_allow() -> set[str]:
         for h in (m.get("proxy_allow_hosts") or []):
             hosts.add(str(h).lower())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_proxy.py', 57, exc_info=True)
     return hosts
 
 
@@ -65,7 +65,7 @@ def _audit(line: str) -> None:
         with open(LOGF, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_proxy.py', 67, exc_info=True)
 
 
 def _host_allowed(host: str, allow: set[str]) -> bool:
@@ -135,7 +135,7 @@ class GitProxy:
             try:
                 client.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_proxy.py', 137, exc_info=True)
 
     @staticmethod
     def _relay(a: socket.socket, b: socket.socket) -> None:
@@ -151,13 +151,13 @@ class GitProxy:
                         return
                     (b if s is a else a).sendall(data)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_proxy.py', 153, exc_info=True)
         finally:
             for s in (a, b):
                 try:
                     s.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_git_proxy.py', 159, exc_info=True)
 
 
 def _selftest() -> int:

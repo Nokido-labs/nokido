@@ -107,7 +107,7 @@ class ForgeSourceDiscovery:
                         entry = json.loads(line)
                         cache[entry.get("url", "")] = entry
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_source_discovery.py', 109, exc_info=True)
         return cache
 
     def _is_cached(self, url: str, max_age_days: int = 7) -> bool:
@@ -367,7 +367,7 @@ class ForgeSourceDiscovery:
                     if text and len(text) > 200:
                         return text[:max_chars]
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_source_discovery.py', 369, exc_info=True)
 
                 # ── Méthode 3 : BeautifulSoup ────────────────────────────
                 from bs4 import BeautifulSoup  # noqa: PLC0415
@@ -575,7 +575,7 @@ class ForgeSourceDiscovery:
                 os.environ.setdefault("GROQ_API_KEY", groq_key)
                 candidates.append("groq/llama-3.3-70b-versatile")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_source_discovery.py', 577, exc_info=True)
 
         for model in candidates:
             try:
@@ -716,7 +716,7 @@ class ForgeSourceDiscovery:
             self._ingested += 1
             return True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_source_discovery.py', 718, exc_info=True)
 
         # Fallback : écriture dans RAG/external_sources.jsonl
         ext_file = RAG_DIR / "external_sources.jsonl"
@@ -861,7 +861,7 @@ class ForgeSourceDiscovery:
             with EP_MEMORY.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_source_discovery.py', 863, exc_info=True)
 
     # ── Backends APIs natives (sans clé) ─────────────────────────────────────
 

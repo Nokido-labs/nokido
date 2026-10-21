@@ -89,6 +89,7 @@ def _last_assistant_turn_from_transcript(path: str) -> dict[str, Any] | None:
                 try:
                     obj = json.loads(line)
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_capture.py', 91, exc_info=True)
                     continue
                 # Variantes connues du schema
                 role = obj.get("role")
@@ -119,6 +120,7 @@ def _last_user_turn_from_transcript(path: str) -> dict[str, Any] | None:
                 try:
                     obj = json.loads(line)
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_capture.py', 121, exc_info=True)
                     continue
                 role = obj.get("role")
                 msg = obj.get("message") if isinstance(obj.get("message"), dict) else None

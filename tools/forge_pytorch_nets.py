@@ -454,7 +454,7 @@ def online_update_all(
         F.mse_loss(cnet(s_s1), cost_t).backward()
         oc.step()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pytorch_nets.py', 456, exc_info=True)
 
 
 if __name__ == "__main__":

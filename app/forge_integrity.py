@@ -1209,7 +1209,7 @@ def require_ring(level: int, message: str = "") -> str:
                     if chat:
                         chat.write(f"[red]🔒 {msg}[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_integrity.py', 1211, exc_info=True)
                 return f"INTERDIT: {msg}"
             return await func(*args, **kwargs)
 

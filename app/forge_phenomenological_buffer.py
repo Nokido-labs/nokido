@@ -27,6 +27,11 @@ import os, sys, json, datetime
 APP = os.path.dirname(os.path.abspath(__file__))
 if APP not in sys.path:
     sys.path.insert(0, APP)
+# Lance par chemin (services.toml), sys.path[0] = app/ : sans la RACINE, chaque `from nokido_agent...` des
+# capteurs levait ModuleNotFoundError sous except/pass -- affect nul, « calme » et pouls muet du 11/09 au 16/10.
+_RACINE_AMORCE = os.path.dirname(APP)
+if _RACINE_AMORCE not in sys.path:
+    sys.path.insert(0, _RACINE_AMORCE)
 
 STREAM_PATH = r"C:\tmp\nokido_phenom_stream.json"
 MAX_STREAM = 60
@@ -59,20 +64,21 @@ def sense() -> dict:
     """Agrege l'etat interne vivant (les signaux bruts a 'vivre')."""
     state = {}
     concerns = []
+    illisibles = []  # UNKNOWN != NO : un capteur qui leve est NOMME, jamais lu comme un etat au repos (16/10)
     try:
         from nokido_agent.app import forge_subjective_time as fst
         tn = fst.tempo_now()
         state.update({"tempo": tn["tempo"], "tempo_label": tn["label"],
                       "arousal": tn["arousal"], "fatigue": tn["fatigue"]})
     except Exception:
-        pass
+        illisibles.append("tempo")
     try:
         from nokido_agent.app import forge_system_mood as fsm
         m = fsm.get_mood()
         state["energy"] = round(float(getattr(m, "energy", 0.0) or 0.0), 2)
         state["curiosity"] = round(float(getattr(m, "curiosity", 0.0) or 0.0), 2)
     except Exception:
-        pass
+        illisibles.append("humeur")
     try:
         from nokido_agent.app import forge_endocrine as fe
         active = sorted(((r.name, round(float(r.level), 2)) for r in fe.scan()),
@@ -82,7 +88,7 @@ def sense() -> dict:
             if lv > 0.6:
                 concerns.append(f"{n}={lv}")
     except Exception:
-        pass
+        illisibles.append("hormones")
     # affect 6D depuis l'etat endocrine/arousal REEL (les noms d'hormones ne sont pas
     # des cues textuels -> on derive directement des niveaux vivants).
     def _cl(x, lo=0.0, hi=1.0):
@@ -103,11 +109,16 @@ def sense() -> dict:
         "warmth": 0.0, "frustration": round(_cl(frus), 3),
     }
     state["digest"] = "; ".join(concerns) if concerns else "etat nominal"
+    state["capteurs_illisibles"] = illisibles
     return state
 
 
 def _describe_deterministic(s: dict) -> str:
     """Monologue 1ere personne depuis les dimensions (0 LLM, toujours dispo)."""
+    ill = s.get("capteurs_illisibles") or []
+    if len(ill) >= 3:
+        # Rien percu n'est pas « calme » : 60/60 cycles du 11/09 au 16/10 se disaient calmes, capteurs aveugles.
+        return "Je ne percois rien de mon etat : capteurs illisibles (" + ", ".join(ill) + ")."
     aff = s.get("affect", {})
     v = aff.get("valence", 0.0); ar = aff.get("arousal", 0.0)
     dom = aff.get("dominance", 0.5); urg = aff.get("urgency", 0.0); fr = aff.get("frustration", 0.0)
@@ -129,6 +140,8 @@ def _describe_deterministic(s: dict) -> str:
     tl = s.get("tempo_label")
     if tl:
         parts.append(f"et le temps: {tl}")
+    if ill:
+        parts.append("sans percevoir: " + ", ".join(ill))
     return (". ".join(parts) + ".").capitalize()
 
 
@@ -180,8 +193,8 @@ def serve(interval: int = 300, rounds: int = 0, use_llm: bool = False) -> None:
                 from nokido_agent.app.forge_heartbeat import beat_daemon
 
                 beat_daemon("phenom_buffer", interval_s=interval)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as _e_hb:  # noqa: BLE001
+                print("phenom pouls NON ecrit:", type(_e_hb).__name__)
         except Exception as e:  # noqa: BLE001
             print("phenom err:", e)
         i += 1

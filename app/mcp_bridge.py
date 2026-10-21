@@ -100,7 +100,7 @@ class _BridgeBuffer:
         try:
             _STATE.write_text(json.dumps(s, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 102, exc_info=True)
         with self._lock:
             self._state_cache = dict(s)
             self._cache_ts = time.monotonic()
@@ -165,7 +165,7 @@ def _wt(t) -> None:
     try:
         _TASKS.write_text(json.dumps(t, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 167, exc_info=True)
 
 
 def _get_db() -> object:
@@ -181,7 +181,7 @@ def _get_db() -> object:
             c.row_factory = sqlite3.Row
             return c
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 183, exc_info=True)
     return None
 
 
@@ -552,7 +552,7 @@ async def main() -> None:
 
         IdleWatchdog(os.environ.get("LAFORGE_AGENT", "NokidoMCP")).start()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 554, exc_info=True)
 
     logger.info("stdio_server démarrage")
     async with stdio_server() as (r, w):
@@ -579,7 +579,7 @@ if __name__ == "__main__":
 
             _lg.getLogger("mcp_bridge").warning(f"[boot] Orphelins tués: {_killed}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 581, exc_info=True)
 
     # ── Stdin watchdog — suicide si stdin fermé (VSCode/Cline fermé) ─────
     def _stdin_watch() -> None:
@@ -597,7 +597,7 @@ if __name__ == "__main__":
                 except Exception:
                     break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_bridge.py', 599, exc_info=True)
         logger.info("[mcp_bridge] stdin fermé — arrêt (parent Cline/VSCode disparu)")
         _os.kill(_os.getpid(), 15)  # SIGTERM
 

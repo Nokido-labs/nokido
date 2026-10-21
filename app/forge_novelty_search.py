@@ -153,7 +153,7 @@ def archive_behavior(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_novelty_search.py', 155, exc_info=True)
     return {"sig_hash": h, "novelty": novelty, "is_discovery": novelty >= NOVELTY_THRESHOLD_NEW}
 
 

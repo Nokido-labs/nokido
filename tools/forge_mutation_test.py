@@ -240,6 +240,7 @@ def executer(cible: str, tests: str, max_mutants: int, timeout: int = 300) -> di
             try:
                 source = ast.unparse(mute)
             except Exception:  # noqa: BLE001 - mutation non reecrivable
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_test.py', 242, exc_info=True)
                 continue
             open(chemin, "w", encoding="utf-8").write(source)
             try:

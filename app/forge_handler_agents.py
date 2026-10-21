@@ -154,7 +154,7 @@ async def _handle_role(app, args: str) -> None:
         try:
             chat.write(f"[red]❌ _handle_role: {_esc(e)}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 156, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -204,7 +204,7 @@ async def _handle_mode(app, args: str) -> None:
                 try:
                     app._update_mode_buttons()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 206, exc_info=True)
                 chat.write(f"[green]✅ Mode → {ICONS.get(m, '')} [bold]{m}[/][/]")
             else:
                 chat.write(f"[red]❌ Mode inconnu : {_esc(m)}[/]")
@@ -230,7 +230,7 @@ async def _handle_mode(app, args: str) -> None:
         try:
             app._set_status(f"[{color}]{icon} {mode.capitalize()}…[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 232, exc_info=True)
 
         async def _run_mode() -> None:
             """Run mode."""
@@ -248,7 +248,7 @@ async def _handle_mode(app, args: str) -> None:
                 try:
                     app._set_status("")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 250, exc_info=True)
 
         asyncio.create_task(_run_mode())
 
@@ -257,7 +257,7 @@ async def _handle_mode(app, args: str) -> None:
         try:
             chat.write(f"[red]❌ _handle_mode: {_esc(e)}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 259, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -308,7 +308,7 @@ async def run_comite(app, task: str) -> Tuple[str, str]:
         try:
             chat.write(f"[yellow]⚠ run_comite: {_esc(e)}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 310, exc_info=True)
         return ("error", str(e))
     finally:
         # Annuler les tasks orphelines creees pendant l'appel
@@ -319,7 +319,7 @@ async def run_comite(app, task: str) -> Tuple[str, str]:
             try:
                 await asyncio.wait_for(asyncio.shield(_t), timeout=0.5)
             except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_agents.py', 321, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

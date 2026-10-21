@@ -60,6 +60,7 @@ def scan_dir(path="app"):
             try:
                 imported_pkgs = scan_imports(py_file)
             except (SyntaxError, OSError):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dep_detector.py', 62, exc_info=True)
                 continue
             installed_status = check_installed(imported_pkgs)
             missing_pkgs = {pkg for pkg, installed in installed_status.items() if not installed}

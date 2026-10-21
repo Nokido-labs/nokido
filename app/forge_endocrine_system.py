@@ -247,7 +247,7 @@ def get_rhythm_status() -> RhythmStatus:
         try:
             set_rhythm(RHYTHM_NORMAL, reason=f"auto_revert_expired_{rhythm_val}", source="endocrine_ttl_watchdog")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_endocrine_system.py', 249, exc_info=True)
         return get_rhythm_status()
 
     mult = DELAY_MULTIPLIERS.get(rhythm_val, 1.0)
@@ -328,7 +328,7 @@ def pulse_auto_conserve(active_threshold_s: int = 300, conserve_ttl_s: int = 180
             # Analyse simple, par défaut on active CONSERVE lors d'un appel CLI explicite
             pass
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_endocrine_system.py', 330, exc_info=True)
     return get_rhythm()
 
 

@@ -181,7 +181,23 @@ async function pollStatus(){
     });
   }catch(_){}
 }
-pollStatus();
-setInterval(pollStatus,15000);
+// Option L (eb458e515, 18/04), perdue le 27/04 et recablee le 18/10 (GO owner) : les drapeaux feature_* de
+// /api/config masquent leurs cartes. Une carte n'est masquee que sur un `false` EXPLICITE : drapeau absent,
+// config illisible ou reseau en panne = la carte RESTE (UNKNOWN n'est pas NO).
+async function applyFeatureFlags(){
+  try{
+    const r=await fetch('/api/config',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return;
+    const s=((await r.json())||{}).settings||{};
+    document.querySelectorAll('[data-feature-key]').forEach(el=>{
+      const k=el.dataset.featureKey;
+      // style.display et non l'attribut `hidden` : une regle d'auteur `.lf-card{display:...}` l'emporterait.
+      el.style.display=(Object.prototype.hasOwnProperty.call(s,k)&&s[k]===false)?'none':'';
+    });
+  }catch(_){}
+}
+function refreshAll(){applyFeatureFlags();pollStatus();}
+refreshAll();
+setInterval(refreshAll,15000);
 </script>
 </body></html>

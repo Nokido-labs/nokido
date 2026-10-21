@@ -70,7 +70,7 @@ class MemoryMonitor:
 
             self._has_psutil = True
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_memory.py', 72, exc_info=True)
 
     def snapshot(self, rag_engine=None, mem_mgr=None) -> MemSnapshot:
         """Capture un snapshot mémoire."""
@@ -88,7 +88,7 @@ class MemoryMonitor:
                 rss = info.rss / (1024 * 1024)
                 vms = info.vms / (1024 * 1024)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_memory.py', 90, exc_info=True)
         else:
             # Fallback sans psutil (Windows)
             try:
@@ -115,7 +115,7 @@ class MemoryMonitor:
                 rss = pmc.WorkingSetSize / (1024 * 1024)
                 vms = pmc.PagefileUsage / (1024 * 1024)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_memory.py', 117, exc_info=True)
 
         # Python gc tracked objects — tracemalloc si disponible, fallback gc
         python_mb = 0.0
@@ -139,7 +139,7 @@ class MemoryMonitor:
                     python_mb = round((sampled_size / len(sample)) * n / (1024 * 1024), 1)
                 del all_objs, sample
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_memory.py', 141, exc_info=True)
 
         # RAG chunks
         chunks_count = 0

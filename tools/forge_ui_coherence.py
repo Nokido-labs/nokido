@@ -78,6 +78,7 @@ def _ports_cites_dans_ui() -> dict:
         try:
             txt = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ui_coherence.py', 80, exc_info=True)
             continue
         for ligne in txt.splitlines():
             for m in re.finditer(r"127\.0\.0\.1:(\d{4,5})", ligne):

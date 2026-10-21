@@ -593,7 +593,7 @@ def _archive_run(suite_type: str, fails: int) -> None:
         )
         (_pdir / f"nr_{_ts_f}.txt").write_text(_text, encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/mcp_nr.py', 595, exc_info=True)
 
 
 def run_fast() -> int:
@@ -604,7 +604,7 @@ def run_fast() -> int:
 
         _sbn(verbose=False)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/mcp_nr.py', 606, exc_info=True)
     print("══ NR FAST ══════════════════════════════")
     fails = 0
     fails += _report(check_ast(), "AST")

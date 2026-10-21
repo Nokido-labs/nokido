@@ -79,7 +79,7 @@ def main() -> int:
                 if datetime.fromisoformat(push).replace(tzinfo=timezone.utc) < limite:
                     ecartes += 1; motifs["dormant"] += 1; continue
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_veille_ecosysteme_github.py', 81, exc_info=True)
             if nom not in retenus:
                 retenus[nom] = {
                     "nom": nom, "etoiles": etoiles, "desc": desc, "push": push,

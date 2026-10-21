@@ -240,7 +240,7 @@ async def dispatch_ai(app, user_input: str):
         _mode = getattr(app, "_collab_mode", "autonome")
         _hb_beat("CLAUDE", status="working", task=user_input[:60])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 242, exc_info=True)
 
     # ── Swarm state machine — THINKING ──────────────────────────────────
     try:
@@ -248,7 +248,7 @@ async def dispatch_ai(app, user_input: str):
 
         _swarm.sm.set_thinking("CLAUDE", user_input[:40])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 250, exc_info=True)
 
     # ── Filtre de Résonance — vérifie dérive + répétition ──────────────
     _resonance_result = {"action": "pass", "enriched_prompt": user_input, "correction": "", "drift_score": 0.0}
@@ -267,7 +267,7 @@ async def dispatch_ai(app, user_input: str):
             # Enrichir l'input avec le contexte ADR
             user_input = _resonance_result["enriched_prompt"]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 269, exc_info=True)
 
     # ── MMap Context — agent écrit sa pensée en cours ───────────────────
     _agent_ctx = None
@@ -277,7 +277,7 @@ async def dispatch_ai(app, user_input: str):
         _agent_ctx = _AC("CLAUDE")
         _agent_ctx.start_thinking(user_input[:60])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 279, exc_info=True)
 
     try:
         app._set_status("[cyan]🤖 Traitement…[/]")
@@ -415,7 +415,7 @@ async def dispatch_ai(app, user_input: str):
                     if r:
                         r.feedback(user_input, "chat", "chat", weight=0.2)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 417, exc_info=True)
             orc._push_context("user", user_input)
             orc._push_context("assistant", response)
             if app.context:
@@ -438,7 +438,7 @@ async def dispatch_ai(app, user_input: str):
                 try:
                     app.role_panel.activate(role_key)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 440, exc_info=True)
 
             app._set_status(f"[cyan]🧠 Routage {app._collab_mode}…[/]")
             route_result = None
@@ -584,7 +584,7 @@ async def dispatch_ai(app, user_input: str):
 
                     _sw.sm.set_streaming("CLAUDE")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 586, exc_info=True)
                 response, agent_used = await orc.run_collaboration(enriched)
                 cmd_to_inject = cmd_hint
             elif _fb_mode == "comite":
@@ -594,7 +594,7 @@ async def dispatch_ai(app, user_input: str):
 
                     _sw.sm.set_streaming("CLAUDE")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 596, exc_info=True)
                 response, agent_used = await orc.run_comite(enriched)
                 cmd_to_inject = cmd_hint
             else:
@@ -772,7 +772,7 @@ async def dispatch_ai(app, user_input: str):
             if _agent_ctx:
                 _agent_ctx.done()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 774, exc_info=True)
         # Swarm — garantir retour IDLE
         try:
             from nokido_agent.app.forge_swarm import swarm as _swarm
@@ -780,7 +780,7 @@ async def dispatch_ai(app, user_input: str):
             if _swarm.sm.active_agent == "CLAUDE":
                 _swarm.sm.force_idle()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 782, exc_info=True)
         app._set_status("")
         # record_success + refresh SkillTree
         if agentic_engine and getattr(agentic_engine, "_current_skills", []) and response:
@@ -793,7 +793,7 @@ async def dispatch_ai(app, user_input: str):
             _gauge = app.query_one("#entropy-gauge", EntropyGauge)
             _gauge.refresh_entropy(agentic_engine.entropy_level(), agentic_engine.entropy_color())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_ai.py', 795, exc_info=True)
 
         # Laisser les rôles allumés 3s puis éteindre
         async def _fade_roles() -> None:

@@ -94,7 +94,7 @@ def _connected_to() -> tuple[dict[str, list[str]], str]:
                 return ({str(k): sorted(str(x) for x in v) for k, v in cand.items()},
                         "forge_body_regulation_audit.scan_imports")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_edges.py', 96, exc_info=True)
 
     graph: dict[str, list[str]] = {}
     known = _modules()
@@ -102,6 +102,7 @@ def _connected_to() -> tuple[dict[str, list[str]], str]:
         try:
             txt = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_edges.py', 104, exc_info=True)
             continue
         deps = {m for m in _IMPORT.findall(txt) if m in known and m != name}
         graph[name] = sorted(deps)
@@ -138,7 +139,7 @@ def _part_of() -> tuple[dict[str, str], str]:
                         "organe->modules" if isinstance(probe, (list, tuple, set))
                         else "module->organe")
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_edges.py', 140, exc_info=True)
     try:
         from nokido_agent.tools import forge_module_census as census
 
@@ -192,7 +193,7 @@ def _load() -> dict:
         try:
             return json.loads(OUT_PATH.read_text(encoding="utf-8", errors="replace"))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_edges.py', 194, exc_info=True)
     return build(save=True)
 
 

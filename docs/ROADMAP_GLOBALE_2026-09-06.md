@@ -238,6 +238,8 @@ tient le cos ≥ 0,99 devient le chemin local par défaut.
   elle n'existe pas. Elle ne s'écrit qu'**après** le gate A — sinon on abstrait un backend
   dont on n'a pas prouvé qu'il sert à quelque chose.
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 **Critère de sortie du spike :** un tableau de trois colonnes (CPU / 780M / NPU) sur les deux
 gates, avec la décision **ouvrir** ou **fermer** écrite noir sur blanc et ancrée en RAG.
 

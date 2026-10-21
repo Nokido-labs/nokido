@@ -24,6 +24,7 @@ from __future__ import annotations
 __FORGE_COLOR__ = "qualite/git : isolation physique par agent via git worktree"  # organe declare le 2026-09-06 (audit de raccordement)
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -114,7 +115,9 @@ AUTONOMOUS = ["gemini", "cowork", "claude_cli", "codex"]
 
 
 def _git(args: list[str], cwd: Path = ROOT) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-c", "safe.directory=*", *args],
+    # core.longpaths : sous un chemin profond (tmp de la CI de reference, 144 car. de base), `rebase` mourait en
+    # « fatal: failed to stat '<sha>...<sha>': Filename too long » (CI d58bb84bb) ; transmis aux git enfants.
+    return subprocess.run(["git", "-c", "safe.directory=*", "-c", "core.longpaths=true", *args],
                           capture_output=True, text=True, cwd=str(cwd), errors="replace")
 
 
@@ -139,11 +142,20 @@ def create(agent: str) -> dict:
     if r.returncode != 0:
         return {"agent": agent, "error": r.stderr.strip()[:200]}
     # marqueur d'identité per-worktree (lu par forge_git_gate._agent)
+    marqueur = "ecrit"
     try:
         (wt / ".nokido.agent").write_text(f"agent={agent.upper()}\n", encoding="utf-8")
-    except Exception:
-        pass
-    return {"agent": agent, "path": str(wt), "branch": branch, "status": "created"}
+    except OSError as exc:
+        logging.getLogger("Nokido.Worktree").warning(
+            "ecriture .nokido.agent impossible (%s): %s",
+            type(exc).__name__,
+            exc,
+        )
+        marqueur = (
+            f"NON ECRIT ({type(exc).__name__}) : "
+            f"forge_git_gate n'attribuera pas les commits de ce worktree a {agent.upper()}"
+        )
+    return {"agent": agent, "path": str(wt), "branch": branch, "status": "created", "marqueur_identite": marqueur}
 
 
 def _segment(valeur: str) -> str:
@@ -338,13 +350,53 @@ def route(agent: str) -> str:
     return str(wt) if wt.exists() else str(ROOT)
 
 
+def _assainir(agent: str, wt: Path, raison: str) -> dict:
+    """Decision owner 19/10 (« preserver puis repartir ») : tout l'etat du worktree -- commits de la branche ET
+    fichiers modifies ou non suivis, hors marqueur d'identite -- part sur preserve/<agent>-<horodatage>, puis la
+    branche de l'agent repart d'alpha. JAMAIS PERDU : la branche de preservation se relit et s'integre a la main."""
+    import time as _t
+    branche = _git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=wt).stdout.strip()
+    if not branche or branche == "HEAD":
+        branche = "wip/%s" % agent.lower()
+    pres = "preserve/%s-%s" % (agent.lower(), _t.strftime("%Y%m%d-%H%M%S"))
+    if _git(["checkout", "-q", "-b", pres], cwd=wt).returncode != 0:
+        return {"agent": agent, "rebased": False, "msg": "assainissement IMPOSSIBLE (branche %s) -- %s" % (pres, raison)}
+    _git(["add", "-A", "--", ".", ":(exclude).nokido.agent"], cwd=wt)
+    if _git(["diff", "--cached", "--quiet"], cwd=wt).returncode != 0:
+        c = _git(["-c", "user.name=nokido-preservation", "-c", "user.email=preservation@nokido.local", "commit", "-q",
+                  "-m", "chore(preservation): etat de %s avant recalage sur alpha" % agent, "-m", raison[:300]], cwd=wt)
+        if c.returncode != 0:
+            return {"agent": agent, "rebased": False, "preserve": pres,
+                    "msg": "preservation NON committee, worktree laisse sur %s -- %s" % (pres, (c.stderr or c.stdout)[:160])}
+    r = _git(["checkout", "-q", "-B", branche, "alpha"], cwd=wt)
+    return {"agent": agent, "rebased": r.returncode == 0, "assaini": r.returncode == 0, "preserve": pres,
+            "msg": ("etat preserve sur %s, %s repart d'alpha -- cause : %s" % (pres, branche, raison[:160]))
+            if r.returncode == 0 else "recalage IMPOSSIBLE apres preservation -- %s" % (r.stderr or r.stdout)[:160]}
+
+
 def sync(agent: str) -> dict:
     """Rebase la branche wip/<agent> sur alpha (récupère le canonique à jour). NON destructif si conflit."""
     wt = _wt_path(agent.lower())
     if not wt.exists():
         return {"agent": agent, "error": "worktree absent"}
+    # 17/10 : le SEUL marqueur `.nokido.agent` indexe faisait refuser le rebase (index non vide) -- opencode_nemotron restait
+    # sur 4048d8ff6. On desindexe ce marqueur, et lui seul : un vrai travail en cours bloque toujours le rebase (jamais
+    # touche, NR test_un_travail_en_cours_n_est_jamais_touche). Pas de --autostash : il rebaserait aussi ce travail.
+    _git(["reset", "-q", "--", ".nokido.agent"], cwd=wt)
     r = _git(["rebase", "alpha"], cwd=wt)
-    return {"agent": agent, "rebased": r.returncode == 0, "msg": (r.stderr or r.stdout).strip()[:200]}
+    if r.returncode != 0:
+        # 2026-10-17 : sur CONFLIT, git s'arretait EN PLEIN REBASE -- le worktree restait casse pour l'agent, contrairement
+        # a « NON destructif » (mesure par NR). On l'abandonne : la branche revient a son etat d'avant, rien n'est perdu.
+        en_cours = any((wt / _git(["rev-parse", "--git-path", x], cwd=wt).stdout.strip()).exists()
+                       for x in ("rebase-merge", "rebase-apply"))
+        if en_cours:
+            ab = _git(["rebase", "--abort"], cwd=wt)
+            if ab.returncode != 0:
+                return {"agent": agent, "rebased": False, "abandonne": False,
+                        "msg": "conflit : rebase NON abandonne -- " + (r.stderr or r.stdout).strip()[:160]}
+        # Conflit, non indexes ou non suivis qui bloquent : preserver puis repartir d'alpha (decision owner 19/10).
+        return _assainir(agent, wt, (r.stderr or r.stdout).strip()[:300])
+    return {"agent": agent, "rebased": True, "msg": (r.stderr or r.stdout).strip()[:200]}
 
 
 def main(argv: list[str]) -> int:

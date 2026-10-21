@@ -14,7 +14,9 @@ Chunks produits: source = conv_claude/<session_id>/<turn_idx>
                           conv_gemini/<session_id>/<turn_idx>
                           conv_codex/<session_id>/<turn_idx>
                           conv_agy/<session_id>/<turn_idx>
-Dedup: INSERT OR IGNORE sur id = sha256(source+text)[:16]
+Dedup: INSERT OR IGNORE sur id = sha256(source+text)[:16] + dedup de CONTENU par
+       colonne `hash` = sha256(text)[:16] (cause racine 17/10 : hash NULL sur les
+       99 973 fragments conv -> 17,6 % de doublons)
 """
 
 from __future__ import annotations
@@ -296,15 +298,9 @@ def moelle(tours: list) -> tuple[list, int]:
 
 def _decouper_sans_perte(texte: str, taille: int) -> list:
     """ETAGE 3 : un message long est DECOUPE (fin de ligne ou d'espace si possible), jamais tronque."""
-    out, reste = [], texte
-    while len(reste) > taille:
-        coupe = max(reste.rfind("\n", 0, taille), reste.rfind(" ", 0, taille))
-        coupe = coupe if coupe > taille // 2 else taille
-        out.append(reste[:coupe])
-        reste = reste[coupe:].lstrip()
-    if reste:
-        out.append(reste)
-    return out
+    from nokido_agent.app.forge_utils import decouper_sans_perte  # corps partage (cliquet clones, 18/10)
+
+    return decouper_sans_perte(texte, taille)
 
 
 def iter_claude_chunks(jsonl_path: Path) -> Iterator[tuple]:
@@ -924,6 +920,17 @@ def _chunk_id(source: str, text: str) -> str:
     return hashlib.sha256(f"{source}{text}".encode()).hexdigest()[:16]
 
 
+def _hash_texte(texte: str) -> str:
+    """Empreinte de CONTENU d'un fragment : sha256(texte)[:16].
+
+    Convention deja posee par `forge_clawhub_autoinstall` (sha256 du texte) —
+    c'est la colonne `hash` que lit `tools/forge_rag_dedup_hash.py` pour grouper
+    les doublons, quelle que soit la source. Cause racine du 17/10 : les 99 973
+    fragments conv etaient tous a `hash` NULL, donc la deduplication etait
+    IMPOSSIBLE — 17,6 % de doublons mesures dans le domaine."""
+    return hashlib.sha256(texte.encode("utf-8", "replace")).hexdigest()[:16]
+
+
 def _caviarde(texte: str) -> str:
     """Neutralise les secrets AVANT insertion en base.
 
@@ -968,6 +975,22 @@ def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path | None = None) -
     inserted = 0
     ts = time.strftime("%Y-%m-%dT%H:%M:%S")
 
+    # Le schema TEMPOIRE de certains tests NR n'a pas la colonne `hash` : on
+    # deduplique par contenu SEULEMENT quand elle existe, le reste du chemin
+    # (dedup par id) fonctionne a l'identique.
+    avec_hash = "hash" in {r[1] for r in con.execute("PRAGMA table_info(rag_chunks)")}
+    if avec_hash:
+        # Sans cet index, chaque `NOT EXISTS(hash = ?)` balaie TOUTE la table
+        # (2,2 M lignes) : la dedup deviendrait prohibitif. Construction
+        # idempotente (IF NOT EXISTS), une seule fois par base.
+        try:
+            con.execute("CREATE INDEX IF NOT EXISTS idx_rag_chunks_hash ON rag_chunks(hash)")
+        except Exception as e_idx:
+            # Sans index la dedup reste CORRECTE, seulement plus lente : le dire
+            # plutot que la desactiver en silence.
+            log.warning("[conv_indexer] index idx_rag_chunks_hash absent (%s) : dedup par hash en scan",
+                        type(e_idx).__name__)
+
     try:
         for item in chunks:
             # 2-uple (source, text) ou 3-uple (source, text, ts_message). Les
@@ -977,15 +1000,28 @@ def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path | None = None) -
             ts_msg = _extra[0] if _extra else None
             text = _caviarde(text)
             cid = _chunk_id(source, text)
+            h = _hash_texte(text) if avec_hash else None
             try:
                 # Forme sans existant (2026-10-01) : un id deja present n'arme plus le
                 # trigger rag_chunks_fts_bi, qui le sortait du lexical ; changes() vaut 0.
-                con.execute(
-                    "INSERT OR IGNORE INTO rag_chunks "
-                    "(id, source, text, domain, ingested_at, created_at) SELECT ?,?,?,?,?,? "
-                    "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
-                    (cid, source, text, "conv", ts, ts_msg, cid),
-                )
+                # DEDUP DE CONTENU (17/10) : un texte deja en base sous une AUTRE source
+                # (l'identite de chunk depend de la session) n'entre pas une deuxieme
+                # fois — c'est ce que la colonne `hash` rend possible.
+                if avec_hash:
+                    con.execute(
+                        "INSERT OR IGNORE INTO rag_chunks "
+                        "(id, source, text, domain, hash, ingested_at, created_at) SELECT ?,?,?,?,?,?,? "
+                        "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?) "
+                        "AND NOT EXISTS (SELECT 1 FROM rag_chunks WHERE hash = ?)",
+                        (cid, source, text, "conv", h, ts, ts_msg, cid, h),
+                    )
+                else:
+                    con.execute(
+                        "INSERT OR IGNORE INTO rag_chunks "
+                        "(id, source, text, domain, ingested_at, created_at) SELECT ?,?,?,?,?,? "
+                        "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                        (cid, source, text, "conv", ts, ts_msg, cid),
+                    )
                 # Le compteur d'inserees se lit ICI, avant toute autre ecriture :
                 # `changes()` rend le nombre de lignes de la DERNIERE requete, donc
                 # un UPDATE intercale le fausserait.
@@ -1001,6 +1037,16 @@ def _insert_chunks(chunks: list[tuple[str, str]], db_path: Path | None = None) -
                         "UPDATE rag_chunks SET created_at=? "
                         "WHERE id=? AND created_at IS NULL",
                         (ts_msg, cid),
+                    )
+                if not _neuf and avec_hash:
+                    # Meme rattrapage pour `hash` : les 99 973 fragments conv deja
+                    # en base (mesure du 17/10) ont la colonne a NULL — chaque
+                    # re-rencontre d'un fragment existant remplit son empreinte,
+                    # uniquement le VIDE, sans jamais ecraser.
+                    con.execute(
+                        "UPDATE rag_chunks SET hash=? "
+                        "WHERE id=? AND (hash IS NULL OR hash = '')",
+                        (h, cid),
                     )
                 if _neuf:
                     # Sync FTS

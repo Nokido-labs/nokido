@@ -51,7 +51,7 @@ for arg in sys.argv[2:]:
             try:
                 v = int(v)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_call_antigravity.py', 53, exc_info=True)
         extra[k] = v
 
 # Construire le payload JSON-RPC correct
@@ -85,7 +85,7 @@ req = urllib.request.Request(
 try:
     sys.stdout.reconfigure(encoding='utf-8')
 except AttributeError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_call_antigravity.py', 87, exc_info=True)
 
 try:
     r = urllib.request.urlopen(req, timeout=15)

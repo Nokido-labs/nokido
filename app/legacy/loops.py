@@ -434,6 +434,7 @@ async def _call_model(model: str, prompt: str, ollama_url: str, timeout: int = 1
                             if data.get("done"):
                                 break
                         except Exception:
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 436, exc_info=True)
                             continue
             result = "".join(full)
             if result.strip():
@@ -517,7 +518,7 @@ class AutoRepairLoop:
                     for d in docs:
                         mem.add_rag(d["content"])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 519, exc_info=True)
 
             ctx = mem.build_prompt_context(model_ctx_limit=dbg_ctx_lim)
 
@@ -602,7 +603,7 @@ Identifie les 3 problèmes structurels. Sois concis.
                             f"[v{ver_before}] DEBUGGER non parsable: {dbg_reply[:300]}",
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 604, exc_info=True)
                 continue
 
             sugg = suggestions[0]
@@ -676,7 +677,7 @@ Identifie les 3 problèmes structurels. Sois concis.
                     )
                     state.rag_error_docs.append({"id": f"b1_i{i}", "version": ver_after, "errors": errors_new})
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 678, exc_info=True)
 
             state.iterations.append(
                 LoopIteration(
@@ -791,7 +792,7 @@ class ForkEstimLoop:
                     for d in docs:
                         mem.add_rag(d["content"])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 793, exc_info=True)
 
             log_fn(f"  🏗 STRATÈGE [{stratege}]…")
             prompt_fork = f"""{ROLE_SYSTEM_PROMPTS[AgentRole.STRATEGE]}
@@ -927,7 +928,7 @@ RÉPONDS SUR LA PREMIÈRE LIGNE :
                             f"{errors_now}→{errors_new} err pylint={pl_new:.1f}",
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 929, exc_info=True)
                 return True, state
 
             log_fn("  [red]❌ on_patch échoué.[/]")
@@ -992,7 +993,7 @@ class CollegialDebateLoop:
                     docs = await rag.search("amélioration correction erreurs code", k=3)
                     rag_ctx = "\n".join(d["content"][:200] for d in docs)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 994, exc_info=True)
 
             # ── Phase 1 : propositions parallèles ────────────────────────
             debater_roles = [AgentRole.ANALYSTE, AgentRole.DEBUGGER, AgentRole.STRATEGE][:n_part]
@@ -1013,7 +1014,7 @@ class CollegialDebateLoop:
                         docs = await rag.search(ROLE_RAG_QUERIES[role], k=2)
                         role_rag = "\n".join(d["content"][:200] for d in docs)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 1015, exc_info=True)
                 role_ctx = mem.build_prompt_context(_ctx_limit(model))
                 prompt = f"""{ROLE_SYSTEM_PROMPTS[role]}
 
@@ -1206,7 +1207,7 @@ Code dans ```python."""
                             f"gagnant={winner_name} {errors_now}→{final_errors} err",
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 1208, exc_info=True)
                 return True, state
 
         log_fn("[red]❌ B3 : aucun consensus appliqué.[/]")
@@ -1325,7 +1326,7 @@ class ImprovementOrchestrator:
                 else:
                     on_done(self.state)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/loops.py', 1327, exc_info=True)
 
         return self.state
 

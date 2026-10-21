@@ -482,8 +482,18 @@ def voies_joignables(famille: str, age_max_j: float = 7.0) -> dict:
         age_j = None
     voies = [(v["fournisseur"], v["modele"], v["latence_ms"]) for v in m.get("familles", {}).get(famille_de(famille), [])
              if v.get("etat") == "JOIGNABLE"]
+    # 19/10 (convergence census -> matrice) : un couple que le registre free tier PROUVE mort depuis la mesure est
+    # ecarte et NOMME -- meme contrat que le routeur. Census illisible : rien d'ecarte, et c'est dit.
+    try:
+        from nokido_agent.app.forge_llm_router import injoignables_prouves
+        morts, census = injoignables_prouves(), "lu"
+    except Exception:  # noqa: BLE001 - UNKNOWN n'est pas NO : on garde les voies, on le dit
+        morts, census = set(), "illisible"
+    ecartees = ["%s:%s" % (f, mo) for f, mo, _ in voies if "%s:%s" % (f, mo) in morts]
+    voies = [v for v in voies if "%s:%s" % (v[0], v[1]) not in morts]
     etat = "PERIMEE" if age_j is None or age_j > age_max_j else ("MESUREE" if voies else "AUCUNE_VOIE_MESUREE")
-    return {"voies": voies, "etat": etat, "age_j": None if age_j is None else round(age_j, 2)}
+    return {"voies": voies, "etat": etat, "age_j": None if age_j is None else round(age_j, 2),
+            "census": census, "ecartees_census": ecartees}
 
 
 def candidates_du_clair(etiquette: str, env_key: str) -> list[tuple[int, str]]:

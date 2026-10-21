@@ -140,7 +140,7 @@ def _require_capability(token: str, scope: str, action: str, agent_id: str = "")
 
                 mgr = _bs.integrity_manager_instance
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_server_tools.py', 142, exc_info=True)
         if mgr is None:
             return {"ok": False, "reason": "IntegrityManager non initialise"}
 
@@ -1300,7 +1300,7 @@ def _authority_log(event: str, agent_id: str, detail: str = "") -> None:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(log_line)
     except Exception:
-        pass  # fail-silent pour ne pas bloquer les operations authority
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_server_tools.py', 1302, exc_info=True)
 
 
 async def authority_status() -> str:
@@ -1495,7 +1495,7 @@ async def check_job_status(job_id: str, caller_agent_id: str = "") -> str:
                 try:
                     job_data[field] = json.loads(job_data[field])
                 except:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_server_tools.py', 1497, exc_info=True)
 
         return json.dumps({"ok": True, "job": job_data})
     except Exception as e:
@@ -1625,7 +1625,7 @@ async def get_project_state_snapshot(
                     }
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_server_tools.py', 1627, exc_info=True)
     _snap["cot_traces"] = _cot if _cot else ["no CoT traces yet"]
 
     # ── 5. SITUATION.md résumé ─────────────────────────────────────────────

@@ -5,7 +5,9 @@ import time
 import logging
 
 # Ensure tools directory is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+# La RACINE du depot, ou vit le paquet `nokido_agent/` : le "." d'origine inserait tools/, et le script mourait en
+# ModuleNotFoundError des qu'il etait lance hors de pytest (run_job du 20/10).
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from nokido_agent.tools.forge_rfc_ingest import LocalRFCIngestionTool
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -86,6 +88,49 @@ CRITICAL_RFCS = {
         "RFC 9748", "RFC 9765", "RFC 9769",
         "RFC 9887",  # TACACS+ mis a jour
     ],
+    # Citees par le CODE de Nokido et absentes de cette liste (demande owner du 2026-10-20, cliquet
+    # tests/nr/test_rfc_citees_par_le_code_dans_l_audit_nr.py) : une norme que le code IMPLEMENTE doit etre
+    # consultable dans le RAG au moment ou on l'ecrit. Toutes presentes dans le miroir local.
+    "JOSE, jetons et identite des agents (citees par le code)": [
+        "RFC 7515",  # JWS
+        "RFC 7517",  # JWK
+        "RFC 7518",  # JWA
+        "RFC 7638",  # empreinte de JWK (jkt de DPoP)
+        "RFC 8037",  # EdDSA dans JOSE
+        "RFC 6750",  # jeton porteur (Bearer)
+        "RFC 7523",  # assertion JWT
+        "RFC 7662",  # introspection de jeton
+        "RFC 9068",  # profil JWT des jetons d'acces
+        "RFC 9207",  # identification de l'emetteur
+        "RFC 8414",  # metadonnees du serveur d'autorisation
+        "RFC 9728",  # metadonnees de ressource protegee (autorisation MCP)
+        "RFC 8705",  # TLS mutuel et jetons lies au certificat
+        "RFC 8707",  # indicateurs de ressource
+        "RFC 9525",  # identite de service dans TLS
+        "RFC 6238",  # TOTP
+    ],
+    "HTTP, URI et contenus (citees par le code)": [
+        "RFC 6585",  # 429 et codes de statut complementaires
+        "RFC 6648",  # abandon du prefixe X- des en-tetes
+        "RFC 6838",  # types de media (remplace la RFC 4288)
+        "RFC 7595",  # schemas d'URI
+        "RFC 8615",  # URI bien connues (/.well-known)
+        "RFC 5064",  # en-tete Archived-At
+        "RFC 9309",  # protocole d'exclusion des robots (robots.txt)
+    ],
+    "Reseau, citees par le code (netcfg-agent)": [
+        "RFC 1213",  # MIB-II
+        "RFC 2827",  # BCP 38, filtrage en entree
+        "RFC 3704",  # BCP 84, filtrage en entree des reseaux multi-domicilies
+    ],
+}
+
+# RFC OBSOLETES encore citees par le code -> leur successeur, qui est dans la liste (meme cliquet) : on ingere la
+# norme en vigueur, pas celle qu'elle remplace ; la citation du code se corrige a la prochaine edition du fichier.
+RFC_OBSOLETES = {
+    2460: 8200,  # IPv6
+    4288: 6838,  # enregistrement des types de media
+    7235: 9110,  # authentification HTTP
 }
 
 

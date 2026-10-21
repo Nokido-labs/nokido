@@ -91,6 +91,15 @@ PILIERS_ONLY = os.environ.get("LAFORGE_LLAMA_KEEPER_PILIERS_ONLY", "0") in ("1",
 _GOUVERNE_CODER = not PILIERS_ONLY
 
 
+# 16/10 (gate recidive : 9 sites `except: pass`) : ce que les enumerations n'ont pas pu LIRE est compte et publie
+# dans le battement (`illisibles`) -- un process illisible n'est pas un process absent (UNKNOWN != NO).
+_ILLISIBLES: dict = {}
+
+
+def _noter_illisible(cle: str) -> None:
+    _ILLISIBLES[cle] = _ILLISIBLES.get(cle, 0) + 1
+
+
 def _serving_pids() -> set:
     """Qui ECOUTE sur les ports geres (_MANAGED_PORTS) -- identification par CAPACITE
     SERVIE, ni par nom d'executable ni par cmdline.
@@ -110,7 +119,7 @@ def _serving_pids() -> set:
                     and str(c.laddr.port) in _MANAGED_PORTS):
                 out.add(c.pid)
     except Exception:
-        pass  # prudence : pas de vue reseau -> ensemble vide, on ne devine pas
+        _noter_illisible("vue_reseau")  # pas de vue reseau -> ensemble vide, on ne devine pas, on le DIT
     return out
 
 
@@ -123,7 +132,7 @@ def _ollama_pids() -> set:
             if (p.info["name"] or "").lower() == "ollama.exe":
                 out.add(p.info["pid"])
         except Exception:
-            pass
+            _noter_illisible("ollama_pids")
     return out
 
 
@@ -143,7 +152,7 @@ def _ollama_child_pids(llama_pids) -> set:
             if psutil.Process(pid).ppid() in ollama:
                 out.add(pid)
         except Exception:
-            pass
+            _noter_illisible("ppid_ollama")  # parent illisible : peut-etre un modele ollama, compte « ungoverned »
     return out
 
 
@@ -165,7 +174,7 @@ def _llama_pids():
                 out.append((p.info["memory_info"].rss, p.info["pid"]))
                 seen.add(p.info["pid"])
         except Exception:
-            pass
+            _noter_illisible("llama_pids")  # llama-server VU mais illisible : il n'est PAS absent
     for pid in _serving_pids():
         if pid in seen:
             continue
@@ -173,7 +182,7 @@ def _llama_pids():
             out.append((psutil.Process(pid).memory_info().rss, pid))
             seen.add(pid)
         except Exception:
-            pass
+            _noter_illisible("pids_servants")
     out.sort(reverse=True)  # plus gros d'abord
     return out
 
@@ -264,7 +273,12 @@ def _is_coder(pid: int) -> bool:
         return serving  # cmdline muette -> la capacite servie decide
     if any(m in cl for m in _PROTECT_MARKERS):
         return False
-    return serving or any(p in cl for p in _MANAGED_PORTS)
+    # Port lu comme un JETON exact (--port 8080, --port=8080, hote:8080), jamais une sous-chaine : '18080' et
+    # '180800' contenaient '8080' et qualifiaient un processus etranger comme notre coder (16/10).
+    import re as _re
+
+    jetons = set(_re.split(r"[\s=:,]+", cl))
+    return serving or any(p in jetons for p in _MANAGED_PORTS)
 
 
 def _active_conns() -> int:
@@ -361,8 +375,8 @@ def _kill(pid: int) -> bool:
             print(f"[llama-keeper] kill {pid} REFUSE par world-model: "
                   f"{_g['impact'].get('reason')}", flush=True)
             return False
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as e:  # noqa: BLE001 -- best-effort, mais un kill SANS garde se DIT (16/10)
+        print(f"[llama-keeper] world-model INDISPONIBLE ({type(e).__name__}) : kill {pid} sans garde", flush=True)
 
     try:
         p = psutil.Process(pid)
@@ -429,7 +443,7 @@ def _supervisor_claimed() -> dict:
             if i.get("status") == "running" and i.get("pid"):
                 out[port] = int(i["pid"])
     except Exception:
-        pass
+        _noter_illisible("superviseur")  # registre injoignable : {} = « on ne sait pas », DIT dans le battement
     return out
 
 
@@ -532,6 +546,12 @@ def _dette_embed() -> int:
 
 # Dette minimale avant d'armer le drain : evite de le faire flapper sur quelques chunks.
 DETTE_MIN = int(os.environ.get("LAFORGE_EMBED_DETTE_MIN", "1000"))
+# Battement du drain, lu a chaque tick (redirigeable par les NR).
+HB_DRAIN = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "sandbox", "embed_auto_trigger.heartbeat")
+# Instant du dernier arret ACCEPTE : un battement anterieur est celui du processus arrete (18/10 : 471 ordres
+# d'arret repetes toutes les 30 s pendant 5 min sur ce battement-la, enquete AGY job_0b1eed08).
+_DRAIN_ARRET_TS = 0.0
 
 
 def _drain_on_demand(ram: float) -> list:
@@ -547,20 +567,23 @@ def _drain_on_demand(ram: float) -> list:
     envie. Un drain sans dette ne sert a rien ; une dette sans drain ne se resorbe
     jamais.
     """
+    global _DRAIN_ARRET_TS
     dette = _dette_embed()
     if dette < 0:
         return []  # illisible -> abstention, on n'eteint pas sur une non-mesure
     embed_up = 8099 in _supervisor_claimed()
-    hb = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                      "sandbox", "embed_auto_trigger.heartbeat")
+    hb = HB_DRAIN
     try:
-        vivant = os.path.exists(hb) and (time.time() - os.path.getmtime(hb)) < 300.0
+        mtime_hb = os.path.getmtime(hb) if os.path.exists(hb) else None
+        vivant = mtime_hb is not None and (time.time() - mtime_hb) < 300.0
     except Exception:  # noqa: BLE001
         return []  # heartbeat illisible -> abstention
     nom = "NokidoEmbedTrigger"
     if dette >= DETTE_MIN and embed_up and not vivant and ram <= FREE_AT:
         acte, raison = "running", f"dette={dette} chunks + embedder up + ram {ram:.0f}%"
     elif dette == 0 and vivant:
+        if mtime_hb <= _DRAIN_ARRET_TS:
+            return []  # dernier battement anterieur a l'arret accepte : celui du processus arrete
         acte, raison = "stopped", "dette resorbee"
     else:
         return []
@@ -571,6 +594,8 @@ def _drain_on_demand(ram: float) -> list:
 
         res = _ensure(nom, acte)
         ok = bool((res or {}).get("success")) if isinstance(res, dict) else bool(res)
+        if acte == "stopped" and ok:
+            _DRAIN_ARRET_TS = time.time()
         print(f"[llama-keeper] drain {nom} -> {acte} ok={ok} :: {raison}", flush=True)
         return [f"{nom}->{acte} ok={ok} ({raison})"]
     except Exception as e:  # noqa: BLE001
@@ -631,7 +656,54 @@ def _pilier_inutile(nom: str, port: int, drapeau: str, conns: int, up: bool) -> 
         dette = _dette_embed()
         if dette != 0:        # dette restante OU capteur muet (-1) -> on s'abstient
             return False
+        if _activite_recente(port) is not False:   # decode sur la fenetre, OU illisible -> on s'abstient
+            return False
     return True
+
+
+# Activite jugee sur une FENETRE (15-16/10, fait keeper_arrete_embedder_en_usage_sans_intention_20261015) :
+# `conns == 0` a l'instant du tick ne dit pas « oisif » -- un client par lots est vu idle entre deux lots et
+# l'embedder etait coupe en plein travail. Echantillons (instant, compteur /metrics) gardes d'un tick a l'autre.
+_FENETRE_ACTIVITE_S = float(os.environ.get("LAFORGE_KEEPER_FENETRE_ACTIVITE_S", "900"))
+_COMPTEURS_ACTIVITE = ("llamacpp:n_decode_total", "llamacpp:prompt_tokens_total")
+_echantillons_activite: dict = {}
+
+
+def _compteur_metrics(port: int):
+    """Somme des compteurs de decodage de /metrics (llama-server `--metrics`), ou None si illisible."""
+    import urllib.request as _u
+    try:
+        with _u.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=4) as r:
+            texte = r.read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - injoignable ou 501 = illisible, jamais « zero »
+        return None
+    total, vu = 0.0, False
+    for ligne in texte.splitlines():
+        nom, _, valeur = ligne.partition(" ")
+        if nom in _COMPTEURS_ACTIVITE:
+            try:
+                total += float(valeur.split()[0])
+            except (ValueError, IndexError):
+                return None
+            vu = True
+    return total if vu else None
+
+
+def _activite_recente(port: int):
+    """True : le compteur a bouge sur la fenetre ; False : fenetre COUVERTE sans decodage ; None : /metrics
+    illisible ou fenetre pas encore couverte -- abstention, une non-mesure n'autorise pas un arret."""
+    n = _compteur_metrics(port)
+    if n is None:
+        return None
+    now = time.time()
+    hist = _echantillons_activite.setdefault(port, [])
+    hist.append((now, n))
+    anciens = [t for t, _ in hist if now - t >= _FENETRE_ACTIVITE_S]
+    if not anciens:
+        return None
+    t_ref = max(anciens)
+    hist[:] = [(t, v) for t, v in hist if t >= t_ref]
+    return len({v for _, v in hist}) > 1
 
 
 def _piliers_on_demand(ram: float) -> list:
@@ -671,7 +743,9 @@ def _piliers_on_demand(ram: float) -> list:
         if voulu and not up and ram <= RELOAD_OK:
             actes.append((nom, "running",
                           f"intention {drapeau} + ram {ram:.0f}% <= {RELOAD_OK:.0f}%"))
-        elif (not voulu) and up and ram >= FREE_AT and conns == 0:
+        elif (not voulu) and up and ram >= FREE_AT and conns == 0 and _activite_recente(port) is not True:
+            # `is not True` : seul un decodage PROUVE sur la fenetre retient l'arret sous pression (15/10, pack
+            # natif coupe entre deux lots) ; illisible garde l'ancienne regle, la pression RAM reste servie.
             actes.append((nom, "stopped",
                           f"sans intention + idle + ram {ram:.0f}% >= {FREE_AT:.0f}%"))
         elif _pilier_inutile(nom, port, drapeau, conns, up):
@@ -772,7 +846,7 @@ def _ollama_fige() -> str:
         with _u.urlopen("http://127.0.0.1:11434/api/ps", timeout=8) as r:
             _j.loads(r.read())
         return ""
-    except Exception:
+    except Exception:  # muet-ok : le timeout de /api/ps EST le signal mesure, la suite le juge (runners enfants)
         pass
     try:
         import psutil as _psutil  # module-level absent ici : import LOCAL obligatoire
@@ -799,6 +873,7 @@ def tick() -> dict:
     import psutil
 
     ram = psutil.virtual_memory().percent
+    _ILLISIBLES.clear()  # compte de CE tick : ce que les enumerations n'ont pas pu lire (16/10)
     pids = _llama_pids()
     # Tâche #12 : les décisions lifecycle ne portent QUE sur les llama-server CODER
     # (ports gérés 8080/8091, default-deny via _is_coder). Compter tous les pids
@@ -822,7 +897,8 @@ def tick() -> dict:
     state = {"ram": ram, "llama_n": len(pids), "coder_n": len(coder),
              "ollama_models_n": len(ollama_models),
              "ungoverned_n": ungoverned, "active_conns": conns,
-             "action": "none", "gemma_up": _gemma_up()}
+             "action": "none", "gemma_up": _gemma_up(),
+             "illisibles": dict(_ILLISIBLES)}
     expected = 2 + (1 if state["gemma_up"] else 0)
     if ungoverned > expected:
         state["health"] = "untracked"
@@ -853,8 +929,9 @@ def tick() -> dict:
                 try:  # garde : worker fork du legit -> ne pas tuer
                     if _ps.Process(_c.pid).ppid() == _legit:
                         continue
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception:  # noqa: BLE001 -- ppid ILLISIBLE : peut-etre un worker du legit -> on s'abstient
+                    _noter_illisible("ppid_dedup")
+                    continue
                 # GARDE 1 -- QUI est perime, le listener ou le registre ?
                 # Si le pid « legitime » n'est MEME PLUS VIVANT, c'est le registre
                 # qui ment, pas le processus qui sert. Tuer le vivant au nom d'un
@@ -1093,6 +1170,8 @@ def _heartbeat(state: dict) -> None:
 
 
 def main() -> int:
+    # Ses ordres au superviseur (ensure -> forge_supervisor_ctl) portent son nom au lieu de « ? ».
+    os.environ["NOKIDO_CTL_AGENT"] = "LLAMA_KEEPER"
     print(f"[llama-keeper] start free_at={FREE_AT}% reload_ok={RELOAD_OK}% "
           f"interval={INTERVAL}s want_local={WANT_LOCAL} monitor_only={MONITOR_ONLY}", flush=True)
     while True:

@@ -103,7 +103,7 @@ def _live_log(tool, msg, status="OK"):
         with open(_LIVE_LOG, "a", encoding="utf-8") as f:
             f.write(line)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_mcp_server.py', 105, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

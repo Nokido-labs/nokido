@@ -69,7 +69,7 @@ def _feed(env, key, status):
 
         mark_http(env, key, status)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_monitor.py', 71, exc_info=True)
 
 
 def _ids(body: bytes) -> list:
@@ -160,9 +160,9 @@ def monitor(motif: str = ""):
             try:
                 r["vault_key"] = vault_key_for(r["provider"])
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_monitor.py', 162, exc_info=True)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_monitor.py', 164, exc_info=True)
     return res
 
 
@@ -178,7 +178,7 @@ def main():
     try:
         Path(out_path).write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_monitor.py', 180, exc_info=True)
     for r in res:
         line = f"{r['provider']:12} {r['health']:18} status={r['status']} key={r.get('key')} {r['ms']}ms"
         if r.get("models", 0) and r["models"] > 0:

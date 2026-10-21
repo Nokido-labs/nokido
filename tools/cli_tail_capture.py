@@ -82,7 +82,7 @@ def _save_cursors(cursors: dict[str, dict[str, Any]]) -> None:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 84, exc_info=True)
 
 
 # ------------------------------------------------------------------ #
@@ -141,6 +141,7 @@ def capture_gemini(verbose: bool = False) -> int:
         try:
             stat = fp.stat()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 143, exc_info=True)
             continue
         cur = cursors.get(key, {"count": 0, "size": 0, "mtime": 0.0})
         # Reset si fichier shrinked (truncate detecte)
@@ -153,6 +154,7 @@ def capture_gemini(verbose: bool = False) -> int:
             with fp.open("r", encoding="utf-8", errors="ignore") as f:
                 lines = [l for l in f if l.strip()]
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 155, exc_info=True)
             continue
 
         skip = cur.get("count", 0)
@@ -164,6 +166,7 @@ def capture_gemini(verbose: bool = False) -> int:
             try:
                 obj = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 166, exc_info=True)
                 continue
             # Premiere ligne = metadata session, pas un tour
             if "kind" in obj and "sessionId" in obj and "type" not in obj:
@@ -223,6 +226,7 @@ def capture_cline(verbose: bool = False) -> int:
         try:
             stat = hist.stat()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 225, exc_info=True)
             continue
         cur = cursors.get(key, {"count": 0, "size": 0, "mtime": 0.0})
         if stat.st_size < cur.get("size", 0):
@@ -233,6 +237,7 @@ def capture_cline(verbose: bool = False) -> int:
         try:
             data = json.loads(hist.read_text(encoding="utf-8", errors="ignore"))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 235, exc_info=True)
             continue
         if not isinstance(data, list):
             continue
@@ -294,7 +299,7 @@ def _claude_transcript_files() -> list[Path]:
             if fp.stat().st_size > 100:
                 out.append(fp)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 296, exc_info=True)
     return out
 
 
@@ -306,6 +311,7 @@ def capture_claude(verbose: bool = False) -> int:
         try:
             stat = fp.stat()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 308, exc_info=True)
             continue
         cur = cursors.get(key, {"count": 0, "size": 0, "mtime": 0.0})
         if stat.st_size < cur.get("size", 0):
@@ -317,6 +323,7 @@ def capture_claude(verbose: bool = False) -> int:
             with fp.open("r", encoding="utf-8", errors="ignore") as f:
                 lines = [ln for ln in f if ln.strip()]
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 319, exc_info=True)
             continue
 
         skip = cur.get("count", 0)

@@ -55,7 +55,7 @@ def _get(key: str, fallback: str = "") -> str:
         if v:
             return v
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_oauth_refresh.py', 57, exc_info=True)
     return fallback
 
 

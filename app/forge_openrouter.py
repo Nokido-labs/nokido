@@ -63,7 +63,7 @@ def _dns_prefetch() -> None:
         try:
             socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_openrouter.py', 65, exc_info=True)
 
     threads = [threading.Thread(target=_resolve, args=(h,), daemon=True) for h in endpoints]
     for t in threads:
@@ -213,7 +213,7 @@ def _get_key() -> str:
         cred = win32cred.CredRead("OPENROUTER_API_KEY", win32cred.CRED_TYPE_GENERIC)
         return cred["CredentialBlob"].decode("utf-16")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_openrouter.py', 215, exc_info=True)
     return ""
 
 
@@ -404,7 +404,7 @@ def _check_backpressure() -> Optional[str]:
         if ram > BP_RAM_MAX:
             return f"RAM {ram:.0f}%"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_openrouter.py', 406, exc_info=True)
     return None
 
 
@@ -491,7 +491,7 @@ def _call_stream(
             _tok_in = len(" ".join(m.get("content", "") for m in messages).split())
             _metrics_log(model, _tok_in, _tok_out, _t_elapsed_ms)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_openrouter.py', 493, exc_info=True)
 
         return result if result else "[ERR:empty] réponse vide"
 

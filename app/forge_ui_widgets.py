@@ -296,7 +296,7 @@ class SkillTreePanel(Static):
             try:
                 self.mount(node)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ui_widgets.py', 298, exc_info=True)
 
     def clear_skills(self) -> None:
         """Clear skills."""
@@ -304,7 +304,7 @@ class SkillTreePanel(Static):
             try:
                 node.remove()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ui_widgets.py', 306, exc_info=True)
         self._skill_nodes.clear()
 
     def render_summary(self, skills: List[Dict]) -> None:
@@ -378,7 +378,7 @@ class VSplitter(Widget):
             self._chat_start_w = chat_p.size.width
             self._term_start_w = term_p.size.width
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ui_widgets.py', 380, exc_info=True)
         self.capture_mouse()
 
     def on_mouse_move(self, event) -> None:
@@ -396,7 +396,7 @@ class VSplitter(Widget):
             self.app.query_one("#chat-panel").styles.width = new_chat
             self.app.query_one("#terminal-panel").styles.width = new_term
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ui_widgets.py', 398, exc_info=True)
 
     def on_mouse_up(self, event) -> None:
         """On mouse up.

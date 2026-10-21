@@ -107,7 +107,7 @@ def check_scope_drift(
             _ij.record(agent=agent, intent_type="intention_gate:drift",
                        target=tool_name, payload={"mode": mode, "blocked": blocked})
         except Exception:
-            pass  # trace best-effort, ne casse jamais
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_intention_gate.py', 109, exc_info=True)
     return verdict
 
 

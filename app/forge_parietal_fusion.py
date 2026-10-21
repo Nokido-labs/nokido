@@ -28,6 +28,11 @@ import os, sys, json, math, time, argparse, datetime
 APP = os.path.dirname(os.path.abspath(__file__))
 if APP not in sys.path:
     sys.path.insert(0, APP)
+# La racine au niveau MODULE (16/10) : l'insertion faite dans _fuse_calcule laissait aveugles les fonctions
+# appelees avant elle quand le service est lance par chemin.
+_RACINE_AMORCE = os.path.dirname(APP)
+if _RACINE_AMORCE not in sys.path:
+    sys.path.insert(0, _RACINE_AMORCE)
 
 
 def _sat(x, k=2.0):
@@ -171,7 +176,7 @@ def _fuse_calcule() -> dict:
         valence, tag = v.valence, v.tag
         salience = round(max(salience, v.salience), 3)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_parietal_fusion.py', 178, exc_info=True)
 
     priority = 3 if salience >= 0.75 else 2 if salience >= 0.5 else 1 if salience >= 0.25 else 0
     return {
@@ -218,7 +223,7 @@ def serve(interval: int = 30, rounds: int = 0) -> None:
 
             beat_daemon("parietal_fusion", interval_s=interval)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_parietal_fusion.py', 225, exc_info=True)
         print(f"[{p['ts']}] sal={p['salience']} P{p['priority']} {p['tag']} focus={len(p['focus'])} -> {publish(p)}")
         i += 1
         if rounds and i >= rounds:

@@ -166,7 +166,7 @@ class FastForgeLogger:
             with self.log_path.open("a", encoding="utf-8", buffering=8192) as f:
                 f.write("\n".join(lines) + "\n")
         except OSError:
-            pass  # Ne jamais bloquer sur erreur disque
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_fast_logger.py', 168, exc_info=True)
 
     def flush(self) -> None:
         """Force le vidage immédiat de la queue (utile avant shutdown)."""

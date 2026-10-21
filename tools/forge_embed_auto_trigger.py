@@ -240,7 +240,7 @@ def run_pass() -> dict:
 
     t0 = time.time()
     try:
-        vecs = embed_batch_fast(texts)
+        vecs = embed_batch_fast(texts, ids=ids)  # ids : registre des tronques (voie longue, 18/10)
     except Exception as e:
         print(f"[ERROR] batch embed failed: {e}", flush=True)
         return {"embedded": 0, "errors": len(rows)}

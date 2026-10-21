@@ -8,7 +8,7 @@ schema = "nokido-distribution/pack"
 version_schema = 1
 id = "local-llm"
 statut = "A_EPINGLER"
-plateformes = ["windows-x64", "linux-x64"]
+plateformes = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
 
 # llama.cpp publie une build par commit. Epingle le 2026-10-07 : b11461, builds CPU (les builds GPU dependent de la
 # carte et du pilote de chaque machine : ils restent un choix d'installation, pas un composant fixe). Sommes = digest

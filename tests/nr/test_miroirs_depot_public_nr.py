@@ -209,6 +209,73 @@ def test_notes_de_release_miroir_liens_github_et_sha256():
     assert P.FICHE_CODEBERG["has_releases"] is True
 
 
+class _FauxForges:
+    """GitHub (lecture), GitLab et Codeberg (releases a etat) : assez pour juger releases_miroirs sur le reseau."""
+
+    class _R:
+        def __init__(self, code, corps=None):
+            self.status_code, self._c = code, corps
+
+        def json(self):
+            return self._c
+
+    def __init__(self, rel, gl_desc, cb_body):
+        self.rel, self.gl, self.cb, self.ecritures = rel, gl_desc, cb_body, []
+
+    def get(self, url, headers=None, timeout=None):
+        if "api.github.com" in url:
+            return self._R(200, [self.rel])
+        if "/releases/tags/" in url:
+            return self._R(404) if self.cb is None else self._R(200, {"id": 7, "body": self.cb})
+        return self._R(404) if self.gl is None else self._R(200, {"description": self.gl})
+
+    def post(self, url, headers=None, timeout=None, json=None):
+        self.ecritures.append(("post", url))
+        if "codeberg" in url:
+            self.cb = json["body"]
+        else:
+            self.gl = json["description"]
+
+    def put(self, url, headers=None, timeout=None, json=None):
+        self.ecritures.append(("put", url))
+        self.gl = json["description"]
+
+    def patch(self, url, headers=None, timeout=None, json=None):
+        self.ecritures.append(("patch", url))
+        self.cb = json["body"]
+
+
+def _rel_v1(sha):
+    return {"tag_name": "v1", "name": "v1", "body": "Notes", "draft": False,
+            "html_url": "https://github.com/Nokido-labs/nokido/releases/tag/v1",
+            "assets": [{"name": "pack.npz", "browser_download_url": "https://github.com/Nokido-labs/nokido/releases/download/v1/pack.npz",
+                        "digest": "sha256:" + sha}]}
+
+
+def test_une_release_miroir_existante_mais_perimee_est_mise_a_jour(monkeypatch):
+    """Mesure 0.20.12 (16/10) : l'asset du Knowledge Pack a ete REMPLACE sur GitHub (sha 71163f61 -> 293334cf) ;
+    les releases deja refletees sur GitLab et Codeberg annoncaient encore l'ANCIEN sha, et l'outil rendait
+    « ALIGNE » parce qu'il ne verifiait que l'EXISTENCE. Une empreinte publiee qui ment est pire qu'aucune."""
+    neuf, ancien = _rel_v1("b" * 64), _rel_v1("a" * 64)
+    f = _FauxForges(neuf, P._notes_miroir(ancien), P._notes_miroir(ancien))
+    monkeypatch.setitem(sys.modules, "requests", f)
+    a_blanc = P.releases_miroirs("https://gitlab.example/api", {}, "https://codeberg.example/api", {}, agir=False)
+    assert a_blanc["verdict"] == "ECARTS" and f.ecritures == [], "a blanc : l'ecart est DIT, rien n'est ecrit"
+    out = P.releases_miroirs("https://gitlab.example/api", {}, "https://codeberg.example/api", {}, agir=True)
+    assert ("put", "https://gitlab.example/api/releases/v1") in f.ecritures
+    assert ("patch", "https://codeberg.example/api/releases/7") in f.ecritures
+    assert "b" * 64 in f.gl and "b" * 64 in f.cb and "a" * 64 not in f.gl + f.cb
+    assert out["verdict"] == "ALIGNE"
+
+
+def test_une_release_miroir_identique_n_est_pas_reecrite(monkeypatch):
+    rel = _rel_v1("c" * 64)
+    f = _FauxForges(rel, P._notes_miroir(rel), P._notes_miroir(rel) + "\r\n")
+    monkeypatch.setitem(sys.modules, "requests", f)
+    out = P.releases_miroirs("https://gitlab.example/api", {}, "https://codeberg.example/api", {}, agir=True)
+    assert out["verdict"] == "ALIGNE" and f.ecritures == [], "identique (aux fins de ligne pres) : aucune ecriture"
+
+
 def test_ci_du_miroir_gitlab_verifie_seulement():
     """La CI de reference et toute publication restent sur GitHub : le miroir rejoue le parcours paquet, rien d'autre."""
     ci = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")

@@ -110,14 +110,14 @@ class SovereignFileLock:
                     os.lseek(self.fd, 0, os.SEEK_SET)
                     msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_qdrant_sidecar.py', 112, exc_info=True)
             else:
                 import fcntl
                 fcntl.flock(self.fd, fcntl.LOCK_UN)
             try:
                 os.close(self.fd)
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_qdrant_sidecar.py', 119, exc_info=True)
             self.fd = None
 
     def __enter__(self):
@@ -144,7 +144,7 @@ def get_qdrant_client(path: str | Path = QDRANT_STORAGE_PATH, prefer_daemon: boo
             client.get_collections()
             return client
         except Exception:
-            pass  # Fallback sur Embedded
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_qdrant_sidecar.py', 146, exc_info=True)
 
     os.makedirs(path, exist_ok=True)
     return QdrantClient(path=str(path))
@@ -448,7 +448,7 @@ def rerank_remote(query: str, results: List[Dict[str, Any]], top_n: int = 5, por
                     results[idx]["rerank_score"] = item.get("relevance_score", item.get("score", 0.0))
             results.sort(key=lambda r: r.get("rerank_score", r.get("score", 0.0)), reverse=True)
     except Exception as e:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_qdrant_sidecar.py', 450, exc_info=True)
     return results[:top_n]
 
 

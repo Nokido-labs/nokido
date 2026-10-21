@@ -80,13 +80,14 @@ def lab_path() -> Path | None:
             if txt:
                 candidates.append(Path(txt))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_security_lab_adapter.py', 82, exc_info=True)
     candidates.extend(_LAB_DEFAULTS)
     for cand in candidates:
         try:
             if cand.exists():
                 return cand
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_security_lab_adapter.py', 89, exc_info=True)
             continue
     return None
 

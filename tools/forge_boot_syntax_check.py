@@ -43,6 +43,7 @@ def scan() -> list[tuple[str, int, str]]:
                 bad.append((rel, e.lineno or 0, e.msg))
             except Exception:
                 # lecture impossible (ACL/verrou) -> non bloquant
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_syntax_check.py', 44, exc_info=True)
                 continue
     return bad
 
@@ -57,7 +58,7 @@ def main() -> int:
             for fpath, ln, msg in bad:
                 f.write(f"  {fpath}:{ln}: {msg}\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_syntax_check.py', 59, exc_info=True)
 
     if not bad:
         print("[boot-syntax] OK - app/ + tools/ parse clean")

@@ -120,7 +120,7 @@ def _ensure_table() -> None:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_orchestrator_scaller.py', 122, exc_info=True)
 
 
 # =============================================================================
@@ -350,7 +350,7 @@ def _detect_permissive_threshold(ci: dict) -> list:
                     )
                 )
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_orchestrator_scaller.py', 352, exc_info=True)
     return recs
 
 

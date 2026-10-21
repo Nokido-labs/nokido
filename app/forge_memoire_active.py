@@ -79,9 +79,20 @@ def _entree(texte, source, age_s=None, **extra):
     return e
 
 
+# 2026-10-16 : RESOLU / RETRACTE se lisent EN TETE (meme regle que forge_ssot_maintainer.etat_roadmap). Cherches au fil
+# des 400 premiers caracteres, « (1) RESOLU par l'effet ... (2) OUVERT ... » fermait une dette dont la moitie restait a
+# faire (m2m_codex_accuse_sans_frame_et_boite_non_relevee_20261015, mesure : 1 entree sur 21). Les marqueurs
+# STRUCTURES (`[CLOS`, `_resolved`) restent reconnus dans la fenetre : ils ne figurent pas dans de la prose.
+import re as _re  # noqa: E402
+
+_TETE_CLOSE = _re.compile(r"^\s*(?:(?:P\d|BLOCKER)\s*[:\-]\s*)?\[?\s*(?:RESOLU|RETRACTE)")
+
+
 def _est_close(cle: str, valeur: str) -> bool:
     hay = cle + " " + valeur[:400]
-    return any(m in hay for m in _MOTS_CLOS)
+    if MARQUEUR_CLOS in hay or "_resolved" in hay:
+        return True
+    return bool(_TETE_CLOSE.match(valeur or ""))
 
 
 def _faits(brut):
@@ -116,7 +127,7 @@ def _age_reel(fait: dict) -> float:
             debut = datetime.fromisoformat(brut)
             return max(0.0, (datetime.now() - debut).total_seconds() / 86400.0)
         except Exception:  # noqa: BLE001 — date illisible : on retombe sur le registre
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_memoire_active.py', 129, exc_info=True)
     return float(fait.get("age_days") or 0.0)
 
 
@@ -410,10 +421,13 @@ def _proprioceptive(limit: int = 4):
         return [], "bilan de sante illisible (%s)" % type(e).__name__
     conf = d.get("confiance")
     suffixe = "" if conf is None else ", confiance %d%%" % round(float(conf) * 100)
-    entrees = [_entree("score %s/100%s" % (d.get("score"), suffixe),
+    # L'AGE SUR LA LIGNE (owner 18/10 : « la ram est a 73% ! ta mesure est encore fausse »). Un « ❌ RAM 94.7% »
+    # tire d'un bilan vieux de 48 min, avec l'age sur une note SEPAREE, a ete relaye comme une mesure presente.
+    date = "" if age_s < 60 else " (bilan il y a %.0f min)" % (age_s / 60)
+    entrees = [_entree("score %s/100%s%s" % (d.get("score"), suffixe, date),
                        "health_diagnostic", age_s=age_s)]
     for g in [g for g in (d.get("gaps") or []) if str(g).startswith("❌")][:limit - 1]:
-        entrees.append(_entree(str(g)[:190], "health_diagnostic", age_s=age_s))
+        entrees.append(_entree(str(g)[:190] + date, "health_diagnostic", age_s=age_s))
     note = None
     if age_s > 1800:
         note = "bilan vieux de %.0f min - l'organe de diagnostic bat-il ?" % (age_s / 60)

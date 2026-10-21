@@ -95,6 +95,7 @@ def _load_vault() -> list:
             try:
                 valeur = vault_get(cle)
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reindex_deport.py', 97, exc_info=True)
                 continue  # secret illisible : on le saute, sans jamais le journaliser
             if valeur and not os.environ.get(cle):
                 os.environ[cle] = valeur
@@ -111,7 +112,7 @@ def _load_vault() -> list:
         try:
             names = sorted(set(names) | set(load_secrets().keys()))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reindex_deport.py', 113, exc_info=True)
     except Exception as exc:  # noqa: BLE001
         log(f"vault par compte indisponible: {exc!r}")
     return names
@@ -131,12 +132,28 @@ def _apply_vault_keys_to_fre(fre) -> list:
     (BGE-M3 GGUF, HTTP), deja expose par `forge_embed_router._llama8099_call` : on le
     CABLE plutot que de le reecrire. Son rythme est borne par le garde de ressources
     et par une pause entre lots, cf. `phase_b_embed`."""
-    fre.HF_TOKEN = os.environ.get("HF_TOKEN", "") or getattr(fre, "HF_TOKEN", "")
+    hf_token = None
+    nvidia_key = None
+    cf_key = None
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        hf_token = get_secret("HF_TOKEN")
+        nvidia_key = get_secret("NVIDIA_NIM_API_KEY") or get_secret("NVIDIA_API_KEY")
+        cf_key = get_secret("CLOUDFLARE_AI_API_KEY")
+    except Exception as _e:
+        log(f"  coffre illisible pour les cles d'embedding ({type(_e).__name__}) -> repli env")
+
+    fre.HF_TOKEN = hf_token or os.environ.get("HF_TOKEN", "") or getattr(fre, "HF_TOKEN", "")
     fre.DEEPINFRA = os.environ.get("DEEPINFRA", "") or getattr(fre, "DEEPINFRA", "")
-    fre.NVIDIA = (os.environ.get("NVIDIA_NIM_API_KEY", "")
-                  or os.environ.get("NVIDIA_API_KEY", "") or getattr(fre, "NVIDIA", ""))
+    fre.NVIDIA = (
+        nvidia_key
+        or os.environ.get("NVIDIA_NIM_API_KEY", "")
+        or os.environ.get("NVIDIA_API_KEY", "")
+        or getattr(fre, "NVIDIA", "")
+    )
     fre.CF_ACCOUNT = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "") or getattr(fre, "CF_ACCOUNT", "")
-    fre.CF_KEY = os.environ.get("CLOUDFLARE_AI_API_KEY", "") or getattr(fre, "CF_KEY", "")
+    fre.CF_KEY = cf_key or os.environ.get("CLOUDFLARE_AI_API_KEY", "") or getattr(fre, "CF_KEY", "")
     fre.PROVIDERS = [
         {"name": "HF", "fn": fre.hf_embed, "enabled": bool(fre.HF_TOKEN)},
         {"name": "DeepInfra", "fn": fre.deepinfra_embed, "enabled": bool(fre.DEEPINFRA)},
@@ -189,7 +206,15 @@ def probe() -> None:
         return
     actifs = _apply_vault_keys_to_fre(fre)
     log(f"  PROVIDERS cloud enabled (vault) = {actifs}")
-    _t = os.environ.get("HF_TOKEN", "")
+    _t = None
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        _t = get_secret("HF_TOKEN")
+    except Exception as _e:
+        log(f"  coffre illisible pour HF_TOKEN ({type(_e).__name__}) -> repli env")
+    if not _t:
+        _t = os.environ.get("HF_TOKEN", "")
     log(f"  HF token sanity: len={len(_t)} starts_hf={_t.startswith('hf_')} "
         f"has_space={' ' in _t} has_quote={chr(34) in _t or chr(39) in _t} "
         f"has_nl={chr(10) in _t or chr(13) in _t}")
@@ -255,6 +280,16 @@ def phase_a_index() -> None:
                 f"chunks={st.get('chunks_added')} dur={st.get('duration_s')}s")
         except Exception as exc:  # noqa: BLE001
             log(f"  index {label} FAILED: {exc!r}")
+
+
+def predicat_a_vectoriser(conn) -> str:
+    """Fragments a vectoriser : tier chaud sous sa forme INDEXABLE (hot_tier_clause) et `embedding IS NULL` SEUL.
+
+    20/10 : le `OR length(embedding)=0` d'origine interdisait l'index partiel idx_emb_null_origin et faisait balayer la
+    table de 46 Go a CHAQUE page (plan `SCAN rag_chunks`, ~68 Mo/s) -- cause de la saturation disque qui faisait
+    osciller le regulateur. Un vecteur de longueur nulle n'est plus repris ici : le remettre a NULL pour qu'il le soit."""
+    from nokido_agent.tools.forge_tier_policy import hot_tier_clause
+    return "%s AND embedding IS NULL" % hot_tier_clause(conn)
 
 
 def phase_b_embed(limit: int = 0) -> None:
@@ -342,8 +377,7 @@ def phase_b_embed(limit: int = 0) -> None:
             f"PAUSE a chaud : creer sandbox/embed_rebuild_pause")
     conn = sqlite3.connect(str(fre.DB), timeout=30)
     conn.execute("PRAGMA busy_timeout=15000")
-    _WHERE = (f"WHERE {HOT_TIER_SQL} "
-              f"AND (embedding IS NULL OR length(embedding)=0)")
+    _WHERE = "WHERE " + predicat_a_vectoriser(conn)
     dispo = conn.execute(f"SELECT COUNT(*) FROM rag_chunks {_WHERE}").fetchone()[0]
     # PAGINATION OBLIGATOIRE. La version precedente faisait un .fetchall() sur le
     # predicat entier, ce qui ramene id + TEXTE de ~348 000 chunks en memoire, et
@@ -366,7 +400,7 @@ def phase_b_embed(limit: int = 0) -> None:
     try:
         t0 = __import__("time").monotonic()
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reindex_deport.py', 392, exc_info=True)
     while done < total:
         page = conn.execute(
             f"SELECT id, text FROM rag_chunks {_WHERE} LIMIT ?",

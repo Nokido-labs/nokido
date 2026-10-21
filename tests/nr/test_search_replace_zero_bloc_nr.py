@@ -38,6 +38,16 @@ def bloc(cherche, remplace):
     return "\n".join((_DEB, cherche, _SEP, remplace, _FIN))
 
 
+def test_un_bloc_final_coupe_avant_sa_fermeture_refuse():
+    """Dette bb:active_bugs/governed_edit_blocs_perdus_en_silence_2026-09-25 (instruite 16/10) : parse_blocks
+    comptait les fermetures EN TROP, jamais les ouvertures orphelines. Un dernier bloc tronque (transport coupe
+    vers 16 Ko) ne matche pas la regex, disparait, et l'edition rendait ok=True amputee."""
+    texte = bloc("alpha", "ALPHA") + "\n" + "\n".join((_DEB, "gamma", _SEP, "GAMMA"))
+    res = SR.apply_to_text(SOURCE, SR.parse_blocks(texte))
+    assert res["ok"] is False, res
+    assert res["text"] == SOURCE, "un refus ne doit appliquer AUCUN bloc, meme ceux qui etaient complets"
+
+
 def test_liste_vide_refuse():
     """LE test. Zero bloc = refus, pas un no-op deguise en succes."""
     res = SR.apply_to_text(SOURCE, [])

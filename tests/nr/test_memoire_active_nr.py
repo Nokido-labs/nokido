@@ -126,6 +126,22 @@ def test_la_prose_heritee_est_reconnue_comme_close(registre):
     assert entrees == []
 
 
+def test_un_RESOLU_au_fil_du_texte_ne_ferme_pas_une_dette_a_moitie_faite(registre):
+    """2026-10-16 : « (1) RESOLU par l'effet ... (2) OUVERT ... » etait lu clos (mot cherche dans les 400 premiers
+    caracteres) alors que la moitie restait a faire. RESOLU/RETRACTE se lisent EN TETE ; les marqueurs structures
+    ([CLOS, _resolved) restent reconnus."""
+    registre["faits"] = [
+        _fait("moitie", "(1) RESOLU par l'effet le 16/10. (2) OUVERT : le poll ne rend pas les frames", 1.0),
+        _fait("tete", "RESOLU le 2026-10-13 : verifie en production", 1.0),
+        _fait("p1_tete", "P1: RETRACTE -- diagnostic faux", 1.0),
+        _fait("structure", "[CLOS 2026-10-16] preuve=commit abc | TEXTE D'ORIGINE : ...", 1.0),
+    ]
+    entrees, _ = mem.dettes_ouvertes()
+    textes = " | ".join(e["texte"] for e in entrees)
+    assert "le poll ne rend pas les frames" in textes, "une dette a moitie faite doit rester ouverte"
+    assert "verifie en production" not in textes and "diagnostic faux" not in textes and "preuve=commit" not in textes
+
+
 def test_clore_exige_et_conserve_une_preuve(monkeypatch, registre):
     """Une commande acceptee n'est pas un effet obtenu - meme exigence que la
     post-condition posee sur le watchdog le meme jour."""

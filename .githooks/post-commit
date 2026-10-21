@@ -6,6 +6,30 @@ import os
 import subprocess
 import sys
 
+
+def _ouvrir_journal(root, nom):
+    """Journal d'un lancement de fond, jamais un abandon muet.
+
+    Mesure du 2026-10-18 : les commits faits par un compte du hub (LaForgeSbxOffline) n'ont pas le droit
+    d'ecrire `logs/` (PermissionError) ; l'erreur etait avalee et 36 commits n'ont ete ni indexes ni rafraichis
+    au SSoT. Repli sur `sandbox/logs/`, inscriptible par ces comptes ; en dernier recours DEVNULL : le travail
+    part quand meme. Chaque repli se DIT sur stderr.
+    """
+    for sous in ("logs", os.path.join("sandbox", "logs")):
+        try:
+            d = os.path.join(root, sous)
+            os.makedirs(d, exist_ok=True)
+            f = open(os.path.join(d, nom), "a", encoding="utf-8")
+        except OSError as e:
+            sys.stderr.write("[post-commit] journal %s refuse dans %s (%s)\n" % (nom, sous, type(e).__name__))
+            continue
+        if sous != "logs":
+            sys.stderr.write("[post-commit] journal %s replie dans %s\n" % (nom, sous))
+        return f
+    sys.stderr.write("[post-commit] journal %s IMPOSSIBLE : lancement sans journal\n" % nom)
+    return subprocess.DEVNULL
+
+
 root = subprocess.run(
     ["git", "rev-parse", "--show-toplevel"],
     capture_output=True, text=True, encoding="utf-8",
@@ -46,28 +70,26 @@ except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, mais jamais 
 script = os.path.join(root, "tools", "forge_post_commit.py")
 if os.path.exists(script):
     try:
-        os.makedirs(os.path.join(root, "logs"), exist_ok=True)
-        log = open(os.path.join(root, "logs", "post_commit.log"), "a", encoding="utf-8")
+        log = _ouvrir_journal(root, "post_commit.log")
         subprocess.Popen(
             ["%USERPROFILE%/miniforge3/python.exe", script],
             cwd=root, stdout=log, stderr=log,
         )
-    except Exception:
-        pass
+    except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, jamais muet
+        sys.stderr.write("[post-commit] indexation RAG NON lancee (%s: %s)\n" % (type(_e).__name__, _e))
 # SSoT — refresh du state structuré (docs/<domain>_state.json) en background.
 # Trusted (user du commit) = write docs/ OK. refresh_all = cheap (state, 0 LLM) ;
 # le regen roadmap lourd reste hors POST_COMMIT (anti-stacking LLM, cadence rare).
 ssot = os.path.join(root, "app", "forge_ssot_maintainer.py")
 if os.path.exists(ssot):
     try:
-        os.makedirs(os.path.join(root, "logs"), exist_ok=True)
-        slog = open(os.path.join(root, "logs", "ssot_maintainer.log"), "a", encoding="utf-8")
+        slog = _ouvrir_journal(root, "ssot_maintainer.log")
         subprocess.Popen(
             ["%USERPROFILE%/miniforge3/python.exe", ssot],
             cwd=root, stdout=slog, stderr=slog,
         )
-    except Exception:
-        pass
+    except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, jamais muet
+        sys.stderr.write("[post-commit] rafraichissement SSoT NON lance (%s: %s)\n" % (type(_e).__name__, _e))
 # MEMOIRE DES CORRECTIONS. Un commit de correction est une verite terrain datee :
 # symptome constate -> procedure appliquee -> preuve (le commit). Nokido indexait
 # deja ses ECHECS (forge_symptom_index) et pas ses reussites. Synchrone car le

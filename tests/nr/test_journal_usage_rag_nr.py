@@ -48,6 +48,8 @@ class _Rep:
 def journal(tmp_path, monkeypatch):
     j = tmp_path / "logs" / "rag_usage_signal.jsonl"
     monkeypatch.setattr(us, "JOURNAL", j)
+    # 19/10 : le conftest des NR coupe NOKIDO_RAG_SIGNAL ; ces tests MESURENT le signal (journal redirige en tmp)
+    monkeypatch.setenv("NOKIDO_RAG_SIGNAL", "1")
     monkeypatch.setitem(us.PERTES, "n", 0)
     return j
 
@@ -62,7 +64,9 @@ def registre(tmp_path, monkeypatch, journal):
 
     reg = ToolRegistry.__new__(ToolRegistry)
     ids = ["c_vrai", "c_voisin", "c_loin"]
-    mat = np.array([[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]], dtype=np.float32)
+    # 19/10 : dimension realiste (1024, completee de zeros : memes cosinus) -- la requete passe par la borne du
+    # routeur, qui REJETTE un vecteur de dimension < 256.
+    mat = np.pad(np.array([[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]], dtype=np.float32), ((0, 0), (0, 1022)))
     reg._dense_cache = {"ts": time.time(), "ids": ids, "mat": mat, "idpos": None, "exts": None,
                         "meta": {c: {"source": "doc:nokido", "domain": "d", "text": "texte " + c}
                                  for c in ids}}
@@ -81,7 +85,7 @@ def _services(monkeypatch, scores=None):
     def urlopen(req, timeout=None):
         url = req.full_url
         if ":8099/" in url:
-            return _Rep({"data": [{"embedding": [1.0, 0.0], "index": 0}]})
+            return _Rep({"data": [{"embedding": [1.0, 0.0] + [0.0] * 1022, "index": 0}]})
         if ":8100/" in url:
             if scores is None:
                 raise ConnectionRefusedError("reranker eteint")

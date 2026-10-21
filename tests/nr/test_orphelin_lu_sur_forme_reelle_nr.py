@@ -28,7 +28,8 @@ def banc(tmp_path, monkeypatch):
             "L1", "param:x", "exp-test",
             appliquer=appliquer or (lambda: etat.update(v=1) or {"ok": True}),
             reverter=lambda: etat.update(v=0) or {"ok": True},
-            mesurer=mesurer or (lambda: {"score": 1.0}),
+            # Le score SUIT l'etat (18/10) : un acte garde doit GAGNER hors bruit (SURVIT != AMELIORE).
+            mesurer=mesurer or (lambda: {"score": 1.0 + etat["v"]}),
             empreinte=lambda: str(etat["v"]), bruit={"score": 0.1})
     return appeler
 

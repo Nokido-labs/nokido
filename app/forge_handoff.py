@@ -1098,7 +1098,7 @@ def _resource_gate(needed_ram_gb: float = 2.0) -> tuple[bool, str]:
         if _st():
             return False, "should_throttle=True"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handoff.py', 1100, exc_info=True)
     try:
         from nokido_agent.app.forge_resource_manager import request_resources as _rr  # type: ignore
 
@@ -1107,9 +1107,9 @@ def _resource_gate(needed_ram_gb: float = 2.0) -> tuple[bool, str]:
             return False, f"request_resources not ok ({plan.get('reason', '?')})"
     except (ImportError, AttributeError):
         # request_resources not yet implemented — soft pass
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handoff.py', 1108, exc_info=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handoff.py', 1111, exc_info=True)
     return True, ""
 
 
@@ -1400,7 +1400,7 @@ def run_workflow_distant(
     try:
         _probe_one(edge_endpoint, timeout_s=3.0)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handoff.py', 1402, exc_info=True)
     raise NotImplementedError(
         "run_workflow_distant: planned — Tailscale edge dispatch not yet wired. "
         "Use run_workflow_linear/parallel/cross with a remote endpoint URL "
@@ -1554,7 +1554,7 @@ if __name__ == "__main__":
             try:
                 _p.unlink()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handoff.py', 1556, exc_info=True)
             _rr = _tf._registry_load()
             _rr.pop("hello_dyn", None)
             _tf._registry_save(_rr)

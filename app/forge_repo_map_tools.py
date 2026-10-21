@@ -118,7 +118,7 @@ def edit_file_block(
             shutil.copy2(str(p), str(bk))
             backup_path = str(bk)
         except OSError:
-            pass  # backup soft-fail, l edit continue
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_repo_map_tools.py', 120, exc_info=True)
 
     # Edit : remplace seulement la PREMIERE occurrence (deterministe).
     new_text = text_norm.replace(old_norm, new_norm, 1)
@@ -166,7 +166,7 @@ def insert_at_line(path: str | Path, line: int, content: str, backup: bool = Tru
             shutil.copy2(str(p), str(bk))
             backup_path = str(bk)
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_repo_map_tools.py', 168, exc_info=True)
     try:
         p.write_text("".join(lines), encoding="utf-8")
     except OSError as e:

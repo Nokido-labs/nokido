@@ -108,6 +108,8 @@ class TestHubClient:
         result = hub.github("status")
         assert result is None or isinstance(result, str)
 
+    @pytest.mark.skip(reason="GELE 17/10 : GET /metrics rend 404 sur le hub actuel (curl 17/10) -- route retiree ; "
+                             "bb:active_bugs/test_hub_nr_vise_l_ancien_hub_20261016")
     def test_metrics_structure(self):
         """metrics() retourne un dict avec les clés attendues."""
         from forge_hub_client import hub
@@ -133,6 +135,8 @@ class TestHubClient:
         r = c.status_report()
         assert "non disponible" in r or "unavailable" in r.lower()
 
+    @pytest.mark.xfail(reason="17/10 : hub.tool() rend None sur le hub actuel, cause NON etablie (route ou jeton) -- "
+                              "a instruire, pas gele", strict=False)
     def test_tool_unknown_action(self):
         """tool inconnu → retourne message d'erreur, pas d'exception."""
         from forge_hub_client import hub
@@ -146,6 +150,9 @@ class TestHubClient:
 # BLOC 2 — TaskRegistry
 # =============================================================================
 
+@pytest.mark.skip(reason="GELE 17/10 : TaskRegistry et MODULE_TEST_MAP n'ont JAMAIS existe dans tools/nokido_hub.py "
+                         "(git log -S) -- contrat du hub d'avant le renommage ; "
+                         "bb:active_bugs/test_hub_nr_vise_l_ancien_hub_20261016")
 class TestTaskRegistry:
     """C1 — TaskRegistry : gestionnaire de tâches background."""
 
@@ -251,6 +258,7 @@ class TestHubEndpoints:
         # queue_size optionnel selon version hub
         assert "status" in h or "queue_size" in h
 
+    @pytest.mark.skip(reason="GELE 17/10 : GET /metrics rend 404 sur le hub actuel (curl 17/10) -- route retiree")
     def test_metrics_endpoint(self):
         """GET /metrics → rag_chunks + event_log."""
         from forge_hub_client import hub

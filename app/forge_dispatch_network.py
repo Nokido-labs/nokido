@@ -187,6 +187,7 @@ async def handle_scan(app, args: str) -> tuple:
                         s.close()
                         return ip_str, [port]
                     except Exception:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch_network.py', 189, exc_info=True)
                         continue
                 return None, []
 

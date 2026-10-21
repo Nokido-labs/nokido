@@ -91,7 +91,7 @@ class SecretAnonymizer:
                     if node.name.startswith("_") or "Internal" in node.name:
                         sensitive.append(node.name)
         except SyntaxError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trust_broker.py', 93, exc_info=True)
         return list(set(sensitive))
 
     def anonymize(self, code: str) -> str:

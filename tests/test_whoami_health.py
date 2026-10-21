@@ -30,6 +30,19 @@ def test_missing_status_is_unknown_and_degraded():
     assert d == [{"service": "Z", "status": "?", "restarts": 0}]
 
 
+def test_desactive_par_politique_et_arrete_n_est_pas_degrade():
+    """18/10 : NokidoEmbedTrigger (`disabled = true`, a la demande depuis le 03/06) sortait « stopped », donc
+    DEGRADE, dans whoami -- le superviseur ne publie pas le drapeau. DISABLED_BY_POLICY n'est pas une panne."""
+    svc = {"E": {"status": "stopped", "restarts": 0}, "X": {"status": "stopped", "restarts": 2}}
+    assert whoami_degraded_services(svc, desactives={"E"}) == [{"service": "X", "status": "stopped", "restarts": 2}]
+
+
+def test_desactive_mais_en_crash_reste_degrade():
+    """Seul l'ARRET est explique par la politique : un crash d'un service desactive reste a regarder."""
+    assert whoami_degraded_services({"E": {"status": "crashed", "restarts": 3}},
+                                    desactives={"E"})[0]["service"] == "E"
+
+
 def test_empty_and_none_safe():
     assert whoami_degraded_services({}) == []
     assert whoami_degraded_services(None) == []

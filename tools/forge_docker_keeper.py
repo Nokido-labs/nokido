@@ -146,11 +146,12 @@ def _load_boot_samples() -> list[tuple[float, float]]:
                 d = json.loads(line)
                 r, s = float(d["ram_pct"]), float(d["duration_s"])
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_keeper.py', 148, exc_info=True)
                 continue
             if r > 0 and s > 0:
                 out.append((r, s))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_keeper.py', 152, exc_info=True)
     return out[-BOOT_SAMPLES_KEEP:]
 
 
@@ -323,13 +324,13 @@ WANT_TTL_S = float(os.environ.get("DOCKER_KEEPER_WANT_TTL_S", "900"))
 def _docker_wanted() -> bool:
     """True si Docker est explicitement requis : autolaunch forcé OU un
     consommateur a posé un flag de demande récent (< WANT_TTL_S)."""
-    if AUTO_LAUNCH:
+    if AUTO_LAUNCH or _crawl4ai_voulu():
         return True
     try:
         if WANT_FLAG.exists():
             return (time.time() - WANT_FLAG.stat().st_mtime) < WANT_TTL_S
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_keeper.py', 331, exc_info=True)
     # ON-DEMAND STRICT : Docker n'est "voulu" QUE si un consommateur (exegol/searxng/sandbox) a
     # posé docker.wanted, OU AUTO_LAUNCH. Process présent != voulu -> sinon respawn sans fin +
     # RAM gaspillée quand Docker n'est utile à personne (feedback user 2026-06-11). Un Docker
@@ -355,7 +356,86 @@ def _audit(action: str, reason: str = "", **extra) -> None:
 
         _record(action, reason=reason, **extra)
     except Exception:  # noqa: BLE001 - le journal ne doit jamais casser le keeper
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_keeper.py', 357, exc_info=True)
+
+
+# CRAWL4AI A LA DEMANDE (19/10, roadmap P2 crawl4ai) : son seul demarreur etait `restart: always`, qui le
+# levait a CHAQUE reveil de Docker. L'outil de crawl pose crawl4ai.wanted ; le keeper `docker start` le
+# conteneur EXISTANT (jamais de creation : un second conteneur volerait le port 11235).
+CRAWL4AI_FLAG = ROOT / "sandbox" / "crawl4ai.wanted"
+# Decision owner 19/10 : l'image de crawl4ai est EPINGLEE par empreinte -- digest note au premier demarrage,
+# toute derive ensuite DITE (jamais adoptee en silence). Changer d'image = recreer le conteneur = installeur.
+CRAWL4AI_EPINGLE = ROOT / "sandbox" / "crawl4ai_image_epinglee.json"
+_CRAWL4AI_REFRACTAIRE_S = 300.0
+
+
+def _crawl4ai_voulu() -> bool:
+    try:
+        return CRAWL4AI_FLAG.exists() and (time.time() - CRAWL4AI_FLAG.stat().st_mtime) < WANT_TTL_S
+    except OSError:
+        return False
+
+
+def _docker_cli(args: list) -> tuple[int, str]:
+    r = subprocess.run(["docker", *args], capture_output=True, text=True, errors="replace", timeout=30)
+    return r.returncode, (r.stdout or "").strip()
+
+
+def _politique_crawl4ai(nom: str) -> dict:
+    """Decision owner 19/10 (« les trois ») : restart:no + memoire bornee + image epinglee, sur le conteneur EXISTANT.
+
+    Constat qui l'autorise : 30 demarrages A LA DEMANDE au journal du 19/10 -- `restart: always` ne sert plus de
+    reveil, il relancait crawl4ai a chaque reveil de Docker, meme sans besoin. `docker update` agit a chaud et ne
+    recree rien ; un echec se DIT dans le detail sans masquer le demarrage."""
+    mem = os.environ.get("NOKIDO_CRAWL4AI_MEM", "3g")
+    rc, out = _docker_cli(["update", "--restart=no", "--memory=%s" % mem, "--memory-swap=%s" % mem, nom])
+    detail = {"politique": "POSEE" if rc == 0 else "ECHEC"}
+    if rc != 0:
+        detail["politique_sortie"] = (out or "")[:120]
+    rc, vu = _docker_cli(["inspect", "--format", "{{.Image}}", nom])
+    vu = (vu or "").strip() if rc == 0 else ""
+    if not vu:
+        detail["image"] = "INCONNU"  # digest illisible : ni conforme ni derive
+        return detail
+    try:
+        epingle = json.loads(CRAWL4AI_EPINGLE.read_text(encoding="utf-8")).get("digest")
+    except (OSError, ValueError):
+        epingle = None
+    if epingle is None:
+        try:
+            CRAWL4AI_EPINGLE.write_text(json.dumps({"digest": vu, "conteneur": nom, "ts": time.time()}),
+                                        encoding="utf-8")
+            detail["image"] = "EPINGLEE"
+        except OSError as e:
+            detail["image"] = "EPINGLE_NON_ECRITE:%s" % type(e).__name__
+    elif epingle != vu:
+        detail.update(image="image_derive", image_epinglee=epingle, image_vue=vu)
+    else:
+        detail["image"] = "CONFORME"
+    return detail
+
+
+def _demarrer_crawl4ai(now: float) -> dict | None:
+    """Rend le detail d'un demarrage tente, None si rien a faire (pas de demande, ou refractaire)."""
+    if not _crawl4ai_voulu():
+        return None
+    if now - float(_STATE.get("last_crawl4ai_start_ts", 0.0)) < _CRAWL4AI_REFRACTAIRE_S:
+        return None
+    _STATE["last_crawl4ai_start_ts"] = now
+    try:
+        rc, noms = _docker_cli(["ps", "-a", "--filter", "ancestor=unclecode/crawl4ai", "--format", "{{.Names}}"])
+        noms = [n for n in noms.splitlines() if n.strip()] if rc == 0 else []
+        if not noms:
+            detail = {"verdict": "ABSENT" if rc == 0 else "INCONNU", "motif": "aucun conteneur crawl4ai (installeur)"}
+        else:
+            rc, out = _docker_cli(["start", noms[0]])
+            detail = {"verdict": "DEMARRE" if rc == 0 else "ECHEC", "conteneur": noms[0], "sortie": out[:120]}
+            if rc == 0:
+                detail.update(_politique_crawl4ai(noms[0]))
+    except Exception as e:  # noqa: BLE001 - une sonde ratee est INCONNU, jamais un refus
+        detail = {"verdict": "INCONNU", "motif": "%s: %s" % (type(e).__name__, str(e)[:120])}
+    _audit("crawl4ai", "crawl4ai.wanted frais : demarrage a la demande", **detail)
+    return detail
 
 
 def ensure_docker() -> None:
@@ -450,7 +530,7 @@ def _force_recycle_docker(motif: str = "process up mais daemon KO") -> bool:
                 subprocess.run(["taskkill", "/F", "/IM", name, "/T"], timeout=15,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_keeper.py', 492, exc_info=True)
         time.sleep(3)
     return _launch_docker_desktop()  # fait _wsl_shutdown() puis relance proprement
 
@@ -1038,6 +1118,7 @@ def main() -> int:
             # Docker tourne — quelqu'un le reclame-t-il encore ? La decision se
             # prend ICI, pas dans un minuteur : le tick ne fait qu'evaluer.
             relache = _maybe_release(time.monotonic())
+            crawl4ai = None if relache else _demarrer_crawl4ai(time.monotonic())
             integ = _surveiller_integration_wsl(ver if iok else None)
             _write_heartbeat(
                 # Sain = PROUVE sain sur tous ses champs : un moteur qui repond avec une integration WSL cassee
@@ -1048,6 +1129,7 @@ def main() -> int:
                     "server_version": ver if iok else "ready",
                     "consecutive_failures": 0,
                     **({"released": relache} if relache else {}),
+                    **({"crawl4ai": crawl4ai} if crawl4ai else {}),
                     **integ,
                 },
             )

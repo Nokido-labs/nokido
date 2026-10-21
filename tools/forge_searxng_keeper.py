@@ -148,6 +148,66 @@ def _write_settings() -> None:
     _log(f"settings.yml généré → {SETTINGS_FILE}")
 
 
+def rotate_secret() -> dict:
+    """Fait tourner la secret_key de settings.yml (meme generateur que `_write_settings`), sans l'afficher.
+
+    Owner 2026-10-18 : « systematiquement si ca fuite tu fais tourner ». La cle avait ete lue en clair dans une
+    session agent ; seul le keeper ecrit ce fichier (un script jetable est refuse par le garde d'infra). Le reste
+    du fichier est conserve octet pour octet. Prise d'effet : redemarrage du conteneur (sessions invalidees, rien
+    d'autre). Rend des booleens et des longueurs, JAMAIS une valeur.
+    """
+    import re  # noqa: PLC0415
+
+    motif = re.compile(r'^(\s*secret_key:\s*")([0-9a-fA-F]+)(")', re.M)
+    try:
+        txt = SETTINGS_FILE.read_text(encoding="utf-8")
+    except OSError as e:
+        return {"ok": False, "motif": "settings.yml illisible (%s)" % type(e).__name__}
+    m = motif.search(txt)
+    if not m:
+        return {"ok": False, "motif": "secret_key introuvable au format attendu : rien n'est modifie"}
+    ancienne, neuve = m.group(2), secrets.token_hex(32)
+    SETTINGS_FILE.write_text(motif.sub(lambda x: x.group(1) + neuve + x.group(3), txt, count=1), encoding="utf-8")
+    relue = motif.search(SETTINGS_FILE.read_text(encoding="utf-8")).group(2)
+    return {"ok": relue == neuve and relue != ancienne, "longueur": len(relue),
+            "effet": "au prochain demarrage du conteneur searxng"}
+
+
+_MARQUEUR_API = "# nokido: moteurs a API dans general (decision owner 2026-10-18)"
+_BLOC_API = (
+    "engines:\n"
+    "  " + _MARQUEUR_API + " -- la categorie general est bloquee (brave, duckduckgo,\n"
+    "  # startpage, karmasearch : CAPTCHA/suspension) ; ces moteurs passent par une API officielle, aucun CAPTCHA\n"
+    "  # contourne. Mesure 18/10 : it/science repondaient (50 et 30 resultats) quand general rendait 0.\n"
+    "  - name: github\n"
+    "    categories: [general, it]\n"
+    "  - name: arxiv\n"
+    "    categories: [general, science]\n"
+    "  - name: semantic scholar\n"
+    "    categories: [general, science]\n"
+)
+
+
+def ensure_engines_api() -> dict:
+    """Ajoute (une fois) des moteurs a API officielle a la categorie `general` de settings.yml.
+
+    Nokido a 7 clients SearXNG distincts qui n'interrogent que `general` : la configuration est le SEUL point
+    unique. Idempotent par marqueur ; ne touche a rien si une cle `engines:` existe deja sans le marqueur (on ne
+    fusionne pas a l'aveugle une config ecrite par quelqu'un d'autre). Prise d'effet : redemarrage du conteneur.
+    """
+    try:
+        txt = SETTINGS_FILE.read_text(encoding="utf-8")
+    except OSError as e:
+        return {"ok": False, "motif": "settings.yml illisible (%s)" % type(e).__name__}
+    if _MARQUEUR_API in txt:
+        return {"ok": True, "motif": "deja present"}
+    if any(l.startswith("engines:") for l in txt.splitlines()):
+        return {"ok": False, "motif": "une cle engines: existe deja sans le marqueur : fusion a faire a la main"}
+    SETTINGS_FILE.write_text(txt + ("" if txt.endswith("\n") else "\n") + _BLOC_API, encoding="utf-8")
+    return {"ok": _MARQUEUR_API in SETTINGS_FILE.read_text(encoding="utf-8"),
+            "effet": "au prochain demarrage du conteneur searxng"}
+
+
 def _settings_mounted() -> bool:
     """Le container tourne-t-il avec NOTRE settings.yml monté ? Vérif STABLE via
     `docker inspect .Mounts` — jamais une probe HTTP fragile."""
@@ -251,6 +311,14 @@ def main() -> int:
     # one-shot : applique _ensure_running() une fois puis sort (run via
     # trusted_script LaForgeTrusted). Le container reste vivant grâce au flag
     # --restart unless-stopped ; pas besoin de garder le daemon en foreground.
+    if "--ensure-engines-api" in sys.argv:
+        r = ensure_engines_api()
+        _log("moteurs a API dans general : %s" % r)
+        return 0 if r.get("ok") else 1
+    if "--rotate-secret" in sys.argv:
+        r = rotate_secret()
+        _log("rotation secret_key : %s" % r)
+        return 0 if r.get("ok") else 1
     recover_once = "--recover" in sys.argv or "--once" in sys.argv
 
     if not _docker_daemon_up():

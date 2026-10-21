@@ -222,6 +222,24 @@ def test_le_pack_natif_ecrit_se_relit_avec_son_manifeste(monkeypatch, tmp_path):
     s = m.export_pack_natif(tmp_path, tmp_path / "p.npz", "9.9.9", embed_fn=_unitaires)
     z = np.load(tmp_path / "p.npz")
     meta = json.loads(bytes(z["meta"]).decode("utf-8"))
-    assert meta["manifest"]["format"] == m.FORMAT_NATIF and meta["manifest"]["dist_commit"] == "abc123"
+    assert meta["manifest"]["dist_commit"] == "abc123" and meta["manifest"]["selection"] == "natif"
     assert set(meta["sources"]) == {"README.md", "docs/wiki/Home.md"} and s["retenus"] == len(meta["sources"])
     assert z["embeddings"].shape == (s["retenus"], m.DIM)
+
+
+def test_le_pack_natif_s_importe_avec_l_importeur_livre(monkeypatch, tmp_path):
+    """Mesure 0.20.12 (16/10) : le pack natif publie declarait `nokido-knowledge-pack/3-natif` ; l'importeur livre
+    dans la MEME version (FORMAT `.../2`) le refusait -- « format inconnu », RAG vide chez l'utilisateur sur 5 jobs
+    du test des livrables publies. Le test precedent relisait le pack par numpy et VERROUILLAIT l'etiquette fautive.
+    Chemin REEL : l'export ecrit, `lire_pack` de l'importeur (le code que l'utilisateur execute) relit."""
+    monkeypatch.setattr(m, "ESSENTIELS", ("README.md",))
+    monkeypatch.setattr(m, "Dist", lambda chemin: FauxDist({"README.md": TEXTE, "docs/wiki/Home.md": TEXTE}))
+    monkeypatch.setattr(m, "_juge_public", lambda: (lambda c, t: False))
+    s = m.export_pack_natif(tmp_path, tmp_path / "p.npz", "9.9.9", embed_fn=_unitaires)
+    spec = importlib.util.spec_from_file_location(
+        "kp_import_nr", Path(__file__).resolve().parents[2] / "tools" / "forge_knowledge_pack_import.py")
+    imp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(imp)
+    lu = imp.lire_pack(tmp_path / "p.npz")
+    assert lu["manifest"]["format"] == imp.FORMAT and len(lu["texts"]) == s["retenus"]
+    assert lu["embeddings"].shape == (s["retenus"], m.DIM)

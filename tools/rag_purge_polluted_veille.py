@@ -59,7 +59,7 @@ def main():
         try:
             print(f"  ex: {r[0]} | {r[1][:60]}... | {r[2][:60]}")
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/rag_purge_polluted_veille.py', 61, exc_info=True)
 
     if not polluted:
         print("[skip] no polluted chunks detected via markers")

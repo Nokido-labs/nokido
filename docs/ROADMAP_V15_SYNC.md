@@ -30,6 +30,9 @@ L'objectif est l'indépendance totale vis-à-vis des forges centralisées (GitHu
 3.  **V15 Focus** : On bascule sur l'architecture GitGrasp. L'idée est de traiter le code comme un flux de données décentralisé plutôt que comme des dépôts statiques.
 
 *Prochaine étape : Initialisation du module `app/forge_gitgrasp.py`* — **jamais faite**
+
+> **Non construit, gelé au 18/10/2026** (décision owner, instruction des écarts doc/code) : `forge_gitgrasp`
+> n'est plus une intention en cours ; le rouvrir demande une nouvelle décision.
 (vérifié 30/08 : fichier absent). La signature de commit par TPM et l'intégration Nostr
 restent au stade de l'intention.
 

@@ -42,7 +42,7 @@ from pathlib import Path
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:  # noqa: BLE001
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vscode_mcp_sync.py', 44, exc_info=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -170,7 +170,7 @@ def _load(path: Path) -> dict:
         if path.is_file():
             return json.loads(path.read_text("utf-8"))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vscode_mcp_sync.py', 172, exc_info=True)
     return {}
 
 

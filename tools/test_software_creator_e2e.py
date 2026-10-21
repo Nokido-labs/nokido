@@ -35,7 +35,9 @@ MODULE_OUT = ROOT / "tools" / "tmp_e2e_module.py"
 
 def _load_hub_token() -> str:
     """FORGE_MCP_TOKEN from env, else parsed from Nokido.env (gitignored)."""
-    tok = os.getenv("FORGE_MCP_TOKEN", "")
+    from nokido_agent.app.forge_secrets import get_secret  # coffre d'abord, env en dernier repli (16/10)
+
+    tok = get_secret("FORGE_MCP_TOKEN") or ""
     if tok:
         return tok
     env_file = ROOT / "Nokido.env"
@@ -83,7 +85,7 @@ def _hub(tool: str, args: dict, _retries: int = 2) -> str:
             try:
                 body = e.read().decode("utf-8", "replace")[:300]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/test_software_creator_e2e.py', 87, exc_info=True)
             last_err = f"HTTP {e.code}: {body or e.reason}"
         except Exception as e:
             last_err = str(e)
@@ -139,7 +141,7 @@ def _ask_raw(provider: str, prompt: str) -> str:
                 return ""
             return parsed.get("text", "")
     except (json.JSONDecodeError, ValueError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/test_software_creator_e2e.py', 143, exc_info=True)
     return raw
 
 

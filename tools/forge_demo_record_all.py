@@ -136,7 +136,7 @@ def scene_feed(page, hub, portal):
             )
             urllib.request.urlopen(req, timeout=60).read()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_record_all.py', 138, exc_info=True)
 
     threading.Thread(target=_trigger, daemon=True).start()
     page.goto(f"{portal}/forge/feed", wait_until="domcontentloaded")
@@ -166,7 +166,7 @@ def scene_anatomy(page, hub, portal):
                 )
                 urllib.request.urlopen(req, timeout=5).read()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_record_all.py', 168, exc_info=True)
 
     threading.Thread(target=_stress, daemon=True).start()
     page.goto(f"{portal}/anatomy", wait_until="domcontentloaded")
@@ -184,6 +184,7 @@ def scene_netcfg(page, hub):
                 page.get_by_text(label, exact=False).first.click(timeout=2000)
                 break
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_record_all.py', 186, exc_info=True)
                 continue
         time.sleep(6)
         # Click Audit si dispo
@@ -193,6 +194,7 @@ def scene_netcfg(page, hub):
                 time.sleep(4)
                 break
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_record_all.py', 195, exc_info=True)
                 continue
         time.sleep(4)
     except Exception as e:
@@ -227,7 +229,7 @@ def scene_providers(page, hub):
         try:
             page.locator("button.danger").filter(has_text="Remove").first.click(timeout=2000)
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_record_all.py', 229, exc_info=True)
     except Exception as e:
         print(f"  [providers] partial: {e}", file=sys.stderr)
         time.sleep(5)

@@ -30,7 +30,7 @@ def _conn():
         c.execute("ALTER TABLE alignment_events ADD COLUMN meta TEXT")
         c.commit()
     except sqlite3.OperationalError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_alignment_trace.py', 32, exc_info=True)
     return c
 
 
@@ -48,7 +48,7 @@ def _purge(max_rows: int = _MAX_ROWS) -> None:
         c.commit()
         c.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_alignment_trace.py', 50, exc_info=True)
 
 
 def emit(actor: str, invariant: str, verdict: str, target: str = "", reason: str = "") -> bool:

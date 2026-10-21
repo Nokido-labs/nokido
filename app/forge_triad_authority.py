@@ -112,7 +112,7 @@ def _check_available(agent_id: str) -> bool:
             os.environ[key] = val
             return True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_triad_authority.py', 114, exc_info=True)
     return False
 
 
@@ -314,7 +314,7 @@ def step_verify(exec_out: str, task_list: list, on_update=None) -> TriadStep:
             d = json.loads(out[start:end])
             verdict = d.get("verdict", "UNKNOWN")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_triad_authority.py', 316, exc_info=True)
     if on_update:
         on_update("verify", "done" if ok else "fail", f"{verdict}: {out[:100]}")
     step = TriadStep("Verify", aid, ok, out, elapsed)
@@ -387,7 +387,7 @@ class TriadOrchestrator:
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_triad_authority.py', 389, exc_info=True)
         return {
             "target": target,
             "status": status,

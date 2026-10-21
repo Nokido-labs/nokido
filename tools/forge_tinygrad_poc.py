@@ -152,7 +152,7 @@ def main() -> None:
             try:
                 n = int(mm[0].split("=", 1)[1])
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tinygrad_poc.py', 154, exc_info=True)
         phase_matmul(n)
     log("=== forge_tinygrad_poc END ===")
 

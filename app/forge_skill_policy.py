@@ -199,7 +199,7 @@ def audit_plugin(plugin_dir: Path, marketplace: str = "unknown") -> PolicyVerdic
                     verdict.issues.append(f"eval() in {f.name}")
                     verdict.risk_score += 0.3
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_policy.py', 201, exc_info=True)
 
     # Decision
     verdict.risk_score = min(1.0, verdict.risk_score)
@@ -303,7 +303,7 @@ def _ensure_audit_schema() -> None:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_policy.py', 305, exc_info=True)
 
 
 def log_audit(
@@ -336,7 +336,7 @@ def log_audit(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_policy.py', 338, exc_info=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

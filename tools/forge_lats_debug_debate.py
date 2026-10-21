@@ -53,7 +53,7 @@ def _detect_hub_url():
                     if line.startswith("nameserver"):
                         return f"http://{line.split()[1].strip()}:8766/mcp"
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lats_debug_debate.py', 55, exc_info=True)
     return "http://127.0.0.1:8766/mcp"
 
 
@@ -142,7 +142,7 @@ def _hub_ask(provider: str, message: str, token: str, max_tokens: int = 8192) ->
             if isinstance(inner, dict) and "text" in inner:
                 text = inner["text"]
         except (json.JSONDecodeError, TypeError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lats_debug_debate.py', 144, exc_info=True)
         return text
     except Exception as e:
         return f"ERR: {e}"
@@ -185,7 +185,7 @@ def main():
         try:
             token = _get_secret("FORGE_MCP_TOKEN") or ""
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lats_debug_debate.py', 187, exc_info=True)
     if not token:
         import os
 

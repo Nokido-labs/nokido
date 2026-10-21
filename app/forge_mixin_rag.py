@@ -206,7 +206,7 @@ class RAGMixin:
                 if hasattr(_lf().rag_engine, "_rebuild_indexes"):
                     await _lf().rag_engine._rebuild_indexes()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_rag.py', 208, exc_info=True)
             logger.info(f"RAG warmup: {len(_new_chunks)} docs capacités indexées")
         except Exception as _e:
             logger.debug(f"RAG warmup tools: {_e}")
@@ -371,7 +371,7 @@ class RAGMixin:
                 if hasattr(lf.rag_engine, "_rebuild_indexes"):
                     await lf.rag_engine._rebuild_indexes()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_rag.py', 373, exc_info=True)
             logger.info(f"[vector_map] {len(chunks)} nœuds injectés dans RAG")
             self._chat_log().write(f"[dim]🗺 vector_map : [bold]{len(chunks)}[/] nœuds sémantiques indexés[/]")
         except Exception as e:

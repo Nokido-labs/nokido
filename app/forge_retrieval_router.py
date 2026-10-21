@@ -285,7 +285,7 @@ def comparer_canaux(observations=None, seuil: int = _SEUIL_OBSERVATIONS) -> dict
                         try:
                             observations.append(json.loads(l))
                         except Exception:  # noqa: BLE001
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_retrieval_router.py', 287, exc_info=True)
         except OSError as exc:
             return {"verdict": "ILLISIBLE", "raison": f"{type(exc).__name__}",
                     "journal": str(_j)}

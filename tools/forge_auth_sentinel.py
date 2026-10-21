@@ -64,12 +64,12 @@ def alert(provider, verdict, info=""):
         from nokido_agent.app.forge_postal import post
         post("HUB", "CLAUDE", f"[AUTH] {provider} needs re-auth: {info[:120]}", reply_to="HUB")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auth_sentinel.py', 66, exc_info=True)
     try:
         from nokido_agent.app.forge_swarm_bus import publish
         publish("auth_dead", rec, topic="security")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auth_sentinel.py', 71, exc_info=True)
     return rec
 
 

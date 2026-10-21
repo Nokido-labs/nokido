@@ -55,6 +55,7 @@ def _find_dir(name: str) -> Path | None:
             if p.exists():
                 return p
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_migrate.py', 57, exc_info=True)
             continue
     return None
 
@@ -66,6 +67,7 @@ def _code_occurrences(name: str) -> dict:
         try:
             txt = p.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_migrate.py', 68, exc_info=True)
             continue
         n = txt.count(f'"{name}"') + txt.count(f"'{name}'")
         if n:

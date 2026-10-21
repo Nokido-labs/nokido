@@ -64,6 +64,20 @@ def test_chaque_geste_du_menu_est_une_action_du_panneau():
     assert appels == tray, "menu %s != actions declarees %s" % (appels, tray)
 
 
+def test_armer_le_mode_DEV_est_un_geste_du_panneau_par_l_UAC():
+    """2026-10-16, owner : « simplifier la bascule mode dev direct dans la tray ». forge_dev_mode exige un
+    administrateur (jeton illisible par les comptes sandbox) : le geste ouvre une console ELEVEE (-Verb RunAs) qui lance
+    `forge_dev_mode.py arm` -- l'UAC est le geste owner. Action du Bureau seulement (refusee depuis un compte de
+    service), et aucun geste de desarmement : le mode DEV expire seul."""
+    src = PANNEAU.read_text(encoding="utf-8")
+    corps = src.split("def _action_dev_armer", 1)[1].split("\ndef ", 1)[0]
+    assert "-Verb RunAs" in corps and "forge_dev_mode.py" in corps and '"arm"' in corps, corps[:600]
+    assert '"dev-armer": lambda: _action_dev_armer()' in src
+    bureau = ast.literal_eval(_litteral(PANNEAU, "ACTIONS_BUREAU_SEULEMENT"))
+    assert "dev-armer" in bureau, "l'UAC n'apparait que dans la session interactive"
+    assert "disarm" not in corps
+
+
 def test_le_code_d_instance_unique_est_celui_que_le_panneau_reconnait():
     code = ast.literal_eval(_litteral(TRAY, "TRAY_DEJA_ACTIF"))
     src = PANNEAU.read_text(encoding="utf-8")

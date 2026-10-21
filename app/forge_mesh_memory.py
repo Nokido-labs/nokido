@@ -390,7 +390,7 @@ def _broadcast_mesh(adr_id: str, title: str, ring: int) -> None:
         bridge.json_set("mesh.ring", ring)
         bridge.json_set("mesh.ts", time.time())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mesh_memory.py', 392, exc_info=True)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
@@ -414,7 +414,7 @@ def mesh_status() -> dict:
         try:
             tables = m._db.table_names()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mesh_memory.py', 416, exc_info=True)
     return {
         "available": m.is_available(),
         "uri": str(MESH_DIR),

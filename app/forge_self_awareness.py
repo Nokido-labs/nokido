@@ -40,7 +40,7 @@ def self_snapshot() -> Dict[str, Any]:
             elif isinstance(data, dict):
                 n_modules = len(data.get("organs", data.get("modules", [])))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 42, exc_info=True)
 
     import psutil
     ram_pct = psutil.virtual_memory().percent
@@ -64,7 +64,7 @@ def self_snapshot() -> Dict[str, Any]:
                     services_total = len(svcs)
                     services_up = sum(1 for s in svcs if isinstance(s, dict) and s.get("status") in ("UP", "RUNNING", "running", "healthy"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 66, exc_info=True)
 
     reconcile_res = None
     try:
@@ -73,7 +73,7 @@ def self_snapshot() -> Dict[str, Any]:
         if hasattr(forge_port_reconcile, "run_cycle"):
             reconcile_res = forge_port_reconcile.run_cycle(kill=False)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 75, exc_info=True)
 
     body_local = {
         "n_organes": n_organes,
@@ -92,7 +92,7 @@ def self_snapshot() -> Dict[str, Any]:
         base_quotas = forge_quota_tracker.get_all_quotas()
         cloud_llm = base_quotas.get("providers", {})
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 94, exc_info=True)
 
     # Extended Cloud LLM providers check
     extra_providers = {
@@ -115,7 +115,7 @@ def self_snapshot() -> Dict[str, Any]:
                 try:
                     has_key = bool(fs.get_secret(p_info["env_var"]))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 117, exc_info=True)
             if not has_key:
                 has_key = bool(os.environ.get(p_info["env_var"]))
             cloud_llm[p_name] = {
@@ -160,12 +160,12 @@ def self_snapshot() -> Dict[str, Any]:
         from nokido_agent.app.forge_token_monitor import daily_report
         cost_usd_today = float(daily_report().get("daily_cost_usd", 0.0) or 0.0)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 162, exc_info=True)
     try:
         from nokido_agent.app.forge_endocrine import read as _hormone_read
         cortisol_quota_cloud = float(_hormone_read("CORTISOL_QUOTA_CLOUD") or 0.0)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_awareness.py', 167, exc_info=True)
 
     budget = {
         "cost_usd_today": cost_usd_today,

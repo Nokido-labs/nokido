@@ -66,7 +66,7 @@ def _extract_symbols_from_file(file_path: Path) -> dict:
                 elif isinstance(node.func, ast.Attribute):
                     calls.append(node.func.attr)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swe_multifile.py', 68, exc_info=True)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.append(alias.name)

@@ -122,7 +122,7 @@ class AgentContext:
             try:
                 self._bridge.json_set(f"{self._prefix}.{key}", value)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mmap_context.py', 124, exc_info=True)
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -232,7 +232,7 @@ class AgentSnapshot:
 
             self._bridge = bridge
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mmap_context.py', 234, exc_info=True)
 
     def get_all(self) -> dict:
         """Retourne l'état de tous les agents."""

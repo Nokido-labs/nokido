@@ -315,7 +315,7 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
                 },
             }
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 317, exc_info=True)
 
     fn = _dispatchers.get(method)
     if fn is None:
@@ -361,7 +361,7 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
                             "recommend": nov["recommend"],
                         }
                 except (ImportError, Exception):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 363, exc_info=True)
                 # Hook Friston Active Inference : update generative model + surprise
                 try:
                     from nokido_agent.app.forge_active_inference import observe as ai_observe
@@ -374,7 +374,7 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
                             "high_surprise": ai.get("high_surprise"),
                         }
                 except (ImportError, Exception):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 376, exc_info=True)
                 # Hook Oudeyer Flow Zone : classify learning zone
                 try:
                     from nokido_agent.app.forge_flow_zone import learning_progress
@@ -384,7 +384,7 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
                     if isinstance(result, dict):
                         result["_flow_zone"] = {"zone": fz["zone"], "progress": fz["progress"]}
                 except (ImportError, Exception):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 386, exc_info=True)
             else:
                 err_msg = ""
                 if isinstance(result, dict):
@@ -395,15 +395,15 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
 
                     observe_intent(method, params, False, 0.1, target)
                 except (ImportError, Exception):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 397, exc_info=True)
                 try:
                     from nokido_agent.app.forge_active_inference import observe as ai_observe
 
                     ai_observe(method, target, success=False, time_s=dt, elegance=0.1)
                 except (ImportError, Exception):
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 403, exc_info=True)
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 405, exc_info=True)
         return {"jsonrpc": "2.0", "id": intent.get("id"), "result": result}
     except Exception as e:
         dt = _t.monotonic() - t0
@@ -413,7 +413,7 @@ async def dispatch_intent(intent: Dict[str, Any]) -> Dict[str, Any]:
 
             punish(method, error=f"{type(e).__name__}: {e}"[:200], target=target)
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 415, exc_info=True)
         return {
             "jsonrpc": "2.0",
             "id": intent.get("id"),
@@ -535,6 +535,7 @@ def analyze_trajectories(db_path: Optional[Path] = None, limit: int = 100) -> Di
         try:
             steps = json.loads(steps_json)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 537, exc_info=True)
             continue
         methods_in_traj = []
         for s in steps:
@@ -595,6 +596,7 @@ def recommend_next_action(
         try:
             steps = json.loads(steps_json)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_trajectory.py', 597, exc_info=True)
             continue
         methods = [s.get("intent", {}).get("method", "") for s in steps if s.get("status") == "completed"]
         for i, m in enumerate(methods[:-1]):

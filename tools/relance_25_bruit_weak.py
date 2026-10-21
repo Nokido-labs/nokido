@@ -127,7 +127,7 @@ def main():
                         it.get("url", "") for it in rj if isinstance(it, dict) and it.get("url")
                     ]
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/relance_25_bruit_weak.py', 129, exc_info=True)
         if urls:
             qmarks = ",".join("?" for _ in urls)
             u = cur.execute(

@@ -1,0 +1,49 @@
+{
+ "protocole": "docs/PROTOCOLE_AB_HARNESS_LIFT.md",
+ "graine": 20261019,
+ "genere_le": "2026-10-19",
+ "tailles_des_pools": {"Terminal-Bench v4.0.0": 66, "SWE-bench Verified": 500, "Aider Polyglot": 225, "SlopCodeBench (scb-problems main)": 36},
+ "code_tirage": "pools tries par identifiant ; rng=random.Random(20261019) ; pour TB(8), SWE(8), Polyglot(7), SCB(7) dans cet ordre : rng.sample(pool, n), puis apres CHAQUE tache rng.shuffle(['A','B','C'])",
+ "sources": {
+  "Terminal-Bench": "github harbor-framework/terminal-bench tag v4.0.0 (publie 2026-08-26), tasks/ = 66",
+  "SWE-bench Verified": "HF princeton-nlp/SWE-bench_Verified split test = 500",
+  "Aider Polyglot": "github Aider-AI/polyglot-benchmark main, */exercises/practice/* = 225",
+  "SlopCodeBench": "github gabeorlanski/scb-problems main (Apache-2.0) = 36 dossiers ; harness SprocketLab/slop-code-bench (MIT)"
+ },
+ "ecarts_a_instruire": [
+  "SlopCodeBench : l'article (arXiv 2603.24755) annonce 20 problemes / 93 jalons ; le depot actuel en porte 36 -- le sous-ensemble v2 est a identifier avant toute campagne ; licence des problemes Apache-2.0 (AGY citait MIT, celle du harness)",
+  "Terminal-Bench : jax-speedrun-gpu et fp8-rmsnorm-gemm supposent un GPU -- faisabilite a verifier sur le poste avant campagne (une tache infaisable est ECHEC pour les trois colonnes, jamais retiree apres coup)"
+ ],
+ "taches": [
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "ontology-kg-querying", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/ontology-kg-querying", "ordre_colonnes": ["C", "B", "A"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "fp8-rmsnorm-gemm", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/fp8-rmsnorm-gemm", "ordre_colonnes": ["B", "C", "A"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "jax-speedrun-gpu", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/jax-speedrun-gpu", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "lake-temp-glm", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/lake-temp-glm", "ordre_colonnes": ["A", "C", "B"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "live-database-cutover", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/live-database-cutover", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "freecad-spring-clip", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/freecad-spring-clip", "ordre_colonnes": ["B", "C", "A"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "freecad-platform-drawing", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/freecad-platform-drawing", "ordre_colonnes": ["A", "C", "B"]},
+  {"benchmark": "Terminal-Bench v4.0.0", "id": "production-planning", "url": "https://github.com/harbor-framework/terminal-bench/tree/v4.0.0/tasks/production-planning", "ordre_colonnes": ["C", "B", "A"]},
+  {"benchmark": "SWE-bench Verified", "id": "django__django-11239", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "SWE-bench Verified", "id": "django__django-13033", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["C", "A", "B"]},
+  {"benchmark": "SWE-bench Verified", "id": "django__django-15814", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "SWE-bench Verified", "id": "sympy__sympy-19346", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["C", "A", "B"]},
+  {"benchmark": "SWE-bench Verified", "id": "sympy__sympy-13372", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "SWE-bench Verified", "id": "django__django-14999", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["C", "B", "A"]},
+  {"benchmark": "SWE-bench Verified", "id": "astropy__astropy-14365", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["A", "C", "B"]},
+  {"benchmark": "SWE-bench Verified", "id": "sympy__sympy-13551", "url": "https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "Aider Polyglot", "id": "javascript/exercises/practice/rational-numbers", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/javascript/exercises/practice/rational-numbers", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "Aider Polyglot", "id": "java/exercises/practice/food-chain", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/java/exercises/practice/food-chain", "ordre_colonnes": ["A", "C", "B"]},
+  {"benchmark": "Aider Polyglot", "id": "java/exercises/practice/ledger", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/java/exercises/practice/ledger", "ordre_colonnes": ["B", "C", "A"]},
+  {"benchmark": "Aider Polyglot", "id": "go/exercises/practice/zebra-puzzle", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/go/exercises/practice/zebra-puzzle", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "Aider Polyglot", "id": "javascript/exercises/practice/two-bucket", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/javascript/exercises/practice/two-bucket", "ordre_colonnes": ["C", "A", "B"]},
+  {"benchmark": "Aider Polyglot", "id": "go/exercises/practice/beer-song", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/go/exercises/practice/beer-song", "ordre_colonnes": ["A", "C", "B"]},
+  {"benchmark": "Aider Polyglot", "id": "python/exercises/practice/dot-dsl", "url": "https://github.com/Aider-AI/polyglot-benchmark/tree/main/python/exercises/practice/dot-dsl", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "code_search", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/code_search", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "file_backup", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/file_backup", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "migrate_configs", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/migrate_configs", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "file_merger", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/file_merger", "ordre_colonnes": ["B", "A", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "dynamic_buffer", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/dynamic_buffer", "ordre_colonnes": ["A", "B", "C"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "eve_industry", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/eve_industry", "ordre_colonnes": ["C", "B", "A"]},
+  {"benchmark": "SlopCodeBench (scb-problems main)", "id": "cfgpipe", "url": "https://github.com/gabeorlanski/scb-problems/tree/main/cfgpipe", "ordre_colonnes": ["C", "A", "B"]}
+ ]
+}

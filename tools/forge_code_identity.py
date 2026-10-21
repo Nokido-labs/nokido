@@ -70,3 +70,30 @@ def fields(module_file: str) -> dict:
 def drifted(module_file: str) -> bool:
     """True UNIQUEMENT sur une dérive prouvée (illisible → False, pas d'alerte à l'aveugle)."""
     return fields(module_file)["code_stale"] is True
+
+
+def fichiers_du_depot(modules, racine) -> list:
+    """Fichiers des modules CHARGÉS qui vivent sous `racine` (ordre conservé, sans doublon).
+
+    16/10 : un process long (le tray) importe paresseusement d'autres modules du dépôt ; suivre son seul fichier
+    raterait leur dérive. On suit donc ce qu'il a RÉELLEMENT chargé (`sys.modules`), rien de deviné."""
+    base = Path(racine).resolve()
+    out = []
+    for m in modules:
+        f = getattr(m, "__file__", None)
+        if not f:
+            continue
+        chemin = Path(f).resolve()
+        if chemin.is_relative_to(base) and str(chemin) not in out:
+            out.append(str(chemin))
+    return out
+
+
+def perimes(fichiers) -> list:
+    """Noms des fichiers dont le contenu a DÉRIVÉ depuis leur premier relevé (relevé posé au premier passage)."""
+    out = []
+    for f in fichiers:
+        snapshot(f)
+        if drifted(f):
+            out.append(Path(f).name)
+    return out

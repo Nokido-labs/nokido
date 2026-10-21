@@ -373,7 +373,7 @@ def run_health_check(args: list[str]) -> str:
             try:
                 all_results.extend(fn())
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/autotools.py', 375, exc_info=True)
         ok = sum(1 for r in all_results if r.ok)
         fail = sum(1 for r in all_results if not r.ok)
         lines = [f"Health check: {ok} OK / {fail} FAIL"]

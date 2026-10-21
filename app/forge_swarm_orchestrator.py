@@ -86,14 +86,21 @@ async def run_forge_swarm(
     # TIMEOUT/ERR arrivent en chaine, et un pas jamais execute (DAG bloque) n'est pas prouve.
     echecs = set(failed) | {sid for sid, r in results.items() if _is_fail(r)}
     echecs |= {s["id"] for s in steps if s["id"] not in results}
+    # Synthese deterministe de la phase REDUCE (forge_swarm_reducer, decision owner 18/10) : lisible par
+    # l'agent principal, sans changer les cles existantes.
+    from nokido_agent.app.forge_swarm_reducer import reduce as _reduire
+    but = " / ".join(str(t.get("goal") or t.get("task_id") or "") for t in plan[:3])
+    attendus = [s["id"] for s in steps]
     if echecs:
         overlay.discard()
         if emit:
             emit("swarm_fail", {"failed": sorted(echecs)})
         return {"ok": False, "stage": "execute", "failed": sorted(echecs), "results": results,
-                "errors": run.get("errors") or {}}
+                "errors": run.get("errors") or {},
+                "synthese": _reduire(results, but, touched=[], attendus=attendus)}
 
     touched = overlay.commit(dry_run=dry_run)
     if emit:
         emit("swarm_done", {"touched": touched, "n": len(plan)})
-    return {"ok": True, "stage": "done", "touched": touched, "results": results}
+    return {"ok": True, "stage": "done", "touched": touched, "results": results,
+            "synthese": _reduire(results, but, touched=touched, attendus=attendus)}

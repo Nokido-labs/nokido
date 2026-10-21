@@ -43,7 +43,7 @@ def _ensure_out() -> None:
     try:
         os.makedirs(OUT, exist_ok=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_profiler_hooks.py', 45, exc_info=True)
 
 
 def _is_coro(fn) -> bool:
@@ -62,7 +62,7 @@ def _fire_pyspy_dump(pid: int, label: str) -> None:
                 stdout=fh, stderr=subprocess.STDOUT,
             )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_profiler_hooks.py', 64, exc_info=True)
 
 
 def profile_if_slow(threshold_s: float = 10.0, label: str = ""):

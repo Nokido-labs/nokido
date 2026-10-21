@@ -127,6 +127,7 @@ def jonctions() -> None:
                 print(f"    - {p.name} -> {cible}")
                 trouves += 1
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_diag_verrou.py', 129, exc_info=True)
             continue
     if not trouves:
         print("    aucune au premier niveau")

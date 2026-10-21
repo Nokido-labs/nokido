@@ -468,7 +468,7 @@ class ForgeOrchestrator:
             try:
                 self.on_silo_done(result)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_orchestrator.py', 470, exc_info=True)
 
         return result
 
@@ -689,7 +689,7 @@ class ForgeOrchestrator:
                     try:
                         sr.response = self._membrane.unwrap(sr.response)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_orchestrator.py', 691, exc_info=True)
 
         # ── 6. Réconciliation locale ──────────────────────────────────────────
         final = self._reconciler.reconcile(silo_results, self.mission_id)
@@ -719,7 +719,7 @@ class ForgeOrchestrator:
             try:
                 self.on_result(result)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_orchestrator.py', 721, exc_info=True)
 
         logger.info(f"[Orch] Done — silos={len(silo_results)} conf_avg={confidence_avg:.2f} elapsed={elapsed:.0f}ms")
         return result

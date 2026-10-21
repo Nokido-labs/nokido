@@ -167,4 +167,4 @@ class _StdioClient:
                         proc.kill()
                         await proc.wait()
                 except ProcessLookupError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/mcp_inspector.py', 169, exc_info=True)

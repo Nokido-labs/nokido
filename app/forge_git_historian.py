@@ -159,7 +159,7 @@ def _ensure_state_table() -> None:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_git_historian.py', 161, exc_info=True)
 
 
 def get_last_processed() -> Optional[str]:
@@ -396,8 +396,11 @@ def index_commits(commits: list[CommitIntel], create_adr_if_score_gte: float = 1
     adr_created = 0
 
     try:
-        conn = sqlite3.connect(str(DB))
-        conn.execute("PRAGMA journal_mode=WAL")
+        # Chemin gouverne (socle) : `open_writer` (AUTOCOMMIT + WAL + busy_timeout) remplace le `sqlite3.connect()` nu.
+        # La boucle est un LOT (une connexion reutilisee), pas un evenement isole (lot 1, integre de c4f627a9f, 18/10).
+        from nokido_agent.app.forge_db_path import open_writer
+
+        conn = open_writer(path=str(DB))
         cur = conn.cursor()
 
         for c in commits:

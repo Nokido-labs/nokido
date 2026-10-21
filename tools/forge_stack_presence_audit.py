@@ -128,6 +128,7 @@ def probe_wasm() -> dict:
                 try:
                     cand = raw.decode(enc).replace("\x00", "").strip()
                 except Exception:  # noqa: BLE001
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_stack_presence_audit.py', 130, exc_info=True)
                     continue
                 if cand:
                     txt = cand

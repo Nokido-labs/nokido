@@ -56,7 +56,7 @@ def _write_scores(results: dict):
                 elif not r.get("ok"):
                     reg.record_failure(name)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_provider_watcher.py', 58, exc_info=True)
     except Exception as e:
         print(f"[watcher] DB: {e}")
 

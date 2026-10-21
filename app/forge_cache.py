@@ -93,7 +93,7 @@ class _CBAdapter:
         try:
             del self._impl[key]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cache.py', 95, exc_info=True)
 
 
 def make_cache(policy='lru', maxsize=256, ttl=None):

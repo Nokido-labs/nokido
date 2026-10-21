@@ -73,7 +73,7 @@ def main() -> int:
         try:
             os.unlink(tmp.name)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/patch_m2m_envelope.py', 75, exc_info=True)
     shutil.copy2(TARGET, TARGET + ".m2m.bak")
     with open(TARGET, "w", encoding="utf-8") as f:
         f.write(patched)

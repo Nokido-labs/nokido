@@ -47,7 +47,7 @@ def freeze_fixture(n: int = 30) -> dict:
         try:
             return json.loads(FIXTURE.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001 - fixture corrompu -> on regele
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_heldout_gate.py', 49, exc_info=True)
     con = sqlite3.connect(f"file:{db_path()}?mode=ro", uri=True, timeout=30)
     try:
         rows = con.execute(
@@ -62,7 +62,7 @@ def freeze_fixture(n: int = 30) -> dict:
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)
         FIXTURE.write_text(json.dumps(fx, ensure_ascii=False), encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_heldout_gate.py', 64, exc_info=True)
     return fx
 
 

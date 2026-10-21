@@ -82,6 +82,7 @@ def intuition_rank(state_text: str, actions, *, providers=None, weights=None):
             try:
                 bd[key] = float(fn(state_text, a))
             except Exception:  # noqa: BLE001 — un signal KO ne casse jamais l'intuition
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_goap_intuition.py', 84, exc_info=True)
                 continue
         score = sum(w.get(k, 1.0) * v for k, v in bd.items())
         scored.append((a, score, bd))

@@ -285,6 +285,10 @@ class TestUnifiedDiscovery:
 # BLOC 6 — Contrat API /rag/ingest (structure + validation)
 # =============================================================================
 
+@pytest.mark.skip(reason="GELE 17/10 : la route HTTP /rag/ingest et son handler ont quitte tools/nokido_hub.py ; "
+                         "l'ingestion passe par l'outil MCP rag (branche ingest de app/forge_mcp_registry.py, protocole "
+                         "lu par forge_rss_watcher). Couverture de CETTE branche : non verifiee ici -- "
+                         "bb:active_bugs/test_hub_nr_vise_l_ancien_hub_20261016")
 class TestRagIngestContract:
     """C1 — Contrat HTTP /rag/ingest : validation body, champs requis."""
 

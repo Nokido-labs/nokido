@@ -158,7 +158,7 @@ def hub_notify_cost(data: dict) -> None:
         with urllib.request.urlopen(req, timeout=5):
             pass
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_probe.py', 160, exc_info=True)
 
 
 def main():

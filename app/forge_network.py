@@ -223,7 +223,7 @@ class NetworkDiscovery:
                         device.device_type = brand
                         break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 225, exc_info=True)
 
     def _rdns(self, device: Device) -> None:
         """Rdns.
@@ -234,7 +234,7 @@ class NetworkDiscovery:
         try:
             device.hostname = socket.gethostbyaddr(device.ip)[0]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 236, exc_info=True)
 
     def _mdns_discovery(self) -> None:
         """Mdns discovery."""
@@ -271,7 +271,7 @@ class NetworkDiscovery:
                 dev = self._get(u.lanaddr)
                 dev.protocols.append("UPnP")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 273, exc_info=True)
 
     def _lldp_sniff(self, timeout: int = 5) -> None:
         """Lldp sniff.
@@ -301,12 +301,12 @@ class NetworkDiscovery:
                 elif pkt.haslayer("CDPMsgDeviceID"):
                     dev.protocols.append("CDP")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 303, exc_info=True)
 
         try:
             sniff(filter="ether proto 0x88cc", prn=_pkt, timeout=timeout, store=False)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 308, exc_info=True)
 
     def _socket_fallback(self) -> tuple:
         """Scan socket pur — aucune dépendance externe."""
@@ -328,7 +328,7 @@ class NetworkDiscovery:
             try:
                 hn = socket.gethostbyaddr(ip_s)[0]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 330, exc_info=True)
             for p in PORTS:
                 try:
                     s = socket.socket()
@@ -337,7 +337,7 @@ class NetworkDiscovery:
                         open_p.append(p)
                     s.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 339, exc_info=True)
             return ip_s, hn, open_p
 
         with ThreadPoolExecutor(max_workers=50) as ex:
@@ -362,7 +362,7 @@ class NetworkDiscovery:
         try:
             self._lldp_sniff()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 364, exc_info=True)
         return [d.to_dict() for d in self.devices.values()]
 
 
@@ -415,7 +415,7 @@ class MiniIDSAgent:
                     app._chat_log().write(f"[bold red]🚨 IDS:[/] {message}")
                     break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 417, exc_info=True)
         # Log sécurité persisté
         try:
             import time as _t
@@ -424,7 +424,7 @@ class MiniIDSAgent:
             with open(_log_path, "a", encoding="utf-8") as _f:
                 _f.write(f"[{_t.strftime('%Y-%m-%dT%H:%M:%S')}] {message}\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 426, exc_info=True)
 
     def _scapy_cb(self, pkt) -> None:
         """Scapy cb.
@@ -467,6 +467,7 @@ class MiniIDSAgent:
                     self.suspect_ips.add(src)
                     await self.alert(f"HTTP depuis {src}")
             except AttributeError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 469, exc_info=True)
                 continue
 
     async def _run_proc_tcp(self, poll: float = 5.0) -> None:
@@ -486,7 +487,7 @@ class MiniIDSAgent:
                         if port in self._MONITORED_PORTS:
                             conns.add((ip_s, port))
             except (FileNotFoundError, PermissionError):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 488, exc_info=True)
             for ip_s, port in conns - prev:
                 svc = self._MONITORED_PORTS[port]
                 self._counts[ip_s] = self._counts.get(ip_s, 0) + 1
@@ -640,7 +641,7 @@ class NetworkRecoveryAgent:
                     if kw in val:
                         return brand
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 642, exc_info=True)
         return "generic"
 
     def _ssh(self, user: str, pwd: str, dtype: str) -> str:
@@ -725,7 +726,7 @@ class NetworkRecoveryAgent:
                     else:
                         loop.run_until_complete(on_step(msg))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network.py', 727, exc_info=True)
 
         step(f"Scan ports {self.ip}…")
         svcs = await loop.run_in_executor(None, self._scan_ports)

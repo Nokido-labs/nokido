@@ -246,7 +246,7 @@ def validate_args(tool: str, args: dict) -> None:
         except SecretLeakBlocked as _leak:
             audit(tool, args, "SECRET_IN_ARGS", error=str(_leak))
         except Exception:
-            pass  # DLP best-effort : ne jamais bloquer la validation
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mcp_security.py', 248, exc_info=True)
 
 
 # ── 3. Limite taille fichier ──────────────────────────────────────────────────
@@ -308,7 +308,7 @@ def audit(tool: str, args: dict, status: str, error: str = "") -> None:
         with open(str(AUDIT_LOG), "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
-        pass  # L'audit ne doit jamais faire crasher le serveur
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mcp_security.py', 310, exc_info=True)
 
 
 # ── API publique ──────────────────────────────────────────────────────────────
@@ -405,7 +405,7 @@ def _identity_write_paths() -> dict:
             }
             _WPATHS_CACHE["mtime"] = m
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mcp_security.py', 407, exc_info=True)
     return _WPATHS_CACHE["paths"]
 
 

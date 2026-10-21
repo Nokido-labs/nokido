@@ -73,8 +73,29 @@ def beat_daemon(name: str, **extra) -> bool:
         # False`, donc un pouls PERDU EN SILENCE — le superviseur y lirait une mort.
         # Le canon doit accepter ce que les variantes acceptaient, sinon centraliser
         # degrade.
-        p.write_text(json.dumps(payload, ensure_ascii=False, default=str),
-                     encoding="utf-8")
+        texte = json.dumps(payload, ensure_ascii=False, default=str)
+        # ATOMIQUE (19/10, CI de reference e6642dcf1) : write_text tronque PUIS ecrit -- un lecteur concurrent lisait
+        # un pouls VIDE (JSONDecodeError), qu'un superviseur lirait comme une mort. Cible tenue par un lecteur
+        # (partage refuse sous Windows) : ecriture directe, comme avant -- jamais un pouls perdu.
+        tmp = p.with_name("%s.%d.tmp" % (p.name, os.getpid()))
+        try:
+            tmp.write_text(texte, encoding="utf-8")
+            for _essai in range(5):
+                try:
+                    os.replace(tmp, p)
+                    break
+                except PermissionError:
+                    # 20/10 (CI de reference 63a63a812) : partage refuse quelques ms par un lecteur ou l'antivirus --
+                    # REESSAYER avant le repli qui tronque ; un pouls vide se lit comme une mort
+                    time.sleep(0.01 * (_essai + 1))
+            else:
+                raise PermissionError("replace du pouls refuse 5 fois")
+        except OSError:
+            p.write_text(texte, encoding="utf-8")
+            try:
+                tmp.unlink()
+            except OSError:  # le temporaire n'existait pas ou reste tenu ; le pouls, lui, est ecrit
+                logging.getLogger(__name__).debug("temporaire de pouls non retire (%s)", tmp, exc_info=True)
         # CONSTATER l'emission. Ce point est le chemin UNIQUE d'ecriture des pouls
         # (39 reimplementations unifiees ici le 2026-07-28), donc l'instrumenter rend
         # mesurable la famille ENTIERE — la ou l'analyse statique ne voit qu'un nom

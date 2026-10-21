@@ -73,7 +73,7 @@ def _human_name(slug: str, core_path: Path) -> str:
             if 3 <= len(n) <= 70 and "discipline" not in n.lower():
                 return n
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_metier_pool.py', 75, exc_info=True)
     return slug.replace("_", " ").strip().title()
 
 

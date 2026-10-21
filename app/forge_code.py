@@ -599,7 +599,7 @@ class SafeRunner:
             try:
                 os.unlink(tmpfile)
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 601, exc_info=True)
 
     def _run_sync(self, filepath: str) -> Tuple[bool, str, str]:
         """Exécution synchrone dans executor."""
@@ -846,7 +846,7 @@ class CodeSandbox:
                 if docs:
                     rag_ctx = "\n".join(d.get("content", "")[:200] for d in docs[:3])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 848, exc_info=True)
 
         code = await self.codegen.generate(prompt, rag_context=rag_ctx)
         attempts = 1
@@ -1520,6 +1520,7 @@ async def _call_model(
                             if data.get("done"):
                                 break
                         except Exception:
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 1522, exc_info=True)
                             continue
             result = "".join(full)
             if result.strip():
@@ -1620,7 +1621,7 @@ class BaseLoop:
         try:
             await rag.add_session_message("improvement_loop", tag, msg)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 1622, exc_info=True)
 
     def _record_iter(
         self,
@@ -2536,7 +2537,7 @@ class ImprovementOrchestrator:
                 else:
                     on_done(combined_state)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 2538, exc_info=True)
 
         return combined_state
 
@@ -2626,7 +2627,7 @@ class ImprovementOrchestrator:
                 try:
                     shutil.copy2(str(_bak), str(file_path))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 2628, exc_info=True)
                 state.total_failures += 1
 
         return state
@@ -2662,7 +2663,7 @@ class ImprovementOrchestrator:
                 else:
                     on_done(state)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_code.py', 2664, exc_info=True)
         return state
 
     async def _run_single_inner(self, vm: object, rag: object, log_fn: object, on_restart: object) -> LoopState:

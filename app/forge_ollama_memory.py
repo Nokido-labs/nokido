@@ -100,7 +100,7 @@ class OllamaMemoryManager:
                     if r.status == 200:
                         return (await r.json()).get("models", [])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_memory.py', 102, exc_info=True)
         return []
 
     async def model_info(self, model: str) -> dict:
@@ -119,7 +119,7 @@ class OllamaMemoryManager:
                         info["family"] = details.get("family", "?")
                         info["format"] = details.get("format", "?")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama_memory.py', 121, exc_info=True)
         self._model_info_cache[model] = info
         return info
 

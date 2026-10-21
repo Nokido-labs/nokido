@@ -47,7 +47,7 @@ class SovereignContextMapper:
                     self._fwd[tok] = alias
                     self._rev[alias] = tok
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_mapper.py', 49, exc_info=True)
 
     def _alias(self, prefix: str, token: str, typ: str) -> str:
         with self._lock:
@@ -66,7 +66,7 @@ class SovereignContextMapper:
                 conn.execute("INSERT OR IGNORE INTO alias_map VALUES (?,?,?,?)", (self.mission_id, token, alias, typ))
                 conn.commit()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_mapper.py', 68, exc_info=True)
         return alias
 
     def wrap_input(self, data: str) -> str:
@@ -107,4 +107,4 @@ class SovereignContextMapper:
                 conn.execute("DELETE FROM alias_map WHERE mission_id=?", (self.mission_id,))
                 conn.commit()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_mapper.py', 109, exc_info=True)

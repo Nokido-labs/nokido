@@ -89,7 +89,7 @@ class SafeRunner:
             try:
                 os.unlink(tmpfile)
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sandbox.py', 91, exc_info=True)
 
     def _run_sync(self, filepath: str) -> Tuple[bool, str, str]:
         import subprocess
@@ -185,7 +185,7 @@ class CodeSandbox:
                 if docs:
                     rag_ctx = "\n".join(d.get("text", "")[:200] for d in docs[:3])       
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sandbox.py', 187, exc_info=True)
 
         code = await self.codegen.generate(prompt, rag_context=rag_ctx)
         attempts = 1

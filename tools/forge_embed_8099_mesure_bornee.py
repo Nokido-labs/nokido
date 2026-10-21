@@ -158,6 +158,7 @@ def _evince_recemment(fenetre_s: float = 180.0) -> str:
             o = json.loads(l)
             t = _dt.datetime.fromisoformat(str(o.get("ts", "")).replace("Z", "+00:00")).timestamp()
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_8099_mesure_bornee.py', 160, exc_info=True)
             continue
         if t >= limite and "evict" in str(o.get("action", "")):
             return f"{o.get('action')} :: {str(o.get('reason'))[:180]}"

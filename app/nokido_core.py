@@ -266,7 +266,7 @@ class StateManager:
             _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             _STATE_FILE.write_text(json.dumps(asdict(self._state), indent=2), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/nokido_core.py', 268, exc_info=True)
 
     def get(self) -> CoreState:
         """Get."""
@@ -606,7 +606,7 @@ class PromptBuilder:
                         + chr(10).join("- " + r[0][:120].replace(chr(10), " ") for r in rows)
                     )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/nokido_core.py', 608, exc_info=True)
 
             content = (
                 "# Nokido Hub v17 — Contexte Système\n\n" + collab_prompt + "\n\n"
@@ -1107,7 +1107,7 @@ class ServiceManager:
             with _ur.urlopen(req, timeout=10) as r:
                 sha = _j.loads(r.read().decode()).get("sha", "")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/nokido_core.py', 1109, exc_info=True)
 
         # PUT
         body = {
@@ -1474,7 +1474,7 @@ def apply_smart_patch(
 
             logging.getLogger("Nokido.Core").debug(warning)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/nokido_core.py', 1476, exc_info=True)
     p = ROOT / file_path
     if not p.exists():
         return {"ok": False, "error": "fichier absent: " + file_path}

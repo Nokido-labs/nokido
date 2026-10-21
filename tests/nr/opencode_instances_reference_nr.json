@@ -1,0 +1,6 @@
+{
+  "_commentaire": "Table d'instances de REFERENCE pour les NR (17/10) : les NR testent la logique, jamais la configuration de production (config/opencode_instances.json, ou GPTOSS tourne sur le modele par defaut d'OpenCode).",
+  "OPENCODE_GPTOSS": {"modele": "groq/openai/gpt-oss-120b", "worktree": "opencode_gptoss"},
+  "OPENCODE_NEMOTRON": {"modele": "openrouter/nvidia/nemotron-3-super-120b-a12b:free", "worktree": "opencode_nemotron"},
+  "OPENCODE_GLM": {"modele": "zai/glm-4.7-flash", "worktree": "opencode_glm"}
+}

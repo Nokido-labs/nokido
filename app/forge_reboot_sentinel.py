@@ -143,7 +143,7 @@ def _post_mortem(boot_ts: float) -> dict:
             report=info.get("report"),
         )
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_reboot_sentinel.py', 145, exc_info=True)
     return info
 
 
@@ -180,7 +180,7 @@ def check_reboot(state_path: Optional[str] = None) -> dict:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_reboot_sentinel.py', 182, exc_info=True)
 
     out = {
         "ok": True,
@@ -203,7 +203,7 @@ def check_reboot(state_path: Optional[str] = None) -> dict:
                 new_boot=boot,
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_reboot_sentinel.py', 205, exc_info=True)
         # 2. Reconcilier le registre superviseur vs la realite post-boot (dry-run :
         #    l'homeostat re-kill les fantomes a sa phase reconcile ; ici on OBSERVE).
         try:

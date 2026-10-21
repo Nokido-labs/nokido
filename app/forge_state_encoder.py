@@ -194,7 +194,7 @@ def get_current_state_text_rich(hub_url: str = "http://127.0.0.1:8766") -> str:
             f"fatigue={m.fatigue:.2f} immune={m.immune_alert:.2f}"
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_encoder.py', 196, exc_info=True)
     try:
         from nokido_agent.app.forge_endocrine import all_hormones, read as _hread
 
@@ -204,7 +204,7 @@ def get_current_state_text_rich(hub_url: str = "http://127.0.0.1:8766") -> str:
             top = sorted(active.items(), key=lambda x: -x[1])[:6]
             parts.append("hormones: " + ", ".join(f"{h}={v:.2f}" for h, v in top))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_encoder.py', 206, exc_info=True)
     return " | ".join(parts)
 
 
@@ -244,7 +244,7 @@ def _encode_384(text: str) -> np.ndarray:
             norm = np.linalg.norm(v)
             return v / norm if norm > 0 else v
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_encoder.py', 246, exc_info=True)
     seed = int.from_bytes(text.encode()[:8], "big") % (2**32)
     v = np.random.default_rng(seed).standard_normal(384).astype("float32")
     return v / np.linalg.norm(v)
@@ -267,7 +267,7 @@ def _encode_1024(text: str) -> np.ndarray:
             n = np.linalg.norm(a)
             return a / n if n > 0 else a
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_encoder.py', 269, exc_info=True)
     try:
         from nokido_agent.tools.forge_embed_bridge import to_1024
 

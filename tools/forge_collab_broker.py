@@ -45,7 +45,7 @@ def _env(key: str, default: str = "") -> str:
         if val:
             return val
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_collab_broker.py', 47, exc_info=True)
     # Fallback minimal si forge_secrets indisponible
     if ENV.exists():
         for line in ENV.read_text(errors="replace").splitlines():
@@ -122,7 +122,7 @@ def hub_poll() -> list[str]:
             _msgs = pull("COLLAB_BROKER", _code, _agent_tokens, limit=20)
             mailbox_msgs = [str(m.get("payload", "")) for m in _msgs if m.get("payload")]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_collab_broker.py', 124, exc_info=True)
     if mailbox_msgs:
         return mailbox_msgs  # zero reseau si mailbox a des messages
     # ── Canal agent_messages (récepteur membranaire inter-agents) ────────────
@@ -158,7 +158,7 @@ def hub_poll() -> list[str]:
                         _msgs_out.append(str(payload))
                 return _msgs_out
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_collab_broker.py', 160, exc_info=True)
     # Fallback poll reseau classique
     res = _hub("tools/call", {"name": "hub", "arguments": {"action": "poll"}})
     try:

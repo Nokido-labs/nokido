@@ -29,13 +29,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import logging
+import lzma
 import re
 import sqlite3
 import subprocess
 import sys
+import tarfile
 import time
+import tomllib
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -228,6 +232,293 @@ def selectionner(lignes, dist, juge) -> tuple[list, dict]:
     return retenus, {d: dict(v) for d, v in cr.items()}
 
 
+def famille_source(source: str) -> str:
+    """Cle de FAMILLE d'une source = l'unite de licence du pack (rfc, docset:<nom>, watch:<projet>, https:<hote>,
+    github:<owner>/<repo> -- la licence d'un depot est celle du depot, 20/10)."""
+    s = (source or "").strip()
+    if not s:
+        return "?"
+    if s.startswith(("http://", "https://")):
+        schema, reste = s.split("://", 1)
+        return "%s:%s" % (schema, reste.split("/", 1)[0])
+    tete, _, reste = s.partition(":")
+    if len(tete) == 1 and reste[:1] in ("/", "\\"):
+        return "chemin_absolu"
+    if reste and tete in ("docset", "watch"):
+        return "%s:%s" % (tete, re.split(r"[:#/]", reste, maxsplit=1)[0])
+    if reste and tete == "github":
+        return "github:%s" % "/".join(reste.split("/")[:2])
+    if reste:
+        return tete
+    return re.split(r"[/\\]", s, maxsplit=1)[0]
+
+
+def inventaire(base: Path, domaines) -> dict:
+    """{domaine: {famille: {chunks, octets_texte, avec_vecteur, exemples}}} : la mesure qui precede le decoupage du pack
+    par licence (owner 20/10). Index `domain` seul (`+active` ne le detourne pas), aucun COUNT, et la colonne vecteur
+    n'est jamais lue : `embedding IS NOT NULL` se juge sur l'en-tete de l'enregistrement."""
+    octets = "octet_length(text)" if sqlite3.sqlite_version_info >= (3, 43) else "length(CAST(text AS BLOB))"
+    inv: dict = {}
+    con = sqlite3.connect("file:%s?mode=ro" % Path(base).as_posix(), uri=True, timeout=30)
+    try:
+        for d in domaines:
+            par = inv.setdefault(d, {})
+            for source, taille, vecteur in con.execute(
+                    "SELECT source, %s, embedding IS NOT NULL FROM rag_chunks WHERE domain=? AND +active=1" % octets,
+                    (d,)):
+                f = par.setdefault(famille_source(source),
+                                   {"chunks": 0, "octets_texte": 0, "avec_vecteur": 0, "exemples": []})
+                f["chunks"] += 1
+                f["octets_texte"] += taille or 0
+                f["avec_vecteur"] += 1 if vecteur else 0
+                if len(f["exemples"]) < 3 and source not in f["exemples"]:
+                    f["exemples"].append(source)
+    finally:
+        con.close()
+    return inv
+
+
+MANIFESTE_KNOWLEDGE = ROOT / "distribution" / "packs" / "knowledge.toml"
+FORMAT_SOURCE = "nokido-pack-source/1"
+NOM_PACK_SOURCE = "nokido_pack_{famille}_v{version}.tar"  # = forge_release_assets.BUILDERS["rag_pack_source"]
+_LICENCES_NON_AFFIRMEES = ("", "NOASSERTION", "INCONNU", "UNKNOWN")
+MIROIR_RFC = ROOT / "data" / "rfc_mirror"
+_TITRES_COPYRIGHT = ("Copyright Notice", "Full Copyright Statement")
+_TITRES_AUTEURS = ("Authors' Addresses", "Author's Address")
+_RE_PIED_PAGE_RFC = re.compile(r"\[Page \d+\]\s*$")
+_RE_ENTETE_PAGE_RFC = re.compile(r"^RFC\s+\d+\s{2,}")
+
+
+def slug_famille(famille: str) -> str:
+    """docset:Flask -> docset-flask : la famille dans un nom de fichier."""
+    return re.sub(r"[^a-z0-9]+", "-", famille.lower()).strip("-")
+
+
+def _verifier_composant_source(c: dict) -> None:
+    """Liste BLANCHE : seule s'exporte une source declaree pack par source, licence AFFIRMEE et PROUVEE en https."""
+    if c.get("construit") != "rag_pack_source":
+        raise ValueError("%s : pas un pack par source (construit=%r)" % (c.get("id"), c.get("construit")))
+    if not str(c.get("famille") or "").strip():
+        raise ValueError("%s : famille absente" % c.get("id"))
+    if str(c.get("licence") or "").strip().upper() in _LICENCES_NON_AFFIRMEES:
+        raise ValueError("%s : licence non affirmee (%r), source non redistribuable" % (c.get("id"), c.get("licence")))
+    if not str(c.get("preuve") or "").startswith("https://"):
+        raise ValueError("%s : preuve de licence https absente" % c.get("id"))
+
+
+class _Suite(io.RawIOBase):
+    """En-tete .npy puis les octets bruts des vecteurs : le membre du tar s'ecrit sans recopie intermediaire."""
+
+    def __init__(self, tete: bytes, fichier):
+        self._tete, self._f = io.BytesIO(tete), fichier
+
+    def readable(self):
+        return True
+
+    def readinto(self, b):
+        return self._tete.readinto(b) or self._f.readinto(b)
+
+
+def _ajouter(tar, nom: str, octets: int, flux) -> None:
+    info = tarfile.TarInfo(nom)
+    info.size, info.mtime, info.mode = octets, int(time.time()), 0o644
+    tar.addfile(info, flux)
+
+
+def _section_rfc(lignes, titres) -> str | None:
+    """Corpus LEGAL verbatim d'une RFC : du titre (colonne 0) jusqu'au prochain titre de colonne 0, sans les
+    pieds de page `[Page N]` ni les en-tetes `RFC NNNN ...` qui coupent le texte a chaque saut de page."""
+    debut = None
+    for i, ligne in enumerate(lignes):
+        if ligne.strip() in titres:
+            debut = i + 1
+            break
+    if debut is None:
+        return None
+    corps = []
+    for ligne in lignes[debut:]:
+        s = ligne.rstrip("\n")
+        if _RE_PIED_PAGE_RFC.search(s) or _RE_ENTETE_PAGE_RFC.match(s):
+            continue
+        if s and not s[0].isspace():
+            break
+        corps.append(s)
+    texte = "\n".join(corps).strip()
+    return texte or None
+
+
+def sections_legales_rfc(texte) -> dict:
+    """Les deux sections legales d'une RFC, telles que publiees : copyright et auteurs (IETF TLP 5.0 3.c.iii.y)."""
+    lignes = str(texte).replace("\r\n", "\n").split("\n")
+    return {"copyright": _section_rfc(lignes, _TITRES_COPYRIGHT),
+            "auteurs": _section_rfc(lignes, _TITRES_AUTEURS)}
+
+
+def notice_rfc(numero, texte) -> str | None:
+    """Notice d'une RFC = entete RFC 9110 + sa legende verbatim. Sans copyright lisible : None, jamais inventee."""
+    s = sections_legales_rfc(texte)
+    if not s["copyright"]:
+        return None
+    n = int(numero)
+    morceaux = ["RFC %d -- https://www.rfc-editor.org/rfc/rfc%d" % (n, n), s["copyright"]]
+    if s["auteurs"]:
+        morceaux.append(s["auteurs"])
+    return "\n\n".join(morceaux)
+
+
+def _numero_rfc(source):
+    m = re.match(r"^rfc:rfc(\d+)", (source or "").strip(), re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def _notice_rfc_source(numero, miroir, cache) -> str | None:
+    """Legende d'une RFC lue dans le miroir local (source unique, mise en cache) : lecture seule, doute = None."""
+    if numero in cache:
+        return cache[numero]
+    texte = ""
+    try:
+        texte = Path(miroir, "rfc%d.txt" % numero).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        texte = ""
+    notice = notice_rfc(numero, texte)
+    cache[numero] = notice
+    return notice
+
+
+def exporter_sources(base, composants, sortie, version: str, domaine: str = "reference",
+                     dry_run: bool = False, miroir_rfc=None) -> dict:
+    """Un pack par SOURCE = par licence (owner 20/10), en UN passage sur le domaine : tar NON compresse portant
+    vecteurs.npy (float16, lisible en mmap), textes.jsonl.xz, NOTICE.txt et manifest.json. Memes filtres que le pack
+    essentiel ; un doublon de TEXTE est ecarte et compte. Toute source est verifiee AVANT la moindre ecriture.
+    `dry_run` COMPTE sans ouvrir un seul fichier : une mesure ne coute pas des gigaoctets d'ecriture.
+    Chaque fragment d'une source `rfc` est refuse (compte `legende_rfc_absente`) si sa legende d'origine est
+    illisible : la NOTICE du pack rfc joint alors la legende verbatim de CHAQUE RFC retenue (IETF TLP 5.0).
+    Un composant peut porter son `domaine` (defaut : l'argument `domaine`) : un passage par domaine (20/10)."""
+    for c in composants:
+        _verifier_composant_source(c)
+    miroir = Path(miroir_rfc) if miroir_rfc is not None else MIROIR_RFC
+    notices_lues = {}
+    par = {c["famille"]: c for c in composants}
+    etats = {f: {"n": 0, "doublons": 0, "vus": set(), "ecartes": Counter(), "octets_texte": 0,
+                 "notices_rfc": {}} for f in par}
+    if not dry_run:
+        sortie = Path(sortie)
+        sortie.mkdir(parents=True, exist_ok=True)
+        for f, e in etats.items():
+            e["brut"] = sortie / (".%s.vecteurs.tmp" % slug_famille(f))
+            e["xz"] = sortie / (".%s.textes.tmp" % slug_famille(f))
+            e["fv"] = open(e["brut"], "wb")
+            e["ft"] = lzma.open(e["xz"], "wt", encoding="utf-8")
+    con = sqlite3.connect("file:%s?mode=ro" % Path(base).as_posix(), uri=True, timeout=30)
+    try:
+        # 20/10 : un composant porte son domaine (physiologie...) -- un passage indexe par domaine declare.
+        domaines = sorted({c.get("domaine") or domaine for c in composants})
+        lignes = (r for d in domaines for r in con.execute(
+            "SELECT id, source, text, embedding FROM rag_chunks WHERE domain=? AND +active=1 "
+            "AND embedding IS NOT NULL", (d,)))
+        for cid, source, texte, blob in lignes:
+            fam = famille_source(source)
+            e = etats.get(fam)
+            if e is None:
+                continue
+            numero = None
+            legende = None
+            if fam == "rfc":
+                numero = _numero_rfc(source)
+                if numero:
+                    legende = _notice_rfc_source(numero, miroir, notices_lues)
+                if not legende:
+                    e["ecartes"]["legende_rfc_absente"] += 1
+                    continue
+            t = normaliser(texte)
+            if len(t) < LONGUEUR_MIN:
+                e["ecartes"]["trop_court"] += 1
+                continue
+            vec = decoder_vecteur(blob)
+            if vec is None or vec.shape != (DIM,) or not np.isfinite(vec).all():
+                e["ecartes"]["vecteur_invalide"] += 1
+                continue
+            norme = float(np.linalg.norm(vec.astype(np.float64)))
+            if not np.isfinite(norme) or abs(norme - 1.0) > 0.02:
+                e["ecartes"]["vecteur_non_norme"] += 1
+                continue
+            if any(p.search(texte) for p in SECRET_PATTERNS):
+                e["ecartes"]["secret"] += 1
+                continue
+            if any(p.search(texte) for p in PII_PATTERNS):
+                e["ecartes"]["identite"] += 1
+                continue
+            empreinte = hashlib.sha256(t.encode("utf-8")).digest()
+            if empreinte in e["vus"]:
+                e["doublons"] += 1
+                continue
+            e["vus"].add(empreinte)
+            e["n"] += 1
+            e["octets_texte"] += len(texte.encode("utf-8"))
+            if numero:
+                e["notices_rfc"][numero] = legende
+            if not dry_run:
+                e["fv"].write(vec.astype(np.float16).tobytes())
+                e["ft"].write(json.dumps({"id": cid, "source": source, "texte": texte}, ensure_ascii=False) + "\n")
+    finally:
+        con.close()
+        for e in etats.values():
+            for k in ("fv", "ft"):
+                if k in e:
+                    e[k].close()
+    if dry_run:
+        return {f: {"famille": f, "retenus": e["n"], "doublons": e["doublons"], "ecartes": dict(e["ecartes"]),
+                    "octets_vecteurs": e["n"] * DIM * 2, "octets_texte": e["octets_texte"]} for f, e in etats.items()}
+    stats = {}
+    try:
+        for f, e in etats.items():
+            c = par[f]
+            nom = NOM_PACK_SOURCE.format(famille=slug_famille(f), version=version)
+            tete = io.BytesIO()
+            np.lib.format.write_array_header_1_0(tete, {"descr": np.lib.format.dtype_to_descr(np.dtype(np.float16)),
+                                                        "fortran_order": False, "shape": (e["n"], DIM)})
+            man = {"format": FORMAT_SOURCE, "version": version, "famille": f, "licence": c["licence"],
+                   "domaine": c.get("domaine") or domaine,
+                   "conditions": c.get("conditions", ""), "preuve": c["preuve"], "count": e["n"], "dim": DIM,
+                   "dtype": "float16", "model": "BAAI/bge-m3", "doublons_ecartes": e["doublons"],
+                   "ecartes": dict(e["ecartes"]), "exported_at": datetime.now(UTC).isoformat()}
+            notice = ("Nokido Knowledge Pack -- source %s (%d fragments, Nokido %s)\n\nLicence du texte : %s\n"
+                      "Preuve : %s\nConditions : %s\n\nCes fragments sont des extraits VERBATIM de la documentation "
+                      "d'origine : texte non modifie, seulement decoupe en fragments (mention exigee par CC BY et "
+                      "Apache 2.0). Ils sont redistribues sous SA licence et ne relevent pas de la licence de Nokido.\n"
+                      % (f, e["n"], version, c["licence"], c["preuve"], c.get("conditions", "")))
+            if f == "rfc" and e["notices_rfc"]:
+                notice += ("Legende d'origine de chaque RFC retenue (IETF TLP 5.0, verbatim) :\n\n"
+                           + "\n\n".join(e["notices_rfc"][n] for n in sorted(e["notices_rfc"], key=int)) + "\n")
+            chemin = sortie / nom
+            with tarfile.open(chemin, "w") as tar, open(e["brut"], "rb") as fv, open(e["xz"], "rb") as ft:
+                _ajouter(tar, "vecteurs.npy", len(tete.getvalue()) + e["brut"].stat().st_size,
+                         io.BufferedReader(_Suite(tete.getvalue(), fv)))
+                _ajouter(tar, "textes.jsonl.xz", e["xz"].stat().st_size, ft)
+                for membre, contenu in (("NOTICE.txt", notice), ("manifest.json", json.dumps(man, indent=1))):
+                    octets = contenu.encode("utf-8")
+                    _ajouter(tar, membre, len(octets), io.BytesIO(octets))
+            h = hashlib.sha256()
+            with open(chemin, "rb") as fh:
+                for bloc in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(bloc)
+            stats[f] = {"famille": f, "retenus": e["n"], "doublons": e["doublons"], "ecartes": dict(e["ecartes"]),
+                        "octets_vecteurs": e["n"] * DIM * 2, "octets_texte": e["octets_texte"],
+                        "sha256": h.hexdigest(), "octets": chemin.stat().st_size, "out_path": str(chemin)}
+    finally:
+        for e in etats.values():
+            for k in ("brut", "xz"):
+                e[k].unlink(missing_ok=True)
+    return stats
+
+
+def exporter_source(base, composant: dict, sortie: Path, version: str, domaine: str = "reference",
+                    miroir_rfc=None) -> dict:
+    """Une seule source : voir `exporter_sources` (plusieurs sources = un seul passage sur le domaine)."""
+    _verifier_composant_source(composant)
+    return exporter_sources(base, [composant], sortie, version, domaine, miroir_rfc=miroir_rfc)[composant["famille"]]
+
+
 def _lignes(base: Path, domaines):
     with sqlite3.connect("file:%s?mode=ro" % base.as_posix(), uri=True, timeout=30) as con:
         for d in domaines:
@@ -283,7 +574,11 @@ def export_pack(dist: Path, output: Path | None = None, version: str = "0.0.0", 
 # le pack etait une SELECTION du RAG prive prouvee contre le dist ; tout ce qui a ete ecrit pour le public sans etre
 # reingere en sortait. Ici le pack EST l'arbre publie : couverture complete par construction, et un fichier
 # essentiel absent refuse le pack au lieu de le laisser partir troue.
-FORMAT_NATIF = "nokido-knowledge-pack/3-natif"
+# 16/10 (0.20.12) : le FORMAT decrit la STRUCTURE du fichier, que l'importeur verifie ; la facon de CHOISIR les
+# fragments est une autre information. L'ancienne etiquette `nokido-knowledge-pack/3-natif` (structure pourtant
+# strictement format 2) a fait refuser le pack publie par l'importeur livre dans la meme version -- RAG vide chez
+# l'utilisateur. Le pack natif ecrit le FORMAT de l'importeur et dit sa selection a part.
+SELECTION_NATIF = "natif"
 CLASSES_NATIF = {".md": "doc", ".py": "code", ".toml": "config", ".yaml": "config", ".yml": "config",
                  ".json": "config", ".txt": "doc"}
 EXCLUS_NATIF = ("tests/", ".agents/", ".github/")  # tests = bruit pour le RAG ; .agents = copie de docs/skills
@@ -443,7 +738,8 @@ def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.
                       embed_fn=None) -> dict:
     d = Dist(dist)
     retenus, cr = selectionner_natif(d, _juge_public(), embed_fn or _embed_bge_m3_local)
-    stats = {"format": FORMAT_NATIF, "version": version, "dist_commit": d.commit, "retenus": len(retenus), **cr}
+    stats = {"format": FORMAT, "selection": SELECTION_NATIF, "version": version, "dist_commit": d.commit,
+             "retenus": len(retenus), **cr}
     trou = cr.get("non_vectorise_total", 0) / max(cr.get("candidats", 0), 1)
     if cr["essentiels_absents"] or trou > SEUIL_NON_VECTORISE:
         # Le rapport part AVANT le refus : le 15/10 il etait perdu, et la cause a du etre reconstituee a la main.
@@ -456,7 +752,8 @@ def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.
                              cr["non_vectorise_total"], cr["candidats"], 100 * trou, 100 * SEUIL_NON_VECTORISE))
     if dry_run or not retenus:
         return stats
-    manifest = {"format": FORMAT_NATIF, "version": version, "exported_at": datetime.now(UTC).isoformat(),
+    manifest = {"format": FORMAT, "selection": SELECTION_NATIF, "version": version,
+                "exported_at": datetime.now(UTC).isoformat(),
                 "dist_commit": d.commit, "count": len(retenus), "dim": DIM, "model": "BAAI/bge-m3 (local :8099 seul)",
                 "dtype": "float16", "license": "AGPL-3.0-or-later", "exclus": list(EXCLUS_NATIF),
                 "critere": "pack natif : arbre publie du dist a ce commit, decoupe MarkdownChunker 2000/200"}
@@ -468,7 +765,7 @@ def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--dist", required=True, type=Path, help="clone du depot public, lu a son commit HEAD")
+    p.add_argument("--dist", type=Path, help="clone du depot public, lu a son commit HEAD (sauf --inventaire)")
     p.add_argument("--output", type=Path, help="defaut : data/nokido_knowledge_pack_v<version>.npz")
     p.add_argument("--version", default="0.0.0")
     p.add_argument("--dry-run", action="store_true", help="compter sans ecrire le pack")
@@ -476,9 +773,37 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--verbose", action="store_true", help="journal detaille")
     p.add_argument("--natif", action="store_true",
                    help="pack NATIF : l'arbre publie lui-meme, decoupe et vectorise en bge-m3 local (15/10)")
+    p.add_argument("--inventaire", nargs="*", metavar="DOMAINE",
+                   help="mesure par famille de source (defaut : reference), sans pack ni dist ; --output = JSON complet")
+    p.add_argument("--sources", action="store_true",
+                   help="un pack par source (composants rag_pack_source du manifeste) dans --output ; --dry-run compte")
+    p.add_argument("--manifeste", type=Path, default=MANIFESTE_KNOWLEDGE, help="manifeste des packs par source")
     a = p.parse_args(argv)
     if a.verbose:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
+    if a.sources:
+        if not a.output and not a.dry_run:
+            p.error("--sources exige --output ou --dry-run")
+        with open(a.manifeste, "rb") as fh:
+            comps = [c for c in tomllib.load(fh).get("composant", []) if c.get("construit") == "rag_pack_source"]
+        stats = exporter_sources(a.base or base_rag(), comps, a.output, a.version, dry_run=a.dry_run)
+        print(json.dumps(stats, ensure_ascii=False, indent=1))
+        return 0
+    if a.inventaire is not None:
+        inv = inventaire(a.base or base_rag(), a.inventaire or ["reference"])
+        if a.output:
+            a.output.parent.mkdir(parents=True, exist_ok=True)
+            a.output.write_text(json.dumps(inv, ensure_ascii=False, indent=1), encoding="utf-8")
+        for d, familles in inv.items():
+            rang = sorted(familles.items(), key=lambda kv: -kv[1]["chunks"])
+            print("[inventaire] %s : %d chunks, %d familles (%d montrees)" % (
+                d, sum(f["chunks"] for f in familles.values()), len(rang), min(len(rang), 60)))
+            for nom, f in rang[:60]:
+                print("  %-40s %9d chunks %12d octets %9d vecteurs" % (nom[:40], f["chunks"], f["octets_texte"],
+                                                                        f["avec_vecteur"]))
+        return 0
+    if not a.dist:
+        p.error("--dist est requis (sauf --inventaire)")
     if a.natif:
         stats = export_pack_natif(a.dist, a.output, a.version, a.dry_run)
     else:

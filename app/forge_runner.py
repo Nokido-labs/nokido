@@ -152,7 +152,7 @@ def spawn(code: str, prefix: str = "task", timeout_s: int = 60) -> str:
 
                 _br.task_set(t, ST_TMO, result="timeout")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runner.py', 154, exc_info=True)
 
     import threading
 

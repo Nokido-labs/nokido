@@ -358,7 +358,7 @@ def _write_secrets_file(backend: str, secrets: dict[str, str]) -> None:
 
         _SEC_PATH.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 600
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_env_crypt.py', 360, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -10,6 +10,15 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 
+def _forme_mcp(t: Dict[str, Any]) -> Dict[str, Any]:
+    """Format OpenAI des fournisseurs tiers ({"type":"function","function":{name, description?, parameters}}) ramene a
+    la forme MCP controlee ici. Mesure 17/10 : un outil OpenAI valide etait REFUSE (cles MCP exigees)."""
+    if isinstance(t, dict) and t.get("type") == "function" and isinstance(t.get("function"), dict):
+        f = t["function"]
+        return {"name": f.get("name"), "description": f.get("description", ""), "inputSchema": f.get("parameters") or {}}
+    return t
+
+
 class PayloadValidator:
     """
     Validateur de payloads pour Nokido.
@@ -22,7 +31,8 @@ class PayloadValidator:
         """
         Valide une liste d'outils MCP.
         """
-        for t in tools:
+        for brut in tools:
+            t = _forme_mcp(brut)
             # 1. Verifier les cles obligatoires
             missing = self.REQUIRED_TOOL_KEYS - t.keys()
             if missing:
@@ -45,9 +55,13 @@ class PayloadValidator:
 
         return True, ""
 
-    def validate_payload(self, payload: Dict[str, Any]) -> Tuple[bool, str]:
+    def validate_payload(self, payload: Dict[str, Any], agentique: bool = False) -> Tuple[bool, str]:
         """
         Valide un payload complet (messages + tools).
+
+        `agentique=True` : appel qui doit AGIR (orchestrate, executeurs, A2A) -> `tools` present et NON VIDE exige, sinon
+        l'agent devient inerte en silence (regle d'or owner, memoire feedback_validate_tools_payload). Defaut inchange
+        pour les appels de texte (juge, resume, embeddings).
         """
         # 1. Verifier les messages
         messages = payload.get("messages", [])
@@ -57,6 +71,9 @@ class PayloadValidator:
         for i, msg in enumerate(messages):
             if not isinstance(msg, dict) or "content" not in msg or "role" not in msg:
                 return False, f"Message #{i} invalide (role/content manquants)"
+
+        if agentique and not payload.get("tools"):
+            return False, "agent inerte : payload d'agent sans definitions d'outils (regle d'or tools)"
 
         # 2. Verifier les outils si presents
         if "tools" in payload:

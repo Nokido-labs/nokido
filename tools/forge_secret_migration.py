@@ -293,6 +293,7 @@ def executer(appliquer: bool = False, ajouter_import: bool = False) -> dict:
             octets = open(chemin, "rb").read()
             src = octets.decode("utf-8")
         except Exception:  # noqa: BLE001 - binaire ou encodage exotique
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_secret_migration.py', 295, exc_info=True)
             continue
         rel = os.path.relpath(chemin, ROOT).replace("\\", "/")
         appel = _forme_appel(src)

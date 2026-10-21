@@ -93,7 +93,7 @@ def fichiers_modifies(racine: Path, ref: str = "HEAD"):
     return sorted(set(vus)), "PRESENT"
 
 
-def liste_depuis_fichier(chemin):
+def liste_depuis_fichier(chemin, racine=None):
     """(liste, etat) — le diff FOURNI par un appelant qui, lui, a acces a git.
 
     Mesure 2026-09-19 : sous le compte du hub (`LaForgeSbxOffline`) `git` est
@@ -105,9 +105,15 @@ def liste_depuis_fichier(chemin):
     Une liste VIDE rend ILLISIBLE, pas 'rien n'a change' : un fichier tronque,
     mal ecrit ou d'un run precedent produirait sinon une selection vide declaree
     verte -- le faux vert parfait.
+
+    `racine` : un chemin RELATIF se lit contre elle, jamais contre le cwd. Mesure 19/10 : sous run_job le cwd est
+    celui du hub, la liste relative y etait introuvable et deux CI `--impacte` ont joue TOUTE la suite (tuees a 6 Go).
     """
+    p = Path(chemin)
+    if racine is not None and not p.is_absolute():
+        p = Path(racine) / p
     try:
-        brut = Path(chemin).read_text(encoding="utf-8", errors="replace")
+        brut = p.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
         return [], "ILLISIBLE(liste %s: %s)" % (type(e).__name__, str(e)[:80])
     vus = [l.strip() for l in brut.splitlines()

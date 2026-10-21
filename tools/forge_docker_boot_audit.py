@@ -27,6 +27,7 @@ for i in range(17):  # ~85s
     try:
         r = subprocess.run([DOCKER, "system", "df"], capture_output=True, text=True, timeout=20, errors="replace")
     except Exception:
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_boot_audit.py', 29, exc_info=True)
         continue
     if r.returncode == 0:
         print(f"\ndaemon UP apres ~{(i + 1) * 5}s\n")

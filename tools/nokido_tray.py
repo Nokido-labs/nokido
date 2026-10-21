@@ -33,6 +33,7 @@ from __future__ import annotations
 __FORGE_COLOR__ = "interface/ui_ : icone tray Windows lancee au demarrage"  # organe declare le 2026-09-06 (audit de raccordement)
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -62,7 +63,9 @@ LANCEUR = ROOT / "tools" / "nokido_launcher.py"
 PANNEAU_BAT = ROOT / "tools" / "Nokido Control Panel.bat"
 ACTIONS_PANNEAU = ("start", "stop", "restart", "restart-hub", "status",
                    # Tailscale (2026-09-29) : seule la session owner peut le piloter.
-                   "tailscale-statut", "funnel-ouvrir", "funnel-fermer")
+                   "tailscale-statut", "funnel-ouvrir", "funnel-fermer",
+                   # Mode DEV (2026-10-16) : console administrateur, l'UAC est le geste owner.
+                   "dev-armer", "audio-relancer")
 MARQUE_SVG = ROOT / "app" / "web_hub" / "static" / "nokido-mark-light.svg"
 TRAY_DEJA_ACTIF = 3  # code de sortie d'une seconde instance, lu par nokido_launcher._start_tray
 
@@ -382,6 +385,7 @@ def lancer_panneau(action: str, origine: str = "menu") -> bool:
         _notify(f"Panneau non lancé ({action}) : {e}")
         return False
     _notify(f"Panneau : {action} ({origine})")
+    _relancer_si_perime(action)
     return True
 
 
@@ -432,6 +436,111 @@ def _set_mode(mode: str):
     return _action
 
 
+def _relever_commandes():
+    """Commandes a TAPER deposees par les agents (owner 2026-10-16, option a). Le tray les montre et les COPIE ; il
+    n'en execute aucune. La liste se lit dans le JOURNAL local (le tray tourne sous le compte owner) : relevee par le
+    hub, sa sortie est caviardee pour les clients cloud et la commande arrivait alteree au presse-papier (vecu 16/10,
+    « C:/[BASE64_SUSPECT_1].exe »). La porte generique du hub reste le repli."""
+    try:
+        from nokido_agent.app.forge_ordres_bureau import commandes_en_attente
+        _state["commandes"], _state["commandes_why"] = list(commandes_en_attente()), ""
+        return
+    except Exception as exc:  # noqa: BLE001
+        _state["commandes_why"] = f"journal local illisible ({type(exc).__name__}) : repli sur le hub"[:80]
+    if not _state["hub_up"]:
+        return
+    try:
+        r = _mcp("hub", {"action": "demander_ordre", "ordre": "commandes-en-attente"})
+    except Exception as exc:
+        _state["commandes_why"] = f"{type(exc).__name__}: {exc}"[:80]
+        return
+    if isinstance(r, dict) and r.get("etat") == "LISTE":
+        _state["commandes"], _state["commandes_why"] = list(r.get("commandes") or []), ""
+    else:
+        # hub pas encore relance (« ordre inconnu »), GATE_DENIED... : le DIRE au menu
+        _state["commandes_why"] = str((r or {}).get("raison") if isinstance(r, dict) else r)[:80]
+
+
+def _presse_papier(texte: str) -> bool:
+    """Ecrit `texte` dans le presse-papier Windows (CF_UNICODETEXT) par l'API Win32 -- sans processus enfant : le texte
+    d'une commande deposee n'atteint jamais un interpreteur."""
+    import ctypes
+    from ctypes import wintypes
+
+    k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
+    k32.GlobalAlloc.argtypes, k32.GlobalAlloc.restype = [wintypes.UINT, ctypes.c_size_t], wintypes.HGLOBAL
+    k32.GlobalLock.argtypes, k32.GlobalLock.restype = [wintypes.HGLOBAL], ctypes.c_void_p
+    k32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    u32.OpenClipboard.argtypes = [wintypes.HWND]
+    u32.SetClipboardData.argtypes, u32.SetClipboardData.restype = [wintypes.UINT, wintypes.HANDLE], wintypes.HANDLE
+    donnees = texte.encode("utf-16-le") + b"\x00\x00"
+    if not u32.OpenClipboard(None):
+        return False
+    try:
+        u32.EmptyClipboard()
+        h = k32.GlobalAlloc(0x0002, len(donnees))      # GMEM_MOVEABLE
+        p = k32.GlobalLock(h)
+        if not p:
+            return False
+        ctypes.memmove(p, donnees, len(donnees))
+        k32.GlobalUnlock(h)
+        return bool(u32.SetClipboardData(13, h))     # CF_UNICODETEXT
+    finally:
+        u32.CloseClipboard()
+
+
+def _copier_commande(cid: str) -> None:
+    c = next((x for x in _state.get("commandes") or [] if x.get("id") == cid), None)
+    if not c:
+        _notify("Commande introuvable (déjà traitée ?)")
+        return
+    texte = str(c.get("texte") or "")
+    try:
+        from nokido_agent.app.forge_ordres_bureau import texte_caviarde
+        altere = texte_caviarde(texte)
+    except Exception:  # noqa: BLE001
+        altere = True  # controle impossible : on ne copie pas a l'aveugle
+    if altere:
+        _notify("Copie REFUSÉE : texte caviardé en transit — relire logs/commandes_owner.jsonl")
+        return
+    if _presse_papier(texte):
+        _notify(f"Copiée — à coller toi-même : {c.get('raison') or cid}")
+    else:
+        _notify("Copie impossible : presse-papier occupé, réessayer")
+
+
+def _marquer_commande(cid: str) -> None:
+    try:
+        r = _mcp("hub", {"action": "demander_ordre", "ordre": "commande-faite", "cible": cid})
+    except Exception as exc:
+        _notify(f"Marquage impossible : {exc}"[:120])
+        return
+    if isinstance(r, dict) and r.get("etat") == "FAITE":
+        _state["commandes"] = [x for x in _state.get("commandes") or [] if x.get("id") != cid]
+        _notify("Commande marquée faite")
+    else:
+        _notify("Marquage refusé : %s" % ((r or {}).get("raison") if isinstance(r, dict) else r))
+
+
+def _action_commande(fn, cid):
+    """pystray appelle action(icon, item) : on fige l'id de la commande dans une fermeture."""
+    def _action(icon, item):
+        fn(cid)
+    return _action
+
+
+def _menu_commandes():
+    cmds = _state.get("commandes") or []
+    if not cmds:
+        why = f" ({_state['commandes_why']})" if _state.get("commandes_why") else ""
+        return pystray.MenuItem("📋 Commandes à taper : aucune" + why, None, enabled=False)
+    return pystray.MenuItem(f"📋 Commandes à taper ({len(cmds)})", pystray.Menu(*[
+        pystray.MenuItem(f"{c.get('raison') or '?'} — {c.get('demandeur')}", pystray.Menu(
+            pystray.MenuItem("Copier dans le presse-papier", _action_commande(_copier_commande, c.get("id"))),
+            pystray.MenuItem("✓ Marquer comme faite", _action_commande(_marquer_commande, c.get("id"))),
+        )) for c in cmds]))
+
+
 def _prendre_ordre():
     """Ordre CONFIRME par l'owner (elicitation, app/forge_ordres_bureau.py) : le prendre au
     hub et l'executer par le panneau. Le hub ne le rend qu'une fois ; le tray n'execute
@@ -463,6 +572,62 @@ def _quit(icon, item):
     icon.stop()
 
 
+def _code_perime() -> list:
+    """Fichiers du depot charges par CE tray dont le contenu a change depuis leur premier releve."""
+    try:
+        from nokido_agent.tools.forge_code_identity import fichiers_du_depot, perimes
+
+        return perimes(fichiers_du_depot(list(sys.modules.values()), ROOT))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tray] identite du code illisible ({type(exc).__name__}) : pas de relance a l'aveugle")
+        return []
+
+
+def _relancer_si_perime(action: str) -> bool:
+    """Apres un start/restart de stack, un tray dont le code a derive se relance.
+
+    16/10 (bb:active_bugs/tray_jamais_recharge_et_mode_dev_illisible_20261016) : le stop epargne le tray et le
+    lanceur s'arrete sur l'instance unique (code 3) -- le tray de 06:23 a survecu a deux relances sans jamais
+    recharger son code. La nouvelle instance attend la sortie de celle-ci (`--attendre-pid`) pour prendre le mutex."""
+    if action not in ("start", "restart"):
+        return False
+    perimes = _code_perime()
+    icon = _state.get("_icon")
+    if not perimes or icon is None:
+        return False
+    try:
+        with open(ROOT / "logs" / "tray.log", "a", encoding="utf-8", errors="replace") as log:
+            log.write("\n=== %s relance par le tray lui-meme : code perime (%s)\n"
+                      % (time.strftime("%Y-%m-%d %H:%M:%S"), ", ".join(perimes[:5])))
+            log.flush()
+            subprocess.Popen([sys.executable, "-u", str(Path(__file__).resolve()), "--no-selfheal",
+                              "--attendre-pid", str(os.getpid())],
+                             creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS
+                                            | subprocess.CREATE_NEW_PROCESS_GROUP),
+                             stdout=log, stderr=subprocess.STDOUT)
+    except Exception as exc:  # noqa: BLE001
+        _notify(f"Tray périmé, relance impossible : {exc}")
+        return False
+    _notify(f"Tray relancé : code périmé ({', '.join(perimes[:3])})")
+    icon.stop()
+    return True
+
+
+def _attendre_sortie(pid: int, delai_s: float = 20.0) -> None:
+    """Relance par le tray lui-meme : l'ancienne instance tient le mutex tant qu'elle vit."""
+    try:
+        import ctypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not h:
+            return  # deja sortie
+        k32.WaitForSingleObject(h, int(delai_s * 1000))
+        k32.CloseHandle(h)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[tray] attente de l'ancienne instance impossible ({type(exc).__name__}) : on continue")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # MENU DYNAMIQUE
 # ─────────────────────────────────────────────────────────────────────────────
@@ -477,10 +642,12 @@ def _mode_dev() -> str:
     try:
         from nokido_agent.tools import forge_dev_mode as dm
 
-        if not dm.TOKEN_FILE.exists():
-            return "désarmé"
-        arme, reste = dm.is_armed()
-        return f"ARMÉ — reste {max(1, reste // 60)} min" if arme else "jeton présent mais non valide (expiré ou illisible)"
+        e = dm.etat_lisible()
+        if e["etat"] == "ARME":
+            return f"ARMÉ — reste {max(1, e['reste_s'] // 60)} min"
+        return {"ABSENT": "désarmé", "EXPIRE": "expiré (réarmer)",
+                "NON_VALIDE": "jeton présent mais non valide",
+                }.get(e["etat"], "illisible (%s)" % e.get("source", "?"))
     except Exception as exc:  # noqa: BLE001
         return f"illisible ({type(exc).__name__})"
 
@@ -560,6 +727,11 @@ def _build_menu(icon) -> pystray.Menu:
             else [pystray.MenuItem(f"Mode hub : {_state['mode']}", None, enabled=False)]
         ),
         pystray.MenuItem(f"Mode DEV : {_state.get('mode_dev') or '?'}", None, enabled=False),
+        # le geste passe par le PANNEAU (calque) : console administrateur, l'UAC est le geste owner
+        pystray.MenuItem("🔓 Armer le mode DEV (30 min, UAC)", _panneau("dev-armer")),
+        # 2b36b46a3 declarait l'action sans geste au menu (calque rompu, CI de reference e6642dcf1) : remede hors corps
+        # audiodg propose par le resource_manager, l'UAC est le geste owner.
+        pystray.MenuItem("🔊 Relancer le service audio Windows (UAC)", _panneau("audio-relancer")),
         *autorite,
         pystray.Menu.SEPARATOR,
         # Agents : presence REELLE (porte + hub) et provenance, plus la liste figee de get_mode
@@ -583,6 +755,7 @@ def _build_menu(icon) -> pystray.Menu:
         pystray.MenuItem("🌐 Tailscale : FERMER le Funnel", _panneau("funnel-fermer")),
         _sous_menu("Ordres récents (journal)", [_ligne_ordre(o) for o in reversed(_state.get("ordres") or [])],
                    "Ordres récents : aucun"),
+        _menu_commandes(),
         *(
             [pystray.MenuItem(f"Ordres : {_state['ordre_why']}", None, enabled=False)]
             if _state.get("ordre_why")
@@ -603,6 +776,7 @@ def _poll_loop(icon: pystray.Icon):
         _lire_corps()
         _poll_hub()
         _prendre_ordre()
+        _relever_commandes()
         # Mettre à jour icône + title + menu
         state_key = _icon_state()
         icon.icon = _make_icon(state_key)
@@ -635,6 +809,10 @@ def _instance_unique() -> bool:
 
 
 def main():
+    if "--attendre-pid" in sys.argv:
+        _i = sys.argv.index("--attendre-pid")
+        if _i + 1 < len(sys.argv) and sys.argv[_i + 1].isdigit():
+            _attendre_sortie(int(sys.argv[_i + 1]))
     if not _instance_unique():
         print(f"[tray] deja actif : cette instance sort (code {TRAY_DEJA_ACTIF})")
         sys.exit(TRAY_DEJA_ACTIF)
@@ -679,6 +857,9 @@ def main():
         title="Nokido — hub & flotte web",
         menu=pystray.Menu(pystray.MenuItem("Chargement...", None, enabled=False)),
     )
+
+    _state["_icon"] = icon
+    _code_perime()  # premier releve : le code charge au demarrage fait reference
 
     # Clic gauche → Network Monitor
     icon.default_action = _open_network

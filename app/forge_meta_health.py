@@ -100,7 +100,7 @@ def score(daemon: str) -> int:
                 domain="systeme",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_meta_health.py', 102, exc_info=True)
     return s
 
 

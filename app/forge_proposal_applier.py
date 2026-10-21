@@ -100,6 +100,11 @@ PARAMS_L1: dict[str, dict] = {
     "embed.batch_size": {"type": "int", "min": 8, "max": 128, "defaut": 32,
                          "mesure": "forge_embed_router:mesurer_capacite_batch",
                          "bruit": {"textes_par_seconde": 5.0, "taux_succes": 0.0}},
+    # Decision owner 18/10 (RSI action 4) : nombre de fils paralleles d'embed_batch_fast. Defaut 4 = comportement
+    # d'avant. Bruit PROVISOIRE repris de embed.batch_size, A REMESURER (debat tour 3 : AGY +24 % de 1 a 2 fils).
+    "embed.max_workers": {"type": "int", "min": 1, "max": 8, "defaut": 4,
+                          "mesure": "forge_embed_router:mesurer_capacite_workers",
+                          "bruit": {"textes_par_seconde": 5.0, "taux_succes": 0.0}},
 }
 # Valeurs COURANTES des reglages L1. Chaque entree garde l'entree qu'elle remplace
 # (`precedente`) : un process qui meurt entre l'acte et la mesure laisse de quoi revenir.

@@ -132,7 +132,7 @@ class Hippocampus:
             try:
                 map_data = json.loads(BRAIN_MAP.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hippocampus.py', 134, exc_info=True)
         key = f"{source_file}->{target_file}"
         entry = map_data.get(key, {"weight": 0})
         entry.update(

@@ -74,6 +74,7 @@ def charger_reseau() -> list[tuple[float, float, int]]:
         try:
             e = _dt.datetime.fromisoformat(str(ts)).timestamp()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_capteur_dense_apport_bench.py', 76, exc_info=True)
             continue
         out.append((e, float(lat) if lat is not None else -1.0,
                     1 if (statut or "").startswith("ERR") else 0))

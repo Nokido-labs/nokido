@@ -212,7 +212,7 @@ def ingerer(pages: list[tuple[str, str]], domain: str, pause: float,
                             "INSERT INTO rag_fts (chunk_id, text, source, domain) "
                             "VALUES (?, ?, ?, ?)", (cid, chunk, source, domain))
                     except Exception:  # noqa: BLE001
-                        pass  # FTS best-effort : forge_fts_backfill rattrape
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_llms_txt.py', 214, exc_info=True)
             pages_ok += 1
             # Validation PAR PAGE (2026-09-24). Avant : une seule transaction pour tout
             # le site, validee a la fin -- le verrou d'ecriture de embeddings.db restait
@@ -254,6 +254,28 @@ def ingerer(pages: list[tuple[str, str]], domain: str, pause: float,
             "erreurs": erreurs[:20]}
 
 
+def _crawl4ai_joignable(timeout: float = 3.0) -> bool:
+    """crawl4ai repond-il (/health 200) ? Illisible = NON : on ne lance pas une veille sur un doute."""
+    url = os.environ.get("CRAWL4AI_URL", "http://127.0.0.1:11235").rstrip("/") + "/health"
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status == 200
+    except Exception:  # noqa: BLE001 -- muet-ok : le refus qui suit le DIT, avec son remede
+        return False
+
+
+def _refus_sans_navigateur(sans_navigateur: bool):
+    """Poka-Yoke (16/10) : sans crawl4ai, le repli urllib reduit toute page rendue en JavaScript a son chrome --
+    rattrapage mesure : 123/129 pages ENRICHIES par crawl4ai (Three Amigos 4 -> 86 fragments). Un avertissement
+    ignorable ne protegeait rien ; on refuse, remede dans le message. Repli urllib : --sans-navigateur, en le sachant."""
+    if sans_navigateur or _crawl4ai_joignable():
+        return None
+    return ("REFUS : crawl4ai injoignable (%s) -- la veille serait appauvrie sans le dire. Remede : "
+            "nokido_ensure_service{service:'docker', desired_state:'running'} puis /health 200 ; ou relancer avec "
+            "--sans-navigateur pour accepter le repli urllib EN LE SACHANT." % os.environ.get(
+                "CRAWL4AI_URL", "http://127.0.0.1:11235"))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Ingere un site de doc via son llms.txt")
     ap.add_argument("--url", default="https://platform.claude.com/llms.txt")
@@ -269,6 +291,8 @@ def main() -> int:
                     help="URLs isolees separees par des virgules (arXiv, PDF, page unique) "
                          "— pour les sources SANS index llms.txt")
     ap.add_argument("--dry-run", action="store_true", help="liste les pages, n'ecrit rien")
+    ap.add_argument("--sans-navigateur", action="store_true",
+                    help="accepter le repli urllib quand crawl4ai est injoignable (pages JS appauvries)")
     ap.add_argument("--sonder", default=None,
                     help="liste d'URLs llms.txt separees par des virgules : dit "
                          "lesquelles existent et combien de pages, sans rien ecrire. "
@@ -288,6 +312,10 @@ def main() -> int:
             for _t, u in pages:
                 print("   ", u, flush=True)
             return 0
+        refus = _refus_sans_navigateur(a.sans_navigateur)
+        if refus:
+            print(refus, flush=True)
+            return 4
         print(json.dumps(ingerer(pages, a.domain, a.pause, a.timeout, a.paralleles),
                          ensure_ascii=False, indent=2), flush=True)
         return 0
@@ -324,6 +352,8 @@ def main() -> int:
         for t, u in pages[:40]:
             print("   %-52s %s" % (t[:52], u), flush=True)
         return 0
+    # Mode llms.txt : des pages MARKDOWN, rafraichies automatiquement (forge_cli_version_watch) -- urllib suffit,
+    # le Poka-Yoke du navigateur ne vise que les pages web arbitraires (--urls).
     rapport = ingerer(pages, a.domain, a.pause, a.timeout, a.paralleles)
     print(json.dumps(rapport, ensure_ascii=False, indent=2), flush=True)
     return 0

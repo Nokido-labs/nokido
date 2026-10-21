@@ -25,9 +25,49 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import forge_deps_reconcilier as R  # noqa: E402
 
 
-def _gh(*args: str, entree: str = None):
+def _gh(*args: str, entree: str = None, timeout: float = 120):
     return subprocess.run(["gh", *args], input=entree, capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=120)
+                          errors="replace", timeout=timeout)
+
+
+# ── ALERTE LOCALE : les PR Dependabot PRETES, au demarrage de session ────────────────────────────────────────────
+# Le verdict pose son commentaire SUR la PR ; il ne dit rien a l'owner qui ouvre une session (mesure du
+# 14/10 : CI de quarantaine verte, revue qui attendait). `gh` n'est authentifie que sous le compte owner,
+# et le demarrage de session EST ce compte : ce point d'entree est le seul ou l'alerte locale a un sens.
+# Toute entree-sortie `gh` reste dans CE fichier (docstring du module) ; la logique pure reste dans
+# forge_deps_reconcilier. La fusion reste HUMAINE (decision owner du 2026-10-14) : alerter, pas fusionner.
+COMMANDE_PRS_DEPENDABOT = ("pr", "list", "--author", "app/dependabot", "--json", "number,title,mergeable")
+_TIMEOUT_PRS_DEPENDABOT = 15  # bore : un hook qui attend 120 s retarde le demarrage de session
+
+
+def _lister_prs_dependabot() -> str:
+    """Sortie JSON de `gh pr list --author app/dependabot ...`, ou RuntimeError en NOMMANT l'echec."""
+    r = _gh(*COMMANDE_PRS_DEPENDABOT, timeout=_TIMEOUT_PRS_DEPENDABOT)
+    if r.returncode:
+        raise RuntimeError("gh pr list ILLISIBLE (rc=%d) : %s" % (r.returncode, r.stderr.strip()[:200]))
+    return r.stdout
+
+
+def prs_dependabot_pretes(executer=None) -> tuple:
+    """(etat, prs) avec etat "OK" | "ILLISIBLE" : les PR MERGEABLE, ou l'etat DIT quand on ne sait pas.
+
+    `executer` rend la sortie JSON de `gh pr list --author app/dependabot --json number,title,mergeable`
+    (doublure en test) ; sans executer, le chemin reel tourne. Sortie vide ou non JSON, liste de non-dicts,
+    gh absent ou gh qui refuse = ILLISIBLE : UNKNOWN n'est pas NO, une lecture qui echoue ne prouve pas
+    qu'aucune PR n'est prete -- elle ne rend donc JAMAIS « aucune ». Seules les PR MERGEABLE sont rendues ;
+    une PR CONFLICTING ou UNKNOWN ne l'est pas, sans rendre l'etat ILLISIBLE : la lecture, elle, a reussi.
+    """
+    try:
+        brut = (executer or _lister_prs_dependabot)()
+    except Exception:
+        return "ILLISIBLE", []
+    try:
+        donnees = json.loads(brut) if isinstance(brut, str) and brut.strip() else None
+    except ValueError:
+        donnees = None
+    if not isinstance(donnees, list) or not all(isinstance(p, dict) for p in donnees):
+        return "ILLISIBLE", []
+    return "OK", [p for p in donnees if p.get("mergeable") == "MERGEABLE"]
 
 
 def lire_pr(depot: str, numero: int) -> tuple:

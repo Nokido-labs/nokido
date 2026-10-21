@@ -60,6 +60,7 @@ from app.core.settings import get_app_attr as _g  # noqa: F401
 
 from nokido_agent.app import forge_context as _forge_ctx  # singleton rag_engine
 from nokido_agent.app import forge_context  # acces direct forge_context.xxx
+from nokido_agent.app.forge_trace_context import appeler_sans_lever as _appeler_sans_lever
 from app.forge_llm import ollama_parallel
 from app.forge_network import NetworkDiscovery
 from app.forge_ollama import ollama_call
@@ -139,15 +140,8 @@ async def _handle_loop(app: object, args: str) -> None:
         )
 
         def log_fn(msg: str) -> None:
-            """Log fn.
-
-            Args:
-                msg: Description.
-            """
-            try:
-                app._chat_log().write(msg)
-            except Exception:
-                pass
+            """Ecrit au journal du chat ; une erreur est journalisee, jamais propagee."""
+            _appeler_sans_lever(lambda: app._chat_log().write(msg), ou="forge_handlers.log_fn")
 
         async def run_loop() -> None:
             """Run loop."""
@@ -200,7 +194,7 @@ async def _handle_loop(app: object, args: str) -> None:
                     )
                     log_fn(f"[dim]→ Traceback complet : logs/loop_error_{loop_id}.log[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 202, exc_info=True)
                 _gvm_global().end_loop_trunk(merge=False)
 
         app._loop_task = asyncio.create_task(run_loop())
@@ -304,7 +298,7 @@ async def _handle_mode(app: object, args: str) -> None:
             try:
                 app._update_mode_buttons()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 306, exc_info=True)
             chat.write("[green]✅ Mode → " + ICONS.get(m, "") + " [bold]" + m + "[/][/]")
         else:
             chat.write("[red]❌ Mode inconnu : " + m + "  (autonome | collaboration | comite)[/]")
@@ -576,12 +570,12 @@ async def do_scan_basic(_subnet: object = None) -> object:
                     open_p.append(p)
                 s.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 578, exc_info=True)
         if open_p:  # DNS seulement si hôte actif
             try:
                 hostname = _sock.gethostbyaddr(ip_s)[0]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 583, exc_info=True)
         return ip_s, hostname, open_p
 
     hosts = [str(h) for h in list(net.hosts())[:254]]
@@ -1072,13 +1066,13 @@ async def on_unmount(app: object) -> None:
     try:
         await app.terminal.disconnect()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1074, exc_info=True)
 
     # ── Arrêt Prefect ────────────────────────────────────────────
     try:
         await _prefect_mgr.stop()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1080, exc_info=True)
 
     # ── Fermeture RAG ────────────────────────────────────────────
     try:
@@ -1086,28 +1080,28 @@ async def on_unmount(app: object) -> None:
         if _re:
             await _re.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1088, exc_info=True)
 
     # ── Déchargement modèles Ollama ──────────────────────────────
     if _mem_mgr:
         try:
             await _mem_mgr.free("all")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1095, exc_info=True)
 
     # ── Arrêt ONNX/sidecar ───────────────────────────────────────
     if HAS_ONNX:
         try:
             shutdown_onnx_backend()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1102, exc_info=True)
 
     # ── Nettoyage mémoire final ──────────────────────────────────
     if HAS_MEMORY and mem_optimizer:
         try:
             mem_optimizer.optimize(_rag_engine=_rag_eng, aggressive=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1109, exc_info=True)
     gc.collect()
 
     # ── Arrêt logging ────────────────────────────────────────────
@@ -1115,14 +1109,14 @@ async def on_unmount(app: object) -> None:
         _queue_listener.stop()
         _jsonl_handler.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1117, exc_info=True)
     for _fh in (_debug_main_handle, _debug_route_handle):
         try:
             if _fh and not _fh.closed:
                 _fh.flush()
                 _fh.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1124, exc_info=True)
 
     # ── Tuer les processus enfants (brain_worker, terminaux) ─────
     try:
@@ -1148,7 +1142,7 @@ async def on_unmount(app: object) -> None:
                             os.system(f"taskkill /F /T /PID {child_pid} >nul 2>&1")
                             logger.debug(f"[shutdown] killed child PID {child_pid}")
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1150, exc_info=True)
         else:
             # Unix : envoyer SIGTERM aux enfants via le process group
             import signal
@@ -1162,17 +1156,18 @@ async def on_unmount(app: object) -> None:
                         if int(_stat[3]) == pid:  # ppid == notre pid
                             _children.append(int(_stat[0]))
                     except Exception:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1164, exc_info=True)
                         continue
                 for _cpid in _children:
                     try:
                         os.kill(_cpid, signal.SIGTERM)
                         logger.debug(f"[shutdown] SIGTERM → PID {_cpid}")
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1170, exc_info=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1172, exc_info=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handlers.py', 1174, exc_info=True)
 
 
 # [EXTRAIT → forge_handlers.py] compose — stub NR

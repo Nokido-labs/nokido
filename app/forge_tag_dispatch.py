@@ -60,7 +60,7 @@ def _selftest():
         try:
             tmp.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tag_dispatch.py', 62, exc_info=True)
 
 
 def main():

@@ -29,7 +29,18 @@ NODE = r"C:\Program Files\nodejs\node.exe"
 GEMINI_JS = __import__("os").path.expanduser(r"~\AppData\Roaming\npm\node_modules\@google\gemini-cli\bundle\gemini.js")
 HUB_URL = os.environ.get("LAFORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
 # SECURITY 2026-05-02 : hardcoded fallback token removed.
-TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
+def _jeton_relais() -> str:
+    """Coffre d'abord (16/10) ; le relais peut tourner sans le paquet nokido_agent : repli env DIT sur stderr."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("FORGE_MCP_TOKEN") or ""
+    except ImportError:
+        print("[gemini_hub_relay] coffre inaccessible : repli sur l'environnement", file=sys.stderr)
+        return os.environ.get("FORGE_MCP_TOKEN", "")
+
+
+TOKEN = _jeton_relais()
 if not TOKEN:
     print(
         "[gemini_hub_relay] WARN: FORGE_MCP_TOKEN env not set. Hub auth will fail.", file=sys.stderr
@@ -52,7 +63,7 @@ def log(level: str, msg: str):
         with open(str(LOG_PATH), "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_hub_relay.py', 65, exc_info=True)
 
 
 def hub_call(params: dict) -> dict:

@@ -34,6 +34,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 OUT = ROOT / "sandbox" / "intentions_verifiees.json"
+# Registre des demandes owner (owner 17/10 : « a l'avenir aucune demande ne doit se perdre ») : zone PERENNE du
+# tableau noir (forge_swarm_blackboard._ZONES_PERENNES, jamais elaguee) + copie locale du dernier passage.
+REGISTRE = ROOT / "sandbox" / "demandes_owner_registre.json"
+ZONE_DEMANDES = "demandes_owner"
 
 # Mots outils + vocabulaire ubiquitaire : presents partout, donc sans valeur de preuve.
 _BANNIS = {
@@ -99,6 +103,7 @@ def _index():
         try:
             txt = f.read_text(encoding="utf-8", errors="replace").lower()
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_intent_verifier.py', 105, exc_info=True)
             continue
         n += 1
         for t in set(_RE_TOK.findall(txt)):
@@ -211,6 +216,68 @@ _RE_CONTAMINE = re.compile(
     re.IGNORECASE)
 
 
+def _instant(quand):
+    """Un instant comparable quelle que soit la surface : le RAG date en epoch (entier, rendu tel quel), la capture en
+    ISO (converti en epoch, UTC si sans fuseau). Illisible -> None : jamais une date inventee."""
+    if quand is None or isinstance(quand, (int, float)):
+        return quand
+    try:
+        from datetime import datetime, timezone
+        d = datetime.fromisoformat(str(quand).replace("Z", "+00:00"))
+        return (d if d.tzinfo else d.replace(tzinfo=timezone.utc)).timestamp()
+    except ValueError:  # muet-ok : une date illisible vaut None, que _date affiche « ? » -- jamais une date inventee
+        return None
+
+
+def _date(quand) -> str:
+    import time
+    q = _instant(quand)
+    return time.strftime("%Y-%m-%d", time.gmtime(q)) if q is not None else "?"
+
+
+def _norme(phrase: str) -> str:
+    """Cle de deduplication d'une demande : la meme pour toutes les surfaces et pour le registre."""
+    return re.sub(r"[^a-z0-9]+", " ", str(phrase).lower()).strip()[:110]
+
+
+def _accumuler(vus: dict, bloc: str, quand, re_machine, surface: str = "") -> None:
+    """Ajoute a `vus` les phrases-demandes d'UN tour owner, quelle que soit la surface qui l'a recu (conversation
+    ingeree au RAG ou tour capture en direct) : meme decoupe, memes filtres, meme cle de deduplication."""
+    quand = _instant(quand)
+    # Decoupe aussi sur les puces et numerotations : dans une spec collee,
+    # une exigence tient sur une puce, pas sur une phrase ponctuee.
+    for ph in re.split(r"[.!?\n]+|(?:^|\s)[-*•]\s+|(?:^|\s)\d+[.)]\s+", bloc[:6000]):
+        if not ph:
+            continue
+        ph = ph.strip()
+        if not (20 <= len(ph) <= 600) or not _RE_IMPERATIF.search(ph):
+            continue
+        if _RE_MA_VOIX.search(ph) or _RE_CONTAMINE.search(ph):
+            continue
+        # PREMIER JET : on rappelait ici `_est_parole_owner`. Double filtre
+        # redondant — la phrase vient DEJA d'un tour owner — et il coupait
+        # tout : 96 demandes retenues sur 24 210 tours, toutes a 1
+        # occurrence (donc la deduplication ne fusionnait rien : il n'y
+        # avait presque rien a fusionner). Seul le rejet de la matiere
+        # MACHINE (logs, JSON, diffs colles) reste justifie.
+        if re_machine.search(ph):
+            continue
+        cle = _norme(ph)
+        if not cle:
+            continue
+        e = vus.setdefault(cle, {"texte": ph, "occurrences": 0, "vu_le": None, "revu_le": None})
+        e["occurrences"] += 1
+        if surface:
+            e.setdefault("surfaces", set()).add(surface)
+        # Premiere et DERNIERE fois que la demande a ete formulee. C'est
+        # `revu_le` qui arbitre : une consigne reprise en aout prime sur
+        # une consigne de juin, et une demande jamais reprise depuis des
+        # mois n'a pas le meme poids qu'une demande d'hier.
+        if quand:
+            e["vu_le"] = quand if e["vu_le"] is None else min(e["vu_le"], quand)
+            e["revu_le"] = quand if e["revu_le"] is None else max(e["revu_le"], quand)
+
+
 def _enonces() -> list:
     """Les DEMANDES owner, une par une, dedupliquees.
 
@@ -235,38 +302,79 @@ def _enonces() -> list:
         if not txt:
             continue
         for bloc in _RE_TOUR_OWNER.split(txt)[1:]:
-            # Decoupe aussi sur les puces et numerotations : dans une spec collee,
-            # une exigence tient sur une puce, pas sur une phrase ponctuee.
-            for ph in re.split(r"[.!?\n]+|(?:^|\s)[-*•]\s+|(?:^|\s)\d+[.)]\s+",
-                               bloc[:6000]):
-                if not ph:
-                    continue
-                ph = ph.strip()
-                if not (20 <= len(ph) <= 600) or not _RE_IMPERATIF.search(ph):
-                    continue
-                if _RE_MA_VOIX.search(ph) or _RE_CONTAMINE.search(ph):
-                    continue
-                # PREMIER JET : on rappelait ici `_est_parole_owner`. Double filtre
-                # redondant — la phrase vient DEJA d'un tour owner — et il coupait
-                # tout : 96 demandes retenues sur 24 210 tours, toutes a 1
-                # occurrence (donc la deduplication ne fusionnait rien : il n'y
-                # avait presque rien a fusionner). Seul le rejet de la matiere
-                # MACHINE (logs, JSON, diffs colles) reste justifie.
-                if _RE_MACHINE.search(ph):
-                    continue
-                cle = re.sub(r"[^a-z0-9]+", " ", ph.lower()).strip()[:110]
-                if not cle:
-                    continue
-                e = vus.setdefault(cle, {"texte": ph, "occurrences": 0,
-                                         "vu_le": None, "revu_le": None})
-                e["occurrences"] += 1
-                # Premiere et DERNIERE fois que la demande a ete formulee. C'est
-                # `revu_le` qui arbitre : une consigne reprise en aout prime sur
-                # une consigne de juin, et une demande jamais reprise depuis des
-                # mois n'a pas le meme poids qu'une demande d'hier.
-                if quand:
-                    e["vu_le"] = quand if e["vu_le"] is None else min(e["vu_le"], quand)
-                    e["revu_le"] = quand if e["revu_le"] is None else max(e["revu_le"], quand)
+            _accumuler(vus, bloc, quand, _RE_MACHINE)
+    return sorted(vus.values(), key=lambda x: -x["occurrences"])
+
+
+def _capture_db():
+    """Base des tours captures EN DIRECT par les clients (cli_capture_lib.DB), ou None si illisible."""
+    try:
+        from nokido_agent.tools import cli_capture_lib
+        return cli_capture_lib.DB
+    except Exception as e:
+        print("[registre] base de capture introuvable (%s %s)" % (type(e).__name__, e), flush=True)
+        return None
+
+
+def _capture_spool():
+    """Spool des tours que la base de capture a REFUSES (cli_capture_lib, 17/10) : ils comptent comme les autres."""
+    return ROOT / "sandbox" / "cli_capture_spool.jsonl"
+
+
+def _enonces_du_spool(vus: dict, re_machine) -> int:
+    """Ajoute a `vus` les tours owner du spool ; rend le nombre de lignes illisibles (DITES par l'appelant)."""
+    p = Path(_capture_spool())
+    if not p.exists():
+        return 0
+    n = 0
+    for ligne in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            t = json.loads(ligne)
+        except ValueError:
+            n += 1
+            continue
+        if t.get("role") == "user":
+            _accumuler(vus, str(t.get("content") or ""), t.get("ts"), re_machine, surface="cli_%s" % t.get("surface"))
+    return n
+
+
+def _enonces_captures() -> list:
+    """Demandes owner des tours CAPTURES EN DIRECT par n'importe quel client (cli_capture_lib -> agent_messages,
+    from_agent `cli_<surface>`) : une demande compte sans attendre l'ingestion de sa conversation au RAG.
+    Owner 17/10 : « ces outils doivent pouvoir en entree fonctionner sur d'autres cli aussi, tu n'es qu'un client
+    parmi d'autres ». Seuls les tours `role=user` comptent : la voix d'un agent n'est jamais une demande."""
+    import sqlite3
+
+    from nokido_agent.tools.forge_intent_miner import _RE_MACHINE
+
+    db = _capture_db()
+    rows = []
+    if db is None or not Path(db).exists():
+        print("[registre] base de capture ILLISIBLE (%s) : seuls le spool et les conversations ingerees comptent" % db,
+              flush=True)
+    else:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=30)
+        try:
+            rows = con.execute("SELECT from_agent, payload, created_at FROM agent_messages "
+                               "WHERE method = 'conversation.turn' AND substr(from_agent, 1, 4) = 'cli_'").fetchall()
+        finally:
+            con.close()
+    vus: dict = {}
+    illisibles = 0
+    for surface, payload, quand in rows:
+        try:
+            p = json.loads(payload or "{}")
+        except ValueError:
+            illisibles += 1
+            continue
+        if p.get("role") != "user":
+            continue
+        _accumuler(vus, str(p.get("content") or ""), quand, _RE_MACHINE, surface=surface)
+    illisibles += _enonces_du_spool(vus, _RE_MACHINE)
+    if illisibles:
+        print("[registre] %d tour(s) capture(s) ECARTE(S) : JSON illisible (base ou spool)" % illisibles, flush=True)
+    for e in vus.values():
+        e["surfaces"] = sorted(e.get("surfaces") or ())
     return sorted(vus.values(), key=lambda x: -x["occurrences"])
 
 
@@ -426,6 +534,8 @@ def main() -> int:
     # signature reste accessible via --signatures, mais il ne repond pas a la
     # question posee. (Accessoirement, `run_job` ne transmet pas script_args :
     # un mode utile qui depend d'un drapeau ne serait jamais joue en detache.)
+    if "--registre" in sys.argv:
+        return _main_registre()
     if "--signatures" not in sys.argv:
         return _main_enonces()
 
@@ -512,14 +622,10 @@ def main() -> int:
     return 0
 
 
-def _main_enonces() -> int:
-    print("[verif] extraction des ENONCES owner...", flush=True)
-    ens = _enonces()
-    print("[verif] %d demandes distinctes" % len(ens), flush=True)
-    idx, nfic = _index()
-    print("[verif] %d fichiers indexes" % nfic, flush=True)
+def _verdicts(ens: list, idx: dict, nfic: int) -> tuple:
+    """Verdict CODE de chaque enonce (ANCRE / PRESENT / PARTIEL / ABSENT) : un seul calcul, lu par le point des
+    enonces et par le registre des demandes."""
     df_max = max(8, int(nfic * 0.02))
-
     res, compte = [], {"ANCRE": 0, "PRESENT": 0, "PARTIEL": 0, "ABSENT": 0}
     for e in ens:
         termes = _elargis([t for t in dict.fromkeys(_RE_TOK.findall(e["texte"].lower()))
@@ -538,10 +644,140 @@ def _main_enonces() -> int:
         v = ("ANCRE" if (ancrage and ident) else "PRESENT" if ancrage
              else "PARTIEL" if rares else "ABSENT")
         compte[v] += 1
-        res.append({"texte": e["texte"], "occurrences": e["occurrences"],
-                    "verdict": v, "termes_rares": rares[:10],
-                    "fichiers_ancrage": ancrage[:4],
-                    "vu_le": e.get("vu_le"), "revu_le": e.get("revu_le")})
+        r = {"texte": e["texte"], "occurrences": e["occurrences"],
+             "verdict": v, "termes_rares": rares[:10],
+             "fichiers_ancrage": ancrage[:4],
+             "vu_le": e.get("vu_le"), "revu_le": e.get("revu_le")}
+        if e.get("surfaces"):
+            r["surfaces"] = list(e["surfaces"])
+        res.append(r)
+    return res, compte
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# REGISTRE DES DEMANDES OWNER (owner 17/10 : « a l'avenir aucune demande ne doit se perdre, ancre le ! »)
+# Mesure du jour : des demandes sans trace dans le code NI suivi au SSoT (la passe native decidee le 16/10, jamais
+# profilee). Le point des enonces confronte au CODE ; le registre confronte AUSSI au SSoT et INSCRIT chaque orpheline
+# dans la zone PERENNE demandes_owner, cle = empreinte de la phrase : une demande redite reste UNE entree ; elle se
+# ferme par un marqueur ([CLOS] ...), jamais par effacement. Entree = TOUTES les surfaces (conversations ingerees et
+# tours captures en direct par n'importe quel client) : Claude Code n'est qu'un client parmi d'autres.
+# ---------------------------------------------------------------------------------------------------------------
+_RE_CLOS = re.compile(r"^\s*(?:(?:P\d|BLOCKER|NEXT|CURRENT)\s*[:\-]\s*)?\[\s*(CLOS|RESOLU|RÉSOLU|FAIT|LIVRE|LIVRÉ|"
+                      r"RETRACTE|PERIME|PÉRIMÉ)", re.I)
+
+
+def cle_demande(texte: str) -> str:
+    import hashlib
+    return "demande_" + hashlib.sha256(_norme(texte).encode("utf-8")).hexdigest()[:12]
+
+
+def _termes_demande(texte: str) -> set:
+    return {t for t in _RE_TOK.findall(str(texte).lower().replace("_", " ")) if t not in _BANNIS}
+
+
+def _fusionner(*listes) -> list:
+    """Une demande dite sur plusieurs surfaces reste UNE demande : occurrences et surfaces cumulees."""
+    vus: dict = {}
+    for liste in listes:
+        for e in liste:
+            k = _norme(e["texte"])
+            if k not in vus:
+                vus[k] = dict(e, surfaces=list(e.get("surfaces") or []),
+                              vu_le=_instant(e.get("vu_le")), revu_le=_instant(e.get("revu_le")))
+                continue
+            a = vus[k]
+            a["occurrences"] += e.get("occurrences") or 0
+            a["surfaces"] = sorted(set(a["surfaces"]) | set(e.get("surfaces") or []))
+            for champ, choix in (("vu_le", min), ("revu_le", max)):
+                q = _instant(e.get(champ))
+                if q is not None:
+                    a[champ] = q if a.get(champ) is None else choix(a[champ], q)
+    return sorted(vus.values(), key=lambda x: -x["occurrences"])
+
+
+def demandes_sans_suivi(res: list, suivis: list, seuil: float = 0.5) -> list:
+    """Demandes SANS trace dans le code (ABSENT, PARTIEL) ET sans suivi au SSoT. Un fait du registre lui-meme ne vaut
+    suivi que par sa CLE : apparier par les mots le texte d'une demande inscrite ferait passer pour suivie toute
+    demande voisine -- un registre qui se lit lui-meme se donne raison (meme piege que _SKIP)."""
+    cles = {s.get("cle") for s in suivis}
+    index: dict = {}
+    for i, s in enumerate(suivis):
+        if s.get("registre"):
+            continue
+        for t in _termes_demande("%s %s" % (s.get("cle", ""), s.get("titre", ""))):
+            index.setdefault(t, set()).add(i)
+    orph = []
+    for r in res:
+        if r.get("recouverte_par") or r.get("verdict") in ("ANCRE", "PRESENT"):
+            continue
+        if cle_demande(r["texte"]) in cles:
+            continue
+        t = _termes_demande(r["texte"])
+        meilleur = 0
+        if len(t) >= 2:
+            par_suivi: dict = {}
+            for w in t:
+                for i in index.get(w, ()):
+                    par_suivi[i] = par_suivi.get(i, 0) + 1
+            meilleur = max(par_suivi.values(), default=0)
+        if meilleur >= 2 and meilleur / len(t) >= seuil:
+            continue
+        orph.append(r)
+    return orph
+
+
+def _suivis_ssot() -> list:
+    """Tous les suivis lisibles du tableau noir. LEVE si le registre lui-meme est illisible : inscrire sans l'avoir lu
+    ecraserait les marqueurs de tri ([CLOS] -> [A TRIER])."""
+    from nokido_agent.app import forge_swarm_blackboard as B
+    out = []
+    for zone in ("architecture_rules", "active_bugs", "discovered_facts", "mission", ZONE_DEMANDES):
+        try:
+            r = B.read_zone(zone, limit=20000)
+        except Exception as e:
+            if zone == ZONE_DEMANDES:
+                raise
+            print("[registre] zone %s ILLISIBLE (%s) : ses suivis ne comptent pas" % (zone, type(e).__name__), flush=True)
+            continue
+        for f in (r.get("facts", r) if isinstance(r, dict) else r) or []:
+            v = str(f.get("value", ""))
+            out.append({"cle": str(f.get("key", "")), "titre": v[:400], "registre": zone == ZONE_DEMANDES,
+                        "statut": "clos" if _RE_CLOS.match(v) else "ouvert"})
+    return out
+
+
+def _ecrire_fait(zone: str, fact: str, **kw) -> dict:
+    from nokido_agent.app import forge_swarm_blackboard as B
+    return B.apply_fact_sync(zone, fact, **kw)
+
+
+def inscrire_demandes(orph: list, ecrire=None) -> dict:
+    """Une entree par demande, cle = empreinte de la phrase (idempotent). ring=2 : ACL de la zone, comme active_bugs."""
+    import time
+    ecrire = ecrire or _ecrire_fait
+    jour = time.strftime("%Y-%m-%d")
+    compte = {"ok": 0, "refus": 0}
+    for r in orph:
+        fait = "[A TRIER %s] « %s » (x%d ; dite du %s au %s ; trace code %s ; surfaces %s)" % (
+            jour, r["texte"][:600], r.get("occurrences") or 1, _date(r.get("vu_le")),
+            _date(r.get("revu_le")), r.get("verdict"), ",".join(r.get("surfaces") or []) or "conversations")
+        res = ecrire(ZONE_DEMANDES, fait, key=cle_demande(r["texte"]), category="demande_owner", ring=2,
+                     source="forge_intent_verifier")
+        if (res or {}).get("error"):
+            compte["refus"] += 1
+            print("[registre] REFUS d'inscription : %s" % res.get("error"), flush=True)
+        else:
+            compte["ok"] += 1
+    return compte
+
+
+def _main_enonces() -> int:
+    print("[verif] extraction des ENONCES owner...", flush=True)
+    ens = _enonces()
+    print("[verif] %d demandes distinctes" % len(ens), flush=True)
+    idx, nfic = _index()
+    print("[verif] %d fichiers indexes" % nfic, flush=True)
+    res, compte = _verdicts(ens, idx, nfic)
 
     res.sort(key=lambda r: ({"ABSENT": 0, "PARTIEL": 1, "PRESENT": 2, "ANCRE": 3}[r["verdict"]],
                             -r["occurrences"]))
@@ -580,6 +816,42 @@ def _main_enonces() -> int:
                                        ",".join(r["termes_rares"][:3])))
     print("\n  ecrit : %s" % out)
     return 0
+
+
+def _main_registre() -> int:
+    """Passe du registre (declenchee chaque nuit en NREM1 par le superviseur) : toutes surfaces -> verdict code ->
+    croisement SSoT -> inscription des orphelines -> resume. Rend 2 si le registre est illisible (rien ecrit)."""
+    import time
+    ens = _fusionner(_enonces(), _enonces_captures())
+    print("[registre] %d demandes owner distinctes (toutes surfaces)" % len(ens), flush=True)
+    idx, nfic = _index()
+    res, compte = _verdicts(ens, idx, nfic)
+    try:
+        _supersessions(res)
+    except Exception as e:
+        print("[registre] supersessions ILLISIBLES (%s) : aucune demande ecartee comme recouverte" % type(e).__name__)
+    try:
+        suivis = _suivis_ssot()
+    except Exception as e:
+        print("[registre] ARRET : registre %s illisible (%s %s) -- rien n'est inscrit" % (ZONE_DEMANDES, type(e).__name__, e),
+              flush=True)
+        return 2
+    orph = demandes_sans_suivi(res, suivis)
+    nouvelles = [r for r in orph if cle_demande(r["texte"]) not in {s["cle"] for s in suivis}]
+    ins = inscrire_demandes(nouvelles)
+    surfaces = sorted({s for r in res for s in (r.get("surfaces") or [])})
+    resume = ("[REGISTRE %s] %d demandes owner distinctes ; code %s ; %d sans trace ni suivi, %d inscrites ce passage "
+              "(refus %d) ; surfaces capturees en direct : %s ; conversations ingerees : conv_* et agy*. Fermer une "
+              "demande = marqueur [CLOS] sur son fait, jamais un effacement." % (
+                  time.strftime("%Y-%m-%d %H:%M"), len(res), json.dumps(compte), len(orph), ins["ok"], ins["refus"],
+                  ",".join(surfaces) or "aucune"))
+    _ecrire_fait(ZONE_DEMANDES, resume, key="resume_registre", category="resume", ring=2, source="forge_intent_verifier")
+    REGISTRE.parent.mkdir(parents=True, exist_ok=True)
+    REGISTRE.write_text(json.dumps({"resume": resume, "orphelines": orph}, ensure_ascii=False, indent=1, default=list),
+                        encoding="utf-8")
+    print("BILAN registre demandes=%d orphelines=%d inscrites=%d refus=%d" % (len(res), len(orph), ins["ok"], ins["refus"]),
+          flush=True)
+    return 0 if not ins["refus"] else 1
 
 
 if __name__ == "__main__":

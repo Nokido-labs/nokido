@@ -70,6 +70,7 @@ def _iter_files() -> list[Path]:
             if p.stat().st_size > HARD_MAX_BYTES:
                 continue
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 72, exc_info=True)
             continue
         out.append(p)
     return sorted(out)
@@ -143,6 +144,7 @@ def _chunk_json(text: str) -> list[str]:
             try:
                 parts.append(json.dumps(item, indent=2, ensure_ascii=False))
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 145, exc_info=True)
                 continue
     elif isinstance(data, dict):
         # If it's a "tools" container, expand
@@ -151,12 +153,14 @@ def _chunk_json(text: str) -> list[str]:
                 try:
                     parts.append(json.dumps(item, indent=2, ensure_ascii=False))
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 153, exc_info=True)
                     continue
         else:
             for k, v in data.items():
                 try:
                     parts.append(json.dumps({k: v}, indent=2, ensure_ascii=False))
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 159, exc_info=True)
                     continue
     else:
         return _chunk_markdown_or_text(text)
@@ -316,6 +320,7 @@ def ingest(dry_run: bool = False) -> dict:
                 try:
                     text = p.read_text(encoding="utf-8", errors="replace")
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 318, exc_info=True)
                     continue
                 source = _source_for(p)
                 if p.suffix.lower() == ".json":
@@ -341,7 +346,7 @@ def ingest(dry_run: bool = False) -> dict:
                             )
                             n_fts += 1
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ingest_ai_prompts_landscape.py', 343, exc_info=True)
             conn.commit()
         except Exception as e:
             print(f"  fts sync degraded: {e}", flush=True)

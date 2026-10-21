@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT))
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:  # noqa: BLE001
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_strategy_swarm.py', 28, exc_info=True)
 
 RESSOURCES = ("Ressources DISPO : iGPU Radeon 780M = 8.59GB VRAM, RAM 25.4GB, providers cloud "
               "free-tier openrouter(OK)/sambanova(OK)/groq(clé morte)/cerebras(clé morte), pool "

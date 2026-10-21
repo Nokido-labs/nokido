@@ -243,7 +243,7 @@ class KaggleBridge:
                     "method": "sdk",
                 }
             except Exception as e:
-                pass  # Fallback CLI
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_kaggle_bridge.py', 245, exc_info=True)
 
         # Méthode 2 : CLI kaggle en DETACHED
         DETACHED = 0x00000008
@@ -301,7 +301,7 @@ class KaggleBridge:
                     ecrire_chunk(conn, source, domain, text)
                     ingested += 1
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_kaggle_bridge.py', 303, exc_info=True)
             conn.commit()
             conn.close()
         except Exception as e:

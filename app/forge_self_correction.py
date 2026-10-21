@@ -125,7 +125,7 @@ def _clean_query(q: str) -> str:
     return " ".join(words[:12])  # max 12 termes pour garder la requete rapide
 
 
-def _fts5_search(query: str, limit: int = 10) -> list:
+def _fts5_search(query: str, limit: int = 10, pannes: list | None = None) -> list:
     """
     Recherche via rag_fts (FTS5 natif SQLite avec BM25).
     Retourne liste de (bm25_score, text, source).
@@ -159,11 +159,13 @@ def _fts5_search(query: str, limit: int = 10) -> list:
         conn.close()
         # Transforme en format uniforme (score positif = meilleur)
         return [(-r[0], r[1], r[2]) for r in results]
-    except Exception:
+    except Exception as e:  # 19/10 : la panne est NOTEE -- un [] muet se lisait « aucune lecon » (feu vert)
+        if pannes is not None:
+            pannes.append("fts5:%s" % type(e).__name__)
         return []
 
 
-def _ragengine_search(query: str, limit: int = 10) -> list:
+def _ragengine_search(query: str, limit: int = 10, pannes: list | None = None) -> list:
     """
     Tente d utiliser RAGEngine en memoire (FAISS + BM25 + RRF + rerank).
     Retourne [] si l engine n est pas charge ou search async non executable sync.
@@ -194,7 +196,7 @@ def _ragengine_search(query: str, limit: int = 10) -> list:
             # Deja dans une loop -> impossible d appeler async sync sans blocking
             return []
         except RuntimeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 196, exc_info=True)
 
         # Pas de loop active : on peut creer une temporaire
         try:
@@ -204,14 +206,16 @@ def _ragengine_search(query: str, limit: int = 10) -> list:
                 for d in docs
                 if isinstance(d, dict)
             ]
-        except Exception:
+        except Exception as e:  # moteur charge mais recherche en panne : NOTEE (un moteur absent n'en est pas une)
+            if pannes is not None:
+                pannes.append("ragengine:%s" % type(e).__name__)
             return []
 
     except Exception:
         return []
 
 
-def _like_fallback(query: str, limit: int = 20) -> list:
+def _like_fallback(query: str, limit: int = 20, pannes: list | None = None) -> list:
     """
     Fallback SQL LIKE sur role_hint='rule' + sources lesson/error/session.
     Plus permissif que l ancien : accepte len(kw) >= 3 au lieu de > 3.
@@ -245,7 +249,9 @@ def _like_fallback(query: str, limit: int = 20) -> list:
 
         results.sort(key=lambda x: -x[0])
         return results[:limit]
-    except Exception:
+    except Exception as e:  # 19/10 : panne NOTEE, voir _fts5_search
+        if pannes is not None:
+            pannes.append("like:%s" % type(e).__name__)
         return []
 
 
@@ -306,18 +312,24 @@ def preflight_check(action: str, context: str = "", limit: int = 5) -> Optional[
     if not query:
         return None
 
+    # 19/10 (audit pair, affirmation 2) : chaque niveau NOTE sa panne. Si les deux niveaux SQLite « toujours
+    # disponibles » sont en panne sans resultat, aucune verification n'a eu lieu : on le DIT, jamais None (feu vert).
+    pannes: list = []
     # Niveau 1 : RAGEngine complet (ideal mais souvent pas dispo en contexte preflight)
-    results = _ragengine_search(query, limit=limit)
+    results = _ragengine_search(query, limit=limit, pannes=pannes)
 
     # Niveau 2 : FTS5 natif (rapide, toujours exploitable, bon rappel)
     if not results:
-        results = _fts5_search(query, limit=limit)
+        results = _fts5_search(query, limit=limit, pannes=pannes)
 
     # Niveau 3 : LIKE fallback
     if not results:
-        results = _like_fallback(query, limit=limit)
+        results = _like_fallback(query, limit=limit, pannes=pannes)
 
     if not results:
+        if any(p.startswith("fts5") for p in pannes) and any(p.startswith("like") for p in pannes):
+            return ("[PREFLIGHT ILLISIBLE] recherche de lecons en panne (%s) pour '%s' : aucune verification "
+                    "n'a eu lieu -- ce n'est PAS une absence de lecon" % (", ".join(pannes), action[:40]))
         return None
 
     # PROVENANCE AVANT PERTINENCE (2026-09-20).
@@ -396,18 +408,23 @@ def preflight_check_verbose(action: str, context: str = "", limit: int = 5) -> d
     """
     query = (action + " " + context).strip()
     if not query:
-        return {"results": [], "tier": "none"}
+        return {"results": [], "tier": "none", "pannes": []}
 
+    # 19/10 (audit pair C) : meme releve de pannes que preflight_check -- sans lui, « tous les niveaux en panne » et
+    # « rien trouve » sortaient tous deux `none`, et les 10 appelants du corps lisaient un feu vert.
+    pannes: list = []
     tier = "ragengine"
-    results = _ragengine_search(query, limit=limit)
+    results = _ragengine_search(query, limit=limit, pannes=pannes)
     if not results:
         tier = "fts5"
-        results = _fts5_search(query, limit=limit)
+        results = _fts5_search(query, limit=limit, pannes=pannes)
     if not results:
         tier = "like"
-        results = _like_fallback(query, limit=limit)
+        results = _like_fallback(query, limit=limit, pannes=pannes)
     if not results:
-        tier = "none"
+        sqlite_en_panne = (any(p.startswith("fts5") for p in pannes)
+                           and any(p.startswith("like") for p in pannes))
+        tier = "illisible" if sqlite_en_panne else "none"
 
     # LE CORPS D'ABORD (2026-09-20). Mesure des appelants reels :
     #
@@ -432,6 +449,7 @@ def preflight_check_verbose(action: str, context: str = "", limit: int = 5) -> d
     return {
         "query": query,
         "tier": tier,
+        "pannes": pannes,
         "results": [{"score": round(s, 3), "source": src, "preview": text[:250],
                      "du_corps": _est_source_du_corps(src)}
                     for s, text, src in results],
@@ -461,7 +479,7 @@ def anchor_error(
 
         error_msg, context, solution = _scrub(error_msg), _scrub(context), _scrub(solution)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 463, exc_info=True)
     date_str = _dt.now().strftime("%Y-%m-%d %H:%M")
     text = (
         "ERREUR RECURRENTE : "
@@ -537,7 +555,7 @@ def anchor_error(
                 (chunk_id, text, source, domain),
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 539, exc_info=True)
 
         conn.commit()
         conn.close()
@@ -584,7 +602,7 @@ def anchor_solution(
 
         problem, solution, example = _scrub(problem), _scrub(solution), _scrub(example)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 586, exc_info=True)
     date_str = _dt.now().strftime("%Y-%m-%d")
     text = (
         "SOLUTION VALIDEE : "
@@ -623,7 +641,7 @@ def anchor_solution(
         if not _g.get("ok"):
             return {"ok": False, "rejected": _g.get("reason"), "anchored": None}
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 625, exc_info=True)
 
     try:
         # Reglages d'ecriture gouvernee (autocommit + WAL + busy_timeout) poses ICI, et
@@ -701,7 +719,7 @@ def anchor_solution(
                 (chunk_id, text, source, domain),
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 703, exc_info=True)
 
         conn.commit()
         conn.close()
@@ -934,7 +952,7 @@ def _append_to_lessons(text: str) -> None:
             current = "# Nokido - Lessons Learned\n\n"
         _LESSONS.write_text(current + text, encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_self_correction.py', 936, exc_info=True)
 
 
 def rebuild_chunks_fts_index(verbeux: bool = True) -> dict:

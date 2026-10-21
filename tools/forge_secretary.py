@@ -54,7 +54,7 @@ def _clear(agent: str) -> None:
         try:
             f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_secretary.py', 56, exc_info=True)
 
 
 def tick() -> list:

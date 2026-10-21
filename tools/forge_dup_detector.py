@@ -198,6 +198,7 @@ def scanner(paths: list[str], min_noeuds: int = MIN_NOEUDS) -> dict:
             src = open(f, encoding="utf-8", errors="replace").read()
             tree = ast.parse(src, filename=f)
         except (OSError, SyntaxError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dup_detector.py', 200, exc_info=True)
             continue  # signale ailleurs (golden_rules_ast) ; ici on compte ce qu'on lit
         if _est_genere(src):
             continue

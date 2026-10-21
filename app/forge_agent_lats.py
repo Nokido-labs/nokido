@@ -115,7 +115,7 @@ def _worktree_create(agent_name: str) -> Path:
         try:
             _git(["worktree", "remove", "--force", str(wt_path)], timeout=15.0)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_lats.py', 117, exc_info=True)
         raise RuntimeError("worktree path became symlink after create — TOCTOU")
     return wt_path
 
@@ -147,7 +147,7 @@ def _rb_start(agent_name: str, trace_id: str):
 
         start_recording(agent_id=agent_name, trace_id=trace_id, window_s=60.0)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_lats.py', 149, exc_info=True)
 
 
 def _rb_push(trace_id: str, kind: str, payload: dict) -> bool:
@@ -296,7 +296,7 @@ def run_with_lats(
                 ctx["_lats_rewind"] = rewind
                 rec["rewind_events"] = len(rewind)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_lats.py', 298, exc_info=True)
             # enrich context with failure feedback (inside for body, post-rollback)
             prev_failures = ctx.setdefault("_lats_prev_failures", [])
             prev_failures.append(
@@ -330,7 +330,7 @@ def run_with_lats(
             captured = _rb_stop(trace_id)
             logger.debug("ring buffer trace=%s captured=%d events", trace_id, captured)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_lats.py', 332, exc_info=True)
     return {
         "ok": False,
         "attempts": attempt,

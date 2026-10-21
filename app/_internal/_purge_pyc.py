@@ -21,7 +21,7 @@ if p.exists():
             os.chmod(f, 0o644)
             f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_purge_pyc.py', 23, exc_info=True)
 
 e = pathlib.Path(tempfile.gettempdir()) / "nokido_pyc"
 if e.exists():
@@ -30,6 +30,6 @@ if e.exists():
             os.chmod(f, 0o644)
             f.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_purge_pyc.py', 32, exc_info=True)
 
 print("  [OK] cache pyc purge")

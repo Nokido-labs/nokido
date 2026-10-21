@@ -41,6 +41,9 @@ EMBED_BACKLOG_ALERT = 3000  # hot-NULL au-dessus = daemon embed en retard/mort
 
 
 def _signal(kind: str, severity: str, payload: dict) -> int:
+    # Signe l'ORIGINE (20/10, fin de la CIVD) : un signal produit PAR le soin n'est pas une nouvelle lesion --
+    # forge_coagulation._triage l'inhibe au lieu de relancer la remediation (anticoagulant).
+    payload = dict(payload or {}, origine="forge_remediation")
     try:
         from nokido_agent.app.forge_critical_events import persist
         return persist(kind, severity, payload)
@@ -51,17 +54,32 @@ def _signal(kind: str, severity: str, payload: dict) -> int:
 
 # ── 1. Dette de consolidation mémorielle (embed backlog hot-tier) ────────────
 def check_embed_backlog(armed: bool) -> dict:
+    """Dette d'embeddings lue comme un TAUX, chez son producteur -- jamais par inventaire.
+
+    20/10 (owner : « usures disques abusives », « criteres ajustes au reel de la base RAG ») : ce controle faisait
+    `SELECT count(*) FROM rag_chunks WHERE embedding IS NULL AND <CASE a LIKE>` sur 46,6 Go (~260 s, ~85 Mo/s), a chaque
+    cycle de soin de NokidoCoagulation. La base reelle (snapshot) : 77 en attente QUALIFIEE, 6,9 M REFUSES par politique
+    -- ces derniers ne sont pas une dette (DISABLED_BY_POLICY != RESOURCE_UNAVAILABLE). Comme la coagulation du corps lit
+    un taux sanguin mesure ailleurs : forge_memory_availability.snapshot() ne calcule jamais ; perime = INCONNU, sans
+    balayage de repli et sans signal."""
     try:
-        from nokido_agent.tools.forge_tier_policy import HOT_TIER_SQL
-        c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=8)
-        n = c.execute(f"SELECT count(*) FROM rag_chunks WHERE embedding IS NULL AND {HOT_TIER_SQL}").fetchone()[0]
-        c.close()
-    except Exception as e:
-        return {"error": str(e)[:120]}
-    out = {"hot_null": n, "alert_threshold": EMBED_BACKLOG_ALERT}
-    if n > EMBED_BACKLOG_ALERT:
+        try:
+            from nokido_agent.app import forge_memory_availability as _ma
+        except ImportError:
+            import forge_memory_availability as _ma
+        snap = _ma.snapshot()
+    except Exception as e:  # noqa: BLE001 - producteur illisible : INCONNU, jamais un balayage
+        return {"etat": "INCONNU", "vector_pending": None, "raison": "snapshot illisible (%s)" % type(e).__name__,
+                "alert_threshold": EMBED_BACKLOG_ALERT}
+    if not snap.get("frais"):
+        return {"etat": "INCONNU", "vector_pending": None, "raison": snap.get("raison", ""),
+                "age_s": snap.get("age_s"), "alert_threshold": EMBED_BACKLOG_ALERT}
+    n = snap.get("vector_pending")
+    out = {"etat": "MESURE", "vector_pending": n, "vector_refused": snap.get("vector_refused"),
+           "age_s": snap.get("age_s"), "alert_threshold": EMBED_BACKLOG_ALERT}
+    if isinstance(n, int) and n > EMBED_BACKLOG_ALERT:
         out["signaled"] = _signal("embed_consolidation_debt", "warn",
-                                  {"hot_null": n, "remedy": "embed daemon (:8099) en retard ou mort — "
+                                  {"vector_pending": n, "remedy": "embed daemon (:8099) en retard ou mort — "
                                    "vérifier NokidoEmbedTrigger ; drain: forge_embed_auto_trigger --once"})
     return out
 
@@ -148,15 +166,37 @@ def check_cffi(armed: bool) -> dict:
 
 
 # ── 6. Atrophie OAuth CLI ────────────────────────────────────────────────────
+def _owner_home() -> Path:
+    """Profil de l'OWNER, pas du compte qui execute (convention forge_conv_indexer.OWNER_HOME). 20/10 : Path.home() d'un
+    compte de service ne porte aucun login -- « gh missing » a chaque tour alors que gh etait connecte (keyring)."""
+    return Path(os.environ.get("LAFORGE_OWNER_HOME") or ROOT.parent.parent)
+
+
 def check_oauth(armed: bool) -> dict:
-    # heuristique fichiers de creds (sans charger les tokens)
-    home = Path.home()
+    # heuristique fichiers de creds (sans charger les tokens). Trois etats : present, ABSENT (FileNotFoundError prouve
+    # sous un profil lisible), ILLISIBLE (acces refuse, profil introuvable) -- illisible n'est jamais un login manquant.
+    home = _owner_home()
     probes = {
         "gemini_cli": home / ".gemini" / "oauth_creds.json",
         "copilot_cli (gh)": home / "AppData" / "Roaming" / "GitHub CLI" / "hosts.yml",
     }
-    missing = [name for name, p in probes.items() if not p.exists()]
-    out = {"missing_login": missing}
+    missing, illisible = [], []
+    try:
+        home.stat()
+        profil_lisible = True
+    except OSError:  # profil owner introuvable ou refuse : on ne sait RIEN de ses logins
+        profil_lisible = False
+    for name, p in probes.items():
+        if not profil_lisible:
+            illisible.append(name)
+            continue
+        try:
+            p.stat()
+        except FileNotFoundError:
+            missing.append(name)
+        except OSError:  # acces refuse : INCONNU, jamais absent
+            illisible.append(name)
+    out = {"missing_login": missing, "illisible": illisible}
     if missing:
         out["signaled"] = _signal("oauth_cli_atrophy", "warn",
                                   {"missing": missing, "remedy": "re-login : gh auth login / gemini / claude"})
@@ -170,7 +210,7 @@ def check_balance_402(armed: bool) -> dict:
         # scan léger d'audit récent (si table) — sinon best-effort log
         ce.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_remediation.py', 172, exc_info=True)
     audit = ROOT / "logs" / "mcp_audit.log"
     has402 = False
     try:
@@ -178,7 +218,7 @@ def check_balance_402(armed: bool) -> dict:
             txt = audit.read_text(encoding="utf-8", errors="ignore")[-200_000:]
             has402 = "402" in txt and ("insufficient" in txt.lower() or "credit" in txt.lower() or "balance" in txt.lower())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_remediation.py', 180, exc_info=True)
     out = {"has_402": has402}
     if has402:
         out["signaled"] = _signal("provider_balance_low", "warn",

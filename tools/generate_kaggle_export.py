@@ -133,14 +133,14 @@ def scan_file(path: Path) -> dict | None:
                 try:
                     annots[a.arg] = ast.unparse(a.annotation)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/generate_kaggle_export.py', 135, exc_info=True)
 
         returns = ""
         if node.returns:
             try:
                 returns = ast.unparse(node.returns)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/generate_kaggle_export.py', 142, exc_info=True)
 
         is_typed = bool(returns or annots)
         body_len = (node.end_lineno or node.lineno) - node.lineno

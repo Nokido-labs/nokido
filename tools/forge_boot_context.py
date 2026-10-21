@@ -121,7 +121,7 @@ def last_session(cfg: dict) -> dict | None:
                     "project": project,
                 }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_context.py', 123, exc_info=True)
     return None
 
 

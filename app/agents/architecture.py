@@ -14,7 +14,7 @@ try:
         ArchitectureProfile,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/architecture.py', 16, exc_info=True)
 
 __all__ = [
     "ArchitectureDetector",

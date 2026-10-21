@@ -307,7 +307,7 @@ def _signaux_desactives(sha: str) -> set:
                 if m:
                     off.add(Path(m.group(1)).name)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_axis_backtest.py', 309, exc_info=True)
     return off
 
 
@@ -325,6 +325,7 @@ def _grep_signaux(sha: str) -> list:
         try:
             out.append((p[1], int(p[2]), p[3]))
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_axis_backtest.py', 327, exc_info=True)
             continue
     return out
 
@@ -404,7 +405,7 @@ def _ax17_grep_LEGACY(sha: str) -> list:
                 if m.group(1):
                     hb_prefixes.add(m.group(1))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_axis_backtest.py', 406, exc_info=True)
     disabled_sig = _signaux_desactives(sha)
 
     # EMISSION PAR HELPER CANONIQUE : `beat_daemon("autonomous_loops")` ecrit
@@ -423,9 +424,10 @@ def _ax17_grep_LEGACY(sha: str) -> list:
                 try:
                     ecrivains.setdefault(f"{m.group(1)}.heartbeat", []).append((p[1], int(p[2])))
                 except ValueError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_axis_backtest.py', 425, exc_info=True)
                     continue
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_axis_backtest.py', 427, exc_info=True)
     for chemin, ligne, contenu in _grep_signaux(sha):
         m = SIG_NOM.search(contenu)
         if not m:

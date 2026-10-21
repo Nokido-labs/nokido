@@ -162,7 +162,7 @@ def _route_to_nokido(text: str, provider: str = "", rag_context: bool = False) -
         if isinstance(inner, dict) and isinstance(inner.get("text"), str):
             return inner["text"]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_adapter.py', 164, exc_info=True)
     return raw
 
 
@@ -293,7 +293,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
         sys.stdin.reconfigure(encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_adapter.py', 295, exc_info=True)
     if "--selftest" in sys.argv:
         return _selftest()
     for line in sys.stdin:
@@ -303,6 +303,7 @@ def main() -> int:
         try:
             obj = json.loads(line)
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_adapter.py', 305, exc_info=True)
             continue
         try:
             handle(obj)

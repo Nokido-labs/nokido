@@ -207,3 +207,51 @@ def test_une_qualification_impossible_laisse_une_trace(monkeypatch):
         "gate reste vert en n'ayant rien controle"
     )
     assert any("indetermine" in " ".join(str(x) for x in a) for a in vues), vues
+
+
+# ── 5. Le chemin muet du traceur journalise SA PILE ───────────────────────────
+
+def test_le_chemin_muet_du_traceur_journalise_la_pile(caplog, monkeypatch):
+    """TUE le mutant `booleen` (ligne 79, `exc_info=True`) du cliquet de mutation.
+
+    `_tracer` avale l'echec d'import de `forge_alignment_trace` puis journalise
+    un « chemin muet ». Journaliser SANS la pile (`exc_info=False`) transforme un
+    repli tracable en silence : la cause de l'absence de trace disparait. On
+    exerce le chemin d'erreur REEL (module de trace en echec d'import), pas la
+    simple relecture du source.
+    """
+    import logging
+
+    m = _mod()
+    caplog.set_level(logging.DEBUG, logger=m.__name__)
+    monkeypatch.setitem(sys.modules, _TRACE, None)
+    m._tracer("reject", "cle", "docs/interne.md", "detail")  # ne doit PAS lever
+    recs = [r for r in caplog.records if r.name == m.__name__]
+    assert recs, "le chemin muet n'a ete journalise par personne : rien n'a ete exerce"
+    assert any(r.exc_info for r in recs), (
+        "le journal du chemin muet a ete emis SANS la pile (exc_info=False) : "
+        "la cause de l'echec est perdue"
+    )
+
+
+# ── 6. L'amorce de namespace insere la racine SEULEMENT si elle manque ───────
+
+def test_l_amorce_n_insere_la_racine_que_si_elle_manque(monkeypatch):
+    """TUE le mutant `comparaison` (ligne 24, `not in` -> `in`) du cliquet.
+
+    A l'import, le module insere la racine du depot dans `sys.path` UNIQUEMENT
+    si elle n'y est pas deja. Le mutant inverse la garde : absent, il n'insere
+    rien (le module ne se trouve plus lui-meme) ; present, il duplique. On
+    rejoue l'import avec la racine RETIREE pour voir la garde dans son seul cas
+    utile.
+    """
+    import importlib
+
+    m = _mod()
+    racine = str(Path(m.__file__).resolve().parent.parent)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != racine])
+    importlib.reload(m)
+    assert racine in sys.path, (
+        "la racine n'a pas ete inseree alors qu'elle manquait : le module ne "
+        "peut plus s'importer par chemin"
+    )

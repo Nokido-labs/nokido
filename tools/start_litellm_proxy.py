@@ -50,9 +50,9 @@ def load_keys() -> list[str]:
                         loaded.append(key)
                         break
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/start_litellm_proxy.py', 52, exc_info=True)
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/start_litellm_proxy.py', 54, exc_info=True)
     return loaded
 
 

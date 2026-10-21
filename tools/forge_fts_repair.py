@@ -53,6 +53,7 @@ def ingestion_active() -> list[str]:
         try:
             cl = " ".join(p.info["cmdline"] or [])
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_fts_repair.py', 55, exc_info=True)
             continue  # cmdline d'un autre compte : angle mort connu, 331/339 process
         for k in ECRIVAINS:
             if k in cl:

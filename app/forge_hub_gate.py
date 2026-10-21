@@ -178,13 +178,13 @@ async def resolve(name: str, args: dict, agent: str, ring: int, token: str = "",
 
         _pres.mark_seen(agent)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_gate.py', 180, exc_info=True)
     # 0. ByteRouter SÉQUENTIEL d'abord — il MUTE name/args, les checks en dépendent.
     if byte_process is not None:
         try:
             name, args = await byte_process(name, args, agent)
         except Exception:  # noqa: BLE001 - rewrite optionnel, fail-open
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_gate.py', 186, exc_info=True)
 
     bg = breakglass if breakglass is not None else _is_breakglass(token)
     checks = checks or _DEFAULT_CHECKS

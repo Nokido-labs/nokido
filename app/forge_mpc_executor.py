@@ -30,7 +30,7 @@ try:
 
     _TOKEN = get_secret("FORGE_MCP_TOKEN") or ""
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mpc_executor.py', 32, exc_info=True)
 
 
 # ---------------------------------------------------------------------------

@@ -28,7 +28,7 @@ try:
         Distrib,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/core.py', 30, exc_info=True)
 
 __all__ = [
     "AgentRole",

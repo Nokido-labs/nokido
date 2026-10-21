@@ -124,6 +124,7 @@ def scan_project(root_dir: str) -> ProjectStateGraph:
         try:
             src = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_project_state_graph.py', 126, exc_info=True)
             continue
 
         module_id = fp.stem
@@ -148,7 +149,7 @@ def scan_project(root_dir: str) -> ProjectStateGraph:
                     if top.startswith("forge_"):
                         deps.append(top)
         except SyntaxError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_project_state_graph.py', 150, exc_info=True)
 
         graph.add_module(
             ModuleNode(

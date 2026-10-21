@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.12"
+version = "0.20.13"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -63,7 +63,7 @@ hub = [
     # Affecte hub :8766 + tout middleware path-based. Fix 21 mai 2026.
     "starlette>=1.0.1",
     "aiohttp>=3.9.0",
-    "mcp>=1.0.0",
+    "mcp>=1.30.0",    # GHSA-84m7-p3x7-pcfv : < 1.30.0 = sessions Streamable HTTP non bornees
 ]
 
 # RAG vectoriel — FAISS + BM25 + chunking AST
@@ -73,6 +73,13 @@ rag = [
     "rank-bm25>=0.2.2",
     "tree-sitter>=0.23.0",
     "tree-sitter-python>=0.23.0",
+]
+
+# Sauvegarde : archive chiffree en flux (tools/forge_backup_hotswap.py archive-flux / -verifier / -restaurer).
+# py7zr (LGPL-2.1-or-later, copyleft faible : non refuse par forge_license_guard, comme paramiko) etait UTILISE sans
+# etre declare (constat 14/10) ; declare le 19/10 sur decision owner.
+sauvegarde = [
+    "py7zr>=1.1.4",
 ]
 
 # Routage LLM multi-providers (litellm cascade)
@@ -130,7 +137,7 @@ organisme = [
     "textual-serve>=1.1.3",
     "torch>=2.13.0",
     "torch-geometric>=2.5.0",
-    "mcp>=1.28.1",
+    "mcp>=1.30.0",
     "netcfg-agent[complet]>=0.2.1",
     "netcfg-agent-mcp>=0.4.0",
 ]

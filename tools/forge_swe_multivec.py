@@ -86,7 +86,7 @@ class MultiVecIndex:
                 try:
                     self.children.append((self.embed_fn(t), pid))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swe_multivec.py', 88, exc_info=True)
 
     def search(self, query, k: int = 5) -> list:
         """Match les children, RETOURNE les parents (dédupe), top-k par score."""
@@ -114,6 +114,7 @@ def index_repo(repo_path, embed_fn, summarize_fn=None, cap_files: int = 400) -> 
             tree = ast.parse(src)
             lines = src.splitlines(keepends=True)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swe_multivec.py', 116, exc_info=True)
             continue
         rel = str(f.relative_to(repo_path)).replace("\\", "/")
         for node in ast.walk(tree):
@@ -131,7 +132,7 @@ def index_repo(repo_path, embed_fn, summarize_fn=None, cap_files: int = 400) -> 
                     try:
                         children.append(summarize_fn(code))
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swe_multivec.py', 133, exc_info=True)
                 idx.add_parent(pid, code, rel, node.name, node.lineno, [c for c in children if c])
                 pid += 1
     return idx
@@ -246,6 +247,7 @@ def build_index_bge(repo_path, summarize_fn=None, cap_files: int = 400, files=No
             tree = ast.parse(src)
             lines = src.splitlines(keepends=True)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swe_multivec.py', 248, exc_info=True)
             continue
         rel = str(f.relative_to(repo_path)).replace("\\", "/")
         for node in ast.walk(tree):
@@ -259,7 +261,7 @@ def build_index_bge(repo_path, summarize_fn=None, cap_files: int = 400, files=No
                     try:
                         ch.append(summarize_fn(code))
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swe_multivec.py', 261, exc_info=True)
                 ch = [c for c in ch if c and c.strip()]
                 specs.append(({"pid": pid, "code": code, "file": rel, "name": node.name, "line": node.lineno}, ch))
                 pid += 1

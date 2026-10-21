@@ -261,7 +261,7 @@ class NetworkRecoveryAgent:
                 try:
                     on_step(icon, msg)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/boitaswitch.py', 263, exc_info=True)
 
         # 1. Scan
         _step("🔍", f"Scan des services sur {self.target}…")
@@ -292,7 +292,7 @@ class NetworkRecoveryAgent:
                     try:
                         ssh.close()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/boitaswitch.py', 294, exc_info=True)
                 return result
             else:
                 _step("⚠", "SSH : authentification échouée")
@@ -311,7 +311,7 @@ class NetworkRecoveryAgent:
                     try:
                         tn.close()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/boitaswitch.py', 313, exc_info=True)
                 return result
             else:
                 _step("⚠", "Telnet : authentification échouée")
@@ -351,7 +351,7 @@ class NetworkRecoveryAgent:
                         try:
                             on_result(r)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/boitaswitch.py', 353, exc_info=True)
                 except Exception as e:
                     logger.error(f"scan_range: {e}")
         return results

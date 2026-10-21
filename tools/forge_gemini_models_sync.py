@@ -149,15 +149,7 @@ def main() -> int:
                 d for d in dispo
                 if d.startswith(familles) and "image" not in d and "tts" not in d
                 and "robotics" not in d and "computer-use" not in d})
-        try:
-            from nokido_agent.app.forge_secrets import get_secret
-
-            impose = get_secret("GEMINI_MODEL") or ""
-        except Exception:  # noqa: BLE001 - facade absente
-            impose = ""
-        if impose:
-            print(f"  (GEMINI_MODEL={impose} PRIME sur le modele de chaque classe)")
-            a_tester = sorted(set(a_tester) | {_normaliser(impose)})
+        # Decision owner 15/10 : le modele vient de l'APPELANT ; aucun GEMINI_MODEL global n'est plus « impose ».
         for m in a_tester:
             ok, motif = essayer(m)
             print(f"  {m:34} {'REPOND' if ok else 'NON'}  {motif}")

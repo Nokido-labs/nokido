@@ -69,6 +69,7 @@ def _procs() -> dict:
         try:
             n = (p.info.get("name") or "").lower()
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docker_truth_probe.py', 71, exc_info=True)
             continue
         if "com.docker.backend" in n:
             found["backend"] = True

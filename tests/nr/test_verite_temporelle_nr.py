@@ -113,7 +113,8 @@ def base(monkeypatch):
 
     monkeypatch.setattr(forge_db_path, "open_writer",
                         lambda *a, **k: _Ecrivain(conn), raising=False)
-    monkeypatch.setattr(forge_db_path, "write_retry", lambda op: op(), raising=False)
+    # Le VRAI write_retry (seul open_writer double) : `lambda op: op()` contredisait son contrat `op(conn)` et
+    # cachait le TypeError de superseder en prod (16/10, 28 fermetures sur 28 refusees).
     return conn
 
 

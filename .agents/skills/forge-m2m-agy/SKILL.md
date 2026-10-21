@@ -88,6 +88,10 @@ conversation : réponse en texte, rien d'exécuté.
 6. **`completed` attendu, `done` écrit** : un suivi qui attend le mauvais mot attend
    pour toujours.
 7. Le répondeur ne répond plus aux notifications `task.*` : elles sont à l'exécuteur.
+8. **Sous `--sandbox`, toute commande shell est REFUSÉE** (`denied_actions: unsandboxed RunCommand`), et AGY
+   s'arrête alors SANS écrire son artefact (15/10 : 31 s, réponse vide, `[NON LIVRE]`). La consigne doit dire :
+   lire UNIQUEMENT par l'outil MCP `read` / `read_function_body` du hub, écrire avec son outil d'édition, et
+   « si un outil t'est refusé, écris quand même ce que tu as pu lire ». Ne jamais lui proposer `git show`.
 
 ## Ce que cette skill ne couvre pas
 

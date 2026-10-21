@@ -122,7 +122,7 @@ def rotate_backups(keep_last: int = 7) -> int:
                 old.unlink()
                 removed += 1
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_critical_events.py', 124, exc_info=True)
         return removed
     except Exception:
         return 0

@@ -16,5 +16,5 @@
 schema = "nokido-distribution"
 version_schema = 1
 produit = "nokido-agent"
-plateformes = ["windows-x64", "linux-x64"]
+plateformes = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
 packs = ["knowledge", "ml", "local-llm", "netcfg"]

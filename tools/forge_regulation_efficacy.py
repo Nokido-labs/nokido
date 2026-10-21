@@ -576,6 +576,129 @@ def association_abstention_detresse(chemin_vitals: str = "",
     return out
 
 
+def rem_serie(fenetres: list) -> list:
+    """Ratio d'efficacite metabolique par fenetre (chantier 4b du takehome, 18/10) : gains valides / cout, le cout
+    en KILO-JETONS + SECONDES CPU (deux grandeurs d'ordres comparables). `fenetres` = [(gains, jetons, cpu_s)].
+    Cout illisible (None) ou nul : REM INCONNU (None), jamais 0 -- 0 dirait « aucun gain », pas « pas mesure »."""
+    out = []
+    for gains, jetons, cpu_s in fenetres:
+        if gains is None or jetons is None or cpu_s is None:
+            out.append(None)
+            continue
+        cout = float(jetons) / 1000.0 + float(cpu_s)
+        out.append(float(gains) / cout if cout > 0 else None)
+    return out
+
+
+def ralentir_exploration(serie: list) -> bool:
+    """Ralentir l'exploration autonome si le REM BAISSE strictement sur les 3 dernieres fenetres CONNUES. Une
+    fenetre inconnue parmi les 3 dernieres : pas de decision (jamais ralentir ni accelerer sur de l'inconnu)."""
+    trois = list(serie or [])[-3:]
+    if len(trois) < 3 or any(v is None for v in trois):
+        return False
+    return trois[0] > trois[1] > trois[2]
+
+
+def jetons_token_events(db, depuis: str | None = None):
+    """Jetons (entree + sortie) emis par le routeur LLM dans token_events (sandbox/token_usage.db), depuis `depuis`
+    (ISO). Base ou table illisible : None (INCONNU), jamais 0."""
+    import sqlite3
+    from pathlib import Path
+
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % Path(db).as_posix(), uri=True, timeout=5)
+        try:
+            sql = "SELECT COALESCE(SUM(input_tok + output_tok), 0) FROM token_events"
+            args = ()
+            if depuis:
+                sql += " WHERE ts >= ?"
+                args = (depuis,)
+            return int(con.execute(sql, args).fetchone()[0])
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
+def convergence_rsi(registre: list, ledger: list) -> dict:
+    """Elargissement RSI n°1 (decision owner 18/10) : la boucle APPREND-elle ? Pas le volume du registre :
+    repetition d'essais deja juges sans gain (doit tendre vers 0), essais par amelioration validee, conversion des
+    dossiers A_TRAITER vers le juge. Le banc (origine qualification) et l'historique sans horodatage sont exclus.
+    Rien de mesurable = None, jamais 0."""
+    sans_gain = ("SURVIT_SANS_GAIN", "REVERTE", "REVERT_NON_PROUVE")
+    posts = sorted((e for e in registre if e.get("kind") == "post_application" and e.get("niveau") == "L1"
+                    and isinstance(e.get("application"), dict) and "nouvelle" in e["application"]),
+                   key=lambda e: str(e.get("ts") or ""))
+    deja, repetitions = set(), 0
+    for e in posts:
+        cle = (e.get("cible"), e["application"].get("nouvelle"))
+        repetitions += cle in deja
+        if e.get("verdict") in sans_gain:
+            deja.add(cle)
+    prod = [e for e in ledger if e.get("ts") and e.get("origine", "production") != "qualification"]
+
+    def _gain_hors_bruit(e) -> bool:
+        # Le VERDICT ne suffit pas : avant le 18/10, CONSERVE gardait des gains DANS le bruit. On relit la trace,
+        # dans le SENS enregistre (orientation MIN : une baisse est un gain -- cycles, duree, RAM).
+        ref, apres, bruit = e.get("reference") or {}, e.get("apres") or {}, e.get("bruit") or {}
+        orient = e.get("orientation") or {}
+        try:
+            for d, r in ref.items():
+                if d not in apres or orient.get(d, "MAX") not in ("MIN", "MAX"):
+                    continue
+                delta = float(apres[d]) - float(r) if orient.get(d, "MAX") == "MAX" else float(r) - float(apres[d])
+                if delta > abs(float(bruit.get(d) or 0.0)):
+                    return True
+            return False
+        except (TypeError, ValueError):
+            return False
+    ameliorations = (sum(1 for e in posts if e.get("verdict") == "CONSERVE" and _gain_hors_bruit(e))
+                     + sum(1 for e in prod if e.get("verdict") == "AMELIORE"))
+    a_traiter = {e.get("dossier") for e in registre if e.get("kind") == "triage"
+                 and (e.get("reexamen") or {}).get("verdict") == "A_TRAITER"}
+    juges = {e.get("dossier") for e in prod} & a_traiter
+    essais = len(posts) + len(prod)
+    return {"actes_l1_juges": len(posts), "repetitions_sans_gain": repetitions,
+            "taux_repetition": repetitions / len(posts) if posts else None,
+            "ameliorations_validees": ameliorations, "tentatives_l2_production": len(prod),
+            "essais_par_amelioration": essais / ameliorations if ameliorations else None,
+            "a_traiter": len(a_traiter), "a_traiter_juges": len(juges),
+            "conversion_triage_juge": len(juges) / len(a_traiter) if a_traiter else None}
+
+
+def taux_repli_apres_refus(db_path) -> dict:
+    """Boucle A (GO owner 18/10) : refus suivis d'un repli REUSSI / refus -- domaine executeurs SEULEMENT (tasks.db :
+    une tache reaffectee = un refus ; repli reussi = `done` avec une livraison constatee, hors « [NON LIVRE] »).
+    En cours = ni succes ni echec ; JSON casse = illisible, compte a part ; base illisible = ILLISIBLE, jamais 0."""
+    import re
+    import sqlite3
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % Path(db_path).as_posix(), uri=True, timeout=10)
+        try:
+            lignes = con.execute("SELECT status, result, reaffectations FROM tasks").fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return {"etat": "ILLISIBLE", "motif": "%s: %s" % (type(exc).__name__, exc), "taux": None}
+    m = {"refus": 0, "replis_reussis": 0, "en_cours": 0, "illisibles": 0}
+    for statut, resultat, reaff in lignes:
+        try:
+            if not reaff or not json.loads(reaff):
+                continue
+        except ValueError:
+            m["illisibles"] += 1
+            continue
+        m["refus"] += 1
+        if statut not in ("done", "failed"):
+            m["en_cours"] += 1
+            continue
+        c = re.search(r"commits produits : (\d+)", resultat or "")
+        m["replis_reussis"] += bool(c and int(c.group(1)) >= 1 and "[NON LIVRE]" not in (resultat or ""))
+    termines = m["refus"] - m["en_cours"]
+    m["taux"] = m["replis_reussis"] / termines if termines else None
+    return m
+
+
 def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description="La regulation POMPE-t-elle ? Debit REEL vs budget par gravite.")

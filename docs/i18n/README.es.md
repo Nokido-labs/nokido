@@ -58,7 +58,7 @@ fisiología que permiten que varias IA — modelos locales, proveedores en la nu
 como Claude Code, Codex CLI, OpenCode o Antigravity — trabajen juntas en su máquina **sin convertirse
 en un montón de agentes independientes**.
 
-Parte de tres constataciones, desarrolladas en el [Manifiesto](../../MANIFESTO.md):
+Parte de tres constataciones, desarrolladas en el [Manifiesto](MANIFESTO.en.md):
 
 1. **La mayoría de la IA es externa.** Prompts, código y documentos viajan a una infraestructura que no es suya.
 2. **La mayoría de la IA es amnésica.** La memoria es un añadido, no un fundamento.
@@ -1113,7 +1113,7 @@ La hoja de ruta de hardware sigue explícitamente esta progresión.
 ### Arquitectura en profundidad
 
 * [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](../../MANIFESTO.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md) · [English](MANIFESTO.en.md)
 
 ### Protocolos de agentes
 

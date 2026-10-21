@@ -241,21 +241,25 @@ except Exception as _e_alias:
 
 HUB_HOST = os.environ.get("LAFORGE_HUB_HOST", "127.0.0.1")
 HUB_PORT = int(os.environ.get("LAFORGE_HUB_PORT", "8766"))
-HUB_TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
-# Fallback vault DPAPI si env vide — permet de nettoyer Nokido.env apres migration
-# vault sans casser le master token. get_secret() chaine cache -> DPAPI -> WCM -> env.
-if not HUB_TOKEN:
+def _jeton_maitre() -> str:
+    """Jeton maitre : COFFRE D'ABORD (get_secret chaine cache -> DPAPI -> WCM -> env et replie lui-meme sur l'env).
+
+    16/10 : l'env etait lu en premier et le coffre seulement s'il etait vide. Mesure sous SYSTEM du meme jour : une
+    seule valeur entre les stores, WCM et Nokido.env absents -> l'ordre ne change aucune valeur servie, mais une
+    rotation au coffre n'est plus masquee par une copie d'env perimee. Coffre indisponible : repli env, DIT.
+    LA VALEUR N'EST JAMAIS JOURNALISEE : seul le fait de l'echec l'est. Derogation owner du 16/10 (fichier CRITICAL).
+    """
     try:
         sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_secrets import get_secret as _gs
+        from nokido_agent.app.forge_secrets import get_secret
 
-        HUB_TOKEN = _gs("FORGE_MCP_TOKEN") or ""
-    except Exception as _e_sec:
-        # Coffre indisponible : le hub demarre SANS credential maitre et se
-        # comporte exactement comme si aucun n'etait configure -- ce qui est
-        # un CHEMIN D'AUTORISATION different, pas un detail de demarrage.
-        # LA VALEUR N'EST JAMAIS JOURNALISEE : seul le fait de l'echec l'est.
-        _boot_probe("secret maitre ILLISIBLE: %s" % type(_e_sec).__name__)
+        return get_secret("FORGE_MCP_TOKEN") or ""
+    except Exception as _e_sec:  # noqa: BLE001
+        _boot_probe("secret maitre ILLISIBLE: %s -> repli environnement" % type(_e_sec).__name__)
+        return os.environ.get("FORGE_MCP_TOKEN", "")
+
+
+HUB_TOKEN = _jeton_maitre()
 
 # Verbosité : stderr → WARNING only (évite doublon avec mcp_audit.log)
 # mcp_audit.log = source de vérité via net_log()
@@ -3126,6 +3130,16 @@ async def _build_app():
             return JSONResponse({"error": "Origin not allowed"}, status_code=403)
         t0 = time.monotonic()
         ring, auth_agent = _resolve_ring(request)
+        # PREUVE D'IDENTITE TRANSMISE (17/10, derogation owner « limitee a cette transmission ») : les gardes de la
+        # phase 2 du registre se clent par identite PROUVEE (forge_recon_breaker.cle_de_garde) ; la preuve est
+        # redemandee a sa source (videur) et posee pour CETTE requete, comme set_trace_id / set_actor ci-dessous.
+        try:
+            from nokido_agent.tools.forge_recon_breaker import poser_preuve as _poser_preuve
+
+            _poser_preuve(bool(_identite_inbox(request).get("sujet_prouve")))
+        except Exception as _e_preuve:  # noqa: BLE001 -- rien de pose : les gardes comptent par nom, comme avant
+            _dire_une_fois("preuve_%s" % type(_e_preuve).__name__,
+                           "[gardes] preuve d'identite NON posee (%s) : compteurs par nom" % type(_e_preuve).__name__)
         client_ip = request.client.host if request.client else "unknown"
         agent_hdr = (request.headers.get("LaForge-Agent-Name") or request.headers.get("Agent-Name")
                      or request.headers.get("X-Agent-Name") or auth_agent)  # LaForge-Agent-Name (org-scopé RFC 6648) > Agent-Name > X- legacy
@@ -3278,7 +3292,9 @@ async def _build_app():
                     "id": bid,
                     "result": {
                         "protocolVersion": _pv,
-                        "serverInfo": {"name": "LaForge-Hub", "version": "18.3"},
+                        # Nom AFFICHE aux clients MCP (owner 16/10 : Vibe montrait « LaForge-Hub », reliquat d'avant
+                        # le renommage). Les clients identifient le serveur par la cle de leur propre config.
+                        "serverInfo": {"name": "Nokido-Hub", "version": "18.3"},
                         "capabilities": {"tools": {}},
                         # Consignes COURTES (veille lot_B_15) : elles entrent dans le
                         # prompt de chaque session cliente, a chaque tour.
@@ -3809,28 +3825,28 @@ for(const a of document.querySelectorAll('a[href^="http://127.0.0.1:"]'))a.href=
 
     async def debate_ui(request):
         """Inter-LLM debate viz : 3 panels (ollama/groq/cerebras) en parallele.
-        Injecte le token CLAUDE dans meta laforge-bearer pour appels /mcp."""
+
+        AUCUN jeton servi (19/10) : la route est anonyme, injecter le jeton CLAUDE
+        le donnait a tout processus local. La page le demande a l'ouverture."""
         try:
             html_path = (
                 Path(__file__).resolve().parent.parent / "app" / "web_hub" / "llm_debate.html"
             )
             html = html_path.read_text(encoding="utf-8")
-            tok = _AGENT_TOKENS.get("CLAUDE", "") or HUB_TOKEN or ""
-            html = html.replace("__LAFORGE_BEARER__", tok)
+            html = html.replace("__LAFORGE_BEARER__", "")
             return HTMLResponse(html)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
     async def graph_viz_ui(request):
         """Knowledge graph viz : vis-network rendu de /api/graph/proprioception.
-        Injecte le token CLAUDE pour les appels API client-side."""
+        AUCUN jeton servi (19/10, route anonyme) : la page le demande a l'ouverture."""
         try:
             html_path = (
                 Path(__file__).resolve().parent.parent / "app" / "web_hub" / "graph_viz.html"
             )
             html = html_path.read_text(encoding="utf-8")
-            tok = _AGENT_TOKENS.get("CLAUDE", "") or HUB_TOKEN or ""
-            html = html.replace("__LAFORGE_BEARER__", tok)
+            html = html.replace("__LAFORGE_BEARER__", "")
             return HTMLResponse(html)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -3842,8 +3858,8 @@ for(const a of document.querySelectorAll('a[href^="http://127.0.0.1:"]'))a.href=
                 Path(__file__).resolve().parent.parent / "app" / "web_hub" / "recon_demo.html"
             )
             html = html_path.read_text(encoding="utf-8")
-            tok = _AGENT_TOKENS.get("CLAUDE", "") or HUB_TOKEN or ""
-            return HTMLResponse(html.replace("__LAFORGE_BEARER__", tok))
+            # AUCUN jeton servi (19/10, route anonyme) : la page le demande.
+            return HTMLResponse(html.replace("__LAFORGE_BEARER__", ""))
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
 
@@ -5686,7 +5702,8 @@ Retourne exactement ce JSON:
         # facon et n'en oublie un champ.
         try:
             _sys.path.insert(0, str(ROOT))
-            from nokido_agent.app.forge_job_runner import launch_job, params_depuis_corps
+            from nokido_agent.app.forge_job_runner import (
+                admettre_lancement, launch_job, params_depuis_corps, veiller_liberation)
         except Exception as e:
             return JSONResponse(
                 {"ok": False, "error": f"job runner indisponible: {str(e)[:200]}"},
@@ -5694,6 +5711,16 @@ Retourne exactement ce JSON:
             )
         params = params_depuis_corps(body)
         params["script"] = str(sp)      # chemin deja resolu et valide ci-dessus
+        # ADMISSION (2026-10-16) : cette route lancait sans lane par defaut, sans controle d'embolie
+        # et sans refus de lane occupee -- les trois gardes de la voie MCP. Meme organe, meme verdict.
+        # HORS DE LA BOUCLE : le controle mesure et libere (gel de 567 s en 7 jours, 2026-10-01).
+        import asyncio as _asyncio
+
+        adm = await _asyncio.to_thread(admettre_lancement, params["script"], params["online"], params["lane"])
+        if not adm.get("ok"):
+            # 503 : refus de CAPACITE, pas une faute d'appel -- reessayer plus tard ou ailleurs.
+            return JSONResponse(adm, status_code=503)
+        params["lane"] = adm["lane"]
         res = launch_job(**params)
         if not res.get("ok"):
             err = str(res.get("error", ""))
@@ -5704,6 +5731,15 @@ Retourne exactement ce JSON:
                 {"ok": False, "error": err},
                 status_code=500 if "spawn failed" in err else 400,
             )
+        try:
+            from nokido_agent.app.forge_lane_admission import acquire as _lane_acq
+
+            _lane_acq(params["lane"], res["job_id"])
+            veiller_liberation(res["job_id"], params["lane"])
+        except Exception as e:
+            logger.warning(
+                "[lane] bail NON pris sur %s (%s) | consequence: le job tourne hors admission, "
+                "un second job peut demarrer sur la meme lane", params["lane"], type(e).__name__)
         logger.info(
             "admin_run_job %s pid=%s script=%s lane=%s",
             res.get("job_id"), res.get("pid"), sp.name, params["lane"] or "-",
@@ -6413,7 +6449,15 @@ Retourne exactement ce JSON:
         if not name:
             return JSONResponse({"ok": False, "error": "name required"}, status_code=400)
         url = _SUPERVISOR_URL.rstrip("/") + f"/supervisor/logs?name={name}"
-        _sup_tok = (
+        # Coffre d'abord, comme le site /supervisor de ce fichier (16/10, derogation owner) ; l'env reste le repli.
+        try:
+            from nokido_agent.app.forge_secrets import get_secret
+
+            _sup_tok = get_secret("LAFORGE_SUPERVISOR_TOKEN") or get_secret("FORGE_MCP_TOKEN") or ""
+        except Exception as _e_tok:  # noqa: BLE001
+            print("[hub] guichet illisible pour /supervisor/logs (%s) -> repli env" % type(_e_tok).__name__)
+            _sup_tok = ""
+        _sup_tok = _sup_tok or (
             os.environ.get("LAFORGE_SUPERVISOR_TOKEN") or os.environ.get("FORGE_MCP_TOKEN") or ""
         )
         _req_logs = _urlreq.Request(url)
@@ -6981,6 +7025,15 @@ async def main():
     threading.Thread(target=_warmup_planner, daemon=True).start()
     threading.Thread(target=_warmup_bge_m3, daemon=True).start()
     _boot_mark("warmup threads launched (planner+bge-m3, async non-bloquant)")
+    # HAMILTON (derogation owner 19/10) : les fiches `running` d'avant le restart sont reconciliees au boot -- la
+    # morte rend sa lane, le survivant DIFFERABLE est SIGNALE A_SUSPENDRE, jamais tue. En fond : ne retarde pas le bind.
+    try:
+        from nokido_agent.app.forge_job_runner import reconcilier_au_boot as _reconcilier_au_boot
+
+        threading.Thread(target=_reconcilier_au_boot, daemon=True, name="reconcile-jobs-boot").start()
+        _boot_mark("reconcile_jobs au boot lance en fond")
+    except Exception as _e:  # noqa: BLE001 - un bilan rate ne bloque pas le boot, et se dit
+        _boot_mark("reconcile_jobs au boot NON lance: %s" % type(_e).__name__)
     # Phase 18 (2026-05-24) hardening : assert bind loopback only sauf override
     # explicite via LAFORGE_HUB_BIND_EXTERNAL=1. Critique Plan-SPOF agent :
     # exposition accidentelle = RCE LAN si admin_tok vide.

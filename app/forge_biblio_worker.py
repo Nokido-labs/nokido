@@ -291,7 +291,7 @@ def run_loop(db_path: str, once: bool = False, interval: int = POLL_INTERVAL) ->
             SANDBOX.mkdir(parents=True, exist_ok=True)
             PIDFILE.write_text(str(os.getpid()), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_biblio_worker.py', 293, exc_info=True)
     _write_heartbeat({}, interval)
     while True:
         # Adapter l intervalle au mood système (fatigue → relâcher, stress → ralentir)
@@ -363,5 +363,5 @@ def process_one_entry(conn: sqlite3.Connection, entry: dict) -> dict:
             try:
                 n = len(_j.loads(row[0]))
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_biblio_worker.py', 365, exc_info=True)
     return {"ok": result == "reviewed", "status": result, "entry_id": entry["id"], "n_results": n}

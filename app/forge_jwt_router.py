@@ -199,7 +199,7 @@ async def jwt_routing_middleware(request, call_next):
         request.state.jwt_pri = payload.get("pri", 5)
         logger.debug(f"JWT routed: aud={payload.get('aud')} prm={payload.get('prm')} pri={payload.get('pri')}")
     except Exception:
-        pass  # Token absent ou invalide → call_next gère
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_jwt_router.py', 201, exc_info=True)
 
     return await call_next(request)
 

@@ -5,12 +5,18 @@
 # Tourne sur le DEPOT PUBLIC (runner heberge), au tag de version. Source = ce depot public lui-meme, clone sans
 # authentification : rien de plus que ce qui est deja public ne peut partir. `main` + tags seulement, SANS forcer
 # (memes refspecs que publish_multi._REFSPECS : refs/pull/* et les branches jetables essai/** sont refuses par les
-# autres forges -- mesure 0.20.11 ; un miroir qui diverge sur main le DIT au lieu d'etre ecrase). Memes cibles que
+# autres forges -- mesure 0.20.11 ; un miroir qui diverge sur main le DIT au lieu d'etre ecrase). Memes forges que
 # tools/publish_multi.py --miroirs-public (verrouille par NR).
 # Les jetons ne passent JAMAIS dans une URL (journaux git) : en-tete http.extraHeader, masque par Actions.
 #
-# Secrets du depot Nokido-labs/nokido, poses par l'OWNER (jamais par un agent) : CODEBERG_TOKEN, GITLAB_TOKEN,
-# HF_TOKEN, SF_DEPLOY_KEY (cle SSH DEDIEE a ce workflow, partie publique sur le compte SourceForge).
+# AUCUN compte de forge n'est ecrit ici (16/10, mesure 0.20.12) : la generisation du promoteur reecrit l'identite
+# du proprietaire dans tout le dist (`_GEN_SUBS`, defense residuelle fail-closed) -- les cibles ecrites en dur
+# partaient vers `codeberg.org/user/...`, `ssh://user@...`, `spaces/user/...`. Les espaces de noms vivent dans des
+# SECRETS du depot public (masques dans les journaux, qui sont publics) :
+#   MIROIR_CODEBERG  <compte>/<depot>      MIROIR_GITLAB   <groupe>/<depot>
+#   MIROIR_SF_USER   <compte SourceForge>  MIROIR_HF_SPACE <compte>/<space>
+# Secrets d'acces, poses par l'OWNER (jamais par un agent) : CODEBERG_TOKEN, GITLAB_TOKEN, HF_TOKEN, SF_DEPLOY_KEY
+# (cle SSH DEDIEE a ce workflow, partie publique sur le compte SourceForge).
 # Un secret ABSENT n'est pas saute en silence : la forge est dite NON PUBLIEE et le job finit en echec. Une forge en
 # echec n'empeche pas les autres d'etre tentees (`!cancelled()`).
 name: Miroirs publics
@@ -38,10 +44,14 @@ jobs:
     if: >-
       github.repository == 'Nokido-labs/nokido' &&
       (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       SOURCE: https://github.com/${{ github.repository }}.git
+      CODEBERG: ${{ secrets.MIROIR_CODEBERG }}
+      GITLAB: ${{ secrets.MIROIR_GITLAB }}
+      SF_USER: ${{ secrets.MIROIR_SF_USER }}
+      HF_SPACE: ${{ secrets.MIROIR_HF_SPACE }}
     steps:
       - name: Source = depot public, clone anonyme (branches + tags)
         run: git clone --bare "$SOURCE" src.git
@@ -52,8 +62,9 @@ jobs:
           T: ${{ secrets.CODEBERG_TOKEN }}
         run: |
           if [ -z "$T" ]; then echo "::error::CODEBERG_TOKEN absent : Codeberg NON PUBLIE"; echo codeberg >> manquants; exit 0; fi
-          H="Authorization: Basic $(printf 'user:%s' "$T" | base64 -w0)"
-          git -C src.git -c http.extraHeader="$H" push https://codeberg.org/user/nokido-public.git \
+          if [ -z "$CODEBERG" ]; then echo "::error::MIROIR_CODEBERG absent : Codeberg NON PUBLIE"; echo codeberg >> manquants; exit 0; fi
+          H="Authorization: Basic $(printf '%s:%s' "${CODEBERG%%/*}" "$T" | base64 -w0)"
+          git -C src.git -c http.extraHeader="$H" push "https://codeberg.org/$CODEBERG.git" \
             'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || { echo codeberg >> manquants; exit 1; }
 
       - name: GitLab
@@ -62,8 +73,9 @@ jobs:
           T: ${{ secrets.GITLAB_TOKEN }}
         run: |
           if [ -z "$T" ]; then echo "::error::GITLAB_TOKEN absent : GitLab NON PUBLIE"; echo gitlab >> manquants; exit 0; fi
+          if [ -z "$GITLAB" ]; then echo "::error::MIROIR_GITLAB absent : GitLab NON PUBLIE"; echo gitlab >> manquants; exit 0; fi
           H="Authorization: Basic $(printf 'oauth2:%s' "$T" | base64 -w0)"
-          git -C src.git -c http.extraHeader="$H" push https://gitlab.com/naarobb/nokido.git \
+          git -C src.git -c http.extraHeader="$H" push "https://gitlab.com/$GITLAB.git" \
             'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || { echo gitlab >> manquants; exit 1; }
 
       - name: SourceForge (cle SSH dediee)
@@ -72,12 +84,13 @@ jobs:
           K: ${{ secrets.SF_DEPLOY_KEY }}
         run: |
           if [ -z "$K" ]; then echo "::error::SF_DEPLOY_KEY absent : SourceForge NON PUBLIE"; echo sourceforge >> manquants; exit 0; fi
+          if [ -z "$SF_USER" ]; then echo "::error::MIROIR_SF_USER absent : SourceForge NON PUBLIE"; echo sourceforge >> manquants; exit 0; fi
           install -m 700 -d ~/.ssh
           printf '%s\n' "$K" > ~/.ssh/sf && chmod 600 ~/.ssh/sf
           ssh-keyscan git.code.sf.net >> ~/.ssh/known_hosts 2>/dev/null
           rc=0
           GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sf -o IdentitiesOnly=yes" \
-            git -C src.git push ssh://user@git.code.sf.net/p/nokido/code \
+            git -C src.git push "ssh://$SF_USER@git.code.sf.net/p/nokido/code" \
             'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || rc=$?
           rm -f ~/.ssh/sf
           if [ "$rc" -ne 0 ]; then echo sourceforge >> manquants; exit "$rc"; fi
@@ -88,10 +101,11 @@ jobs:
           T: ${{ secrets.HF_TOKEN }}
         run: |
           if [ -z "$T" ]; then echo "::error::HF_TOKEN absent : Space HF NON PUBLIE"; echo hf >> manquants; exit 0; fi
+          if [ -z "$HF_SPACE" ]; then echo "::error::MIROIR_HF_SPACE absent : Space HF NON PUBLIE"; echo hf >> manquants; exit 0; fi
           git clone --depth 1 "$SOURCE" depot
           if [ ! -d depot/vitrine/hf_space ]; then echo "::error::vitrine/hf_space absente du depot public"; echo hf >> manquants; exit 0; fi
           H="Authorization: Bearer $T"
-          git -c http.extraHeader="$H" clone https://huggingface.co/spaces/user/nokido space
+          git -c http.extraHeader="$H" clone "https://huggingface.co/spaces/$HF_SPACE" space
           rsync -a --delete --exclude .git depot/vitrine/hf_space/ space/
           git -C space add -A
           git -C space -c user.name=nokido-ci -c user.email=ci@nokido.invalid commit -m "vitrine ${GITHUB_REF_NAME}" || echo "vitrine inchangee"
@@ -101,12 +115,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           # main (dernier commit, bot README compris) ET le tag de version le plus recent, sur chaque forge.
+          # Une forge sans espace de noms est deja dans `manquants` : elle n'est pas lue ici (URL vide).
           T=$(git -C src.git describe --tags --abbrev=0 refs/heads/main 2>/dev/null || true)
           ecarts=0
+          forges=""
+          [ -n "$CODEBERG" ] && forges="$forges https://codeberg.org/$CODEBERG.git"
+          [ -n "$GITLAB" ] && forges="$forges https://gitlab.com/$GITLAB.git"
+          forges="$forges https://git.code.sf.net/p/nokido/code"
           for R in refs/heads/main ${T:+refs/tags/$T}; do
             attendu=$(git -C src.git rev-parse "${R}^{commit}")
-            for f in https://codeberg.org/user/nokido-public.git https://gitlab.com/naarobb/nokido.git \
-                     https://git.code.sf.net/p/nokido/code; do
+            for f in $forges; do
               lu=$(git ls-remote "$f" "${R}^{}" | cut -f1)
               [ -z "$lu" ] && lu=$(git ls-remote "$f" "$R" | cut -f1)
               echo "$f $R -> ${lu:-ABSENT} (attendu $attendu)"

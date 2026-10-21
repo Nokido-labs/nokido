@@ -464,7 +464,7 @@ def get_registry() -> ServiceRegistry:
                 _registry.endpoints["laforge-hub-v17"] = _hub_ep
                 logger.info("[services] Nokido Hub v17 auto-enregistré sur :8766")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_services.py', 466, exc_info=True)
     return _registry
 
 

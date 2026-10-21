@@ -162,7 +162,7 @@ def main() -> int:
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_observatory.py', 164, exc_info=True)
     return 0
 
 

@@ -25,8 +25,10 @@ import json
 import logging
 import os
 import re
+import contextvars
 import struct
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -278,8 +280,8 @@ def _modal_url() -> str:
         v = get_secret(MODAL_ENDPOINT_ENV)
         if v:
             return v
-    except Exception:  # noqa: BLE001 - coffre indisponible : repli sur l'environnement
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"{MODAL_ENDPOINT_ENV} illisible ({type(exc).__name__}) -> repli environnement")
     return os.environ.get(MODAL_ENDPOINT_ENV) or ""
 
 
@@ -362,6 +364,9 @@ def _embed_modal(text: str, timeout: float = 10.0) -> list[float] | None:
 # contextes SANS internet (ex: ChainExecutor veille, trusted = egress bloqué) ->
 # corpus non cherchable. Cloud = fallback pour contextes avec egress uniquement.
 _WANT_TS: dict = {}
+# Dossier des drapeaux *.wanted, lu A CHAQUE appel de declare_wanted : un NR le redirige vers tmp_path
+# (audit RAM 18/10 -- 4 drapeaux nr_* restaient dans le vrai sandbox et se lisaient comme des demandes).
+SANDBOX_INTENTIONS = Path(__file__).resolve().parent.parent / "sandbox"
 
 
 def declare_wanted(flag: str, cooldown: float = 300.0, motif: str = "") -> bool:
@@ -400,9 +405,7 @@ def declare_wanted(flag: str, cooldown: float = 300.0, motif: str = "") -> bool:
     except Exception as exc:  # noqa: BLE001 - arbitre indisponible : on ne bloque pas
         logger.debug("[intention] arbitre indisponible (%r) -- reclamation non filtree", exc)
 
-    import pathlib as _pl
-
-    _sb = _pl.Path(__file__).resolve().parent.parent / "sandbox"
+    _sb = Path(SANDBOX_INTENTIONS)
     _cible = _sb / flag
 
     now = _t.time()
@@ -572,6 +575,38 @@ _LIMITE_8099: dict = {"jetons": None, "le": 0.0}
 _LIMITE_8099_TTL_S = 600.0  # l'embedder peut etre relance avec un autre lot : on reapprend
 _JETONS_SPECIAUX_8099 = 4  # CLS + SEP ajoutes par le serveur, plus une marge
 _RE_LOT_8099 = re.compile(r"current batch size:\s*(\d+)")
+# Voie longue, etape 1 (18/10) : un fragment TRONQUE pour le vecteur est INSCRIT avec son id, la ou :8099 tronque
+# (pas avant la cascade : un fournisseur cloud recoit le texte entier). Les ids du lot sont poses par
+# embed_batch_fast dans une contextvar -- un fil de son ThreadPool traite un lot. Un « too large » rejoue le lot une
+# fois (_post_embeddings_8099) : un id peut donc y figurer deux fois, garder la derniere ligne.
+REGISTRE_TRONQUES = Path(__file__).resolve().parent.parent / "sandbox" / "rag_fragments_tronques.jsonl"
+_IDS_LOT: contextvars.ContextVar = contextvars.ContextVar("ids_lot_embed", default=None)
+_REGISTRE_VERROU = threading.Lock()
+
+
+def _inscrire_tronques(n_textes: int, inscrits: list) -> None:
+    """Une ligne {id, jetons, borne, ts} par texte tronque ; jetons None + repli si /tokenize etait injoignable."""
+    ids = _IDS_LOT.get()
+    if not inscrits or ids is None:
+        return
+    if len(ids) != n_textes:
+        logger.warning("[llama8099] %d tronque(s) NON inscrit(s) : %d id(s) pour %d texte(s)",
+                       len(inscrits), len(ids), n_textes)
+        return
+    now = time.time()
+    try:
+        with _REGISTRE_VERROU:
+            cible = Path(REGISTRE_TRONQUES)
+            cible.parent.mkdir(parents=True, exist_ok=True)
+            with open(cible, "a", encoding="utf-8") as f:
+                for idx, jetons, borne in inscrits:
+                    ligne = {"id": ids[idx], "jetons": jetons, "borne": borne, "ts": now}
+                    if jetons is None:
+                        ligne["repli"] = True
+                    f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.warning("[llama8099] registre des tronques NON ecrit (%s) : %d fragment(s) perdus pour la voie longue",
+                       e, len(inscrits))
 
 
 def _appel_8099(chemin: str, corps: dict | None, timeout: float) -> dict:
@@ -631,8 +666,8 @@ def _borner_textes_8099(texts: list[str], limite: int, timeout: float = 10.0) ->
     s'il depasse, /detokenize des `borne` premiers jetons. /tokenize injoignable : repli sur
     `borne` caracteres, sur mais plus court -- dit lui aussi."""
     borne = limite - _JETONS_SPECIAUX_8099
-    out, tronques, maxi, repli = [], 0, 0, 0
-    for t in texts:
+    out, tronques, maxi, repli, inscrits = [], 0, 0, 0, []
+    for idx, t in enumerate(texts):
         if len(t) <= borne:
             out.append(t)
             continue
@@ -641,9 +676,12 @@ def _borner_textes_8099(texts: list[str], limite: int, timeout: float = 10.0) ->
             if len(jetons) > borne:
                 t = _appel_8099("/detokenize", {"tokens": jetons[:borne]}, timeout)["content"]
                 tronques, maxi = tronques + 1, max(maxi, len(jetons))
+                inscrits.append((idx, len(jetons), borne))
         except Exception:  # noqa: BLE001 - tokenizer injoignable : borne sure, dite plus bas
             t, repli = t[:borne], repli + 1
+            inscrits.append((idx, None, borne))
         out.append(t)
+    _inscrire_tronques(len(texts), inscrits)
     if tronques:
         logger.warning("[llama8099] %d texte(s) au-dela de %d jetons TRONQUE(S) pour le vecteur "
                        "(max vu %d jetons) | le texte complet reste chez l'appelant", tronques, borne, maxi)
@@ -959,9 +997,18 @@ PROVIDERS = [
 # des deux cascades (unitaire et par lot).
 _PAYANTS = {"openrouter"}
 
+# AUTRES ESPACES vectoriels (jina-embeddings-v3, voyage-3) : 1024 dimensions AUSSI, donc rien ne les distingue dans
+# rag_chunks.embedding, et un tel vecteur y est du BRUIT pour bge-m3. Mesure 2026-10-16 (bb:active_bugs/
+# rag_vecteurs_sans_rapport_avec_le_texte_20261016) : 5/586 fragments actifs portent un vecteur sans rapport avec leur
+# texte, a cos ~0 de leur texte ET de tous leurs voisins -- signature d'un autre espace, pas d'un decalage. Seule la
+# liste blanche de la politique les ecartait : politique muette, illisible ou sans recouvrement => cascade « intacte »,
+# Jina et Voyage compris. Meme regle que les payants, portee par le CODE : jamais tentes sans politique qui les NOMME.
+_AUTRES_ESPACES = {"jina", "voyage"}
+
 
 def _sans_payants(essais: list) -> list:
-    return [e for e in essais if e[0] not in _PAYANTS]
+    """Cascade de REPLI (politique muette ou sans recouvrement) : ni backend payant, ni backend d'un autre espace."""
+    return [e for e in essais if e[0] not in _PAYANTS and e[0] not in _AUTRES_ESPACES]
 
 
 def _provider_has_creds(name: str) -> bool:
@@ -1212,8 +1259,26 @@ def _essais_selon_politique(essais: list[tuple[str, "callable"]], autorises: lis
 # qui appelle embed_batch_fast SANS taille. Un appelant qui imposait 32 en dur ne verrait jamais
 # la valeur L1 (Codex, tour 2) : embed_batch passe donc None.
 _BATCH_DEFAUT = 32
+_WORKERS_DEFAUT = 4          # reglage L1 `embed.max_workers` (decision owner 18/10) ; 4 = comportement d'avant
+_WORKERS_BORNES = (1, 8)
 _BATCH_BORNES = (1, 2048)  # garde de TYPE et de bon sens ; les bornes du reglage (8..128) sont
                            # celles de sa declaration L1, verifiees a l'ecriture de la valeur
+
+
+def _reglage_l1_entier(nom: str, defaut: int, bornes: tuple) -> int:
+    """Valeur L1 `nom` : entier strict (non bool) dans `bornes`, sinon `defaut`, DIT. Corps commun de _batch_size_l1
+    et _workers_l1 (cliquet clones, 18/10 : les deux etaient identiques a trois parametres pres)."""
+    try:
+        from nokido_agent.app.forge_proposal_applier import valeur_l1
+
+        v = valeur_l1(nom, defaut)
+    except Exception as exc:  # noqa: BLE001 - lecteur indisponible : le chemin d'avant
+        logger.debug("[L1] %s illisible (%r) -- defaut %d", nom, exc, defaut)
+        return defaut
+    if isinstance(v, int) and not isinstance(v, bool) and bornes[0] <= v <= bornes[1]:
+        return v
+    logger.warning("[L1] %s=%r refuse (entier %d..%d attendu) -- defaut %d", nom, v, bornes[0], bornes[1], defaut)
+    return defaut
 
 
 def _batch_size_l1() -> int:
@@ -1221,18 +1286,7 @@ def _batch_size_l1() -> int:
 
     Entier strict exige (AGY, tour 2) : un float ou None dans `range(...)` leverait TypeError
     et paralyserait tout le RAG. Valeur refusee ou lecteur indisponible : le defaut, DIT."""
-    try:
-        from nokido_agent.app.forge_proposal_applier import valeur_l1
-
-        v = valeur_l1("embed.batch_size", _BATCH_DEFAUT)
-    except Exception as exc:  # noqa: BLE001 - lecteur indisponible : le chemin d'avant
-        logger.debug("[L1] embed.batch_size illisible (%r) -- defaut %d", exc, _BATCH_DEFAUT)
-        return _BATCH_DEFAUT
-    if isinstance(v, int) and not isinstance(v, bool) and _BATCH_BORNES[0] <= v <= _BATCH_BORNES[1]:
-        return v
-    logger.warning("[L1] embed.batch_size=%r refuse (entier %d..%d attendu) -- defaut %d",
-                   v, _BATCH_BORNES[0], _BATCH_BORNES[1], _BATCH_DEFAUT)
-    return _BATCH_DEFAUT
+    return _reglage_l1_entier("embed.batch_size", _BATCH_DEFAUT, _BATCH_BORNES)
 
 
 # Corpus FIXE de la mesure L1 : 64 textes deterministes, de longueurs variees, jamais ecrits en base.
@@ -1251,6 +1305,18 @@ _CORPUS_MESURE_L1 = tuple(
                                       (" " + _BASES_MESURE_L1[(k + 3) % 8]) * (k % 4))
     for k in range(64)
 )
+
+
+def _workers_l1() -> int:
+    """Nombre de fils quand l'appelant n'en impose pas : valeur L1 `embed.max_workers`, sinon 4. Meme rigueur que
+    `_batch_size_l1` : entier strict (non bool) dans les bornes, sinon le defaut, DIT."""
+    return _reglage_l1_entier("embed.max_workers", _WORKERS_DEFAUT, _WORKERS_BORNES)
+
+
+def mesurer_capacite_workers(repetitions: int = 5, appel=None) -> dict:
+    """Mesure du reglage L1 `embed.max_workers` : la mesure de debit existante, avec le nombre de fils COURANT et des
+    lots de 16 (il faut au moins autant de lots que de fils -- protocole de la mesure d'AGY, debat tour 3)."""
+    return mesurer_capacite_batch(repetitions=repetitions, appel=appel, max_workers=_workers_l1(), taille=16)
 
 
 def mesurer_capacite_batch(repetitions: int = 5, appel=None, max_workers: int = 4,
@@ -1307,7 +1373,8 @@ def mesurer_capacite_batch(repetitions: int = 5, appel=None, max_workers: int = 
             "taux_succes": round(ok / total, 4) if total else 0.0}
 
 
-def embed_batch_fast(texts: list[str], batch_size: int | None = None, max_workers: int = 4) -> list[list[float] | None]:
+def embed_batch_fast(texts: list[str], batch_size: int | None = None,
+                     max_workers: int | None = None, ids: list | None = None) -> list[list[float] | None]:
     """Throughput optimal :
        1. Group texts en batches de batch_size
        2. Pour chaque batch, essai cascade BATCH API (1 call N textes)
@@ -1321,12 +1388,18 @@ def embed_batch_fast(texts: list[str], batch_size: int | None = None, max_worker
         batch_size: taille de lot imposee par l'appelant ; None = reglage L1 `embed.batch_size`
             (defaut 32, l'ancien sweet spot Jina free tier)
         max_workers: threads paralleles (4 = safe pour rate limit cloud)
+        ids: ids rag_chunks alignes sur texts ; fournis, chaque texte tronque par :8099 est inscrit dans
+            REGISTRE_TRONQUES (voie longue). Absents : comportement inchange.
 
     Returns:
         liste [vec ou None] meme taille que texts.
     """
     if not texts:
         return []
+    if ids is not None and len(ids) != len(texts):
+        logger.warning("[embed_batch_fast] %d id(s) pour %d texte(s) : registre des tronques NON alimente",
+                       len(ids), len(texts))
+        ids = None
 
     # Taille : celle de l'appelant s'il l'impose, sinon le reglage L1 relu a CHAQUE appel.
     if batch_size is None:
@@ -1341,13 +1414,18 @@ def embed_batch_fast(texts: list[str], batch_size: int | None = None, max_worker
         # Ordre par defaut (politique muette) : :8099 local (souverain, GPU) > Modal A10G
         # > Cloudflare Workers AI (meme bge-m3) > Voyage > Jina > brain_worker ZMQ.
         # Sous politique : seuls les backends nommes, dans l'ordre de la politique.
-        for name, fn in _essais_selon_politique(_essais_batch(batch_texts), _autorises):
-            try:
-                vecs = fn()
-                if vecs and len(vecs) == len(batch_texts):
-                    return batch_idx, vecs
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"{name} batch KO: {e}")
+        lot_ids = ids[batch_idx * batch_size:(batch_idx + 1) * batch_size] if ids is not None else None
+        jeton = _IDS_LOT.set(lot_ids)
+        try:
+            for name, fn in _essais_selon_politique(_essais_batch(batch_texts), _autorises):
+                try:
+                    vecs = fn()
+                    if vecs and len(vecs) == len(batch_texts):
+                        return batch_idx, vecs
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"{name} batch KO: {e}")
+        finally:
+            _IDS_LOT.reset(jeton)
 
         # Degradation : single embed cascade (elle-meme sous politique) texte par texte
         return batch_idx, [embed(t) for t in batch_texts]
@@ -1356,7 +1434,7 @@ def embed_batch_fast(texts: list[str], batch_size: int | None = None, max_worker
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        with ThreadPoolExecutor(max_workers=max_workers or _workers_l1()) as exe:
             futures = {exe.submit(_process_batch, i, b): i for i, b in enumerate(batches)}
             batch_results: dict[int, list[list[float] | None]] = {}
             for fut in as_completed(futures):

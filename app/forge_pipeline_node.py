@@ -116,7 +116,7 @@ class Ring2ADRValidator:
             result["corrected"] = check.get("enriched_prompt", task)
             result["context"] = check.get("correction", "")
         except Exception as e:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pipeline_node.py', 118, exc_info=True)
 
         # Charger ADR actifs depuis embeddings.db
         try:
@@ -133,7 +133,7 @@ class Ring2ADRValidator:
                 result["adrs"] = adrs
                 result["context"] += "\n=== ADR actifs ===\n" + "\n".join(adrs)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pipeline_node.py', 135, exc_info=True)
 
         return result
 
@@ -159,7 +159,7 @@ class MMapBuffer:
 
                 self._bridge = bridge
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pipeline_node.py', 161, exc_info=True)
         return self._bridge
 
     def write_node_status(self, node_id: str, status: NodeStatus, data: dict = None) -> None:
@@ -180,7 +180,7 @@ class MMapBuffer:
                 for k, v in data.items():
                     br.json_set(f"node.{node_id}.{k}", v)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pipeline_node.py', 182, exc_info=True)
 
     def write_result(self, node_id: str, result: NodeResult) -> None:
         """Write result.
@@ -199,7 +199,7 @@ class MMapBuffer:
             br.json_set(f"node.{node_id}.session_id", result.session_id)
             br.json_set(f"node.{node_id}.ended_at", result.ended_at)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pipeline_node.py', 201, exc_info=True)
 
     def read_snapshot(self, node_id: str) -> dict:
         """Read snapshot.

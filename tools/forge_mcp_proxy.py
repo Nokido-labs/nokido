@@ -50,7 +50,20 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 HUB_URL = os.environ.get("LAFORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
 AGENT_NAME = os.environ.get("LAFORGE_AGENT", "CLAUDE")
-HUB_TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
+def _jeton_hub() -> str:
+    """Coffre d'abord (forge_secrets.get_secret, qui retombe lui-meme sur l'env en dernier). Un client peut lancer ce
+    proxy stdio avec un interpreteur SANS le paquet nokido_agent : le repli env se DIT sur stderr (stdout = protocole)
+    au lieu de casser le proxy (16/10, bb:active_bugs/secu_secrets_cloud_lus_dans_env_37_fichiers_geles_20261016)."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("FORGE_MCP_TOKEN") or ""
+    except ImportError as exc:
+        print("[forge_mcp_proxy] coffre inaccessible (%s) : repli sur l'environnement" % exc, file=sys.stderr)
+        return os.environ.get("FORGE_MCP_TOKEN", "")
+
+
+HUB_TOKEN = _jeton_hub()
 TIMEOUT = int(os.environ.get("LAFORGE_PROXY_TIMEOUT", "120"))
 MAX_RETRY = int(os.environ.get("LAFORGE_PROXY_RETRIES", "3"))
 RETRY_DLY = float(os.environ.get("LAFORGE_PROXY_RETRY_DELAY", "0.5"))

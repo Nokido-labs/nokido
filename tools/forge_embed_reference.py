@@ -67,7 +67,7 @@ def main() -> int:
             try:
                 rel("embed_reference", "claude")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_reference.py', 69, exc_info=True)
     print({"embedded": done, "failed": failed, "total_null": len(rows)})
     return 0
 

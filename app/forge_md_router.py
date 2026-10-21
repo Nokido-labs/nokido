@@ -169,6 +169,7 @@ def build_index(
         try:
             sha = _file_sha(f)
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_md_router.py', 171, exc_info=True)
             continue
         cached = _cache_get(sha, "index_summary")
         if cached is not None:

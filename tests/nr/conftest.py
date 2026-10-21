@@ -25,6 +25,18 @@ import os
 import pytest
 
 
+# TRACEUR D'IMPORT (19/10, plantages arrow.dll des workers de CI) : desarme sauf si NOKIDO_TRACE_IMPORT est pose
+# (ci_local --trace-import pyarrow). Il journalise le test en cours au premier chargement du module surveille.
+_TRACE_IMPORT = os.environ.get("NOKIDO_TRACE_IMPORT", "").strip()
+if _TRACE_IMPORT:
+    from nokido_agent.tools import forge_trace_import as _trace_import
+
+    _trace_import.armer([m.strip() for m in _TRACE_IMPORT.split(",")])
+
+    def pytest_runtest_setup(item):
+        _trace_import.COURANT["test"] = item.nodeid
+
+
 @pytest.fixture(autouse=True)
 def _coffre_suit_l_environnement(request, monkeypatch):
     # GARDE DE PORTEE : uniquement les tests du hub web. Le nom de fichier est
@@ -40,3 +52,16 @@ def _coffre_suit_l_environnement(request, monkeypatch):
     monkeypatch.setattr(forge_secrets, "get_secret",
                         lambda cle, *a, **kw: os.environ.get(cle) or None,
                         raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _pas_de_verdict_reel_depuis_un_test(monkeypatch):
+    """19/10 : le verdict automatique de l'executeur (recompense + transient au tableau noir) est COUPE dans tous les
+    tests NR. Mesure : les NR de delegation avaient ecrit ~23 faux verdicts (job_empty_01, job_repli_01, t-vibe...)
+    dans le vrai registre de recompense, dont des VIDE qui punissaient des repondeurs. Portee globale VOULUE : aucun
+    test ne doit ecrire ce registre ; les NR du verdict le rallument avec leurs doublures (`setenv("1")`)."""
+    monkeypatch.setenv("NOKIDO_VERDICT_AUTO", "0")
+    # Meme regle pour le bus d'essaim (19/10) : aucun test n'ecrit le VRAI miroir sandbox/reflexion.jsonl.
+    monkeypatch.setenv("NOKIDO_BUS_TACHES", "0")
+    # Et pour le journal d'usage du RAG (19/10, extracteur de citations) : aucun test n'ecrit logs/rag_usage_signal.jsonl.
+    monkeypatch.setenv("NOKIDO_RAG_SIGNAL", "0")

@@ -175,6 +175,7 @@ def _corpus_vivant() -> str:
                 try:
                     morceaux.append(p.read_text(encoding="utf-8", errors="replace"))
                 except OSError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_fix_sentinel.py', 177, exc_info=True)
                     continue
         _BLOB_VIVANT = "\n".join(morceaux)
     return _BLOB_VIVANT
@@ -193,6 +194,7 @@ def scanner(limit: int = 80, depuis: str | None = None) -> dict:
                 try:
                     presents[fichier] = chemin.read_text(encoding="utf-8", errors="replace")
                 except OSError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_fix_sentinel.py', 195, exc_info=True)
                     continue
             src = presents[fichier]
             for a in ancres:

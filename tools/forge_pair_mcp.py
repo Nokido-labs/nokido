@@ -31,6 +31,7 @@ from __future__ import annotations
 __FORGE_COLOR__ = "membrane/connecteur-pair : surface MCP bornee des pairs cloud, lecture et quarantaine"
 
 import datetime
+import hashlib
 import importlib.util
 import json
 import logging
@@ -90,6 +91,14 @@ def dossier_capsules() -> Path:
 
 def chemin_rag() -> Path:
     return ROOT / "RAG" / "embeddings.db"
+
+
+def chemin_politique_rings() -> Path:
+    """Politique versionnee des rings des pairs (decision owner 17/10) : config/pairs_rings.json.
+
+    Cle = nom de client OAuth (client_name) -> ring ; sans secret, versionnee avec le depot.
+    """
+    return ROOT / "config" / "pairs_rings.json"
 
 
 def chemin_m2m() -> str:
@@ -211,6 +220,302 @@ def lire_derniere_capsule() -> dict:
     return {"ok": True, "capsule": capsule, "fichier": fichiers[0].name, "regle_de_depot": REGLE_DE_DEPOT}
 
 
+def _nom_du_client(client: str) -> str | None:
+    """client_name de CET identifiant OAuth au registre, sinon None (fail-closed).
+
+    Registre absent, illisible, client inconnu ou sans nom : None. Le nom est la cle de
+    config/pairs_rings.json (claude.ai s'inscrit sous un nouvel identifiant a chaque
+    autorisation, mais toujours sous le meme nom).
+    """
+    if not _client_valide(client):
+        return None
+    chemin = (os.environ.get("NOKIDO_BRIDGE_OAUTH_CLIENTS") or "").strip()
+    if not chemin:
+        return None
+    try:
+        inscrits = json.loads(Path(chemin).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(inscrits, list):
+        return None
+    for c in inscrits:
+        if isinstance(c, dict) and c.get("client_id") == client:
+            nom = str(c.get("client_name") or "").strip()
+            return nom or None
+    return None
+
+
+def _politique_rings() -> dict | None:
+    """config/pairs_rings.json lu en dict, sinon None -- illisible = ferme, et le DIRE."""
+    try:
+        politique = json.loads(Path(chemin_politique_rings()).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        _LOG.warning("[pair] politique des rings ILLISIBLE (%s) : tout reste ferme", type(e).__name__)
+        return None
+    if not isinstance(politique, dict):
+        _LOG.warning("[pair] politique des rings MAL FORMEE (pas un objet) : tout reste ferme")
+        return None
+    return politique
+
+
+def _paire_listee(politique: dict | None, nom: str) -> bool:
+    """Ce NOM figure-t-il dans la section `pairs` ? Egalite stricte, insensible a la casse.
+
+    Jamais une sous-chaine : « ClaudeX » ne correspond pas a « claude ».
+    """
+    if not isinstance(politique, dict):
+        return False
+    pairs = politique.get("pairs")
+    if not isinstance(pairs, dict):
+        return False
+    cible = nom.casefold()
+    return any(isinstance(cle, str) and cible == cle.casefold() for cle in pairs)
+
+
+def _ring_du_pair(client: str) -> int | None:
+    """Ring du PAIR dans la politique versionnee (config/pairs_rings.json), sinon None.
+
+    Decision owner 17/10 : les pairs cloud (claude.ai, ChatGPT web) sont ring 2 -- la source
+    est la politique, plus le registre OAuth (qui ne porte aucun ring). Cle = client_name,
+    compare a l'egalite INSensible a la casse (jamais une sous-chaine). Politique absente ou
+    illisible, client sans nom, nom absent de `pairs`, valeur non entiere : None (ferme,
+    fail-closed) et le refus est DIT dans le journal.
+    """
+    if not _client_valide(client):
+        return None
+    nom = _nom_du_client(client)
+    if not nom:
+        _LOG.warning("[pair] ring INCONNU : client '%s' sans nom lisible au registre OAuth", client)
+        return None
+    politique = _politique_rings()
+    if politique is None:
+        return None          # deja DIT par _politique_rings()
+    pairs = politique.get("pairs")
+    if not isinstance(pairs, dict):
+        _LOG.warning("[pair] politique des rings sans section 'pairs' : '%s' reste ferme", nom)
+        return None
+    cible = nom.casefold()
+    for cle, ring in pairs.items():
+        if isinstance(cle, str) and cible == cle.casefold():
+            if isinstance(ring, int) and not isinstance(ring, bool):
+                return ring
+            _LOG.warning("[pair] ring NON ENTIER pour '%s' : ferme", nom)
+            return None
+    _LOG.warning("[pair] '%s' absent de config/pairs_rings.json : ferme (ring INCONNU)", nom)
+    return None
+
+
+def _decouper_en_pages(texte: str, max_sortie: int = MAX_SORTIE) -> list[str]:
+    """Decoupe un texte pour que chaque page, enveloppee dans sa reponse JSON, passe sous max_sortie."""
+    if not texte:
+        return [""]
+    pages = []
+    debut = 0
+    n = len(texte)
+    while debut < n:
+        fin = min(n, debut + 4000)
+        while fin > debut:
+            morceau = texte[debut:fin]
+            charge_test = {
+                "ok": True,
+                "page": len(pages),
+                "pages": 9999,
+                "sha256": "0" * 64,
+                "contenu": morceau,
+            }
+            if len(json.dumps(charge_test, ensure_ascii=False)) <= max_sortie:
+                break
+            fin -= 200
+        if fin <= debut:
+            fin = debut + 1
+        pages.append(texte[debut:fin])
+        debut = fin
+    return pages
+
+
+def lire_annexe(client: str, pointeur: str, page: int = 0) -> dict:
+    """Lit une annexe de capsule confirmee par pointeur 'annexe:<capsule>/<nom>', page par page.
+
+    Fail-closed partout : pointeur confine, ring du pair verifie face a ring_annexes de la
+    capsule, et un pair de config/pairs_rings.json ne lit que les capsules de relecture
+    (usage_annexes = "relecture").
+    """
+    if not isinstance(pointeur, str) or not pointeur.startswith("annexe:"):
+        return {"ok": False, "erreur": "format de pointeur invalide (doit commencer par 'annexe:')"}
+    corps = pointeur[len("annexe:"):]
+    if "/" not in corps or "\\" in corps:
+        return {"ok": False, "erreur": "format de pointeur invalide (attendu: annexe:<capsule>/<nom>)"}
+    parties = corps.split("/")
+    if len(parties) != 2:
+        return {"ok": False, "erreur": "format de pointeur invalide (un seul separateur autorise)"}
+    capsule, nom = parties
+    motif = re.compile(r"^[A-Za-z0-9_.-]+$")
+    if not motif.fullmatch(capsule) or not motif.fullmatch(nom):
+        return {"ok": False, "erreur": "caracteres invalides dans le pointeur"}
+    if ".." in capsule or ".." in nom or capsule in (".", "..") or nom in (".", ".."):
+        return {"ok": False, "erreur": "pointeur invalide (traversee .. interdite)"}
+
+    dossier_base = dossier_capsules().resolve()
+    fichier_capsule = (dossier_base / f"{capsule}.capsule.json").resolve()
+    dossier_annexes = (dossier_base / capsule / "annexes").resolve()
+    fichier_annexe = (dossier_annexes / nom).resolve()
+
+    try:
+        fichier_capsule.relative_to(dossier_base)
+        dossier_annexes.relative_to(dossier_base)
+        fichier_annexe.relative_to(dossier_annexes)
+    except ValueError:
+        return {"ok": False, "erreur": "chemin hors du dossier des capsules"}
+
+    if not fichier_capsule.is_file():
+        return {"ok": False, "erreur": "capsule introuvable"}
+    if not fichier_annexe.is_file():
+        return {"ok": False, "erreur": "annexe introuvable"}
+
+    try:
+        meta = json.loads(fichier_capsule.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ok": False, "erreur": "capsule illisible (%s)" % type(e).__name__}
+
+    ring_annexes = meta.get("ring_annexes")
+    if ring_annexes is None or not isinstance(ring_annexes, int):
+        return {"ok": False, "erreur": "ring_annexes absent de la capsule"}
+
+    ring_pair = _ring_du_pair(client)
+    if ring_pair is None:
+        return {"ok": False, "erreur": "ring INCONNU : client non autorise"}
+    if ring_pair > ring_annexes:
+        return {"ok": False, "erreur": "ring insuffisant (pair %d > requis %d)" % (ring_pair, ring_annexes)}
+
+    # Decision owner 17/10 : « ring 2, et seulement pour les annexes de relecture ». Le ring
+    # d'un pair de la politique n'ouvre QUE les capsules qui declarerent usage_annexes
+    # = "relecture" ; tout le reste (absent, "mission", casse, ...) reste FERME, refus DIT.
+    if _paire_listee(_politique_rings(), _nom_du_client(client) or ""):
+        if meta.get("usage_annexes") != "relecture":
+            return {"ok": False,
+                    "erreur": "annexes fermees : seules les capsules de relecture s'ouvrent aux "
+                              "pairs (il faut usage_annexes='relecture'), ici usage_annexes=%s"
+                              % json.dumps(meta.get("usage_annexes"))}
+
+    try:
+        contenu_total = fichier_annexe.read_text(encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "erreur": "annexe illisible (%s)" % type(e).__name__}
+
+    sha256_total = hashlib.sha256(contenu_total.encode("utf-8")).hexdigest()
+    pages = _decouper_en_pages(contenu_total)
+    total_pages = len(pages)
+
+    try:
+        p = int(page)
+    except (TypeError, ValueError):
+        return {"ok": False, "erreur": "page invalide (doit etre un entier)", "pages": total_pages}
+
+    if p < 0 or p >= total_pages:
+        return {"ok": False, "erreur": "page hors borne (%d hors de [0, %d])" % (p, total_pages - 1),
+                "page": p, "pages": total_pages}
+
+    return {
+        "ok": True,
+        "page": p,
+        "pages": total_pages,
+        "sha256": sha256_total,
+        "contenu": pages[p],
+    }
+
+
+_lire_annexe_impl = lire_annexe
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Lecture du VIVANT (owner 17/10 : « tout »). Mesure : la relecture claude.ai des clotures R7/R8 avait ete faite sur le
+# dist PUBLIC 0.20.12 et 12 objections ont du etre contre-verifiees sur alpha. Portee : tout fichier SUIVI d'alpha,
+# hors exclusions ; ring <= 2 ; pages ; lecture git seule, aucune ecriture ; sortie redigee par `rediger`.
+# ---------------------------------------------------------------------------------------------------------------
+RING_MAX_VIVANT = 2
+TAILLE_MAX_VIVANT = 1_000_000
+_CHEMIN_VIVANT = re.compile(r"[\w.\- /]+")
+# Exclus MEME suivis : coffre, .env, secrets, cles, RAG, configuration des clients (MCP, settings).
+_EXCLUS_VIVANT = (
+    re.compile(r"(^|/)[^/]*\.env(\.[^/]*)?$", re.I),                     # .env, Nokido.env, .env.local
+    re.compile(r"\.(pem|key|p12|pfx|crt|cer|der|jks|keystore|kdbx|gpg|asc|ppk)$", re.I),
+    re.compile(r"(^|/)(id_rsa|id_dsa|id_ecdsa|id_ed25519)[^/]*$", re.I),
+    re.compile(r"(^|/)\.mcp\.json", re.I),
+    re.compile(r"(^|/)\.claude(/|$)", re.I),
+    re.compile(r"(^|/)settings(\.local)?\.json$", re.I),
+    re.compile(r"(^|/)RAG(/|$)", re.I),
+)
+# Un nom de secret exclut tout fichier de DONNEES ; le code (.py) reste lisible, redige comme toute sortie.
+_EXCLUS_DONNEES_VIVANT = re.compile(r"secret|coffre|vault|credential|passw", re.I)
+
+
+def _refus_chemin_vivant(chemin) -> str | None:
+    """Motif du refus, ou None si le chemin est confine au depot. Verifie AVANT toute lecture git."""
+    if not isinstance(chemin, str) or not chemin.strip():
+        return "chemin vide"
+    if "\\" in chemin or "\x00" in chemin or chemin.startswith("/") or re.match(r"^[A-Za-z]:", chemin):
+        return "chemin absolu ou separateur invalide (attendu : chemin relatif au depot, separateur /)"
+    if any(p in ("", ".", "..") for p in chemin.split("/")):
+        return "chemin invalide (traversee ou segment vide interdits)"
+    if not _CHEMIN_VIVANT.fullmatch(chemin):
+        return "caracteres invalides dans le chemin"
+    if any(m.search(chemin) for m in _EXCLUS_VIVANT) or (
+            not chemin.endswith(".py") and _EXCLUS_DONNEES_VIVANT.search(chemin)):
+        return "chemin exclu de la lecture du vivant (coffre, .env, secrets, cles, RAG, configuration client)"
+    return None
+
+
+def _contenu_suivi(chemin: str):
+    """(sha COURT d'alpha, texte) du fichier SUIVI sur alpha ; None s'il n'y est pas suivi ou si git est illisible.
+    Sha court : un sha de 40 hex serait redige par _EN_PLUS_DU_PARE_FEU."""
+    base = ["git", "-c", "safe.directory=*", "-C", str(ROOT)]
+    try:
+        sha = subprocess.run(base + ["rev-parse", "--short=12", "alpha"], capture_output=True, text=True,
+                             errors="replace", timeout=15)
+        genre = subprocess.run(base + ["cat-file", "-t", "alpha:" + chemin], capture_output=True, text=True,
+                               errors="replace", timeout=15)
+        if sha.returncode != 0 or genre.returncode != 0 or genre.stdout.strip() != "blob":
+            return None
+        brut = subprocess.run(base + ["show", "alpha:" + chemin], capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if brut.returncode != 0:
+        return None
+    return sha.stdout.strip(), brut.stdout.decode("utf-8", "replace")
+
+
+def lire_vivant(client: str, chemin: str, page: int = 0) -> dict:
+    """Lit un fichier SUIVI d'alpha, page par page, pour un pair de ring <= 2. Fail-closed : ring inconnu, chemin
+    hors depot ou exclu, fichier non suivi, page hors borne -> refus DIT. Lecture seule."""
+    ring_pair = _ring_du_pair(client)
+    if ring_pair is None:
+        return {"ok": False, "erreur": "ring INCONNU : client non autorise"}
+    if ring_pair > RING_MAX_VIVANT:
+        return {"ok": False, "erreur": "ring insuffisant (pair %d > requis %d)" % (ring_pair, RING_MAX_VIVANT)}
+    motif = _refus_chemin_vivant(chemin)
+    if motif:
+        return {"ok": False, "erreur": motif}
+    res = _contenu_suivi(chemin)
+    if res is None:
+        return {"ok": False, "erreur": "fichier non suivi sur alpha (ou git illisible) : %s" % chemin}
+    sha, texte = res
+    if len(texte) > TAILLE_MAX_VIVANT:
+        return {"ok": False, "erreur": "fichier trop gros pour la lecture paginee (%d > %d caracteres)"
+                                       % (len(texte), TAILLE_MAX_VIVANT)}
+    pages = _decouper_en_pages(texte, MAX_SORTIE - len(chemin) - 64)
+    try:
+        p = int(page)
+    except (TypeError, ValueError):
+        return {"ok": False, "erreur": "page invalide (doit etre un entier)", "pages": len(pages)}
+    if p < 0 or p >= len(pages):
+        return {"ok": False, "erreur": "page hors borne (%d hors de [0, %d])" % (p, len(pages) - 1),
+                "page": p, "pages": len(pages)}
+    return {"ok": True, "chemin": chemin, "sha": sha, "page": p, "pages": len(pages), "contenu": pages[p]}
+
+
+_lire_vivant_impl = lire_vivant
+
+
 # ── Collaboration (quarantaine) ─────────────────────────────────────────────
 
 def _nettoyer(texte) -> str:
@@ -239,6 +544,11 @@ def deposer(client: str, methode: str, intent: str, objectif: str, texte: str,
               "provenance": {"client": client, "recu_a": _maintenant(), "confiance": "EXTERNE_NON_VERIFIEE"},
               "etape": etape.to_dict(), "verdict": verdict_etape(etape)}
     charge.update(extra or {})
+    # Une borne DIT combien (19/10 : le plan en 6 vagues de ChatGPT web coupe a MAX_TEXTE en silence, vague 5 perdue).
+    recu = len(str(texte or ""))
+    tronque = {"recu": recu, "garde": MAX_TEXTE} if recu > MAX_TEXTE else None
+    if tronque:
+        charge["tronque"] = tronque
     depuis = (datetime.datetime.now(datetime.timezone.utc)
               - datetime.timedelta(hours=1)).isoformat(timespec="seconds")
     try:
@@ -259,9 +569,16 @@ def deposer(client: str, methode: str, intent: str, objectif: str, texte: str,
         return {"ok": False, "etat": "ECRITURE_REFUSEE", "motif": type(e).__name__}
     finally:
         con.close()
-    _LOG.info("[pair] depot %s de %s en quarantaine (%s)", ident, de, methode)
-    return {"ok": True, "id": ident, "statut": STATUT_QUARANTAINE,
-            "note": "en quarantaine : rien n'agit avant l'approbation de l'owner"}
+    _LOG.info("[pair] depot %s de %s en quarantaine (%s)%s", ident, de, methode,
+              " -- TRONQUE %d -> %d" % (tronque["recu"], tronque["garde"]) if tronque else "")
+    rep = {"ok": True, "id": ident, "statut": STATUT_QUARANTAINE,
+           "note": "en quarantaine : rien n'agit avant l'approbation de l'owner"}
+    if tronque:
+        rep["tronque"] = tronque
+        rep["note"] += (" ; TRONQUE : %d caracteres recus, %d gardes -- renvoie des pointeurs (cles bb exactes, "
+                        "ordre = dependance) ou decoupe en depots 1/n citant le precedent"
+                        % (tronque["recu"], tronque["garde"]))
+    return rep
 
 
 def deposer_fait(client: str, texte: str, domaine: str = "roadmap") -> dict:
@@ -355,6 +672,11 @@ def relever_reponses(client: str) -> dict:
     if not _client_valide(client):
         return {"ok": False, "erreur": "client non identifie"}
     boites = ["PAIR:" + c for c in clients_du_meme_pair(client)]
+    # 19/10 : `pair-repondre` adresse au NOM du pair (comme les rings) ; une nouvelle session OAuth du meme pair ne
+    # relevait jamais `PAIR:<nom>` (tache claude.ai apr_1f4408f74c3c9af4 restee unread). Jamais la boite d'un autre pair.
+    nom = _nom_du_client(client)
+    if nom and "PAIR:" + nom not in boites:
+        boites.append("PAIR:" + nom)
     try:
         con = sqlite3.connect(chemin_m2m(), timeout=10)
     except sqlite3.Error as e:
@@ -511,12 +833,17 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     async def derniere_capsule() -> dict:
         return rediger(lire_derniere_capsule(), "derniere_capsule")
 
-    @serveur.tool(name="proposer_fait", description="Propose un fait au SSoT (roadmap ou rules) : QUARANTAINE, approbation owner.")
+    @serveur.tool(name="proposer_fait", description=(
+        "Propose un fait au SSoT (roadmap ou rules) : QUARANTAINE, approbation owner. Texte <= %d caracteres "
+        "(au-dela COUPE, et la reponse le DIT) : envoie des POINTEURS -- cles EXACTES du tableau noir (bb:<cle>), "
+        "ordre = dependance -- pas de prose ni de copie d'etat (Nokido lit le vivant) ; contenu long = plusieurs "
+        "depots numerotes 1/n citant le pointer_ref du precedent." % MAX_TEXTE))
     async def proposer_fait(texte: str, domaine: str = "roadmap") -> dict:
         return _au_nom_du_pair("proposer_fait", deposer_fait, texte, domaine)
 
     @serveur.tool(name="envoyer_message", description="Message M2M vers OWNER, CLAUDE, ANTIGRAVITY ou GEMINI : QUARANTAINE. "
-                  "Intents ouverts aux pairs : " + ", ".join(INTENTS_MESSAGE_PAIR) + ".")
+                  "Intents ouverts aux pairs : " + ", ".join(INTENTS_MESSAGE_PAIR) + ". Texte <= %d caracteres "
+                  "(au-dela COUPE et DIT) : des POINTEURS (bb:<cle>, commit, pair_<id>), pas de prose." % MAX_TEXTE)
     async def envoyer_message(intent: str, texte: str, destinataire: str = "OWNER") -> dict:
         return _au_nom_du_pair("envoyer_message", deposer_message, intent, texte, destinataire)
 
@@ -525,6 +852,8 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     # or 'deliberer' IGNORE le destinataire et renvoie la capsule au pair. Le contrat dit la route.
     @serveur.tool(name="soumettre_tache", description=(
         "Tache pour Nokido, en QUARANTAINE : rien ne s'execute avant l'approbation owner. "
+        "Texte <= MAX_TEXTE = 4000 caracteres (au-dela COUPE et DIT) : des POINTEURS (bb:<cle>, fichier:ligne), "
+        "pas de prose. "
         "genre='deliberer' : debat LOCAL RecursiveMAS (modeles locaux) ; le destinataire est IGNORE "
         "et la capsule de resultat est RENVOYEE AU PAIR -- aucun agent local ne la recoit. "
         "genre='executer' : livree, apres approbation, dans la boite de l'agent `destinataire` "
@@ -541,6 +870,21 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     @serveur.tool(name="lire_reponses", description="Reponses adressees a CE pair (capsules, messages M2M).")
     async def lire_reponses() -> dict:
         return _au_nom_du_pair("lire_reponses", relever_reponses)
+
+    if oauth:
+        @serveur.tool(name="lire_annexe", description=(
+            "Lit une annexe de capsule cognitive par son pointeur (annexe:<capsule>/<nom>), page par page. "
+            "Le pair doit etre identifie, son ring inferieur ou egal a ring_annexes de la capsule, "
+            "et la capsule doit declarer usage_annexes = 'relecture' (decision owner 17/10)."))
+        async def lire_annexe(pointeur: str, page: int = 0) -> dict:
+            return _au_nom_du_pair("lire_annexe", _lire_annexe_impl, pointeur, page)
+
+        @serveur.tool(name="lire_vivant", description=(
+            "Lit un fichier SUIVI de la branche alpha de Nokido (le code VIVANT, pas le dist public), page par page. "
+            "chemin relatif au depot avec separateur /. Ring <= 2 ; exclus : coffre, .env, secrets, cles, RAG, "
+            "configuration client. Lecture seule, sortie redigee. Le sha court d'alpha est rendu."))
+        async def lire_vivant(chemin: str, page: int = 0) -> dict:
+            return _au_nom_du_pair("lire_vivant", _lire_vivant_impl, chemin, page)
 
     if autorite is not None:
         module_oauth.poser_consentement(serveur, autorite)

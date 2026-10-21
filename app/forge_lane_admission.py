@@ -140,7 +140,7 @@ def _get_system_health() -> dict:
             return {"cpu_pct": float(cpu), "ram_pct": float(ram),
                     "ram_dispo_gb": _dispo, "source": "inspecteur"}
     except Exception:  # noqa: BLE001 - inspecteur indispo/clé absente -> psutil direct
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lane_admission.py', 142, exc_info=True)
     try:
         import psutil
         # interval=0.1 : sans intervalle, le 1er cpu_percent d'un process retourne
@@ -228,7 +228,7 @@ def current(lane: str) -> dict | None:
         try:
             c.close()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lane_admission.py', 230, exc_info=True)
 
 def acquire(lane: str, holder: str, ttl: float = DEFAULT_TTL) -> bool:
     """Tente d'acquérir la lane avec vérification anti-embolie."""
@@ -261,7 +261,7 @@ def acquire(lane: str, holder: str, ttl: float = DEFAULT_TTL) -> bool:
         try:
             c.close()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lane_admission.py', 263, exc_info=True)
 
 def release(lane: str, holder: str) -> None:
     c = _conn()
@@ -295,6 +295,36 @@ def _try_reserve(needed_gb: float = RESERVE_GB) -> dict:
         return {}
 
 
+def _ram_saturee(h: dict) -> bool:
+    # Refuse aussi sur la RESERVE ABSOLUE en Go, pas seulement le % : le %
+    # instantane laissait empiler deux jobs admis a 81% qui montaient ENSEMBLE
+    # a 95% (dispo 1.25 Go), rendant le HUB injoignable par thrash (incident
+    # 2026-08-28). La reserve absolue protege la RAM du hub contre l'empilement.
+    return (h.get("ram_pct", 0) > MAX_RAM_PCT
+            or (h.get("ram_dispo_gb") is not None and h["ram_dispo_gb"] < RESERVE_GB))
+
+
+def etat_ressources(heavy: bool = True) -> dict:
+    """Verdict d'embolie SANS EFFET (19/10, relecture pair_0891188ab09db024) : meme mesure et meme seuil que
+    check_ressources, mais ni eviction (_try_reserve) ni journal de refus -- pour qui doit SAVOIR sans AGIR (bilan,
+    reconciliation au boot). {sature: True|False|None, motif} ; None = mesure indisponible (INCONNU, jamais NON)."""
+    if not heavy:
+        return {"sature": False, "motif": "leger"}
+    health = _get_system_health()
+    if health.get("degraded"):
+        return {"sature": None, "motif": "MESURE INDISPONIBLE (signes vitaux illisibles)"}
+    # Liste BLANCHE (pair_4892a3ef0987bab5) : un `ram_pct` absent ou nul n'est pas une RAM libre,
+    # c'est une mesure absente -- INCONNU, jamais « non sature ».
+    if not (float(health.get("ram_pct") or 0) > 0):
+        return {"sature": None, "motif": "MESURE NON PROUVEE (ram_pct absent ou nul)"}
+    if _ram_saturee(health):
+        return {"sature": True, "motif": "RISQUE EMBOLIE RAM (%s%% > %s%% ou dispo %s Go < reserve %s Go)" % (
+            health.get("ram_pct"), MAX_RAM_PCT, health.get("ram_dispo_gb"), RESERVE_GB)}
+    if health.get("cpu_pct", 0) > MAX_CPU_PCT:
+        return {"sature": True, "motif": "RISQUE EMBOLIE CPU (%s%% > %s%%)" % (health.get("cpu_pct"), MAX_CPU_PCT)}
+    return {"sature": False, "motif": ""}
+
+
 def check_ressources(heavy: bool = True) -> dict:
     """Verdict d'embolie SEUL, sans toucher aux baux de lane. {ok, reason, ...}
 
@@ -308,13 +338,7 @@ def check_ressources(heavy: bool = True) -> dict:
     if not heavy:
         return {"ok": True, "reason": "leger"}
     health = _get_system_health()
-    def _sature(h):
-        # Refuse aussi sur la RESERVE ABSOLUE en Go, pas seulement le % : le %
-        # instantane laissait empiler deux jobs admis a 81% qui montaient ENSEMBLE
-        # a 95% (dispo 1.25 Go), rendant le HUB injoignable par thrash (incident
-        # 2026-08-28). La reserve absolue protege la RAM du hub contre l'empilement.
-        return (h.get("ram_pct", 0) > MAX_RAM_PCT
-                or (h.get("ram_dispo_gb") is not None and h["ram_dispo_gb"] < RESERVE_GB))
+    _sature = _ram_saturee
     if health.get("degraded"):
         # La mesure a ECHOUE. On reste fail-closed -- mais on le DIT, au lieu
         # d'accuser un CPU ou une RAM qu'on n'a pas pu observer.

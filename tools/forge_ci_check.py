@@ -40,7 +40,7 @@ if "pytest" not in sys.modules:
         try:
             _stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ci_check.py', 42, exc_info=True)
 
 # Un run sans etape qui stagne au-dela de ce seuil n'attend plus un slot :
 # il attend un runner qui ne viendra pas.

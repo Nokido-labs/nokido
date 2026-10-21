@@ -38,7 +38,7 @@ try:
 
     load_env_file()
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_modules.py', 40, exc_info=True)
 
 
 def _dim(s: str) -> str:

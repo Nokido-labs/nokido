@@ -115,4 +115,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass  # fail-open : ne jamais bloquer un edit sur une erreur du hook
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hook_pretool_guard.py', 117, exc_info=True)

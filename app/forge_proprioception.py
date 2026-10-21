@@ -297,7 +297,7 @@ def measure_storage(conn) -> dict:
             rows_per_tbl[t] = n
             total_rows += n
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_proprioception.py', 299, exc_info=True)
 
     # DB physical size
     db_size_mb = round(Path(str(DB)).stat().st_size / 1024 / 1024, 1) if Path(str(DB)).exists() else 0
@@ -401,7 +401,7 @@ def measure_evolution(conn) -> dict:
         )
         n_commits_7d = len([l for l in out.stdout.splitlines() if l.strip()])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_proprioception.py', 403, exc_info=True)
 
     # Skill proposals
     proposals_dir = SANDBOX / "skill_proposals"
@@ -579,7 +579,7 @@ def run_cycle() -> dict:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_proprioception.py', 581, exc_info=True)
 
     return out
 

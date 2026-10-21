@@ -12,8 +12,15 @@ Emplacements standard (ceux que nokido-doctor --ecrire-vars et services.toml att
   dispatcher Go -> go_services/forge_dispatcher/forge_dispatcher[.exe], construit avec le Go du PATH s'il existe,
                    sinon le toolchain epingle (runtime/go) ; module sans dependance, construction reproductible.
 
-  LAFORGE_PYTHON tools/forge_composants.py --tout
-  LAFORGE_PYTHON tools/forge_composants.py --composant caddy --composant dispatcher
+GARDE CHIFFREMENT AT-REST (decision owner du 2026-10-20). Avant TOUT poseur, l'outil verifie que VeraCrypt ou
+cryptsetup est installe OU qu'un refus a deja ete consigne. Sans les deux : rc 2, rien de pose, et le message nomme
+`--sans-chiffrement`. Avec ce drapeau, le refus est ECRIT (date, compte, motif via --motif-refus) puis l'installation
+continue — c'est une decision de l'utilisateur, pas un silence. `--desinstaller` n'est jamais bloque : on ne refuse
+pas de rendre ce qui existe deja.
+
+   LAFORGE_PYTHON tools/forge_composants.py --tout
+   LAFORGE_PYTHON tools/forge_composants.py --composant caddy --composant dispatcher
+   LAFORGE_PYTHON tools/forge_composants.py --tout --sans-chiffrement --motif-refus "disque chiffre par le BIOS"
 """
 from __future__ import annotations
 
@@ -37,6 +44,43 @@ WIN = os.name == "nt"
 EXE = ".exe" if WIN else ""
 DL = ROOT / "runtime" / "dl"
 COMPOSANTS = ("deno", "llama", "qdrant", "caddy", "ollama", "dispatcher", "modeles", "connaissances", "jetons")
+
+_PREREQUIS = None
+
+
+def prerequis():
+    """Registre des prerequis externes (app/forge_install_prerequis.py), charge une fois par son chemin.
+
+    C'est LUI qui sonde VeraCrypt/cryptsetup (mesure a trois etats) et qui range la fiche de refus : un seul endroit
+    connait ces deux etats — ni copie ici, ni second fichier.
+    """
+    global _PREREQUIS
+    if _PREREQUIS is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("forge_install_prerequis",
+                                                      ROOT / "app" / "forge_install_prerequis.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        _PREREQUIS = m
+    return _PREREQUIS
+
+
+def chiffrement_present() -> bool:
+    """VeraCrypt / cryptsetup INSTALLES ici ? Seul PRESENT prouve ; un refus consigne compte pour le passeur."""
+    m = prerequis()
+    entree = next(e for e in m.PREREQUIS if e["cle"] == "chiffrement_at_rest")
+    etat, _ = m._sonde_binaire(tuple(entree["binaires"]), tuple(entree.get("chemins_usuels", ())))
+    return etat == m.PRESENT
+
+
+def refus_chiffrement() -> dict | None:
+    """Le refus du chiffrement at-rest deja consigne (fiche date/compte/motif), ou None."""
+    return prerequis().refus_chiffrement()
+
+
+def consigner_refus_chiffrement(motif: str):
+    """Ecrit la fiche du refus explicite — appele UNIQUEMENT derriere `--sans-chiffrement`."""
+    return prerequis().consigner_refus_chiffrement(motif)
 
 
 def plateforme() -> str:
@@ -221,9 +265,18 @@ def poser_connaissances(dl: Path = DL) -> tuple:
     rc, out = sh([sys.executable, str(ROOT / "tools" / "forge_db_bootstrap.py")], timeout=900, cwd=ROOT)
     if rc:
         return False, "schema de la base : %s" % out[-500:]
+    # Pack CANDIDAT (owner 16/10 : livrables 3 OS fonctionnels E2E) : la repetition importe le fichier de la release
+    # BROUILLON, recupere par le workflow, et non une release publiee -- 0.20.12 a ete essayee avec le pack 0.20.9.
+    fichier = os.environ.get("NOKIDO_PACK_FICHIER", "")
+    imp = [sys.executable, str(ROOT / "tools" / "forge_knowledge_pack_import.py")]
+    if fichier:
+        if not Path(fichier).is_file():
+            return False, "pack candidat ABSENT : NOKIDO_PACK_FICHIER=%s" % fichier
+        sha = os.environ.get("NOKIDO_PACK_SHA256", "")
+        rc, out = sh(imp + ["--from", fichier] + (["--expect-sha256", sha] if sha else []), timeout=1800, cwd=ROOT)
+        return rc == 0 and '"inserted"' in out, "pack CANDIDAT %s : %s" % (Path(fichier).name, out[-560:])
     version = os.environ.get("NOKIDO_PACK_VERSION", "")
-    cmd = [sys.executable, str(ROOT / "tools" / "forge_knowledge_pack_import.py"), "--download"]
-    rc, out = sh(cmd + (["--version", version] if version else []), timeout=1800, cwd=ROOT)
+    rc, out = sh(imp + ["--download"] + (["--version", version] if version else []), timeout=1800, cwd=ROOT)
     return rc == 0 and '"inserted"' in out, out[-600:]
 
 
@@ -280,6 +333,12 @@ def main(argv=None) -> int:
     ap.add_argument("--desinstaller", action="store_true",
                     help="avant `pip uninstall` : retire les liens de donnees et les binaires construits dans le paquet")
     ap.add_argument("--purger", action="store_true", help="avec --desinstaller : efface aussi les donnees de l'utilisateur")
+    ap.add_argument("--sans-chiffrement", action="store_true",
+                    help="refus EXPLICITE du chiffrement at-rest : la decision est consignee (date, compte, motif) "
+                         "puis l'installation continue")
+    ap.add_argument("--motif-refus", default="",
+                    help="motif du refus, ecrit avec --sans-chiffrement : un refus sans raison ecrite n'est pas une "
+                         "decision")
     a = ap.parse_args(argv)
     if a.desinstaller:
         return desinstaller(a.purger)
@@ -289,6 +348,20 @@ def main(argv=None) -> int:
     if not noms:
         ap.error("--tout ou --composant")
     print("plateforme : %s" % plateforme())
+    # Garde chiffrement at-rest (decision owner 20/10) : TOUJOURS avant le premier poseur — un composant pose en
+    # clair apres un autre n'est deja plus corrigeable proprement. La desinstallation n'est jamais soumise a la garde.
+    fiche_refus = refus_chiffrement()
+    if not chiffrement_present() and not fiche_refus:
+        if not a.sans_chiffrement:
+            print("chiffrement at-rest ABSENT (VeraCrypt ou cryptsetup) et aucun refus consigne : installation "
+                  "ARRETEE avant tout poseur. Installez VeraCrypt (windows/macos) ou cryptsetup (linux), ou "
+                  "prononcez un refus explicite avec --sans-chiffrement (il sera consigne : date, compte, motif).",
+                  file=sys.stderr)
+            return 2
+        consigner_refus_chiffrement(a.motif_refus or "refus explicite (--sans-chiffrement)")
+    elif fiche_refus:
+        print("refus du chiffrement at-rest DEJA CONSIGNE (motif : %s, le %s) : il reste visible dans le bilan, "
+              "ici on pose." % (fiche_refus.get("motif"), fiche_refus.get("date")))
     rc = 0
     for nom in noms:
         try:

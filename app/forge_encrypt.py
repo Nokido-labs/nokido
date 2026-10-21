@@ -269,7 +269,7 @@ def init_vault(vault_path: str, vault_passphrase: Optional[str] = None) -> sqlit
         conn.commit()
         return conn
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_encrypt.py', 271, exc_info=True)
 
     # Fallback SQLite standard (Option C lite — chiffrement par champ)
     conn = sqlite3.connect(vault_path)

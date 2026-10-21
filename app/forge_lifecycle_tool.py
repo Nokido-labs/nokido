@@ -108,6 +108,15 @@ def _supervisor_call(method: str, path: str) -> dict:
     """Sync HTTP call to supervisor :8765. Returns {ok, status, data|error}."""
     url = SUPERVISOR_URL.rstrip("/") + path
     req = urllib.request.Request(url, method=method)
+    # 2026-10-17 : le superviseur exige un Bearer sur ses mutations ; sans en-tete, START/RESTART rendaient 401 (STATUS
+    # passait). Brique UNIQUE des en-tetes (forge_resource_manager), jeton du coffre, appelant nomme.
+    try:
+        from nokido_agent.app.forge_resource_manager import _supervisor_auth_headers
+
+        for k, v in _supervisor_auth_headers("MANAGE_FORGE_LIFECYCLE").items():
+            req.add_header(k, v)
+    except ImportError as exc:
+        return {"ok": False, "status": 0, "error": f"en-tetes superviseur indisponibles : {type(exc).__name__}"}
     try:
         with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
             body = resp.read().decode("utf-8", "replace")
@@ -204,7 +213,7 @@ def _process_action(organ: str, action: str) -> dict:
                         "message": f"REFUSE par world-model (dangerous): {_impact.get('reason')} "
                                    "-- LAFORGE_LIFECYCLE_FORCE=1 pour outrepasser"}
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_tool.py', 215, exc_info=True)
 
     if action in {"STOP", "RESTART"} and pid:
         try:
@@ -328,7 +337,7 @@ def handle_manage_forge_lifecycle(
                     "message": "Resources throttled. Use priority=HIGH to force.",
                 }
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_tool.py', 339, exc_info=True)
 
     # STATUS = read-only filter on /supervisor/status
     if action == "STATUS":

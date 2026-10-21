@@ -79,7 +79,7 @@ def _tail(path: Path, backlog: int = 30, follow: bool = True):
                 try:
                     yield json.loads(bl)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reflexion_cli.py', 81, exc_info=True)
         if not follow:
             return
         # f est en fin de fichier après read() -> suit les nouveaux events
@@ -94,6 +94,7 @@ def _tail(path: Path, backlog: int = 30, follow: bool = True):
             try:
                 yield json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reflexion_cli.py', 96, exc_info=True)
                 continue
 
 

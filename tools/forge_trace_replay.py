@@ -220,7 +220,7 @@ def main():
             domain="mpc",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_replay.py', 222, exc_info=True)
 
     return inserted
 

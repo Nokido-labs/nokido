@@ -302,7 +302,7 @@ def _get_diff_stats(sha: str) -> dict:
                 "deletions": int(m.group(3) or 0),
             }
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commit_intel.py', 304, exc_info=True)
     return {"files": 0, "insertions": 0, "deletions": 0}
 
 
@@ -461,6 +461,7 @@ def _build_bug_history() -> dict:
                 path = f"app/{mod}.py"
                 bug_count[path] = bug_count.get(path, 0) + 1
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commit_intel.py', 463, exc_info=True)
             continue
     return bug_count
 
@@ -660,7 +661,7 @@ def _ensure_commit_intel_table() -> None:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commit_intel.py', 662, exc_info=True)
 
 
 def store_intel(intel: CommitIntel) -> bool:

@@ -61,7 +61,9 @@ rules:
     patterns:
       - pattern-either:
           - pattern: import anthropic
-          - pattern: from anthropic import ...
+          # `from anthropic import ...` n'est pas un motif Python valide : semgrep rendait « Rule parse error »
+          # et SAUTAIT la regle (mesure owner 18/10, 1re mesure deportee). Metavariable = forme valide.
+          - pattern: from anthropic import $X
           - pattern: anthropic.Anthropic(...)
 
   # ── Golden Rule #4 (best-effort) : provider cloud sans firewall ────────────

@@ -278,7 +278,7 @@ def _beat(status: str) -> None:
             encoding="utf-8",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ingestion_pipeline.py', 280, exc_info=True)
 
 
 MAX_FILE_MB = float(__import__("os").environ.get("LAFORGE_INGEST_MAX_MB", "60"))

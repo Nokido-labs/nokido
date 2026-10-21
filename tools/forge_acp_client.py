@@ -35,6 +35,22 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
+
+try:
+    from nokido_opencode_web import dossier_appdata, trouver_opencode
+except ImportError:
+    try:
+        from tools.nokido_opencode_web import dossier_appdata, trouver_opencode
+    except ImportError:
+        _tools = Path(__file__).resolve().parent
+        if str(_tools) not in sys.path:
+            sys.path.insert(0, str(_tools))
+        try:
+            from nokido_opencode_web import dossier_appdata, trouver_opencode
+        except ImportError:
+            dossier_appdata = None
+            trouver_opencode = None
 
 # DRAPEAU ACP : `--acp`, et non plus `--experimental-acp` (mesure 2026-09-18).
 #
@@ -57,16 +73,19 @@ ACP_AGENTS = {
     "gemini": ["gemini", ACP_FLAG],
     "claude": ["claude-agent-acp"],
     "codex": ["codex-acp"],
+    "opencode": ["opencode", "acp"],
 }
 
 
 def _resolve_cmd(agent: str = "gemini") -> list:
-    """Commande agent : env GEMINI_ACP_CMD (JSON liste) sinon `gemini
-    --experimental-acp` resolu via PATH (gere .cmd/.ps1 npm Windows)."""
+    """Commande agent : env GEMINI_ACP_CMD / OPENCODE_ACP_CMD (JSON liste)
+    sinon binaire resolu via PATH ou appdata npm (gere .cmd/.ps1 npm Windows)."""
     if agent == "claude":
         env = os.environ.get("CLAUDE_ACP_CMD")
     elif agent == "codex":
         env = os.environ.get("CODEX_ACP_CMD")
+    elif agent == "opencode":
+        env = os.environ.get("OPENCODE_ACP_CMD")
     else:
         env = os.environ.get("GEMINI_ACP_CMD")
     if env:
@@ -75,8 +94,16 @@ def _resolve_cmd(agent: str = "gemini") -> list:
             if isinstance(c, list) and c:
                 return c
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 96, exc_info=True)
     cmd = list(ACP_AGENTS.get(agent, DEFAULT_CMD))
+    if agent == "opencode":
+        exe = None
+        if trouver_opencode is not None:
+            appdata = dossier_appdata() if dossier_appdata is not None else None
+            exe = trouver_opencode(appdata)
+        if exe:
+            cmd[0] = exe
+        return cmd
     exe = shutil.which(cmd[0]) or shutil.which(cmd[0] + ".cmd")
     if exe:
         cmd[0] = exe
@@ -122,22 +149,52 @@ def _texts(content) -> list:
     return [t for t in out if t]
 
 
+class SessionBusyError(RuntimeError):
+    """Refus client : un seul prompt a la fois par session (garde protocole OpenCode ACP)."""
+    pass
+
+
+def _journal_caviarde(on_log):
+    """Enveloppe `on_log` : le stderr d'un agent dont l'environnement porte FORGE_TOKEN_<INSTANCE> passe par le
+    redacteur EXISTANT avant tout journal (RED7, 19/10)."""
+    try:
+        from nokido_agent.tools.forge_log_redact import redact
+    except ImportError:
+        try:
+            from forge_log_redact import redact
+        except ImportError:
+            def redact(t):  # muet-ok : redacteur absent DIT sur stderr, le journal reste utile
+                sys.stderr.write("[acp] redacteur INDISPONIBLE -- journaux ACP en clair\n")
+                return t
+    return lambda m: on_log(redact(str(m)))
+
+
+class SilenceACP(TimeoutError):
+    """Aucun signe de vie de l'agent (ni notification, ni requete, ni reponse) depuis `silence_max` s. TimeoutError :
+    le repli de modele de l'executeur reste declenche ; nomme « silence » pour ne pas se confondre avec la borne
+    totale (19/10 : 25 min d'attente sur des sessions muettes)."""
+
+
 class ACPClient:
     """Pilote un agent ACP via subprocess stdio. Thread lecteur -> queue inbox.
     Classe les messages : reponses (id+result/error), notifications (method, pas
     d'id), requetes agent->client (id+method : permission, fs/*)."""
 
-    def __init__(self, cmd=None, cwd=None, on_log=None, agent="gemini"):
+    def __init__(self, cmd=None, cwd=None, on_log=None, agent="gemini", env=None):
         self.cmd = cmd or _resolve_cmd(agent)
         self.agent = agent
         self.cwd = cwd or os.getcwd()
-        self.on_log = on_log or (lambda m: None)
+        self.on_log = _journal_caviarde(on_log or (lambda m: None))
+        self.env = dict(env) if env is not None else None
         self.proc = None
         self._rpc_id = 0
         self._lock = threading.Lock()
         self._inbox = queue.Queue()
         self._chunks = []         # texte agent accumule pour le prompt courant
         self._alive = True
+        self._busy_sessions = set()
+        self.derniere_session = {}     # derniere reponse session/new (modeles disponibles)
+        self.silence_max = None        # veille de silence des prompts (s) ; None = borne totale seule
 
     # ---- transport ----
     def start(self):
@@ -145,11 +202,16 @@ class ACPClient:
         if sys.platform == "win32" and run_cmd and \
                 run_cmd[0].lower().endswith((".cmd", ".bat")):
             run_cmd = ["cmd", "/c"] + run_cmd  # CreateProcess ne lance pas .cmd direct
-        self.proc = subprocess.Popen(
-            run_cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        popen_kwargs = dict(
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, bufsize=1, text=True, encoding="utf-8",
             errors="replace", cwd=self.cwd,
         )
+        if self.env is not None:
+            proc_env = dict(os.environ)
+            proc_env.update(self.env)
+            popen_kwargs["env"] = proc_env
+        self.proc = subprocess.Popen(run_cmd, **popen_kwargs)
         threading.Thread(target=self._read_loop, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
 
@@ -159,7 +221,7 @@ class ACPClient:
                 if line.strip():
                     self.on_log("[stderr] " + line.rstrip())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 223, exc_info=True)
 
     def _read_loop(self):
         try:
@@ -227,18 +289,24 @@ class ACPClient:
             self._chunks.extend(_texts(upd.get("content")))
 
     # ---- pompe synchrone ----
-    def _pump_until(self, target_id, timeout):
+    def _pump_until(self, target_id, timeout, silence_max=None):
         deadline = time.monotonic() + timeout
+        signe = time.monotonic()      # dernier signe de vie de l'agent (tout message recu)
         while True:
-            remaining = deadline - time.monotonic()
+            maintenant = time.monotonic()
+            remaining = deadline - maintenant
             if remaining <= 0:
                 raise TimeoutError(f"timeout en attente id={target_id}")
+            if silence_max is not None and maintenant - signe > silence_max:
+                raise SilenceACP(f"silence de l'agent depuis {maintenant - signe:.0f} s (veille {silence_max} s, "
+                                 f"attente id={target_id})")
             try:
-                obj = self._inbox.get(timeout=min(remaining, 1.0))
+                obj = self._inbox.get(timeout=min(remaining, 1.0, silence_max or 1.0))
             except queue.Empty:
                 if not self._alive and self.proc.poll() is not None:
                     raise RuntimeError("agent ACP termine prematurement")
                 continue
+            signe = time.monotonic()
             if obj is None:
                 raise RuntimeError("flux agent ferme")
             rid = obj.get("id")
@@ -253,7 +321,8 @@ class ACPClient:
     def request(self, method, params, timeout=DEFAULT_TIMEOUT):
         rid = self._next_id()
         self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
-        resp = self._pump_until(rid, timeout)
+        veille = self.silence_max if method == "session/prompt" else None
+        resp = self._pump_until(rid, timeout, silence_max=veille)
         if "error" in resp:
             raise RuntimeError(f"{method} -> {resp['error']}")
         return resp.get("result", {})
@@ -268,40 +337,58 @@ class ACPClient:
 
     def session_new(self):
         res = self.request("session/new", {"cwd": self.cwd, "mcpServers": []}, timeout=30)
+        if isinstance(res, dict):
+            self.derniere_session = res    # conserve : models.availableModels sert au choix du modele
         sid = res.get("sessionId") or res.get("session_id")
         if not sid:
             raise RuntimeError(f"session/new sans sessionId: {res}")
         return sid
 
+    def is_session_busy(self, sid: str) -> bool:
+        with self._lock:
+            return sid in self._busy_sessions
+
     def prompt(self, sid, text, timeout=DEFAULT_TIMEOUT):
-        self._chunks = []
-        res = self.request("session/prompt", {
-            "sessionId": sid,
-            "prompt": [{"type": "text", "text": text}],
-        }, timeout=timeout)
-        return {"text": "".join(self._chunks).strip(),
-                "stopReason": res.get("stopReason")}
+        with self._lock:
+            if sid in self._busy_sessions:
+                raise SessionBusyError(
+                    f"session occupee ({sid}) : un seul prompt a la fois par session"
+                )
+            self._busy_sessions.add(sid)
+        try:
+            self._chunks = []
+            res = self.request("session/prompt", {
+                "sessionId": sid,
+                "prompt": [{"type": "text", "text": text}],
+            }, timeout=timeout)
+            return {"text": "".join(self._chunks).strip(),
+                    "stopReason": res.get("stopReason")}
+        finally:
+            with self._lock:
+                self._busy_sessions.discard(sid)
 
     def close(self):
+        with self._lock:
+            self._busy_sessions.clear()
         try:
             if self.proc and self.proc.poll() is None:
                 try:
                     self.proc.stdin.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 377, exc_info=True)
                 self.proc.terminate()
                 try:
                     self.proc.wait(timeout=5)
                 except Exception:
                     self.proc.kill()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 384, exc_info=True)
 
 
-def ask(prompt_text, cmd=None, timeout=DEFAULT_TIMEOUT, on_log=None, agent="gemini"):
+def ask(prompt_text, cmd=None, timeout=DEFAULT_TIMEOUT, on_log=None, agent="gemini", env=None):
     """One-shot : spawn agent ACP, initialize -> session -> prompt, renvoie
     {text, stopReason}. Reutilisable comme back-end provider `gemini_acp`."""
-    cli = ACPClient(cmd=cmd, on_log=on_log, agent=agent)
+    cli = ACPClient(cmd=cmd, on_log=on_log, agent=agent, env=env)
     cli.start()
     try:
         cli.initialize()
@@ -417,7 +504,7 @@ def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 506, exc_info=True)
     argv = sys.argv[1:]
     agent = "gemini"
     if "--agent" in argv:

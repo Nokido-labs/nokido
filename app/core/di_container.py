@@ -152,7 +152,7 @@ class DIContainer:
                     else:
                         svc.close()
             except Exception:
-                pass  # Erreur de fermeture ignoree silencieusement
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/core/di_container.py', 154, exc_info=True)
 
     def has(self, name: str) -> bool:
         """Verifie si un service est enregistre."""

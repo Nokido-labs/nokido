@@ -254,7 +254,7 @@ class StartupLogger:
                 try:
                     old.unlink()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup_logger.py', 256, exc_info=True)
 
             logger.debug(f"[Boot] Snapshot RAG → {snap_path.name}")
             return True
@@ -312,7 +312,7 @@ class StartupLogger:
                 domain="systeme",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup_logger.py', 314, exc_info=True)
 
 
 # ── Hub exec namespace improvement ───────────────────────────────────────────

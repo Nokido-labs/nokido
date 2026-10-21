@@ -81,7 +81,7 @@ async def _embed(params: Dict[str, Any]) -> Dict[str, Any]:
                 d = json.loads(stdout.decode("utf-8", errors="replace"))
                 return {"vecs": d.get("embeddings", []), "dim": d.get("dim"), "backend": "npu"}
     except Exception as e:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatchers.py', 83, exc_info=True)
     # Fallback : cervelet WASM via WSL
     try:
         from nokido_agent.app.forge_wasm_cervelet import embed as wasm_embed
@@ -218,7 +218,7 @@ async def _rag_ingest(params: Dict[str, Any]) -> Dict[str, Any]:
                 )
                 n += 1
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatchers.py', 220, exc_info=True)
         conn.commit()
         conn.close()
         return {"ok": True, "ingested": n, "backend": emb.get("backend")}
@@ -455,7 +455,7 @@ async def _swarm_vectorize(params: Dict[str, Any]) -> Dict[str, Any]:
             text = f.read_text(encoding="utf-8", errors="replace")[:5000]
             chunks.append(f"# {f.relative_to(target_path)}\n\n{text}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatchers.py', 457, exc_info=True)
     if not chunks:
         return {"ok": False, "error": "no readable chunks"}
     return await _rag_ingest({"chunks": chunks, "domain": f"swarm:{target_path.name}"})

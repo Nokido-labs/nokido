@@ -378,7 +378,7 @@ def audit_parc_netcfg_sync(
                 "Utiliser audit_parc_netcfg (coroutine) a la place."
             )
     except RuntimeError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/netcfg_silo_bridge.py', 380, exc_info=True)
 
     return asyncio.run(audit_parc_netcfg(intention, domains, bin_path))
 

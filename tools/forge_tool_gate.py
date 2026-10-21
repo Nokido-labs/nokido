@@ -297,6 +297,75 @@ def _resolve_ring(agent: str) -> int:
     return _RING_DECLARE_LEGACY
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# EXCEPTION D'ESSAI aux sous-agents Claude (owner 17/10 : « a tester et mesurer si ca bouffe pas tout le quota,
+# l'exception doit exister pour test, avec des appels le plus economique possible » ; « essai mesure exceptionnel »).
+# La regle du 2026-09-06 reste le DEFAUT. L'interrupteur vit dans ~/.claude/hooks/ : chemin de POLITIQUE (1.quater)
+# que l'agent ne peut pas ecrire -- l'armement est un geste OWNER. Bornes : expiration, budget d'appels compte dans
+# le journal de mesure depuis l'armement, modeles ECONOMES explicites (jamais `inherit` : ce serait Opus), types
+# listes. Fail-closed : interrupteur illisible = pas d'essai ; un appel qu'on ne peut pas mesurer n'est pas admis.
+# ---------------------------------------------------------------------------------------------------------------
+_MODELES_JAMAIS_ESSAI = {"", "inherit", "opus", "none"}
+
+
+def _chemin_essai_sous_agents() -> Path:
+    return Path.home() / ".claude" / "hooks" / "nokido_essai_sous_agents.json"
+
+
+def _chemin_journal_essai() -> Path:
+    return Path(__file__).resolve().parent.parent / "sandbox" / "essai_sous_agents.jsonl"
+
+
+def _essai_sous_agent(tool_args: dict, session: str | None) -> tuple[bool, str]:
+    """(admis, motif). Admis = l'appel entre dans l'essai arme par l'owner ; il est alors MESURE (une ligne au journal)."""
+    import datetime
+    p = _chemin_essai_sous_agents()
+    if not p.exists():
+        return False, "aucun essai arme par l'owner"
+    try:
+        essai = json.loads(p.read_text(encoding="utf-8"))
+        arme = datetime.datetime.fromisoformat(str(essai["arme_le"]))
+        expire = datetime.datetime.fromisoformat(str(essai["expire"]))
+        budget = int(essai["budget"])
+        modeles = {str(m).lower() for m in essai.get("modeles", [])} - _MODELES_JAMAIS_ESSAI
+        types = {str(t).lower() for t in essai.get("types", [])}
+    except Exception as e:  # noqa: BLE001 — muet-ok : fail-closed, le motif est rendu a l'appelant
+        return False, "interrupteur d'essai illisible (%s) : ferme" % type(e).__name__
+    maintenant = datetime.datetime.now()
+    if maintenant >= expire:
+        return False, "essai expire le %s" % essai["expire"]
+    modele = str((tool_args or {}).get("model") or "").lower().strip()
+    if modele in _MODELES_JAMAIS_ESSAI or modele not in modeles:
+        return False, ("modele '%s' hors essai : explicite et econome exige (%s), jamais inherit ni opus"
+                       % (modele or "absent", ", ".join(sorted(modeles))))
+    sub = str((tool_args or {}).get("subagent_type") or "").lower().strip()
+    if sub not in types:
+        return False, "type '%s' hors essai (%s)" % (sub or "defaut", ", ".join(sorted(types)))
+    journal = _chemin_journal_essai()
+    deja = 0
+    if journal.exists():
+        for ligne in journal.read_text(encoding="utf-8").splitlines():
+            try:
+                if datetime.datetime.fromisoformat(json.loads(ligne)["ts"]) >= arme:
+                    deja += 1
+            except Exception:  # noqa: BLE001 — muet-ok : une ligne illisible COMPTE (prudence budgetaire)
+                deja += 1
+    if deja >= budget:
+        return False, "budget de l'essai epuise (%d/%d appels depuis %s)" % (deja, budget, essai["arme_le"])
+    try:
+        journal.parent.mkdir(parents=True, exist_ok=True)
+        with journal.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": maintenant.isoformat(timespec="seconds"), "session": session,
+                                "subagent_type": (tool_args or {}).get("subagent_type"), "model": modele,
+                                "prompt_car": len(str((tool_args or {}).get("prompt") or "")),
+                                "description": str((tool_args or {}).get("description") or "")[:80],
+                                "rang": deja + 1, "budget": budget}, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001
+        return False, "mesure impossible (%s) : un essai non mesure n'est pas admis" % type(e).__name__
+    return True, "essai owner (%s) : appel %d/%d, %s en %s" % (str(essai.get("decision", "?"))[:48], deja + 1, budget,
+                                                               sub, modele)
+
+
 def decide(cli: str, agent: str, tool_name: str, tool_args: dict, ring: int | None = None,
            session: str | None = None) -> dict:
     """Décision unifiée. Retourne {action, target, reason, ring, enforce}."""
@@ -363,6 +432,9 @@ def decide(cli: str, agent: str, tool_name: str, tool_args: dict, ring: int | No
             #                                                    (notifie à la fin)
             # Le job survit au restart du hub, ne consomme aucun jeton de modèle, et son
             # verdict est un fichier (.rc), pas une réponse à interpréter.
+            admis, motif = _essai_sous_agent(tool_args, session)
+            if admis:
+                return {"action": "native", "target": None, "ring": ring, "enforce": "none", "reason": motif}
             sub = str((tool_args or {}).get("subagent_type", "")).lower().strip()
             return {"action": "block", "target": "hub:run action=run_job", "ring": ring,
                     "enforce": "hard",
@@ -370,7 +442,7 @@ def decide(cli: str, agent: str, tool_name: str, tool_args: dict, ring: int | No
                                "un sous-agent se deporte en JOB DETACHE Nokido. "
                                "-> run action=run_job script=tools/mon_script.py "
                                "(+ forge_job_watch_notify --rc le_job.rc pour etre notifie). "
-                               "Regle owner 2026-09-06, sans exception.")}
+                               f"Regle owner 2026-09-06 ; seule exception : l'essai mesure arme par l'owner ({motif}).")}
         is_lf = _is_nokido_target(tool_args)
         # Coupe-circuit comportemental : Agent(Explore) Nokido = deny direct ; read/search Nokido
         # = nudge tant qu'on est sous le seuil, DENY (hard) au-delà -> force la délégation locale.
@@ -574,7 +646,7 @@ def _observer_transient(data: dict) -> None:
             fh.write(json.dumps(transient, ensure_ascii=False) + "\n")
     except Exception:  # noqa: BLE001
         # muet-ok : l'observation ne casse jamais l'observe.
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tool_gate.py', 647, exc_info=True)
 
 
 def main() -> int:

@@ -160,7 +160,7 @@ def _load_key(key_name: str) -> str:
         if v:
             return v
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ping_monitor.py', 162, exc_info=True)
     return os.environ.get(key_name, "")
 
 
@@ -276,7 +276,7 @@ def best_provider(task_hint: str = "general") -> tuple[str, str]:
         if row:
             return row[0], row[1]
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ping_monitor.py', 278, exc_info=True)
     return "groq/llama-3.1-8b", "agt_groq"  # fallback
 
 
@@ -307,7 +307,7 @@ def hub_notify_scores(results: list[dict]) -> None:
         with urllib.request.urlopen(req, timeout=5):
             pass
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ping_monitor.py', 309, exc_info=True)
 
 
 def main():

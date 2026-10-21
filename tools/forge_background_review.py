@@ -91,7 +91,7 @@ def _parse(text: str) -> dict:
             try:
                 return json.loads(m.group(0))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_background_review.py', 93, exc_info=True)
     return {}
 
 
@@ -103,7 +103,7 @@ def _throttled(session_id: str) -> bool:
             return True
         mk.write_text(str(time.time()), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_background_review.py', 105, exc_info=True)
     return False
 
 
@@ -166,7 +166,7 @@ def review_session(session_id: str, transcript_path: str = "", dry_run: bool = F
             json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8"
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_background_review.py', 168, exc_info=True)
     return out
 
 
@@ -187,7 +187,7 @@ def main() -> int:
                 sid = hi.get("session_id", "")
                 tpath = hi.get("transcript_path", "")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_background_review.py', 189, exc_info=True)
     if not sid:
         return 0
     res = review_session(sid, tpath, dry_run=dry)

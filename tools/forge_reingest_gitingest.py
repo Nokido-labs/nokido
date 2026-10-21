@@ -53,7 +53,7 @@ def main() -> int:
         try:
             con.execute("DELETE FROM rag_fts WHERE domain='sdk_gitingest'")
         except sqlite3.OperationalError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_reingest_gitingest.py', 55, exc_info=True)
         con.commit()
         _log(f"purge : {avant} chunks retires")
     finally:

@@ -130,7 +130,13 @@ def hub_notify(message: str) -> bool:
         import os
         import urllib.request
 
-        token = os.environ.get("FORGE_MCP_TOKEN", "")
+        try:  # coffre d'abord (16/10) ; paquet absent -> repli env, dit
+            from nokido_agent.app.forge_secrets import get_secret
+
+            token = get_secret("FORGE_MCP_TOKEN") or ""
+        except ImportError:
+            print("[py314t_readiness] coffre inaccessible : repli sur l'environnement", file=sys.stderr)
+            token = os.environ.get("FORGE_MCP_TOKEN", "")
         body = json.dumps(
             {
                 "jsonrpc": "2.0",
@@ -320,7 +326,7 @@ def main() -> int:
             }
             new_ready = sorted(now_ready - prev_ready)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_py314t_readiness.py', 328, exc_info=True)
 
     # Archive snapshot
     out = HISTORY_DIR / f"py314t_readiness_{snapshot['ts'][:10]}.json"

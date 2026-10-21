@@ -252,7 +252,7 @@ def _log_violation(ring: int, agent: str, tool: str, instruction: str, action: s
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sentinel.py', 254, exc_info=True)
 
 
 def _broadcast_mmap(event_type: str, ring: int, agent: str, pattern: str) -> None:
@@ -267,7 +267,7 @@ def _broadcast_mmap(event_type: str, ring: int, agent: str, pattern: str) -> Non
         bridge.json_set("sentinel.ts", time.time())
         bridge.json_set("sentinel.dev_mode", _is_dev())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sentinel.py', 269, exc_info=True)
 
 
 # ── Décorateur pour les tools MCP ─────────────────────────────────────────────

@@ -374,9 +374,49 @@ def release_daemon() -> dict:
     try:
         if WANT_FLAG.exists():
             WANT_FLAG.unlink()
+        if CRAWL4AI_FLAG.exists():
+            CRAWL4AI_FLAG.unlink()
         return {"ok": True, "action": "docker_wanted_cleared"}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": f"release_daemon: {e}"}
+
+
+CRAWL4AI_FLAG = ROOT / "sandbox" / "crawl4ai.wanted"  # lu par forge_docker_keeper._demarrer_crawl4ai
+
+
+def demander_crawl4ai(par: str = "inconnu", lancer: bool = True) -> bool:
+    """Pose crawl4ai.wanted : le keeper `docker start` le conteneur a la demande (19/10).
+
+    `lancer=True` = crawl4ai injoignable : on reclame aussi Docker (ensure_daemon).
+    `lancer=False` = crawl4ai vient de SERVIR : on prolonge seulement son bail.
+    Jamais d'exception : une demande ratee ne casse pas le crawl qu'elle accompagne.
+    """
+    import time as _t
+
+    try:
+        CRAWL4AI_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        CRAWL4AI_FLAG.write_text(str(_t.time()), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - muet-ok: le drapeau est un confort, pas un SPOF
+        return False
+    if lancer:
+        ensure_daemon()
+    try:
+        from nokido_agent.app.forge_signal_coupling import emit_signal
+
+        emit_signal(CRAWL4AI_FLAG.name, emitter="forge_docker_agent.demander_crawl4ai:%s" % par)
+    except Exception:  # noqa: BLE001 - muet-ok: declarer ne doit pas empecher de poser
+        pass
+    return True
+
+
+def relacher_crawl4ai() -> dict:
+    """Supprime crawl4ai.wanted si présent (idempotent). Renvoie {ok, action}."""
+    try:
+        if CRAWL4AI_FLAG.exists():
+            CRAWL4AI_FLAG.unlink()
+        return {"ok": True, "action": "crawl4ai_wanted_cleared"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"relacher_crawl4ai: {e}"}
 
 
 def daemon_up() -> bool:

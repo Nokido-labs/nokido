@@ -403,7 +403,7 @@ class GraphRAG:
                 if rows:
                     return [r[0] for r in rows]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_rag.py', 405, exc_info=True)
         # Fallback: LIKE
         conds = " OR ".join("LOWER(text) LIKE ?" for _ in words)
         rows = conn.execute(

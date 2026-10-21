@@ -66,13 +66,16 @@ def _fonction(nom: str) -> ast.FunctionDef:
 def _handler_du_jeton(fn: ast.FunctionDef) -> ast.ExceptHandler:
     """Rend le gestionnaire du `try` qui appelle WTSQueryUserToken.
 
-    On localise le bloc par ce qu'il FAIT, pas par un texte qui le nomme.
+    On localise le bloc par ce qu'il FAIT, pas par un texte qui le nomme. 17/10 (d88a071f7) : le jeton s'obtient
+    desormais par `_session_avec_jeton(win32ts)` (qui appelle WTSQueryUserToken sur chaque session candidate) ; le
+    bloc qui l'appelle EST le bloc d'acquisition du jeton. Les deux assertions ci-dessous sont inchangees.
     """
     for n in ast.walk(fn):
         if not isinstance(n, ast.Try):
             continue
         appelle = any(
-            isinstance(c, ast.Attribute) and c.attr == "WTSQueryUserToken"
+            (isinstance(c, ast.Attribute) and c.attr == "WTSQueryUserToken")
+            or (isinstance(c, ast.Name) and c.id == "_session_avec_jeton")
             for x in n.body for c in ast.walk(x))
         if appelle and n.handlers:
             return n.handlers[0]

@@ -52,7 +52,7 @@ def _add_dll_paths() -> None:
             try:
                 os.add_dll_directory(str(d))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_phi3_npu.py', 54, exc_info=True)
     # Ajouter aussi au PATH
     extra = str(_DEPLOY) + ";" + str(_ORT_BIN)
     os.environ["PATH"] = extra + ";" + os.environ.get("PATH", "")
@@ -81,7 +81,7 @@ def _load() -> bool:
         try:
             ctypes.windll.kernel32.SetConsoleTitleW(f"Nokido NPU [{dev}] pret")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_phi3_npu.py', 83, exc_info=True)
         print(f"[NPU] Phi-3-mini {dev} charge en {elapsed}ms")
         return True
     except Exception as e:
@@ -132,7 +132,7 @@ def generate(prompt: str, system: str = "", max_tokens: int = 0) -> str:
             try:
                 params.try_graph_capture_with_max_batch_size(1)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_phi3_npu.py', 134, exc_info=True)
 
             t0 = time.time()
             gen = og.Generator(_model, params)
@@ -156,7 +156,7 @@ def generate(prompt: str, system: str = "", max_tokens: int = 0) -> str:
                             f"Nokido NPU [{_stats['device']}] inferring... {tok_count} tok | {tps} tok/s"
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_phi3_npu.py', 158, exc_info=True)
 
             result = "".join(output).strip()
             elapsed = int((time.time() - t0) * 1000)
@@ -174,7 +174,7 @@ def generate(prompt: str, system: str = "", max_tokens: int = 0) -> str:
                     f"Nokido NPU [{_stats['device']}] done | {tok_count}tok {elapsed}ms {tps}tok/s"
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_phi3_npu.py', 176, exc_info=True)
 
             print(f"[NPU] {_stats['device']} | {elapsed}ms | {tok_count} tokens | {tps} tok/s")
             return result

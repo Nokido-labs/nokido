@@ -269,7 +269,7 @@ class PluripotentWorker:
             try:
                 _observer_signal(role.trigger_hormone)
             except Exception:  # noqa: BLE001 - l'instrumentation ne casse jamais
-                pass           # la differenciation qu'elle observe.
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pluripotent_workers.py', 271, exc_info=True)
             if level >= role.trigger_threshold:
                 candidates.append((level, role))
         if not candidates:
@@ -289,7 +289,7 @@ class PluripotentWorker:
             try:
                 _transduire_signal(role.trigger_hormone)
             except Exception:  # noqa: BLE001 - idem : jamais casser l'action
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pluripotent_workers.py', 291, exc_info=True)
         self.actions_taken.append(
             {
                 "ts": datetime.now().isoformat(),

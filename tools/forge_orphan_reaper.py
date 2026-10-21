@@ -153,6 +153,7 @@ def survey() -> dict:
                 entry["cmdline"] = "(illisible — pas disqualifiant : orphelin d'un autre compte)"
             candidates.append(entry)
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_orphan_reaper.py', 155, exc_info=True)
             continue
     return {"ok": True, "claimed_pids": claimed_pids,
             "candidates": candidates, "spared": spared}
@@ -181,7 +182,7 @@ def _audit(action: str, reason: str = "", **extra) -> None:
 
         _record(action, domain="ram", reason=reason, **extra)
     except Exception:  # noqa: BLE001 - le journal ne doit jamais casser le faucheur
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_orphan_reaper.py', 183, exc_info=True)
 
 
 # Refractaire du faucheur. Le budget de gravite `critical` vaut 2 tirs/h

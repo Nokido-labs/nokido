@@ -39,6 +39,11 @@ un passe-partout d'identité (mesuré le 2026-09-02 sur vibe et mammouth).
 
 ## Remonter en ring 2
 
+> **Mesuré le 2026-10-17** (registre `config/agent_identities.json`) : `OPENCODE` est **déjà en ring 1**, `kind`
+> `cli_agent`, `write_paths` = `sandbox/`, `docs/`, `tests/`, `app/web_hub/`, `design_handoff_nokido/`. Le « ring 3
+> provisoire » ci-dessous est l'état de son arrivée (25/09) ; les trois preuves restent à faire, et à AUTOMATISER par le
+> mode non interactif (`opencode run`), avant d'en faire un exécuteur autonome de l'exécuteur de tâches.
+
 Ring 3 **provisoire**, comme vibe et mammouth à leur arrivée. Trois preuves d'abord :
 
 - le nombre d'outils vus côté client est celui que le RBAC réserve à `OPENCODE`, et non

@@ -87,7 +87,7 @@ async def _handle_nr(app, args: str) -> None:
                     "[dim]\u2514 RAG : " + "  ".join(f"ring{r}={n} ({n * 100 // total}%)" for r, l, n in rows) + "[/]"
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_nr.py', 89, exc_info=True)
 
         asyncio.create_task(_do_nr_fast())
 

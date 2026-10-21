@@ -25,7 +25,7 @@ SHARD_ROWS = 70000  # ~8 shards
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_kaggle_embed_export.py', 27, exc_info=True)
 
 OUT.mkdir(parents=True, exist_ok=True)
 con = sqlite3.connect(str(DB), timeout=60)

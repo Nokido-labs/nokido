@@ -79,6 +79,7 @@ def imported_modules() -> set[str]:
             try:
                 tree = ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
             except SyntaxError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_autophagie_attic.py', 81, exc_info=True)
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):

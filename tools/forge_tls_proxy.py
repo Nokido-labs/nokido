@@ -73,7 +73,7 @@ async def _handle(cli_r, cli_w, host: str, port: int) -> None:
         try:
             cli_w.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tls_proxy.py', 75, exc_info=True)
         return
     try:
         await asyncio.gather(_pump(cli_r, srv_w, "cli->srv"), _pump(srv_r, cli_w, "srv->cli"))
@@ -82,7 +82,7 @@ async def _handle(cli_r, cli_w, host: str, port: int) -> None:
             try:
                 w.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tls_proxy.py', 84, exc_info=True)
 
 
 async def _serve(args, ctx: ssl.SSLContext) -> None:
@@ -122,7 +122,7 @@ def main(argv=None) -> int:
     try:
         asyncio.run(_serve(a, ctx))
     except KeyboardInterrupt:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tls_proxy.py', 124, exc_info=True)
     return 0
 
 

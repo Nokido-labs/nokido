@@ -122,7 +122,7 @@ def _write_result(conn: sqlite3.Connection, original: sqlite3.Row, result_text: 
     try:
         payload = json.loads(original["payload"] or "{}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_cli_daemon.py', 124, exc_info=True)
 
     conn.execute(
         """INSERT OR REPLACE INTO agent_messages
@@ -170,7 +170,7 @@ def _process_message(conn: sqlite3.Connection, msg: sqlite3.Row) -> None:
     try:
         payload = json.loads(msg["payload"] or "{}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_cli_daemon.py', 172, exc_info=True)
 
     prompt = payload.get("prompt") or payload.get("task") or payload.get("message") or str(payload)
     logger.info(f"Task from={msg['from_agent']} method={msg['method']} prompt={prompt[:80]}...")

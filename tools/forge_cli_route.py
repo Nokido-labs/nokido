@@ -111,12 +111,23 @@ ALL = list(INGRESS)
 
 
 def _load() -> dict:
+    st = None
     if STATE.exists():
         try:
-            return json.loads(STATE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {"enabled": False, "clis": {c: True for c in ALL}, "isolate": {c: False for c in ALL}}
+            st = json.loads(STATE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - muet-ok : drapeau illisible = valeurs par defaut ci-dessous
+            st = None
+    st = st if isinstance(st, dict) else {"enabled": False, "clis": {c: True for c in ALL}}
+    # 18/10 (audit verifie, decision owner) : un CLI a la fois ROUTE et AUTONOME est isole PAR DEFAUT en worktree ;
+    # un `isolate off <cli>` explicite reste respecte. Les autres gardent False (isolation impossible pour eux).
+    iso = st.setdefault("isolate", {})
+    try:
+        from nokido_agent.tools.forge_worktree import AUTONOMOUS as _auto
+    except Exception:  # noqa: BLE001 - muet-ok : sans la liste des autonomes, rien n'est isole par defaut (avant)
+        _auto = ()
+    for c in ALL:
+        iso.setdefault(c, c in _auto)
+    return st
 
 
 def _save(st: dict) -> None:
@@ -255,7 +266,7 @@ def cmd_launch(cli: str, args: list) -> int:
             elif _wr.get("error"):
                 print(f"[route] worktree {cli} KO (reste canonique) : {_wr['error']}", flush=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cli_route.py', 268, exc_info=True)
     # Point B isolation (worktree) : si un worktree existe pour ce CLI, l'y lancer
     # (isolation PHYSIQUE par agent = fin du clobber multi-surface, cf forge_worktree).
     # route() retombe sur le canonique tant qu'aucun worktree n'a ete cree -> effet
@@ -268,7 +279,7 @@ def cmd_launch(cli: str, args: list) -> int:
             wt_cwd = _r
             print(f"[route] {cli} -> worktree isole {wt_cwd}", flush=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cli_route.py', 281, exc_info=True)
     try:
         return subprocess.run([exe, *args], env=env, cwd=wt_cwd).returncode
     except FileNotFoundError:

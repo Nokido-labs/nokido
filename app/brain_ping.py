@@ -39,7 +39,7 @@ for i in range(5):
             ctx.term()
             sys.exit(0)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/brain_ping.py', 41, exc_info=True)
     time.sleep(1)
 
 print("  [brain] timeout 5s -- demarrage sans sidecar (fallback Ollama)")

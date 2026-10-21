@@ -350,8 +350,11 @@ def _ram_dementie(snap: dict) -> str | None:
     return "instantane %s%% DEMENTI par la mesure directe : %s" % (snap.get("ram_pct"), _temoins_ram(snap))
 
 
+_CLASSES_HAMILTON = ("CRITIQUE", "NORMAL", "DIFFERABLE")
+
+
 def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, user: str | None = None,
-                     env_extra: dict[str, str] | None = None) -> dict:
+                     env_extra: dict[str, str] | None = None, classe: str = "NORMAL") -> dict:
     """Run `command` as the sandbox user. Returns
     {ok, stdout, stderr, exit_code, timed_out, sandbox_user}.
     `user` overrides the online/offline pick (used by spawn_as_trusted).
@@ -378,7 +381,12 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
     _probe = _probe_exempt(command) if user != USER_TRUSTED else False
     if _probe:
         timeout = min(max(1, int(timeout or _PROBE_TIMEOUT_CAP_S)), _PROBE_TIMEOUT_CAP_S)
-    if user != USER_TRUSTED and not _probe and os.environ.get("LAFORGE_P1_THROTTLE", "1") != "0":
+    # HAMILTON (owner 16/10, RED_1/RED_5 de pair_1200324b1e5391b0) : classe PORTEE PAR L'APPEL, decidee cote hub ;
+    # INCONNU = NORMAL. CRITIQUE n'est jamais refuse par ce gate ; DIFFERABLE est refuse quand la mesure echoue.
+    classe = str(classe or "").upper()
+    classe = classe if classe in _CLASSES_HAMILTON else "NORMAL"
+    if (user != USER_TRUSTED and not _probe and classe != "CRITIQUE"
+            and os.environ.get("LAFORGE_P1_THROTTLE", "1") != "0"):
         try:
             from nokido_agent.app.forge_resource_manager import should_throttle
 
@@ -390,6 +398,17 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
             # l'orchestration_gate (escalade), sa place. TDR GPU sans rapport
             # avec un spawn cmd.exe.
             _trop = should_throttle(cortisol_threshold=1.01, tdr_quarantine=False)
+            if not _trop and classe == "DIFFERABLE":
+                # Liste BLANCHE (pair_4892a3ef0987bab5) : « pas de pression » ne vaut que sur une mesure
+                # PROUVEE. Un instantane a froid (zeros) faisait passer le differable sur un etat non mesure.
+                from nokido_agent.app.forge_resource_manager import get_snapshot as _gs_prouve
+
+                _s = _gs_prouve() or {}
+                if not (float(_s.get("ram_pct") or 0) > 0 and float(_s.get("ram_total_gb") or 0) > 0):
+                    return {"ok": False, "stdout": "", "exit_code": -9, "timed_out": False, "throttled": True,
+                            "stderr": "THROTTLED: mesure non prouvee (instantane vide ou a froid) -- "
+                                      "DIFFERABLE refuse, retry plus tard",
+                            "sandbox_user": user or (USER_ONLINE if online else USER_OFFLINE)}
             if _trop:
                 # SECOND OBSERVATEUR (2026-10-13) : voir _ram_dementie. Journal seulement -- jamais de print ici.
                 from nokido_agent.app.forge_resource_manager import get_snapshot as _gs_p1
@@ -509,6 +528,13 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
                     }
         except Exception as _e:
             import logging as _lg
+            if classe == "DIFFERABLE":  # doctrine du doute : le differable ne passe pas sans mesure
+                _lg.getLogger("Nokido.Sandbox").warning(
+                    "throttle P1 INOPERANT (%s) — DIFFERABLE refuse", type(_e).__name__)
+                return {"ok": False, "stdout": "", "exit_code": -9, "timed_out": False, "throttled": True,
+                        "stderr": "THROTTLED: mesure indisponible (%s) — DIFFERABLE refuse, retry plus tard"
+                                  % type(_e).__name__,
+                        "sandbox_user": user or (USER_ONLINE if online else USER_OFFLINE)}
             _lg.getLogger("Nokido.Sandbox").warning(
                 "throttle P1 INOPERANT (%s) — spawn autorise sans gate", type(_e).__name__)
     import win32api
@@ -689,13 +715,16 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
     }
 
 
-def spawn_as_trusted(command: str, timeout: int = 120) -> dict:
+def spawn_as_trusted(command: str, timeout: int = 120, classe: str = "NORMAL") -> dict:
     """Run `command` as the dedicated LaForgeTrusted account: write access to
     the repo + RAG db, may spawn subprocesses, NO Python audit hook. ONLY for
     git-tracked, reviewed scripts -- the trust gate (committed + clean vs HEAD)
     lives in forge_mcp_registry.handle_run (action=trusted_script). Never
-    expose this to ad-hoc / agent-generated code."""
-    return spawn_as_sandbox(command, timeout=timeout, user=USER_TRUSTED)
+    expose this to ad-hoc / agent-generated code.
+
+    `classe` (Hamilton, derogation owner 19/10) : transmise telle quelle ; le gate n'agit pas sur ce compte, elle sert
+    la tracabilite des appelants (ensure_service, docker ensure-daemon = CRITIQUE)."""
+    return spawn_as_sandbox(command, timeout=timeout, user=USER_TRUSTED, classe=classe)
 
 
 def trusted_ready() -> tuple[bool, str]:
@@ -998,6 +1027,78 @@ def fallback_same_session_allowed(sid_cible, sid_courant) -> bool:
         return False
 
 
+_WTS_ACTIVE, _WTS_CONNECTED = 0, 1
+
+
+def _compte_owner() -> str | None:
+    """Compte proprietaire du depot ; illisible -> None (fail-closed : aucune session n'est retenue, le repli de
+    l'appelant decide). Revue Codex job_b94af0a8, finding 1. SOURCE UNIQUE : forge_provider_admin._compte_owner (meme
+    mesure par le chemin du depot) -- anti-dup, une seconde implementation avait ete ecrite ici puis retiree."""
+    try:
+        from nokido_agent.app.forge_provider_admin import _compte_owner as _source
+    except ImportError as e:
+        import logging as _lg
+
+        _lg.getLogger("Nokido.Sandbox").warning("compte owner illisible : forge_provider_admin non importable (%s)",
+                                                type(e).__name__)
+        return None
+    return _source()
+
+
+def _session_avec_jeton(ts) -> tuple:
+    """(sid, jeton primaire) d'une session DU COMPTE OWNER qui a un jeton : actives, puis connectees, puis la console.
+
+    Mesure 17/10 : veille du poste 05:46 -> reveil 10:11 ; la relance des executeurs interactifs a echoue sur
+    « WTSQueryUserToken(sid=3) ... 1008 » (session active SANS jeton) sans essayer les autres sessions de l'owner.
+    Revue adverse de Codex (17/10) : une session d'un AUTRE compte pouvait etre prise -- elle est exclue avant
+    WTSQueryUserToken, comme une session dont le proprietaire est illisible. L'erreur finale nomme chaque exclusion."""
+    candidats, vus = [], set()
+    try:
+        sessions = ts.WTSEnumerateSessions()
+    except Exception as e:  # noqa: BLE001
+        sessions = []
+        import logging as _lg
+        _lg.getLogger("Nokido.Sandbox").debug("enumeration des sessions ILLISIBLE (%s) -- console seule", type(e).__name__)
+    for etat in (_WTS_ACTIVE, _WTS_CONNECTED):
+        for s in sessions:
+            sid = s.get("SessionId")
+            if s.get("State") == etat and sid not in vus and sid != 0:
+                candidats.append(sid)
+                vus.add(sid)
+    try:
+        console = ts.WTSGetActiveConsoleSessionId()
+    except Exception:  # noqa: BLE001 -- muet-ok : console illisible = pas de candidat de plus, dit par l'erreur finale
+        console = None
+    if console not in (None, 0xFFFFFFFF) and console not in vus:
+        candidats.append(console)
+
+    owner = _compte_owner()
+    ecartes = []
+    if not owner:
+        ecartes.extend("%s: compte owner illisible depuis le chemin du depot" % sid for sid in candidats)
+        raise SandboxError("aucune session owner avec jeton; sessions ecartees : %s"
+                           % (", ".join(ecartes) or "aucune; compte owner illisible"))
+    derniere = None
+    for sid in candidats:
+        try:
+            compte = ts.WTSQuerySessionInformation(ts.WTS_CURRENT_SERVER_HANDLE, sid, ts.WTSUserName)
+        except Exception as e:  # noqa: BLE001
+            ecartes.append("%s: proprietaire illisible (%s)" % (sid, type(e).__name__))
+            continue
+        if not isinstance(compte, str) or not compte.strip():
+            ecartes.append("%s: proprietaire illisible" % sid)
+            continue
+        if compte.casefold() != owner.casefold():
+            ecartes.append("%s: autre compte" % sid)
+            continue
+        try:
+            return sid, ts.WTSQueryUserToken(sid)
+        except Exception as e:  # noqa: BLE001
+            derniere = e
+    raise SandboxError("aucune session owner avec jeton parmi %s; sessions ecartees : %s (derniere cause jeton : %s)"
+                       % (candidats or "aucune", ", ".join(ecartes) or "aucune", derniere))
+
+
 def spawn_as_interactive_jobbed(command: str, cwd: str | None = None) -> dict:
     """Launch `command` in the active console user session via
     WTSQueryUserToken. Returns {ok, pid, sandbox_user, _job, _proc}.
@@ -1049,9 +1150,11 @@ def spawn_as_interactive_jobbed(command: str, cwd: str | None = None) -> dict:
     #    user"). No password. No duplication needed — already a primary token,
     #    directly usable for CreateProcessAsUser.
     #    Caller must have SeTcbPrivilege ; LocalSystem has it by default.
+    # 17/10 : la PREMIERE session active peut etre sans jeton (1008 au reveil d'une veille du poste) -- on cherche
+    # celle qui EN A un (actives, connectees, console) ; a defaut, le repli existant ci-dessous decide avec `sid`.
     try:
-        primary = win32ts.WTSQueryUserToken(sid)
-    except Exception as exc:  # noqa: BLE001
+        sid, primary = _session_avec_jeton(win32ts)
+    except SandboxError as exc:  # noqa: BLE001
         # Fallback if caller lacks SeTcbPrivilege (e.g. running supervisor directly as user)
         # Spawn using standard CreateProcess (since we already run in user's user session)
         #

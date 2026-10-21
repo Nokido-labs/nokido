@@ -143,7 +143,7 @@ def _load_api_key() -> Optional[str]:
             if key.strip() in ("ARTIFICIALANALYSIS.AI", "ARTIFICIALANALYSIS_AI", "AA_API_KEY"):
                 return val.strip().strip('"').strip("'")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_artificialanalysis.py', 145, exc_info=True)
     return None
 
 
@@ -170,6 +170,18 @@ def _save_cache(data: dict) -> None:
     CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def _repli_perime(motif: str) -> dict:
+    """API injoignable ou sans cle : le DERNIER cache connu, dit perime -- STALE n'est pas DEAD (16/10, RED 2 du plan
+    AGY : un classement d'hier ordonne encore les fournisseurs, 0 modele vidait best_for_use_case). Sans cache
+    exploitable, l'erreur telle quelle."""
+    cache = _load_cache()
+    if cache.get("models"):
+        meta = dict(cache.get("meta") or {})
+        meta.update(perime=True, repli=motif)
+        return {"models": cache["models"], "meta": meta}
+    return {"error": motif, "models": [], "meta": {}}
+
+
 def fetch_llms(force: bool = False) -> dict:
     """Fetch endpoint /data/llms/models. Retourne data + meta.
 
@@ -180,7 +192,7 @@ def fetch_llms(force: bool = False) -> dict:
         return _load_cache()
     api_key = _load_api_key()
     if not api_key:
-        return {"error": "no_api_key", "models": [], "meta": {}}
+        return _repli_perime("no_api_key")
     url = f"{API_BASE}/data/llms/models"
     req = urllib.request.Request(
         url,
@@ -208,12 +220,18 @@ def fetch_llms(force: bool = False) -> dict:
                 "count": len(models),
             },
         }
-        _save_cache(payload)
+        # Le cache est une COMMODITE : son echec se DIT, il ne jette jamais la reponse. Mesure 16/10 : un PermissionError
+        # sur data/artificialanalysis_cache.json (compte du job) tombait dans l'except reseau ci-dessous -> 0 modele.
+        try:
+            _save_cache(payload)
+            payload["meta"]["cache"] = "ECRIT"
+        except OSError as e:
+            payload["meta"]["cache"] = "NON ECRIT (%s)" % type(e).__name__
         return payload
     except urllib.error.HTTPError as e:
-        return {"error": f"HTTP {e.code}: {e.reason}", "models": [], "meta": {}}
+        return _repli_perime(f"HTTP {e.code}: {e.reason}")
     except Exception as e:
-        return {"error": str(e)[:200], "models": [], "meta": {}}
+        return _repli_perime(str(e)[:200])
 
 
 def get_model_metrics(model_slug: str) -> Optional[dict]:
@@ -492,7 +510,7 @@ if __name__ == "__main__":
             try:
                 min_q = float(args[args.index("--min-quality") + 1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_artificialanalysis.py', 512, exc_info=True)
         print(display_discovery(min_quality=min_q, only_new=only_new))
     else:
         print("Usage: forge_artificialanalysis.py")

@@ -104,7 +104,7 @@ def _env(key: str, default: str = "") -> str:
             if ln.startswith(key + "="):
                 return ln.split("=", 1)[1].split("#")[0].strip().strip('"').strip("'")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rebuild_embeddings.py', 106, exc_info=True)
     return default
 
 
@@ -281,7 +281,7 @@ def _pool_done(pool_start: int) -> None:
         try:
             CKPT.write_text(str(ckpt))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rebuild_embeddings.py', 283, exc_info=True)
 
 
 def _subbatches(pool: list) -> list:
@@ -344,7 +344,7 @@ def worker(p: dict) -> None:
                         try:
                             body = e.read()[:80].decode("utf-8", "replace")
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rebuild_embeddings.py', 346, exc_info=True)
                         print(
                             f"[{name}] HTTP {e.code} ({body}) — provider HS, thread arrete",
                             flush=True,

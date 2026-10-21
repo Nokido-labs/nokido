@@ -66,7 +66,7 @@ def parse_links(raw: str) -> list[dict]:
                 if i.get("url")
             ]
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bulk_import.py', 68, exc_info=True)
 
     # HTML favoris Firefox/Chrome (href dans les balises <A>)
     if "<A " in raw.upper() or "<a " in raw:
@@ -99,7 +99,7 @@ def dedup(links: list[dict], conn: sqlite3.Connection) -> tuple[list[dict], int]
         ).fetchall()
         existing.update(r[0] for r in rows2)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bulk_import.py', 101, exc_info=True)
     new = [l for l in links if l["url"] not in existing]
     skipped = len(links) - len(new)
     return new, skipped
@@ -179,7 +179,7 @@ def insert_bulk(links: list[dict], domain: str, priority: int, dry_run: bool) ->
         )
         conn.commit()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bulk_import.py', 181, exc_info=True)
 
     conn.close()
     return {"inserted": inserted, "total_unverified": total_unverified}

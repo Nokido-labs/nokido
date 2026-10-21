@@ -89,7 +89,8 @@ def test_le_meilleur_candidat_lexical_atteint_le_reranker(base_fts, monkeypatch)
     def urlopen(req, timeout=None):
         url = req.full_url
         if ":8099/" in url:
-            return _Rep({"data": [{"embedding": [0.1, 0.2]}]})
+            # 19/10 : la requete passe par la borne du routeur, qui REJETTE un vecteur de dimension < 256.
+            return _Rep({"data": [{"embedding": [0.1, 0.2] + [0.0] * 1022}]})
         if ":6333/" in url:
             return _Rep({"result": []})          # dense muet : seul le lexical propose
         if ":8100/" in url:
@@ -119,7 +120,7 @@ def test_un_oeil_lexical_ferme_n_est_pas_un_gap(tmp_path, monkeypatch):
     def urlopen(req, timeout=None):
         url = req.full_url
         if ":8099/" in url:
-            return _Rep({"data": [{"embedding": [0.1, 0.2]}]})
+            return _Rep({"data": [{"embedding": [0.1, 0.2] + [0.0] * 1022}]})
         if ":6333/" in url:
             return _Rep({"result": [{"payload": {"chunk_id": "c1"}}]})
         if ":8100/" in url:

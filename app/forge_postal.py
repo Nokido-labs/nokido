@@ -89,7 +89,7 @@ def _conn() -> sqlite3.Connection:
         try:
             c.execute("ALTER TABLE mail ADD COLUMN " + _col)
         except sqlite3.OperationalError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_postal.py', 91, exc_info=True)
     return c
 
 
@@ -216,19 +216,22 @@ def _rag_trace(mid: str, sender: str, recipient: str, body: str) -> None:
 
     def _work():
         try:
-            import sqlite3 as _sq
             text = f"[COLLAB:postal] {sender} -> {recipient}\n{(body or '')[:1200]}"
-            con = _sq.connect(str(ROOT / "RAG" / "embeddings.db"), timeout=10)
-            con.execute(
-                "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
-                "SELECT ?, ?, ?, ?, ?, datetime('now') "
-                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
-                (f"collab_postal_{mid}", f"postal:{sender.lower()}", text,
-                 "laforge-memory", sender, f"collab_postal_{mid}"))
-            con.commit()
-            con.close()
+            # `write_retry` ouvre sa PROPRE connexion, bornee a `path` : ecriture isolee
+            # par le chemin gouverne (socle) (lot 2 de migration des ecrivains nus, 18/10).
+            from nokido_agent.app import forge_db_path as _dbp
+
+            _dbp.write_retry(
+                lambda c: c.execute(
+                    "INSERT OR IGNORE INTO rag_chunks(id, source, text, domain, author, ingested_at) "
+                    "SELECT ?, ?, ?, ?, ?, datetime('now') "
+                    "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                    (f"collab_postal_{mid}", f"postal:{sender.lower()}", text,
+                     "laforge-memory", sender, f"collab_postal_{mid}")),
+                path=str(ROOT / "RAG" / "embeddings.db"),
+            )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_postal.py', 233, exc_info=True)
 
     import threading as _th
     _th.Thread(target=_work, daemon=True, name="collab-rag-trace").start()
@@ -267,7 +270,7 @@ def post(sender: str, recipient: str, body: str, *, reply_to: Optional[str] = No
                 return {"id": None, "status": "refused", "reason": f"m2m: {_v_m2m.get('code')}",
                         "m2m": _v_m2m}
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_postal.py', 272, exc_info=True)
         cur = con.execute(
             "INSERT OR IGNORE INTO mail (id,sender,sender_channel,recipient,recipient_channel,"
             "reply_to,reply_channel,body,status,ts_queued,trace_id,in_reply_to,hops) "
@@ -294,7 +297,7 @@ def _emit(kind: str, data: dict) -> None:
 
         publish(kind, data, topic="postal")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_postal.py', 299, exc_info=True)
 
 
 _SWARM_LLM = ["ANTIGRAVITY", "GEMINI", "CODEX", "COPILOT", "CLINE", "ROO_PLAN", "SIXTH"]
@@ -596,7 +599,7 @@ def facteur_is_online(agent: str) -> bool:
             if cand.exists() and (time.time() - cand.stat().st_mtime) < 300:
                 return True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_postal.py', 601, exc_info=True)
     return False
 
 

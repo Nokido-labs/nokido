@@ -81,7 +81,7 @@ def create_project(goal: str, backlog: list[dict], context_refs: dict | None = N
                 facts=f"Projet: {goal}",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 83, exc_info=True)
     return pid
 
 
@@ -164,7 +164,7 @@ def _digest(cowork_id: str, summary: dict) -> None:
         _mbpush(agent="user", sender="cowork_daemon",
                 payload={"kind": "cowork_review", **summary}, ring=2)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 166, exc_info=True)
 
 
 def _draft_local(task: dict, goal: str, mem_context: str = "") -> str:
@@ -225,7 +225,7 @@ def run_task(proj: dict, task: dict, *, llm=None) -> dict:
             _mem.remember("user", f"Task: {task.get('description', task.get('id'))}")
             _mem.remember("assistant", content[:4000])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 227, exc_info=True)
     return cp
 
 
@@ -421,6 +421,7 @@ def _poll_approvals(status_fn=None) -> int:
         try:
             backlog = json.loads(r["backlog"] or "[]")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 423, exc_info=True)
             continue
         for t in backlog:
             plan_id = t.get("pending_plan_id")
@@ -450,7 +451,7 @@ def _another_instance_alive() -> bool:
             if "forge_cowork" in cl and "--selftest" not in cl and "--once" not in cl:
                 return True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 452, exc_info=True)
     return False
 
 
@@ -463,7 +464,7 @@ def _beat(tick: int, active: int) -> None:
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "pid": _os.getpid(),
             "tick": tick, "interval_s": INTERVAL, "active_projects": active}))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 465, exc_info=True)
 
 
 def run_daemon(max_ticks: int | None = None) -> int:
@@ -480,7 +481,7 @@ def run_daemon(max_ticks: int | None = None) -> int:
         try:
             _poll_approvals()  # P4 : reprise auto sur approbation hub (promotion_queue)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cowork.py', 482, exc_info=True)
         active = list_active()
         for pid in active:
             try:

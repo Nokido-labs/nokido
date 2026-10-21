@@ -1,0 +1,863 @@
+[
+  {
+    "_resume": {
+      "titre": "Revue et correction des niveaux de preuve de la matrice de capacites",
+      "date_revue": "2026-10-17",
+      "regle_rappel": "Lire le code ou la configuration qui implemente une capacite = au plus DETECTE ; APPEL_PROUVE exige un appel reel date ; EFFET_PROUVE exige un artefact d'effet date cite par son identifiant.",
+      "total_cases_degradees": 25,
+      "synthese_degradations": "25 cases initialement evaluees APPEL_PROUVE (8) ou EFFET_PROUVE (17) degradees vers DETECTE en raison d'une justification fondee uniquement sur la lecture de code ou de configuration, ou contredite par les mesures du 17/10.",
+      "liste_cases_degradees": [
+        "Claude Code | hooks d'evenements : EFFET_PROUVE -> DETECTE (code claude_capture.py et settings.json lus)",
+        "Claude Code | tool use / MCP : APPEL_PROUVE -> DETECTE (doc mcp.md et config hub MCP lues)",
+        "Claude Code | skills : EFFET_PROUVE -> DETECTE (doc skills.md et arborescence .agents/skills/ lues)",
+        "Claude Code | memoire persistante : EFFET_PROUVE -> DETECTE (CLAUDE.md et doc memory.md lus)",
+        "Claude Code | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (code lu, contredit par bb:capture_direct_des_tours_muette_toutes_surfaces_20261017)",
+        "AGY (Antigravity) | tool use / MCP : APPEL_PROUVE -> DETECTE (instructions et schemas MCP lus)",
+        "AGY (Antigravity) | skills : APPEL_PROUVE -> DETECTE (skills chargees dans prompt/fichiers lues)",
+        "AGY (Antigravity) | memoire persistante : APPEL_PROUVE -> DETECTE (GEMINI.md et AGENTS.md lus)",
+        "AGY (Antigravity) | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu, contredit par capture muette)",
+        "AGY (Antigravity) | mode headless/autonome : EFFET_PROUVE -> DETECTE (code d'invocation agy lu)",
+        "Gemini CLI | memoire persistante : EFFET_PROUVE -> DETECTE (GEMINI.md et chemins lus)",
+        "Gemini CLI | taches de fond : EFFET_PROUVE -> DETECTE (RULES_SHARED.md:306 et code lus)",
+        "Gemini CLI | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (code cli_tail_capture.py lu, contredit par capture muette)",
+        "Gemini CLI | mode headless/autonome : APPEL_PROUVE -> DETECTE (code forge_task_executor.py lu)",
+        "Codex CLI | tool use / MCP : APPEL_PROUVE -> DETECTE (doc CODEX_MCP_CONFIG.md lue)",
+        "Codex CLI | taches de fond : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu)",
+        "Codex CLI | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu, contredit par capture muette)",
+        "Codex CLI | mode headless/autonome : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu)",
+        "Mistral Vibe | tool use / MCP : APPEL_PROUVE -> DETECTE (config.toml lue)",
+        "Mistral Vibe | taches de fond : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu)",
+        "Mistral Vibe | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (code forge_task_executor.py lu, contredit par capture muette)",
+        "Mistral Vibe | mode headless/autonome : EFFET_PROUVE -> DETECTE (contredit par bb:dette_executeurs_vibe_harness_20261017 : Vibe en TUI sans ecriture)",
+        "claude.ai/Desktop (connecteur) | tool use / MCP : APPEL_PROUVE -> DETECTE (chunk RAG lu)",
+        "claude.ai/Desktop (connecteur) | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (bb:roadmap_next lu, contredit par capture muette)",
+        "ChatGPT web (connecteur) | capture des demandes owner (registre demandes_owner) : EFFET_PROUVE -> DETECTE (contredit par bb:tri_collage_chatgpt_homeostasie_20261017 : tri de collage, pas capture)"
+      ],
+      "mesures_contradictoires_traitees": [
+        {
+          "cle": "Mistral Vibe / mode headless/autonome",
+          "mesure": "bb:dette_executeurs_vibe_harness_20261017",
+          "constat": "Vibe tournait dans sa TUI, aucune ecriture autonome effective ; livraison 074957e12 sans artefact d'effet prouve."
+        },
+        {
+          "cle": "Claude Code / capture des demandes owner (et autres surfaces directes)",
+          "mesure": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017",
+          "constat": "Capture directe des tours muette depuis le 01/09 sur toutes surfaces."
+        },
+        {
+          "cle": "ChatGPT web / capture des demandes owner",
+          "mesure": "bb:tri_collage_chatgpt_homeostasie_20261017",
+          "constat": "Tri a posteriori realise par Claude a partir d'un collage manuel transmis par l'owner, non une capture directe du flux web."
+        }
+      ]
+    },
+    "capacite": "hooks d'evenements",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/claude_capture.py:10-27 + source claude_code_docs:code.claude.com/docs/en/hooks-guide.md: hooks UserPromptSubmit, PreToolUse, PostToolUse, Stop configures dans ~/.claude/settings.json (code et configuration lus, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/mcp.md + config hub MCP http://127.0.0.1:8766/mcp active dans Claude Code (documentation et configuration lues, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/prompt-caching.md: Prompt caching automatique Anthropic sur les blocs réutilisés",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/skills.md + .agents/skills/ et tests/nr/test_skill_hint_nr.py: 33 skills déclarées avec frontmatter SKILL.md (fichiers et tests lus, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "CLAUDE.md + source claude_code_docs:code.claude.com/docs/en/memory.md: importation de RULES_SHARED.md via @import et persistance inter-sessions (fichiers de configuration lus, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/scheduled-tasks.md + desktop-scheduled-tasks.md: tâches planifiées et routines de fond",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/context-window.md: compaction automatique et commande /compact lors de saturation",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "Claude Code",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/claude_capture.py:55-59 + tools/cli_capture_lib.py: code record_turn('claude', ...) vers agent_messages puis ingestion dans blackboard zone demandes_owner par forge_intent_verifier.py --registre. Code present mais capture directe muette en pratique.",
+    "transposition": "Le hub intercepte via hook UserPromptSubmit/Stop de claude_capture.py, normalise dans agent_messages puis verse dans la zone blackboard demandes_owner",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/sub-agents.md + agent-teams.md: support natif des sub-agents et équipes d'agents",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "Claude Code",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/headless.md: invocation non interactive claude -p avec format JSON",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "id 1eb51ea20d68d813 (source antigravity_docs:antigravity.google/docs/hooks): hooks.json supporte PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source antigravity_docs:antigravity.google/docs/mcp + mcp/laforge-sovereign-hub/instructions.md et schemas JSON d'outils detectes dans l'environnement agent (niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source antigravity_docs:antigravity.google/docs/models: context caching implicite/explicite sur API Google Gemini (Flash, Pro)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "Skills declarees et lues dans l'environnement AGY (builtin/skills/agy-customizations, forge-core, .agents/skills) + source antigravity_docs:antigravity.google/docs/skills (fichiers lus, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "Instructions GEMINI.md et AGENTS.md injectees au prompt systeme + repertoire brain dans ~/.gemini/antigravity-cli/brain/ (configuration et regles lues, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Outils manage_task et schedule natifs exposés à l'agent (antigravity_docs:antigravity.google/docs/hooks chunk 056e56f1a648ac78)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "antigravity-guide / prompt AGY slash command /compact: « Recommend this when the conversation is getting long and the user wants to compact or summarize the context »",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "AGY (Antigravity)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1379-1416: sortie JSON agy recueillie dans tasks.db, versee au registre demandes_owner (code et commit 8e5b10187 lus, bb:roadmap_p1_registre_demandes_owner_20261017). Capture directe muette en pratique.",
+    "transposition": "Le hub encapsule l'exécution AGY, enregistre les énoncés dans tasks.db/agent_messages et forge_intent_verifier alimente le tableau noir demandes_owner",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Outils invoke_subagent, define_subagent, manage_subagents déclarés dans l'interface agent + source antigravity_docs:antigravity.google/docs/subagents (chunk 85b30afddeff0ee2)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "AGY (Antigravity)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1379-1381: agy --print --add-dir <wt> --sandbox --mode accept-edits --output-format json (code d'invocation lu dans l'executeur Nokido, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source GEMINI_CLI_HOOKS.md (chunk 7393c21e355107c5): EVENT_MAPPING extrait du bundle JS (BeforeTool, AfterTool, BeforeAgent, AfterAgent, SessionStart, SessionEnd, PreCompress, Notification)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source GEMINI.md + tools/laforge_hub.py:18103: support MCP exposé sur http://127.0.0.1:8766/mcp avec TOOL_NAME_MAPPING",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source GEMINI.md + API Gemini docs: context caching automatique sur backend Gemini 1.5/2.5 pour prompts volumineux",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source GEMINI.md: protocole tools centralisé v3 + dossiers de skills compatibles GEMINI.md",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "GEMINI.md à la racine du dépôt important RULES_SHARED.md + sessions ~/.gemini/tmp/*/chats/session-*.jsonl (fichiers de configuration et chemins de sessions lus, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "Gemini CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "RULES_SHARED.md:306: service NokidoGeminiAutonomous dépilant le postal, et forge_task_executor.py daemon 60s (code et regles lus, niveau DETECTE)",
+    "transposition": "Le CLI n'a pas de démon de fond autonome propre ; le hub transpose via les services NSSM NokidoGeminiAutonomous et forge_task_executor",
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source GEMINI_CLI_HOOKS.md (chunk 7393c21e355107c5): événement PreCompact / PreCompress dans EVENT_MAPPING",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "Gemini CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/cli_tail_capture.py:93-199: capture_gemini lit ~/.gemini/tmp/*/chats/session-*.jsonl et écrit dans agent_messages (source=gemini), relu par forge_intent_verifier --registre. Code présent mais capture directe muette en pratique.",
+    "transposition": "Un tail-watcher autonome (cli_tail_capture.py) lit le fichier jsonl de session et alimente agent_messages puis demandes_owner",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "Gemini CLI",
+    "etat": "ABSENT",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source GEMINI_CLI_HOOKS.md (chunk 7393c21e355107c5): commentaire explicite dans le code source débundlé: « // Gemini doesn't have sub-agents, map to AfterAgent »",
+    "transposition": "Transposé au hub par forge_spawn_swarm ou déport de tâches multi-agents dans task_queue",
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "Gemini CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:16-22 + lanceur gemini en mode batch/prompt non interactif (code d'orchestration lu, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "Codex CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source gitingest:agent-safehouse/docs/docs/agent-investigations/codex.md (aucun système de hooks dans les crates codex-rs) + RULES_SHARED.md:261-269 gouvernance clients SANS hooks",
+    "transposition": "Le hub gouverne via son videur HTTP, son filtre AST et son exécuteur externe NokidoHarnessWorker",
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "docs/CODEX_MCP_CONFIG.md (chunk ccbe8ce1423ffde4): configuration [mcp_servers.laforge] vers http://127.0.0.1:8766/mcp avec run, query, hub, rag, read (configuration lue, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Documentation API OpenAI backend (gpt-4o/o3): prompt caching automatique côté serveur pour les préfixes > 1024 tokens",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source gitingest:agent-safehouse/docs/docs/agent-investigations/codex.md (chunk rp_64fcc3ef69e8): Codex utilise notify (FSEvents/inotify) pour surveiller les fichiers de skills dans CODEX_HOME/skills",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source gitingest:agent-safehouse/docs/docs/agent-investigations/codex.md (chunk rp_a61325f9c2aa): ~/.codex/config.toml, instructions de projet et auth.json",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "Codex CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1420-1490: service NokidoTaskExecutorCodex et NokidoHarnessWorker dépilant tasks.db pour Codex autonome (code lu, niveau DETECTE)",
+    "transposition": "L'exécuteur Nokido dépose un job harness codex dans sandbox/harness_jobs/ et attend la livraison",
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Gestion native de la fenêtre de contexte et élagage des messages par codex-rs/core",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "Codex CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1584-1605: description de la tâche extraite, journalisée dans tasks.db, versée au registre demandes_owner. Code présent mais capture directe muette en pratique.",
+    "transposition": "Les prompts et livrables Codex transitent par tasks.db et sont scannés par forge_intent_verifier --registre",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "Codex CLI",
+    "etat": "INCONNU",
+    "niveau_de_preuve": "INCONNU",
+    "preuve": "source gitingest:agent-safehouse/docs/docs/agent-investigations/codex.md: architecture mono-agent codex-rs, aucune mention de sous-agents ni d'exclusion formelle",
+    "transposition": "Délégation multi-agents gérée par l'orchestrateur Nokido via tasks.db",
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "Codex CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1496: codex exec --skip-git-repo-check -C <wt> -s workspace-write - (code d'invocation lu dans forge_task_executor.py, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "Mistral Vibe",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "config/clients/vibe/config.toml + RULES_SHARED.md:261-269: Vibe est un client sans hooks, gouverné par émanation et restrictions d'outils",
+    "transposition": "Fermeture des outils natifs dans config.toml ([tools.bash] permission=never), contrôle par governed_edit et hub MCP",
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "config/clients/vibe/config.toml: [[mcp_servers]] transport=streamable-http url=http://127.0.0.1:8766/mcp + headers LaForge-Agent-Name=VIBE_CLI (configuration lue, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Documentation API Mistral (Codestral/Mistral Large): prompt caching serveur sur les requêtes à préfixe commun",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "APPEL_PROUVE",
+    "preuve": "Appels reels dates du 18/10 ~23:10 : 31 appels de l'outil natif skill.read sur .agents/skills (dont nokido/SKILL.md) dans sandbox/harness_jobs/vibe_job_9aca3c9a_1792357655_claude_handoff_next.result.json (session Vibe 2.26.1 de l'executeur) ; corrige le 19/10 depuis INCONNU. Cout mesure : ces lectures epuisaient --max-turns, d'ou --disabled-tools skill* dans _args_vibe.",
+    "transposition": "Le hub expose aussi les competences via les outils MCP (@skill, biblio, crawl, rag)",
+    "contredit_par": "ancienne preuve (INCONNU, 17/10) : aucune documentation trouvee -- contredite par l'appel reel du 18/10"
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md: section Mistral Vibe: « vibe REMONTE l'arborescence en collectant les AGENTS.md (_collect_agents_md) »",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "Mistral Vibe",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1609-1780: code NokidoTaskExecutorMistral lance vibe en tâche de fond autonome via le harness (code lu, niveau DETECTE)",
+    "transposition": "NokidoTaskExecutorMistral dépile tasks.db et pilote vibe en tâche de fond dans nokido_worktrees/mistral",
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "tools/forge_task_executor.py:1650-1675: gestion native de la longueur de session via --max-turns et --max-price",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "Mistral Vibe",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1759-1779: capture des tâches VIBE dans tasks.db, reprise par forge_intent_verifier --registre. Code présent mais capture directe muette en pratique.",
+    "transposition": "Capture par l'exécuteur de tâches du hub et injection au tableau noir demandes_owner",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "Mistral Vibe",
+    "etat": "INCONNU",
+    "niveau_de_preuve": "INCONNU",
+    "preuve": "Aucune API de sous-agents documentée pour mistral-vibe CLI dans les sources disponibles",
+    "transposition": "Sous-agents déportés au niveau du swarm Nokido",
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "Mistral Vibe",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "tools/forge_task_executor.py:1671: vibe --agent auto-approve --trust --output json --max-turns 30 (code d'invocation lu dans l'exécuteur Nokido, mais contredit par autopsie d'exécution)",
+    "transposition": null,
+    "contredit_par": "bb:dette_executeurs_vibe_harness_20261017 (autopsie du job spool : Vibe tournait dans sa TUI interactive, aucune écriture autonome effective ; livraison 074957e12 sans artefact vérifié)"
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source sdk_gitingest: rowid 8753429-8753433 (@microsoft/agent-governance-opencode dans anomalyco_opencode): « OpenCode loads plugins in-process as async JS/TS functions... OpenCode's in-process plugin hooks for deterministic session, prompt, tool, and output governance »",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source anomalyco_opencode/.opencode/opencode.jsonc (chunk 19f28fefeb819a45): section native \"mcp\": {} dans la configuration formelle",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source anomalyco_opencode: support multi-providers (Anthropic, OpenAI, DeepSeek, Google) via Models.dev propageant les en-têtes de prompt caching",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source anomalyco_opencode: commandes et agents extensibles sous .opencode/agent/ et .opencode/command/ (ex: triage.md, commit.md, learn.md)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md (règle Mammouth/OpenCode: OPENCODE_CONFIG_DIR pointant sur config/clients/opencode/) + .opencode/opencode.jsonc references",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "blackboard fact roadmap_p1_orchestration_par_nokido_20261017: OpenCode expose le protocole ACP (src/cli/cmd/acp.ts, setSessionModel) permettant des sessions serveurs en arrière-plan",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source anomalyco_opencode: chatcore-compression et gestion de dépassement de fenêtre de contexte dans packages/tui/src/runtime.tsx",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "config/clients/opencode/README.md: opencode branché sur hub :8766 avec identité OPENCODE (ring 1) ; capture des tours via hub m2m / agent_messages vers demandes_owner. Capture directe muette en pratique.",
+    "transposition": "Le hub intercepte les requêtes MCP d'OPENCODE, enregistre les énoncés dans agent_messages pour le registre demandes_owner",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source anomalyco_opencode/.opencode/agent/: agents dédiés (triage.md, duplicate-pr.md) et support multi-instances via ACP (src/cli/cmd/acp.ts)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "OpenCode (version TypeScript actuelle, source anomalyco_opencode, PAS l'ancienne Go)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "config/clients/opencode/README.md: commande non interactive opencode run + mode serveur ACP / CLI headless",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "Copilot CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md section Spécifique GitHub Copilot CLI + RULES_SHARED.md:261-269: aucun système de hooks natif dans copilot CLI",
+    "transposition": "Transposé au hub par émanation (RULES_SHARED.md lue par l'agent) et restrictions MCP côté serveur :8766",
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "Copilot CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md: « TOUT via le hub MCP :8766 (configuré comme serveur MCP) : read / run / rag / query » + rag_fts:18103 (Hub HTTP supportant VS Code Copilot)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "Copilot CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Infrastructure backend GitHub Copilot / Azure OpenAI activant le prompt caching sur les requêtes de complétion et chat",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "Copilot CLI",
+    "etat": "INCONNU",
+    "niveau_de_preuve": "INCONNU",
+    "preuve": "Pas de spécification de skills au format agent autonome dans les instructions Copilot CLI actuelles",
+    "transposition": "Transposé via les outils MCP du hub Nokido",
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "Copilot CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md: Copilot lit AGENTS.md et .github/copilot-instructions.md dans l'espace de travail",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "Copilot CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md + tools/laforge_hub.py: Copilot CLI ne tourne pas en démon autonome en arrière-plan ; tâches différées via file du hub",
+    "transposition": "Délégation au hub via task(action=assign) ou orchestrate",
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "Copilot CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Documentation GitHub Copilot: fenêtrage glissant et réduction contextuelle gérés nativement côté client/serveur",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "Copilot CLI",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "AGENTS.md: Copilot passe par le hub MCP :8766 (requêtes auditées dans logs/mcp_audit.log) ; ingestion dans demandes_owner via forge_intent_verifier. Capture directe muette en pratique.",
+    "transposition": "Audit hub et capture des appels outils dans le journal d'intentions",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "Copilot CLI",
+    "etat": "INCONNU",
+    "niveau_de_preuve": "INCONNU",
+    "preuve": "Aucune documentation d'orchestration de sous-agents internes dans Copilot CLI standard",
+    "transposition": "Orchestration multi-agents assurée par Nokido sovereign hub",
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "Copilot CLI",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "AGENTS.md: « En headless, --deny-tool='shell(git push)' par défaut » + flags CLI non interactifs",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/desktop.md + bb:tri_collage_chatgpt_homeostasie_20261017: l'application Desktop/web n'exécute pas de hooks shell locaux comme le CLI",
+    "transposition": "Encadré par le pont MCP stdio/HTTP (:8766) et le videur du hub",
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "chunk 30451 (rag_fts): connecteurs cloud (Gmail, Calendar, Drive, Notion) + pont stdio bridge vers le hub :8766 (documentation de chunk RAG lue, niveau DETECTE)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Documentation API Anthropic pour claude.ai et Claude Desktop: caching automatique des conversations et artefacts longs",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source skill forge-connectors et marketplace Claude: connecteurs et projets avec instructions custom",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "Documentation claude.ai (Projects, Custom Instructions, Project Knowledge) + Claude Desktop local config",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/desktop-scheduled-tasks.md: tâches planifiées de fond dans Claude Desktop (Cowork)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Gestion native de la fenêtre de contexte Claude (200k tokens) avec résumé dynamique côté serveur",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "bb:roadmap_next_20261013 (exports conv_claude_desktop) + forge_conv_indexer ingérant les sessions Desktop dans rag_chunks et demandes_owner. Code et mentions lus, capture directe muette en pratique.",
+    "transposition": "Le hub ingère les exports de conversations Desktop dans la base RAG et le registre de demandes",
+    "contredit_par": "bb:capture_direct_des_tours_muette_toutes_surfaces_20261017 (capture directe muette depuis le 01/09 sur toutes surfaces)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "source claude_code_docs:code.claude.com/docs/en/desktop.md (mode Cowork et agents secondaires)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "claude.ai/Desktop (connecteur)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "bb:decision_owner_hamilton_arene_vibe_capture_20261016: claude.ai/Desktop est interactif ; son autonomie passe par des tâches de fond déléguées au hub ou CLI",
+    "transposition": "Le hub exécute les travaux autonomes sans UI via forge_task_executor et déporte les résultats",
+    "contredit_par": null
+  },
+  {
+    "capacite": "hooks d'evenements",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "ABSENT",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "bb:tri_collage_chatgpt_homeostasie_20261017 + documentation ChatGPT: interface web pure, aucun système de hooks d'événements machine locale",
+    "transposition": "Aucun hook possible sur la surface web ; le hub filtre uniquement les entrées/sorties lors de collages ou d'appels API",
+    "contredit_par": null
+  },
+  {
+    "capacite": "tool use / MCP",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "source web ChatGPT: Custom GPTs Actions (OpenAPI / MCP connecteurs) et outils intégrés (Code Interpreter, Web Search, DALL-E)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "prompt caching",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Documentation OpenAI API/ChatGPT: cache de préfixe automatique sur GPT-4o / Canvas",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "skills",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "GPT Store / Custom GPTs (instructions spécialisées, actions, connaissances)",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "memoire persistante",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "Fonctionnalité native ChatGPT Memory (« Memory updated ») et Custom Instructions persistantes au profil utilisateur",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "taches de fond",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "ABSENT",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "bb:tri_collage_chatgpt_homeostasie_20261017: ChatGPT web fonctionne en requête-réponse synchrone dans le navigateur, pas de démon de fond local",
+    "transposition": "Tâches de fond prises en charge par les workers Nokido (NokidoTaskExecutor)",
+    "contredit_par": null
+  },
+  {
+    "capacite": "compaction de contexte",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "NATIF",
+    "niveau_de_preuve": "DECLARE",
+    "preuve": "Gestion native de l'historique conversationnel avec élagage automatique des anciens tours",
+    "transposition": null,
+    "contredit_par": null
+  },
+  {
+    "capacite": "capture des demandes owner (registre demandes_owner)",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "TRANSPOSE_HUB",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "bb:tri_collage_chatgpt_homeostasie_20261017 : aucun mécanisme de capture directe sur l'interface web ChatGPT ; le flux relève d'un collage manuel transmis par l'owner et trié ultérieurement par Claude, non d'une capture automatique du connecteur.",
+    "transposition": "Les collages d'échanges ChatGPT web sont reçus par le hub et intégrés au tableau noir et RAG par tri manuel ou a posteriori",
+    "contredit_par": "bb:tri_collage_chatgpt_homeostasie_20261017 (tri a posteriori fait par Claude d'un collage manuel, non une capture)"
+  },
+  {
+    "capacite": "sous-agents",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "INCONNU",
+    "niveau_de_preuve": "INCONNU",
+    "preuve": "Pas de sous-agents documentés sur l'interface web standard (hors agent canvas / code interpreter)",
+    "transposition": "Délégation vers le swarm multi-agents de Nokido",
+    "contredit_par": null
+  },
+  {
+    "capacite": "mode headless/autonome",
+    "cli": "ChatGPT web (connecteur)",
+    "etat": "ABSENT",
+    "niveau_de_preuve": "DETECTE",
+    "preuve": "Architecture web nécessitant une session interactive navigateur avec Cloudflare turnstile/OAuth, pas de mode CLI headless natif",
+    "transposition": "Remplacé par Codex CLI (codex exec) ou API OpenAI directe via le hub",
+    "contredit_par": null
+  }
+]

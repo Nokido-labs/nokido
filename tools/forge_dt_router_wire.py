@@ -109,7 +109,7 @@ class DTRouterWire:
                     for ev in tqdm(events, desc="forwarding", unit="event", leave=False):
                         self.emit_routing_event(ev)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dt_router_wire.py', 111, exc_info=True)
                 self._save_heartbeat()
                 time.sleep(poll_interval)
         except KeyboardInterrupt:

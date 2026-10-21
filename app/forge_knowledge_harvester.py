@@ -187,7 +187,7 @@ class TemplateGenerator:
                             )
                         )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_knowledge_harvester.py', 189, exc_info=True)
         return templates[:6]
 
 
@@ -229,7 +229,7 @@ def _store_entries(entries: list) -> int:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_knowledge_harvester.py', 231, exc_info=True)
     return stored
 
 
@@ -274,7 +274,7 @@ class SilentBenchmark:
                     _ast.parse(code)
                     code_ok = True
                 except SyntaxError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_knowledge_harvester.py', 276, exc_info=True)
             return {
                 "agent": agent_id,
                 "elapsed_ms": elapsed,
@@ -337,7 +337,7 @@ class SilentBenchmark:
                 try:
                     results.append(json.loads(f.read_text(encoding="utf-8")))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_knowledge_harvester.py', 339, exc_info=True)
         if not results:
             return {"total": 0, "local_wins": 0, "score": 0.0, "goal_95": False}
         local_wins = sum(1 for r in results if r.get("local", {}).get("code_ok") and r.get("winner") != "cloud")
@@ -437,7 +437,7 @@ class KnowledgeHarvesterNode:
                             "- [" + ts_str + "] winner=" + winner + " local=" + local_str + " cloud=" + cloud_str
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_knowledge_harvester.py', 439, exc_info=True)
         return "\n".join(lines)
 
 

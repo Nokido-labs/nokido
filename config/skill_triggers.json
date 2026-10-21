@@ -43,9 +43,20 @@
       "evenement": "UserPromptSubmit",
       "un_de": [
         "(?i)\\bveille (approfondie|active|bibliographique|sur)\\b",
-        "(?i)\\b(recherche approfondie|état de l'art|tout ce qui existe sur|monte un dossier)\\b"
+        "(?i)\\b(recherche approfondie|état de l'art|tout ce qui existe sur|monte un dossier)\\b",
+        "(?i)\\bveilles (sur|demand[ée]es|approfondies)\\b",
+        "(?i)\\b(lance[rz]?|relance[rz]?|fai[st]|n'oublie pas)\\b[^\\n]{0,30}\\bveilles?\\b"
       ],
-      "pourquoi": "l'owner veut explorer un thème sans URL connue ; pipeline autonome en 7 étapes"
+      "pourquoi": "l'owner veut explorer un thème sans URL connue ; pipeline autonome en 7 étapes (forge_watch_agent.create_job), jamais un script maison"
+    },
+    {
+      "skill": "forge-veille-rapide",
+      "evenement": "UserPromptSubmit",
+      "un_de": [
+        "(?i)\\b(d[ée]p[oô]ts?|repos?|repositor(y|ies))\\s+(github|gitlab)\\b",
+        "(?i)\\bgithub\\.com/[\\w.-]+/[\\w.-]+"
+      ],
+      "pourquoi": "dépôt GitHub à ingérer EN ENTIER : tools/forge_ingest_github_repo.py --url (tarball, source github:owner/repo/chemin), pas un script maison sur le seul README"
     },
     {
       "skill": "forge-m2m-debat-mesure",

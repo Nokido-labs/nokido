@@ -177,7 +177,7 @@ def _tree_lock_check_and_claim(rel_path: str, agent: str) -> list[str]:
                 key=agent_u.lower(), category="edit_claim", worker_id=agent_u,
             ))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_governed_edit.py', 179, exc_info=True)
     except Exception as e:  # noqa: BLE001
         warns.append(f"tree_locks indisponible: {str(e)[:60]}")
     return warns
@@ -196,6 +196,78 @@ JUDGE_MODULES = (
 )
 
 
+#: Registre des tests vus en ECHEC (plugin de tests/conftest.py) et fenetre ou un rouge vaut preuve.
+TDD_ROUGES_DEFAUT = ROOT / "sandbox" / "workspace" / "tdd_rouges.jsonl"
+TDD_FENETRE_S = 3600.0
+
+
+def avertissement_tdd(rel: str) -> str | None:
+    """Garde TDD « rouge d'abord » (owner 2026-10-16, derogation sur ce fichier « en attendant mieux ») : signale une
+    ecriture de code sans test ROUGE recent sur le module. Non bloquante (mesurer son bruit avant d'enforcer).
+    Un rouge vaut preuve s'il date de moins de TDD_FENETRE_S et si le fichier de son test NOMME le module."""
+    import json as _j
+    import time as _t
+
+    chemin = Path(str(rel).replace("\\", "/"))
+    if chemin.suffix != ".py" or not ({"app", "tools"} & set(chemin.parts)) or "tests" in chemin.parts:
+        return None     # ecrire le TEST est l'etape RED elle-meme ; docs et workflows ne sont pas du code de prod
+    module = chemin.stem
+    registre = Path(os.environ.get("LAFORGE_TDD_ROUGES") or TDD_ROUGES_DEFAUT)
+    try:
+        lignes = registre.read_text(encoding="utf-8").splitlines()
+    except OSError:  # muet-ok : registre absent ou illisible = aucun rouge connu, donc l'avertissement est LEVE
+        lignes = []
+    for ligne in reversed(lignes):
+        try:
+            r = _j.loads(ligne)
+            if _t.time() - float(r.get("ts", 0)) > TDD_FENETRE_S:
+                continue
+            if module in Path(r.get("fichier", "")).read_text(encoding="utf-8", errors="replace"):
+                return None
+        except (ValueError, OSError):  # muet-ok : ligne ou fichier de test illisible = ce rouge ne prouve rien
+            continue
+    return "TDD : aucun test ROUGE observe sur %s -- ecrire le test, le voir echouer, puis le code" % rel
+
+
+# Executeurs qui n'ecrivent JAMAIS l'arbre partage par governed_edit (owner 19/10, vague 0) : OPENCODE_GLM y a
+# ecrase forge_token_monitor (681 -> 71 lignes) et forge_llm_usage_adapters (215 -> 22) ; governed_edit vise le
+# depot PRINCIPAL alors qu'un executeur ecrit en NATIF dans son worktree. Perimetre owner : OPENCODE_* et
+# WORKER_CODE ; les *_DAEMON / *_HEADLESS / HANDOFF_WORKER restent permis tant que leur usage n'est pas verifie.
+_EXECUTEURS_HORS_ARBRE_PREFIXES = ("OPENCODE_",)
+_EXECUTEURS_HORS_ARBRE = frozenset({"WORKER_CODE"})
+
+
+def _identites_agents():
+    """config/agent_identities.json, ou None s'il est ILLISIBLE (jamais un dict vide pris pour « personne »)."""
+    import json as _j
+
+    try:
+        return _j.loads((ROOT / "config" / "agent_identities.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        __import__("logging").getLogger(__name__).warning(
+            "identites agents ILLISIBLES (%s) : garde arbre partage inoperant", type(e).__name__)
+        return None
+
+
+def _executeur_autonome(agent) -> bool:
+    """Vrai si `agent` (nom ou alias, casse ignoree) est un executeur du perimetre owner ET porte
+    surface == "autonomous". Identites illisibles -> False : on ne refuse pas sans preuve."""
+    idents = _identites_agents()
+    if not isinstance(idents, dict) or not agent:
+        return False
+    cible = str(agent).strip().lower()
+    for nom, fiche in (idents.get("agents") or {}).items():
+        if not isinstance(fiche, dict):
+            continue
+        noms = {str(nom).lower()} | {str(a).lower() for a in (fiche.get("aliases") or [])}
+        if cible not in noms:
+            continue
+        canon = str(nom).upper()
+        dans_perimetre = canon in _EXECUTEURS_HORS_ARBRE or canon.startswith(_EXECUTEURS_HORS_ARBRE_PREFIXES)
+        return dans_perimetre and fiche.get("surface") == "autonomous"
+    return False
+
+
 def governed_write(path: str, content: str, agent: str = "UNKNOWN",
                    allow_create: bool = True, allow_critical: bool = False) -> dict:
     """Écrit `content` dans `path` après gouvernance. Retourne un verdict structuré.
@@ -209,6 +281,11 @@ def governed_write(path: str, content: str, agent: str = "UNKNOWN",
         rel = str(p.relative_to(ROOT))
     except ValueError:
         rel = str(p)
+
+    if _executeur_autonome(agent):
+        return {"ok": False, "blocked": "arbre_partage", "path": rel,
+                "reason": f"executeur autonome ({agent}) : ecris en NATIF dans TON worktree, governed_edit vise "
+                          "l'arbre PARTAGE (ecrasements du 19/10) -- ta livraison passe par ta branche"}
 
     if p.exists() is False and not allow_create:
         return {"ok": False, "blocked": "not_found", "reason": f"{rel} absent et allow_create=False"}
@@ -287,7 +364,7 @@ def governed_write(path: str, content: str, agent: str = "UNKNOWN",
                 from nokido_agent.tools.forge_alignment_trace import emit as _atrace
                 _atrace(agent, "no_self_score_edit", "deny", rel, "judge module edit blocked")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_governed_edit.py', 322, exc_info=True)
             return {"ok": False, "blocked": "judge_module", "path": rel,
                     "reason": f"{rel} = module-JUGE -> no_self_score_edit: agent '{agent}' refuse "
                               f"(anti reward-tampering ; LAFORGE_ALLOW_JUDGE_WRITE=1 pour owner)"}
@@ -330,11 +407,18 @@ def governed_write(path: str, content: str, agent: str = "UNKNOWN",
             cost_usd=0.0
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_governed_edit.py', 365, exc_info=True)
 
-    return {"ok": True, "path": rel, "bytes": len(relu.encode("utf-8")), "warnings": warns,
-            "verified": "relecture disque identique",
-            "note": "AST+secret OK ; tree_lock claim ; contenu RELU verifie ; le git-gate re-scanne au commit"}
+    verdict = {"ok": True, "path": rel, "bytes": len(relu.encode("utf-8")), "warnings": warns,
+               "verified": "relecture disque identique",
+               "note": "AST+secret OK ; tree_lock claim ; contenu RELU verifie ; le git-gate re-scanne au commit"}
+    try:  # garde TDD (owner 16/10) : un avertissement, jamais un echec de l'ecriture
+        _tdd = avertissement_tdd(rel)
+        if _tdd:
+            verdict["avertissement_tdd"] = _tdd
+    except Exception as _e_tdd:  # noqa: BLE001
+        verdict["avertissement_tdd_indisponible"] = type(_e_tdd).__name__
+    return verdict
 
 
 def main(argv: list[str]) -> int:

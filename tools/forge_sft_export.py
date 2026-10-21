@@ -50,7 +50,7 @@ def _problem_statements() -> dict:
                 if d.get("instance_id") and d.get("problem_statement"):
                     out[d["instance_id"]] = d["problem_statement"]
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 52, exc_info=True)
     return out
 
 
@@ -65,7 +65,7 @@ def harvest_swebench() -> list[dict]:
                 if isinstance(r, dict) and r.get("resolved"):
                     resolved.add(r.get("instance_id"))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 67, exc_info=True)
     patch: dict[str, str] = {}
     for f in glob.glob(str(SWE / "predictions*.jsonl")):
         try:
@@ -74,7 +74,7 @@ def harvest_swebench() -> list[dict]:
                 if d.get("instance_id") and d.get("model_patch"):
                     patch.setdefault(d["instance_id"], d["model_patch"])
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 76, exc_info=True)
     pairs = []
     for iid in resolved:
         if iid in problems and iid in patch:
@@ -101,6 +101,7 @@ def harvest_goap() -> list[dict]:
             try:
                 a = json.loads(aj)
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 103, exc_info=True)
                 continue
             pairs.append({
                 "messages": [
@@ -111,7 +112,7 @@ def harvest_goap() -> list[dict]:
             })
         con.close()
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 113, exc_info=True)
     return pairs
 
 
@@ -131,7 +132,7 @@ def harvest_humaneval(he_train_max: int | None = None) -> list[dict]:
                             if int(str(r.get("task_id", "")).split("/")[-1]) >= he_train_max:
                                 continue  # held-out → exclu du train
                         except Exception:  # noqa: BLE001
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 133, exc_info=True)
                     pairs.append({
                         "messages": [
                             {"role": "user",
@@ -141,7 +142,7 @@ def harvest_humaneval(he_train_max: int | None = None) -> list[dict]:
                         "source": "humaneval_pass", "id": r.get("task_id"),
                     })
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 143, exc_info=True)
     return pairs
 
 
@@ -160,6 +161,7 @@ def harvest_mbpp(limit: int | None = None) -> list[dict]:
         try:
             ds = load_dataset("mbpp", cfg) if cfg else load_dataset("mbpp")
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_sft_export.py', 162, exc_info=True)
             continue
         for split in ds:  # train/test/validation/prompt
             for r in ds[split]:

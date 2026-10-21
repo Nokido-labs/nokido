@@ -78,7 +78,7 @@ def _ensure_cached() -> str:
                     _cached = str(v)
                     return _cached
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_version.py', 80, exc_info=True)
         # Priorité 2 : lecture directe du fichier
         _cached = _read_from_file()
     return _cached

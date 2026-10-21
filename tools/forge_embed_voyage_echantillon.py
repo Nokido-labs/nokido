@@ -107,7 +107,7 @@ def main() -> int:
         try:
             corps = e.read().decode("utf-8", "replace")[:300]
         except Exception:  # noqa: BLE001 - corps illisible, le code suffit
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_voyage_echantillon.py', 109, exc_info=True)
         print("HTTP %s : %s" % (e.code, corps))
         return 3
     dt = time.time() - t0

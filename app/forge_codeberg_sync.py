@@ -161,7 +161,7 @@ def sync_now(branch: str = "alpha", force: bool = False) -> dict:
             bridge.json_set("codeberg.last_sync", time.time())
             bridge.json_set("codeberg.branch", branch)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_codeberg_sync.py', 163, exc_info=True)
 
         return {
             "ok": True,

@@ -53,7 +53,7 @@ def run_nssm_audit():
             if line.strip() and line.strip() not in services:
                 services[line.strip()] = {"status": "UNKNOWN", "exe": "", "dir": "", "params": ""}
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nssm_dedup_audit.py', 55, exc_info=True)
 
     # Get status using powershell to find stopped since >7 days
     # We will use WMI or Get-Service. Get-Service doesn't have LastExitTime easily.
@@ -76,7 +76,7 @@ def run_nssm_audit():
                 if name in services:
                     services[name]["status"] = status.upper()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nssm_dedup_audit.py', 78, exc_info=True)
 
     # Detect duplicates by AppDirectory + AppParameters
     signatures = defaultdict(list)

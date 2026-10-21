@@ -11,7 +11,7 @@ import time
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_recover_chunks.py', 13, exc_info=True)
 
 SRC = r"%NOKIDO_DATA%\embeddings.db"
 DST = r"%NOKIDO_DATA%\embeddings_recovered.db"

@@ -45,7 +45,7 @@ def _another_instance_alive() -> bool:
             if "forge_trace_collector_rich" in cl and "--reencode" not in cl and "--selftest" not in cl:
                 return True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_collector_rich.py', 47, exc_info=True)
     return False
 
 
@@ -59,7 +59,7 @@ def _beat(tick: int, dim0: int) -> None:
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "pid": _os.getpid(),
             "tick": tick, "interval_s": INTERVAL, "dim0_pending": dim0}))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_collector_rich.py', 61, exc_info=True)
 
 
 def init_db() -> None:
@@ -214,6 +214,7 @@ def reencode_pending(batch: int = 20, max_rows: int | None = None) -> int:
                             (vecs[0].astype("float32").tobytes(), vecs[1].astype("float32").tobytes(), rid))
                 done += 1
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_collector_rich.py', 216, exc_info=True)
                 continue
         con.commit()
         if max_rows and done >= max_rows:

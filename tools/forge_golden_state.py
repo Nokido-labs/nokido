@@ -81,7 +81,7 @@ def _modules_qui_parsent() -> int:
                 ast.parse(p.read_text(encoding="utf-8", errors="replace"))
                 n += 1
             except (SyntaxError, OSError):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_golden_state.py', 83, exc_info=True)
     return n
 
 

@@ -240,7 +240,7 @@ def manifest(persist: bool = True, frais: bool = False) -> dict:
             with open(_SEEN, "w", encoding="utf-8") as fh:
                 json.dump(seen, fh, ensure_ascii=False, indent=1, sort_keys=True)
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ui_manifest.py', 242, exc_info=True)
     vivants = sum(1 for s in surfaces if s["etat"] in ("live", "internal"))
     resultat = {"genere_le": maintenant, "surfaces": surfaces,
                 "resume": {"total": len(surfaces), "vivants": vivants,

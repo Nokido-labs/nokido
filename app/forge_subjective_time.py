@@ -62,7 +62,7 @@ def _live_inputs() -> dict:
         if lv:
             reasons.append(f"hormone_stress={lv:.2f}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_subjective_time.py', 64, exc_info=True)
     try:
         from nokido_agent.app import forge_system_mood as fsm
         mood = fsm.get_mood()
@@ -82,7 +82,7 @@ def _live_inputs() -> dict:
         if "sleep" in str(ph).lower() or "night" in str(ph).lower():
             circ = 0.9; reasons.append("circadian_night")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_subjective_time.py', 84, exc_info=True)
     return {"arousal": round(arousal, 3), "engagement": round(engagement, 3),
             "fatigue": round(fatigue, 3), "circadian_mult": circ, "reasons": reasons}
 

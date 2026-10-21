@@ -48,6 +48,7 @@ for f in sorted(list(WEB.glob("*.html")) + list(WEB.glob("*.py")) + list(WEB.glo
     try:
         txt = f.read_text(encoding="utf-8", errors="replace")
     except Exception:
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/audit_ui_endpoints.py', 50, exc_info=True)
         continue
     bases = RX_BASE.findall(txt)
     bp = bases[0].rstrip("/") if bases else ""           # préfixe JS (ex /mcp_lab)

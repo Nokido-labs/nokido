@@ -95,6 +95,7 @@ def _index_tests(racine: Path):
         try:
             txt = t.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_couverture_perimetre.py', 97, exc_info=True)
             continue  # illisible : compte comme absent, et le rapport le dira
         if MARQUEUR_APPUI in txt[:2000]:
             appuis.add(rel)

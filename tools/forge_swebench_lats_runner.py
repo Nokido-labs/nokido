@@ -93,7 +93,7 @@ def _detect_hub_url() -> str:
                         if ip and ip != "127.0.0.1":
                             return f"http://{ip}:8766/mcp"
     except (OSError, IndexError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 95, exc_info=True)
     return "http://127.0.0.1:8766/mcp"
 
 
@@ -146,7 +146,7 @@ def _hub_ask(
             if isinstance(inner, dict) and "text" in inner:
                 text = inner["text"]
         except (json.JSONDecodeError, TypeError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 148, exc_info=True)
         return text
     except Exception as e:  # noqa: BLE001
         return f"ERR: {e}"
@@ -461,12 +461,14 @@ def _select_candidate_files(
             try:
                 rel = str(p.relative_to(repo_path)).replace("\\", "/")
             except ValueError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 463, exc_info=True)
                 continue
             if rel in candidates:
                 continue
             try:
                 txt = p.read_text(encoding="utf-8", errors="ignore")
             except OSError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 469, exc_info=True)
                 continue
             if len(txt) < 50 or len(txt) > 500_000:
                 continue
@@ -515,6 +517,7 @@ def _select_candidate_files(
             try:
                 rel = str(p.relative_to(repo_path)).replace("\\", "/")
             except ValueError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 517, exc_info=True)
                 continue
             if rel in candidates:
                 continue
@@ -550,6 +553,7 @@ def _zoom_file_contents(
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 552, exc_info=True)
             continue
         if len(text) <= cap_per_file:
             body = text
@@ -662,10 +666,12 @@ def _apply_search_replace_to_diff(
         try:
             raw_bytes = fp.read_bytes()
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 664, exc_info=True)
             continue
         try:
             original = raw_bytes.decode("utf-8", errors="replace")
         except (UnicodeDecodeError, AttributeError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 668, exc_info=True)
             continue
         # Detecte line ending dominant
         crlf_count = original.count("\r\n")
@@ -961,7 +967,7 @@ def _build_propose_fn(
             try:
                 raw_path.write_text(text, encoding="utf-8", newline="")
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 963, exc_info=True)
             # Try SEARCH/REPLACE format first (preferred), fallback diff raw
             sr_blocks = _parse_search_replace(text)
             diff = ""
@@ -1001,7 +1007,7 @@ def _build_propose_fn(
                     try:
                         debug_path.write_text(diff, encoding="utf-8", newline="")
                     except OSError:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 1003, exc_info=True)
                     wl_status = f"REJECT_APPLY ({err[:80]})"
                     diff = ""
             print(
@@ -1176,7 +1182,7 @@ def run_generate_lats(
         try:
             token = _get_secret("FORGE_MCP_TOKEN") or ""
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_lats_runner.py', 1178, exc_info=True)
     if not token:
         token = _os.environ.get("FORGE_MCP_TOKEN", "")
     if not token:

@@ -64,7 +64,7 @@ def _get_settings() -> object:
 
             s = _cs()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 66, exc_info=True)
     if s is not None:
         return s
     try:
@@ -237,9 +237,9 @@ class PTYTerminal(Widget):
                     try:
                         self._channel.change_terminal_size(nc, nr)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 239, exc_info=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 241, exc_info=True)
 
     async def on_resize(self, _) -> None:
         """On resize.
@@ -263,7 +263,7 @@ class PTYTerminal(Widget):
             # Recalibrer la largeur de wrapping
             log._max_width = max(40, self.size.width - 2)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 265, exc_info=True)
 
     async def connect(self) -> bool:
         """Connect."""
@@ -301,6 +301,7 @@ class PTYTerminal(Widget):
                             self._stream.feed(data)
                         self._refresh()
                 except asyncio.TimeoutError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 303, exc_info=True)
                     continue
                 except asyncio.CancelledError:
                     break
@@ -310,7 +311,7 @@ class PTYTerminal(Widget):
                         self._log.write(f"[PTY déconnecté: {e}]")
                     break
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 312, exc_info=True)
 
     async def _write_loop(self) -> None:
         """Write loop."""
@@ -322,6 +323,7 @@ class PTYTerminal(Widget):
                         self._channel.stdin.write(data)
                         await self._channel.stdin.drain()
                 except asyncio.TimeoutError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 324, exc_info=True)
                     continue
                 except asyncio.CancelledError:
                     break
@@ -329,7 +331,7 @@ class PTYTerminal(Widget):
                     logger.error(f"PTY write: {e}")
                     break
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 331, exc_info=True)
 
     def _refresh(self) -> None:
         """Refresh."""
@@ -340,7 +342,7 @@ class PTYTerminal(Widget):
             for line in self._screen.display if self._screen else []:
                 self._log.write(line)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 342, exc_info=True)
 
     KEY_MAP = {
         "enter": "\r",
@@ -415,13 +417,13 @@ class PTYTerminal(Widget):
                         self._log.write(f"[red]☠ PTY BLOCKED: {escape(cmd[:60])}[/]")
                     return
         except Exception:
-            pass  # DangerGuard absent — on continue sans blocage
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 417, exc_info=True)
         # Écho local immédiat — évite le blanc avant réponse serveur
         if echo and self._log and cmd.strip():
             try:
                 self._log.write(f"$ {cmd}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 423, exc_info=True)
         await self._input_queue.put(cmd + "\r")
 
     async def disconnect(self) -> None:
@@ -435,7 +437,7 @@ class PTYTerminal(Widget):
             try:
                 self._channel.stdin.write_eof()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 437, exc_info=True)
         if self._connection:
             self._connection.close()
             await self._connection.wait_closed()
@@ -593,7 +595,7 @@ class SSHWizardScreen(ModalScreen):
         try:
             self.query_one("#wizard-error", Static).update(f"[red]⚠ {msg}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 595, exc_info=True)
 
     def _apply(self, host: str, user: str, port: int, key: str) -> bool:
         """Valide et injecte dans os.environ + _get_settings()."""
@@ -804,7 +806,7 @@ async def handle_ssh(app, cmd_line: str) -> object:
                         _o2, _, _ = await ssh_manager.run("uname -r")
                         _kern = _strip_ssh_output(_o2)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 806, exc_info=True)
                     _ks = f" · [dim]kernel {_kern}[/]" if _kern else ""
                     chat.write(
                         f"[green]✅ SSH[/] [bold]{_hn}[/] [dim]({_h}:{_p})[/] "
@@ -1081,7 +1083,7 @@ async def run_ci_pipeline(
             try:
                 on_step(icon, msg)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ssh.py', 1083, exc_info=True)
 
     # 1. Clone ou pull
     _step("🔄", f"Sync {repo_url} ({branch})")

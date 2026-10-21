@@ -4,7 +4,7 @@ schema = "nokido-distribution/pack"
 version_schema = 1
 id = "netcfg"
 statut = "A_EPINGLER"
-plateformes = ["windows-x64", "linux-x64"]
+plateformes = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
 
 [[a_epingler]]
 id = "netcfg-agent-mcp"

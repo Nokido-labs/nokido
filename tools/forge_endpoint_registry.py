@@ -141,7 +141,7 @@ def build_inventory() -> dict:
     try:
         P._init_registry()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_registry.py', 143, exc_info=True)
     try:
         from nokido_agent.app.forge_agent_proxy import _load_api_key
     except Exception:

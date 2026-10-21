@@ -79,7 +79,7 @@ def _set_userlist(name: str, value) -> None:
             try:
                 winreg.DeleteValue(k, name)
             except FileNotFoundError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_hide_service_accounts.py', 81, exc_info=True)
         else:
             winreg.SetValueEx(k, name, 0, winreg.REG_DWORD, int(value))
     finally:

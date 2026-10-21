@@ -37,7 +37,7 @@ def _get_jina_key():
         if k:
             return k.strip()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_backfill_hybrid.py', 39, exc_info=True)
     import os
 
     return get_secret("JINA_API_KEY") or "".strip()

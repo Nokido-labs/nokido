@@ -191,7 +191,7 @@ def _clear_pidfile(mod: str) -> None:
     try:
         _pidfile(mod).unlink()
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/launcher.py', 193, exc_info=True)
 
 
 def _audit(action: str, mod: str, subject: str, extra: Optional[dict] = None) -> None:
@@ -395,7 +395,7 @@ async def start(mod: str, subject: str = "admin") -> dict:
             try:
                 log_fh.close()
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/launcher.py', 397, exc_info=True)
 
         # Recup start_time du process (via psutil si dispo, sinon "now")
         start_time = time.time()
@@ -405,7 +405,7 @@ async def start(mod: str, subject: str = "admin") -> dict:
             pt = psutil.Process(proc.pid).create_time()
             start_time = pt
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/launcher.py', 407, exc_info=True)
 
         _write_pidfile(mod, proc.pid, start_time, cmd, spec.default_port)
         _audit("start", mod, subject, {"pid": proc.pid, "port": spec.default_port})
@@ -467,7 +467,7 @@ async def stop(mod: str, subject: str = "admin") -> dict:
                 else:
                     os.kill(pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError, OSError):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/launcher.py', 469, exc_info=True)
             await asyncio.sleep(0.3)
 
         force_used = _is_alive(pid, pf["start_time"])

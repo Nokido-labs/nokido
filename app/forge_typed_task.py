@@ -99,7 +99,7 @@ def _ollama_url():
         if u:
             return u
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_typed_task.py', 101, exc_info=True)
     return "http://127.0.0.1:11434/api/chat"
 
 

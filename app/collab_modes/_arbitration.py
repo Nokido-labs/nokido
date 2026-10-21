@@ -100,7 +100,7 @@ def _snap_rag_state(event: str) -> None:
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_arbitration.py', 102, exc_info=True)
 
 
 def _detect_consensus(text_a: str, text_b: str) -> bool:
@@ -136,7 +136,7 @@ async def _wait_for_agent(task_id: str, timeout: int, chat: object, agent_name: 
                 try:
                     results = json.loads(results)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_arbitration.py', 138, exc_info=True)
             if isinstance(results, list) and results:
                 return results[-1].get("content", "")
         await asyncio.sleep(3)

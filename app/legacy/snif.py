@@ -12,7 +12,7 @@ from pysnmp.hlapi import *
 try:
     from scapy.all import *
 except:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/snif.py', 14, exc_info=True)
 
 
 class Device:
@@ -90,7 +90,7 @@ class NetworkDiscovery:
                     device.protocols.append("SNMP")
 
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/snif.py', 92, exc_info=True)
 
     # -------------------------
     # mDNS discovery
@@ -157,7 +157,7 @@ class NetworkDiscovery:
                 device.protocols.append("NetBIOS")
 
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/snif.py', 159, exc_info=True)
 
     # -------------------------
     # LLDP / CDP sniffing
@@ -209,7 +209,7 @@ class NetworkDiscovery:
         try:
             self.lldp_cdp_sniff()
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/snif.py', 211, exc_info=True)
 
         return [d.to_dict() for d in self.devices.values()]
 

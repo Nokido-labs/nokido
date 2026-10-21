@@ -41,7 +41,7 @@ def _load_secret(key, default=""):
         if v:
             return v
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 43, exc_info=True)
     e = ROOT / "Nokido.env"
     if e.exists():
         for ln in e.read_text(errors="replace").splitlines():
@@ -157,9 +157,9 @@ def _track_usage(
                 conn2.commit()
                 conn2.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 159, exc_info=True)
     except Exception:
-        pass  # non-bloquant
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 161, exc_info=True)
 
 
 # Mapping DT router legacy → agent IDs v18.5
@@ -239,7 +239,7 @@ class BrokerBase(ABC):
             _fr = _fw({"text": msg}, sender=self.AGENT_ID, recipient="HUB", ring=0)
             msg = f"[frame:{_fr.frame_id}|hash:{_fr.payload_hash}] {msg}"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 241, exc_info=True)
         self._tool("hub", {"action": "notify", "message": msg[:4000]})
 
     def hub_send(self, to, method, payload, corr_id=""):
@@ -409,7 +409,7 @@ class BrokerBase(ABC):
             try:
                 self.__class__._cached_model = None
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 411, exc_info=True)
             reply = f"[{self.AGENT_ID}] cache vidé"
             self.hub_reply(reply, to=from_, corr_id=corr_id, model="sentinel")
             self.log.info("[sentinel] RESET cache")
@@ -504,7 +504,7 @@ class BrokerBase(ABC):
                 {"latency_ms": ms, "tokens": ptok + ctok},
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_base.py', 506, exc_info=True)
 
     # Run
     def run(self):

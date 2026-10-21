@@ -174,7 +174,7 @@ def run_compaction(
 
             snaps_purged = RAGJanitor(db_path=db_path).purge_old_snapshots(keep=50000)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_compact.py', 176, exc_info=True)
 
     stats = {
         "chunks_before": chunks_before,

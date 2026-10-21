@@ -75,6 +75,7 @@ def _parse_turns(jsonl_path: Path):
         try:
             msg = json.loads(line)
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dialogue_score_session.py', 77, exc_info=True)
             continue
         mtype = msg.get("type", "")
         if mtype not in ("user", "assistant"):
@@ -128,7 +129,7 @@ def _save_wm(wm: dict) -> None:
         WATERMARK.parent.mkdir(parents=True, exist_ok=True)
         WATERMARK.write_text(json.dumps(wm, ensure_ascii=False), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dialogue_score_session.py', 130, exc_info=True)
 
 
 def _score_source(score_fn, path, turns, wm, label):

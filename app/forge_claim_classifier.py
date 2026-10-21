@@ -279,7 +279,7 @@ def _embed_via_brain_worker(text: str) -> list[float] | None:
         try:
             sock.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_claim_classifier.py', 281, exc_info=True)
 
 
 def is_technical_mlp(claim_text: str) -> tuple[bool, float] | None:

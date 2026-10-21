@@ -11,10 +11,13 @@ Usage:
 
 from __future__ import annotations
 import ast
-
-# DEAD_IMPORT removed: import os
+import json
+import logging
+import os
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
+
+logger = logging.getLogger(__name__)
 
 # --- amorce namespace (point d'entree) : `sys.path[0]` vaut le dossier du
 # script, pas la racine du depot. Sans cette ligne, `from nokido_agent...`
@@ -38,8 +41,90 @@ VIRTUAL_ROOTS = [
 ]
 
 
+# Cache des imports PAR FICHIER, indexe sur (mtime_ns, taille). Mesure du 2026-10-18 (cProfile d'introspect) :
+# scan_forge_modules RE-PARSAIT les ~1 190 modules a CHAQUE appel (ast.parse 5,7 s + ast.walk) -- 12 s sur 31.
+# Ce n'est pas une carte figee : un fichier modifie change de mtime/taille et il est re-parse au passage
+# suivant ; seul l'inchange est relu en memoire.
+_IMPORTS_CACHE: Dict[str, tuple] = {}
+
+# L'IMPORTS_CACHE SUR DISQUE (integre de 85cc404d9, NEMOTRON, GREEN de 9356d4517 ; mesure : scan 4 091 ms a froid ->
+# 39 ms) : la memoire meurt avec le processus, ce cache lui survit. Le premier _extract_imports du processus relit
+# _CACHE_DISQUE ; un fichier dont (mtime_ns, taille) n'a pas bouge n'est pas re-parse au demarrage suivant.
+_CACHE_DISQUE: Path = ROOT / "sandbox" / "cache" / "panorama_imports.json"
+_CACHE_CHARGE = False           # le disque a-t-il ete consulte (y compris "fichier absent") ?
+_CACHE_MODIFIES: set = set()    # fichiers recalcules depuis le dernier chargement/ecriture
+
+
+def _charger_cache_disque() -> None:
+    """Charge _CACHE_DISQUE dans _IMPORTS_CACHE, UNE fois par processus. Format {chemin: [mtime_ns, taille, [imports]]}.
+    Absent -> rien ; illisible ou corrompu -> logger.warning qui le DIT, cache vide, jamais d'exception."""
+    global _CACHE_CHARGE
+    if _CACHE_CHARGE:
+        return
+    _CACHE_CHARGE = True
+    try:
+        texte = Path(_CACHE_DISQUE).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return  # rien a charger, pas une erreur
+    except OSError as exc:
+        logger.warning("cache panorama illisible (%s) : %s -- ignore, imports recalcules", _CACHE_DISQUE, exc)
+        return
+    try:
+        brut = json.loads(texte)
+    except ValueError as exc:
+        logger.warning("cache panorama CORROMPU (%s) : %s -- ignore, cache vide, recalcule", _CACHE_DISQUE, exc)
+        return
+    if not isinstance(brut, dict):
+        logger.warning("cache panorama CORROMPU (%s) : structure inattendue -- ignore, recalcule", _CACHE_DISQUE)
+        return
+    for chemin, val in brut.items():
+        try:
+            mtime, taille, imports = val
+            _IMPORTS_CACHE[str(chemin)] = (int(mtime), int(taille), frozenset(imports))
+        except (TypeError, ValueError, KeyError) as exc:
+            logger.warning("cache panorama : entree corrompue pour %r (%s) -- ignoree", chemin, exc)
+
+
+def _persister_imports() -> None:
+    """Ecrit _IMPORTS_CACHE dans _CACHE_DISQUE (atomique : .tmp puis os.replace), seulement si une entree a ete
+    recalculee. Echec d'ecriture -> logger.warning, jamais d'exception."""
+    if not _CACHE_MODIFIES:
+        return
+    cible = Path(_CACHE_DISQUE)
+    entrees = {chemin: [mtime, taille, sorted(imports)]
+               for chemin, (mtime, taille, imports) in _IMPORTS_CACHE.items()}
+    try:
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cible.with_name(cible.name + ".tmp")
+        tmp.write_text(json.dumps(entrees, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, cible)
+    except (OSError, TypeError, ValueError) as exc:
+        logger.warning("cache panorama non ecrit (%s) : %s -- imports conserves en memoire", cible, exc)
+        return
+    _CACHE_MODIFIES.clear()
+
+
 def _extract_imports(py_path: Path) -> Set[str]:
-    """Retourne les modules importes par py_path (top-level uniquement)."""
+    """Retourne les modules importes par py_path (top-level uniquement), via le cache par (mtime, taille).
+    Le premier appel du processus relit d'abord le cache disque."""
+    if not _CACHE_CHARGE:
+        _charger_cache_disque()
+    try:
+        st = py_path.stat()
+    except OSError:
+        return set()
+    cle = str(py_path)
+    connu = _IMPORTS_CACHE.get(cle)
+    if connu is not None and connu[0] == st.st_mtime_ns and connu[1] == st.st_size:
+        return set(connu[2])
+    mods = _extract_imports_brut(py_path)
+    _IMPORTS_CACHE[cle] = (st.st_mtime_ns, st.st_size, frozenset(mods))
+    _CACHE_MODIFIES.add(cle)  # une entree a change : a ecrire en fin de scan
+    return set(mods)
+
+
+def _extract_imports_brut(py_path: Path) -> Set[str]:
+    """Parse reel (sans cache) : modules importes par py_path."""
     try:
         src = py_path.read_text(encoding="utf-8", errors="ignore")
         tree = ast.parse(src, filename=str(py_path))
@@ -87,6 +172,9 @@ def scan_forge_modules(include_virtual_roots: bool = True) -> Dict[str, Set[str]
             all_imports = _extract_imports(vroot)
             internal_deps = all_imports & internal_names
             graph[mod_name] = internal_deps
+
+    # Persistance : seulement si au moins une entree a ete recalculee ; un echec est dit, jamais leve.
+    _persister_imports()
 
     return graph
 

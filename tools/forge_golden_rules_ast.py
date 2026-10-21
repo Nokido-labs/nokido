@@ -50,7 +50,11 @@ _RE_SECRET = re.compile(r"(?i)(API_KEY|_SECRET|SECRET_KEY|_TOKEN|PASSWORD)")
 # (forge_key_rotation 3 -> 4) parce que `_KEY` est accroche n'importe ou dans le nom.
 # NR test_golden_secret_env_duree_nr (les vrais secrets restent pris).
 _RE_SECRET_ENV = re.compile(
-    r"(?i)^(?!.*(?:_PATH|_DIR|_FILE|_S|_MS|_SECONDS)$).*(API_KEY|_SECRET|SECRET_KEY|_TOKEN|PASSWORD|_KEY)")
+    # 16/10 : _TTL (duree), _TOKENS (compte), _KEYFILE (chemin) et `_KEY`/`_TOKEN` au milieu d'un mot (KEYSTONE)
+    # etaient pris pour des secrets dans les 37 fichiers geles -- un cliquet qui crie a faux se fait desarmer.
+    # _TLS_KEY : chemin d'un fichier PEM par convention (forge_tls_caddy / forge_tls_proxy, defaut sandbox/tls/key.pem).
+    r"(?i)^(?!.*(?:_PATH|_DIR|_FILE|_S|_MS|_SECONDS|_TTL|_TOKENS|_KEYFILE|_TLS_KEY)$)"
+    r".*(API_KEY|_SECRET|SECRET_KEY|_TOKEN(?![A-Z])|PASSWORD|_KEYS?(?![A-Z]))")
 _RE_EMBED_DB = re.compile(r"(?i)embeddings\.db")
 _RE_INSERT_COLS = re.compile(r"(?i)INSERT\s+INTO\s+rag_chunks\s*\(([^)]*)\)")
 _RE_LIKE_ON_RAG = re.compile(r"(?i)FROM\s+rag_\w+\b[^;]{0,200}\bLIKE\b")
@@ -169,8 +173,12 @@ class _GoldenVisitor(ast.NodeVisitor):
     def _entrer_portee(self, node: ast.AST) -> None:
         appels = {_dotted(n.func) or "" for n in ast.walk(node)
                   if isinstance(n, ast.Call)}
+        # Un ALIAS d'import du coffre EST un appel au coffre : tools/nokido_hub.py importe `get_secret as _gs_sup`,
+        # interroge le guichet puis replie sur l'env -- la forme prescrite -- et la regle l'accusait (16/10).
+        noms = set(self._COFFRE) | {a.asname for n in ast.walk(node) if isinstance(n, ast.ImportFrom)
+                                    for a in n.names if a.name in self._COFFRE and a.asname}
         self._portees_coffre.append(
-            any(a.split(".")[-1] in self._COFFRE for a in appels))
+            any(a.split(".")[-1] in noms for a in appels))
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._entrer_portee(node)
@@ -272,7 +280,9 @@ class _GoldenVisitor(ast.NodeVisitor):
 
     # ── laforge-cloud-secret-from-env, forme os.environ["X"] (INFO) ──────────
     def visit_Subscript(self, node: ast.Subscript) -> None:
-        if _dotted(node.value) == "os.environ":
+        # Une ECRITURE (`os.environ["X"] = v`, `del os.environ["X"]`) n'est pas une lecture prise pour
+        # autorite : store_openrouter_key propage au process la cle qu'il vient de ranger au coffre (16/10).
+        if _dotted(node.value) == "os.environ" and isinstance(node.ctx, ast.Load):
             key = _literal_str(node.slice)
             if key and _RE_SECRET_ENV.search(key) and not self._repli_apres_coffre():
                 self._add(node, "laforge-cloud-secret-from-env", "ERROR",

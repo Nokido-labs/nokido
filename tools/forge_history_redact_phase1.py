@@ -52,7 +52,7 @@ def grep_count(rev):
         try:
             total += int(line.rsplit(":", 1)[1])
         except (ValueError, IndexError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_history_redact_phase1.py', 54, exc_info=True)
     return total
 
 

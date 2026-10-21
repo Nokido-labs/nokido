@@ -2,6 +2,8 @@
 
 > ⚠️ **NON IMPLÉMENTÉ — backlog (audit 2026-08-21).** `forge_event_mesh.py` n'existe pas (ni `app/` ni `tools/`) ; seul `tools/forge_event_mesh_audit.py` (le pré-requis Phase-0 « audit existant ») est écrit. Les 3 bus à consolider restent SÉPARÉS : `app/forge_event_stream.py`, `app/forge_byte_router.py`, `proxy_deno/core/nervous_system.ts`. Doc en PRÉ-DÉCISION.
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 Source : memory `roadmap_event_mesh_neural` — PRE-DÉCISION, consolidation requise.
 
 ## Pre-requis consolidation (BLOQUE avant intégration)

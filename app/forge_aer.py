@@ -153,7 +153,7 @@ def src_id(canal: str) -> int:
         REGISTRE.parent.mkdir(parents=True, exist_ok=True)
         REGISTRE.write_text(json.dumps(reg, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_aer.py', 155, exc_info=True)
     return prochain
 
 

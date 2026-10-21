@@ -34,7 +34,7 @@ def _secret() -> bytes:
         if s:
             return s if isinstance(s, bytes) else str(s).encode("utf-8")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_telemetry_guard.py', 36, exc_info=True)
     import os
     return get_secret("LAFORGE_TELEMETRY_KEY") or "laforge-telemetry-dev".encode("utf-8")
 

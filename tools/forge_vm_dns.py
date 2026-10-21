@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """forge_vm_dns.py — accès TRUSTED à la VM StackDNS (AdGuardHome) pour debug/unblock.
 
-SSH freebox@localhost ; creds lus depuis Nokido.env LOCALEMENT (jamais
+SSH freebox@<hote de la VM> ; creds lus depuis Nokido.env LOCALEMENT (jamais
 exposés à l'agent — ce script tourne en trusted_script sous LaForgeTrusted).
 Cf [[roadmap_vm_dns_hardening]] (AdGuard + Unbound, Debian ARM64 Freebox VM).
 
@@ -21,8 +21,11 @@ import json
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV = os.path.join(ROOT, "Nokido.env")
-HOST = "localhost"
+# L'hote de la VM n'est plus EN DUR (P1 « le dist ne doit pas etre fige sur mes IP », owner 17/10) : il se lit
+# dans Nokido.env (SSH_HOST ou NOKIDO_VM_HOST), puis l'environnement, puis sandbox/reseau.local.json (non suivi).
+HOST = ""
 USER = "freebox"
+RESEAU_LOCAL = os.path.join(ROOT, "sandbox", "reseau.local.json")
 QLOG = "/opt/AdGuardHome/data/querylog.json"
 AG_YAML = "/opt/AdGuardHome/AdGuardHome.yaml"
 
@@ -38,11 +41,24 @@ def _load_env() -> dict:
     return d
 
 
+def _reseau_local() -> dict:
+    """Surcouche locale NON SUIVIE des adresses de l'owner ; absente ou illisible -> {} (l'appelant le DIT)."""
+    try:
+        with open(RESEAU_LOCAL, encoding="utf-8") as fh:
+            return dict(json.load(fh))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 _HINTS = ("FREEBOX", "STACKDNS", "VM_SSH", "SSH_VM", "VM_DNS", "DNS_VM", "ADGUARD", "166")
 
 
 def _find_creds(env: dict):
-    host = env.get("SSH_HOST") or HOST
+    host = (env.get("SSH_HOST") or env.get("NOKIDO_VM_HOST") or os.environ.get("NOKIDO_VM_HOST", "").strip()
+            or str(_reseau_local().get("vm_host") or "") or HOST)
+    if not host:
+        raise SystemExit("hote de la VM inconnu : definir SSH_HOST ou NOKIDO_VM_HOST (Nokido.env ou environnement) "
+                         "ou vm_host dans sandbox/reseau.local.json")
     user = env.get("SSH_USER") or USER
     try:
         port = int(env.get("SSH_PORT") or 22)
@@ -131,6 +147,7 @@ def _blocked(n: int, ip: str = None):
         try:
             j = json.loads(line)
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vm_dns.py', 149, exc_info=True)
             continue
         res = j.get("Result") or {}
         if not res.get("IsFiltered"):
@@ -175,6 +192,7 @@ def _recent(ip: str, n: int = 50):
         try:
             j = json.loads(line)
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vm_dns.py', 193, exc_info=True)
             continue
         if ip and j.get("IP", "") != ip:
             continue
@@ -311,7 +329,7 @@ def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_vm_dns.py', 329, exc_info=True)
     args = sys.argv[1:]
     action = args[0] if args else "discover"
     if action == "discover":

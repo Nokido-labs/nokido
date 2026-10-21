@@ -326,7 +326,7 @@ class NRRunner:
                 try:
                     old.unlink()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nr_reporter.py', 328, exc_info=True)
         return fname
 
     def _ingest_rag(self, report: NRReport) -> None:
@@ -405,7 +405,7 @@ class NRRunner:
                 dur = data["duration_ms"]
                 print(f"  {icon}  {ts}  v{ver}  {ok} OK / {fail} FAIL  {dur:.0f}ms")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nr_reporter.py', 407, exc_info=True)
         print(f"{'─' * 55}\n")
 
     def get_capability_graph(self) -> dict[str, dict]:

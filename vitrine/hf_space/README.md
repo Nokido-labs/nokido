@@ -5,7 +5,7 @@ colorFrom: indigo
 colorTo: gray
 sdk: static
 pinned: false
-short_description: Local-first runtime for an artificial organism
+short_description: One memory and one MCP hub for all your coding agents
 ---
 
 # Nokido — static showcase

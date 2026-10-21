@@ -226,7 +226,7 @@ def ingest_snippets(dry: bool = False) -> dict:
             try:
                 store_chunks(chunks)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_curriculum_ingest.py', 228, exc_info=True)
         total += len(chunks)
     return {"module": "snippets", "label": "Snippets canoniques Nokido", "chunks_total": total,
             "detail": [s[0] for s in SNIPPETS]}

@@ -45,7 +45,7 @@ def load_last_assignment() -> dict:
             if all(k in d for k in ("chat", "action", "rag")):
                 return d
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 47, exc_info=True)
     return {}
 
 
@@ -169,7 +169,7 @@ async def main(_DevOpsApp=None) -> None:
             if hasattr(_s, "reconfigure"):
                 _s.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 171, exc_info=True)
     # Résoudre les globals Nokido via _g() — forge_startup est importé depuis Nokido.py
     _version_manager = forge_context.get_version_manager()
     _settings = forge_context.get_settings()
@@ -183,7 +183,7 @@ async def main(_DevOpsApp=None) -> None:
         if _version_manager:
             _start_ver = _version_manager.current_version
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 185, exc_info=True)
     # Résoudre TOUS les globals Nokido nécessaires à main()
     # Résoudre settings — priorité : arg passé > _g() > import direct
     # Settings : priorité runtime > forge_settings (pas de dépendance __main__)
@@ -199,7 +199,7 @@ async def main(_DevOpsApp=None) -> None:
 
             version_manager = _VM()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 201, exc_info=True)
     ssh_manager = forge_context.get_ssh_manager()
     # forge_prefect n'a plus `get_prefect_manager` : l'accesseur vit dans forge_context (mesure
     # 2026-09-25, AttributeError au demarrage de la TUI v13 une fois `__main__` garde).
@@ -347,11 +347,11 @@ async def main(_DevOpsApp=None) -> None:
                                 try:
                                     app._safe_write(f"[dim]🖥 Architecture : {arch.summary()}[/]")
                                 except Exception:
-                                    pass
+                                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 349, exc_info=True)
 
                             app.call_from_thread(_show_arch)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 353, exc_info=True)
                     # Benchmark
                     await scorer.refresh(bench=True)
                     logger.info(f"Benchmark terminé : {len(scorer.models)} modèles")
@@ -375,9 +375,9 @@ async def main(_DevOpsApp=None) -> None:
                             msg = ("🎯 Scoring terminé — " + " | ".join(changed)) if changed else "🎯 Scoring confirmé"
                             app._safe_write(f"[dim]{msg}[/]")
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 377, exc_info=True)
                 except asyncio.CancelledError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 379, exc_info=True)
                 except Exception as _be:
                     logger.debug(f"_bg_startup: {_be}")
 
@@ -570,7 +570,7 @@ if __name__ == "__main__":
                 _wid = _sp2.check_output(["xdotool", "getactivewindow"], stderr=_sp2.DEVNULL).strip()
                 _sp2.Popen(["xdotool", "windowminimize", _wid], stdout=_sp2.DEVNULL, stderr=_sp2.DEVNULL)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 572, exc_info=True)
             sys.exit(0)
         # Relancement échoué → continuer normalement dans cette fenêtre
         print("⚒  Lancement direct (aucun émulateur terminal détecté).")
@@ -610,13 +610,13 @@ async def _after_wizard(configured: bool) -> None:
             _o, _, _ = await run_ssh("hostname -f 2>/dev/null || hostname")
             _hn = _strip_ssh_output(_o)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 612, exc_info=True)
         _kern = ""
         try:
             _o2, _, _ = await run_ssh("uname -r")
             _kern = _strip_ssh_output(_o2)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 618, exc_info=True)
         _ks = f" · [dim]kernel {_kern}[/]" if _kern else ""
         app._set_ssh_mode(True, hostname=_hn or settings.ssh_host)
         app._chat_log().write(
@@ -678,7 +678,7 @@ async def _ping_brain() -> None:
             _s.close()
             _ctx_b.term()
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 680, exc_info=True)
 
 
 # ── handle_after_wizard : doublon RETIRE le 2026-08-14 ──────────────────
@@ -763,7 +763,7 @@ def _purge_pycache() -> None:
         try:
             _pyc.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 765, exc_info=True)
     # `__main__` n'est JAMAIS retire (MESURE 2026-09-25, journal du bridge TUI :7440) : le script
     # lance EST app/Nokido.py, donc son module tombait dans ce filtre. Retire de sys.modules,
     # `inspect.getfile(DevOpsApp)` levait « source code not available » dans le constructeur
@@ -778,7 +778,7 @@ def _purge_pycache() -> None:
         try:
             del sys.modules[_m]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_startup.py', 780, exc_info=True)
     print(f"  [*] Cache Python purgé (dossier: {_base.name})", flush=True)
 
 

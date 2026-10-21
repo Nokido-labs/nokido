@@ -55,7 +55,7 @@ def _env_avec_tokens() -> dict:
         env["HOME"] = str(cache)
         env["USERPROFILE"] = str(cache)
     except Exception:  # noqa: BLE001 - sans cache inscriptible, l'env suffit a Modal
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_modal_deploy_embed.py', 57, exc_info=True)
     return env
 
 

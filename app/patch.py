@@ -63,7 +63,7 @@ def _live_log(tool: str, msg: str, status: str = "OK") -> None:
         with open(LIVE_LOG, "a", encoding="utf-8") as _f:
             _f.write(line)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 65, exc_info=True)
 
 
 def _cleanup_old_instances() -> None:
@@ -83,9 +83,9 @@ def _cleanup_old_instances() -> None:
                     proc.wait(timeout=3)
                     _live_log("SYSTEM", f"Fantome PID={proc.info['pid']}", "WARN")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 85, exc_info=True)
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 87, exc_info=True)
     PID_FILE.write_text(str(current))
 
 
@@ -307,7 +307,7 @@ def python_interpreter(code: str) -> str:
             with open(TRACE_LOG, "a", encoding="utf-8", errors="replace") as f:
                 f.write(f"[{datetime.now():%H:%M:%S}] [IA_LOG] {msg}\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 309, exc_info=True)
 
     _PG["log"] = mcp_trace
 
@@ -547,7 +547,7 @@ def _sentinel_check(code: str, filepath: str) -> tuple[bool, str]:
             if check.level >= 3:  # CRITICAL
                 issues.append(f"DangerGuard level={check.level}: {getattr(check, 'rule_name', '?')}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 549, exc_info=True)
     if issues:
         return False, " | ".join(issues)
     return True, "OK"
@@ -575,7 +575,7 @@ def _sentinel_check(code: str, filepath: str) -> tuple[bool, str]:
             if check.level >= 3:  # CRITICAL
                 issues.append(f"DangerGuard level={check.level}: {getattr(check, 'rule_name', '?')}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 577, exc_info=True)
     if issues:
         return False, " | ".join(issues)
     return True, "OK"
@@ -792,7 +792,7 @@ def sql(action: str, query: str = "", db_path: Optional[str] = None) -> str:
 
         _th.Thread(target=_audit_log, daemon=True).start()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/patch.py', 794, exc_info=True)
     # ────────────────────────────────────────────────────────────────────────
     if action == "status":
         conn = _dbc(db_path)

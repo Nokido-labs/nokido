@@ -69,6 +69,7 @@ def scan_once() -> dict:
                 try:
                     sz = p.stat().st_size
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_log_guard.py', 71, exc_info=True)
                     continue
                 scanned += 1
                 if sz > CAP_BYTES:

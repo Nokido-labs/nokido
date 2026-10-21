@@ -144,6 +144,7 @@ async def ollama_call(
             except RuntimeError:
                 raise
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama.py', 146, exc_info=True)
                 continue
 
     # ── Fallback 0 : llama.cpp si disponible ────────────────────────────────
@@ -180,7 +181,7 @@ async def ollama_call(
 
                     _bi3._nokido_last_model = f"✨ {_gem2.model}"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama.py', 182, exc_info=True)
                 return _ans2
     except Exception as _ge2:
         logger.debug(f"[ollama_call] Gemini fallback: {_ge2}")
@@ -237,6 +238,7 @@ async def ollama_stream(
                             try:
                                 data = json.loads(line)
                             except json.JSONDecodeError:
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama.py', 239, exc_info=True)
                                 continue
                             tok = data.get("message", {}).get("content", "")
                             if tok:
@@ -252,6 +254,7 @@ async def ollama_stream(
             except RuntimeError:
                 raise
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ollama.py', 254, exc_info=True)
                 continue
 
     # Extraire task + context des messages pour les bridges alternatifs

@@ -245,9 +245,9 @@ else:
                         try:
                             self._channel.change_terminal_size(nc, nr)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 247, exc_info=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 249, exc_info=True)
 
         async def on_resize(self, _) -> None:
             """On resize.
@@ -282,7 +282,7 @@ else:
                 log.refresh(layout=True)
                 log._max_width = max(40, self.size.width - 1)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 284, exc_info=True)
 
         async def connect(self) -> bool:
             """Connecte au serveur SSH.
@@ -331,6 +331,7 @@ else:
                             self._stream.feed(data)
                             self._refresh()
                     except asyncio.TimeoutError:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 333, exc_info=True)
                         continue
                     except asyncio.CancelledError:
                         break
@@ -340,7 +341,7 @@ else:
                             self._log.write(f"[PTY déconnecté: {e}]")
                         break
             except asyncio.CancelledError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 342, exc_info=True)
 
         async def _write_loop(self) -> None:
             """Write loop.
@@ -358,6 +359,7 @@ else:
                             self._channel.stdin.write(data)
                             await self._channel.stdin.drain()
                     except asyncio.TimeoutError:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 360, exc_info=True)
                         continue
                     except asyncio.CancelledError:
                         break
@@ -365,7 +367,7 @@ else:
                         logger.error(f"PTY write: {e}")
                         break
             except asyncio.CancelledError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 367, exc_info=True)
 
         def _refresh(self) -> None:
             """Refresh.
@@ -412,7 +414,7 @@ else:
                     else:
                         self._log.write(padded)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 414, exc_info=True)
 
         KEY_MAP = {
             "enter": "\r",
@@ -448,7 +450,7 @@ else:
                 event.stop()
                 self.focus()  # focus sur le Widget, pas le RichLog interne
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 450, exc_info=True)
 
         def on_mouse_down(self, event) -> None:
             """Mousedown PTY — capture pour éviter crash Textual.
@@ -461,7 +463,7 @@ else:
             try:
                 event.stop()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 463, exc_info=True)
 
         async def on_key(self, event: events.Key) -> None:
             """On key.
@@ -515,7 +517,7 @@ else:
                 try:
                     self._log.write(f"$ {cmd}")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 517, exc_info=True)
             await self._input_queue.put(cmd + "\r")
 
         async def disconnect(self) -> None:
@@ -533,7 +535,7 @@ else:
                 try:
                     self._channel.stdin.write_eof()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty.py', 535, exc_info=True)
             if self._connection:
                 self._connection.close()
                 await self._connection.wait_closed()

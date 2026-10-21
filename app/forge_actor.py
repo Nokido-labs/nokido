@@ -67,10 +67,10 @@ def _build_action_vocab(limit: int = 800) -> list:
                     if st and st != "tasks:unknown":
                         label = f"{task_type}:{st}"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_actor.py', 69, exc_info=True)
             vocab.append((delta / n, label))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_actor.py', 72, exc_info=True)
     return vocab
 
 
@@ -403,7 +403,7 @@ def mcts_propose(
             "n_sims": n_simulations, "visits": getattr(best, "visits", 0),
         }, topic="reasoning")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_actor.py', 405, exc_info=True)
     return best.plan, scored
 
 

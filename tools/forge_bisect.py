@@ -81,7 +81,7 @@ def _python() -> str:
         if os.path.exists(LAFORGE_PYTHON):
             return LAFORGE_PYTHON
     except Exception:  # noqa: BLE001 - module absent ou chemin derive de ~ inexistant
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bisect.py', 83, exc_info=True)
     return sys.executable
 
 

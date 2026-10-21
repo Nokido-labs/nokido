@@ -100,6 +100,25 @@ def test_aucun_test_nr_nouveau_hors_suite_pure():
           "_socle_suite_pure.json en disant POURQUOI il en est exclu.")
 
 
+def _absents(liste) -> list:
+    """Entrees de PURE_TESTS (chemin, ou chemin::noeud) dont le FICHIER n'existe pas."""
+    return [rel for rel in liste if not (ROOT / str(rel).split("::", 1)[0]).exists()]
+
+
+def test_le_cliquet_des_declares_absents_sait_mordre():
+    """bb:active_bugs/cliquet_suite_pure_aveugle_aux_suppressions (25/08) : test_redteam_link_nr.py, declare et
+    absent du disque depuis le 22/08, etait filtre EN SILENCE par ci_local -- trois jours de suite amputee."""
+    assert _absents(["tests/nr/test_qui_n_existe_pas_nr.py", "tests/nr/test_suite_pure_ratchet_nr.py::x"]) == [
+        "tests/nr/test_qui_n_existe_pas_nr.py"]
+
+
+def test_aucun_test_declare_n_est_absent_du_disque():
+    absents = _absents(_ci_local().PURE_TESTS)
+    assert not absents, ("%d test(s) declare(s) dans PURE_TESTS et ABSENT(S) du disque -- ci_local les "
+                         "filtrerait, la suite serait amputee sans signe :\n" % len(absents)
+                         + "\n".join("  - " + a for a in absents))
+
+
 def test_aucun_test_de_la_suite_ne_depend_d_un_chemin_non_versionne():
     """Un test qui exige un chemin GITIGNORE mesure la machine, pas le code.
 

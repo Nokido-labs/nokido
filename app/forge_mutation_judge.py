@@ -660,6 +660,69 @@ def perimetre_mesure_detail(rel: str, racine=None, max_tests: int = 8) -> dict:
             "par_convention": convention, "par_import": par_import, "borne": borne}
 
 
+EXTRAIT_ECHEC_MAX = 600
+CAPSULE_MAX = 900
+
+
+def _extrait_echec(sortie: str) -> str:
+    """Lignes TRACABLES d'un echec pytest (assertions « E », FAILED/ERROR, fichier.py:ligne), bornees ; dit l'omis."""
+    import re as _re
+
+    garde = [l.rstrip() for l in (sortie or "").splitlines()
+             if l.startswith("E ") or l.startswith(("FAILED", "ERROR")) or _re.match(r"^\S+\.py:\d+:", l)]
+    texte = "\n".join(garde) or "(aucune ligne tracable dans la sortie pytest)"
+    if len(texte) > EXTRAIT_ECHEC_MAX:
+        coupe = EXTRAIT_ECHEC_MAX - 40
+        texte = texte[:coupe] + "\n... %d car. omis" % (len(texte) - coupe)
+    return texte
+
+
+_PROCHAINE_EXPERIENCE = {
+    "DEGRADE": "reparer d'abord ce qui a ete perdu (ou annuler le dernier changement) : aucune vitesse ne compense "
+               "une correction perdue",
+    "NEUTRE": "gain dans le bruit : changer de levier (autre transformation, autre dimension)",
+    "INDECIDABLE": "fournir une mesure comparable des deux cotes (tests, metrique declaree)",
+    "AMELIORE": "prendre ce candidat comme nouvelle base et chercher le goulot suivant",
+    "MEURT": "le candidat ne survit pas (syntaxe, import ou tests) : corriger la cause citee avant toute mesure",
+    "REFUSE": "candidat refuse avant execution (verrou, cible non mutable, patron absent) : changer de cible",
+    "REJETE_HELD_OUT": "gain contredit par le jeu jamais vu : sur-ajustement, revenir a une transformation generale",
+    "SURVIT_SANS_GAIN": "survit sans gain hors bruit : changer de levier (autre transformation, autre dimension)",
+    "GAIN_INDECIDABLE": "gain non mesurable : fournir des tests cibles ou une metrique declaree",
+}
+
+
+def capsule_autopsie(verdict: dict, baseline: dict, mesure_candidat: dict, candidat: str = "") -> str:
+    """Capsule d'autopsie (chantier 2 du takehome, 18/10) : ~200 tokens pour la tentative suivante.
+
+    Uniquement des pieces TRACABLES -- identifiant du candidat, verdict et sa raison, delta de metrique, tests
+    perdus avec leur extrait pytest -- et une prochaine experience tiree de la CATEGORIE du verdict (table
+    fixe, aucun LLM, aucun diagnostic invente). Bornee a CAPSULE_MAX ; ce qui ne tient pas est DIT omis."""
+    v = (verdict or {}).get("verdict") or "INCONNU"
+    tete = ["capsule %s : %s" % (candidat or "?", v),
+            "pourquoi : %s" % str((verdict or {}).get("pourquoi") or "")[:200]]
+    bm, cm = (baseline or {}).get("metrique"), (mesure_candidat or {}).get("metrique")
+    if isinstance(bm, dict) and isinstance(cm, dict):
+        tete.append("metrique : %s %g -> %g (%s)" % (cm.get("nom"), float(bm.get("valeur") or 0),
+                                                       float(cm.get("valeur") or 0), cm.get("sens")))
+    pied = "prochaine experience : %s" % _PROCHAINE_EXPERIENCE.get(v, "relire le verdict, il est hors table")
+    echecs = (mesure_candidat or {}).get("echecs") or {}
+    # Seulement si le candidat a ETE mesure : un candidat MEURT n'a perdu aucun test, il n'a pas tourne.
+    perdus = (sorted(set((baseline or {}).get("tests_passes") or []) - set(mesure_candidat.get("tests_passes") or []))
+              if isinstance(mesure_candidat, dict) and "tests_passes" in mesure_candidat else [])
+    details = ["perdu %s : %s" % (t, " | ".join(str(echecs.get(t) or "(sortie non conservee)").splitlines()[:2]))
+               for t in perdus]
+    texte, omis = "\n".join(tete), 0
+    budget = CAPSULE_MAX - len(pied) - 40
+    for i, d in enumerate(details):
+        if len(texte) + len(d) + 1 > budget:
+            omis = len(details) - i
+            break
+        texte += "\n" + d
+    if omis:
+        texte += "\n... %d detail(s) omis (borne %d car.)" % (omis, CAPSULE_MAX)
+    return texte + "\n" + pied
+
+
 def mesurer(tests: list[str] | None = None, cwd: str | None = None) -> dict:
     """Metrique MESUREE d'un etat du depot : tests qui PASSENT + duree. Base du GAIN.
 
@@ -672,18 +735,53 @@ def mesurer(tests: list[str] | None = None, cwd: str | None = None) -> dict:
     import time as _t
 
     tests = tests or []
-    passes = []
+    passes, echecs = [], {}
     t0 = _t.monotonic()
     for t in tests:
-        rt = subprocess.run([sys.executable, "-m", "pytest", "-q", "--no-header", t],
+        # -p no:cacheprovider (20/10) : sous la charge de la CI de reference, l'lstat du .pytest_cache du depot
+        # principal levait FileNotFoundError et le pytest imbrique mourait avant le test
+        # --rootdir/--confcutdir = le dossier de la mesure (20/10, reference 46c8adfa5) : enracine plus haut, la collecte
+        # de pytest >= 8 listait les dossiers ancetres ou naissent et meurent les temporaires d'autres tests
+        _racine = cwd or str(ROOT)
+        rt = subprocess.run([sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider",
+                             "--rootdir", _racine, "--confcutdir", _racine, t],
                             cwd=cwd or str(ROOT), capture_output=True, timeout=900,
                             errors="replace", env={**os.environ, "PYTHONNOUSERSITE": "1"})
         if rt.returncode == 0:
             passes.append(t)
+        else:  # la sortie etait capturee puis JETEE : la tentative suivante ne savait que « rejete » (18/10)
+            echecs[t] = _extrait_echec((rt.stdout or "") + "\n" + (rt.stderr or ""))
     # L'IDENTITE des tests verts, pas seulement leur nombre : c'est elle qui permet a juger_gain
     # d'exiger une non-regression PAR test (DGM require_per_benchmark_non_regression, 26/09).
     return {"tests_ok": len(passes), "tests_total": len(tests), "tests_passes": passes,
-            "duree_s": round(_t.monotonic() - t0, 3)}
+            "duree_s": round(_t.monotonic() - t0, 3), "echecs": echecs}
+
+
+_SENS_METRIQUE = ("MIN", "MAX")
+
+
+def juger_metrique(base, cand) -> dict:
+    """Contrat de metrique commun (chantier 1 du takehome, 18/10) : {nom, valeur, bruit, sens MIN|MAX}.
+
+    Delta ORIENTE (MIN : base - cand ; MAX : cand - base) compare a la bande de bruit (la plus large des deux).
+    Contrat invalide ou incomparable = INDECIDABLE, jamais NEUTRE : NEUTRE dirait « aucun gain », la
+    bonne lecture est « rien de comparable »."""
+    if not isinstance(base, dict) or not isinstance(cand, dict):
+        return {"verdict": "INDECIDABLE", "pourquoi": "metrique absente d'un des deux cotes"}
+    if base.get("nom") != cand.get("nom") or cand.get("sens") not in _SENS_METRIQUE \
+            or base.get("sens") != cand.get("sens"):
+        return {"verdict": "INDECIDABLE", "pourquoi": "metriques incomparables (nom ou sens MIN/MAX)"}
+    try:
+        bv, cv = float(base["valeur"]), float(cand["valeur"])
+        bruit = max(abs(float(base.get("bruit") or 0.0)), abs(float(cand.get("bruit") or 0.0)))
+    except (KeyError, TypeError, ValueError):
+        return {"verdict": "INDECIDABLE", "pourquoi": "valeur ou bruit non numerique"}
+    d = (bv - cv) if cand["sens"] == "MIN" else (cv - bv)
+    if d > bruit:
+        return {"verdict": "AMELIORE", "pourquoi": "%s %g -> %g (%s), hors bruit %g" % (cand["nom"], bv, cv, cand["sens"], bruit)}
+    if d < -bruit:
+        return {"verdict": "DEGRADE", "pourquoi": "%s %g -> %g (%s), recul hors bruit %g" % (cand["nom"], bv, cv, cand["sens"], bruit)}
+    return {"verdict": "NEUTRE", "pourquoi": "%s %g -> %g dans le bruit %g" % (cand["nom"], bv, cv, bruit)}
 
 
 def juger_gain(baseline: dict, candidat: dict, marge_duree: float = 0.10) -> dict:
@@ -724,6 +822,19 @@ def juger_gain(baseline: dict, candidat: dict, marge_duree: float = 0.10) -> dic
     if co < bo:  # un test qui passait ne passe plus : DEGRADE, sans appel.
         return {"verdict": "DEGRADE", "pourquoi": "moins de tests passent (%d < %d)" % (co, bo),
                 "baseline": baseline, "candidat": candidat}
+    # Metrique DECLAREE (cycles, debit...) : elle REMPLACE duree_s comme dimension de performance -- la
+    # duree de pytest n'est que du bruit face a l'objectif. La correction ci-dessus reste eliminatoire, et
+    # une metrique degradee n'est jamais rachetee par plus de tests verts (anti-Goodhart).
+    if "metrique" in baseline or "metrique" in candidat:
+        m = juger_metrique(baseline.get("metrique"), candidat.get("metrique"))
+        if m["verdict"] in ("INDECIDABLE", "DEGRADE"):
+            return {**m, "baseline": baseline, "candidat": candidat}
+        if m["verdict"] == "AMELIORE":
+            return {**m, "baseline": baseline, "candidat": candidat}
+        if co > bo and ct >= bt:
+            return {"verdict": "AMELIORE", "pourquoi": "%d tests passent vs %d ; %s" % (co, bo, m["pourquoi"]),
+                    "baseline": baseline, "candidat": candidat}
+        return {**m, "baseline": baseline, "candidat": candidat}
     if co > bo and ct >= bt:  # plus de tests verts a couverture au moins egale.
         return {"verdict": "AMELIORE", "pourquoi": "%d tests passent vs %d" % (co, bo),
                 "baseline": baseline, "candidat": candidat}
@@ -779,6 +890,12 @@ def juger_held_out(baseline: dict, candidat: dict) -> dict:
             % baseline["tests_total"]}
 
 
+def _capsule_de(r: dict, baseline: dict, candidat: dict | None, rel: str) -> str:
+    """Capsule d'un verdict du juge FERME (verdict final, sa note ou sa cause)."""
+    pourquoi = r.get("note") or r.get("cause") or ((r.get("gain") or {}).get("pourquoi")) or ""
+    return capsule_autopsie({"verdict": r.get("verdict"), "pourquoi": pourquoi}, baseline, candidat or {}, candidat=rel)
+
+
 def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = None) -> dict:
     """Juge FERME : SURVIT (non-regression) PUIS AMELIORE (gain vs baseline).
 
@@ -798,6 +915,7 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
     r = juger_module(rel, nouveau, tests)
     if r.get("verdict") != "SURVIT":
         r = {**r, "gain": None, "baseline": baseline}
+        r["capsule"] = _capsule_de(r, baseline, None, rel)
         _journaliser(rel, r)
         return r
     candidat = mesurer(tests)
@@ -809,6 +927,7 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
         if jho["verdict"] != "DEGRADE":
             r["verdict"] = "AMELIORE"
             r["note"] = "mutation CONSERVEE : survit, ameliore (%s), held-out %s" % (g["pourquoi"], jho["verdict"])
+            r["capsule"] = _capsule_de(r, baseline, candidat, rel)
             _journaliser(rel, r)
             return r
         # REJET immediat (debat swarm Q1) : le gain mesure sur la selection est CONTREDIT par le jeu
@@ -819,6 +938,7 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
             r["restaure_sans_gain"] = True
         r["verdict"] = "REJETE_HELD_OUT"
         r["note"] = "gain sur la selection CONTREDIT par le held-out : %s" % jho["pourquoi"]
+        r["capsule"] = _capsule_de(r, baseline, candidat, rel)
         _journaliser(rel, r)
         return r
     # Pas de gain PROUVE : on REVERTE, tests verts ou non. Le geste est le meme dans
@@ -837,6 +957,7 @@ def juger_module_avec_gain(rel: str, nouveau: str, tests: list[str] | None = Non
         r["verdict"] = "SURVIT_SANS_GAIN"
         r["note"] = ("REJETEE malgre tests verts : %s (%s) -- pas de gain mesure vs baseline"
                      % (g["verdict"], g["pourquoi"]))
+    r["capsule"] = _capsule_de(r, baseline, candidat, rel)
     _journaliser(rel, r)
     return r
 
@@ -849,9 +970,12 @@ def _journaliser(rel: str, r: dict) -> None:
     try:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
         entree = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            # 18/10 (audit) : le banc ecrivait dans le ledger de PRODUCTION, et un REFUSE n'y portait pas sa cause.
+            "origine": os.environ.get("LAFORGE_JUGE_ORIGINE", "production"),
             "rel": str(rel),
             "verdict": r.get("verdict"),
-            "cause": r.get("cause"),
+            "cause": r.get("cause") or (str(r.get("pourquoi"))[:160] if r.get("pourquoi") else None),
             "gain": (r.get("gain") or {}).get("verdict") if isinstance(r.get("gain"), dict) else None,
             "baseline": r.get("baseline"),
             "candidat": r.get("candidat"),
@@ -879,6 +1003,10 @@ def tableau_de_bord(entrees: list[dict] | None = None, n: int = 500) -> dict:
                     entrees.append(json.loads(_ln))
                 except Exception:  # noqa: BLE001 - une ligne corrompue est COMPTEE, pas avalee
                     illisibles += 1
+    # Taux sur la PRODUCTION seule (18/10) : le banc (origine qualification) et l'historique sans horodatage (les 5
+    # lignes du banc d'aout, gelees telles quelles) faussaient « 5 tentatives, 0 % » -- ils sont COMPTES a part.
+    brut = len(entrees)
+    entrees = [e for e in entrees if e.get("ts") and e.get("origine", "production") != "qualification"]
     tot = len(entrees)
 
     def _c(v):
@@ -896,6 +1024,7 @@ def tableau_de_bord(entrees: list[dict] | None = None, n: int = 500) -> dict:
     ameliore = _c("AMELIORE")
     return {
         "tentatives": tot,
+        "exclues_banc_ou_historique": brut - tot,
         "acceptees_AMELIORE": ameliore,
         "taux_acceptation": round(ameliore / tot, 3) if tot else 0.0,
         "rejets_sans_gain": _c("SURVIT_SANS_GAIN"),

@@ -14,7 +14,7 @@ from datetime import datetime
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hook_gate_orchestrator.py', 16, exc_info=True)
 
 LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "gate_intent.log")
 
@@ -29,7 +29,7 @@ def main():
             try:
                 payload = json.load(sys.stdin)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hook_gate_orchestrator.py', 31, exc_info=True)
 
         # Logging muet
         with open(LOG_FILE, "a", encoding="utf-8") as f:

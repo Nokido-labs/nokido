@@ -304,8 +304,9 @@ def vitrine_hf(agir: bool = False) -> dict:
 # pas eclater le support), WIKI miroite depuis le wiki public apres le MEME juge de secrets que le code. Chaque reglage
 # est RELU sur le distant. Mesure du 13/10 : appliquee a la main une premiere fois (C:/tmp/miroirs), ici rendue rejouable.
 WIKI_SOURCE = "https://github.com/Nokido-labs/nokido.wiki.git"
-DESCRIPTION_MIROIR = ("Nokido -- local-first runtime for an artificial organism. Read-only mirror of "
-                      "https://github.com/Nokido-labs/nokido : issues and contributions there.")
+# 20/10 (owner « aligner les miroirs publics ») : meme accroche que l'About du depot GitHub public.
+DESCRIPTION_MIROIR = ("One memory, one set of guardrails and one MCP hub for all your coding agents -- local-first. "
+                      "Read-only mirror of https://github.com/Nokido-labs/nokido : issues and contributions there.")
 TOPICS_MIROIR = ["local-first", "mcp", "ai-agents", "rag", "multi-agent", "python", "agpl"]
 # Surface REDUITE (owner 13/10 « securise un max ») : tout ce qu'un miroir n'utilise pas est ferme -- demandes
 # d'acces, registre de conteneurs, paquets, snippets, environnements, feature flags, infrastructure, monitor,
@@ -450,27 +451,43 @@ def logo_miroirs(api_gl: str, gl: dict, api_cb: str, cb: dict, agir: bool) -> di
 
 
 def releases_miroirs(api_gl: str, gl: dict, api_cb: str, cb: dict, agir: bool) -> dict:
-    """Chaque release publiee de GitHub existe sur GitLab et Codeberg (meme tag, notes, liens, sha256). Relu ensuite."""
+    """Chaque release publiee de GitHub existe sur GitLab et Codeberg (meme tag, notes, liens, sha256). Relu ensuite.
+
+    16/10 (0.20.12) : ALIGNE veut dire IDENTIQUE, pas seulement present. L'asset du Knowledge Pack a ete remplace sur
+    GitHub ; les releases deja refletees annoncaient l'ancien sha et l'ancien code rendait ALIGNE sur leur seule
+    existence. Une release existante dont les notes different est DITE a blanc (ECARTS) et MISE A JOUR en mode agir
+    (GitLab PUT, Codeberg PATCH), puis relue : le verdict porte sur le contenu relu, pas sur le code HTTP."""
     import requests
     from urllib.parse import quote
+
+    def _norm(t) -> str:
+        return (t or "").replace("\r\n", "\n").strip()
     rels = [r for r in requests.get("https://api.github.com/repos/Nokido-labs/nokido/releases", timeout=30).json()
             if isinstance(r, dict) and not r.get("draft")]
     out = {"github": sorted(r["tag_name"] for r in rels), "gitlab": {}, "codeberg": {}}
     for rel in rels:
         tag, notes = rel["tag_name"], _notes_miroir(rel)
         url_gl = api_gl + "/releases/" + quote(tag, safe="")
-        if requests.get(url_gl, headers=gl, timeout=30).status_code == 404 and agir:
+        r = requests.get(url_gl, headers=gl, timeout=30)
+        if r.status_code == 404 and agir:
             liens = [{"name": a["name"], "url": a["browser_download_url"], "link_type": "package"}
                      for a in rel.get("assets", [])]
             requests.post(api_gl + "/releases", headers=gl, timeout=30, json={
                 "tag_name": tag, "name": rel.get("name") or tag, "description": notes, "assets": {"links": liens}})
-        out["gitlab"][tag] = requests.get(url_gl, headers=gl, timeout=30).status_code == 200
+        elif r.status_code == 200 and _norm(r.json().get("description")) != _norm(notes) and agir:
+            requests.put(url_gl, headers=gl, timeout=30, json={"description": notes})
+        r = requests.get(url_gl, headers=gl, timeout=30)
+        out["gitlab"][tag] = r.status_code == 200 and _norm(r.json().get("description")) == _norm(notes)
         url_cb = api_cb + "/releases/tags/" + quote(tag, safe="")
-        if requests.get(url_cb, headers=cb, timeout=30).status_code == 404 and agir:
+        r = requests.get(url_cb, headers=cb, timeout=30)
+        if r.status_code == 404 and agir:
             requests.post(api_cb + "/releases", headers=cb, timeout=30, json={
                 "tag_name": tag, "name": rel.get("name") or tag, "body": notes, "draft": False,
                 "prerelease": bool(rel.get("prerelease"))})
-        out["codeberg"][tag] = requests.get(url_cb, headers=cb, timeout=30).status_code == 200
+        elif r.status_code == 200 and _norm(r.json().get("body")) != _norm(notes) and agir:
+            requests.patch(api_cb + "/releases/%s" % r.json()["id"], headers=cb, timeout=30, json={"body": notes})
+        r = requests.get(url_cb, headers=cb, timeout=30)
+        out["codeberg"][tag] = r.status_code == 200 and _norm(r.json().get("body")) == _norm(notes)
     out["verdict"] = "ALIGNE" if all(out["gitlab"].values()) and all(out["codeberg"].values()) else "ECARTS"
     return out
 

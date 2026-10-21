@@ -108,7 +108,7 @@ async def close_async() -> None:
     try:
         await _session.disconnect()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/tui_adapters/pty_adapter.py', 110, exc_info=True)
     _session = None
 
 

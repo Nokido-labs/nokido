@@ -31,11 +31,41 @@ if str(ROOT / "tools") not in sys.path:
 M = pytest.importorskip("forge_patch_lane_auto")
 
 
-def lane_deduite(args: dict) -> str:
-    """Rejoue le TEXTE REELLEMENT INJECTE, pas une reecriture de sa logique.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-    Tester une copie du raisonnement laisserait passer une divergence entre ce que
-    le test croit injecter et ce que le patch injecte."""
+from nokido_agent.app import forge_job_runner as J  # noqa: E402
+from nokido_agent.app import forge_lane_admission as LA  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _machine_libre(monkeypatch):
+    """Doublure de la FRONTIERE BASSE seulement (mesure RAM, registre des lanes), aux signatures des appels vivants
+    (`check_ressources(heavy=True)`, `current(lane)`) : la logique testee est le vrai admettre_lancement."""
+    monkeypatch.setattr(LA, "check_ressources", lambda heavy=True: {"ok": True})
+    monkeypatch.setattr(LA, "current", lambda lane: None)
+
+
+def lane_deduite(args: dict) -> str:
+    """Le code VIVANT : depuis d27d9273f (16/10) la lane deduite vit dans forge_job_runner.admettre_lancement, appelee
+    par les deux voies. Le script est resolu comme la voie MCP le resout (run_job : `script`, sinon `path`).
+
+    Jusqu'au 17/10 ce helper rejouait le TEXTE du patch historique (tools/forge_patch_lane_auto.py, GELE : son marqueur
+    est present, il ne reinjecte plus rien) -- 9 tests seraient restes verts si le code vivant divergeait
+    (bb:active_bugs/patch_lane_auto_teste_un_texte_fige_20261016)."""
+    script = args.get("script") or args.get("path") or ""
+    return J.admettre_lancement(script, bool(args.get("online", False)), args.get("lane") or "")["lane"]
+
+
+def test_la_voie_mcp_resout_le_script_comme_ce_helper():
+    """Le repli sur `path` vit dans la voie MCP, pas dans admettre_lancement : s'il en sortait, ce helper mentirait."""
+    src = (ROOT / "app" / "forge_mcp_registry.py").read_text(encoding="utf-8")
+    assert 'args.get("script") or args.get("path")' in src
+
+
+def _lane_du_patch_gele(args: dict) -> str:
+    """GELE le 17/10 : rejoue le TEXTE du patch historique. Plus appele par les tests de contrat (ils visent le code
+    vivant) ; garde pour l'histoire, jamais supprime."""
     espace: dict = {"args": args}
     exec(compile(textwrap.dedent(M.AJOUT), "<ajout>", "exec"), espace)  # noqa: S102
     return espace["_lane"]

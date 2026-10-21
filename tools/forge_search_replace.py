@@ -32,6 +32,7 @@ from pathlib import Path
 
 _BLOCK_RE = re.compile(r"<{5,9} SEARCH\s*?\n(.*?)\n={5,9}\s*?\n(.*?)\n>{5,9} REPLACE", re.DOTALL)
 _CLOSE_RE = re.compile(r"^>{5,9} REPLACE\s*$", re.MULTILINE)
+_OPEN_RE = re.compile(r"^<{5,9} SEARCH\s*$", re.MULTILINE)
 
 # Sentinelle de REFUS : un SEARCH introuvable fait echouer apply_to_text, donc le
 # refus emprunte le chemin d erreur qui EXISTE deja chez l appelant au lieu de
@@ -58,6 +59,13 @@ def parse_blocks(text: str) -> list[tuple[str, str]]:
     blocks = [(m.group(1), m.group(2)) for m in _BLOCK_RE.finditer(text or "")]
     if blocks and len(_CLOSE_RE.findall(text or "")) > len(blocks):
         return [(_AMBIGU, "")]
+    # Symetrique (dette governed_edit_blocs_perdus_en_silence, instruite 2026-10-16) : une OUVERTURE sans bloc
+    # complet = un bloc coupe (transport tronque vers 16 Ko) que la regex ne voit pas -- il disparaissait, ok=True.
+    ouvertures = len(_OPEN_RE.findall(text or ""))
+    if ouvertures > len(blocks):
+        return [("⚠ BLOC INCOMPLET REFUSE : %d ouverture(s) SEARCH pour %d bloc(s) complet(s) -- un bloc sans "
+                 "fermeture serait PERDU EN SILENCE. Remede : scinder (REPLACE <= 6 Ko) ou passer content=."
+                 % (ouvertures, len(blocks)), "")]
     return blocks
 
 
@@ -135,10 +143,60 @@ def apply_blocks(file_path: str, blocks: list[tuple[str, str]], dry_run: bool = 
     return {"ok": True, "applied": res["applied"], "path": str(p), "bytes": len(new.encode("utf-8"))}
 
 
+def blocs_depuis(ancien: str, nouveau: str) -> str:
+    """Blocs SEARCH/REPLACE qui transforment `ancien` en `nouveau`, VERIFIES par aller-retour (19/10, decision owner :
+    repli governed_edit quand le compte de confiance ne peut pas ecrire un fichier du hub). Chaque SEARCH est unique et
+    commence ET finit par une ligne NON vide (l'affichage du hub ecrase les doubles lignes vides). CRLF normalise.
+    Versions identiques -> "". Leve ValueError plutot que de rendre des blocs non verifies."""
+    import difflib
+
+    a = ancien.replace("\r\n", "\n").splitlines(keepends=True)
+    b = nouveau.replace("\r\n", "\n").splitlines(keepends=True)
+    texte, ops = "".join(a), difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+    plages = []
+    for tag, i1, i2, _j1, _j2 in ops:
+        if tag == "equal":
+            continue
+        lo, hi = i1, i2
+        while True:
+            lo, hi = max(0, lo - 1), min(len(a), hi + 1)
+            while lo > 0 and not a[lo].strip():
+                lo -= 1
+            while hi < len(a) and not a[hi - 1].strip():
+                hi += 1
+            if texte.count("".join(a[lo:hi])) == 1 or (lo == 0 and hi == len(a)):
+                break
+        if plages and lo < plages[-1][1]:
+            plages[-1] = (plages[-1][0], max(hi, plages[-1][1]))
+        else:
+            plages.append((lo, hi))
+
+    def _vers_nouveau(i, fin):
+        # Borne d'une plage -> indice dans `b`. Une insertion partage son indice avec la zone egale voisine : le DEBUT
+        # d'une plage prend l'operation la plus tot (l'insertion avant), la FIN la plus tardive (l'insertion apres).
+        for tag, i1, i2, j1, j2 in (reversed(ops) if fin else ops):
+            if tag == "equal" and i1 <= i <= i2:
+                return j1 + (i - i1)
+            if tag != "equal" and i == (i2 if fin else i1):
+                return j2 if fin else j1
+        return len(b) if fin else 0
+
+    blocs = [("".join(a[lo:hi]), "".join(b[_vers_nouveau(lo, False):_vers_nouveau(hi, True)])) for lo, hi in plages]
+    r = apply_to_text(texte, blocs) if blocs else {"ok": True, "text": texte}
+    if not r["ok"] or r["text"] != "".join(b):
+        raise ValueError("blocs NON verifiables (aller-retour en echec) : %s" % (r.get("failed") or "texte different"))
+    return "".join("<<<<<<< SEARCH\n%s=======\n%s>>>>>>> REPLACE\n" % (s, rp) for s, rp in blocs)
+
+
 def main(argv: list[str]) -> int:
     import json
+    if argv[:1] == ["--blocs-depuis"] and len(argv) >= 3:
+        print(blocs_depuis(Path(argv[1]).read_text(encoding="utf-8"), Path(argv[2]).read_text(encoding="utf-8")),
+              end="")
+        return 0
     if not argv:
-        print("usage: forge_search_replace.py <fichier> [--apply]   (blocs SEARCH/REPLACE sur stdin)")
+        print("usage: forge_search_replace.py <fichier> [--apply]   (blocs SEARCH/REPLACE sur stdin)\n"
+              "       forge_search_replace.py --blocs-depuis ANCIEN NOUVEAU   (blocs verifies sur stdout)")
         return 0
     path = argv[0]
     apply = "--apply" in argv

@@ -37,7 +37,7 @@ def run_python(args: Sequence[str], **kwargs) -> subprocess.CompletedProcess:
         from nokido_agent.app.forge_utf8_bootstrap import child_env
         kwargs["env"] = child_env(kwargs.get("env"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_bin.py', 39, exc_info=True)
     # RÈGLE REMPART : Gestion d'encodage robuste sur Windows
     if kwargs.get("text") or kwargs.get("universal_newlines"):
         if "encoding" not in kwargs:
@@ -62,5 +62,5 @@ def popen_python(args: Sequence[str], **kwargs) -> subprocess.Popen:
         from nokido_agent.app.forge_utf8_bootstrap import child_env
         kwargs["env"] = child_env(kwargs.get("env"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_bin.py', 64, exc_info=True)
     return subprocess.Popen([LAFORGE_PYTHON, *args], **kwargs)

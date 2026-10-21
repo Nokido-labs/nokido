@@ -47,9 +47,9 @@ def main() -> int:
                     p.kill()
                     print(f"[+] killed old brain_worker PID {p.info['pid']}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/spawn_brain_worker_npu.py', 49, exc_info=True)
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/spawn_brain_worker_npu.py', 51, exc_info=True)
     time.sleep(1)
 
     # Setup log + env NPU

@@ -149,13 +149,18 @@ def test_desarme_aucun_reglage_n_est_pose(l1, monkeypatch):
     assert r["dry_run"] is True and r["actes"] == [] and pa._lire_l1() == {}
 
 
-def test_arme_un_reglage_dans_la_bande_est_garde(armee, monkeypatch):
+def test_arme_un_reglage_sans_gain_hors_bande_est_defait(armee, monkeypatch):
+    """DOCTRINE CHANGEE le 18/10 (decision owner apres audit) : ce test s'appelait
+    `..._dans_la_bande_est_garde` et exigeait CONSERVE pour un reglage NEUTRE -- c'est ce qui laissait
+    embed.batch_size deriver dans la bande de bruit. Un reglage sans gain hors bruit est DEFAIT."""
+    avant = pa.valeur_l1("seuil_x")
     monkeypatch.setattr(pa, "_conn_ro", lambda: _base({"type": "set_param", "param": "seuil_x",
                                                        "valeur": 0.4}))
     r = pa.appliquer()
     (acte,) = r["actes"]
-    assert acte["verdict"] == "CONSERVE" and acte["succes"] is True
-    assert pa.valeur_l1("seuil_x") == 0.4 and armee == [(1, False)]
+    assert acte["verdict"] == "SURVIT_SANS_GAIN", acte
+    assert pa.valeur_l1("seuil_x") == avant, "le reglage neutre doit etre RETIRE (retour a l'etat d'avant)"
+    assert armee and armee[0][0] == 1, "la recommandation doit etre marquee traitee"
 
 
 def test_arme_une_regression_est_defaite_et_prouvee(armee, monkeypatch):

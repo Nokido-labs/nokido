@@ -258,7 +258,7 @@ def _selftest():
         try:
             p.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_durable.py', 260, exc_info=True)
     side = {"a": 0, "b": 0}
 
     def a_step():
@@ -292,7 +292,7 @@ def _selftest():
         try:
             p.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_durable.py', 294, exc_info=True)
     print(json.dumps({"crashed_first": crashed, "a_ran_once": side["a"] == 1,
                       "replayed": ra2 == {"v": 10}, "resumed_ok": rb2 == {"sum": 15},
                       "pass": ok}))

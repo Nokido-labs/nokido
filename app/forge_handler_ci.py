@@ -43,6 +43,7 @@ _g_rag_ci = lambda: _forge_ctx_ci.rag_engine  # noqa — requis par handlers
 from rich.markup import escape
 from nokido_agent.app.forge_context import get_version_manager as _gvm_global
 from nokido_agent.app import forge_context  # noqa — requis par _handle_workflow bare refs
+from nokido_agent.app.forge_trace_context import appeler_sans_lever as _appeler_sans_lever
 from app.forge_ui_widgets import EntropyGauge
 
 logger = logging.getLogger("Nokido.Forge.Handler.Ci")
@@ -363,7 +364,7 @@ async def _handle_ci(app, args: str):
                         )
                         results.append(f"[bold]shellcheck {sf} :[/]\n{out[:300] or '  ✅ OK'}")
             except RuntimeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 365, exc_info=True)
             # JS/TS
             try:
                 pkg = await forge_context.get_prefect_manager().run_ssh_command(
@@ -375,7 +376,7 @@ async def _handle_ci(app, args: str):
                     )
                     results.append(f"[bold]eslint :[/]\n{out[:400] or '  ✅ OK'}")
             except RuntimeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 377, exc_info=True)
             chat.write("\n".join(results) if results else "[dim]Aucun linter trouvé[/]")
 
         asyncio.create_task(do_lint())
@@ -511,15 +512,8 @@ async def _handle_loop(app, args: str):
         )
 
         def log_fn(msg: str):
-            """Log fn.
-
-            Args:
-                msg: Description.
-            """
-            try:
-                app._chat_log().write(msg)
-            except Exception:
-                pass
+            """Ecrit au journal du chat ; une erreur est journalisee, jamais propagee."""
+            _appeler_sans_lever(lambda: app._chat_log().write(msg), ou="forge_handler_ci.log_fn")
 
         async def run_loop() -> None:
             """Run loop."""
@@ -572,7 +566,7 @@ async def _handle_loop(app, args: str):
                     )
                     log_fn(f"[dim]→ Traceback complet : logs/loop_error_{loop_id}.log[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 574, exc_info=True)
                 _gvm_global().end_loop_trunk(merge=False)
 
         app._loop_task = asyncio.create_task(run_loop())
@@ -682,7 +676,7 @@ async def _handle_audit(app) -> None:
                 docs = await _g_rag_ci().search("bugs erreurs architecture Python async await", k=4)
                 rag_ctx = "\n".join(f"[{d.get('source', '')}] {d.get('content', '')[:300]}" for d in docs)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 684, exc_info=True)
 
         # ── 4. Prompt enrichi avec contexte RAG ───────────────────────────
         prompt = (
@@ -745,7 +739,7 @@ async def _handle_audit(app) -> None:
                     ).entropy_color(),
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 747, exc_info=True)
         chat.write(f"[bold #58a6ff]Rapport d'audit v{_gvm_global().current_version} :[/]")
         chat.write(reply)
 
@@ -756,7 +750,7 @@ async def _handle_audit(app) -> None:
                     "audit_results", "audit", f"[AUDIT v{_gvm_global().current_version}]\n{reply[:3000]}"
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 758, exc_info=True)
 
         # ── 6. Parser les suggestions ─────────────────────────────────────
         app.last_audit_suggestions = []
@@ -792,4 +786,4 @@ async def _handle_audit(app) -> None:
         try:
             app._set_status("")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_ci.py', 794, exc_info=True)

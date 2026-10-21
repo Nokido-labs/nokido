@@ -199,7 +199,7 @@ async def _show_status(chat):
                 text = r.get("text", "")[:100].replace("\n", " ")
                 chat.write(f"  [dim]· {text}[/]")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_evolve.py', 201, exc_info=True)
 
     chat.write(
         "\n[dim]Usage:[/] @evolve <intention> | "

@@ -15,10 +15,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(ROOT), str(ROOT / "tools")):
+for _p in (str(ROOT), str(ROOT / "tools"), str(ROOT / "app")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 V = importlib.import_module("forge_veille_clone_ingest")
+from nokido_agent.app import forge_resource_manager as FRM
 
 
 def _monter(monkeypatch, tmp_path, libre_go):
@@ -30,6 +31,7 @@ def _monter(monkeypatch, tmp_path, libre_go):
     monkeypatch.setattr(V, "DOCS", tmp_path)
     monkeypatch.setattr(V, "_libre_go", lambda chemin: libre_go)
     monkeypatch.setattr(sys, "argv", ["forge_veille_clone_ingest.py", "--ingest-only", "x"])
+    monkeypatch.setattr(FRM, "_run_capture", lambda *a, **k: (-1, "", "illisible"))
 
 
 def test_sous_le_seuil_ARRETE_avant_toute_ingestion(monkeypatch, tmp_path, capsys):

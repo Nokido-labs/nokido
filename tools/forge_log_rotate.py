@@ -66,7 +66,7 @@ def rotate_file(p: Path, max_bytes: int, dry_run: bool = False) -> dict:
                 encoding="utf-8",
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_log_rotate.py', 68, exc_info=True)
         # 3. In-place : open en r+b (NE crée pas exclusif), write + truncate
         with open(p, "r+b") as f:
             f.seek(0)
@@ -106,7 +106,7 @@ def main() -> int:
                     if f.stat().st_size > min_bytes:
                         candidates.append(f)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_log_rotate.py', 108, exc_info=True)
 
     print(f"Found {len(candidates)} log file(s) > {args.min_mb} MB")
     total_before = 0

@@ -101,7 +101,7 @@ def _rag_trend(window_hours: int = 24) -> dict:
         try:
             antibodies = conn.execute("SELECT COUNT(*) FROM immune_antibodies").fetchone()[0]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_meta_evolution.py', 103, exc_info=True)
         conn.close()
         return {"new_chunks_24h": new_chunks, "total_chunks": total, "antibodies": antibodies}
     except Exception as e:
@@ -234,7 +234,7 @@ def forge_meta_scan() -> dict:
                     domain="systeme",
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_meta_evolution.py', 236, exc_info=True)
 
     logger.info(f"MetaEvolution scan: score={health_score} signals={len(signals)}")
     return result

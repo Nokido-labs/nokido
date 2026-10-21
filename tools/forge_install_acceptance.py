@@ -23,10 +23,12 @@ import os
 import platform
 import secrets
 import shutil
+import site
 import subprocess
 import sys
 import time
 import tomllib
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -153,6 +155,93 @@ def _env():
     d = shutil.disk_usage(ROOT)
     return "PASS", {"os": platform.platform(), "python": sys.version.split()[0], "cpu": os.cpu_count(),
                     "disque_libre_go": round(d.free / 2**30, 1)}
+
+
+@etape("chiffrement")
+def _chiffrement():
+    """Chiffrement at-rest (decision owner du 2026-10-20) : VeraCrypt (windows/macos), cryptsetup/LUKS (linux).
+
+    Une MESURE, jamais un FAIL invente : sous Linux la presence de cryptsetup se prouve ici meme, sur un VRAI volume
+    LUKS cree, monte, ecrit et relu (`mesurer_volume_luks`) ; ailleurs l'etape le DIT (NON_TESTE avec sa raison) --
+    « on n'a pas regarde » n'est ni un vert ni un rouge. Le refus explicite (`nokido-composants --sans-chiffrement`)
+    est une decision de poste, il ne se deduit pas d'un runner.
+    """
+    if not sys.platform.startswith("linux"):
+        return "NON_TESTE", ("mesure du chiffrement at-rest portee par cryptsetup/LUKS sous Linux ; %s non mesure"
+                             % platform.system())
+    exe = shutil.which("cryptsetup")
+    if not exe:
+        return "NON_TESTE", ("cryptsetup absent : le chiffrement at-rest n'est pas provisionne sur ce runner (un refus "
+                             "consigne reste une decision de poste, pas un resultat de recette)")
+    return mesurer_volume_luks()
+
+
+def arguments_chiffrement_recette(present, systeme):
+    """Arguments a passer a `nokido-composants` pour la recette : rien si le chiffrement est PRESENT ; sinon
+    `--sans-chiffrement --motif-refus <motif>` -- un refus EXPLICITE motive « runner CI », jamais un blocage muet
+    (decision owner 20/10 « Provisionner, sinon refus dit »)."""
+    if present:
+        return []
+    motif = ("runner CI %s : chiffrement at-rest non provisionne (VeraCrypt/cryptsetup absents) -- refus explicite "
+             "consigne pour la recette" % systeme)
+    return ["--sans-chiffrement", "--motif-refus", motif]
+
+
+def mesurer_volume_luks():
+    """Cree, monte, ecrit et relit un VRAI volume LUKS pour PROUVER que le chiffrement at-rest fonctionne sous Linux.
+    Rend (etat, detail). Cle ALEATOIRE temporaire (une cle vide serait refusee par cryptsetup : le FAIL accuserait le
+    chiffrement a tort). Nettoyage INCONDITIONNEL (finally) : umount, luksClose, losetup -d, dossier supprime."""
+    import tempfile
+    if shutil.which("losetup") is None:
+        return "NON_TESTE", "losetup absent : impossible de monter un volume LUKS pour la mesure"
+    if sh(["sudo", "-n", "true"], timeout=30)[0] != 0:
+        return "NON_TESTE", "sudo indisponible (non interactif) : la mesure LUKS ne peut pas etre posee"
+    dossier = Path(tempfile.mkdtemp(prefix="nokido_luks_"))
+    fichier, point, cle = dossier / "volume.img", dossier / "monte", dossier / "cle.bin"
+    point.mkdir(parents=True, exist_ok=True)
+    cle.write_bytes(secrets.token_bytes(64))
+    cle.chmod(0o600)
+    loop, ouvert, monte = None, False, False
+    try:
+        if sh(["truncate", "-s", "32M", str(fichier)], timeout=60)[0] != 0:
+            return "FAIL", "truncate a refuse de creer le fichier de volume"
+        rc, out = sh(["sudo", "-n", "cryptsetup", "luksFormat", "--batch-mode", "--type", "luks2",
+                      "--key-file", str(cle), str(fichier)], timeout=120)
+        if rc != 0:
+            return "FAIL", "luksFormat refuse : %s" % out.strip()[-400:]
+        rc, out = sh(["sudo", "-n", "losetup", "--show", "-f", str(fichier)], timeout=60)
+        if rc != 0 or not out.strip():
+            return "FAIL", "losetup refuse : %s" % out.strip()[-400:]
+        loop = out.strip().splitlines()[-1].strip()
+        rc, out = sh(["sudo", "-n", "cryptsetup", "luksOpen", loop, "nokido_luks_mesure", "--key-file", str(cle)],
+                     timeout=60)
+        if rc != 0:
+            return "FAIL", "luksOpen refuse : %s" % out.strip()[-400:]
+        ouvert = True
+        rc, out = sh(["sudo", "-n", "mkfs.ext4", "-q", "/dev/mapper/nokido_luks_mesure"], timeout=120)
+        if rc != 0:
+            return "FAIL", "mkfs.ext4 refuse : %s" % out.strip()[-400:]
+        rc, out = sh(["sudo", "-n", "mount", "/dev/mapper/nokido_luks_mesure", str(point)], timeout=60)
+        if rc != 0:
+            return "FAIL", "mount refuse : %s" % out.strip()[-400:]
+        monte = True
+        temoin = point / "temoin.txt"
+        contenu = "nokido chiffrement at-rest %s" % secrets.token_hex(8)
+        rc, out = sh(["sudo", "-n", "tee", str(temoin)], timeout=60, input=contenu)
+        if rc != 0:
+            return "FAIL", "ecriture du temoin refusee : %s" % out.strip()[-400:]
+        rc, out = sh(["sudo", "-n", "cat", str(temoin)], timeout=60)
+        if rc != 0 or contenu not in out:
+            return "FAIL", "relecture du temoin differente de l'ecrit : %s" % out.strip()[-400:]
+        return "PASS", "volume LUKS cree, monte, ecrit et relu"
+    finally:
+        if monte:
+            sh(["sudo", "-n", "umount", str(point)], timeout=60)
+        if ouvert:
+            sh(["sudo", "-n", "cryptsetup", "luksClose", "nokido_luks_mesure"], timeout=60)
+        if loop:
+            sh(["sudo", "-n", "losetup", "-d", loop], timeout=60)
+        shutil.rmtree(dossier, ignore_errors=True)
 
 
 @etape("dependances")
@@ -375,8 +464,19 @@ def _ui():
 @etape("docker")
 def _docker():
     if WIN:
-        return "NON_TESTE", "runner Windows : conteneurs Linux indisponibles (Docker y fait tourner des images Windows)"
-    if not shutil.which("docker"):
+        # 20/10 (sonde run 39423950182) : Docker Engine dans WSL2 tourne sur windows-latest et le CLI Windows le pilote
+        # par DOCKER_HOST (le workflow l'exporte). L'ancienne raison « conteneurs Linux indisponibles » n'avait jamais
+        # ete mesuree : on DEMANDE au daemon son OSType. Ce n'est pas Docker Desktop.
+        rc, out = sh(["docker", "info", "--format", "{{.OSType}}"], timeout=60) if shutil.which("docker") else (1, "")
+        if rc != 0 or (out.split() or [""])[0] != "linux":
+            return "NON_TESTE", ("runner Windows : aucun daemon Linux joignable (Docker Engine dans WSL2 + DOCKER_HOST "
+                                 "attendus) -- OSType=%s" % (out.strip()[:160] or "illisible"))
+    elif not shutil.which("docker"):
+        # 20/10 (essai 0.20.13) : le runner GitHub macOS n'a pas Docker -- NON_TESTE DIT, comme Windows sans daemon.
+        # Sur le Mac d'un UTILISATEUR (hors CI), Docker absent reste FAIL : la barre ne baisse pas pour lui.
+        if os.environ.get("GITHUB_ACTIONS") and os.environ.get("RUNNER_OS") == "macOS":
+            return "NON_TESTE", ("runner GitHub macOS : Docker absent de l'image du runner -- "
+                                 "ollama et les services conteneurs se mesurent sur un Mac equipe de Docker")
         return "FAIL", "docker absent"
     rc, out = sh(["docker", "compose", "-f", "docker-compose.yml", "config", "--services"], timeout=120)
     return ("PASS" if rc == 0 else "FAIL"), "services declares : %s" % out.split()
@@ -387,11 +487,34 @@ def _ollama():
     sh(["docker", "run", "-d", "--name", "ollama", "-p", "11434:11434", "ollama/ollama"], timeout=600)
     if attendre_http("http://127.0.0.1:11434/api/version", 120) != 200:
         return "FAIL", "ollama ne repond pas"
-    rc, out = sh(["docker", "exec", "ollama", "ollama", "pull", "qwen2.5:0.5b"], timeout=900)
+    # 21/10 (sonde privee 39560980742, windows-latest) : la sous-commande exec du CLI Windows vers le daemon WSL2
+    # (DOCKER_HOST tcp) rend rc=0 SANS RIEN FAIRE -- le modele n'etait jamais tire. POST /api/pull y reussit en 5 s :
+    # le modele se tire par l'API HTTP du serveur meme que generate interroge, identique sur les 3 OS.
+    pull = urllib.request.Request("http://127.0.0.1:11434/api/pull", data=json.dumps(
+        {"model": "qwen2.5:0.5b", "stream": False}).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(pull, timeout=900) as r:
+            etat_pull = json.loads(r.read()).get("status", "")
+    except urllib.error.HTTPError as e:
+        return "FAIL", "api/pull HTTP %s : %s" % (e.code, e.read()[:400].decode("utf-8", "replace"))
+    except OSError as e:
+        return "FAIL", "api/pull %s : %s" % (type(e).__name__, str(e)[:200])
+    if etat_pull != "success":
+        return "FAIL", "api/pull statut %r (attendu 'success')" % etat_pull
     req = urllib.request.Request("http://127.0.0.1:11434/api/generate", data=json.dumps(
         {"model": "qwen2.5:0.5b", "prompt": "Say OK.", "stream": False}).encode())
-    with urllib.request.urlopen(req, timeout=300) as r:
-        rep = json.loads(r.read()).get("response", "")
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            rep = json.loads(r.read()).get("response", "")
+    except urllib.error.HTTPError as e:
+        # 21/10 : le serveur INTERROGE (meme URL) dit ce qu'il contient -- sans cela un 404 reste sans cause.
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=30) as r:
+                tags = r.read()[:300].decode("utf-8", "replace")
+        except OSError as t:
+            tags = "illisible (%s)" % type(t).__name__
+        return "FAIL", "api/generate HTTP %s : %s || api/pull : %s || api/tags : %s" % (
+            e.code, e.read()[:400].decode("utf-8", "replace"), etat_pull, tags)
     return ("PASS" if rep.strip() else "FAIL"), "reponse : %r" % rep[:120]
 
 
@@ -459,11 +582,51 @@ def _attrape_import_error(t: ast.Try) -> bool:
     return False
 
 
-def imports_tiers(fichier, locaux: dict, _vus=None) -> dict:
+def _plateforme(test) -> tuple:
+    """(si_vrai, si_faux) : le systeme ('win' / 'posix') sur lequel on est FORCEMENT quand `test` est vrai / faux.
+    None quand rien ne se deduit : `sys.platform != "linux"` est vrai sous Windows ET sous macOS."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        si_vrai, si_faux = _plateforme(test.operand)
+        return si_faux, si_vrai
+    if (isinstance(test, ast.Call) and isinstance(test.func, ast.Attribute) and test.func.attr == "startswith"
+            and test.args and isinstance(test.args[0], ast.Constant) and isinstance(test.args[0].value, str)):
+        sujet, val, egal = ast.unparse(test.func.value), test.args[0].value, True
+    elif (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Eq, ast.NotEq))
+            and isinstance(test.comparators[0], ast.Constant) and isinstance(test.comparators[0].value, str)):
+        sujet, val, egal = ast.unparse(test.left), test.comparators[0].value, isinstance(test.ops[0], ast.Eq)
+    else:
+        return None, None
+    if sujet not in ("os.name", "sys.platform", "platform.system()"):
+        return None, None
+    if val == "nt" or val.lower().startswith("win"):
+        p = ("win", "posix")
+    elif sujet == "os.name" and val == "posix":
+        p = ("posix", "win")
+    else:
+        p = ("posix", None)  # linux, darwin : vrai => pas Windows ; faux => indecidable
+    return p if egal else (p[1], p[0])
+
+
+def _termine(corps) -> bool:
+    """Le bloc sort-il toujours de sa fonction (return, raise, sys.exit) ?"""
+    d = corps[-1] if corps else None
+    if isinstance(d, (ast.Return, ast.Raise)):
+        return True
+    if isinstance(d, ast.Expr) and isinstance(d.value, ast.Call):
+        f = d.value.func
+        return (f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")) in ("exit", "_exit", "quit")
+    return False
+
+
+def imports_tiers(fichier, locaux: dict, _vus=None, _entree=True) -> dict:
     """Modules TIERS importes par `fichier` : requis (au demarrage, hors try), optionnel (sous try/except ImportError),
-    paresseux (dans une fonction). Les modules du depot importes au demarrage sont SUIVIS ; la stdlib est ignoree."""
+    paresseux (dans une fonction), hors_plateforme (sous un garde de l'AUTRE systeme : DIT, jamais compte requis).
+    Les modules du depot importes au demarrage sont SUIVIS ; la stdlib est ignoree."""
     vus = _vus if _vus is not None else set()
-    r = {"requis": set(), "optionnel": set(), "paresseux": set()}
+    r = {"requis": set(), "optionnel": set(), "paresseux": set(), "hors_plateforme": set()}
+    # Run public 38863059811 (20/10) : 9 services dits bloques par win32api sur les 3 systemes, alors que l'organisme les
+    # mesurait TOURNE -- le lanceur runAs fait `if os.name != "nt": return main_posix(...)` AVANT ses imports pywin32.
+    ici, hors = ("win" if WIN else "posix"), "hors_plateforme"
     p = Path(fichier)
     if p in vus or not p.is_file():
         return r
@@ -472,8 +635,11 @@ def imports_tiers(fichier, locaux: dict, _vus=None) -> dict:
         arbre = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
     except SyntaxError:
         return r
-    demarrage = {"main"}  # fonctions executees au demarrage : main() et celles appelees sous __main__
-    for n in arbre.body:
+    # Fonctions executees au demarrage : main() et celles appelees sous __main__ -- du script LANCE seulement. Un module
+    # importe n'execute ni son main() ni son bloc __main__ (20/10 : forge_sandbox_exec, importe par le lanceur runAs,
+    # rendait ses imports pywin32 « requis » par son propre bloc __main__).
+    demarrage = {"main"} if _entree else set()
+    for n in arbre.body if _entree else ():
         if isinstance(n, ast.If) and "__main__" in ast.dump(n.test):
             demarrage |= {c.func.id for c in ast.walk(n) if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
 
@@ -488,8 +654,19 @@ def imports_tiers(fichier, locaux: dict, _vus=None) -> dict:
             # Un module du depot importe AU DEMARRAGE s'execute : on le suit. Importe tard, il ne l'est pas (essai a
             # blanc du 08/10 : suivre tous les imports locaux tardifs rendait l'union des dependances du depot entier,
             # 81 tiers dont pwn et anthropic « requis » par 24 services).
-            for k, v in imports_tiers(cible, locaux, vus).items():
+            for k, v in imports_tiers(cible, locaux, vus, _entree=False).items():
                 r[k] |= v
+
+    def bloc(instructions, mode: str):
+        # Retour anticipe sous garde de plateforme : la suite du bloc ne s'execute que sur l'AUTRE branche du test.
+        for i, c in enumerate(instructions):
+            visiter(c, mode)
+            if mode != hors and isinstance(c, ast.If) and not c.orelse and _termine(c.body):
+                sinon = _plateforme(c.test)[1]
+                if sinon and sinon != ici:
+                    for reste in instructions[i + 1:]:
+                        visiter(reste, hors)
+                    return
 
     def visiter(n, mode: str):
         if isinstance(n, ast.Import):
@@ -500,22 +677,40 @@ def imports_tiers(fichier, locaux: dict, _vus=None) -> dict:
             if not n.level and n.module:
                 classer(n.module, mode)
             return
+        if isinstance(n, ast.If) and not _entree and "__main__" in ast.dump(n.test):
+            bloc(n.body, hors if mode == hors else "paresseux")
+            bloc(n.orelse, mode)
+            return
+        if isinstance(n, ast.If) and mode != hors:
+            si_vrai, si_faux = _plateforme(n.test)
+            if si_vrai or si_faux:
+                bloc(n.body, hors if si_vrai and si_vrai != ici else mode)
+                bloc(n.orelse, hors if si_faux and si_faux != ici else mode)
+                return
         if isinstance(n, ast.Try) and mode == "requis" and _attrape_import_error(n):
-            for c in n.body + [x for h in n.handlers for x in h.body]:
-                visiter(c, "optionnel")
-            for c in n.orelse + n.finalbody:
-                visiter(c, mode)
+            bloc(n.body, "optionnel")
+            for h in n.handlers:
+                bloc(h.body, "optionnel")
+            bloc(n.orelse, mode)
+            bloc(n.finalbody, mode)
             return
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # main() et les fonctions appelees sous __main__ s'executent au demarrage (le lanceur runAs importe pywin32
             # dans main()) : leurs imports sont requis ; ceux des autres fonctions, paresseux.
-            enfant = mode if (mode == "requis" and n.name in demarrage) else "paresseux"
+            enfant = mode if (mode == hors or (mode == "requis" and n.name in demarrage)) else "paresseux"
         elif isinstance(n, ast.Lambda):
-            enfant = "paresseux"
+            enfant = mode if mode == hors else "paresseux"
         else:
             enfant = mode
-        for c in ast.iter_child_nodes(n):
-            visiter(c, enfant)
+        for _champ, v in ast.iter_fields(n):
+            if isinstance(v, list) and v and isinstance(v[0], ast.stmt):
+                bloc(v, enfant)
+            elif isinstance(v, list):
+                for c in v:
+                    if isinstance(c, ast.AST):
+                        visiter(c, enfant)
+            elif isinstance(v, ast.AST):
+                visiter(v, enfant)
 
     visiter(arbre, "requis")
     return r
@@ -528,23 +723,41 @@ def _module_absent(mod: str) -> bool:
         return True
 
 
+def _rafraichir_site() -> None:
+    """Relit les .pth des site-packages. Un paquet installe par pip PENDANT la recette (pywin32 : win32, win32/lib)
+    n'est ajoute au chemin qu'au demarrage d'un interpreteur : sans cette relecture `find_spec` le dit absent dans CE
+    processus, alors que le service, lance neuf, le trouve (run public 38863059811, 9 services sous Windows)."""
+    dossiers = list(getattr(site, "getsitepackages", lambda: [])())
+    try:
+        dossiers.append(site.getusersitepackages())
+    except Exception as e:  # noqa: BLE001 -- site utilisateur illisible : on relit le reste, et on le DIT
+        print("[imports] site-packages utilisateur illisible (%s) : non relu" % type(e).__name__, flush=True)
+    for d in dossiers:
+        if d and os.path.isdir(d):
+            site.addsitedir(d)
+    importlib.invalidate_caches()
+
+
 def bilan_imports(entrees: dict, locaux: dict) -> dict:
     """{service: fichier(s) d'entree} -> modules manquants sur CETTE machine, par service et par module."""
-    par_service, req, par, opt = {}, {}, {}, {}
+    _rafraichir_site()
+    par_service, req, par, opt, hors = {}, {}, {}, {}, {}
     for svc, fichiers in entrees.items():
-        cumul = {"requis": set(), "optionnel": set(), "paresseux": set()}
+        cumul = {"requis": set(), "optionnel": set(), "paresseux": set(), "hors_plateforme": set()}
         for f in (fichiers if isinstance(fichiers, (list, tuple)) else [fichiers]):
             for k, v in imports_tiers(f, locaux).items():
                 cumul[k] |= v
-        manq = {k: sorted(m for m in v if _module_absent(m)) for k, v in cumul.items()}
+        manq = {k: sorted(m for m in v if _module_absent(m)) for k, v in cumul.items() if k != "hors_plateforme"}
         par_service[svc] = manq
         for cle, dest in (("requis", req), ("paresseux", par), ("optionnel", opt)):
             for m in manq[cle]:
                 dest.setdefault(m, []).append(svc)
+        for m in sorted(cumul["hors_plateforme"]):
+            hors.setdefault(m, []).append(svc)
     # Bloque = un module REQUIS manque (niveau module, main() ou appele sous __main__) ; un paresseux ne manquera
     # qu'a l'usage de sa fonction : rapporte, pas bloquant.
     return {"par_service": par_service, "manquants_requis": req, "manquants_paresseux": par,
-            "manquants_optionnels": opt,
+            "manquants_optionnels": opt, "hors_plateforme": hors,
             "services_bloques": sorted(s for s, m in par_service.items() if m["requis"])}
 
 
@@ -590,7 +803,9 @@ def _imports():
     (RUNTIME / "imports.json").write_text(json.dumps(b, ensure_ascii=False, indent=1), encoding="utf-8")
     return "MESURE", {"services_python": len(entrees) + len(modules), "services_bloques": len(b["services_bloques"]),
                       "manquants_requis": b["manquants_requis"], "manquants_paresseux": b["manquants_paresseux"],
-                      "manquants_optionnels": {m: len(v) for m, v in b["manquants_optionnels"].items()}}
+                      "manquants_optionnels": {m: len(v) for m, v in b["manquants_optionnels"].items()},
+                      # ecartes car propres a l'AUTRE systeme : dits, jamais effaces
+                      "hors_plateforme": {m: len(v) for m, v in b["hors_plateforme"].items()}}
 
 
 # --- Organisme COMPLET (owner 2026-10-08 : « aucune concession sur les services ») -----------------------------------
@@ -869,11 +1084,22 @@ def _p_hors_clone():
 @etape("paquet_composants", "paquet_install")
 def _p_composants():
     """`nokido-composants --tout` : binaires, modeles et Knowledge Pack epingles -- la commande que le doctor nomme.
-    NOKIDO_PARCOURS_COMPOSANTS=llama,modeles restreint la liste (mesure locale) ; sinon tout, comme l'inconnu."""
+    NOKIDO_PARCOURS_COMPOSANTS=llama,modeles restreint la liste (mesure locale) ; sinon tout, comme l'inconnu.
+
+    Chiffrement at-rest OBLIGATOIRE (decision owner 20/10) : sans VeraCrypt/cryptsetup ni refus consigne,
+    `nokido-composants` refuse de poser. La presence se lit par la SONDE DU PRODUIT (chemins usuels compris : VeraCrypt
+    s'installe hors du PATH sous Windows) ; absent, le parcours passe un refus EXPLICITE motive « runner CI »."""
     choix = [c for c in os.environ.get("NOKIDO_PARCOURS_COMPOSANTS", "").split(",") if c.strip()]
     args = [a for c in choix for a in ("--composant", c.strip())] or ["--tout"]
-    rc, out = _sh_p([_bin("nokido-composants")] + args, timeout=5400)
-    return ("PASS" if rc == 0 else "FAIL"), "rc %s ; %s" % (rc, out[-1500:])
+    try:
+        present = bool(composants().chiffrement_present())
+    except Exception as e:  # noqa: BLE001 -- sonde illisible : refus explicite, et on le DIT
+        present = False
+        print("[paquet_composants] sonde du chiffrement illisible (%s) : refus explicite" % type(e).__name__, flush=True)
+    refus = arguments_chiffrement_recette(present, platform.system())
+    rc, out = _sh_p([_bin("nokido-composants")] + args + refus, timeout=5400)
+    dit = "chiffrement PRESENT" if present else "chiffrement ABSENT : refus explicite (%s)" % refus[2]
+    return ("PASS" if rc == 0 else "FAIL"), "%s ; rc %s ; %s" % (dit, rc, out[-1500:])
 
 
 @etape("paquet_doctor", "paquet_install")
@@ -1050,13 +1276,14 @@ def main() -> int:
         # main avant lui (le hub, l'embedder et l'interface sont SES services ; les lancer avant lui volerait leurs ports).
         # La base est amorcee AVANT le superviseur (forge_db_bootstrap pose le schema seul) : mesure 3, Homeostasis et
         # Hebbian mouraient sur « no such table » (rag_chunks, biblio_link).
-        sequence = (_env, _deps, _deps_organisme, _llama, _modeles, _qdrant, _caddy, _ollama_natif, _dispatcher,
-                    _base, _imports, _organisme)
+        sequence = (_env, _deps, _deps_organisme, _chiffrement, _llama, _modeles, _qdrant, _caddy, _ollama_natif,
+                    _dispatcher, _base, _imports, _organisme)
     else:
         # ordre = chemin d'installation documente : protheses et embedder, PUIS le hub (qui pose le schema), PUIS la
-        # base et le pack ; doctor a la fin juge l'installation terminee.
-        sequence = (_env, _deps, _doctor_initial, _llama, _modeles, _embedder, _hub, _base, _pack, _rag_direct,
-                    _rag_hub, _ui, _docker, _ollama, _lms, _doctor_final)
+        # base et le pack ; doctor a la fin juge l'installation terminee. `_chiffrement` (mesure, 20/10) se tient
+        # juste AVANT le premier poseur : l'etape qui arrete rien ne sert qu'a etre vue avant qu'il soit trop tard.
+        sequence = (_env, _deps, _chiffrement, _doctor_initial, _llama, _modeles, _embedder, _hub, _base, _pack,
+                    _rag_direct, _rag_hub, _ui, _docker, _ollama, _lms, _doctor_final)
     for f in sequence:
         f()
     R.pop("_", None)

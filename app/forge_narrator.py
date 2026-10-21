@@ -75,6 +75,7 @@ def _lessons(days: int):
         try:
             ts = datetime.datetime.strptime(m.group(1), "%Y-%m-%d").timestamp()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_narrator.py', 77, exc_info=True)
             continue
         if ts < cutoff:
             continue
@@ -194,7 +195,7 @@ def _save_self(text: str):
         os.makedirs(os.path.dirname(NARR_SELF_PATH), exist_ok=True)
         open(NARR_SELF_PATH, "w", encoding="utf-8").write(text)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_narrator.py', 196, exc_info=True)
 
 
 def _consolidate_llm(structured: str, phenom_flow: str):
@@ -226,7 +227,7 @@ def consolidate(days: int = 2, use_llm: bool = True) -> str:
         from nokido_agent.app import forge_phenomenological_buffer as pb
         flow = pb.get_recent_flow(8)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_narrator.py', 228, exc_info=True)
     text = (_consolidate_llm(base, flow) if use_llm else None) or base
     _save_self(text)
     return text

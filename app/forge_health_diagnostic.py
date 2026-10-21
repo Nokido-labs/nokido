@@ -731,6 +731,9 @@ def audit_workers_heartbeat() -> dict:
                 # ce champ, leur silence se lit « stale » et fabrique cinq fausses
                 # pannes — le faux positif exact que ce fichier combat partout.
                 "eteint_par_decision": _service_desactive(p.name),
+                # FINI (20/10) : l'organe DIT au dernier pouls qu'il a termine sa tache (modal_campagne, 67935/67935,
+                # 01/10) -- ni panne ni silence : sans ce champ il restait « cense tourner » 13 cycles d'affilee.
+                "fini": data.get("fini") is True,
             }
         except Exception as e:
             # `alive: None` et non False : un heartbeat ILLISIBLE n'est pas un worker
@@ -1749,7 +1752,7 @@ def compute_score_and_gaps(audit: dict) -> tuple[int, list[str]]:
     # calcul du score tant qu'ils n'ont pas ete instruits — ils sont rapportes a part.
     dead = [n for n, h in workers.items()
             if h.get("present") and h.get("alive") is False and n not in _exempts
-            and h.get("declare", True)]
+            and h.get("declare", True) and h.get("fini") is not True]   # FINI n'est pas mort (20/10)
     repos = [n for n, h in workers.items()
              if h.get("present") and h.get("alive") is False and n in _exempts]
     _hb_illisibles = [n for n, h in workers.items()
@@ -1781,8 +1784,12 @@ def compute_score_and_gaps(audit: dict) -> tuple[int, list[str]]:
     # celles dont la provenance reste inconnue plutot que de les ranger d'office.
     _tus = sorted(n for n, h in workers.items()
                   if h.get("alive") is False and h.get("eteint_par_decision") is True)
+    _finis = sorted(n for n, h in workers.items() if h.get("alive") is False and h.get("fini") is True)
     _muets = sorted(n for n, h in workers.items()
-                    if h.get("alive") is False and h.get("eteint_par_decision") is not True)
+                    if h.get("alive") is False and h.get("eteint_par_decision") is not True
+                    and h.get("fini") is not True)
+    if _finis:
+        gaps.append("· Tache TERMINEE (fini=true au dernier pouls, pas une panne) : %s" % _finis[:12])
     if _tus:
         gaps.append("· Silence VOULU (disabled=true dans services.toml, pas une "
                     "panne) : %s" % _tus[:12])
@@ -2229,6 +2236,47 @@ def _heartbeat(stats: dict) -> None:
 # ============================================================================
 
 
+def effort_llm(db=None, maintenant=None, fenetre_s: int = 300) -> dict:
+    """Effort LLM : jetons/appels sur la derniere fenetre (5 min) RELATIFS a la mediane des tranches ACTIVES de 24 h.
+
+    Source : token_events (sandbox/token_usage.db), emise par le routeur a chaque appel reussi depuis le 18/10.
+    Jamais un absolu (lecon TSH saturee 4 h) ; base illisible ou aucune tranche active = ratio INCONNU, jamais 0."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    from statistics import median
+
+    db = Path(db) if db else ROOT / "sandbox" / "token_usage.db"
+    maintenant = maintenant or datetime.now()
+    out = {"jetons_fenetre": None, "appels_fenetre": None, "mediane_24h": None, "ratio": None}
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % db.as_posix(), uri=True, timeout=5)
+        try:
+            lignes = con.execute("SELECT ts, input_tok + output_tok FROM token_events WHERE ts >= ?",
+                                 ((maintenant - timedelta(hours=24)).isoformat(),)).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return out
+    tranches, appels = {}, 0
+    for ts, jetons in lignes:
+        try:
+            age = (maintenant - datetime.fromisoformat(ts)).total_seconds()
+        except (TypeError, ValueError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_health_diagnostic.py', 2257, exc_info=True)
+            continue
+        if age < 0:
+            continue
+        i = int(age // fenetre_s)
+        tranches[i] = tranches.get(i, 0) + int(jetons or 0)
+        appels += i == 0
+    passees = [v for k, v in tranches.items() if k > 0 and v > 0]
+    out.update(jetons_fenetre=tranches.get(0, 0), appels_fenetre=appels)
+    if passees:
+        out["mediane_24h"] = median(passees)
+        out["ratio"] = round(out["jetons_fenetre"] / out["mediane_24h"], 3) if out["mediane_24h"] else None
+    return out
+
+
 def _release_hormones_from_audit(audit: dict) -> list[dict]:
     """Hypothalamus : convertit l'audit en signaux hormonaux (forge_endocrine).
     Système biomimétique de régulation transverse — les récepteurs distants
@@ -2301,6 +2349,21 @@ def _release_hormones_from_audit(audit: dict) -> list[dict]:
             )
         )
 
+    # 4. Effort LLM -> ADRENALINE_HUB_PRESSURE GRADUEE, TTL court (p1_coeur_suit_effort_llm, 18/10). Documentee
+    # « req/min anormale » mais emise jusqu'ici a niveau FIXE 0,8 par une seule glande. Niveau = 1 - 1/ratio :
+    # continu, nul a la mediane, 0,5 a x2, 0,75 a x4 -- aucun seuil invente. Ratio INCONNU ou <= 1 : rien.
+    _r = (audit.get("effort_llm") or {}).get("ratio")
+    if isinstance(_r, (int, float)) and _r > 1:
+        released.append(
+            release(
+                "ADRENALINE_HUB_PRESSURE",
+                level=1.0 - 1.0 / float(_r),
+                ttl_s=180,
+                source="health_diagnostic:effort_llm",
+                reason="effort LLM x%.2f la mediane 24 h des tranches actives" % _r,
+            )
+        )
+
     # 3. Cortisol cloud — délégation à forge_token_monitor (a accès au daily_cost)
     try:
         sys.path.insert(0, str(ROOT))
@@ -2358,6 +2421,7 @@ def run_cycle() -> dict:
     audit["gaps"] = gaps
 
     # Hypothalamus : émet les hormones selon les lacunes détectées
+    audit["effort_llm"] = effort_llm()
     audit["hormones_released"] = _release_hormones_from_audit(audit)
 
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)

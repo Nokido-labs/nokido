@@ -35,6 +35,16 @@ description: >
 > (traçabilité), pas pour le RAG. La section « Workflow » ci-dessous décrit
 > l'ANCIEN chemin — la garder comme référence de la fiche biblio seulement.
 
+## Dépôt GitHub : l'outil existe, ne pas le réécrire (2026-10-18)
+
+Un **dépôt GitHub** (code, `docs/`, README) s'ingère EN ENTIER par
+`tools/forge_ingest_github_repo.py --url https://github.com/<owner>/<repo>`
+(`run action=run_job ... online=true`) : tarball public via la stdlib (tout compte), découpage
+de `forge_gitingest_sdk_ingest`, source `github:<owner>/<repo>/<chemin>` (retrait propre),
+dédup `skipped_dedup`. Payé le 18/10 : un script maison n'a ingéré que les README (325
+fragments) là où l'outil en a rendu 7 731, dont `docs/AB-RESULTS.md` — la mesure qui
+justifiait la veille. Vérifier ensuite par un terme témoin en `rag_chunks_fts`.
+
 ## Quand se déclencher
 
 - L'utilisateur fournit **une ou plusieurs URLs précises** (release notes,

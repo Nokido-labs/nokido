@@ -40,6 +40,7 @@ def audit() -> list[dict]:
         try:
             text = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_filehandler_migrator.py', 42, exc_info=True)
             continue
         if "logging.FileHandler" not in text:
             continue

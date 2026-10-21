@@ -41,7 +41,7 @@ def _load_directory() -> dict:
         try:
             return json.loads(d.read_text(encoding="utf-8"))["correspondents"]
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bell.py', 43, exc_info=True)
     return {}
 
 
@@ -59,14 +59,16 @@ def log(msg, level="INFO"):
         with LOG.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bell.py', 61, exc_info=True)
 
 
 def _token() -> str:
     for line in (ROOT / "Nokido.env").read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith("FORGE_TOKEN_SERVICES="):
             return line.split("=", 1)[1].strip()
-    return os.environ.get("FORGE_MCP_TOKEN", "")
+    from nokido_agent.app.forge_secrets import get_secret  # coffre d'abord, env en dernier repli (16/10)
+
+    return get_secret("FORGE_MCP_TOKEN") or ""
 
 
 def _mcp(name, args, token, timeout=15):
@@ -108,7 +110,7 @@ def _heartbeat(status, task_id=None):
             encoding="utf-8",
         )
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bell.py', 112, exc_info=True)
 
 
 def _send_ack(token: str, msg_hash: str, agent: str):
@@ -253,7 +255,7 @@ def _sync_comms(content: str, token: str, last_hash: str) -> str:
         for old in snaps[:-5]:
             old.unlink(missing_ok=True)
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bell.py', 257, exc_info=True)
 
     return cur_hash
 

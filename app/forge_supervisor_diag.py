@@ -101,7 +101,7 @@ def scan_heartbeats() -> dict:
             try:
                 content = json.loads(hb.read_text(encoding="utf-8", errors="replace"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_supervisor_diag.py', 103, exc_info=True)
             results[name] = {
                 "age_s": round(age, 1),
                 "status": classify_age(age),
@@ -128,7 +128,7 @@ def scan_heartbeats() -> dict:
                 "optional": name in OPTIONAL_DAEMONS,
             }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_supervisor_diag.py', 130, exc_info=True)
     return results
 
 

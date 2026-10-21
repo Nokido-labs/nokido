@@ -86,15 +86,15 @@ class TestTailStream:
     def test_yields_new_lines(self, _reset):
         """Ecrit dans un log pendant qu un generator tail ; doit recuperer."""
         lm, _ = _reset
-        # On utilise un module existant (recon) mais on ecrit nous-meme
-        # directement dans son logfile.
-        log = lm._logfile("recon")
+        # On utilise un module existant (graph ; `recon` a ete retire du launcher le 2026-05-03, 884374b3f)
+        # mais on ecrit nous-meme directement dans son logfile.
+        log = lm._logfile("graph")
         log.parent.mkdir(parents=True, exist_ok=True)
         # Ecrit du contenu initial AVANT d ouvrir le stream
         log.write_bytes(b"old-line\n")
 
         async def run():
-            gen = lm.tail_log_stream("recon", start_from_end=True)
+            gen = lm.tail_log_stream("graph", start_from_end=True)
             # Ecrit apres l ouverture
             async def writer():
                 await asyncio.sleep(0.1)
@@ -121,12 +121,12 @@ class TestTailStream:
     def test_truncate_resets_pos(self, _reset):
         """Si le log est truncate pendant le stream, on reprend a 0."""
         lm, _ = _reset
-        log = lm._logfile("recon")
+        log = lm._logfile("graph")
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_bytes(b"big content already there\n")
 
         async def run():
-            gen = lm.tail_log_stream("recon", start_from_end=True)
+            gen = lm.tail_log_stream("graph", start_from_end=True)
             async def rotate_then_write():
                 await asyncio.sleep(0.1)
                 # Truncate
@@ -173,16 +173,16 @@ class TestCap:
         lm._active_streams = 0
 
         async def run():
-            log = lm._logfile("recon")
+            log = lm._logfile("graph")
             log.parent.mkdir(parents=True, exist_ok=True)
             log.write_bytes(b"")
 
-            g1 = lm.tail_log_stream("recon", start_from_end=True)
+            g1 = lm.tail_log_stream("graph", start_from_end=True)
             # Avance g1 d un cran pour qu il acquiere le slot
             task1 = asyncio.create_task(g1.__anext__())
             await asyncio.sleep(0.1)
             # g2 doit etre refuse des qu on le consomme
-            g2 = lm.tail_log_stream("recon", start_from_end=True)
+            g2 = lm.tail_log_stream("graph", start_from_end=True)
             raised = False
             try:
                 await g2.__anext__()
@@ -221,7 +221,7 @@ class TestApi:
         from app.web_hub.app import app
         c = TestClient(app)
         # Pas de login -> 401
-        r = c.get("/api/launcher/recon/stream",
+        r = c.get("/api/launcher/graph/stream",
                  headers={"Accept": "application/json"})
         assert r.status_code == 401
 
@@ -241,7 +241,7 @@ class TestApi:
         # Borne STREAM_MAX_DURATION_S pour que le stream meurt vite de lui-meme
         lm, _ = _reset
         lm.STREAM_MAX_DURATION_S = 2.0
-        log = lm._logfile("recon")
+        log = lm._logfile("graph")
         log.parent.mkdir(parents=True, exist_ok=True)
         log.write_bytes(b"")
 
@@ -251,10 +251,17 @@ class TestApi:
             p = s.getsockname()[1]; s.close(); return p
         port = free_port()
         env = os.environ.copy()
+        # Coffre de TEST isole (decision owner 18/10) : sans lui, get_secret lit le VRAI jeton au coffre avant
+        # l'environnement et le login rend 401. Servi seulement sous pytest et en dossier temporaire.
+        import json as _json, tempfile as _tempfile
+        coffre = _tempfile.mkdtemp(prefix="pytest_coffre_")
+        with open(os.path.join(coffre, "coffre_test.json"), "w", encoding="utf-8") as fh:
+            _json.dump({"LAFORGE_ADMIN_TOKEN": admin_token}, fh)
         env.update({
             "LAFORGE_HUB_PORT": str(port),
             "LAFORGE_ADMIN_TOKEN": admin_token,
             "LAFORGE_AUTH_ENABLED": "1",
+            "NOKIDO_COFFRE_TEST_DIR": coffre,
         })
         # Launch hub
         proc = subprocess.Popen(
@@ -282,7 +289,7 @@ class TestApi:
                 assert r.status_code == 200
 
                 # Open SSE avec timeout court
-                with c.stream("GET", "/api/launcher/recon/stream",
+                with c.stream("GET", "/api/launcher/graph/stream",
                              timeout=3.0) as resp:
                     assert resp.status_code == 200
                     ct = resp.headers.get("content-type", "")

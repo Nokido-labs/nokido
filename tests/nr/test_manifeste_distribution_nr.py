@@ -60,7 +60,9 @@ def _refus(copie, motif):
 def test_le_manifeste_livre_est_valide_et_honnete():
     r = fra.valider_manifeste()
     assert r["ok"] is True, r["erreurs"]
-    assert set(r["plateformes"]) == {"windows-x64", "linux-x64"}
+    # 20/10 : macOS arm64 et x64 rejoignent windows et linux (owner : « pas une version publique au rabais »,
+    # test_distribution_macos_nr) ; l'egalite STRICTE reste : une plateforme ajoutee en silence fait rougir ce NR.
+    assert set(r["plateformes"]) == {"windows-x64", "linux-x64", "macos-arm64", "macos-x64"}
     assert r["packs"]["knowledge"]["composable"] and r["packs"]["ml"]["composable"]
     # ce qu'on ne sait pas prouver ne se compose pas
     assert not r["packs"]["local-llm"]["composable"] and not r["packs"]["netcfg"]["composable"]
@@ -160,6 +162,11 @@ def _lot(tmp_path, version="9.9.9"):
     lot.mkdir()
     (lot / ("nokido-%s-src.tar.gz" % version)).write_bytes(_tar({"nokido-9.9.9/README.md": b"x"}))
     (lot / "vendor.lock").write_text('{"vendored": []}\n', encoding="utf-8")
+    # 20/10 : un lot conforme porte aussi chaque pack par source OBLIGATOIRE du manifeste (decisions owner : un pack
+    # par licence, tout par defaut ; test_release_construit_les_packs_sources_nr).
+    for c in fra.valider_manifeste()["packs"]["knowledge"]["composants"]:
+        if c.get("construit") == "rag_pack_source" and c.get("obligatoire"):
+            (lot / fra.nom_pack_source(c["famille"], version)).write_bytes(b"pack")
     sums = "".join("%s  %s\n" % (fra.sha256_file(f), f.name) for f in sorted(lot.iterdir()))
     (lot / "SHA256SUMS").write_text(sums, encoding="utf-8")
     return lot

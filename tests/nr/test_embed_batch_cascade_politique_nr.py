@@ -182,4 +182,17 @@ def test_un_backend_payant_n_est_jamais_tente_sans_politique_qui_le_nomme(monkey
 def test_la_cascade_unitaire_retire_aussi_les_payants_sans_politique(monkeypatch):
     noms = [n for n, _ in er.PROVIDERS]
     assert "openrouter" in noms, noms
-    assert [n for n, _ in er._sans_payants(er.PROVIDERS)] == [n for n in noms if n != "openrouter"]
+    assert [n for n, _ in er._sans_payants(er.PROVIDERS)] == [
+        n for n in noms if n not in ("openrouter", "jina", "voyage")]
+
+
+def test_un_backend_d_un_AUTRE_ESPACE_n_ecrit_jamais_sans_politique_qui_le_nomme(monkeypatch):
+    """2026-10-16 : 5/586 fragments actifs portent un vecteur a cos ~0 de leur texte et de tous leurs voisins --
+    signature d'un autre espace (jina-embeddings-v3, voyage-3 : 1024D aussi). Politique muette => cascade de repli
+    SANS eux, unitaire comme par lot ; une politique qui les NOMME les garde (choix explicite)."""
+    assert {"jina", "voyage"} <= er._AUTRES_ESPACES
+    essais = er._essais_batch(["x"])
+    for politique in (None, [], ["inconnu"]):
+        noms = [n for n, _ in er._essais_selon_politique(essais, politique)]
+        assert "jina" not in noms and "voyage" not in noms, (politique, noms)
+    assert "jina" in [n for n, _ in er._essais_selon_politique(essais, ["jina", "modal"])]

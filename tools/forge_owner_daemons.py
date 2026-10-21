@@ -73,7 +73,7 @@ class _StampedWriter:
         try:
             self._fh.flush()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_owner_daemons.py', 75, exc_info=True)
 
     def isatty(self):
         return False

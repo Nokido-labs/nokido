@@ -84,7 +84,7 @@ def main() -> int:
             sid = hi.get("session_id", "")
             tpath = hi.get("transcript_path", "")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_session_stop.py', 86, exc_info=True)
 
     # #6 roadmap hermes : fork post-turn LOCAL (auto-anchor solution + propose skill),
     # lancé DÉTACHÉ → ne bloque JAMAIS les 3s du Stop-hook. LLM local uniquement
@@ -108,7 +108,7 @@ def main() -> int:
                 close_fds=True,
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_session_stop.py', 110, exc_info=True)
 
     token = load_token()
     if not token:
@@ -144,7 +144,7 @@ def main() -> int:
         )
         urllib.request.urlopen(req, timeout=3).read()
     except Exception:
-        pass  # fail-silent
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_session_stop.py', 146, exc_info=True)
     return 0
 
 

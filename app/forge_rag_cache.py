@@ -192,7 +192,7 @@ class RagCache:
                     meta["consensus"] = extra.get("consensus_level", "draft")
                     meta["vec_hash"] = extra.get("vec_hash", "")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_cache.py', 194, exc_info=True)
 
                 ids_all.append(rid)
                 vecs_all.append(vec_norm)
@@ -207,6 +207,7 @@ class RagCache:
                     vecs_l2.append(vec_norm)
                     meta_l2.append(meta)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_cache.py', 209, exc_info=True)
                 continue
 
         # Construire les matrices

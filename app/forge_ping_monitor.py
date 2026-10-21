@@ -38,7 +38,7 @@ async def ping_all_providers(providers: list, timeout: float = 5.0) -> dict:
                     else:
                         TrustScoreRegistry.get().record_failure(p["name"])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ping_monitor.py', 40, exc_info=True)
                 return p["name"], {"ok": ok, "ttft_ms": round(ttft, 1), "status": resp.status}
         except Exception as e:
             try:
@@ -46,7 +46,7 @@ async def ping_all_providers(providers: list, timeout: float = 5.0) -> dict:
 
                 TrustScoreRegistry.get().record_failure(p["name"])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ping_monitor.py', 48, exc_info=True)
             return p["name"], {"ok": False, "ttft_ms": None, "error": str(e)[:80]}
 
     async with aiohttp.ClientSession() as session:

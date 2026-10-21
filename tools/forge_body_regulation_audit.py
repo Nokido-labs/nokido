@@ -217,6 +217,7 @@ def scan_imports() -> tuple[dict, dict]:
         try:
             src = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_body_regulation_audit.py', 219, exc_info=True)
             continue
         ext = f.suffix.lower()
         if ext == ".py":
@@ -233,6 +234,7 @@ def scan_imports() -> tuple[dict, dict]:
             try:
                 tree = ast.parse(src)
             except SyntaxError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_body_regulation_audit.py', 235, exc_info=True)
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):
@@ -339,6 +341,7 @@ def scan_references() -> dict:
                         continue
                     txt = f.read_text(encoding="utf-8", errors="replace")
                 except OSError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_body_regulation_audit.py', 341, exc_info=True)
                     continue
                 for m in set(pat.findall(txt)) | set(pat_cite.findall(txt)):
                     if m != name:            # une auto-mention ne prouve rien
@@ -427,12 +430,13 @@ def scan_containers(refs: dict) -> list:
                 keeper = svc.get("name", "")
                 break
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_body_regulation_audit.py', 429, exc_info=True)
 
     for comp in sorted(ROOT.glob("docker-compose*.y*ml")):
         try:
             txt = comp.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_body_regulation_audit.py', 435, exc_info=True)
             continue
         in_services = False
         for line in txt.splitlines():

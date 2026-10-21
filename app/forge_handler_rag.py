@@ -81,7 +81,7 @@ async def _handle_rag(app, args: str) -> None:
         try:
             _emb_size = _os.path.getsize(_re.emb_file) // 1024
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 83, exc_info=True)
         _sources = {}
         for c in _re.chunks:
             src = c.get("source", "?").split(":")[0]
@@ -151,7 +151,7 @@ async def _handle_rag(app, args: str) -> None:
             _sz = _os.path.getsize(_re.emb_file)
             chat.write(f"  [dim]embeddings.json : {_sz // 1024} Ko[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 153, exc_info=True)
 
     elif sub == "list" and _re is not None:
         sources = sorted(set(c.get("source", "?") for c in _re.chunks))
@@ -308,7 +308,7 @@ async def _handle_rag(app, args: str) -> None:
                         current = line.split("=", 1)[-1].strip()
                         break
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 310, exc_info=True)
             icon = "🟢" if current == "dev" else "🔴"
             chat.write(
                 f"{icon} Mode actuel : [bold]{current.upper()}[/]\n"
@@ -349,7 +349,7 @@ async def _handle_rag(app, args: str) -> None:
             pass
             # _is_dev_mode() lit os.environ à chaque appel — pas de cache
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 351, exc_info=True)
 
         icon = "🟢" if enabled else "🔴"
         persist_tag = " [dim](persisté Nokido.env)[/]" if persist_ok else " [dim](en mémoire seulement)[/]"
@@ -381,7 +381,7 @@ async def _handle_rag(app, args: str) -> None:
                 if n:
                     chat.write(f"[dim]  └ CoVe : {n} chunk(s) promu(s) draft→verified[/]")
             except Exception as _e:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 383, exc_info=True)
 
         asyncio.create_task(_promote_drafts())
         app.rag_info.sync()
@@ -419,7 +419,7 @@ async def _handle_rag(app, args: str) -> None:
                     chat.write(f"[bold red]❌ Drop annulé :[/] {_pfe}")
                     return
                 except Exception:
-                    pass  # preflight non bloquant pour drop
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_rag.py', 421, exc_info=True)
                 from nokido_agent.app.forge_hot_ingest import hot_ingest_file, hot_ingest_url
 
                 if _t.startswith(("http://", "https://")):

@@ -50,6 +50,18 @@ POLL_INTERVAL = 30  # secondes entre chaque check RSS
 WARN_MB = int(os.environ.get("LAFORGE_MEM_WARN_MB", "300"))
 DUMP_MB = int(os.environ.get("LAFORGE_MEM_DUMP_MB", "500"))
 SNAPSHOT_COUNT = 20  # top-N lignes dans le dump
+# 16/10 (mesure Windows) : tracemalloc devient une DEMANDE explicite. Depuis 72acf25c9 la RSS est lue juste ; avant,
+# la lecture ctypes echouait sous Windows (API 0, GetLastError 6) et le gardien ne se declenchait JAMAIS. Avec warn
+# 300 / dump 500 Mo et un hub a 500-800 Mo, il vivait en permanence sous tracemalloc(10) -- ast.parse x6, introspect
+# x2,6 (banc C:/tmp/diag_introspect) -- avec instantane + statistics (2,8 s) + GC force + dump TOUTES LES 30 s au-dela
+# de 500 Mo. Sans LAFORGE_MEM_TRACE=1 le gardien MESURE et DIT ses changements de niveau ; avec, il trace, mais un
+# dump (et un GC force) au plus par fenetre de LAFORGE_MEM_DUMP_COOLDOWN_S.
+DUMP_COOLDOWN_S = int(os.environ.get("LAFORGE_MEM_DUMP_COOLDOWN_S", "1800"))
+
+
+def _trace_demandee() -> bool:
+    """Lue a chaque controle : la demande se pose ou se retire sans redemarrer le hub."""
+    return os.environ.get("LAFORGE_MEM_TRACE", "0") == "1"
 
 
 # ── Helpers RSS ───────────────────────────────────────────────────────────────
@@ -78,7 +90,7 @@ def _rss_mb() -> float:
         pic = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         return pic / (1024 * 1024) if sys.platform == "darwin" else pic / 1024
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/mem_watchdog.py', 92, exc_info=True)
     try:
         # Windows
         import ctypes, ctypes.wintypes
@@ -111,7 +123,7 @@ def _rss_mb() -> float:
 class MemWatchdog:
     """
     Watchdog mémoire production.
-    tracemalloc activé UNIQUEMENT si RAM dépasse le seuil.
+    Mesure la RSS et DIT ses changements de niveau ; tracemalloc seulement SUR DEMANDE (LAFORGE_MEM_TRACE=1).
     """
 
     __slots__ = (
@@ -123,6 +135,8 @@ class MemWatchdog:
         "_thread",
         "_snapshots",
         "_baseline",
+        "_niveau",
+        "_dernier_dump",
     )
 
     def __init__(
@@ -139,6 +153,8 @@ class MemWatchdog:
         self._thread: Optional[threading.Thread] = None
         self._snapshots: list = []
         self._baseline: float = 0.0
+        self._niveau: str = "OK"
+        self._dernier_dump: Optional[float] = None
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -217,37 +233,39 @@ class MemWatchdog:
             self._check()
 
     def _check(self) -> None:
-        """Vérifie la RAM et active/désactive tracemalloc selon les seuils."""
+        """Mesure la RSS, DIT le niveau a sa transition ; trace et dumpe seulement sur demande, borne dans le temps."""
         rss = _rss_mb()
-
-        if rss >= self.dump_mb:
-            # Seuil critique — activer tracing si pas encore actif ET dump immédiat
-            if not self._tracing:
-                self._start_tracing()
-            self._dump(rss, level="CRITICAL")
-            # GC forcé
-            gc.collect()
-            logger.error(f"[MemWatchdog] 🚨 RAM CRITIQUE {rss:.0f}MB >= {self.dump_mb}MB — dump généré, GC forcé")
-
-        elif rss >= self.warn_mb:
-            # Seuil warn — activer tracing pour comprendre
-            if not self._tracing:
-                self._start_tracing()
-                logger.warning(
-                    f"[MemWatchdog] ⚠️  RAM={rss:.0f}MB >= warn={self.warn_mb}MB "
-                    f"→ tracemalloc activé (depth={STACK_DEPTH})"
-                )
+        niveau = "CRITIQUE" if rss >= self.dump_mb else ("WARN" if rss >= self.warn_mb else "OK")
+        trace = _trace_demandee()
+        if niveau != self._niveau:
+            mode = "tracemalloc DEMANDE" if trace else "sans tracemalloc (LAFORGE_MEM_TRACE=1 pour diagnostiquer)"
+            if niveau == "CRITIQUE":
+                logger.error(f"[MemWatchdog] 🚨 RAM CRITIQUE {rss:.0f}MB >= {self.dump_mb}MB -- {mode}")
+            elif niveau == "WARN":
+                logger.warning(f"[MemWatchdog] ⚠️  RAM={rss:.0f}MB >= warn={self.warn_mb}MB -- {mode}")
             else:
-                # Snapshot périodique
-                self.checkpoint(f"auto_{datetime.now().strftime('%H%M%S')}")
+                logger.info(f"[MemWatchdog] ✅ RAM revenue à {rss:.0f}MB < warn={self.warn_mb}MB")
+            self._niveau = niveau
 
-        else:
-            # RAM OK — désactiver tracing si actif (économie overhead)
+        if not trace or niveau == "OK":
+            # Pas de demande (ou RAM revenue) : aucun tracage, aucun dump, aucun GC force.
             if self._tracing:
                 self._stop_tracing()
-                logger.info(
-                    f"[MemWatchdog] ✅ RAM revenue à {rss:.0f}MB < warn={self.warn_mb}MB → tracemalloc désactivé"
-                )
+                logger.info("[MemWatchdog] tracemalloc désactivé (pas de demande, ou RAM revenue)")
+            return
+
+        if not self._tracing:
+            self._start_tracing()
+            logger.warning(f"[MemWatchdog] tracemalloc activé SUR DEMANDE (depth={STACK_DEPTH})")
+        maintenant = time.monotonic()
+        if self._dernier_dump is not None and maintenant - self._dernier_dump < DUMP_COOLDOWN_S:
+            return      # un instantane coute ~3 s (mesure 16/10) : au plus un par fenetre
+        self._dernier_dump = maintenant
+        if niveau == "CRITIQUE":
+            self._dump(rss, level="CRITICAL")
+            gc.collect()
+        else:
+            self.checkpoint(f"auto_{datetime.now().strftime('%H%M%S')}")
 
     def _start_tracing(self) -> None:
         """Active tracemalloc avec stack depth=10."""
@@ -272,7 +290,7 @@ class MemWatchdog:
             self._tracing = False
             self._snapshots = []
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/mem_watchdog.py', 292, exc_info=True)
 
     def _dump(self, rss: float, level: str = "WARN") -> None:
         """Dump complet tracemalloc dans logs/mem_dump_<ts>.txt."""

@@ -46,6 +46,7 @@ def _load_text(limit: int) -> list:
         try:
             a = json.loads(aj) if aj else {}
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cognition_retrain_4096.py', 48, exc_info=True)
             continue
         pt = a.get("prev_text")
         ct = a.get("curr_text") or st_rich
@@ -79,6 +80,7 @@ def _ab_4096() -> dict:
             s1 = _encode_4096(ct)
             ae = _encode_4096(atext)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cognition_retrain_4096.py', 81, exc_info=True)
             continue
         if s0.shape[0] != 4096 or s1.shape[0] != 4096 or ae.shape[0] != 4096:
             continue
@@ -127,7 +129,7 @@ def main() -> int:
             if release:
                 release("cognition_retrain_4096", "claude")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cognition_retrain_4096.py', 129, exc_info=True)
     # Recommandation cutover (NE flippe PAS l'env — gate informatif)
     try:
         c4 = verdict.get("a4096", {}).get("holdout_cos")
@@ -135,7 +137,7 @@ def main() -> int:
         if c4 is not None and c1 is not None:
             verdict["recommend_cutover_4096"] = bool(c4 >= c1 + 0.02)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_cognition_retrain_4096.py', 137, exc_info=True)
     print(json.dumps(verdict, ensure_ascii=False))
     return 0
 

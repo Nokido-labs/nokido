@@ -220,9 +220,9 @@ def _try_setup_evtsubscribe() -> bool:
                 try:
                     _event_queue.put_nowait({"src": "evtsub", "ts": time.time()})
                 except queue.Full:
-                    pass  # drop event, on est sature
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tdr_sentinel.py', 222, exc_info=True)
         except Exception:
-            pass  # callback NE DOIT JAMAIS lever
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tdr_sentinel.py', 224, exc_info=True)
         return 0
 
     _callback_ref = _evt_callback  # garde reference, sinon GC tue callback
@@ -285,7 +285,7 @@ def _poll_fallback_loop() -> None:
                 for _ in range(new):
                     _event_queue.put_nowait({"src": "poll", "ts": time.time()})
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_tdr_sentinel.py', 287, exc_info=True)
         time.sleep(POLL_FALLBACK_TICK_S)
 
 

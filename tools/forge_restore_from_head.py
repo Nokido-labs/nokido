@@ -30,6 +30,20 @@ def main() -> int:
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     sys.stdout.write((r.stdout or "") + (r.stderr or ""))
+    if r.returncode != 0 and "unable to unlink" in (r.stderr or ""):
+        # MESURE 2026-10-19 : un fichier ecrit par le compte du hub refuse aussi l'unlink a LaForgeTrusted
+        # (« Invalid argument ») -- l'outil echouait sur le cas meme qu'il devait contourner. Ouvrir en
+        # ECRITURE ne demande pas le droit de supprimer : on reecrit en place le contenu de HEAD, sous la
+        # forme de l'arbre de travail (`cat-file --filters` applique fins de ligne et filtres du depot).
+        s = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-C", str(ROOT), "cat-file", "--filters",
+             "HEAD:" + rel.replace("\\", "/")], capture_output=True)
+        if s.returncode == 0 and s.stdout:
+            (ROOT / rel).write_bytes(s.stdout)
+            print(f"[restore] repli : checkout refuse (unlink), {len(s.stdout)} octets de HEAD reecrits EN PLACE")
+            r = subprocess.CompletedProcess(r.args, 0, r.stdout, r.stderr)
+        else:
+            print(f"[restore] repli impossible : cat-file rc={s.returncode}")
     p = ROOT / rel
     if p.exists():
         n = len(p.read_text(encoding="utf-8", errors="replace").splitlines())

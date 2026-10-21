@@ -731,7 +731,7 @@ class RAGEngine:
                             try:
                                 await self._session.close()
                             except Exception:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 733, exc_info=True)
                             self._session = None
                             session = self._get_session()
                         else:
@@ -822,6 +822,7 @@ class RAGEngine:
                         text = f.read()
                     break
                 except UnicodeDecodeError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 824, exc_info=True)
                     continue
         if not text or len(text.strip()) < 30:
             return False
@@ -866,7 +867,7 @@ class RAGEngine:
 
                 _bpd(validator_id="system:nr_runner", validator_ring=0, domain="", limit=len(chunks) + 10)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 868, exc_info=True)
 
         _t.Thread(target=_promote, daemon=True).start()
         if delete_after:
@@ -902,7 +903,7 @@ class RAGEngine:
                     logger.info(f"[PDF] {path.name}: Marker → {len(md):,} chars md")
                     return md
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 904, exc_info=True)
         except Exception as e:
             logger.debug(f"[PDF] Marker fallback {path.name}: {e}")
 
@@ -920,7 +921,7 @@ class RAGEngine:
                             for row in tbl:
                                 pt += " | ".join(str(c or "").strip() for c in row if c) + "\n"
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 922, exc_info=True)
                     if pt.strip():
                         parts.append(f"[p.{i + 1}] {_clean(pt)}")
             if parts:
@@ -1177,7 +1178,7 @@ class RAGEngine:
 
                     _qmeta["nokido_version"] = _fvg()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1179, exc_info=True)
                 meta = json.dumps(_qmeta, ensure_ascii=False)
                 conn.execute(
                     "INSERT OR REPLACE INTO rag_chunks "
@@ -1318,7 +1319,7 @@ class RAGEngine:
                             try:
                                 c.update(json.loads(meta_str))
                             except Exception:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1320, exc_info=True)
                         if quality_score is not None:
                             c["quality_score"] = quality_score
                         self.chunks.append(c)
@@ -1372,7 +1373,7 @@ class RAGEngine:
                             try:
                                 c.update(json.loads(mt[i]))
                             except Exception:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1374, exc_info=True)
                         self.chunks.append(c)
                 if self.chunks:
                     self.expected_dim = len(self.chunks[0]["embedding"])
@@ -1564,7 +1565,7 @@ class RAGEngine:
                     from nokido_agent.app.forge_secrets import get_secret as _gs
                     _cohere_key = _gs("COHERE_API_KEY")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1566, exc_info=True)
             if _cohere_key:
                 _c_payload = _j.dumps(
                     {
@@ -1730,7 +1731,7 @@ class RAGEngine:
             if reply and len(reply) > 30:
                 return reply[:500]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1732, exc_info=True)
         return query
 
     def ragas_evaluate(self, query: str, answer: str, docs: list) -> dict:
@@ -1826,7 +1827,7 @@ class RAGEngine:
             HAS_BM25 = True
             return
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1828, exc_info=True)
         try:
             from rank_bm25 import BM25Okapi  # Python fallback
 
@@ -2138,7 +2139,7 @@ class RAGEngine:
                     dt = (_now - datetime.fromisoformat(_ing)).total_seconds() / 86400
                     w *= max(0.1, _m.exp(-_lam * dt))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 2140, exc_info=True)
 
             # Boosters de métadonnées
             if role_hint and c.get("role_hint") == role_hint:
@@ -2166,12 +2167,12 @@ class RAGEngine:
                                 if meta_dict.get("injection_flagged") is True:
                                     is_flagged = True
                             except Exception:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 2168, exc_info=True)
                         elif isinstance(meta_val, dict):
                             if meta_val.get("injection_flagged") is True:
                                 is_flagged = True
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 2173, exc_info=True)
                 if is_flagged:
                     continue
 
@@ -2203,7 +2204,7 @@ class RAGEngine:
                 if not _include:
                     continue
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 2205, exc_info=True)
 
             final_candidates.append((idx, w))
 
@@ -2221,7 +2222,7 @@ class RAGEngine:
                 if _sr_stats.collapsed:
                     cands = _sr_cands
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 2223, exc_info=True)
 
         # ── 7. Construction du résultat ───────────────────────────────────
         docs = [

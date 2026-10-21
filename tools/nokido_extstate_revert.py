@@ -40,7 +40,7 @@ def _tracked():
         if out:
             return [p.replace("/", os.sep) for p in out if p.strip()]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_extstate_revert.py', 42, exc_info=True)
     files = []
     for d in CODE_DIRS:
         for dp, dn, fn in os.walk(os.path.join(ROOT, d)):
@@ -62,6 +62,7 @@ def main():
             with open(p, "r", encoding="utf-8", errors="surrogateescape", newline="") as f:
                 txt = f.read()
         except (OSError, UnicodeDecodeError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_extstate_revert.py', 64, exc_info=True)
             continue
         new = txt
         for a, b in SUBS:

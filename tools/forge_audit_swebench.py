@@ -98,7 +98,7 @@ def _bus_emit(enabled: bool):
         try:
             publish(kind, data, topic="audit")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_audit_swebench.py', 100, exc_info=True)
 
     return _e
 
@@ -216,7 +216,7 @@ def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8")  # évite UnicodeEncodeError cp1252 sur → ✅
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_audit_swebench.py', 218, exc_info=True)
     ap = argparse.ArgumentParser(description="ForgeAudit (ultrareview) éval via SWE-bench ground-truth")
     ap.add_argument("--variant", choices=["lite", "verified", "live"], default="verified")
     ap.add_argument("--split", choices=["test", "dev"], default="test")

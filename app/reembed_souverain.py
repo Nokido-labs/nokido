@@ -26,7 +26,7 @@ def get_embedding(text):
             if len(vec) == EXPECTED_DIM:
                 return vec
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/reembed_souverain.py', 28, exc_info=True)
 
     # Tentative 2: Ollama (port 11434)
     try:
@@ -40,7 +40,7 @@ def get_embedding(text):
             if len(vec) == EXPECTED_DIM:
                 return vec
     except:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/reembed_souverain.py', 42, exc_info=True)
 
     return None
 

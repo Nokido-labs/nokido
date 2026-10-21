@@ -15,7 +15,7 @@ try:
         ModelScorer,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/benchmarking.py', 17, exc_info=True)
 
 __all__ = [
     "ModelBenchmarker",

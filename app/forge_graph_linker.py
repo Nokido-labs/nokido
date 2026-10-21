@@ -202,7 +202,7 @@ class SourceIndex:
             conn.close()
             self._loaded = True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_linker.py', 204, exc_info=True)
 
     def resolve_module(self, module_name: str) -> Optional[str]:
         if not self._loaded:
@@ -438,7 +438,7 @@ class GraphLinker:
                 for (src_id,) in incoming:
                     queue.append((src_id, current_score * decay_factor, depth + 1))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_linker.py', 440, exc_info=True)
 
         # Resolve to module names and get top 10
         module_scores = {}

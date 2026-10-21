@@ -42,6 +42,14 @@ from app.web_hub.proxy import ReverseProxy
 
 SERVICES = {
     # --- Tuiles actives (routes réelles ou redirections qui fonctionnent) ---
+    # 19/10 (derogation owner « page arbre ») : la page vis-network de la roadmap, servie par wired_routes.
+    "roadmap": {
+        "target": "/roadmap/arbre",
+        "title": "Arbre roadmap",
+        "desc": "Arbre d'évolution des roadmaps : état, priorité et agent porteur de chaque item",
+        "icon": "git-branch",
+        "color": "purple",
+    },
     "vitals": {
         "target": "/vitals",
         "title": "Couche vitale",

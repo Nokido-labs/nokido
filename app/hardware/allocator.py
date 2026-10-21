@@ -50,7 +50,7 @@ def detect_best_ep() -> str:
         print(f"[HW] NPUManager best_ep={best}")
         return best
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 52, exc_info=True)
     # Fallback : tester directement ONNX
     try:
         import onnxruntime as ort
@@ -61,7 +61,7 @@ def detect_best_ep() -> str:
         if "DmlExecutionProvider" in eps:
             return "directml"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 63, exc_info=True)
     return "cpu"
 
 
@@ -207,9 +207,9 @@ def unload_ollama_models(keep: str = "") -> list:
                 unloaded.append(name)
                 print(f"[HW] Modele decharge: {name}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 209, exc_info=True)
     except Exception:
-        pass  # Ollama absent — pas une erreur
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 211, exc_info=True)
     return unloaded
 
 
@@ -334,7 +334,7 @@ def get_npu_load() -> int:
             data = _j.loads(r.stdout)
             return int(data.get("ipu_load_percent", 0))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 336, exc_info=True)
 
     # 2. WMI perf counter (si disponible)
     try:
@@ -345,7 +345,7 @@ def get_npu_load() -> int:
             if "IPU" in str(item) or "NPU" in str(item):
                 return int(item.PercentProcessorTime)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 347, exc_info=True)
 
     # 3. Registre Windows — verifier si le driver est actif
     try:
@@ -362,12 +362,12 @@ def get_npu_load() -> int:
                     if any(k in desc for k in ["IPU", "NPU", "XDNA", "Ryzen AI"]):
                         return 5  # detecte idle
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 364, exc_info=True)
                 i += 1
             except OSError:
                 break
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 369, exc_info=True)
 
     # 4. PnP status — verification legere
     try:
@@ -386,7 +386,7 @@ def get_npu_load() -> int:
         if "OK" in r2.stdout:
             return 3  # present et operationnel
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/allocator.py', 388, exc_info=True)
 
     return 0  # non detecte
 

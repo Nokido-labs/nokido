@@ -156,6 +156,7 @@ def refresh_catalog() -> dict:
                         "score": r.get("score", 0),
                     }
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_clawhub_autoinstall.py', 158, exc_info=True)
             continue
     CATALOG_PATH.parent.mkdir(exist_ok=True)
     CATALOG_PATH.write_text(json.dumps(all_skills, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -392,6 +393,7 @@ def _index_skill_in_rag(slug: str, skill_dir: Path) -> int:
                 )
                 inserted += 1
             except sqlite3.IntegrityError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_clawhub_autoinstall.py', 394, exc_info=True)
                 continue
     conn.commit()
     conn.close()

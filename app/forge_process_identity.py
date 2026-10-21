@@ -94,6 +94,7 @@ def identify_process(pid: int) -> dict:
                 try:
                     row = json.loads(line)
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_process_identity.py', 96, exc_info=True)
                     continue
                 if row.get("pid") == pid and row.get("start_time") and out.get("start_time") \
                         and abs(row["start_time"] - out["start_time"]) < 2.0:

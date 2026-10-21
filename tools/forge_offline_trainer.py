@@ -29,6 +29,10 @@ SANDBOX = ROOT / "sandbox"
 
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
+# 19/10 : la RACINE porte le paquet `nokido_agent`. Sous PY314T (canari sans GIL), rien d'autre ne la pose :
+# ModuleNotFoundError au premier tir NREM3 apres le correctif circadien, service en quarantaine.
+if str(ROOT) not in sys.path:
+    sys.path.insert(1, str(ROOT))
 
 logger = logging.getLogger("Nokido.OfflineTrainer")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
@@ -65,7 +69,7 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_offline_trainer.py', 71, exc_info=True)
     return {"last_trained_ts": 0.0, "last_trace_count": 0}
 
 
@@ -269,7 +273,7 @@ def _anchor(results: dict) -> None:
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_offline_trainer.py', 275, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

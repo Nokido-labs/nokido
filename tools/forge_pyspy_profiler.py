@@ -57,7 +57,7 @@ def _dynamic_candidates() -> list[str]:
                     os.path.join(ub, "Python*", "Scripts", "py-spy.exe")):
             cands.extend(glob.glob(pat))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pyspy_profiler.py', 59, exc_info=True)
     return cands
 
 
@@ -70,7 +70,7 @@ def find_pyspy() -> str | None:
             if os.path.exists(c):
                 return c
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pyspy_profiler.py', 72, exc_info=True)
     return None
 
 
@@ -120,7 +120,7 @@ def get_hub_pid() -> int | None:
             if pid:
                 return int(pid)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pyspy_profiler.py', 122, exc_info=True)
     # 2. psutil : process python dont la cmdline contient nokido_hub.
     try:
         import psutil  # type: ignore
@@ -129,7 +129,7 @@ def get_hub_pid() -> int | None:
             if "nokido_hub" in cl:
                 return int(p.info["pid"])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pyspy_profiler.py', 131, exc_info=True)
     # 3. supervisor :8765 (NokidoMCP).
     try:
         import urllib.request
@@ -246,7 +246,7 @@ def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_pyspy_profiler.py', 248, exc_info=True)
     ap = argparse.ArgumentParser(description="py-spy profiler du hub Nokido")
     ap.add_argument("mode", choices=["check", "install", "dump", "record", "stacks"])
     ap.add_argument("--pid", type=int, default=None)

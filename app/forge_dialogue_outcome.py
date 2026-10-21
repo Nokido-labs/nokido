@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -131,7 +130,7 @@ def evaluate_and_record(user_msg, assistant_msg, next_user_msg="", *, time_s=1.0
     try:
         record_outcome(out)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dialogue_outcome.py', 132, exc_info=True)
     return out
 
 
@@ -143,16 +142,19 @@ def _persist_exemplar(user_msg, assistant_msg, topic="general", db_path=None):
     text = f"[user] {(user_msg or '')[:600]}\n[assistant] {(assistant_msg or '')[:1200]}"
     cid = "dwin_" + hashlib.sha256((topic + text).encode()).hexdigest()[:16]
     try:
-        con = sqlite3.connect(str(db), timeout=10)
-        con.execute("PRAGMA journal_mode=WAL")
-        # Forme sans existant (2026-10-01) : n'arme pas le trigger rag_chunks_fts_bi.
-        con.execute(
-            "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, ingested_at) SELECT ?,?,?,?,? "
-            "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
-            (cid, f"dialogue_win/{topic}", text, "dialogue_win", time.strftime("%Y-%m-%dT%H:%M:%S"), cid),
+        # `write_retry` ouvre sa PROPRE connexion : on lui donne `path=db`, la base visee.
+        # Chemin gouverne (socle), ecriture isolee (lot 2 de migration des ecrivains nus, 18/10).
+        from nokido_agent.app import forge_db_path as _dbp
+
+        _dbp.write_retry(
+            lambda c: c.execute(
+                # Forme sans existant (2026-10-01) : n'arme pas le trigger rag_chunks_fts_bi.
+                "INSERT OR IGNORE INTO rag_chunks (id, source, text, domain, ingested_at) SELECT ?,?,?,?,? "
+                "WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)",
+                (cid, f"dialogue_win/{topic}", text, "dialogue_win", time.strftime("%Y-%m-%dT%H:%M:%S"), cid),
+            ),
+            path=str(db),
         )
-        con.commit()
-        con.close()
         return cid
     except Exception:
         return ""

@@ -431,6 +431,24 @@
         "services"
       ]
     },
+    "CI_REFERENCE": {
+      "ring": 2,
+      "_note": "2026-10-16, decision owner (forme a). Le bail de priorite est ARME depuis le 14/10 mais n'a jamais ete pris : la CI de reference, son client prevu, ne le demandait pas et n'avait aucune identite. Arme, le bail exige ring <= 3 ; ring 2 = le minimum utile, sans droit d'ecriture au depot (pas de write_paths).",
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "CI_REFERENCE",
+      "surface": "internal",
+      "mailbox": "CI_REFERENCE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "organe": "CI de reference (tools/forge_ci_reference.py) -- demande le bail de priorite au hub pendant ses etages et le libere a la fin",
+      "porte_son_propre_marqueur": "FORGE_TOKEN_CI_REFERENCE au coffre, seme par tools/forge_vault_seed_agent_tokens.py --generate-missing --from-registre --agents CI_REFERENCE.",
+      "aliases": [
+        "agt_ci_reference",
+        "ci_reference"
+      ]
+    },
     "RSS_WATCHER": {
       "ring": 3,
       "_note": "2026-10-13, decision owner (GO a). La veille automatique (NokidoRSSWatcher) ingerait sous SERVICES, ring 4, alors que `rag` exige 3 : GATE_DENIED a chaque cycle depuis au moins le 24/09 (code) et le 07/10 (journal, 13 522 refus), « 0 chunks ingeres ». Ring 3 = le minimum pour indexer. SERVICES n'est PAS releve : ce serait donner le droit d'ecrire au RAG a tout organe qui emprunte ce badge commun.",
@@ -1059,7 +1077,8 @@
       ]
     },
     "VIBE": {
-      "ring": 2,
+      "ring": 1,
+      "_note_ring_20261016": "owner 16/10 : les CLI suggeres (Mistral Vibe, OpenCode) en ring 1 comme AGY/Codex, sur la partie CLI seulement (pas le swarm : MISTRAL reste ring 3) ; *_HOOK reste ring 4",
       "write_paths": [
         "app/",
         "tools/",
@@ -1118,7 +1137,8 @@
       ]
     },
     "OPENCODE": {
-      "ring": 3,
+      "ring": 1,
+      "_note_ring_20261016": "owner 16/10 : CLI en ring 1 (partie CLI seulement, pas le swarm)",
       "write_paths": [
         "sandbox/",
         "docs/",
@@ -1802,6 +1822,13 @@
     },
     "MISTRAL": {
       "ring": 3,
+      "suspension_levee": {
+        "depuis": "2026-10-17",
+        "motif": "0 livraison sur 5 (Vibe), bb:mistral_suspendu_0_livraison_20261017",
+        "levee_le": "2026-10-20",
+        "par": "decision owner (AskUserQuestion) : reactive pour un essai mesurable ; s'il ne livre pas, il repart en suspension",
+        "essai": "20/10 : 1er essai KO (Vibe 3.0.1 turn_limit, job_499ed100) ; owner : reparer les appels, pas re-suspendre. Codestral durci (ae90abf6f) : 4 livraisons relues et integrees (4f704e9b9, a78a98463, 7cf360886 corrigee, f33edd4b9) -- reste actif"
+      },
       "kind": "provider",
       "actor": "MISTRAL",
       "surface": "backend",
@@ -1936,7 +1963,8 @@
       "machine": "local"
     },
     "POST_COMMIT": {
-      "ring": 4,
+      "ring": 3,
+      "_note": "2026-10-18, decision owner : GATE DENY rag ring 4 <= 3 depuis au moins le 15/10 (299/955/816 refus/jour) ; ring 3 = minimum pour indexer ; SERVICES non releve",
       "kind": "service",
       "actor": "POST_COMMIT",
       "surface": "internal",
@@ -2161,7 +2189,7 @@
       "machine": "local"
     },
     "VIBE_CLI": {
-      "ring": 2,
+      "ring": 1,
       "kind": "surface",
       "actor": "VIBE",
       "surface": "interactive",
@@ -2176,7 +2204,7 @@
       "machine": "local"
     },
     "VIBE_DAEMON": {
-      "ring": 2,
+      "ring": 1,
       "kind": "daemon",
       "actor": "VIBE",
       "surface": "autonomous",
@@ -2191,7 +2219,7 @@
       "machine": "local"
     },
     "VIBE_HEADLESS": {
-      "ring": 2,
+      "ring": 1,
       "kind": "daemon",
       "actor": "VIBE",
       "surface": "autonomous",
@@ -2203,6 +2231,97 @@
       ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
+      "machine": "local"
+    },
+    "OPENCODE_GPTOSS": {
+      "ring": 1,
+      "_note": "owner 17/10 (« double ou triple des opencode autonomes sur differents modeles en ring 1 sur le mcp » ; GO jetons + hub) : instance OpenCode autonome pilotee par ACP (tools/forge_task_executor.py _delegate_to_opencode, config/opencode_instances.json), modele groq/openai/gpt-oss-120b, worktree nokido_worktrees/opencode_gptoss ; SON jeton derive FORGE_TOKEN_OPENCODE_GPTOSS lu au coffre (jamais celui de l'executeur), shell natif refuse (permission.bash deny).",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_GPTOSS",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_gptoss", "opencode_gptoss"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_NEMOTRON": {
+      "ring": 1,
+      "_note": "owner 17/10, meme protocole que OPENCODE_GPTOSS ; modele openrouter/nvidia/nemotron-3-super-120b-a12b:free, worktree nokido_worktrees/opencode_nemotron, jeton FORGE_TOKEN_OPENCODE_NEMOTRON.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_NEMOTRON",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_nemotron", "opencode_nemotron"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_DEFAUT2": {
+      "ring": 1,
+      "_note": "owner 18/10 (accord jetons DEFAUT2-5), meme protocole que OPENCODE_GLM ; modele par defaut d'OpenCode (config/opencode_instances.json), worktree nokido_worktrees/opencode_defaut2, jeton FORGE_TOKEN_OPENCODE_DEFAUT2.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_DEFAUT2",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_defaut2", "opencode_defaut2"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_DEFAUT3": {
+      "ring": 1,
+      "_note": "owner 18/10 (accord jetons DEFAUT2-5), meme protocole que OPENCODE_GLM ; modele par defaut d'OpenCode (config/opencode_instances.json), worktree nokido_worktrees/opencode_defaut3, jeton FORGE_TOKEN_OPENCODE_DEFAUT3.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_DEFAUT3",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_defaut3", "opencode_defaut3"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_DEFAUT4": {
+      "ring": 1,
+      "_note": "owner 18/10 (accord jetons DEFAUT2-5), meme protocole que OPENCODE_GLM ; modele par defaut d'OpenCode (config/opencode_instances.json), worktree nokido_worktrees/opencode_defaut4, jeton FORGE_TOKEN_OPENCODE_DEFAUT4.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_DEFAUT4",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_defaut4", "opencode_defaut4"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_DEFAUT5": {
+      "ring": 1,
+      "_note": "owner 18/10 (accord jetons DEFAUT2-5), meme protocole que OPENCODE_GLM ; modele par defaut d'OpenCode (config/opencode_instances.json), worktree nokido_worktrees/opencode_defaut5, jeton FORGE_TOKEN_OPENCODE_DEFAUT5.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_DEFAUT5",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_defaut5", "opencode_defaut5"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
+      "machine": "local"
+    },
+    "OPENCODE_GLM": {
+      "ring": 1,
+      "_note": "owner 17/10, meme protocole que OPENCODE_GPTOSS ; modele zai/glm-4.7-flash, worktree nokido_worktrees/opencode_glm, jeton FORGE_TOKEN_OPENCODE_GLM.",
+      "kind": "daemon",
+      "actor": "OPENCODE",
+      "surface": "autonomous",
+      "mailbox": "OPENCODE_GLM",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_opencode_glm", "opencode_glm"],
+      "channel": "OPENCODE_MCP",
+      "transport": "mcp",
       "machine": "local"
     },
     "VSCODE_CLI": {

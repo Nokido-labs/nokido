@@ -454,7 +454,7 @@ class ACPServer:
                 try:
                     box.put_nowait(obj)
                 except queue.Full:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_server.py', 456, exc_info=True)
 
     def handle_line(self, line):
         line = line.strip()

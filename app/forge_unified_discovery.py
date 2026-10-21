@@ -85,7 +85,7 @@ def refine_and_anchor(
                 payload={"anchored": anchored, "collection": collection, "tag": DISCO_TAG},
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 87, exc_info=True)
 
     return {
         "query": query,
@@ -120,7 +120,7 @@ def _fetch_web(query: str, max_results: int = 5) -> List[Dict]:
         if not is_web_search_enabled({}):
             return []
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 122, exc_info=True)
     # 1. DuckDuckGo Instant Answer API
     try:
         encoded = urllib.parse.quote_plus(query)
@@ -151,7 +151,7 @@ def _fetch_web(query: str, max_results: int = 5) -> List[Dict]:
                     }
                 )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 153, exc_info=True)
 
     # 2. Fallback Wikipedia REST si peu de résultats
     if len(results) < 2:
@@ -170,7 +170,7 @@ def _fetch_web(query: str, max_results: int = 5) -> List[Dict]:
                     }
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 172, exc_info=True)
 
     # 3. Fallback DuckDuckGo HTML simple
     if len(results) < 1:
@@ -191,7 +191,7 @@ def _fetch_web(query: str, max_results: int = 5) -> List[Dict]:
                     }
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 193, exc_info=True)
 
     return results[:max_results]
 
@@ -276,7 +276,7 @@ def _anchor_chunks(chunks: List[Dict], collection: str = "disco") -> int:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_rag_disco "
                          "ON rag_chunks(role_hint) WHERE role_hint='disco'")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 278, exc_info=True)
 
         # Récupérer les sources déjà présentes
         # Déduplique toutes les sources — pas seulement disco
@@ -341,7 +341,7 @@ def _anchor_chunks(chunks: List[Dict], collection: str = "disco") -> int:
                 )
                 conn.commit()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 343, exc_info=True)
 
         conn.close()
         return inserted
@@ -410,7 +410,7 @@ def unified_discovery(
                 payload={"anchored": anchored, "collection": collection, "tag": DISCO_TAG},
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_unified_discovery.py', 412, exc_info=True)
 
     # 6. Résultat
     return {

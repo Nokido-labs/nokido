@@ -256,7 +256,7 @@ class Watcher:
                         await self._sleep_or_stop(self.poll_interval_s)
                         continue
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/watcher.py', 258, exc_info=True)
 
                 for key, spec in MODULES.items():
                     if self._stop_event.is_set():
@@ -335,7 +335,7 @@ class Watcher:
 
                 await self._sleep_or_stop(self.poll_interval_s)
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/watcher.py', 337, exc_info=True)
         finally:
             log.info("watcher loop stopped")
 
@@ -344,7 +344,7 @@ class Watcher:
         try:
             await asyncio.wait_for(self._stop_event.wait(), timeout=seconds)
         except asyncio.TimeoutError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/watcher.py', 346, exc_info=True)
 
     # ----------------------------------------------------------------
     # Introspection (pour API)

@@ -116,7 +116,7 @@ def derive_structure_embedding(chunk_id: str, dim: int = 1024) -> list[float]:
                 np = hash(nb) % dim
                 struct[np] += 0.3
         except sqlite3.OperationalError:
-            pass  # biblio_link may not exist
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tem_factorize.py', 118, exc_info=True)
 
         # Temporal decay : recent chunks boost on position derived from year-week
         if ingested:
@@ -125,7 +125,7 @@ def derive_structure_embedding(chunk_id: str, dim: int = 1024) -> list[float]:
                 t_pos = hash(yr_week) % dim
                 struct[t_pos] += 0.4
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tem_factorize.py', 127, exc_info=True)
     finally:
         con.close()
 

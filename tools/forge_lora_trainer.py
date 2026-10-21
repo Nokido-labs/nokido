@@ -82,7 +82,7 @@ def build_dataset(min_score: int = 85, max_samples: int = 2000) -> Path:
                     }
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lora_trainer.py', 84, exc_info=True)
 
     print(f"  → {len(samples)} fonctions extraites")
 
@@ -116,7 +116,7 @@ def build_dataset(min_score: int = 85, max_samples: int = 2000) -> Path:
             )
             vault_count += 1
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lora_trainer.py', 118, exc_info=True)
 
     print(f"  → {vault_count} exemples vault")
 
@@ -144,7 +144,7 @@ def build_dataset(min_score: int = 85, max_samples: int = 2000) -> Path:
                 )
                 ep_count += 1
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lora_trainer.py', 146, exc_info=True)
 
     print(f"  → {ep_count} exemples épisodiques")
     print(f"\nTotal brut : {len(samples)} exemples")
@@ -268,7 +268,7 @@ def train(
             qlora_enabled = True
             print("   QLoRA 4-bit activé")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lora_trainer.py', 270, exc_info=True)
 
     model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, **load_kwargs)
 

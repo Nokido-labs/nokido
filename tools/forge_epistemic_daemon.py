@@ -117,7 +117,7 @@ def _propose_gap(query: str, cov: dict, motif: str = "gap_certain") -> dict:
         # valait lacune -- cortisol et evenement critique sur une source muette.
         ev.feel_gap(domain="reference", query=query, cov=cov)  # critical_event + CORTISOL_EPISTEMIC
     except Exception:  # noqa: BLE001 - le ressenti ne doit pas tuer le daemon
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_epistemic_daemon.py', 119, exc_info=True)
     try:
         lacune = ev.ouvrir_lacune(query, cov, motif=motif)
     except Exception as e:  # noqa: BLE001 - registre illisible : on le DIT, on n'ecrase rien
@@ -269,6 +269,7 @@ def _lire_etat_soin() -> dict:
             try:
                 etat[sig] = {"n": int(v or 0), "sev_emise": None}
             except (TypeError, ValueError):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_epistemic_daemon.py', 271, exc_info=True)
                 continue
     return etat
 
@@ -343,7 +344,7 @@ def _interoceptive_split(limit: int = 8, ecrire: bool = True) -> dict:
             (base / "self_care_state.json").write_text(
                 _json.dumps(live, ensure_ascii=False), encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_epistemic_daemon.py', 345, exc_info=True)
     # LE PLUS GRAVE D'ABORD. Sans ce tri, l'ordre de traitement était celui du
     # rapport, c'est-à-dire arbitraire : une blessure sérieuse pouvait attendre
     # derrière une petite gêne.
@@ -1095,6 +1096,7 @@ def _journal(msg: str) -> None:
                 fh.write(ligne)
             return
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_epistemic_daemon.py', 1097, exc_info=True)
             continue  # journal indisponible ne doit JAMAIS tuer l'organe
 
 
@@ -1181,7 +1183,7 @@ def run(interval: int, once: bool) -> int:
             try:  # la connexion peut etre la victime : on la renouvelle
                 conn.close()
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_epistemic_daemon.py', 1183, exc_info=True)
             conn = sqlite3.connect(db_path(), timeout=60)
             if once:
                 return 4

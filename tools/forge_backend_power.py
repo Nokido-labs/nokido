@@ -87,7 +87,7 @@ def _port_pid(port: int):
             if c.status == "LISTEN" and c.laddr and c.laddr.port == port:
                 return c.pid
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 89, exc_info=True)
     return None
 
 
@@ -144,7 +144,7 @@ def status() -> dict:
             try:
                 rss = round(psutil.Process(pid).memory_info().rss / 1e9, 2)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 146, exc_info=True)
         out["backends"][name] = {"port": b["port"], "up": up, "pid": pid, "rss_gb": rss}
     out["ollama_loaded"] = _ollama_loaded()
     return out
@@ -238,7 +238,7 @@ def stop(name: str) -> dict:
                 urllib.request.urlopen(req, timeout=10)
                 done.append(m)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 240, exc_info=True)
         return {"ollama_unloaded": done}
     b = BACKENDS.get(name)
     if not b:
@@ -288,7 +288,7 @@ def mark_use(name: str) -> None:
         SBX.mkdir(parents=True, exist_ok=True)
         _use_marker(name).write_text(str(time.time()))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 290, exc_info=True)
 
 
 def signal_wake(name: str) -> None:
@@ -300,7 +300,7 @@ def signal_wake(name: str) -> None:
             cur.append(name)
             WAKE.write_text(json.dumps(cur))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 302, exc_info=True)
 
 
 def ensure(name: str) -> None:
@@ -311,7 +311,7 @@ def ensure(name: str) -> None:
         if name in BACKENDS and not _up(BACKENDS[name]["port"]):
             signal_wake(name)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 313, exc_info=True)
 
 
 def _proc_start(name: str) -> float:
@@ -361,7 +361,7 @@ def process_wakes() -> dict:
     try:
         WAKE.unlink()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_backend_power.py', 363, exc_info=True)
     return done
 
 

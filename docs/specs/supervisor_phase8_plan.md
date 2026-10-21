@@ -1,3 +1,7 @@
+<!-- nokido: plan-historique -->
+> **Plan historique, non contraignant** (décision owner du 18/10/2026) : ce document décrit une
+> étape passée ou abandonnée ; les modules qu'il nomme ne sont pas une intention en cours.
+
 # PLAN — Supervisor Phase 2, Étape 8 : migration NSSM → Popen
 
 > Décision user 2026-05-29 : **plan d'abord, AUCUNE action sur services live**.

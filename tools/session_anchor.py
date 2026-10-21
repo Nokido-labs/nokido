@@ -80,7 +80,7 @@ for name, script in DAEMONS:
                 ).total_seconds()
                 dead = age > 300
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/session_anchor.py', 82, exc_info=True)
     if dead:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
         p = subprocess.Popen(

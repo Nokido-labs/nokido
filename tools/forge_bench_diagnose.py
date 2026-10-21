@@ -48,7 +48,7 @@ def _decode(blob):
             if isinstance(v, list) and len(v) == DIM:
                 return v
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_diagnose.py', 50, exc_info=True)
     return None
 
 

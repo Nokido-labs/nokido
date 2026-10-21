@@ -12,6 +12,7 @@ Tout ce qui est ici remplace CLAUDE.md pour économiser ~6k tokens/tour.
 API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) :
 - `acquitter_audit` — `--audit-fait [--modele M] [--version V]` : l'audit couvre ce qui a ete VU (ou ce qui est donne).
 - `alerte_cout_reprise` — SessionStart porte `prompt_cache_likely_expired` / `context_tokens` / `estimated_cache_write_usd`.
+- `alerte_prs_dependabot` — `[dependabot] N PR prete(s) : #..` au boot ; rien si 0, ILLISIBLE si `gh` ne repond pas (jamais « aucune »).
 - `modele_normalise` — `claude-opus-5-5[1m]` et `claude-opus-5-5` sont le MEME modele : la fenetre n'en fait pas un autre.
 - `rappel_audit` — (texte du rappel ou None, etat mis a jour). Le rappel TIENT tant que l'audit n'est pas acquitte.
 - `section_audit` — Entree brute du hook -> rappel ou None. Ne casse JAMAIS la session : un defaut est DIT.
@@ -202,6 +203,72 @@ def alerte_cout_reprise(entree_brute):
                 "%d min" % (secs // 60) if isinstance(secs, (int, float)) else "duree ?",
                 "{:,}".format(ctx).replace(",", " ") if isinstance(ctx, int) else "?",
                 "%.2f" % usd if isinstance(usd, (int, float)) else "?"))
+
+
+def alerte_file_owner(registre=None):
+    """`[arbitrage] N dossier(s) owner en attente (pont ombre) : ..` -- rien si 0, ILLISIBLE si le registre ne se lit pas.
+
+    18/10 (p1_auto_amelioration, enquete AGY job_06b6bdb4) : `forge_autonomous_loops.file_owner_ombre` rendait les
+    dossiers dont le traitement revient a l'owner (ECART_DOC_CODE, RELANCE_OU_OWNER) mais seul son NR l'appelait.
+    Ce hook la CITE ; il ne casse jamais la session et ne dit jamais « aucun » sur un registre qu'il n'a pas lu."""
+    import json as _json
+
+    chemin = Path(registre) if registre else ROOT / "sandbox" / "evolution" / "evolution_experiences.jsonl"
+    try:
+        lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        return "[arbitrage] file owner du pont ombre : ILLISIBLE (%s) -- etat INCONNU, pas 0" % type(exc).__name__
+    entrees, illisibles = [], 0
+    for ligne in lignes:
+        if not ligne.strip():
+            continue
+        try:
+            e = _json.loads(ligne)
+        except ValueError:
+            illisibles += 1
+            continue
+        if isinstance(e, dict):
+            entrees.append(e)
+    try:
+        if str(ROOT / "app") not in sys.path:
+            sys.path.insert(0, str(ROOT / "app"))
+        from forge_autonomous_loops import file_owner_ombre
+        file = file_owner_ombre(entrees)
+    except Exception as exc:
+        return "[arbitrage] file owner du pont ombre : ILLISIBLE (%s) -- etat INCONNU, pas 0" % type(exc).__name__
+    note = " (%d ligne(s) illisible(s))" % illisibles if illisibles else ""
+    if not file:
+        return ("[arbitrage] aucun dossier owner lisible%s" % note) if illisibles else None
+    # le dossier est un hash : ses CIBLES (modules decrits sans code, organes tombes) disent quoi trancher
+    noms = ", ".join("%s (%s : %s)" % (d.get("dossier"), d.get("treatment"),
+                                       "/".join(str(c) for c in (d.get("cibles") or [])[:2]) or "?")
+                     for d in file[:5])
+    reste = " +%d autre(s)" % (len(file) - 5) if len(file) > 5 else ""
+    return "[arbitrage] %d dossier(s) owner en attente (pont ombre) : %s%s%s" % (len(file), noms, reste, note)
+
+
+def alerte_prs_dependabot(executer=None):
+    """`[dependabot] N PR prete(s) : #..` -- rien si 0, ILLISIBLE si `gh` ne repond pas (jamais « aucune »).
+
+    Mesure du 2026-10-14 : CI de quarantaine verte pendant que la revue attendait. `gh` n'est authentifie
+    que sous le compte owner, et le demarrage de session EST ce compte : ce point d'entree est le seul ou
+    l'alerte locale a un sens. La logique et toute entree-sortie `gh` restent dans `forge_dependabot_verdict`
+    ; ce hook ne fait que la CITER. Il ne casse JAMAIS la session : outil absent, signature cassee ou gh qui
+    ne repond pas se lisent ILLISIBLE, pas en traceback. Alerte seulement : la fusion reste HUMAINE.
+    """
+    try:
+        if str(ROOT / "tools") not in sys.path:
+            sys.path.insert(0, str(ROOT / "tools"))
+        from forge_dependabot_verdict import prs_dependabot_pretes
+        etat, prs = prs_dependabot_pretes(executer)
+    except Exception as exc:
+        return "[dependabot] PR prete(s) : ILLISIBLE (%s) -- etat INCONNU, pas 0" % type(exc).__name__
+    if etat != "OK":
+        return "[dependabot] PR prete(s) : ILLISIBLE (gh ne repond pas) -- etat INCONNU, pas 0"
+    if not prs:
+        return None  # 0 PR : rien n'est dit, on n'invente pas une bonne nouvelle
+    return "[dependabot] %d PR prete(s) : %s" % (
+        len(prs), ", ".join("#%s" % p.get("number", "?") for p in prs))
 
 
 def acquitter_audit(chemin_etat, argv):
@@ -597,6 +664,16 @@ def main() -> int:
     roadmap = roadmap_summary()
     if roadmap:
         print(f"\n{roadmap}")
+
+    # ── 1bis. PR Dependabot pretes (gh authentifie ici, sous le compte owner) ──
+    # Une CI de quarantaine verte qui attend une revue ne doit pas attendre qu'on la
+    # redecouvre : l'alerte sort ICI, et rien n'est fusionne (decision owner du 2026-10-14).
+    texte_arbitrage = alerte_file_owner()
+    if texte_arbitrage:
+        print("\n" + texte_arbitrage)
+    texte_dependabot = alerte_prs_dependabot()
+    if texte_dependabot:
+        print("\n" + texte_dependabot)
 
     # ── 2. Inbox agent_messages ───────────────────────────────────────────────
     # Digest MULTI-CANAL : UN point de lecture au boot. Peu importe ou l'agent

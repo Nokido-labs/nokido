@@ -57,7 +57,7 @@ Nokido 是一个**面向人工生命体的本地优先运行时**：它提供神
 服务商，以及 Claude Code、Codex CLI、OpenCode、Antigravity 等编码智能体 —— 在你的机器上协同工作，
 **而不会沦为一堆各自为政的智能体**。
 
-它源于三个观察，详见[宣言](../../MANIFESTO.md)：
+它源于三个观察，详见[宣言](MANIFESTO.en.md)：
 
 1. **大多数 AI 在外部。** 提示词、代码和文档都要经过不属于你的基础设施。
 2. **大多数 AI 没有记忆。** 记忆只是附加功能，而不是根基。
@@ -1106,7 +1106,7 @@ continuous neural substrate
 ### 深度架构
 
 * [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](../../MANIFESTO.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md) · [English](MANIFESTO.en.md)
 
 ### 智能体协议
 

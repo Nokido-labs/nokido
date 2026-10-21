@@ -686,7 +686,7 @@ def _index_symboles() -> set[str]:
                     syms |= set(pat.findall(open(os.path.join(root, fn),
                                                  encoding="utf-8", errors="replace").read()))
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_feature_checklist.py', 688, exc_info=True)
     return syms
 
 

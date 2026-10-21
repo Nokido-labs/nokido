@@ -59,7 +59,9 @@ except Exception as _e_cle:  # noqa: BLE001 - dit, jamais avale
     GEMINI_API_KEY = ""
 # Préférer 2.5-flash-lite (10 RPM) pour le chat interactif
 # Passer à 2.5-flash (3 RPM) pour les tâches complexes
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# Decision owner 15/10 : le modele vient de l'APPELANT, jamais d'un GEMINI_MODEL global (Nokido.env portait
+# gemini-2.5-pro -> 429 sur la cle gratuite) ; sans choix, la famille flash-lite.
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 MCP_SCRIPT = str(ROOT / "app" / "mcp_server_tools.py")
 
 # ── Rate limiter intégré (free tier) ─────────────────────────────────────────

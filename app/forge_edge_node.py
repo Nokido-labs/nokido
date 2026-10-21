@@ -75,12 +75,12 @@ def _node_metrics() -> dict:
     try:
         m["os_version"] = f"{platform.system()} {platform.release()}"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_node.py', 77, exc_info=True)
     try:
         with open("/proc/uptime") as f:
             m["uptime_s"] = int(float(f.read().split()[0]))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_node.py', 82, exc_info=True)
     try:
         info = {}
         with open("/proc/meminfo") as f:
@@ -93,7 +93,7 @@ def _node_metrics() -> dict:
             m["mem_total_mb"] = total
             m["mem_used_mb"] = total - avail
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_node.py', 95, exc_info=True)
     return m
 
 

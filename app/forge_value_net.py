@@ -169,7 +169,7 @@ def train(
         try:
             model = ValueNet.load(save_path)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_value_net.py', 171, exc_info=True)
 
     losses = []
     t0 = time.time()

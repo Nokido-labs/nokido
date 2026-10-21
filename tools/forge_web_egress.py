@@ -96,7 +96,7 @@ def _egress(url: str) -> dict:
                     ),
                 }
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_web_egress.py', 98, exc_info=True)
     return {"ok": True, "url": url, "mode": "markdown", "injected": injected, "chars": len(md), "markdown": md}
 
 

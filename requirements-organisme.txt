@@ -32,7 +32,11 @@ torch-geometric==2.7.0
 # ne le voyait pas avant de suivre les lanceurs delegants. Version du poste de reference.
 # 1.27.2 -> 1.28.1 le 2026-10-12 : alerte Dependabot #282 (controle Host/Origin du transport WebSocket),
 # installee d'abord sur le poste de reference.
-mcp==1.28.1
+# 1.28.1 -> 1.30.0 le 2026-10-16 : GHSA-84m7-p3x7-pcfv (medium, CVSS 7.5) -- en mode Streamable HTTP « stateful »
+# (le defaut de FastMCP 1.x), les sessions n'expiraient jamais et leur nombre n'etait pas borne : un client qui
+# atteint l'endpoint fait croitre la memoire du serveur sans limite. 1.30.0 ajoute session_idle_timeout (1800 s)
+# et max_sessions (10000). Aucune dependance de mcp ne change entre 1.28.1 et 1.30.0 (requires_dist compares).
+mcp==1.30.0
 
 # NokidoNetcfgMCP et NokidoNetcfgUI : netcfg livre en paquets PyPI (decision owner du 2026-10-08, publication du
 # 2026-10-11). Plus de depot voisin : `-m netcfg_mcp` et `-m netcfg.demo.serve_ui`. [complet] = terminal, tui,

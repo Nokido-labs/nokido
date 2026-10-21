@@ -313,6 +313,11 @@ REGLES: list[tuple[str, str]] = [
      "run_job : le parametre `args` est IGNORE en silence (wrapper `+ []`, script "
      "lance SANS arguments — mesure 2026-08-31). Le nom accepte est `script_args`. "
      "Verifier au besoin le `_wrap.py` du job (`Popen([...] + [...])`)."),
+    # Mesure 2026-10-19 (job_b5e587877d83) : run_job{script_args: ["--impacte"]} -> le script recoit le LITTERAL
+    # « [--impacte] » (rc=2 « unrecognized arguments »). trusted_script accepte la liste ; run_job, NON.
+    (r"SCRIPT_ARGS_LISTE_RUN_JOB",
+     "run_job : `script_args` en LISTE part en litteral « ['--x'] » (rc=2 unrecognized arguments, mesure "
+     "2026-10-19 job_b5e587877d83). Passer UNE CHAINE : script_args=\"--impacte --x y\"."),
     # Mesure 2026-08-31 : 2 lots de suite en timeout MUET a 120 s pile vers
     # 127.0.0.1:11434 depuis un run_job online=true, pendant que /api/ps repondait
     # en 280 ms du shell online. `online` ne donne que l'egress, jamais le loopback.
@@ -379,8 +384,9 @@ REGLES: list[tuple[str, str]] = [
      "`find /c \"\"` rend TOUJOURS 0 (find ne matche pas la chaîne vide). "
      "-> `find /c /v \"\"` pour compter des lignes."),
     (r"\bsubprocess\.(Popen|run|call|check_output)\b",
-     "action=python INTERDIT subprocess (WORKSPACE_GUARD). "
-     "-> action=shell ; ou pilote main() in-process avec sys.stdin=io.StringIO(...)."),
+     "subprocess sous action=python : PERMIS sous le compte bac a sable (LaForgeSbx*, parite avec run shell "
+     "depuis le 27/09, mesure 18/10 : whoami passe) ; REFUSE seulement hors de ce compte (pool du hub, gVisor), "
+     "ou l'audit hook WORKSPACE_GUARD serait contourne. Refus vu -> action=shell ou run_job."),
     (r"\bwmic\b",
      "`wmic` déprécié/absent. -> `tasklist` (ou `tasklist /FI`)."),
     # (la regle « cmdlets PowerShell » vit desormais dans REGLES_CMD_SEULEMENT :
@@ -532,6 +538,9 @@ def _texte_commande(entree: dict) -> str:
     sa = entree.get("script_args")
     if isinstance(sa, str):
         parts.append(sa)
+    elif isinstance(sa, list) and str(entree.get("action") or "") == "run_job":
+        # une LISTE etait invisible au gate (19/10) : run_job la transmet en litteral, d'ou ce marqueur
+        parts.append("SCRIPT_ARGS_LISTE_RUN_JOB " + " ".join(str(x) for x in sa))
     # `script` (run_job) et `path` (trusted_script). SANS EUX, DEUX CLASSES
     # D'APPEL ENTIERES SONT INVISIBLES AU GATE. Mesure 2026-09-07 :
     #   run_job{script: "tools/ci_local.py"}             -> 0 caractere extrait
@@ -1017,12 +1026,324 @@ def promotion_verdict(empreintes: list, journal, maintenant: float) -> dict:
     return {"promu": False, "cle": None, "n": 0, "depuis_j": 0.0}
 
 
+# ---------------------------------------------------------------------------
+# DISJONCTEUR D'IMPULSION ET ANTI-POLLING (GO owner 16/10)
+# ---------------------------------------------------------------------------
+
+def _chemin_workspace(variable: str, defaut: str) -> str:
+    """Chemin pris dans `variable` (rendu absolu), sinon <depot>/sandbox/workspace/<defaut> -- jamais relatif au cwd."""
+    valeur = os.environ.get(variable)
+    if valeur:
+        return os.path.abspath(valeur)
+    return os.path.join(_RACINE_DEPOT, "sandbox", "workspace", defaut)
+
+
+def _chemin_etat() -> str:
+    return _chemin_workspace("NOKIDO_GATE_ETAT", "gate_state.json")
+
+
+def _charger_etat(chemin: str) -> dict:
+    try:
+        if not os.path.exists(chemin):
+            return {}
+        with open(chemin, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[gate] etat du garde non charge ({chemin}) : {e}", file=sys.stderr)
+        return {}
+
+
+def _sauvegarder_etat(chemin: str, etat: dict) -> None:
+    try:
+        dossier = os.path.dirname(chemin)
+        if dossier:
+            os.makedirs(dossier, exist_ok=True)
+        tmp_file = f"{chemin}.tmp.{os.getpid()}_{time.time()}"
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(etat, f)
+        os.replace(tmp_file, chemin)
+    except Exception as e:
+        print(f"[gate] etat du garde non sauve ({chemin}) : {e}", file=sys.stderr)
+
+
+def _maintenant() -> float:
+    h = os.environ.get("NOKIDO_GATE_HORLOGE")
+    if h is not None:
+        try:
+            return float(h)
+        except ValueError:  # muet-ok : horloge simulee invalide -> repli sur time.time(), sans perte
+            pass
+    return time.time()
+
+
+def _dossier_jobs() -> str:
+    j = os.environ.get("NOKIDO_GATE_JOBS")
+    if j:
+        return os.path.abspath(j)
+    return os.path.join(_RACINE_DEPOT, "sandbox", "jobs")
+
+
+def _cite_fichier_job(entree: dict, jid: str) -> bool:
+    if not isinstance(entree, dict):
+        return False
+    rx = re.compile(
+        r"sandbox(?:/|\\\\|\\)jobs(?:/|\\\\|\\)" + re.escape(jid) + r"\.(?:progress\.json|rc|log)(?:[^\w.]|$)",
+        re.IGNORECASE,
+    )
+
+    def _scan(val) -> bool:
+        if isinstance(val, str):
+            return bool(rx.search(val))
+        if isinstance(val, dict):
+            return any(_scan(v) for v in val.values())
+        if isinstance(val, list):
+            return any(_scan(v) for v in val)
+        return False
+
+    if _scan(entree):
+        return True
+    try:
+        return bool(rx.search(json.dumps(entree)))
+    except Exception:  # muet-ok : entree non serialisable en JSON, repli sur False sans perte
+        return False
+
+
+def _chemin_journal() -> str:
+    return _chemin_workspace("NOKIDO_GATE_JOURNAL", "gate_journal.jsonl")
+
+
+def _journaliser_refus(outil: str, motif: str, mode: str) -> None:
+    chemin = ""
+    try:
+        chemin = _chemin_journal()
+        dossier = os.path.dirname(chemin)
+        if dossier:
+            os.makedirs(dossier, exist_ok=True)
+        ligne = json.dumps({
+            "ts": _maintenant(),
+            "outil": outil,
+            "motif": motif,
+            "mode": mode,
+        }, ensure_ascii=False)
+        with open(chemin, "a", encoding="utf-8") as f:
+            f.write(ligne + "\n")
+    except Exception as e:
+        print(f"[gate] erreur ecriture journal ({chemin or '?'}) : {e}", file=sys.stderr)
+
+
+def _appliquer_decision_refus(pourquoi: str, outil: str = "") -> None:
+    mode = os.environ.get("NOKIDO_GATE_MODE", "observer").strip().lower()
+    _journaliser_refus(outil=outil, motif=pourquoi, mode=mode)
+    if mode == "refuser":
+        print(pourquoi, file=sys.stderr)
+        try:
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": pourquoi,
+                }
+            }))
+        except Exception:  # muet-ok : refus deja journalise et sur stderr ; sys.exit(2) tranche sans le JSON
+            pass
+        sys.exit(2)
+    else:
+        msg = f"[OBSERVER - SERAIT REFUSE] {pourquoi}"
+        print(msg, file=sys.stderr)
+        try:
+            print(json.dumps({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": msg,
+                }
+            }))
+        except Exception:  # muet-ok : observation deja journalisee et sur stderr ; le JSON ne doit pas lever
+            pass
+
+
+
+def _appliquer_decision_avertissement(message: str) -> None:
+    print(message, file=sys.stderr)
+    try:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": message,
+            }
+        }))
+    except Exception:  # muet-ok : avertissement deja sur stderr ; un defaut d'ecriture JSON ne casse jamais l'appel
+        pass
+
+
+def verdict_anti_polling(tool_name: str, entree: dict) -> tuple[bool, str]:
+    """(bloque, message). Surveillance de jobs et anti-polling."""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+    entree = entree or {}
+
+    # 1. Un appel Monitor arme une surveillance de 1800 s
+    if court == "Monitor":
+        cmd_text = _texte_brut(entree) or str(entree.get("command") or "")
+        m = re.search(r"""--job\s+["']?([A-Za-z0-9_\-]+)["']?""", cmd_text)
+        if m:
+            job_id = m.group(1)
+            chemin = _chemin_etat()
+            etat = _charger_etat(chemin)
+            maintenant = _maintenant()
+            monitors = etat.setdefault("monitors", {})
+            monitors[job_id] = maintenant + 1800.0
+            _sauvegarder_etat(chemin, etat)
+        return False, ""
+
+    # 2. Vérification des jobs sous surveillance
+    chemin = _chemin_etat()
+    etat = _charger_etat(chemin)
+    monitors = etat.get("monitors") or {}
+    if not monitors:
+        return False, ""
+
+    maintenant = _maintenant()
+    jobs_dir = _dossier_jobs()
+    action = str(entree.get("action") or "")
+    cible_job_id = str(entree.get("job_id") or "").strip()
+    est_run = (court == "run" or tool_name == "mcp__laforge-sovereign-hub__run")
+
+    for jid, expire_a in list(monitors.items()):
+        try:
+            exp_f = float(expire_a)
+        except (TypeError, ValueError):
+            continue  # muet-ok : expiration invalide pour ce moniteur, entree ignoree sans bloquer les autres
+        if maintenant >= exp_f:
+            continue
+
+        # EXCEPTION : si <NOKIDO_GATE_JOBS>/<id>.rc existe (job TERMINE), permettre
+        rc_path = os.path.join(jobs_dir, f"{jid}.rc")
+        if os.path.exists(rc_path):
+            continue
+
+        # Condition 1 : run action=job_status de ce job
+        if est_run and action == "job_status":
+            if cible_job_id == jid or jid in _texte_brut(entree):
+                return True, (
+                    f"[anti-polling] le job {jid} est deja sous surveillance active par un Monitor (1800 s) : "
+                    f"ne pas poller `job_status` tant qu'il n'est pas termine ({jid}.rc absent)."
+                )
+
+        # Condition 2 : toute entree d'outil citant sandbox/jobs/<id>.(progress.json|rc|log)
+        if _cite_fichier_job(entree, jid):
+            return True, (
+                f"[anti-polling] le job {jid} est deja sous surveillance active par un Monitor (1800 s) : "
+                f"ne pas lire sandbox/jobs/{jid}.(progress.json|rc|log) tant qu'il n'est pas termine ({jid}.rc absent)."
+            )
+
+    return False, ""
+
+
+def compter_tour(tours, dernier, maintenant: float) -> tuple:
+    """(tours, dernier_appel, nb_tours) -- coeur PUR du disjoncteur d'impulsion, PARTAGE avec le hub
+    (forge_recon_breaker.impulsion, par identite d'agent, owner 17/10 : « les garde fous doivent emaner du hub »).
+    Appels a moins de 2 s = meme tour ; fenetre de 90 s."""
+    tours = [float(t) for t in (tours or [])]
+    d = float(dernier) if dernier is not None else None
+    if d is not None and 0 <= (maintenant - d) < 2.0:
+        return tours, maintenant, len(tours)
+    tours = [ts for ts in tours if (maintenant - ts) <= 90.0]
+    tours.append(maintenant)
+    return tours, maintenant, len(tours)
+
+
+# Un ACTE n'est pas une sonde (decision owner 18/10, journal assaini : ~250 « serait refuse »/jour dont une large part
+# d'etapes dependantes ecrire -> tester -> committer) : pytest et git d'ecriture dans un run, tout git en Bash.
+_ACTE_RUN = re.compile(r"\bpytest\b|\bgit\b[^\n|;]*?\b(commit|add|push|cherry-pick|checkout|restore|rm|mv)\b",
+                       re.IGNORECASE)
+
+
+def est_sonde(tool_name: str, entree: dict) -> bool:
+    """Vrai si l'appel est une SONDE comptee par le disjoncteur d'impulsion (pur, sans etat)."""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+    entree = entree or {}
+    if court in ("Bash", "PowerShell"):
+        return not str(entree.get("command") or "").lstrip().lower().startswith("git ")
+    if not (court == "run" or tool_name == "mcp__laforge-sovereign-hub__run"):
+        return False
+    action = str(entree.get("action") or "")
+    if action == "job_status":
+        return True
+    if action not in ("python", "shell"):
+        return False
+    texte = " ".join([str(entree.get("code") or "")] + [str(c) for c in (entree.get("commands") or [])])
+    return not _ACTE_RUN.search(texte)
+
+
+def verdict_impulsion(tool_name: str, entree: dict) -> tuple[str | None, str]:
+    """(statut, message). Disjoncteur d'impulsion : rafale de sondes fines."""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+    entree = entree or {}
+
+    # Remise a zero sur governed_edit, Edit, Write, MultiEdit
+    if court in ("governed_edit", "Edit", "Write", "MultiEdit"):
+        chemin = _chemin_etat()
+        etat = _charger_etat(chemin)
+        etat["impulsion_tours"] = []
+        etat["impulsion_dernier_appel"] = None
+        _sauvegarder_etat(chemin, etat)
+        return None, ""
+
+    if not est_sonde(tool_name, entree):
+        return None, ""
+
+    chemin = _chemin_etat()
+    etat = _charger_etat(chemin)
+    maintenant = _maintenant()
+
+    # Coeur partage avec le hub : appels a moins de 2 s = meme tour, fenetre 90 s (compter_tour).
+    tours, dernier, nb_tours = compter_tour(etat.get("impulsion_tours"), etat.get("impulsion_dernier_appel"), maintenant)
+    etat["impulsion_tours"] = tours
+    etat["impulsion_dernier_appel"] = dernier
+    _sauvegarder_etat(chemin, etat)
+
+    if nb_tours <= 1:
+        return None, ""
+    elif nb_tours == 2:
+        msg = (
+            "[impulsion] 2e tour de sondes en rafale dans une fenetre de 90s : "
+            "au 3e tour, l'appel sera refuse. "
+            "Fusionne tes commandes en UN script ou run_job."
+        )
+        return "avertissement", msg
+    else:
+        msg = (
+            "[impulsion] 3e tour de sondes en rafale dans une fenetre de 90s : "
+            "refus au-dela du seuil. "
+            "Fusionne tes commandes en UN script ou run_job."
+        )
+        return "refus", msg
+
+
 def main() -> int:
     try:
         ev = json.load(sys.stdin)
     except Exception:  # noqa: BLE001 - entrée illisible : ne jamais bloquer
         return 0
     entree = ev.get("tool_input") or {}
+    tool_name = ev.get("tool_name") or ""
+    court = str(tool_name or "").rsplit("__", 1)[-1]
+
+    # --- VERDICTS SOUVERAINS : anti-polling et rafale d'impulsion ---
+    bloque_poll, pourquoi_poll = verdict_anti_polling(tool_name, entree)
+    if bloque_poll:
+        _appliquer_decision_refus(pourquoi_poll, outil=tool_name)
+        return 0
+
+    if court == "Monitor":
+        return 0
+
+    statut_imp, pourquoi_imp = verdict_impulsion(tool_name, entree)
+    if statut_imp == "refus":
+        _appliquer_decision_refus(pourquoi_imp, outil=tool_name)
+        return 0
+    elif statut_imp == "avertissement":
+        _appliquer_decision_avertissement(pourquoi_imp)
+        return 0
 
     # --- MUR de depense, AVANT le filtre sur `action` : les outils navigateur
     # n'ont pas d'`action`, donc le filtre ci-dessous ne les voit jamais.
@@ -1075,7 +1396,7 @@ def main() -> int:
                     "additionalContext": pourquoi_forme,
                 }
             }))
-        except Exception:  # noqa: BLE001 - un nudge ne casse jamais l'appel
+        except Exception:  # noqa: BLE001 - muet-ok : rappel deja sur stderr, un nudge ne casse jamais l'appel
             pass
         return 0
 
@@ -1136,7 +1457,7 @@ def main() -> int:
                         "permissionDecisionReason": mur,
                     }
                 }))
-            except Exception:  # noqa: BLE001 - le refus est deja sur stderr
+            except Exception:  # noqa: BLE001 - muet-ok : le refus est deja sur stderr
                 pass
             return 0
 
@@ -1148,7 +1469,7 @@ def main() -> int:
                     "additionalContext": msg,
                 }
             }))
-        except Exception:  # noqa: BLE001 - un nudge ne casse jamais l'appel
+        except Exception:  # noqa: BLE001 - muet-ok : message deja sur stderr, un nudge ne casse jamais l'appel
             pass
     return 0
 

@@ -479,7 +479,7 @@ def audit_context_for_ring0(
                 _c.commit()
                 _c.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_conv_sanitizer.py', 481, exc_info=True)
     return result
 
 

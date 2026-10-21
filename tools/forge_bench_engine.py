@@ -29,7 +29,7 @@ def _load_jsonl(p: Path) -> list:
         try:
             out.append(json.loads(line))
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_engine.py', 31, exc_info=True)
     return out
 
 
@@ -54,6 +54,7 @@ def main() -> None:
         try:
             idx = int(q["_id"].lstrip("q"))
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_engine.py', 56, exc_info=True)
             continue
         if idx < len(picked):
             gold[q["_id"]] = picked[idx]["text"]

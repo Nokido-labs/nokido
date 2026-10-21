@@ -47,20 +47,21 @@ def _urls_connues(cur) -> set:
         for (u,) in cur.execute("SELECT url FROM biblio_raw WHERE url IS NOT NULL AND url<>''"):
             urls.add(u)
     except sqlite3.Error:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_veille_gap_recover.py', 49, exc_info=True)
     # candidats des watch_jobs (meme rejetes)
     try:
         for (rj,) in cur.execute("SELECT refined_json FROM watch_jobs WHERE refined_json IS NOT NULL"):
             try:
                 d = json.loads(rj)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_veille_gap_recover.py', 56, exc_info=True)
                 continue
             cands = d.get("candidats", []) if isinstance(d, dict) else (d if isinstance(d, list) else [])
             for c in cands:
                 if isinstance(c, dict) and c.get("u"):
                     urls.add(c["u"])
     except sqlite3.Error:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_veille_gap_recover.py', 62, exc_info=True)
     return urls
 
 

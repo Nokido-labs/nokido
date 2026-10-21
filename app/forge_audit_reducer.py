@@ -50,7 +50,7 @@ def _real_symbols(path: str, root: str) -> set[str]:
             if n:
                 names.add(n)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_audit_reducer.py', 52, exc_info=True)
     names |= _ast_symbols(p)  # union : robuste même si repo_map partiel
     return names
 

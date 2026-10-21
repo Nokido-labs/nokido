@@ -64,6 +64,8 @@ _ZONE_WRITE_RING: dict[str, int] = {
     "architecture_rules": 1,
     "discovered_facts": 2,
     "active_bugs": 2,
+    # Registre des demandes owner (tools/forge_intent_verifier.py --registre) : meme ACL que les bugs suivis.
+    "demandes_owner": 2,
     "scratch": 3,
 }
 _DEFAULT_WRITE_RING = 2  # zone inconnue → trusted-only
@@ -160,7 +162,9 @@ def _lock() -> asyncio.Lock:
 # Le SSoT (forge_ssot_maintainer) se derive de cette zone : la soumettre au TTL effacait la roadmap par l'age.
 # « Geler, jamais supprimer » : ces zones ne sont ni elaguees par TTL ni plafonnees ; on clot un fait par un
 # marqueur ([CLOS]/[RESOLU]...), on ne le detruit pas.
-_ZONES_PERENNES = frozenset({"architecture_rules", "mission", "active_bugs"})
+# demandes_owner (owner 17/10 : « a l'avenir aucune demande ne doit se perdre ») : un registre elague par l'age ou
+# plafonne perdrait les demandes par construction -- une demande se ferme par un marqueur, jamais par le TTL.
+_ZONES_PERENNES = frozenset({"architecture_rules", "mission", "active_bugs", "demandes_owner"})
 
 
 def _prune(conn: sqlite3.Connection, zone: str) -> None:
@@ -198,7 +202,7 @@ def _write_fact(zone: str, key: str, value: str, category: str,
         try:
             c.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_blackboard.py', 204, exc_info=True)
         _writer_conn = None  # connexion cassée -> réouverte au prochain write (self-heal)
         raise
 
@@ -231,7 +235,7 @@ async def apply_fact(zone: str, fact: str, *, category: str = "", trust: float =
                    target=f"{zone}/{k}", payload={"category": category, "trust": float(trust)},
                    decision="validated")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_blackboard.py', 237, exc_info=True)
     return {"ok": True, "zone": zone, "key": k, "trust": float(trust)}
 
 
@@ -425,7 +429,7 @@ def _selftest() -> int:
 try:
     init_db()
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_blackboard.py', 431, exc_info=True)
 
 
 if __name__ == "__main__":

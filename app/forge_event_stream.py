@@ -225,7 +225,7 @@ class EventStream:
                 try:
                     self._wildcard.remove(handler)
                 except ValueError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_event_stream.py', 227, exc_info=True)
 
             return _unsub_w
         if kind not in _PRIORITY:
@@ -236,7 +236,7 @@ class EventStream:
             try:
                 self._handlers[kind].remove(handler)
             except (KeyError, ValueError):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_event_stream.py', 238, exc_info=True)
 
         return _unsub
 

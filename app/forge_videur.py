@@ -84,12 +84,13 @@ def _load_store() -> dict:
                         new_meta[k_up] = v
                     except (ValueError, TypeError):
                         # Log l'erreur mais continue pour les autres entrées
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 85, exc_info=True)
                         continue
                 _cache["rings"] = new_rings
                 _cache["meta"] = new_meta
                 _cache["mtime"] = m
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 91, exc_info=True)
     return _cache["rings"]
 
 
@@ -375,7 +376,7 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
                 if _h.compare_digest(token.encode(), str(_tok).encode()):
                     via = "token"
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 377, exc_info=True)
 
     # 2. reverse-résolution token->agent SI header absent (anti ring-4 fantôme).
     if not agent and token:
@@ -385,7 +386,7 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
                     agent, via = name.upper(), "reverse_token"
                     break
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 387, exc_info=True)
 
     # 3. ring depuis la source unique. FAIL-CLOSED (audit 2026-06-15) : défaut
     #    inconnu = UNTRUSTED(4), JAMAIS ring 0 (même local). Une identité inconnue
@@ -432,6 +433,7 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
                 if not _h.compare_digest(token.encode(), str(_tok_del).encode()):
                     continue
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 434, exc_info=True)
                 continue
             _regle = _delegation_de(_nom_del.upper())
             if not _regle:
@@ -482,7 +484,7 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
             if _h.compare_digest(token.encode(), str(hub_token).encode()):
                 via = "master_token"
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 484, exc_info=True)
 
     # 5. ANTI-SPOOF HEADER (audit 2026-06-15) : un ring privilégié exige un token
     #    VÉRIFIÉ. via=header (X-Agent-Name non authentifié) -> plancher non-privilégié.
@@ -638,7 +640,7 @@ def authorize(agent: str, token: str = "", local: bool = True, tool: str | None 
                     f"[RSP][observe] {agent} ring={ring} tool={tool} -> {_rv.get('reason')} "
                     f"(verifier routage gVisor de l'exec untrusted)")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 640, exc_info=True)
     return out
 
 
@@ -698,18 +700,18 @@ def _hmac_key() -> bytes:
                     _hmac_key_cache = key
                     return key
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 700, exc_info=True)
             _hmac_key_cache = raw  # dégradé : clé en clair
             return raw
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 704, exc_info=True)
     key = _os.urandom(32)
     blob = key
     try:
         import win32crypt
         blob = b"DPAPI:" + base64.b64encode(win32crypt.CryptProtectData(key, "videur_hmac", None, None, None, 0))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 711, exc_info=True)
     try:
         _HMAC_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
         fd = _os.open(str(_HMAC_KEY_FILE), _os.O_CREAT | _os.O_EXCL | _os.O_WRONLY, 0o600)
@@ -726,9 +728,9 @@ def _hmac_key() -> bytes:
             else:
                 key = raw
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 728, exc_info=True)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 730, exc_info=True)
     _hmac_key_cache = key
     return key
 
@@ -749,7 +751,7 @@ def _last_chain() -> str:
             if line.strip():
                 return ""  # entrée legacy non chaînée
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 751, exc_info=True)
     return ""
 
 
@@ -789,7 +791,7 @@ def _append_audit(rec: dict) -> None:
         with open(_LOG, "ab") as f:
             f.write(blob + b"|" + chain.encode("ascii") + b"\n")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_videur.py', 791, exc_info=True)
 
 
 def capture(identity: dict, tool: str, extra: dict | None = None) -> None:

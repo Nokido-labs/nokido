@@ -40,7 +40,7 @@ def _swarm_state() -> dict:
             "source": "live_bridge",
         }
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_swarm_patch.py', 42, exc_info=True)
     # Fallback : lire events.db dernier event swarm
     try:
         db = ROOT / "sandbox" / "events.db"
@@ -53,7 +53,7 @@ def _swarm_state() -> dict:
         if row:
             return {"state": row[2], "active_agent": row[0], "ts": row[3], "source": "events.db"}
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_swarm_patch.py', 55, exc_info=True)
     return {"state": "UNKNOWN", "active_agent": "", "source": "fallback"}
 
 

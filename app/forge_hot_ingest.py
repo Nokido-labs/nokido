@@ -194,7 +194,7 @@ async def hot_ingest_url(
         if downloaded:
             text = trafilatura.extract(downloaded, include_comments=False, include_tables=True) or ""
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hot_ingest.py', 196, exc_info=True)
 
     if not text:
         # Fallback : requests + strip HTML basique
@@ -395,6 +395,7 @@ class HotFolderWatcher:
                 if s1 != s2:
                     continue  # encore en cours de copie
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hot_ingest.py', 397, exc_info=True)
                 continue
 
             self._seen.add(fname)

@@ -165,14 +165,14 @@ def _parse_sse_body(body: str) -> dict:
             try:
                 return json.loads(line[5:].strip())
             except json.JSONDecodeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_github_mcp_connector.py', 167, exc_info=True)
     # Fallback : JSON brut
     body = body.strip()
     if body.startswith("{"):
         try:
             return json.loads(body)
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_github_mcp_connector.py', 174, exc_info=True)
     return {}
 
 
@@ -209,7 +209,7 @@ class GitHubMCPSession:
             try:
                 _jsonrpc_post("notifications/initialized", {})
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_github_mcp_connector.py', 211, exc_info=True)
             self._initialized = True
         return result
 

@@ -277,7 +277,7 @@ class PTYSession:
                 self._connection.close()
                 await self._connection.wait_closed()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 279, exc_info=True)
         self._connection = None
         self._channel = None
         self._connected = False
@@ -302,6 +302,7 @@ class PTYSession:
                     self._bytes_received += len(text)
                     self._notify()
                 except asyncio.TimeoutError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 304, exc_info=True)
                     continue
                 except asyncio.CancelledError:
                     raise
@@ -312,7 +313,7 @@ class PTYSession:
                     self._notify()
                     return
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 314, exc_info=True)
 
     async def _write_loop(self) -> None:
         try:
@@ -323,6 +324,7 @@ class PTYSession:
                         self._channel.stdin.write(data)
                         await self._channel.stdin.drain()
                 except asyncio.TimeoutError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 325, exc_info=True)
                     continue
                 except asyncio.CancelledError:
                     raise
@@ -330,7 +332,7 @@ class PTYSession:
                     logger.error(f"write_loop: {exc}")
                     return
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 332, exc_info=True)
 
     def _notify(self) -> None:
         cb = self.on_screen_update
@@ -360,12 +362,12 @@ class PTYSession:
         try:
             self._screen.resize(rows, cols)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 362, exc_info=True)
         if self._connected and self._channel:
             try:
                 self._channel.change_terminal_size(cols, rows)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 367, exc_info=True)
 
     # ── teardown ─────────────────────────────────────────────────────────
     async def disconnect(self) -> None:
@@ -381,17 +383,17 @@ class PTYSession:
             try:
                 self._channel.stdin.write_eof()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 383, exc_info=True)
             try:
                 self._channel.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 387, exc_info=True)
         if self._connection:
             try:
                 self._connection.close()
                 await self._connection.wait_closed()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 393, exc_info=True)
         self._channel = None
         self._connection = None
         if was:
@@ -558,7 +560,7 @@ class LocalPTYSession:
                 self._bytes_received += len(data)
                 self._notify()
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 560, exc_info=True)
 
     async def _write_loop(self) -> None:
         try:
@@ -568,6 +570,7 @@ class LocalPTYSession:
                     if self._proc is not None:
                         await asyncio.to_thread(self._proc.write, data)
                 except asyncio.TimeoutError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 570, exc_info=True)
                     continue
                 except asyncio.CancelledError:
                     raise
@@ -575,7 +578,7 @@ class LocalPTYSession:
                     logger.error(f"local write_loop: {exc}")
                     return
         except asyncio.CancelledError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 577, exc_info=True)
 
     def _notify(self) -> None:
         cb = self.on_screen_update
@@ -605,12 +608,12 @@ class LocalPTYSession:
         try:
             self._screen.resize(rows, cols)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 607, exc_info=True)
         if self._connected and self._proc is not None:
             try:
                 self._proc.setwinsize(rows, cols)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 612, exc_info=True)
 
     # ── teardown ─────────────────────────────────────────────────────────
     async def disconnect(self) -> None:
@@ -621,7 +624,7 @@ class LocalPTYSession:
             try:
                 await asyncio.to_thread(self._proc.terminate, True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_pty_widget.py', 623, exc_info=True)
         for task in (self._read_task, self._write_task):
             if task and not task.done():
                 task.cancel()

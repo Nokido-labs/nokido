@@ -722,7 +722,7 @@ def hybrid_classify(
                                {"intent": _sname, "score": round(_sscore, 3), "text": text[:60]})
                     return _sname, None, float(_sscore)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_nlu.py', 724, exc_info=True)
 
     # Fallback regex
     agent_type, cmd = static_fn(text)

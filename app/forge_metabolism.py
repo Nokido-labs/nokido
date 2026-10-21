@@ -90,14 +90,14 @@ def adjust_cognitive_rhythm(state: str, current_cost: float):
             release("cortisol", level=0.8, payload={"reason": "famine_compute", "cost_24h": current_cost})
             print("[metabolism] Cortisol hormone released to signal stress/conciseness.")
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metabolism.py', 92, exc_info=True)
         # 4. Déclencher un nettoyage Ebbinghaus immédiat pour réduire l'entropie
         try:
             from scratch.ebbinghaus_forgetting import run_ebbinghaus_and_gc
             run_ebbinghaus_and_gc()
             print("[metabolism] Garbage collection forced to clean up entropy.")
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metabolism.py', 99, exc_info=True)
             
     elif state == MetabolismState.HIGH:
         print("[metabolism] [+] HIGH ENERGY STATE: Accelerating curiosity and cloud reasoning...")
@@ -108,7 +108,7 @@ def adjust_cognitive_rhythm(state: str, current_cost: float):
             # Sécrétion de dopamine pour stimuler la créativité et l'autotelic goal generation
             release("dopamine", level=0.7, payload={"reason": "surplus_compute"})
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metabolism.py', 110, exc_info=True)
             
     else:
         print("[metabolism] [=] HOMEOSTASIS: Nominal compute and curiosity parameters.")

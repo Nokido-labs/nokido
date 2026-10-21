@@ -124,7 +124,7 @@ def _authority_log(event: str, agent: str, detail: str = "") -> None:
         with open(str(log_path), "a", encoding="utf-8") as f:
             f.write(line)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_router_gateway.py', 126, exc_info=True)
 
 
 def _agent_id_from_header(x_agent_id: Optional[str]) -> str:

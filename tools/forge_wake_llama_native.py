@@ -138,7 +138,7 @@ def health(timeout):
                     if r.status == 200:
                         return True, path
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wake_llama_native.py', 140, exc_info=True)
         time.sleep(2)
     return False, None
 
@@ -273,7 +273,7 @@ def main():
         try:
             proc.wait()
         except KeyboardInterrupt:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wake_llama_native.py', 275, exc_info=True)
         print("[wake] llama-server termine", flush=True)
     elif ok and FG:
         print("[wake] serveur hors job : pas d'attente necessaire", flush=True)

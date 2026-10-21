@@ -40,6 +40,10 @@ __FORGE_TAGS__ = "#FORGE:[role:motivation|phase:6|color:GREEN]"
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = ROOT / "RAG" / "embeddings.db"
 
+import logging as _logging  # noqa: E402
+
+logger = _logging.getLogger(__name__)
+
 # Seuils calibration
 ELEGANCE_TIME_REF = 1.0  # 1s = baseline
 ELEGANCE_STEPS_REF = 3  # 3 steps = baseline
@@ -171,8 +175,8 @@ def reward(method: str, time_s: float, n_steps: int = 1, success: bool = True, t
                 "target": target,
             },
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Emission DOPAMINE_SUCCESS ratee pour %s : %s", method, exc)
 
     # Reset failure_count pour ce method/target
     db = DEFAULT_DB
@@ -185,8 +189,8 @@ def reward(method: str, time_s: float, n_steps: int = 1, success: bool = True, t
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Reset failure_count rate dans motivation_failures pour %s (%s) : %s", method, target, exc)
 
     return {
         "ok": True,
@@ -231,8 +235,8 @@ def punish(method: str, error: str = "", target: str = "") -> Dict[str, Any]:
             ttl_s=3600,
             metadata={"method": method, "fail_count": fail_count, "error": error[:120]},
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Emission CORTISOL_FRUSTRATION ratee pour %s : %s", method, exc)
 
     # Décision stratégie escalation
     if fail_count >= FRUSTRATION_DEAD_END:
@@ -258,6 +262,105 @@ def punish(method: str, error: str = "", target: str = "") -> Dict[str, Any]:
 # ============================================================
 # Curiosity prompt (frustration → exploration)
 # ============================================================
+# ── Utilitarisme hedoniste : RECOMPENSE PAR RESULTAT (owner 18/10 ~23 h 10) ─────────────
+# « exploite le free tier, mesure la force de chaque modele, assigne ce qui est pertinent au repondeur, pas utile
+# s'il faut tout refaire derriere ». Utilite d'un resultat VERIFIE = plaisir - douleur ; force d'un repondeur =
+# utilite moyenne par (repondeur, classe de tache). Registre jsonl dans le sandbox, jamais la grosse base.
+RESULTATS = Path(__file__).resolve().parent.parent / "sandbox" / "motivation_resultats.jsonl"
+_PLAISIR = {"INTEGREE": 1.0, "PARTIELLE": 0.5, "VIDE": 0.0, "REJETEE": 0.0}
+_DOULEUR = {"REJETEE": 1.0, "VIDE": 0.2}           # un rejet coute le refait ; un vide, le creneau perdu
+_COUT_NON_GRATUIT = 0.3                              # payant, rare, ou gratuite non prouvee (liste BLANCHE)
+_GRATUITS = frozenset({"WORKER_CODE", "ANTIGRAVITY", "MISTRAL", "GEMINI"})
+_PRIOR_JAMAIS_ESSAYE = 0.25                          # devant un repondeur prouve mauvais, derriere un prouve bon
+
+
+def _gratuit(repondeur: str) -> bool:
+    r = str(repondeur or "").upper()
+    return r in _GRATUITS or r.startswith("OPENCODE_")
+
+
+def valeur_resultat(verdict: str, repondeur: str, minutes: float | None = None) -> float | None:
+    """Plaisir - douleur d'un resultat ; None pour INCONNU (jamais compte 0) ; ValueError hors vocabulaire."""
+    v = str(verdict or "").upper()
+    if v == "INCONNU":
+        return None
+    if v not in _PLAISIR:
+        raise ValueError("verdict hors vocabulaire : %r (INTEGREE|PARTIELLE|VIDE|REJETEE|INCONNU)" % verdict)
+    douleur = _DOULEUR.get(v, 0.0) + (0.0 if _gratuit(repondeur) else _COUT_NON_GRATUIT)
+    if isinstance(minutes, (int, float)) and minutes > 0:
+        douleur += 0.2 * min(float(minutes) / 60.0, 1.0)  # le temps est precieux
+    return round(_PLAISIR[v] - douleur, 4)
+
+
+def recompenser_resultat(repondeur: str, classe: str, verdict: str, minutes: float | None = None,
+                         preuve: str = "") -> Dict[str, Any]:
+    """Consigne un resultat VERIFIE (registre) et le fait sentir au corps : reward sur INTEGREE/PARTIELLE,
+    punish sur REJETEE/VIDE (methode `executeur:<repondeur>:<classe>`, cible = la preuve)."""
+    valeur = valeur_resultat(verdict, repondeur, minutes)
+    ligne = {"ts": time.time(), "repondeur": str(repondeur).upper(), "classe": classe,
+             "verdict": str(verdict).upper(), "minutes": minutes, "valeur": valeur, "preuve": preuve}
+    cible = Path(RESULTATS)
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    with open(cible, "a", encoding="utf-8") as f:
+        f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+    methode = "executeur:%s:%s" % (ligne["repondeur"], classe)
+    import os as _os
+    if _os.environ.get("NOKIDO_MOTIVATION_SANS_CORPS"):  # tests du point d'entree : ni hormone ni grosse base
+        corps = {"ok": False, "raison": "NOKIDO_MOTIVATION_SANS_CORPS"}
+    elif ligne["verdict"] in ("INTEGREE", "PARTIELLE"):
+        corps = reward(methode, time_s=float(minutes or 0) * 60.0, success=True, target=preuve)
+    elif ligne["verdict"] in ("REJETEE", "VIDE"):
+        corps = punish(methode, error="livraison %s" % ligne["verdict"], target=preuve)
+    else:
+        corps = {"ok": False, "raison": "INCONNU : ni recompense ni punition"}
+    return {"ligne": ligne, "corps": corps}
+
+
+def lire_resultats(chemin=None) -> list:
+    """Lignes du registre ; une ligne illisible est sautee (le registre est append-only, jamais reecrit)."""
+    p = Path(chemin or RESULTATS)
+    if not p.exists():
+        return []
+    out = []
+    for x in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            out.append(json.loads(x))
+        except ValueError:
+            continue  # muet-ok : ligne corrompue d'un registre append-only, sautee ; les autres restent lues
+    return out
+
+
+def force_repondeurs(resultats: list, classe: str) -> Dict[str, Dict[str, Any]]:
+    """{repondeur: {n, utilite, integrees, rejetees}} pour une classe ; INCONNU n'entre pas dans n."""
+    force: Dict[str, Dict[str, Any]] = {}
+    for r in resultats or []:
+        if r.get("classe") != classe:
+            continue
+        f = force.setdefault(str(r.get("repondeur")).upper(), {"n": 0, "somme": 0.0, "integrees": 0, "rejetees": 0})
+        val = valeur_resultat(r.get("verdict"), r.get("repondeur"), r.get("minutes"))
+        if val is None:
+            continue
+        f["n"] += 1
+        f["somme"] += val
+        f["integrees"] += r.get("verdict") == "INTEGREE"
+        f["rejetees"] += r.get("verdict") == "REJETEE"
+    for f in force.values():
+        f["utilite"] = round(f["somme"] / f["n"], 4) if f["n"] else None
+        del f["somme"]
+    return force
+
+
+def ordre_hedoniste(candidats: list, classe: str, resultats: list | None = None) -> list:
+    """Candidats tries par utilite attendue pour la classe ; jamais essaye = a priori modere (exploration bornee)."""
+    force = force_repondeurs(resultats if resultats is not None else lire_resultats(), classe)
+
+    def _u(c):
+        u = (force.get(str(c).upper()) or {}).get("utilite")
+        return _PRIOR_JAMAIS_ESSAYE if u is None else u
+
+    return sorted(candidats, key=lambda c: -_u(c))
+
+
 def curiosity_prompt(method: str, target: str = "", error: str = "", fail_count: int = 0) -> str:
     """Génère un system prompt à injecter au LLM pour forcer exploration."""
     return f"""[FRUSTRATION SIGNAL]
@@ -304,7 +407,7 @@ def _list_failures_for_target(target: str) -> list:
         ).fetchall()
         conn.close()
         return [{"method": r[0], "count": r[1], "last_error": (r[2] or "")[:80]} for r in rows]
-    except Exception:
+    except Exception:  # muet-ok : lecture d'aide au prompt de curiosite, liste vide = aucun echec cite
         return []
 
 
@@ -322,8 +425,8 @@ def record_evolution(method: str, note: str, elegance_before: float, elegance_af
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Ecriture motivation_evolution_notes ratee pour %s : %s", method, exc)
 
 
 # ============================================================
@@ -339,7 +442,7 @@ def is_dead_end(method: str, target: str = "") -> bool:
         ).fetchone()
         conn.close()
         return bool(row and row[0])
-    except Exception:
+    except Exception:  # muet-ok : illisible -> False = la methode reste ESSAYABLE (on n'enterre pas sur une non-mesure)
         return False
 
 
@@ -355,7 +458,8 @@ def revive_dead_end(method: str, target: str = "") -> bool:
         conn.commit()
         conn.close()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("Ecriture revive_dead_end ratee pour %s (%s) : %s", method, target, exc)
         return False
 
 
@@ -373,8 +477,26 @@ if __name__ == "__main__":
     ap.add_argument("--curiosity", nargs=2, metavar=("METHOD", "TARGET"))
     ap.add_argument("--list-fails", action="store_true")
     ap.add_argument("--revive", nargs=2, metavar=("METHOD", "TARGET"))
+    # Recompense par resultat (owner 18/10) : tout CLI consigne un verdict VERIFIE et lit la force des repondeurs.
+    ap.add_argument("--verdict", nargs=3, metavar=("REPONDEUR", "CLASSE", "VERDICT"))
+    ap.add_argument("--preuve", default="")
+    ap.add_argument("--minutes", type=float, default=None)
+    ap.add_argument("--force", metavar="CLASSE")
+    ap.add_argument("--candidats", default="")
     args = ap.parse_args()
-    if args.reward:
+    import os as _os
+    if _os.environ.get("NOKIDO_MOTIVATION_RESULTATS"):
+        RESULTATS = Path(_os.environ["NOKIDO_MOTIVATION_RESULTATS"])
+    if args.verdict:
+        rep, cl, v = args.verdict
+        print(json.dumps(recompenser_resultat(rep, cl, v, args.minutes, args.preuve), ensure_ascii=False))
+    elif args.force:
+        res = lire_resultats()
+        force = force_repondeurs(res, args.force)
+        cands = [c.strip() for c in args.candidats.split(",") if c.strip()] or sorted(force)
+        print(json.dumps({"classe": args.force, "force": force, "ordre": ordre_hedoniste(cands, args.force, res)},
+                         ensure_ascii=False))
+    elif args.reward:
         m, t, s = args.reward
         print(json.dumps(reward(m, float(t), int(s), success=True, target=args.target), indent=2))
     elif args.punish:

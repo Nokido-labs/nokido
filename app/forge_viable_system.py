@@ -244,7 +244,7 @@ def execute_plan(plan: dict, token: str = "", local: bool = True, serve_fn=None)
             from nokido_agent.tools.forge_local_pool_wake import ensure_local_pool
             results["pool_wake"] = ensure_local_pool(["ollama", "lmstudio"])
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_viable_system.py', 246, exc_info=True)
     for pool_name, members in plan["pools"].items():
         allowed = []
         for a in members:

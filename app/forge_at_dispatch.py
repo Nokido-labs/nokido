@@ -190,7 +190,7 @@ async def handle_at_ssh(app, cmd_line: str, parts: list, cmd: str) -> object:
                         _o2, _, _ = await ssh_manager.run("uname -r")
                         _kern = _strip_ssh_output(_o2)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 192, exc_info=True)
                     _ks = f" · [dim]kernel {_kern}[/]" if _kern else ""
                     chat.write(
                         f"[green]✅ SSH[/] [bold]{_hn}[/] [dim]({_h}:{_p})[/] "
@@ -356,12 +356,12 @@ async def handle_at_scan(app, cmd_line: str, parts: list, cmd: str) -> tuple:
                             open_p.append(p)
                         s.close()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 358, exc_info=True)
                 if open_p:  # DNS seulement si hôte actif
                     try:
                         hostname = _sock.gethostbyaddr(ip_s)[0]
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 363, exc_info=True)
                 return ip_s, hostname, open_p
 
             hosts = [str(h) for h in list(net.hosts())[:254]]
@@ -440,7 +440,7 @@ async def handle_at_ids(app, cmd_line: str, parts: list, cmd: str) -> None:
                         app._chat_log().write(f"[bold red]🚨 IDS:[/] {escape(str(msg))}")
                         debug_log("SECU", "IDS", "Alerte", {"msg": str(msg)[:120]})
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 442, exc_info=True)
 
                 _agent.alert = _ids_alert
                 app._ids_agent = _agent
@@ -524,7 +524,7 @@ async def handle_at_ids(app, cmd_line: str, parts: list, cmd: str) -> None:
                                         if port in _svc:
                                             conns.add((ip_s, port, _svc[port]))
                             except (FileNotFoundError, PermissionError):
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 526, exc_info=True)
                             for ip_s, port, svc_n in conns - _prev:
                                 app._ids_suspects[ip_s] = app._ids_suspects.get(ip_s, 0) + 1
                                 cnt = app._ids_suspects[ip_s]
@@ -761,7 +761,7 @@ async def handle_at_evolve(app, cmd_line: str, parts: list, cmd: str) -> None:
                         _max_c = int(query_ev.rsplit("#", 1)[-1])
                         query_ev = query_ev.rsplit("#", 1)[0].strip()
                     except ValueError:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 763, exc_info=True)
 
                 async def _run_evo(_q=query_ev, _e=_evo, _mc=_max_c) -> None:
                     """Run evo.
@@ -934,7 +934,7 @@ async def handle_at_ollama(app, cmd_line: str, parts: list, cmd: str) -> None:
             if not _ll_st["has_litellm"]:
                 chat.write("  [dim]pip install litellm pour activer[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 936, exc_info=True)
     elif sub == "models":
         await app._select_model()
     else:
@@ -1089,7 +1089,7 @@ async def handle_at_services(app, cmd_line: str, parts: list, cmd: str) -> NoneT
 
                 chat.write(_hub.status_report())
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_at_dispatch.py', 1091, exc_info=True)
         elif _sa == "list":
             for ep in reg.all():
                 chat.write(f"  {ep.name} → {ep.type.value} {ep.protocol.value}://{ep.host}:{ep.port}{ep.path}")

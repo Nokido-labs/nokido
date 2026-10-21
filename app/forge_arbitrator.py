@@ -154,7 +154,7 @@ def evaluate_confidence(
             needs, score, [f"gate_score={_silo.final_score:.2f}", f"hedging={_silo.hedging_count}"], False, level
         )
     except Exception:
-        pass  # fallback sur l'implémentation locale ci-dessous
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_arbitrator.py', 156, exc_info=True)
     """
     Évalue si la réponse locale nécessite une escalade.
 
@@ -429,7 +429,7 @@ def _get_nokido_mode() -> str:
                 if val:
                     return val
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_arbitrator.py', 431, exc_info=True)
 
     return "prod"
 
@@ -537,7 +537,7 @@ def _log_event(
                 )
                 return
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_arbitrator.py', 539, exc_info=True)
 
     # Fallback : logger Python
     logger.info(

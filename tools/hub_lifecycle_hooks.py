@@ -91,7 +91,7 @@ def _inject_agents() -> set:
         from nokido_agent.app.forge_videur import cli_agents as _ca
         base |= _ca()
     except Exception:  # noqa: BLE001
-        pass  # registre illisible -> on garde le plancher fige
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_lifecycle_hooks.py', 93, exc_info=True)
     return base
 
 # Limite : au-dessus on tronque (évite de surcharger les petits LLMs)
@@ -182,7 +182,7 @@ def _query_inbox(agent: str) -> dict:
                         }
                     )
             except sqlite3.OperationalError:
-                pass  # table peut être absente sur installs fraîches
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_lifecycle_hooks.py', 184, exc_info=True)
 
             try:
                 rows = conn.execute(
@@ -201,7 +201,7 @@ def _query_inbox(agent: str) -> dict:
                         }
                     )
             except sqlite3.OperationalError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_lifecycle_hooks.py', 203, exc_info=True)
     except Exception as exc:  # pragma: no cover
         logger.debug(f"_query_inbox failed for {agent}: {exc}")
 

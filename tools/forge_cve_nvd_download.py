@@ -26,7 +26,17 @@ RATE_DELAY = 6.5  # seconds between requests (unauthenticated: 5req/30s)
 
 
 def _nvd_request(params: dict) -> dict:
-    api_key = os.getenv("NVD_API_KEY", "")
+    api_key = None
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        api_key = get_secret("NVD_API_KEY")
+    except Exception as _e:
+        import logging as _lg
+
+        _lg.getLogger(__name__).warning("coffre illisible pour NVD_API_KEY (%s) -> repli env", type(_e).__name__)
+    if not api_key:
+        api_key = os.getenv("NVD_API_KEY", "")
     headers = {"User-Agent": "LaForge/1.0"}
     if api_key:
         headers["apiKey"] = api_key

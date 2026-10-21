@@ -54,7 +54,7 @@ def main():
                         if isinstance(it, dict) and it.get("url")
                     ]
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/watch_jobs_reset_truly_empty.py', 56, exc_info=True)
         if urls:
             qmarks = ",".join("?" for _ in urls)
             n = cur.execute(

@@ -65,7 +65,7 @@ def _clone_or_reuse(inst: dict, cache_dir: Path) -> Path | None:
             if m.get("base_commit") == inst.get("base_commit") and repo_path.exists():
                 return repo_path
         except (json.JSONDecodeError, OSError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_repo_cache.py', 67, exc_info=True)
     # Clone neuf
     if repo_path.exists():
         shutil.rmtree(repo_path, ignore_errors=True)
@@ -142,7 +142,7 @@ def prepare_instance(inst: dict, force_rebuild: bool = False) -> dict:
             if m.get("base_commit") == inst.get("base_commit"):
                 return {"cached": True, "manifest": m, "cache_dir": str(cache_dir)}
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_repo_cache.py', 144, exc_info=True)
     repo_path = _clone_or_reuse(inst, cache_dir)
     if repo_path is None:
         return {"cached": False, "error": "clone_failed", "cache_dir": str(cache_dir)}

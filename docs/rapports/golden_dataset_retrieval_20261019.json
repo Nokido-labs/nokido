@@ -1,0 +1,660 @@
+{
+  "metadata": {
+    "date": "2026-10-19",
+    "description": "Golden dataset de la couche 3 (retrieval / rappel@10) pour roadmap_p1_methode_dev_par_couches_20261016 et protocole docs/PROTOCOLE_MESURE_METHODES_DEV.md",
+    "target_metric": "rappel@10 (+5 points vise)",
+    "total_questions_valides": 54,
+    "candidates_ecartees_count": 8,
+    "candidates_ecartees_raisons": [
+      {
+        "candidate_question": "Quelles sont les cles d'API dans LaForge.env pour les modeles Claude et Gemini ?",
+        "raison_rejet": "Secrets proteges par SecretGuard et sanitizes ; non stockes en clair dans rag_chunks, non interrogeables en production."
+      },
+      {
+        "candidate_question": "Quel est le port HTTP du proxy Deno proxy_deno ?",
+        "raison_rejet": "Multiples ports conflictuels et historiques dans les chunks (8000, 8769, deconnecte) sans source canonique unique actuelle."
+      },
+      {
+        "candidate_question": "Quelles sont les 500 taches exactes du benchmark SWE-bench Verified ?",
+        "raison_rejet": "Jeu de donnees externe volumineux reference globalement mais non decoupe ni indexe sous forme de chunks individuels dans rag_chunks."
+      },
+      {
+        "candidate_question": "Quel est le code de retour d'une commande PowerShell curl sous Windows ?",
+        "raison_rejet": "Regle de syntaxe locale Windows consignee dans les prompts mais absente en tant que chunk autonome dans rag_chunks avec id verifie."
+      },
+      {
+        "candidate_question": "Quelle est la liste exhaustive des 196 modules Python du dossier app/ ?",
+        "raison_rejet": "Aucun chunk unique ne contient l'inventaire exhaustif complet ; retrieval fragmente inadapte a un rappel@10 atomique."
+      },
+      {
+        "candidate_question": "Quel est l'historique complet des modifications apportees par le commit 8bd6f3d ?",
+        "raison_rejet": "Les chunks de git_historian contiennent des fragments partiels de diffs sans enonce conceptuel clair formulable par un agent."
+      },
+      {
+        "candidate_question": "Comment configurer le proxy LiteLLM pour LaForge ?",
+        "raison_rejet": "Le domaine gitingest_litellm est classe comme cold-legacy et exclu des domaines de retrieval actifs de Nokido."
+      },
+      {
+        "candidate_question": "Quelle est la version exacte de Python embarquee dans le conteneur Exegol ?",
+        "raison_rejet": "Non mentionnee explicitement dans le chunk tools/forge_exegol_bridge.py indexe (seule la commande pip atheris y figure)."
+      }
+    ],
+    "domaines_couverts": [
+      "doctrine RULES_SHARED",
+      "services/ports",
+      "roadmap",
+      "memoire owner",
+      "code app/",
+      "tools/",
+      "veille",
+      "incidents"
+    ]
+  },
+  "questions": [
+    {
+      "id": "retrieval_001",
+      "question": "Quel est le chemin de l'interpreteur Python canonique (LAFORGE_PYTHON) et quel est le port HTTP du hub souverain selon le socle commun ?",
+      "reponse_attendue": "LAFORGE_PYTHON = ~/miniforge3/python.exe et port HTTP 8766.",
+      "sources_attendues": [
+        "d4ccdc005d0bbbc1",
+        "19c286426a064b96"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "facile",
+      "piege": "Confusion possible avec le binaire python brut du systeme ou d'autres ports (7500, 8767)."
+    },
+    {
+      "id": "retrieval_002",
+      "question": "Combien de distinctions immuables composent la « Constitution semantique » arretee le 2026-09-05 par l'owner ?",
+      "reponse_attendue": "Neuf distinctions immuables (arretees en cloture de la campagne d'observabilite phase 0.3).",
+      "sources_attendues": [
+        "1f73ddd0cadf214d"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "facile",
+      "piege": "Homonymie avec d'autres listes de principes (5 questions d'action, regles d'or)."
+    },
+    {
+      "id": "retrieval_003",
+      "question": "Dans la constitution semantique de Nokido, que doit conclure un agent lorsqu'il constate une absence de preuve d'identite (par exemple 24 pouls sans pid) ?",
+      "reponse_attendue": "INCERTAIN, jamais NON (pour ne pas fabriquer de fausses pannes).",
+      "sources_attendues": [
+        "3fc8dddebcb99a7d"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "moyen",
+      "piege": "Biais binaire des LLM incitant a trancher en NON plutot qu'admettre l'incertitude."
+    },
+    {
+      "id": "retrieval_004",
+      "question": "Quelle regle methodologique s'applique aux instruments de mesure concernant la lecture de leur propre vocabulaire ?",
+      "reponse_attendue": "Un instrument ne lit jamais son propre vocabulaire (sa source, ses commentaires, la doctrine qui le documente).",
+      "sources_attendues": [
+        "9894dda2912b35f7"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "moyen",
+      "piege": "Biais d'auto-confirmation ou un test ou audit valide sa propre hypothese en lisant son propre code."
+    },
+    {
+      "id": "retrieval_005",
+      "question": "Comment la doctrine qualifie-t-elle un capteur neuf avant qu'il ne soit recoupe avec le journal de l'organe ou une seconde sonde ?",
+      "reponse_attendue": "Un capteur neuf est un « suspect », pas un temoin.",
+      "sources_attendues": [
+        "e1805949678d7c82"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "moyen",
+      "piege": "Fausse confiance accordee a une nouvelle telemetrie non correlee."
+    },
+    {
+      "id": "retrieval_006",
+      "question": "Quelle est la regle non negociable n°1 de DOCTRINE.md concernant l'ordre d'insertion entre index lexical et vectorisation ?",
+      "reponse_attendue": "Le lexical prime toujours : tout chunk ecrit dans rag_chunks doit etre insere dans rag_fts dans la meme transaction avant toute vectorisation.",
+      "sources_attendues": [
+        "d09a3cc5dfc0ece1"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "facile",
+      "piege": "Croire a tort que la vectorisation prime ou precede l'indexation plein texte."
+    },
+    {
+      "id": "retrieval_007",
+      "question": "Pourquoi chaque insertion dans rag_chunks doit-elle etre explicitement repliquee dans rag_fts selon DOCTRINE.md ?",
+      "reponse_attendue": "Parce que rag_fts n'a aucun trigger SQLite automatique ; toute ecriture doit etre doublee (DELETE puis INSERT).",
+      "sources_attendues": [
+        "c3be6e5934a58662"
+      ],
+      "domaine": "doctrine RULES_SHARED",
+      "difficulte": "dur",
+      "piege": "Presomption habituelle sous SQLite que des triggers FTS gerent la synchronisation en arriere-plan."
+    },
+    {
+      "id": "retrieval_008",
+      "question": "Sur quelle adresse HTTP et quel port ecoute le point de terminaison MCP du Sovereign Hub pour l'agent CLAUDE selon DIRECTORY.json ?",
+      "reponse_attendue": "http://[IP_INTERNAL_1]:8766/mcp (port 8766).",
+      "sources_attendues": [
+        "lf_e62e9cb358_00",
+        "gemini_identity_20260424"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "facile",
+      "piege": "Ne pas confondre avec le port webhub (7400) ou netcfg (8767)."
+    },
+    {
+      "id": "retrieval_009",
+      "question": "Quel est le port local et le nombre de modeles declares pour le fournisseur OLLAMA dans DIRECTORY.json ?",
+      "reponse_attendue": "Port 11434 (http://[IP_INTERNAL_1]:11434), note de 13 modeles locaux, cout 0.",
+      "sources_attendues": [
+        "lf_e62e9cb358_01",
+        "policy_orchestration_01"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "facile",
+      "piege": "Confusion entre port d'Ollama (11434) et celui de llama.cpp (8080)."
+    },
+    {
+      "id": "retrieval_010",
+      "question": "Quel role et quel port sont attribues au composant GitHub sidecar dans l'architecture Nokido ?",
+      "reponse_attendue": "Port 9200, dedie aux depots RAM (repos RAM).",
+      "sources_attendues": [
+        "19c286426a064b96"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "moyen",
+      "piege": "Le port 9200 est conventionnellement celui d'Elasticsearch ; ici c'est le sidecar GitHub."
+    },
+    {
+      "id": "retrieval_011",
+      "question": "Sur quel port et chemin HTTP le serveur netcfg-agent ecoute-t-il les requetes JSON-RPC MCP d'audit reseau ?",
+      "reponse_attendue": "Port 8767 sur http://[IP_INTERNAL_1]:8767/mcp.",
+      "sources_attendues": [
+        "policy_orchestration_04",
+        "lesson_sol_0fced7e0aa9e1b16_1777728965"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "moyen",
+      "piege": "Difference d'un seul chiffre avec le port du Hub souverain (8766 vs 8767)."
+    },
+    {
+      "id": "retrieval_012",
+      "question": "Quel port reseau heberge l'interface web (WebHub) de supervision de Nokido ?",
+      "reponse_attendue": "Port 7400 (webhub:7400).",
+      "sources_attendues": [
+        "lesson_sol_6a5c56ab7836829c_1777792917",
+        "lesson_sol_453036d08d0ee9c8_1778063052"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "facile",
+      "piege": "Confusion possible avec l'explorateur de graphe sur le port 7474."
+    },
+    {
+      "id": "retrieval_013",
+      "question": "Sur quel port reseau tourne le serveur graphique Cytoscape / graph_explorer de LaForge ?",
+      "reponse_attendue": "Port 7474 (graph:7474).",
+      "sources_attendues": [
+        "lesson_sol_6a5c56ab7836829c_1777792917",
+        "lesson_sol_453036d08d0ee9c8_1778063052"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "moyen",
+      "piege": "Port 7474 souvent associe a Neo4j par defaut."
+    },
+    {
+      "id": "retrieval_014",
+      "question": "Quel est le port d'ecoute historique du serveur brain_worker dans la liste des services surveilles par NSSM ?",
+      "reponse_attendue": "Port 5557 (brain_worker:5557).",
+      "sources_attendues": [
+        "lesson_sol_0fced7e0aa9e1b16_1777728965",
+        "lesson_sol_6a5c56ab7836829c_1777792917"
+      ],
+      "domaine": "services/ports",
+      "difficulte": "dur",
+      "piege": "Service d'arriere-plan discret peu cite hors des journaux de panne NSSM."
+    },
+    {
+      "id": "retrieval_015",
+      "question": "Quelle decision de cadrage de l'owner du 16/10 fonde le protocole de mesure des methodes de developpement par couche ?",
+      "reponse_attendue": "« C'est la mesure qui devra decider de l'adoption des meilleures methodes de dev selon les cibles » (roadmap_p1_methode_dev_par_couches_20261016).",
+      "sources_attendues": [
+        "idx_POST_COMMIT_git_docs_PROTOCOLE_MESURE_METHODES_DEV_md_p0_1792325682",
+        "card_1ee4d60b1ec5"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "facile",
+      "piege": "Distinction entre decision de cadrage du 16/10 et decision d'attente du 18/10."
+    },
+    {
+      "id": "retrieval_016",
+      "question": "Dans le protocole de mesure, quels sont les seuils d'adoption stricts requis pour la Couche 1 (TDD) sur les metriques A et B ?",
+      "reponse_attendue": "Metrique A (lots verts) >= 70% et Metrique B (commits citant un RED) >= 90%.",
+      "sources_attendues": [
+        "idx_POST_COMMIT_git_docs_PROTOCOLE_MESURE_METHODES_DEV_md_p1_1792325682"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "moyen",
+      "piege": "Inversion frequente des deux pourcentages (70% vs 90%)."
+    },
+    {
+      "id": "retrieval_017",
+      "question": "Quels sont les trois verdicts d'evaluation possibles definis pour les trois couches dans docs/PROTOCOLE_MESURE_METHODES_DEV.md ?",
+      "reponse_attendue": "ADOPTE, ABANDONNE, et INDECIDABLE.",
+      "sources_attendues": [
+        "idx_POST_COMMIT_git_docs_PROTOCOLE_MESURE_METHODES_DEV_md_p0_1792325682",
+        "idx_POST_COMMIT_git_docs_PROTOCOLE_MESURE_METHODES_DEV_md_p2_1792325682"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "facile",
+      "piege": "Ne pas inventer de verdict binaire (SUCCES/ECHEC) ou oublier INDECIDABLE."
+    },
+    {
+      "id": "retrieval_018",
+      "question": "Dans la roadmap d'implementation des patterns Anthropic (cours Skilljar), quels modules couvraient deja la parallelisation et le routage au 2026-04-24 ?",
+      "reponse_attendue": "silo_engine pour la parallelisation, call_cascade pour le routage, et orchestrator_scaller pour l'evaluation.",
+      "sources_attendues": [
+        "roadmap_patterns_anthropic_skilljar_1777037535"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "moyen",
+      "piege": "Confusion entre les briques deja implementees et celles restant a developper."
+    },
+    {
+      "id": "retrieval_019",
+      "question": "Quel etait l'objectif de la roadmap du 2026-03-17 concernant les commandes @ de la TUI ?",
+      "reponse_attendue": "Exposer les @commands TUI (ex: @ci, @rag, @disco, @audit) comme endpoints HTTP REST sur le Hub (:8766).",
+      "sources_attendues": [
+        "fix_44b0c091eaf6b7e0"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "moyen",
+      "piege": "Croire que les @commands devaient etre supprimees plutot qu'exposees en REST."
+    },
+    {
+      "id": "retrieval_020",
+      "question": "Dans la roadmap JWT HS256 du 2026-04-29, quelles protections existaient deja dans _resolve_ring contre les attaques temporelles ?",
+      "reponse_attendue": "hmac.compare_digest dans _resolve_ring et dictionnaire statique _AGENT_TOKENS.",
+      "sources_attendues": [
+        "roadmap_jwt_hmac_routing_20260429"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "dur",
+      "piege": "Distinguer ce qui etait deja en place de ce qui constituait les 4 piliers manquants."
+    },
+    {
+      "id": "retrieval_021",
+      "question": "Quel composant historique v13.6 a ete reutilise pour la pane EVOLUTION_TREE de la roadmap singularite (Phase I) ?",
+      "reponse_attendue": "app/skilltree.py (855 LOC), Textual widget vertical avec SkillNode recursif.",
+      "sources_attendues": [
+        "lesson_sol_1c370132f70e210a_1777700540"
+      ],
+      "domaine": "roadmap",
+      "difficulte": "dur",
+      "piege": "Risque de citer un module recent alors qu'il s'agit d'une reutilisation d'un composant de l'ere v13.6."
+    },
+    {
+      "id": "retrieval_022",
+      "question": "Quelle decision owner prise le 2026-06-25 a impose la refonte du nommage des competences (skills) ?",
+      "reponse_attendue": "Standardisation sur le namespace forge-* via renommage de laforge-X en forge-X.",
+      "sources_attendues": [
+        "1242577b2bbe2112"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "facile",
+      "piege": "Inversion de prefixe (croire que forge-* a ete renomme en laforge-*)."
+    },
+    {
+      "id": "retrieval_023",
+      "question": "Pourquoi le chemin LaForge/ a-t-il ete expressement protege lors de la migration deep-rename selon la decision owner du 2026-07-09 ?",
+      "reponse_attendue": "Pour preserver le dossier en tant que sous-module git (commit d1252003).",
+      "sources_attendues": [
+        "20b10375395e3253"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "moyen",
+      "piege": "Confusion entre le depot parent Nokido et le sous-module LaForge."
+    },
+    {
+      "id": "retrieval_024",
+      "question": "Quel incident a provoque la decision owner de desarmer par defaut le gestionnaire de ressources le 2026-07-24 ?",
+      "reponse_attendue": "L'endormissement errone des trois piliers du RAG (Qdrant, LlamaEmbed, LlamaReranker) juges 'safe' par absence de dependance declaree.",
+      "sources_attendues": [
+        "22d6206dd7f8d49a"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "moyen",
+      "piege": "Attribuer la coupure a un plantage systeme plutot qu'a une heuristique de delestage defaillante."
+    },
+    {
+      "id": "retrieval_025",
+      "question": "Que prescrit la consigne owner dans RULES_SHARED concernant les modifications lourdes de la base %NOKIDO_DATA%\\embeddings.db ?",
+      "reponse_attendue": "Elles sortent de la chaine critique : chantier d'infrastructure dedie, mesures avant/apres, post-mortem possible.",
+      "sources_attendues": [
+        "1547c111be529b40"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "facile",
+      "piege": "Tenter d'optimiser ou migrer la grosse base a chaud lors d'une tache de dev ordinaire."
+    },
+    {
+      "id": "retrieval_026",
+      "question": "Quelle est la regle de rigueur imposee par l'owner lorsqu'un agent obtient un resultat de mesure qui l'arrange ?",
+      "reponse_attendue": "La mesure se verifie AVANT d'etre rapportee en cherchant le biais qui l'a produite et non sa confirmation.",
+      "sources_attendues": [
+        "4f0de00349a92141"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "facile",
+      "piege": "Biais de complaisance rapportant un chiffre flatteur sans contre-verification."
+    },
+    {
+      "id": "retrieval_027",
+      "question": "Dans forge_resource_manager.py, quelle est la semantique de l'etat 'conditioned' defini pour l'armement du delestage ?",
+      "reponse_attendue": "Arme sous garde : urgence mesuree + intentions consultees (fail-safe, ne demote jamais sans condition).",
+      "sources_attendues": [
+        "e59ac5e9298835c9"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "dur",
+      "piege": "Confondre l'etat desarme (0), historique sans condition (1) et l'etat sous garde ('conditioned')."
+    },
+    {
+      "id": "retrieval_028",
+      "question": "Selon RULES_SHARED.md, quelle regle epistemologique stricte s'applique a la formulation d'une impossibilite ?",
+      "reponse_attendue": "Une impossibilite s'enonce apres mesure et jamais avant (ne pas affirmer qu'une action est impossible sans test reel).",
+      "sources_attendues": [
+        "4f0de00349a92141"
+      ],
+      "domaine": "memoire owner",
+      "difficulte": "facile",
+      "piege": "Tendance des agents a abandonner en declarant une tache impossible sur la foi d'hypotheses."
+    },
+    {
+      "id": "retrieval_029",
+      "question": "Dans le module app/forge_jwt_router.py, quelles sont les constantes AGENT_PRM attribuees a CLAUDE, GEMINI, CODEX et CLINE ?",
+      "reponse_attendue": "CLAUDE=63, GEMINI=29, CODEX=13, CLINE=31.",
+      "sources_attendues": [
+        "impl_jwt_hmac_20260429"
+      ],
+      "domaine": "code app/",
+      "difficulte": "dur",
+      "piege": "Valeurs numeriques specifiques difficiles a deviner sans interrogation directe du code."
+    },
+    {
+      "id": "retrieval_030",
+      "question": "Comment app/forge_mcp_registry.py a-t-il optimise l'execution handle_run(action=python) pour faire chuter la latence de 1000ms a 0.2ms ?",
+      "reponse_attendue": "Par un pool de workers Python pre-chauffes (pre-warmed workers pool) evitant de spawner un subprocess.run a chaque appel.",
+      "sources_attendues": [
+        "git_feat_1c5103d7567c"
+      ],
+      "domaine": "code app/",
+      "difficulte": "moyen",
+      "piege": "Penser a une optimisation de code Python (ex: Cython, PyPy) plutot qu'a un pool de workers persistants."
+    },
+    {
+      "id": "retrieval_031",
+      "question": "Quel role joue le module app/forge_rag_janitor.py cree dans le commit dc106792 ?",
+      "reponse_attendue": "Nettoyage du RAG avec plus de 20 categories de classification et correction du DELETE via rowid fallback.",
+      "sources_attendues": [
+        "git_feat_dc10679269e4"
+      ],
+      "domaine": "code app/",
+      "difficulte": "moyen",
+      "piege": "Confusion entre maintenance du RAG (janitor) et ingestion ou vectorisation."
+    },
+    {
+      "id": "retrieval_032",
+      "question": "Quelle fonction de l'API de app/forge_viable_system.py determine le niveau hierarchique cybernetique VSM d'un organe ?",
+      "reponse_attendue": "level_of(organ) -> str.",
+      "sources_attendues": [
+        "card_6aa8d7fde540"
+      ],
+      "domaine": "code app/",
+      "difficulte": "facile",
+      "piege": "Chercher dans forge_roles ou forge_videur au lieu de forge_viable_system."
+    },
+    {
+      "id": "retrieval_033",
+      "question": "Dans app/forge_videur.py, quelle fonction gere l'elevation automatique de ring pour l'agent de l'owner en dev-mode ?",
+      "reponse_attendue": "_maybe_elevate appelee dans resolve_identity (soumise a LAFORGE_DEV_ELEVATION_RING).",
+      "sources_attendues": [
+        "lesson_sol_b3d035b3ed583aeb_1781431166"
+      ],
+      "domaine": "code app/",
+      "difficulte": "moyen",
+      "piege": "Croire que l'elevation se fait dans forge_workspace_guard ou forge_mcp_security."
+    },
+    {
+      "id": "retrieval_034",
+      "question": "Quel detecteur de app/forge_delivery_integrity.py exige la presence simultanee d'une enveloppe SUCCESS et d'un contenu ERROR ?",
+      "reponse_attendue": "_scan_attestation_contredite.",
+      "sources_attendues": [
+        "337c1cea54ad5051"
+      ],
+      "domaine": "code app/",
+      "difficulte": "moyen",
+      "piege": "Confusion avec _scan_false_attestations qui verifie la date du commit."
+    },
+    {
+      "id": "retrieval_035",
+      "question": "Comment la fonction forge_delivery_integrity._scan_false_attestations verifie-t-elle la veracite d'une attestation de commit ?",
+      "reponse_attendue": "En comparant la date du commit cite a celle de la creation de la tache.",
+      "sources_attendues": [
+        "056fca776a74cd29"
+      ],
+      "domaine": "code app/",
+      "difficulte": "moyen",
+      "piege": "Penser qu'elle relit le diff du commit plutot que comparer les horodatages."
+    },
+    {
+      "id": "retrieval_036",
+      "question": "Quel disque physique SATA hot-swap (nom de volume, lecteur et taille) est cible par tools/forge_backup_hotswap.py ?",
+      "reponse_attendue": "Disque Grodata (lecteur F:), tiroir SATA interne NTFS GPT de ~3726 Go (Disque 4).",
+      "sources_attendues": [
+        "f60d68069530c531"
+      ],
+      "domaine": "tools/",
+      "difficulte": "facile",
+      "piege": "Confusion entre Grodata (F:) et le disque systeme (C:) ou disque V:."
+    },
+    {
+      "id": "retrieval_037",
+      "question": "Quelle regle operatoire absolue regit l'usage du bridge tools/forge_exegol_bridge.py ?",
+      "reponse_attendue": "Controle humain obligatoire sur les deux directions d'execution (LaForge <-> Exegol).",
+      "sources_attendues": [
+        "77ea374b2dea3e4d",
+        "9059be4a36592807"
+      ],
+      "domaine": "tools/",
+      "difficulte": "facile",
+      "piege": "Croire que le bridge peut executer des exploits en mode autonome sans validation humaine."
+    },
+    {
+      "id": "retrieval_038",
+      "question": "Quel principe de test le script tools/forge_semantic_fuzzer.py implemente-t-il face aux modules metiers ?",
+      "reponse_attendue": "Fuzzing semantique qui comprend la logique metier et produit des entrees intelligemment absurdes.",
+      "sources_attendues": [
+        "1c500354d3ac6612"
+      ],
+      "domaine": "tools/",
+      "difficulte": "moyen",
+      "piege": "Ne pas confondre avec un fuzzer binaire aleatoire classique type AFL ou Atheris."
+    },
+    {
+      "id": "retrieval_039",
+      "question": "Quelle est la fonction essentielle du script tools/forge_mcp_proxy.py introduit par le commit 42c107f0 ?",
+      "reponse_attendue": "Proxy minimaliste STDIO <-> HTTP rendant LaForge independant du cycle de vie de Claude Desktop.",
+      "sources_attendues": [
+        "git_feat_42c107f0d0f6"
+      ],
+      "domaine": "tools/",
+      "difficulte": "moyen",
+      "piege": "Confusion entre le proxy STDIO (forge_mcp_proxy.py) et le hub lui-meme."
+    },
+    {
+      "id": "retrieval_040",
+      "question": "Quel outil CLI de diagnostic dans tools/ la doctrine impose-t-elle de lancer avec un mot-cle avant d'affirmer qu'une capacite manque ?",
+      "reponse_attendue": "tools/forge_retrieval_sweep.py <terme> (apres avoir appele introspect).",
+      "sources_attendues": [
+        "2fba495e0ad15593"
+      ],
+      "domaine": "tools/",
+      "difficulte": "facile",
+      "piege": "Tenter un grep brut sur tout le depot ou declarer la capacite absente."
+    },
+    {
+      "id": "retrieval_041",
+      "question": "Quel composant d'arriere-plan de tools/ assure le battement de coeur de la veille bibliographique ?",
+      "reponse_attendue": "forge_biblio_worker (worker d'arriere-plan qui emet un heartbeat).",
+      "sources_attendues": [
+        "lesson_sol_fe204a43f50c4f93_1777503744"
+      ],
+      "domaine": "tools/",
+      "difficulte": "dur",
+      "piege": "Confusion avec les daemons de veille web generale comme forge_rss_watcher."
+    },
+    {
+      "id": "retrieval_042",
+      "question": "A quelle piste de la roadmap methodologique le module tools/forge_kpi_methode.py est-il explicitement associe ?",
+      "reponse_attendue": "Piste 6 (First Pass Yield) de roadmap_p1_methode_dev_par_couches_20261016.",
+      "sources_attendues": [
+        "card_1ee4d60b1ec5"
+      ],
+      "domaine": "tools/",
+      "difficulte": "moyen",
+      "piege": "Confusion entre la piste 6 (First Pass Yield) et la piste 15 (Golden dataset EDD)."
+    },
+    {
+      "id": "retrieval_043",
+      "question": "Quel est le sujet exact et l'identifiant arXiv de l'article sur l'evolution autonome des LLM capture dans watch_33631e4f2b ?",
+      "reponse_attendue": "[2504.02280] LLM-Guided Evolution: An Autonomous Large Language Model Evolution Techniques.",
+      "sources_attendues": [
+        "watch_33631e4f2b"
+      ],
+      "domaine": "veille",
+      "difficulte": "facile",
+      "piege": "Attention a la date/numero arXiv (2504.02280)."
+    },
+    {
+      "id": "retrieval_044",
+      "question": "Quelle publication arXiv a documente les risques de 'tool poisoning' via serveur MCP malveillant ayant motive l'ajout de forge_sentinel ?",
+      "reponse_attendue": "Publication arXiv 2505.02279 section 4.6 (citee dans le commit 8c4ae8ff).",
+      "sources_attendues": [
+        "git_fix_8c4ae8ffd003"
+      ],
+      "domaine": "veille",
+      "difficulte": "moyen",
+      "piege": "Confusion possible avec le standard OWASP Top 10 pour LLM."
+    },
+    {
+      "id": "retrieval_045",
+      "question": "Quelle puce de calcul neuromorphique concue par Intel fait l'objet de la fiche bibliographique bib_79ec2666b1b6 ?",
+      "reponse_attendue": "Hala Point Intel Neuromorphic (URL https://arxiv.org/abs/2404.14255).",
+      "sources_attendues": [
+        "bib_79ec2666b1b6"
+      ],
+      "domaine": "veille",
+      "difficulte": "facile",
+      "piege": "Confusion entre Hala Point et Loihi (generation precedente d'Intel)."
+    },
+    {
+      "id": "retrieval_046",
+      "question": "Quel processeur neuromorphique commercialise par BrainChip est repertorie dans la veille sous l'ID bib_d615e03b7b13 ?",
+      "reponse_attendue": "BrainChip Akida 2.0.",
+      "sources_attendues": [
+        "bib_d615e03b7b13"
+      ],
+      "domaine": "veille",
+      "difficulte": "facile",
+      "piege": "Confusion entre Akida 1.0 et Akida 2.0."
+    },
+    {
+      "id": "retrieval_047",
+      "question": "Quel piege methodologique a ete identifie lors de la veille sur le produit concurrent gumloop.com (lesson_sol_d03237ec40d3ccc1) ?",
+      "reponse_attendue": "Dix ingestions manuelles de pages marketing depuis le cloud, sans analyse technique approfondie des briques internes.",
+      "sources_attendues": [
+        "lesson_sol_d03237ec40d3ccc1_1777514348",
+        "lesson_sol_0cebbf8304759422_1777514896"
+      ],
+      "domaine": "veille",
+      "difficulte": "moyen",
+      "piege": "Croire que la veille s'est bien passee sous pretexte que 10 URL avaient ete scrapées."
+    },
+    {
+      "id": "retrieval_048",
+      "question": "Dans watch_7d769e4852, quel mot-cle d'erreur (Keyword) a declenche l'indexation de la discussion Reddit sur Mantella ?",
+      "reponse_attendue": "Keyword: ERR:no_llm (sous le theme crawl4ai docker integration LLM pipeline python).",
+      "sources_attendues": [
+        "watch_7d769e4852"
+      ],
+      "domaine": "veille",
+      "difficulte": "dur",
+      "piege": "Sujet Skyrim/Mantella inhabituel au milieu d'un pipeline technique Docker/crawl4ai."
+    },
+    {
+      "id": "retrieval_049",
+      "question": "Quel incident de mutation autonome LLM s'est produit sur app/forge_routing.py en generation 3 avec qwen2.5-coder:7b ?",
+      "reponse_attendue": "Troncation de PromptCategory dont le corps de la dataclass a ete vide lors de la generation.",
+      "sources_attendues": [
+        "fix_e18fea99be1e979f"
+      ],
+      "domaine": "incidents",
+      "difficulte": "facile",
+      "piege": "Confusion avec l'incident similaire sur forge_agents.py (AgentRole Enum)."
+    },
+    {
+      "id": "retrieval_050",
+      "question": "Quelle regression de troncature a frappe forge_agents.py en generation 2 lors d'une mutation autonome ?",
+      "reponse_attendue": "Troncature de l'Enum AgentRole dont le corps a ete entierement vide a la generation.",
+      "sources_attendues": [
+        "fix_1c87eb0f9bd95b01"
+      ],
+      "domaine": "incidents",
+      "difficulte": "facile",
+      "piege": "Ne pas confondre dataclass videe (PromptCategory) et Enum vide (AgentRole)."
+    },
+    {
+      "id": "retrieval_051",
+      "question": "Quelle etait la cause racine de l'echec de mutation sur forge_hub_storage.py en generation 0 (agent cerberus_parallel) ?",
+      "reponse_attendue": "Temperature de sampling trop haute (lecon : reduire la temperature a 0.1).",
+      "sources_attendues": [
+        "fix_54a40f3dcdddbc75"
+      ],
+      "domaine": "incidents",
+      "difficulte": "moyen",
+      "piege": "Attribuer l'echec a un bogue de syntaxe direct plutot qu'a l'hyperparametre de temperature."
+    },
+    {
+      "id": "retrieval_052",
+      "question": "Quelle erreur recurrente a ete levee par le tool MCP auto_test sur app/forge_llm_router.py le 2026-04-24 ?",
+      "reponse_attendue": "'PyCompileError' object has no attribute 'lineno'.",
+      "sources_attendues": [
+        "lesson_err_4344c12d628d59aa_1777063364"
+      ],
+      "domaine": "incidents",
+      "difficulte": "dur",
+      "piege": "Croire a un bogue dans forge_llm_router alors que c'etait un attribut manquant dans l'exception py_compile."
+    },
+    {
+      "id": "retrieval_053",
+      "question": "Quelle restriction SQLite a bloque l'outil query lors de l'execution d'instructions multiples le 2026-04-25 ?",
+      "reponse_attendue": "You can only execute one statement at a time (interdiction d'executer plusieurs instructions par appel query).",
+      "sources_attendues": [
+        "lesson_err_2fe94ffc42bfbf78_1777078331"
+      ],
+      "domaine": "incidents",
+      "difficulte": "facile",
+      "piege": "Tentative frequente de chaine plusieurs commandes SQL avec des points-virgules."
+    },
+    {
+      "id": "retrieval_054",
+      "question": "Quels imports manquants ont cause le blocage d'EventBus delivery dans state_manager (resolu par commit b78d100b) ?",
+      "reponse_attendue": "Imports de `os` et de `FileLock` manquants.",
+      "sources_attendues": [
+        "git_fix_b78d100b1962"
+      ],
+      "domaine": "incidents",
+      "difficulte": "moyen",
+      "piege": "Croire a un deadlock de verrou plutot qu'a un simple NameError sur l'import."
+    }
+  ]
+}

@@ -91,7 +91,7 @@ def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skills_reorg.py', 93, exc_info=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true", help="execute (defaut = dry-run)")
     args = ap.parse_args()

@@ -139,7 +139,9 @@ def hub_notify(message: str) -> bool:
     try:
         import urllib.request
 
-        token = os.environ.get("FORGE_MCP_TOKEN", "")
+        from nokido_agent.app.forge_secrets import get_secret  # coffre d'abord, env en dernier repli (16/10)
+
+        token = get_secret("FORGE_MCP_TOKEN") or ""
         body = json.dumps(
             {
                 "jsonrpc": "2.0",

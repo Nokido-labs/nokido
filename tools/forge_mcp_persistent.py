@@ -390,7 +390,7 @@ async def get_mcp_client(host: str = MCP_HOST) -> PersistentMCPClient:
         try:
             await _global_client.connect()
         except ConnectionError:
-            pass  # Serveur hors ligne — client utilisable en mode dégradé
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mcp_persistent.py', 392, exc_info=True)
     return _global_client
 
 

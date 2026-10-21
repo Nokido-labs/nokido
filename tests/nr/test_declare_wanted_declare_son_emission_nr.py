@@ -65,9 +65,22 @@ def _les_deux_formes(nom: str):
     return mods
 
 
+def test_les_intentions_de_test_ne_touchent_pas_le_vrai_sandbox(monkeypatch, tmp_path):
+    """Audit RAM 18/10 : nr_cd / nr_failsafe / nr_temoin / nr_refus.wanted trainaient dans le VRAI sandbox (jusqu'a
+    28 jours) -- lu par les keepers. L'emplacement des intentions est redirigeable par le module."""
+    monkeypatch.setattr(er, "SANDBOX_INTENTIONS", tmp_path, raising=True)
+    monkeypatch.setattr(er, "_WANT_TS", {}, raising=False)
+    for pa in _les_deux_formes("forge_pillar_arbiter"):
+        monkeypatch.setattr(pa, "reclamer", lambda flag, motif="": {"accorde": True}, raising=True)
+    vrai = RACINE / "sandbox" / "nr_isolement.wanted"
+    assert er.declare_wanted("nr_isolement.wanted", cooldown=0.0, motif="nr") is True
+    assert (tmp_path / "nr_isolement.wanted").exists() and not vrai.exists()
+
+
 @pytest.fixture()
-def emissions(monkeypatch):
-    """Capture les declarations et neutralise l'arbitre — sur LES DEUX formes."""
+def emissions(monkeypatch, tmp_path):
+    """Capture les declarations et neutralise l'arbitre — sur LES DEUX formes. Les drapeaux vont dans tmp_path."""
+    monkeypatch.setattr(er, "SANDBOX_INTENTIONS", tmp_path, raising=False)
     vues = []
     for sc in _les_deux_formes("forge_signal_coupling"):
         monkeypatch.setattr(sc, "emit_signal",

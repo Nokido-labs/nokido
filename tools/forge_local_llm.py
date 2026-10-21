@@ -98,7 +98,7 @@ def chat(prompt: str, json_mode: bool = True, timeout: int = 45, max_tokens: int
                 bp.ensure("ollama")
                 bp.ensure("llama_native")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_local_llm.py', 100, exc_info=True)
         return None
     body = {
         "model": model,

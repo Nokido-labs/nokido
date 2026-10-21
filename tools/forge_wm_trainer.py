@@ -38,7 +38,7 @@ def _load_state() -> dict:
         try:
             return json.loads(_state_file.read_text())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wm_trainer.py', 40, exc_info=True)
     return {"last_trained_at": 0.0, "last_trace_count": 0, "n_runs": 0}
 
 

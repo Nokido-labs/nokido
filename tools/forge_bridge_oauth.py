@@ -54,6 +54,14 @@ import time
 
 _LOG = logging.getLogger("Nokido.BridgeOAuth")
 
+# Journal d'organe du consentement (decision owner 18/10, rapport 55ec0a688) : chaque refus etait MUET -- aucun
+# journal pair nulle part. sandbox/ et non logs/ : logs/ refuse l'ecriture aux comptes de service (mesure).
+_RACINE_DEPOT = pathlib.Path(__file__).resolve().parent.parent
+JOURNAL_CONSENTEMENT = pathlib.Path(os.environ.get("NOKIDO_PAIR_JOURNAL_CONSENTEMENT")
+                                    or _RACINE_DEPOT / "sandbox" / "logs" / "pair_consentement.jsonl")
+ETAT_DEMANDES = pathlib.Path(os.environ.get("NOKIDO_PAIR_ETAT_DEMANDES")
+                             or _RACINE_DEPOT / "sandbox" / "pair_consentement_en_attente.json")
+
 _DEFAUT_PONT = pathlib.Path(__file__).resolve().parent / "forge_github_bridge.py"
 
 
@@ -404,11 +412,41 @@ class AutoriteLocale:
             "params": params,
             "expire": time.time() + DUREE_CODE_S,
         }
+        self.journaliser_consentement("demande_creee", client_id=client.client_id, demande=identifiant)
+        self._ecrire_etat_demandes()
         # BASE_CONSENTEMENT, pas BASE_PUBLIQUE : cette page s'ouvre dans le
         # navigateur de l'operateur, sur la machine qui heberge le serveur. Le
         # tunnel ne la relaierait pas (chemin non standard).
         return "%s/consentement?demande=%s" % (BASE_CONSENTEMENT[0].rstrip("/"),
                                                identifiant)
+
+    def journaliser_consentement(self, evenement: str, client_id=None, demande=None, motif=None) -> None:
+        """Une ligne JSONL par evenement du consentement. JAMAIS le code d'appariement, le code d'autorisation ni
+        l'identifiant complet de la demande (6 premiers caracteres). Echec d'ecriture : dit, jamais propage."""
+        ligne = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "evenement": evenement, "client_id": client_id,
+                 "demande": (str(demande)[:6] + "...") if demande else None, "motif": motif}
+        try:
+            JOURNAL_CONSENTEMENT.parent.mkdir(parents=True, exist_ok=True)
+            with open(JOURNAL_CONSENTEMENT, "a", encoding="utf-8") as f:
+                f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+        except OSError as e:
+            _LOG.warning("[oauth] journal du consentement non ecrit (%s) : %s", type(e).__name__, evenement)
+
+    def etat_demandes(self) -> list:
+        """Demandes de consentement EN ATTENTE (non expirees), sans identifiant complet."""
+        maintenant = time.time()
+        return [{"client_id": d["client_id"], "demande": i[:6] + "...", "expire_dans_s": int(d["expire"] - maintenant)}
+                for i, d in sorted(self._demandes.items()) if d["expire"] > maintenant]
+
+    def _ecrire_etat_demandes(self) -> None:
+        """Etat des demandes pour le tray et `--demandes` (les demandes vivent en memoire du serveur)."""
+        try:
+            ETAT_DEMANDES.parent.mkdir(parents=True, exist_ok=True)
+            ETAT_DEMANDES.write_text(json.dumps({"ecrit_le": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                                 "demandes": self.etat_demandes()}, ensure_ascii=False, indent=1),
+                                     encoding="utf-8")
+        except OSError as e:
+            _LOG.warning("[oauth] etat des demandes non ecrit (%s)", type(e).__name__)
 
     def demande(self, identifiant: str):
         """La demande en cours, si elle existe encore."""
@@ -417,6 +455,9 @@ class AutoriteLocale:
             return None
         if d["expire"] <= time.time():
             self._demandes.pop(identifiant, None)
+            self.journaliser_consentement("demande_expiree", client_id=d.get("client_id"), demande=identifiant,
+                                          motif="consentement non donne en %d s" % DUREE_CODE_S)
+            self._ecrire_etat_demandes()
             return None
         return d
 
@@ -430,7 +471,10 @@ class AutoriteLocale:
 
         d = self._demandes.pop(identifiant, None)
         if not d:
+            self.journaliser_consentement("demande_inconnue_ou_expiree", demande=identifiant)
             return ""
+        self.journaliser_consentement("consentie", client_id=d["client_id"], demande=identifiant)
+        self._ecrire_etat_demandes()
         params = d["params"]
         code = secrets.token_urlsafe(24)
         self._codes[code] = AuthorizationCode(
@@ -699,6 +743,7 @@ def poser_consentement(serveur, autorite: AutoriteLocale) -> None:
     async def _formulaire(request):  # noqa: ANN001
         identifiant = request.query_params.get("demande", "")
         if not autorite.demande(identifiant):
+            autorite.journaliser_consentement("demande_inconnue_ou_expiree", demande=identifiant, motif="page ouverte")
             return HTMLResponse("<h1>Demande inconnue ou expiree</h1>", status_code=404)
         return HTMLResponse(PAGE % (depot_unique(), identifiant))
 
@@ -714,8 +759,23 @@ def poser_consentement(serveur, autorite: AutoriteLocale) -> None:
             return HTMLResponse("<h1>Demande inconnue ou expiree</h1>", status_code=404)
         if not attendu or not _h.compare_digest(propose, attendu):
             _LOG.warning("[oauth] consentement refuse : code d'appariement errone")
+            autorite.journaliser_consentement("code_errone", demande=identifiant,
+                                              motif="aucun code d'appariement configure" if not attendu else None)
             return HTMLResponse("<h1>Code errone</h1>", status_code=403)
         retour = autorite.accorder(identifiant)
         if not retour:
             return HTMLResponse("<h1>Demande expiree</h1>", status_code=404)
         return RedirectResponse(retour, status_code=302)
+
+
+if __name__ == "__main__":
+    import argparse as _argparse
+
+    _p = _argparse.ArgumentParser(description="Etat du consentement OAuth du connecteur des pairs")
+    _p.add_argument("--demandes", action="store_true", help="demandes de consentement en attente (ecrites par le serveur)")
+    if _p.parse_args().demandes:
+        try:
+            print(json.dumps(json.loads(ETAT_DEMANDES.read_text(encoding="utf-8")), ensure_ascii=False, indent=1))
+        except (OSError, ValueError) as _e:
+            print(json.dumps({"demandes": None, "illisible": "%s: %s" % (type(_e).__name__, ETAT_DEMANDES)}))
+            raise SystemExit(2)

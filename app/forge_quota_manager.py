@@ -126,6 +126,7 @@ def read_gemini_logs() -> dict[str, int]:
                 if model and tokens:
                     usage[model] = usage.get(model, 0) + tokens
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quota_manager.py', 128, exc_info=True)
             continue
     return usage
 

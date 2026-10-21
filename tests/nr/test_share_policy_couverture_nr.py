@@ -42,6 +42,8 @@ CHEMINS_CONNUS = {
     "app/forge_router_gateway.py",
     "app/mcp_server_tools.py",
     "app/forge_swarm_router.py",
+    # 16/10 : juge QUALIFIE des paires d'assertions (decision owner, a96277628) -- appel AVEC SwarmRequestContext.
+    "tools/forge_epistemic_extract_claims.py",
 }
 GARDE = "app/forge_swarm_router.py"
 
@@ -82,7 +84,7 @@ def test_aucun_appel_n_atteint_le_convergent_sans_contexte():
     assert r["sans_contexte"] == [], (
         "ces appels atteignent router_call SANS SwarmRequestContext : %s. "
         "Leur donnee sort sans qu'on sache ce qu'elle est." % r["sans_contexte"])
-    assert r["avec_contexte"] == r["appels"] == 5, (r["avec_contexte"], r["appels"])
+    assert r["avec_contexte"] == r["appels"] == 6, (r["avec_contexte"], r["appels"])
 
 
 def test_aucun_nouvel_appelant_direct_n_est_apparu():

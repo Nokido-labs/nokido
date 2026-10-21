@@ -168,6 +168,66 @@ def scorecard_de_resultat(result_text: str, erreurs_gate: list) -> Scorecard:
 # === Evaluation pipeline ======================================================
 
 
+def scorecard_de_livraison(wt, chemins: list, python: str | None = None, timeout: int = 300) -> Scorecard:
+    """Scorecard DETERMINISTE du DIFF livre par un executeur (decision owner 19/10, scorecard cadre pour tous).
+
+    `scorecard_de_resultat` ne lit que les blocs de code du TEXTE : une livraison par fichiers sortait non notee.
+    Mesure 19/10 : ead32585b (Mistral) committait un IndentationError. Ici : chaque .py livre doit compiler
+    (REJECTED sinon) ; les NR livres (tests/.../test_*.py) sont lances dans le worktree (verts OPTIMAL, rouges
+    REJECTED) ; compile sans NR = PARTIAL ; rien de verifiable = UNRATED, jamais OPTIMAL. Pose par l'owner."""
+    import ast
+    import os
+    import subprocess
+    import sys as _sys
+
+    racine = Path(wt)
+    pys = [str(c).replace("\\", "/") for c in chemins if str(c).endswith(".py")]
+    erreurs = []
+    for c in pys:
+        try:
+            ast.parse((racine / c).read_text(encoding="utf-8", errors="replace"), filename=c)
+        except SyntaxError as e:
+            erreurs.append("%s:%s %s" % (c, e.lineno, e.msg))
+        except OSError:  # muet-ok : fichier supprime par la livraison, rien a compiler
+            continue
+    if erreurs:
+        return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.REJECTED, confidence_score=0.0,
+                         critique="det-diff: ne compile pas -- " + "; ".join(erreurs[:5]))
+    nr = [c for c in pys if c.startswith("tests/") and Path(c).name.startswith("test_")]
+    if nr:
+        try:
+            # --rootdir/--confcutdir = le worktree livre (20/10, derogation owner : module de juge) : jamais une collecte
+            # qui remonte au-dessus de lui (UNRATED a la reference 63a63a812, meme defaut que mesurer)
+            r = subprocess.run([python or _sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+                                "--rootdir", str(racine), "--confcutdir", str(racine), *nr],
+                               cwd=str(racine), capture_output=True, text=True, errors="replace", timeout=timeout,
+                               env={**os.environ, "PYTHONNOUSERSITE": "1"})
+        except Exception as e:  # noqa: BLE001 - NR non lances : non note, jamais vert
+            return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.UNRATED, confidence_score=0.0,
+                             critique="det-diff: %d .py compiles ; NR livres NON lances (%s)" % (len(pys), type(e).__name__))
+        lignes = (r.stdout or "").splitlines()
+        bilan = ([x for x in lignes if " passed" in x or " failed" in x or " error" in x] or ["?"])[-1].strip()
+        if r.returncode == 0:
+            return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.OPTIMAL, confidence_score=1.0,
+                             critique="det-diff: %d .py compiles, %d NR livre(s) verts (%s)" % (len(pys), len(nr), bilan))
+        if r.returncode == 5:
+            return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.UNRATED, confidence_score=0.0,
+                             critique="det-diff: NR livres sans aucun test collecte")
+        if r.returncode in (2, 3, 4) or bilan == "?":
+            # G2 (19/10) : interrompu, erreur interne, usage, ou AUCUN bilan -- la mesure est ILLISIBLE, pas rouge
+            # (deux livraisons justes refusees « ROUGES (?) »). Non note : le commit passe, la relecture tranche.
+            return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.UNRATED, confidence_score=0.0,
+                             critique="det-diff: NR livres NON MESURES (pytest rc=%s, bilan %s)" % (r.returncode, bilan))
+        echecs = [x for x in lignes if x.startswith(("FAILED", "ERROR"))][:3]
+        return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.REJECTED, confidence_score=0.0,
+                         critique="det-diff: NR livres ROUGES (%s) %s" % (bilan, " | ".join(echecs)))
+    if pys:
+        return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.PARTIAL, confidence_score=0.6,
+                         critique="det-diff: %d .py compiles ; aucun NR livre -- comportement non prouve" % len(pys))
+    return Scorecard(state=ExecutionState.COMPLETED, grade=QualityGrade.UNRATED, confidence_score=0.0,
+                     critique="det-diff: rien de verifiable (aucun .py livre)")
+
+
 def evaluate_code(
     file_path: str,
     task_desc: str = "",
@@ -198,8 +258,12 @@ def evaluate_code(
         sem_score, sem_critique = 1.0, "judge skipped (no task_desc)"
 
     # Phase 3 : combine - AND-min (les deux doivent passer)
-    sc.confidence_score = min(det_score, sem_score)
-    sc.grade = grade_from_score(sc.confidence_score)
+    if sem_score is None:
+        sc.confidence_score = 0.0
+        sc.grade = QualityGrade.UNRATED
+    else:
+        sc.confidence_score = min(det_score, sem_score)
+        sc.grade = grade_from_score(sc.confidence_score)
     sc.critique = f"det: {det_critique} | sem: {sem_critique}"
     sc.metrics.duration_ms = (time.monotonic() - t0) * 1000
     return sc
@@ -220,10 +284,9 @@ def _run_quality_gate(file_path: str) -> tuple[float, str]:
         return -1.0, str(e)
 
 
-def _llm_judge(file_path: str, task_desc: str, model: str, timeout: int, ollama_url: str) -> tuple[float, str]:
+def _llm_judge(file_path: str, task_desc: str, model: str, timeout: int, ollama_url: str) -> tuple[float | None, str]:
     """LLM-as-judge via Ollama local. Parse JSON {score, critique}.
-    Echec -> (0.5, raison) - on tombe sur neutre plutot que zero pour
-    eviter qu'un Ollama down ne bloque le pipeline."""
+    Echec -> (None, raison) - UNKNOWN != 0,5."""
     try:
         code = Path(file_path).read_text(encoding="utf-8", errors="replace")[:8000]
     except OSError as e:
@@ -257,7 +320,8 @@ def _llm_judge(file_path: str, task_desc: str, model: str, timeout: int, ollama_
         critique = str(parsed.get("critique", ""))[:500]
         return max(0.0, min(1.0, score)), critique
     except Exception as e:  # noqa: BLE001
-        return 0.5, f"judge error ({e}) - neutral fallback"
+        # UNKNOWN != 0,5
+        return None, f"judge error ({e}) - NON NOTE"
 
 
 def _mccabe_complexity(tree) -> int:
@@ -322,6 +386,7 @@ def _build_module_dep_graph():
         try:
             tree = _ast.parse(py.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scorecard.py', 380, exc_info=True)
             continue
         for node in _ast.walk(tree):
             if isinstance(node, _ast.ImportFrom) and node.module:
@@ -420,7 +485,7 @@ def evaluate_symbolic(file_path: str, target_file: str | None = None, token_budg
             pylint_score = min(score10 / 10.0 * 0.20, 0.20)
             pylint_note = f"{score10:.1f}/10"
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scorecard.py', 478, exc_info=True)
 
     # AXE 3 : LOC budget (penalise gros fichiers)
     loc = len([ln for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")])
@@ -519,8 +584,12 @@ def evaluate_patch(
     sem_score, sem_critique = (1.0, "judge skipped (no task_desc)")
     if task_desc:
         sem_score, sem_critique = _llm_judge(file_path, task_desc, judge_model, judge_timeout, ollama_url)
-    sc.confidence_score = sem_score
-    sc.grade = grade_from_score(sem_score)
+    if sem_score is None:
+        sc.confidence_score = 0.0
+        sc.grade = QualityGrade.UNRATED
+    else:
+        sc.confidence_score = sem_score
+        sc.grade = grade_from_score(sem_score)
     sc.critique = f"patch_ast: OK | sem: {sem_critique}"
     sc.metrics.duration_ms = (time.monotonic() - t0) * 1000
     return sc
@@ -543,7 +612,7 @@ def store_for_task(scorecard: Scorecard, task_id: str, db_path: str = "") -> boo
         try:
             conn.execute("ALTER TABLE tasks ADD COLUMN scorecard_json TEXT")
         except sqlite3.OperationalError:
-            pass  # column exists
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scorecard.py', 605, exc_info=True)
         conn.execute("UPDATE tasks SET scorecard_json=? WHERE id=?", (scorecard.to_json(), task_id))
         conn.commit()
         conn.close()
@@ -616,7 +685,7 @@ def create_refine_task(
             parsed = json.loads(text)
             new_tid = parsed.get("task_id") or parsed.get("id")
         except (json.JSONDecodeError, AttributeError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_scorecard.py', 678, exc_info=True)
         return {"ok": True, "task_id": new_tid, "raw": text}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "task_id": None, "raw": f"err: {e}"}

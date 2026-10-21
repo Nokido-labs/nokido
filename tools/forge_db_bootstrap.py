@@ -150,7 +150,7 @@ def main() -> int:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             print(f"Manifest from {manifest.get('exported_at', '?')}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_bootstrap.py', 152, exc_info=True)
 
     if not SCHEMA.exists():
         print(f"ERR: schema de base absent ({SCHEMA}) : impossible de creer la base")

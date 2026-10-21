@@ -204,7 +204,7 @@ async def hub_notification_poll(app) -> None:
                 level = int(payload.get("level", 0))
                 core.set_auto_mode(level >= 3)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_handlers.py', 206, exc_info=True)
 
 
 # =============================================================================
@@ -569,7 +569,7 @@ async def handle_ci(app, args: str):
                         out = await prefect_manager.run_ssh_command(f"shellcheck {sf} 2>&1 | head -15")
                         results.append(f"[bold]shellcheck {sf} :[/]\n{out[:300] or '  ✅ OK'}")
             except RuntimeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_handlers.py', 571, exc_info=True)
             # JS/TS
             try:
                 pkg = await prefect_manager.run_ssh_command(f"[ -f {_f}/package.json ] && echo yes || echo no")
@@ -579,7 +579,7 @@ async def handle_ci(app, args: str):
                     )
                     results.append(f"[bold]eslint :[/]\n{out[:400] or '  ✅ OK'}")
             except RuntimeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_handlers.py', 581, exc_info=True)
             chat.write("\n".join(results) if results else "[dim]Aucun linter trouvé[/]")
 
         asyncio.create_task(do_lint())
@@ -737,15 +737,9 @@ async def handle_loop(app, args: str):
         )
 
         def log_fn(msg: str):
-            """Log fn.
-
-            Args:
-                msg: Description.
-            """
-            try:
-                app._chat_log().write(msg)
-            except Exception:
-                pass
+            """Ecrit au journal du chat ; une erreur est journalisee, jamais propagee."""
+            from nokido_agent.app.forge_trace_context import appeler_sans_lever
+            appeler_sans_lever(lambda: app._chat_log().write(msg), ou="forge_hub_handlers.log_fn")
 
         async def run_loop() -> None:
             """Run loop."""
@@ -799,7 +793,7 @@ async def handle_loop(app, args: str):
                     )
                     log_fn(f"[dim]→ Traceback complet : logs/loop_error_{loop_id}.log[/]")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_handlers.py', 801, exc_info=True)
                 version_manager.end_loop_trunk(merge=False)
 
         app._loop_task = asyncio.create_task(run_loop())

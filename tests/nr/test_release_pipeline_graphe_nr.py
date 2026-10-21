@@ -28,6 +28,7 @@ DEUX DEFAUTS MESURES le 2026-09-10, tous deux invisibles a la relecture :
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -71,6 +72,69 @@ def test_PyPI_est_inatteignable_sans_la_preuve_TestPyPI():
     assert "verify-testpypi" in _besoins(jobs["publish"]) and \
         "publish-testpypi" in _besoins(jobs["verify-testpypi"]), \
         "la chaine TestPyPI -> preuve -> PyPI est rompue"
+
+
+MANIFESTES_LIVRES = ("requirements.txt", "requirements-organisme.txt", "requirements-ci.lock",
+                     "requirements.nokido_py314.lock")
+
+
+def _script_verdict_audit() -> str:
+    for etape in _graphe()["audit-deps"].get("steps", []):
+        run = etape.get("run") or ""
+        if "<<'PY'" in run:
+            return run.split("<<'PY'", 1)[1].rsplit("PY", 1)[0]
+    raise AssertionError("audit-deps : script de verdict introuvable")
+
+
+def test_PyPI_est_inatteignable_sans_l_audit_des_dependances_livrees():
+    """Mesure 0.20.12 (16/10) : publiee avec `mcp==1.28.1` (GHSA-84m7-p3x7-pcfv, avis public depuis 10 h, alerte
+    Dependabot du depot public 7 min avant le tag). L'audit du poste datait de 3 jours (temoin < 7 j accepte) : aveugle
+    par construction. L'audit se fait AU TAG, sur les manifestes LIVRES, et PyPI en depend -- propriete du graphe."""
+    jobs = _graphe()
+    assert "audit-deps" in _besoins(jobs["publish"]), "PyPI atteignable sans audit des dependances livrees"
+    corps = yaml.safe_dump(jobs["audit-deps"], allow_unicode=True)
+    for f in MANIFESTES_LIVRES:
+        assert f in corps, "manifeste livre non audite : %s" % f
+    assert re.search(r"pip-audit==\d", corps), "pip-audit non epingle"
+    assert "--no-deps" in corps and "--disable-pip" in corps, "audit sans resolution : multi-plateforme, rien installe"
+
+
+def _juger(tmp_path, monkeypatch, rapports: dict) -> int:
+    import json as _j
+    import runpy
+    (tmp_path / "_audit").mkdir(parents=True)
+    for nom, deps in rapports.items():
+        if deps is not None:
+            (tmp_path / "_audit" / (nom + ".json")).write_text(_j.dumps({"dependencies": deps}), encoding="utf-8")
+    script = tmp_path / "verdict.py"
+    script.write_text(_script_verdict_audit(), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    try:
+        runpy.run_path(str(script), run_name="__main__")
+    except SystemExit as e:
+        return int(e.code or 0)
+    return 0
+
+
+def test_l_audit_bloque_une_faille_corrigeable_et_dit_une_faille_sans_correctif(tmp_path, monkeypatch, capsys):
+    """Mesure 16/10 sur les manifestes livres de 0.20.12 : mcp 1.28.1 (correctif 1.30.0) -> BLOQUE ; diskcache 5.6.3
+    (PYSEC-2026-2447, AUCUNE version corrigee) -> DIT en avertissement : bloquer sur lui interdirait toute release."""
+    mcp = [{"name": "mcp", "version": "1.28.1", "vulns": [{"id": "CVE-2026-59951", "fix_versions": ["1.30.0"]}]}]
+    dc = [{"name": "diskcache", "version": "5.6.3", "vulns": [{"id": "PYSEC-2026-2447", "fix_versions": []}]}]
+    propre = [{"name": "rich", "version": "15.0.0", "vulns": []}]
+    tous = {f: propre for f in MANIFESTES_LIVRES}
+    assert _juger(tmp_path / "a", monkeypatch, {**tous, "requirements-organisme.txt": mcp}) == 1
+    assert "CVE-2026-59951" in capsys.readouterr().out
+    assert _juger(tmp_path / "b", monkeypatch, {**tous, "requirements.nokido_py314.lock": dc}) == 0
+    sortie = capsys.readouterr().out
+    assert "::warning::" in sortie and "PYSEC-2026-2447" in sortie
+
+
+def test_un_manifeste_non_audite_bloque(tmp_path, monkeypatch):
+    """Un rapport absent (pip-audit mort, fichier manquant) est NON MESURE : jamais compte comme propre."""
+    propre = [{"name": "rich", "version": "15.0.0", "vulns": []}]
+    tous = {f: propre for f in MANIFESTES_LIVRES}
+    assert _juger(tmp_path / "c", monkeypatch, {**tous, "requirements-ci.lock": None}) == 1
 
 
 def test_la_GitHub_Release_vient_APRES_PyPI():
@@ -303,6 +367,30 @@ def test_la_Release_REFERENCE_la_version_PyPI_et_le_SHA_certifie():
     assert "--notes-file" in corps, (
         "notes non maitrisees : `--generate-notes` et `--notes` ne se combinent pas "
         "de facon garantie, et un pipeline ne se pose pas sur un comportement suppose")
+
+
+def test_la_Release_PUBLIE_le_brouillon_qui_porte_le_pack_essaye():
+    """2026-10-16 (owner : release brouillon, livrables fonctionnels E2E). La repetition teste le pack d'une release
+    BROUILLON ; la Release la publie avec les MEMES octets (upload des wheel/sdist + edit --draft=false) au lieu d'en
+    creer une seconde, et ne cree une Release neuve qu'en le DISANT (pas de pack candidat essaye)."""
+    run = "\n".join(e.get("run", "") for e in _graphe()["create-release"]["steps"])
+    assert "--json isDraft" in run and "--draft=false" in run and "gh release upload" in run, run[-800:]
+    assert "--clobber" in run and "--verify-tag" in run
+    assert "::warning::aucun brouillon" in run, "une Release sans pack essaye doit le DIRE"
+
+
+def test_les_LIVRABLES_PUBLIES_sont_testes_sur_les_3_OS_apres_la_Release():
+    """2026-10-16 : le test des livrables publies (PyPI ==X + pack de la Release X) n'etait lance qu'a la main, et
+    l'echec du pack 0.20.12 n'a ete vu qu'ainsi. Il part desormais de lui-meme apres la Release, une fois PyPI servant
+    la version (attente BORNEE, echec = ECHEC), avec le seul droit de lancer un workflow."""
+    jobs = _graphe()
+    job = jobs["livrables-publies"]
+    assert "create-release" in _besoins(job)
+    assert (job.get("permissions") or {}) == {"actions": "write"}, job.get("permissions")
+    run = "\n".join(e.get("run", "") for e in job["steps"])
+    assert "gh workflow run installation-complete.yml" in run
+    assert '-f pack_version="$V"' in run and '"paquet=nokido-agent[organisme]==$V"' in run
+    assert "exit 1" in run and "for i in" in run, "attente de PyPI bornee et son echec est un echec"
 
 
 def test_les_PERMISSIONS_sont_au_plus_juste():

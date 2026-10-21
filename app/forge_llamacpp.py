@@ -173,7 +173,7 @@ def _server_call(messages: list, max_tokens: int = 512, temperature: float = 0.7
 
                 _lib(_bail)
             except Exception:  # noqa: BLE001 - le bail expirera seul (90 s)
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llamacpp.py', 175, exc_info=True)
 
 
 # ── Singleton pip ─────────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ def is_available() -> bool:
         if cfg["model_path"] and Path(cfg["model_path"]).exists():
             return True
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llamacpp.py', 236, exc_info=True)
     return _server_available()
 
 

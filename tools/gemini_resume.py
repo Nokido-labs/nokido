@@ -62,7 +62,7 @@ def get_sessions(project):
                 }
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_resume.py', 64, exc_info=True)
     return sessions
 
 

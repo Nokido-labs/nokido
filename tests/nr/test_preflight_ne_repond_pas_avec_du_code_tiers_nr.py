@@ -54,7 +54,8 @@ def _niveaux(monkeypatch, mod, resultats):
     le resultat et le test passerait pour une mauvaise raison.
     """
     for nom in ("_ragengine_search", "_fts5_search", "_like_fallback"):
-        monkeypatch.setattr(mod, nom, lambda q, limit=5, _r=resultats: list(_r),
+        # **_k (19/10) : les niveaux recoivent aussi `pannes` (preflight ILLISIBLE) -- la doublure suit la signature
+        monkeypatch.setattr(mod, nom, lambda q, limit=5, _r=resultats, **_k: list(_r),
                             raising=False)
 
 

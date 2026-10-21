@@ -139,6 +139,9 @@ def stats(since_hours: float = 24.0) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)[:120], "tools": {}}
 
+    # NE PAS classer des « resultats vides » ici : result_bytes N'EST PAS MESURE (le decorateur de
+    # forge_mcp_registry n'appelle record() qu'avec payload_bytes) -- la colonne vaut 0 pour TOUS les appels.
+    # Le 2026-10-18, un compte « vides lents » bati sur elle a fait conclure a tort a de faux succes (revenu).
     per: dict[str, dict] = {}
     for tool, dur, ok in rows:
         d = per.setdefault(tool, {"durations": [], "n": 0, "errors": 0})

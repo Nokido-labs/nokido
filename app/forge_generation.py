@@ -137,6 +137,7 @@ def _lock() -> dict:
             if nom:
                 out[nom] = dist.version
         except Exception:  # noqa: BLE001 - metadata illisible pour cette distribution
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_generation.py', 139, exc_info=True)
             continue
     return dict(sorted(out.items()))
 
@@ -190,6 +191,7 @@ def _prochain_numero() -> int:
             try:
                 nums.append(int(f.stem.split("-")[1]))
             except (IndexError, ValueError):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_generation.py', 192, exc_info=True)
                 continue
     return max(nums, default=0) + 1
 
@@ -604,6 +606,7 @@ def capacites_mesurees(dossier: Path | None = None, age_max_s: float = 7 * 86400
             rec = _json.loads(f.read_text(encoding="utf-8"))
             ts = _time.mktime(_time.strptime(rec["ts"], "%Y-%m-%dT%H:%M:%S"))
         except (OSError, ValueError, KeyError, TypeError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_generation.py', 606, exc_info=True)
             continue
         if rec.get("verdict") == "MESURE" and rec.get("dimension") and _time.time() - ts <= age_max_s:
             out[rec["dimension"]] = {"score": rec.get("score"), "bruit": rec.get("bruit", 0)}
@@ -642,6 +645,7 @@ def lister(statut: str = "") -> list:
         try:
             g = json.loads(f.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_generation.py', 644, exc_info=True)
             continue  # une generation illisible se SIGNALE plus bas, pas en silence
         if statut and g.get("statut") != statut:
             continue

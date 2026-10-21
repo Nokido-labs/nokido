@@ -51,7 +51,8 @@ def banc(tmp_path, monkeypatch, vetos):
         return mc.appliquer_et_mesurer(
             "L1", "param:x", "exp-veto", appliquer=appliquer,
             reverter=lambda: etat.update(v=0) or {"ok": True},
-            mesurer=lambda: {"score": 1.0}, empreinte=lambda: str(etat["v"]), bruit={"score": 0.1})
+            # Le score SUIT l'etat (18/10) : un acte garde doit GAGNER hors bruit (SURVIT != AMELIORE).
+            mesurer=lambda: {"score": 1.0 + etat["v"]}, empreinte=lambda: str(etat["v"]), bruit={"score": 0.1})
     return appeler, vus
 
 

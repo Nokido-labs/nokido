@@ -369,7 +369,7 @@ def reset_router() -> None:
         _fa._global_classifier = None
         _fa._global_planner = None
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_routing.py', 371, exc_info=True)
 
     logger.info("[forge_routing] SmartRouter reset")
 

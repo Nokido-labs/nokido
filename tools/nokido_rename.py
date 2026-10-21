@@ -115,7 +115,7 @@ def _prose_spans(src):
             if tk.type == tokenize.COMMENT:
                 spans.append((off(tk.start[0], tk.start[1]), off(tk.end[0], tk.end[1])))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_rename.py', 117, exc_info=True)
     try:
         tree = ast.parse(src)
         for node in ast.walk(tree):
@@ -128,7 +128,7 @@ def _prose_spans(src):
                     d = body[0].value
                     spans.append((off(d.lineno, d.col_offset), off(d.end_lineno, d.end_col_offset)))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_rename.py', 130, exc_info=True)
     return spans
 
 
@@ -255,6 +255,7 @@ def main() -> int:
         try:
             data = open(p, "rb").read()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_rename.py', 257, exc_info=True)
             continue
         if (a.pycode or a.pystr) and b"aforge" not in data and b"La-Forge" not in data:
             if fh:

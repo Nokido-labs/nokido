@@ -425,7 +425,7 @@ def _log_resonance(
             bridge.json_set("resonance.drift_score", round(drift_score, 3))
             bridge.json_set("resonance.ts", time.time())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_resonance_filter.py', 427, exc_info=True)
 
         return row_id
     except Exception:
@@ -586,7 +586,7 @@ def create_adr(
             bridge.json_set("adr.last_created", adr_id)
             bridge.json_set("adr.total", n)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_resonance_filter.py', 588, exc_info=True)
 
         return adr_id
     except Exception as e:

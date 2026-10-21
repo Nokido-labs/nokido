@@ -310,7 +310,7 @@ async def _probe_process_user_input(ForgeStub, process_user_input) -> tuple:
             _ic.classify_hybrid = _MM(return_value=(type("AT", (), {"value": "chat"})(), None, 0.9))
             _fh.intent_classifier = _ic
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_nr.py', 312, exc_info=True)
 
     cmds = ["@role list", "@mode status", "@rag"]
     errors = []
@@ -352,7 +352,7 @@ async def _probe_full_command_cascade(ForgeStub, process_user_input) -> tuple:
             _ic.classify_hybrid = MagicMock(return_value=(type("AT", (), {"value": "chat"})(), None, 0.9))
             _fh.intent_classifier = _ic
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/mcp_nr.py', 354, exc_info=True)
 
     errors = []
     results = []

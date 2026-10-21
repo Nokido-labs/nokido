@@ -69,7 +69,7 @@ def _callers() -> list:
                 continue
             out.append("%s:%s:%d" % (mod, fr.function, fr.lineno))
     except Exception:  # noqa: BLE001 - l'introspection ne doit jamais casser l'appelant
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 71, exc_info=True)
     return out
 
 
@@ -78,7 +78,7 @@ def _whoami() -> dict:
     try:
         who["user"] = os.environ.get("USERNAME") or ""
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 80, exc_info=True)
     try:
         import psutil
 
@@ -89,7 +89,7 @@ def _whoami() -> dict:
         if par:
             who["parent"] = "%s(%d)" % (par.name(), par.pid)
     except Exception:  # noqa: BLE001 - psutil optionnel
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 91, exc_info=True)
     return who
 
 
@@ -147,7 +147,7 @@ def tail(n: int = 30) -> list:
         if rows:
             return rows
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 149, exc_info=True)
     if not LEDGER.exists():
         return []
     try:
@@ -159,6 +159,7 @@ def tail(n: int = 30) -> list:
         try:
             out.append(json.loads(ln))
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 161, exc_info=True)
             continue
     return out
 
@@ -170,7 +171,7 @@ def _main(argv=None) -> int:
         try:
             n = int(argv[argv.index("--tail") + 1])
         except (IndexError, ValueError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_audit.py', 172, exc_info=True)
     rows = tail(n)
     if not rows:
         print("journal vide: %s" % LEDGER)

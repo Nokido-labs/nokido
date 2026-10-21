@@ -1,0 +1,11 @@
+{
+  "red": "tests/nr/test_alerte_pr_dependabot_prete_nr.py",
+  "rouge_vu": true,
+  "green": [
+    "tools/forge_dependabot_verdict.py",
+    "tools/claude_session_start.py",
+    "tools/ci_local.py"
+  ],
+  "vert_vu": true,
+  "note": "RED vu (11 echecs, AttributeError prs_dependabot_pretes / alerte_prs_dependabot) puis GREEN vu (11/11 verts ; test_dependabot_verdict 5/5, session_start_rappel_audit 17/17, appui 1, ci_proof 25/25, ruff E9,F63,F7 + style sur les 3 fichiers : All checks passed). Une PR Dependabot MERGEABLE est nommee au boot (« [dependabot] N PR prete(s) : #.. ») ; sortie illisible, gh absent ou outil casse = ILLISIBLE DIT, jamais « aucune » (UNKNOWN != NO). Chemin reel prouve en bac a sable sans gh : « [dependabot] PR prete(s) : ILLISIBLE (gh ne repond pas) ». Fusion reste HUMAINE (decision owner 2026-10-14) : alerter, pas fusionner. HONNETETE sur le cliquet : tests/nr/test_suite_pure_ratchet_nr.py reste ROUGE, mais pour DEUX orphelins ETRANGERS a ce chantier (test_pty_ip_resolution_nr.py, test_red_retroactif_nr.py) — pre-existants, non touches (arbre partage, chantiers d'autres agents). Se declarer dans PURE_TESTS ou au socle est leur a faire."
+}

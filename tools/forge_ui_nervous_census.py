@@ -625,6 +625,7 @@ def _graines(spec: dict, base: str) -> list:
         try:
             src = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ui_nervous_census.py', 627, exc_info=True)
             continue  # source illisible : les graines declarees suffisent, le compte de pages le montre
         if f.suffix == ".py":
             chemins = re.findall(r"""@(?:app|router)\.get\(\s*["'](/[^"'{}]*)["']""", src)

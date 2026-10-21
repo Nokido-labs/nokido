@@ -114,7 +114,7 @@ def ingest_file(path: Path, domain: str = "general", source_override: str | None
             )
         conn.commit()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_doc_ingest.py', 116, exc_info=True)
     conn.close()
     return {
         "ok": True,

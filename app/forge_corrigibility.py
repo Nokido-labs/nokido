@@ -99,7 +99,7 @@ def current_asl() -> int:
         if row:
             return int(row[0])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_corrigibility.py', 101, exc_info=True)
     return DEFAULT_ASL
 
 
@@ -170,7 +170,7 @@ def corrigibility_gate(name: str, agent: str, ring: int) -> tuple:
                 "[CORRIGIBILITY] garde en panne (%s) tool=%s agent=%s", _detail,
                 name, agent)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_corrigibility.py', 172, exc_info=True)
         if name in MUTATING_TOOLS:
             return (False, "CORRIGIBILITY_PANNE: le garde de corrigibilité a "
                            "échoué (%s) — tool mutant '%s' refusé par défaut"

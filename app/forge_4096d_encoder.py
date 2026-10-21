@@ -133,7 +133,7 @@ def train_on_real(n_vectors: int = 768, seq_len: int = 6, epochs: int = 30, seed
             if v.size >= 512:
                 vecs.append(v[:1024] if v.size >= 1024 else np.pad(v, (0, 1024 - v.size)))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_4096d_encoder.py', 135, exc_info=True)
     if len(vecs) < seq_len * 16:
         return {"ok": False, "reason": f"traces insuffisantes ({len(vecs)} vecteurs) — "
                 "le collecteur NokidoTraceCollectorRich alimente avec le temps"}

@@ -221,7 +221,7 @@ def _parse_frontmatter(text: str) -> dict:
         data = yaml.safe_load(block)
         return data if isinstance(data, dict) else {}
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 223, exc_info=True)
     # Fallback maigre : key: value + listes inline [a, b] et 'name'/'description'/'targets'.
     out: dict = {}
     for line in block.splitlines():
@@ -361,6 +361,7 @@ def _hunt_copilot_dir() -> dict:
                 if len(evidence) >= 20:
                     break
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 363, exc_info=True)
             continue
     skills_root = str(Path(evidence[0]).parent.parent) if evidence else None
     return {"skills_root": skills_root, "skill_md_found": evidence}
@@ -375,12 +376,13 @@ def _resolve_copilot_dir() -> Path | None:
         if copilot_home.exists():
             return copilot_home / "skills"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 377, exc_info=True)
     for c in COPILOT_CANDIDATES:
         try:
             if c.exists():
                 return c
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 383, exc_info=True)
             continue
     h = _hunt_copilot_dir()
     if h.get("skills_root"):
@@ -661,6 +663,7 @@ def _cli_only_sources() -> dict:
                 if sub.is_dir() and sk.exists() and sub.name not in canon and sub.name not in out:
                     out[sub.name] = sk
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 663, exc_info=True)
             continue
     return out
 
@@ -863,7 +866,7 @@ def rollback() -> dict:
                 try:
                     dest.parent.rmdir()
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_sync.py', 865, exc_info=True)
                 undone.append({"slug": a["slug"], "cli": a["cli"], "op": "removed"})
             else:
                 # remplacement : on ne peut pas restaurer le contenu exact (pas stocké) —

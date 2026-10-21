@@ -334,7 +334,7 @@ class PowerShellSandbox:
             try:
                 os.unlink(tmp_path)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ps_sandbox.py', 336, exc_info=True)
 
     def audit_log(self, code: str, result: SandboxResult) -> None:
         """Écrit un log d'audit dans sandbox/ps_audit.log."""

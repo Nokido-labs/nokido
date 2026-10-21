@@ -548,7 +548,7 @@ class SiloEngine:
 
             self._rag = get_session_sink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_silo_engine.py', 550, exc_info=True)
         return self._rag
 
     # ── Décomposition de l'intention ─────────────────────────────────────────
@@ -679,7 +679,7 @@ class SiloEngine:
                     _inj = get_injector()
                     prompt = _inj.enrich(prompt)
                 except Exception as _te:
-                    pass  # Non bloquant
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_silo_engine.py', 681, exc_info=True)
 
             # Bruit sémantique optionnel (pour cloud)
             if noise and silo.noisy:
@@ -696,7 +696,7 @@ class SiloEngine:
 
                 prompt = _guard(prompt, silo.domain.value, logger)
             except ImportError:
-                pass  # Guardian optionnel
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_silo_engine.py', 698, exc_info=True)
 
             # Appel LLM (max_tokens et timeout augmentes en CTF)
             silo.ts = datetime.now().isoformat()
@@ -1037,11 +1037,11 @@ def evolve_sync(
         try:
             _new_loop.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_silo_engine.py', 1039, exc_info=True)
         try:
             asyncio.set_event_loop(_old_loop)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_silo_engine.py', 1043, exc_info=True)
 
     return {
         "task_id": task.id,

@@ -609,6 +609,7 @@ class TestStructuralInvariants:
         "app/forge_resource_manager.py",   # gestionnaire ressources unifie (~235KB)
         "app/forge_autonomous_loops.py",   # boucles autonomes (~202KB)
         "legacy/",                          # archives
+        "backups/",                         # ignore par .gitignore (backups/) : copies, jamais du code actif (20/10)
         "shadow_mutation/",                 # vault genetique
         "inspirations/",                    # clones externes
         "__pycache__",
@@ -639,7 +640,9 @@ class TestStructuralInvariants:
         """Aucun fichier .py actif ne depasse MAX_FILE_SIZE_KB (verrou refacto)."""
         oversized = []
         for rel, p in self._iter_active_py():
-            sz_kb = p.stat().st_size / 1024
+            # taille du CONTENU, en LF (politique du depot : .gitattributes eol=lf) -- une copie CRLF de l'arbre de
+            # travail gonflait app/Nokido.py de 4 914 octets et le faisait passer la limite (20/10)
+            sz_kb = len(p.read_bytes().replace(b"\r\n", b"\n")) / 1024
             if sz_kb > self.MAX_FILE_SIZE_KB:
                 oversized.append((rel, sz_kb))
         assert not oversized, (

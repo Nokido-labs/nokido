@@ -57,7 +57,7 @@ def _detect_vlm_model() -> Optional[str]:
             if m.split(":")[0] in available:
                 return m
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_perception_vlm.py', 59, exc_info=True)
     return None
 
 
@@ -92,7 +92,7 @@ def capture_screen() -> Optional[bytes]:
             pil_img.save(buf, format="PNG")
             return buf.getvalue()
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_perception_vlm.py', 94, exc_info=True)
 
     # Fallback PowerShell
     try:
@@ -109,7 +109,7 @@ def capture_screen() -> Optional[bytes]:
         if p.exists():
             return p.read_bytes()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_perception_vlm.py', 111, exc_info=True)
     return None
 
 

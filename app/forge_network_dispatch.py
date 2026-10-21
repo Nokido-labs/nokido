@@ -57,7 +57,7 @@ def _anycast_score(agent: str) -> float:
             if row and row[0]:
                 return 1.0 / max(row[0], 1)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_network_dispatch.py', 59, exc_info=True)
     return 0.5  # score neutre si inconnu
 
 

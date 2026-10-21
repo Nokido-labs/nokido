@@ -79,7 +79,7 @@ def _ensure_db():
         try:
             con.execute(f"ALTER TABLE edges ADD COLUMN {col_name} {col_type}")
         except sqlite3.OperationalError:
-            pass  # column already exists
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 81, exc_info=True)
     con.commit()
     con.close()
 
@@ -313,7 +313,7 @@ def heartbeat_self(self_name: str = "laforge-host", self_url: str = "http://127.
                         temperature = round(entries[0].current, 1)
                         break
         except (AttributeError, NotImplementedError):
-            pass  # sensors_temperatures not available on this OS
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 315, exc_info=True)
 
         # Disk
         disk = psutil.disk_usage("/" if __import__("os").name != "nt" else "C:\\")
@@ -323,14 +323,14 @@ def heartbeat_self(self_name: str = "laforge-host", self_url: str = "http://127.
         # Uptime
         uptime_s = int(time.time() - psutil.boot_time())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 325, exc_info=True)
 
     # OS version
     try:
         import platform as _platform
         os_version = f"{_platform.system()} {_platform.release()}"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 332, exc_info=True)
 
     # Probe Ollama for loaded models
     models = []
@@ -339,7 +339,7 @@ def heartbeat_self(self_name: str = "laforge-host", self_url: str = "http://127.
             data = json.loads(r.read())
             models = [m.get("name") for m in data.get("models", [])]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 341, exc_info=True)
 
     eid = register_edge(
         self_name,
@@ -474,12 +474,12 @@ def scan_adb_into_fleet() -> list[dict]:
                     try:
                         battery = int(bl.split(":", 1)[1])
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 476, exc_info=True)
                 elif bl.startswith("temperature:"):
                     try:
                         temperature = round(int(bl.split(":", 1)[1]) / 10.0, 1)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_edge_fleet.py', 481, exc_info=True)
         register_edge(
             model,
             f"adb://{serial}",

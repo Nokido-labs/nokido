@@ -186,7 +186,7 @@ class BrainClient:
             if self._ctx:
                 self._ctx.term()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runtime.py', 188, exc_info=True)
         self._connected = False
 
     # ── Appels bas niveau ─────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ class BrainClient:
             try:
                 self._socket.setsockopt(self._zmq_module.RCVTIMEO, self._timeout)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runtime.py', 370, exc_info=True)
 
     def locate_sync(self, source: str, target_name: str) -> Optional[dict]:
         """
@@ -444,7 +444,7 @@ class BrainClient:
         try:
             self._call_sync({"cmd": "stm_clear", "session": session})
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runtime.py', 446, exc_info=True)
 
 
 # Singleton partagé
@@ -973,7 +973,7 @@ def shutdown_onnx_backend() -> None:
             if _brain.connected and launched_by_us:
                 _brain._call_sync({"cmd": "shutdown"})
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runtime.py', 975, exc_info=True)
         _brain.disconnect()
         _brain = None
 
@@ -986,7 +986,7 @@ def shutdown_onnx_backend() -> None:
             try:
                 _sidecar_process.kill()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_runtime.py', 988, exc_info=True)
         _sidecar_process = None
     logger.debug("ONNX backend + sidecar shutdown complet")
 

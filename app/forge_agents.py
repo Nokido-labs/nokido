@@ -1113,6 +1113,7 @@ class ModelBenchmarker:
                         try:
                             data = json.loads(line.decode("utf-8", errors="replace").strip())
                         except Exception:
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agents.py', 1115, exc_info=True)
                             continue
                         tok = data.get("message", {}).get("content", "")
                         if tok:
@@ -2346,6 +2347,7 @@ class OllamaParallelRunner:
                             try:
                                 data = json.loads(line)
                             except json.JSONDecodeError:
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agents.py', 2348, exc_info=True)
                                 continue
                             tok = data.get("message", {}).get("content", "")
                             if tok:
@@ -3004,7 +3006,7 @@ class SmartRouter:
                                     logger.debug(f"[_pick_provider] rag_constraints force local pour {cat}")
                                     return "local"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agents.py', 3006, exc_info=True)
 
         # ── Lookup provider_map ──────────────────────────────────────────────
         provider = (
@@ -3280,7 +3282,7 @@ class SmartRouter:
                 )
                 await self.rag_engine.add_session_message("exchange", "system", doc)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agents.py', 3282, exc_info=True)
 
         return RouteResult(
             category=cat,

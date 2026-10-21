@@ -120,7 +120,7 @@ def import_pack(pack_db, dst_db=None):
                         "VALUES (?,?,?,?)", (r["id"], r["text"], r["domain"], blob))
             n += 1
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_knowledge_pack.py', 122, exc_info=True)
     dst.commit()
     dst.close()
     pk.close()
@@ -183,7 +183,7 @@ def _selftest():
         try:
             os.remove(p)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_knowledge_pack.py', 185, exc_info=True)
     print(json.dumps({"export": ex["exported"], "import": im["imported"],
                       "roundtrip": [round(x, 3) for x in got[:4]], "pass": ok}))
     return 0 if ok else 1

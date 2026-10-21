@@ -103,6 +103,7 @@ def main(argv=None) -> int:
         try:
             row = json.loads(ligne)
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_aer_sparsity_bench.py', 105, exc_info=True)
             continue
         ts = float(row.get("ts") or 0)
         if not ts:
@@ -221,7 +222,7 @@ def main(argv=None) -> int:
     try:
         SORTIE.write_text(json.dumps(rapport, ensure_ascii=False, indent=2), encoding="utf-8")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_aer_sparsity_bench.py', 223, exc_info=True)
     if a.json:
         print(json.dumps(rapport, ensure_ascii=False, indent=2))
         return 0

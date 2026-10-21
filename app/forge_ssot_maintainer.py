@@ -176,6 +176,24 @@ def etat_roadmap(texte) -> str:
     return mot if mot in _ROADMAP_CLOTURE else "OUVERT"
 
 
+# Plancher de confiance d'un JALON (CURRENT / NEXT). Au-dessus, le plus RECENT gagne ; en dessous, un fait ne devient
+# jamais le jalon (lecon du 2026-08-10 : un detail recent ecrasait un jalon majeur).
+_JALON_TRUST_MIN = 0.8
+
+
+def _choisir_jalon(cands) -> str:
+    """Jalon mono-valeur parmi des (trust, ts, texte). Mesure 2026-10-16 : l'arbitrage (trust, ts) gardait le CURRENT
+    du 13/10 (trust 0,96) contre celui du 16/10 (0,95) -- trois jours de jalon PERIME affiche a chaque demarrage. Un
+    CURRENT est un instantane date : parmi les CREDIBLES, le plus recent dit l'etat present. Sans aucun credible, repli
+    sur l'ancien arbitrage (trust puis anciennete) plutot que rien."""
+    if not cands:
+        return ""
+    credibles = [c for c in cands if c[0] >= _JALON_TRUST_MIN]
+    if credibles:
+        return max(credibles, key=lambda c: c[1])[2]
+    return max(cands, key=lambda c: (c[0], c[1]))[2]
+
+
 def _roadmap_build_doc() -> dict:
     f = ROOT / "docs" / "roadmap_state.json"
     doc = {
@@ -287,7 +305,8 @@ def _roadmap_build_doc() -> dict:
         # DERNIER fait ecrit, donc n'importe quel detail recent ecrasait un jalon
         # majeur. Mesure 2026-08-10 : un arbitrage Qdrant local a supplante le P0
         # « rejeu des veilles ». La confiance prime, l'anciennete departage.
-        best_cur = best_nxt = (-1.0, -1.0)
+        # Candidats collectes puis departages par _choisir_jalon (16/10 : la confiance seule gardait un jalon perime).
+        cands_cur, cands_nxt = [], []
         for fct in cfacts:
             if not isinstance(fct, dict):
                 continue
@@ -298,10 +317,17 @@ def _roadmap_build_doc() -> dict:
             fkey = (fct.get("key") or "")
             fref = ("bb:%s" % fkey) if fkey else ""
             if low.startswith("current:") or low.startswith("milestone:"):
-                if (trust, ts) >= best_cur:
-                    cur = _coupe(txt.split(":", 1)[1].strip(), 200, ref=fref)
-                    best_cur = (trust, ts)
+                if etat_roadmap(txt) != "OUVERT":
+                    continue  # un jalon marque clos/perime n'est plus l'etat courant
+                cands_cur.append((trust, ts, _coupe(txt.split(":", 1)[1].strip(), 200, ref=fref)))
             elif low.startswith("next:"):
+                # Meme regle que les BLOCKER (liste BLANCHE) : un « NEXT: [FAIT ...] » n'est plus un prochain pas.
+                # Mesure 2026-10-16 : « NEXT: [FAIT le 2026-09-27] moisson relancee » restait parmi les next_items.
+                _etat_n = etat_roadmap(txt)
+                if _etat_n != "OUVERT":
+                    blk_clos.append({"priorite": "NEXT", "etat": _etat_n, "cle": fkey,
+                                     "item": _coupe(txt.split(":", 1)[1].strip(), 160, ref=fref)})
+                    continue
                 # Le JALON suivant est mono-valeur (le plus recent gagne), mais
                 # les autres NEXT ne sont pas du bruit : ce sont les prochains
                 # pas, et les ecraser en silence les efface. Mesure 2026-07-27 :
@@ -310,8 +336,7 @@ def _roadmap_build_doc() -> dict:
                 _n = _coupe(txt.split(":", 1)[1].strip(), 200, ref=fref)
                 if _n and _n not in nxts:
                     nxts.append(_n)
-                if (trust, ts) >= best_nxt:
-                    nxt, best_nxt = _n, (trust, ts)
+                cands_nxt.append((trust, ts, _n))
             elif low.startswith("blocker:"):
                 b = _coupe(txt.split(":", 1)[1].strip(), 160, ref=fref)
                 # Un BLOCKER clos ([CLOS], [RESOLU], [FAIT]...) ne bloque plus : meme regle que
@@ -323,6 +348,7 @@ def _roadmap_build_doc() -> dict:
                     continue
                 if b and b not in blk:
                     blk.append(b)
+        cur, nxt = _choisir_jalon(cands_cur), _choisir_jalon(cands_nxt)
         doc["current_milestone"] = cur
         doc["next_milestone"] = nxt
         doc["next_items"] = _plafonne(nxts, 12)

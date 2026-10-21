@@ -69,24 +69,25 @@ class TestSpec:
 
     def test_default_modules_optin(self, _reset):
         lm, _, _, _ = _reset
-        # 3 modules opt-in (tui_bridge, recon, graph), hub hors scope
+        # 2 modules opt-in (tui_bridge, graph), hub hors scope. Le module `recon` a ete RETIRE du launcher le
+        # 2026-05-03 (884374b3f) : ce test le cherchait encore et ne tournait nulle part (hors PURE_TESTS).
         assert lm.MODULES["tui_bridge"].watch is True
-        assert lm.MODULES["recon"].watch is True
         assert lm.MODULES["graph"].watch is True
         assert lm.MODULES["hub"].watch is False
+        assert "recon" not in lm.MODULES
 
     def test_health_urls(self, _reset):
         lm, _, _, _ = _reset
         # Modules opt-in ont tous une health_url
-        for k in ("tui_bridge", "recon", "graph"):
+        for k in ("tui_bridge", "graph"):
             assert lm.MODULES[k].health_url is not None
             assert lm.MODULES[k].health_url.startswith("http://")
 
     def test_status_exposes_watch(self, _reset):
         lm, _, _, _ = _reset
-        s = lm.status("recon")
+        s = lm.status("graph")
         assert s["watch"] is True
-        assert s["health_url"] == "http://127.0.0.1:7410/"
+        assert s["health_url"] == "http://127.0.0.1:7420/"
 
 
 # ===================================================================
@@ -318,10 +319,10 @@ class TestApi:
 
     def test_reset_circuit_known_200_even_if_noop(self, client):
         """Endpoint 200 + reset=False si le circuit n est pas ouvert."""
-        r = client.post("/api/watcher/recon/reset-circuit")
+        r = client.post("/api/watcher/graph/reset-circuit")
         assert r.status_code == 200
         d = r.json()
-        assert d["module"] == "recon"
+        assert d["module"] == "graph"
         assert "reset" in d
 
 

@@ -211,35 +211,244 @@ def _conn() -> sqlite3.Connection:
         " last_ts REAL,"
         " PRIMARY KEY (signal, consumer))"
     )
+    # Journal DATE des secretions (19/10, analyse F de l'audit). `emissions` ne tient
+    # qu'un compteur cumule et `endocrine_signals` qu'une ligne par hormone : sans serie
+    # temporelle, oscillation et hysteresis etaient inmesurables. Seules les emissions
+    # porteuses d'un NIVEAU y entrent -- jamais les pouls (1,46 M pour le seul harness).
+    cx.execute(
+        "CREATE TABLE IF NOT EXISTS emissions_journal ("
+        " signal TEXT NOT NULL,"
+        " emitter TEXT NOT NULL,"
+        " level REAL NOT NULL,"
+        " ttl_s INTEGER,"
+        " ts REAL NOT NULL)"
+    )
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_journal_signal_ts "
+               "ON emissions_journal(signal, ts)")
+    # PROVENANCE des reveils (19/10, owner : « observabilite infaillible sur qui lance quoi et pourquoi »).
+    # Un `*.wanted` reveille un organe couteux (Docker, llama, embedder) : il dit QUI (processus, job, test,
+    # agent, pile) et POURQUOI (motif, « INCONNU » quand l'appelant ne le donne pas).
+    cx.execute(
+        "CREATE TABLE IF NOT EXISTS provenances ("
+        " signal TEXT NOT NULL, emetteur TEXT, ts REAL NOT NULL, pid INTEGER, ppid INTEGER,"
+        " processus TEXT, job TEXT, test TEXT, agent TEXT, pile TEXT, motif TEXT NOT NULL, trace TEXT)"
+    )
+    try:  # base creee avant le contexte de trace (acf8e4035) : ADD COLUMN est O(1)
+        cx.execute("ALTER TABLE provenances ADD COLUMN trace TEXT")
+    except sqlite3.OperationalError:  # muet-ok : colonne deja presente, cas nominal
+        pass
+    cx.execute("CREATE INDEX IF NOT EXISTS idx_provenances_signal_ts ON provenances(signal, ts)")
     return cx
 
 
-def emit_signal(signal: str, emitter: str | None = None) -> bool:
+PROVENANCES_RETENTION_S = 90 * 86400   # lu par forge_log_retention (registre des logs)
+
+
+_AGENT_ENV = ("LAFORGE_AGENT", "LAFORGE_AGENT_NAME", "NOKIDO_AGENT", "FORGE_AGENT", "AGENT_NAME")
+
+
+def _provenance() -> dict:
+    """Qui emet : processus, job, test, agent, pile. Chaque champ illisible vaut None, jamais une invention."""
+    import traceback
+
+    processus = None
+    try:
+        import psutil  # type: ignore
+
+        pr = psutil.Process(os.getpid())
+        processus = " ".join(pr.cmdline()[:4])[:300] or pr.name()
+    except Exception:  # noqa: BLE001  # muet-ok : repli sur argv, le champ reste renseigne
+        processus = " ".join(sys.argv[:3])[:300] or None
+    pile = " < ".join("%s:%d:%s" % (os.path.basename(f.filename), f.lineno, f.name)
+                      for f in reversed(traceback.extract_stack()[-10:-3]))
+    return {
+        "pid": os.getpid(), "ppid": os.getppid(), "processus": processus,
+        "job": os.environ.get("LAFORGE_JOB_ID") or os.environ.get("NOKIDO_HUB_RUN_ID") or None,
+        "test": os.environ.get("PYTEST_CURRENT_TEST") or None,
+        # Contexte de trace W3C (traceparent), propage aux processus par la variable TRACEPARENT : relie le
+        # reveil a la requete qui l'a cause (audit_log du hub porte le meme trace_id).
+        "trace": os.environ.get("TRACEPARENT") or None,
+        "agent": next((os.environ[k] for k in _AGENT_ENV if os.environ.get(k)), None),
+        "pile": pile or None,
+    }
+
+
+JOURNAL_RETENTION_S = 14 * 86400   # au-dela, purge ; la stabilite se lit sur des heures
+_PURGE_TOUS_LES = 500               # une purge par 500 secretions journalisees
+_journalisees = 0
+
+
+def emit_signal(signal: str, emitter: str | None = None, level: float | None = None,
+                ttl_s: int | None = None, ts: float | None = None, motif: str | None = None) -> bool:
     """CONSTATE une emission. A appeler la ou le signal est REELLEMENT ecrit.
 
     `emitter` par defaut = le module appelant, deduit de la pile : on veut savoir QUI
     emet, pas seulement que quelqu'un emet -- c'est la difference entre « ce signal a
     un emetteur » et « ces cinq reveilleurs sur six ne declarent pas ».
 
+    `level` (et `ttl_s`) : une SECRETION porte un niveau ; elle est alors aussi
+    journalisee avec sa date, ce que lit `stabilite()`. Sans niveau (un pouls), seul le
+    compteur bouge. `ts` n'existe que pour rejouer une serie (NR).
+
     Fail-safe : rend False et ne leve JAMAIS. Un capteur de couplage qui casse
     l'emission qu'il observe serait pire que le defaut qu'il cherche.
     """
+    global _journalisees
     if not emitter:
         try:
             f = sys._getframe(1)
             emitter = "%s:%s" % (os.path.basename(f.f_code.co_filename), f.f_code.co_name)
         except Exception:
             emitter = "inconnu"
+    maintenant = time.time() if ts is None else float(ts)
     try:
-        with _conn() as cx:
+        cx = _conn()
+        try:
             cx.execute(
                 "INSERT INTO emissions (signal, emitter, n, last_ts) VALUES (?,?,1,?) "
                 "ON CONFLICT(signal, emitter) DO UPDATE SET n = n + 1, last_ts = ?",
-                (str(signal), str(emitter), time.time(), time.time()),
+                (str(signal), str(emitter), maintenant, maintenant),
             )
+            if level is not None:
+                cx.execute(
+                    "INSERT INTO emissions_journal (signal, emitter, level, ttl_s, ts) "
+                    "VALUES (?,?,?,?,?)",
+                    (str(signal), str(emitter), float(level),
+                     int(ttl_s) if ttl_s is not None else None, maintenant),
+                )
+                _journalisees += 1
+                if _journalisees % _PURGE_TOUS_LES == 0:
+                    cx.execute("DELETE FROM emissions_journal WHERE ts < ?",
+                               (maintenant - JOURNAL_RETENTION_S,))
+            if str(signal).endswith(".wanted"):
+                p = _provenance()
+                p["motif"] = (str(motif).strip() if motif else "") or "INCONNU"
+                p["emetteur"] = str(emitter)
+                cx.execute(
+                    "INSERT INTO provenances (signal, emetteur, ts, pid, ppid, processus, job, test, agent, pile,"
+                    " motif, trace) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (str(signal), str(emitter), maintenant, p["pid"], p["ppid"], p["processus"], p["job"],
+                     p["test"], p["agent"], p["pile"], p["motif"], p["trace"]),
+                )
+                _inscrire_intention(str(signal), p)
+        finally:
+            cx.close()
         return True
     except Exception:
         return False  # muet-ok : l'instrumentation ne doit jamais casser l'emetteur
+
+
+def _inscrire_intention(signal: str, provenance: dict) -> None:
+    """Un reveil est une INTENTION : inscrite au registre des intentions (journal immuable chaine), pas seulement
+    dans la table locale. Ne leve jamais : l'inscription ne casse pas l'emission."""
+    try:
+        try:
+            from nokido_agent.app import forge_intention_journal as _ij
+        except ImportError:
+            import forge_intention_journal as _ij  # type: ignore
+        _ij.record(provenance.get("agent") or provenance.get("emetteur") or "INCONNU", "reveil", signal,
+                   dict(provenance), decision="executed")
+    except Exception:  # noqa: BLE001  # muet-ok : la provenance reste dans `provenances`, lisible par --qui
+        pass
+
+
+def qui_a_reveille(signal: str, n: int = 20) -> list:
+    """Les `n` dernieres provenances d'un reveil, la plus recente d'abord : qui, ou, pourquoi."""
+    try:
+        cx = _conn()
+        try:
+            cols = ("signal", "emetteur", "ts", "pid", "ppid", "processus", "job", "test", "agent", "pile", "motif",
+                    "trace")
+            rows = cx.execute("SELECT %s FROM provenances WHERE signal = ? ORDER BY ts DESC, rowid DESC LIMIT ?"
+                              % ", ".join(cols), (str(signal), int(n))).fetchall()
+        finally:
+            cx.close()
+    except Exception:  # noqa: BLE001  # muet-ok : lecture d'observabilite ; [] DIT par l'appelant CLI
+        return []
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def stabilite(fenetre_s: float = 24 * 3600, maintenant: float | None = None,
+              seuil_oscille_par_h: float = 4.0,
+              seuil_persistant_s: float = 6 * 3600) -> dict:
+    """Stabilite des boucles endocrines sur une fenetre, lue dans le journal date.
+
+    Par hormone : episodes (allumage -> extinction active `level=0`, ou dernier
+    `ttl_s` echu : la decroissance n'emet rien), duree mediane, episodes par heure,
+    episode en cours. Verdicts :
+      OSCILLE    -- >= `seuil_oscille_par_h` episodes/h (et au moins 3) : la boucle
+                    corrige puis relache en rafale ;
+      PERSISTANT -- un episode ouvert depuis >= `seuil_persistant_s` : la correction
+                    ne relache pas (hysteresis, ou etat chronique LEGITIME -- a instruire) ;
+      STABLE     -- sinon.
+    Global, par liste BLANCHE : STABLE seulement si chaque hormone vue l'est ; journal
+    vide -> INCONNU ; base illisible -> ILLISIBLE. Un episode commence avant la fenetre
+    est vu a partir de son debut de fenetre. OBSERVATION : seuils provisoires, rien ne
+    bloque ni ne corrige sur ce verdict.
+    """
+    import statistics
+
+    now = time.time() if maintenant is None else float(maintenant)
+    debut = now - float(fenetre_s)
+    try:
+        cx = _conn()
+        try:
+            rows = cx.execute(
+                "SELECT signal, level, ttl_s, ts FROM emissions_journal "
+                "WHERE ts >= ? AND ts <= ? ORDER BY signal, ts, rowid", (debut, now),
+            ).fetchall()
+        finally:
+            cx.close()
+    except Exception as e:  # noqa: BLE001
+        return {"verdict": "ILLISIBLE", "raison": type(e).__name__, "hormones": {},
+                "fenetre_s": fenetre_s}
+    par_signal: dict[str, list] = {}
+    for s, lv, ttl, t in rows:
+        par_signal.setdefault(s, []).append((float(lv), int(ttl or 0), float(t)))
+    hormones = {}
+    for s, evs in par_signal.items():
+        episodes, ouvert, fin_prevue = [], None, None
+        for lv, ttl, t in evs:
+            if ouvert is not None and fin_prevue is not None and t > fin_prevue:
+                episodes.append((ouvert, fin_prevue))
+                ouvert = None
+            if lv > 0:
+                if ouvert is None:
+                    ouvert = t
+                fin_prevue = t + ttl if ttl > 0 else None
+            elif ouvert is not None:
+                episodes.append((ouvert, t))
+                ouvert, fin_prevue = None, None
+        en_cours_s = None
+        if ouvert is not None:
+            if fin_prevue is not None and fin_prevue <= now:
+                episodes.append((ouvert, fin_prevue))
+            else:
+                en_cours_s = now - ouvert
+        n_ep = len(episodes) + (1 if en_cours_s is not None else 0)
+        par_h = n_ep / max(float(fenetre_s) / 3600.0, 1e-9)
+        if en_cours_s is not None and en_cours_s >= seuil_persistant_s:
+            verdict = "PERSISTANT"
+        elif n_ep >= 3 and par_h >= seuil_oscille_par_h:
+            verdict = "OSCILLE"
+        else:
+            verdict = "STABLE"
+        durees = [f - d for d, f in episodes]
+        hormones[s] = {
+            "verdict": verdict, "episodes": n_ep, "emissions": len(evs),
+            "episodes_par_h": round(par_h, 3),
+            "duree_mediane_s": statistics.median(durees) if durees else None,
+            "en_cours_s": round(en_cours_s, 1) if en_cours_s is not None else None,
+        }
+    if not hormones:
+        global_v = "INCONNU"
+    elif all(h["verdict"] == "STABLE" for h in hormones.values()):
+        global_v = "STABLE"
+    else:
+        global_v = "INSTABLE"
+    return {"verdict": global_v, "hormones": hormones, "fenetre_s": fenetre_s,
+            "seuils": {"oscille_par_h": seuil_oscille_par_h,
+                       "persistant_s": seuil_persistant_s}}
 
 
 def emetteurs(signal: str) -> list[dict]:
@@ -517,10 +726,20 @@ def _main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Signaux orphelins : emetteur <-> consommateur.")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--emit", help="constater une emission (usage manuel/test)")
+    ap.add_argument("--qui", metavar="SIGNAL", help="qui a reveille ce signal (*.wanted), quand et pourquoi")
+    ap.add_argument("--stabilite", type=float, metavar="HEURES",
+                    help="stabilite des boucles endocrines sur la fenetre (journal date)")
     args = ap.parse_args(argv)
 
     if args.emit:
         print("emission constatee :", emit_signal(args.emit, emitter="cli"))
+        return 0
+    if args.qui:
+        print(json.dumps(qui_a_reveille(args.qui), indent=2, ensure_ascii=False))
+        return 0
+    if args.stabilite:
+        print(json.dumps(stabilite(fenetre_s=args.stabilite * 3600), indent=2,
+                         ensure_ascii=False))
         return 0
 
     res = couplage()

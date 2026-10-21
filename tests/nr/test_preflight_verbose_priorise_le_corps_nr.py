@@ -52,8 +52,9 @@ def _module():
 def _niveaux(monkeypatch, mod, resultats):
     """Les TROIS niveaux rendent la meme chose : patcher le premier seul
     laisserait le repli produire le resultat (faux vert)."""
+    # `pannes=` : chaque niveau reel recoit le releve de pannes (19/10, preflight_check_verbose le transmet)
     for nom in ("_ragengine_search", "_fts5_search", "_like_fallback"):
-        monkeypatch.setattr(mod, nom, lambda q, limit=5, _r=resultats: list(_r),
+        monkeypatch.setattr(mod, nom, lambda q, limit=5, pannes=None, _r=resultats: list(_r),
                             raising=False)
 
 

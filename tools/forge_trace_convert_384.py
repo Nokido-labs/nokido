@@ -47,7 +47,7 @@ def main() -> int:
             try:
                 txt = json.loads(r[3] or "{}").get("state_text", "") or ""
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_convert_384.py', 49, exc_info=True)
             con.execute(
                 "INSERT OR IGNORE INTO traces_rich (id, ts, state_t_emb, action_json, state_t1_emb, "
                 "state_text_rich, cost_before, cost_after, task_type, success, dim) "
@@ -57,6 +57,7 @@ def main() -> int:
             )
             n += 1
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_convert_384.py', 59, exc_info=True)
             continue
     con.commit()
     tot = con.execute("SELECT count(*) FROM traces_rich").fetchone()[0]

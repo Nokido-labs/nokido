@@ -419,13 +419,20 @@ _GEN_SUBS = [
     # que son nom (meme ligne, meme fichier, meme date). Les SID bien connus
     # (S-1-5-18, S-1-5-32-544...) ne designent aucune machine et restent intacts.
     (re.compile(r"\bS-1-5-21-\d{6,10}-\d{6,10}-\d{6,10}(?:-\d+)?\b"), "S-1-5-21-XXXX"),
+    # TAILNET Tailscale et sous-domaine DuckDNS. Mesure du 2026-10-17 : le dist v0.20.12 publie portait le
+    # tailnet de l'owner dans proxy_deno/core/services.toml -- aucun motif ne le couvrait. Motifs GENERIQUES
+    # (une valeur reelle ici entrerait dans la source publiee). Les remplacants ne se re-comptent pas : `XXXX`
+    # n'est pas hexadecimal, et `www` comme le remplacant sont exclus du motif DuckDNS.
+    (re.compile(r"\btail[0-9a-f]{4,}\.ts\.net\b", re.I), "tailXXXX.ts.net"),
+    (re.compile(r"\b(?!(?:www|XXXX)\.duckdns\.org\b)[a-z0-9-]+\.duckdns\.org\b", re.I), "XXXX.duckdns.org"),
 ]
 # apres coup, plus AUCUN de ces marqueurs ne doit subsister en clair (defense)
 _GEN_RESIDUEL = re.compile(
     r"C:[\\/]+Users[\\/]+user|\bV:[\\/]|\bNaarob\b|\b192\.168\.\d{1,3}\.\d{1,3}\b|"
     r"\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b|\b172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}\b|"
     r"(?:(?<=\\[ntr])|(?<![A-Za-z0-9]))desktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b|"
-    r"\bS-1-5-21-\d{6,10}-\d{6,10}-\d{6,10}", re.I)
+    r"\bS-1-5-21-\d{6,10}-\d{6,10}-\d{6,10}|"
+    r"\btail[0-9a-f]{4,}\.ts\.net\b|\b(?!(?:www|XXXX)\.duckdns\.org\b)[a-z0-9-]+\.duckdns\.org\b", re.I)
 _GEN_BIN_EXT = {
     ".gif", ".png", ".jpg", ".jpeg", ".webm", ".webp", ".ico", ".pdf", ".zip",
     ".gz", ".tar", ".7z", ".db", ".sqlite", ".npz", ".npy", ".prof", ".pyc",
@@ -471,18 +478,21 @@ def _generiser_chemins_owner(dist: Path) -> None:
 
     modifies = occ = 0
     binaires_marques: list = []
+    illisibles: list = []
     for ap in _fichiers_hors_git():
         if ap.suffix.lower() in _GEN_BIN_EXT:
             try:
                 if b"user" in ap.read_bytes():
                     binaires_marques.append(ap.relative_to(dist).as_posix())
-            except Exception:
-                pass
+            except OSError as e:
+                illisibles.append([ap.relative_to(dist).as_posix(), type(e).__name__])
             continue
         try:
             txt = ap.read_text(encoding="utf-8")
-        except Exception:
-            continue                       # non-texte non liste : on laisse
+        except (OSError, UnicodeDecodeError) as e:
+            # Non transformable sans risque (encodage inconnu) : NOMME, et la defense residuelle le relit.
+            illisibles.append([ap.relative_to(dist).as_posix(), type(e).__name__])
+            continue
         if "\x00" in txt:
             continue
         neuf, k = generiser_texte(txt)
@@ -496,6 +506,9 @@ def _generiser_chemins_owner(dist: Path) -> None:
     if binaires_marques:
         print("[generisation] AVERTISSEMENT binaires marques (non transformables) : "
               f"{binaires_marques}")
+    if illisibles:
+        print("[generisation] AVERTISSEMENT %d fichier(s) non transformables, relus par la defense : %s"
+              % (len(illisibles), illisibles[:20]))
 
     residuels: list = []
     for ap in _fichiers_hors_git():
@@ -512,10 +525,12 @@ def _generiser_chemins_owner(dist: Path) -> None:
         if ap.suffix.lower() in _GEN_BIN_EXT or ap.name == "PATHS.md":
             continue
         try:
-            txt = ap.read_text(encoding="utf-8")
-        except Exception:
-            continue
-        if "\x00" in txt:
+            # errors="replace" : les marqueurs sont ASCII, un texte mal encode ne les cache pas. Mesure du
+            # 2026-10-17 : un latin-1 portant un chemin owner passait la defense en silence. Plus de saut sur
+            # octet NUL non plus : un binaire hors liste qui porte un marqueur est une fuite, pas un detail.
+            txt = ap.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            residuels.append([rel, "ILLISIBLE (%s) : rien ne prouve qu'il est propre" % type(e).__name__])
             continue
         m = _GEN_RESIDUEL.search(txt)
         if m:
@@ -534,7 +549,9 @@ def _generiser_chemins_owner(dist: Path) -> None:
 # miroirs-publics.yml (owner 2026-10-14) : chaque version publiee part aussi vers Codeberg, GitLab, SourceForge et
 # le Space HF, sur runner heberge (secrets du depot public poses par l'owner).
 WORKFLOWS_DIST = (".github/workflows/release.yml", ".github/workflows/installation-complete.yml",
-                  ".github/workflows/stats-publiques.yml", ".github/workflows/miroirs-publics.yml")
+                  ".github/workflows/stats-publiques.yml", ".github/workflows/miroirs-publics.yml",
+                  # suite pure sur runner heberge du depot public (P1 14/10) : observation, aucun secret
+                  ".github/workflows/suite-pure.yml")
 
 
 def _embarquer_workflows_dist(rev: str, dist: Path) -> None:
@@ -1125,8 +1142,8 @@ def codeberg_release(version, assets_dir, codeberg_url):
     try:  # API-created repos may have the Releases unit OFF -> /releases 404
         requests.patch(f"{base}/repos/{owner}/{repo}", headers=h,
                        json={"has_releases": True}, timeout=30)
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001
+        print(f"[codeberg-release] has_releases non force ({type(e).__name__}) : on continue")
     r = requests.get(f"{base}/repos/{owner}/{repo}/releases/tags/{tag}", headers=h, timeout=30)
     if r.status_code == 200:
         rel = r.json()

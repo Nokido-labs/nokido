@@ -235,6 +235,7 @@ def _conformite(d):
         try:
             dig = base64.urlsafe_b64encode(hashlib.sha256((base / ligne[0]).read_bytes()).digest())
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ci_lock.py', 237, exc_info=True)
             continue
         ok += dig.rstrip(b"=").decode() == ligne[1][7:]
     return ok / tot if tot else None

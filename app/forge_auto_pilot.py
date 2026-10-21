@@ -93,7 +93,7 @@ class MMapReader:
             self._bridge = bridge
             self._available = True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_auto_pilot.py', 95, exc_info=True)
 
     def get(self, key: str, default=None) -> object:
         """Get.
@@ -134,7 +134,7 @@ class MMapReader:
         try:
             self._bridge.json_set(key, value)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_auto_pilot.py', 136, exc_info=True)
 
 
 # ── Actions MCP ───────────────────────────────────────────────────────────────
@@ -161,7 +161,7 @@ async def _fire_mcp(tool: str, args: dict) -> None:
 
         await local_bridge().fire_and_forget(tool, args)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_auto_pilot.py', 163, exc_info=True)
 
 
 # ── Décisions autonomes ───────────────────────────────────────────────────────
@@ -386,7 +386,7 @@ class AutoPilot:
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_auto_pilot.py', 388, exc_info=True)
 
     def stop(self) -> None:
         """Stop."""

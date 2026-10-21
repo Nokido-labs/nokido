@@ -60,7 +60,7 @@ def _callers() -> list:
                 continue  # ne pas polluer avec les couches du journal lui-meme
             out.append("%s:%s:%d" % (mod, fr.function, fr.lineno))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 62, exc_info=True)
     return out
 
 
@@ -69,7 +69,7 @@ def _whoami() -> dict:
     try:
         who["user"] = os.environ.get("USERNAME") or ""
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 71, exc_info=True)
     try:
         import psutil
 
@@ -80,7 +80,7 @@ def _whoami() -> dict:
         if par:
             who["parent"] = "%s(%d)" % (par.name(), par.pid)
     except Exception:  # noqa: BLE001 - psutil optionnel
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 82, exc_info=True)
     return who
 
 
@@ -111,7 +111,7 @@ def record(action: str, domain: str = "other", reason: str = "", **extra) -> Non
                     datetime.now(tz=timezone.utc).isoformat(timespec="seconds"),
                     domain, action, exc))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 113, exc_info=True)
 
 
 def tail(n: int = 30, domain: str = "") -> list:
@@ -127,6 +127,7 @@ def tail(n: int = 30, domain: str = "") -> list:
         try:
             r = json.loads(ln)
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 129, exc_info=True)
             continue
         if domain and r.get("domain") != domain:
             continue
@@ -141,12 +142,12 @@ def _main(argv=None) -> int:
         try:
             n = int(argv[argv.index("--tail") + 1])
         except (IndexError, ValueError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 143, exc_info=True)
     if "--domain" in argv:
         try:
             dom = argv[argv.index("--domain") + 1]
         except IndexError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lifecycle_audit.py', 148, exc_info=True)
     rows = tail(n, dom)
     if not rows:
         print("journal vide: %s" % LEDGER)

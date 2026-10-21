@@ -10,6 +10,11 @@ import os, sys
 # Forcer isolation user-site pour eviter le bug anyio Roaming/Python/Python312
 os.environ.setdefault("PYTHONNOUSERSITE", "1")
 
+# Un process de test n'est jamais proprietaire de l'echantillonnage du corps (19/10) : en CI de reference, sans etat
+# publie, get_snapshot() le rendait proprietaire et le sampler spawnait arbitrage/eviction DANS pytest. Une valeur
+# explicite de l'appelant prime. NR tests/nr/test_sampler_muet_sous_pytest_nr.py.
+os.environ.setdefault("LAFORGE_SAMPLER_AUTOSTART", "0")
+
 # Verifier qu'on tourne sous miniforge3 (Nokido canonical interpreter)
 if "miniforge3" not in sys.executable.lower() and not os.environ.get("LAFORGE_TEST_ALLOW_ANY_PY"):
     import warnings
@@ -52,6 +57,23 @@ if _env.exists():
 import itertools
 
 import pytest
+
+# ── Doubles de modules : sys.modules ET l'attribut du paquet (2026-10-20) ────
+# `from paquet import sous_module` lit d'abord l'ATTRIBUT du paquet : si un voisin de worker xdist a deja
+# importe le vrai module, un double pose dans sys.modules seul est contourne (3 rouges de la CI de reference
+# 0c9c4e4d0, verts seuls). setitem sur sys.modules pose donc aussi l'attribut du paquet parent, defait avec lui.
+_setitem_monkeypatch = pytest.MonkeyPatch.setitem
+
+
+def _setitem_avec_attribut(self, dic, name, value):
+    _setitem_monkeypatch(self, dic, name, value)
+    if dic is sys.modules and isinstance(name, str) and "." in name:
+        parent, _, enfant = name.rpartition(".")
+        if sys.modules.get(parent) is not None:
+            self.setattr(sys.modules[parent], enfant, value, raising=False)
+
+
+pytest.MonkeyPatch.setitem = _setitem_avec_attribut
 
 # ── Collecte PAR LISTE (suite pure de la CI locale) ──────────────────────────
 # Mesure du 2026-09-29 (audit stabilite CI, mesures/audits/stabilite_ci.md) : ci_local passait
@@ -135,6 +157,26 @@ def pytest_configure_node(node):
         node.workerinput[_CLE_XDIST] = _CHEMIN_CI
 
 
+def pytest_runtest_logreport(report):
+    """Garde TDD « rouge d'abord » (owner 2026-10-16) : un test en ECHEC (phase call) est note dans le registre des
+    rouges que lit governed_edit (tools/forge_governed_edit.avertissement_tdd). Jamais bloquant : un registre
+    illisible ne change pas l'issue du test, il fait seulement que l'avertissement n'est pas leve."""
+    if getattr(report, "when", "") != "call" or not getattr(report, "failed", False):
+        return
+    import json as _j
+    import time as _t
+
+    chemin = Path(os.environ.get("LAFORGE_TDD_ROUGES")
+                  or (Path(__file__).resolve().parents[1] / "sandbox" / "workspace" / "tdd_rouges.jsonl"))
+    try:
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        with chemin.open("a", encoding="utf-8") as f:
+            f.write(_j.dumps({"ts": _t.time(), "nodeid": report.nodeid,
+                              "fichier": str(getattr(report, "fspath", ""))}, ensure_ascii=False) + "\n")
+    except OSError:  # muet-ok : registre illisible = avertissement non leve, jamais un test casse
+        pass
+
+
 def pytest_ignore_collect(collection_path, config):
     if _LISTE_CI is None:
         return None
@@ -181,6 +223,39 @@ def _bac_des_organes(tmp_path_factory):
     return tmp_path_factory.mktemp("organes_isoles")
 
 
+@pytest.fixture
+def tmp_path(tmp_path_factory, request):
+    """tmp_path en O(1) (19/10, 2 pre-controles tues) : celui de pytest cherche son numero en balayant TOUT le basetemp,
+    qui grossit d'un dossier par test -- O(n2) sur la suite pure sans xdist, Timeout 30 s dans os.scandir sous
+    contention disque. Ici : mkdtemp direct dans le basetemp, sans aucun balayage.
+
+    Dossier COURT (20/10, CI de reference 477e02f93 : « '$GIT_DIR' too big ») : « pytest » + 14 car. du nom + « _ » + 8
+    = 29 car., sous les ~31 du defaut -- le lot `pytest_tXX/` et un nom a 30 car. passaient MAX_PATH dans le worktree
+    profond de la reference. Le prefixe « pytest » garde le segment qu'exige forge_secrets._coffre_test sous --turbo
+    (basetemp `bt`, workers `popen-gwN`)."""
+    import re as _re
+    import tempfile
+    from pathlib import Path as _Path
+
+    nom = _re.sub(r"\W", "_", request.node.name)[:14]
+    return _Path(tempfile.mkdtemp(prefix="pytest" + nom + "_", dir=tmp_path_factory.getbasetemp()))
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _plafond_git(tmp_path_factory):
+    """Aucun git lance sous un tmp de test ne remonte au depot Nokido (19/10, CI de reference : le basetemp vit DANS
+    l'arbre sous le compte du hub ; `git status -uall` dans un wt non initialise balayait le depot entier et tenait
+    son index.lock). Interrupteur global, lu par chaque git fils."""
+    base = str(tmp_path_factory.getbasetemp())
+    ancien = os.environ.get("GIT_CEILING_DIRECTORIES")
+    os.environ["GIT_CEILING_DIRECTORIES"] = os.pathsep.join(p for p in (base, ancien) if p)
+    yield
+    if ancien is None:
+        os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+    else:
+        os.environ["GIT_CEILING_DIRECTORIES"] = ancien
+
+
 _COMPTEUR_DE_TESTS = itertools.count()
 
 
@@ -216,6 +291,61 @@ def _isolate_endocrine_blood(_bac_des_organes, _numero_de_test, monkeypatch):
     except Exception:
         return  # module absent de ce contexte de test -> rien a isoler
     monkeypatch.setattr(fe, "DB", _bac_des_organes / ("endocrine_%d.db" % _numero_de_test), raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_reveils_et_registres(_bac_des_organes, _numero_de_test, monkeypatch):
+    """AUCUN test ne REVEILLE un organe reel ni n'ecrit dans un registre VIVANT (19/10).
+
+    Mesure du 19/10 : deux fois dans l'apres-midi, un test de la CI a fait un crawl reel ->
+    forge_docker_agent.demander_crawl4ai -> sandbox/crawl4ai.wanted + docker.wanted ; le keeper a relance
+    Docker (vmmemWSL 3,15 Go, RAM a 95,1 % pendant la CI). La provenance des reveils (acf8e4035) a montre
+    en plus un NR ecrivant dans le VRAI signal_emissions.db. Meme patron que le sang endocrinien : on
+    redirige l'ORGANE cote HARNAIS, sous ses deux noms d'import, autouse.
+      * drapeaux Docker / crawl4ai -> le bac (la vraie logique tourne, le keeper ne lit pas le bac) ;
+      * couplage des signaux (emissions, journal date, provenances) -> le bac ;
+      * registre des intentions (moteur timecode, sinon RAG/embeddings.db) -> une base du bac, creee a la
+        demande seulement.
+    """
+    import importlib
+
+    for nom in ("nokido_agent.app.forge_docker_agent", "forge_docker_agent"):
+        try:
+            da = importlib.import_module(nom)
+        except Exception:  # noqa: BLE001 -- module absent de ce contexte : rien a isoler
+            continue
+        monkeypatch.setattr(da, "WANT_FLAG", _bac_des_organes / ("docker_%d.wanted" % _numero_de_test),
+                            raising=False)
+        monkeypatch.setattr(da, "CRAWL4AI_FLAG", _bac_des_organes / ("crawl4ai_%d.wanted" % _numero_de_test),
+                            raising=False)
+        monkeypatch.setattr(da, "AUDIT", _bac_des_organes / ("docker_audit_%d.jsonl" % _numero_de_test),
+                            raising=False)
+    for nom in ("nokido_agent.app.forge_signal_coupling", "forge_signal_coupling"):
+        try:
+            sc = importlib.import_module(nom)
+        except Exception:  # noqa: BLE001
+            continue
+        monkeypatch.setattr(sc, "DB", _bac_des_organes / ("signal_%d.db" % _numero_de_test), raising=False)
+    for nom in ("nokido_agent.app.forge_timecode", "forge_timecode"):
+        try:
+            tc = importlib.import_module(nom)
+        except Exception:  # noqa: BLE001
+            continue
+        moteur = {}
+        base = _bac_des_organes / ("timecode_%d.db" % _numero_de_test)
+        avant = getattr(tc, "_engine", None)
+
+        def _moteur_isole(_tc=tc, _m=moteur, _b=base, _avant=avant):
+            # Un moteur pose PAR LE TEST (monkeypatch de _engine) prime : sans cela son ecriture partait dans le bac
+            # et test_le_journal_d_intentions_ne_fige_plus_la_boucle_sous_verrou comptait 0 (CI de reference e6642dcf1).
+            pose = getattr(_tc, "_engine", None)
+            if pose is not None and pose is not _avant:
+                return pose
+            if "e" not in _m:
+                _m["e"] = _tc.TimecodeEngine(_b)
+            return _m["e"]
+
+        monkeypatch.setattr(tc, "get_timecode_engine", _moteur_isole, raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -547,9 +547,10 @@ def _is_gemini_interactive_running() -> bool:
                 if "gemini" in low and "-p " not in cmd and "--prompt " not in cmd:
                     return True
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 549, exc_info=True)
                 continue
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 551, exc_info=True)
     return False
 
 
@@ -672,7 +673,7 @@ def handle_shutdown(signum, frame):
         if _PIDFILE.exists() and int(_PIDFILE.read_text().strip()) == os.getpid():
             _PIDFILE.unlink()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 674, exc_info=True)
 
 
 _PIDFILE = SANDBOX / "gemini_poll_daemon.pid"
@@ -733,7 +734,7 @@ def _acquire_pidfile() -> bool:
                         if "gemini_poll_daemon" in r.stdout.lower():
                             return False
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 735, exc_info=True)
     _PIDFILE.write_text(str(pid))
     return True
 
@@ -950,7 +951,7 @@ def main() -> int:
                     try:
                         payload = json.loads(row["payload"] or "{}")
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 952, exc_info=True)
                     prompt = (
                         payload.get("prompt")
                         or payload.get("task")
@@ -996,7 +997,7 @@ def main() -> int:
                     if conn:
                         conn.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/gemini_poll_daemon.py', 998, exc_info=True)
             for _ in range(15):  # poll toutes les 15s
                 if _SHUTDOWN:
                     break

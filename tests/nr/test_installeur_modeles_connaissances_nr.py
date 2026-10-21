@@ -53,6 +53,7 @@ def test_connaissances_jugees_sur_l_artefact(monkeypatch, sorties, attendu):
         return sorties[len(appels) - 1]
 
     monkeypatch.setattr(F, "sh", faux_sh)
+    monkeypatch.delenv("NOKIDO_PACK_FICHIER", raising=False)
     ok, _detail = F.poser_connaissances()
     assert ok is attendu
     assert appels[0][-1].endswith("forge_db_bootstrap.py")
@@ -60,6 +61,32 @@ def test_connaissances_jugees_sur_l_artefact(monkeypatch, sorties, attendu):
         assert "--download" in appels[1] and appels[1][1].endswith("forge_knowledge_pack_import.py")
     else:
         assert len(appels) == 1
+
+
+def test_la_repetition_importe_le_pack_CANDIDAT_local(monkeypatch, tmp_path):
+    """2026-10-16 : 0.20.12 a ete essayee avec le pack 0.20.9 (defaut fige), le pack livre etait refuse par
+    l'importeur. La repetition importe le fichier de la release BROUILLON (NOKIDO_PACK_FICHIER), sha verifie ;
+    fichier annonce mais absent = ECHEC dit, jamais un repli silencieux sur une release publiee."""
+    appels: list = []
+
+    def faux_sh(cmd, timeout=600, cwd=None, env=None):
+        appels.append(cmd)
+        return (0, '{"inserted": 40990, "skipped": 0}')
+
+    monkeypatch.setattr(F, "sh", faux_sh)
+    pack = tmp_path / "nokido_knowledge_pack_v9.9.9.npz"
+    pack.write_bytes(b"x")
+    monkeypatch.setenv("NOKIDO_PACK_FICHIER", str(pack))
+    monkeypatch.setenv("NOKIDO_PACK_SHA256", "ab" * 32)
+    ok, detail = F.poser_connaissances()
+    assert ok and "CANDIDAT" in detail
+    imp = appels[1]
+    assert "--from" in imp and imp[imp.index("--from") + 1] == str(pack) and "--download" not in imp
+    assert imp[imp.index("--expect-sha256") + 1] == "ab" * 32
+    appels.clear()
+    monkeypatch.setenv("NOKIDO_PACK_FICHIER", str(tmp_path / "absent.npz"))
+    ok, detail = F.poser_connaissances()
+    assert ok is False and "ABSENT" in detail and len(appels) == 1, "pas d'import de repli"
 
 
 def test_le_doctor_nomme_la_commande_quand_elle_leve_le_bloquant():

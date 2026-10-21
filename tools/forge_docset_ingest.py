@@ -76,7 +76,7 @@ def _clean_to_text(html_bytes: bytes) -> str:
             from lxml.html import fromstring as _fs
             return _fs(html_clean).text_content().strip()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docset_ingest.py', 78, exc_info=True)
     # fallback : bs4 (utilisé par forge_docset_reader, donc présent)
     try:
         from bs4 import BeautifulSoup
@@ -149,7 +149,7 @@ def ingest(docset_name: str, max_workers: int = 0) -> dict:
             return {"docset": docset_name, "skip": "admission refused (anti-embolie)"}
         rel = release
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docset_ingest.py', 151, exc_info=True)
 
     con = sqlite3.connect(str(dsidx))
     try:
@@ -227,7 +227,7 @@ def ingest(docset_name: str, max_workers: int = 0) -> dict:
             try:
                 rel("docset_ingest", "claude")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_docset_ingest.py', 229, exc_info=True)
     res = {"docset": docset_name, "symbols": len(tasks), "chunks_seen": seen,
            "inserted": inserted, "workers": workers,
            "note": "embedding=NULL -> daemon :8099 remplit (Axe A) + FTS5 (Axe B). domain=reference."}

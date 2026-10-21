@@ -80,7 +80,7 @@ def _check_llamacpp_slots():
                         domain="systeme",
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_evolution_loop.py', 82, exc_info=True)
         else:
             _sat_since.clear()
     except Exception as e:
@@ -116,7 +116,7 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_FILE.read_text())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_evolution_loop.py', 118, exc_info=True)
     return {
         "last_heartbeat_check": 0,
         "last_lessons_scan": 0,
@@ -168,7 +168,7 @@ def check_heartbeats(state: dict):
             if ts < stale_threshold or err_rate > 0.10:
                 degraded.append(Path(fp).stem)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_evolution_loop.py', 170, exc_info=True)
 
     for svc in degraded:
         print(f"  [stale/degraded] {svc} — triggering restart")

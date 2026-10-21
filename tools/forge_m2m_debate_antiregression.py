@@ -360,6 +360,7 @@ async def _scorer_rappel(methode: str, corpus: list) -> dict:
         try:
             idx = int(re.sub(r"\D", "", parts[0])) - 1
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 362, exc_info=True)
             continue
         if not (0 <= idx < len(corpus)):
             continue
@@ -487,7 +488,7 @@ def ssot_ecrire(etat: dict) -> None:
         SSOT_FICHIER.parent.mkdir(parents=True, exist_ok=True)
         SSOT_FICHIER.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 489, exc_info=True)
     try:
         from nokido_agent.app.forge_swarm_blackboard import apply_fact_sync
 
@@ -721,7 +722,7 @@ async def arene_ssot(objectif: str, parts: list, rounds: int) -> dict:
                         f.write(f"\n### tour {etat['tour']} — {nom} ({provider}) AVEUGLE "
                                 f"{'OK' if ok else 'FAIL'} — {deltas} delta(s)\n{texte}\n")
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 723, exc_info=True)
                 continue
             if nom in dossier_vu:                     # tours suivants : contexte MINIMAL
                 entete = (f"Tu es {nom}, meme role qu'au tour precedent (dossier deja transmis).\n\n"
@@ -766,7 +767,7 @@ async def arene_ssot(objectif: str, parts: list, rounds: int) -> dict:
                     f.write(f"\n### tour {etat['tour']} — {nom} ({provider}) "
                             f"{'OK' if ok else 'FAIL'} — {deltas} delta(s)\n{texte}\n")
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 768, exc_info=True)
         # Fin de round : le TESTEUR passe. Les axes proposes au round N sont
         # mesures AVANT que quiconque parle au round N+1 -- les debatteurs
         # argumentent donc contre des chiffres, plus contre des opinions.
@@ -819,7 +820,7 @@ def main() -> int:
         OUT_JSON.write_text(json.dumps(res, ensure_ascii=False, indent=2, default=str),
                             encoding="utf-8")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 821, exc_info=True)
     r = res.get("rappel", {})
     print(json.dumps({
         "ok": True, "elapsed_s": res["elapsed_s"],

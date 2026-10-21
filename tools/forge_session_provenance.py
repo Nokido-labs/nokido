@@ -74,13 +74,13 @@ def enrich_with_provenance(summary: dict, session_id: str, conn=None) -> dict:
         summary["parent_summary_id"] = rows[-1][0] if rows else None
         summary["end_reason"] = "precompact"
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_provenance.py', 76, exc_info=True)
     finally:
         if own:
             try:
                 conn.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_provenance.py', 82, exc_info=True)
     return summary
 
 
@@ -107,16 +107,16 @@ def session_provenance(session_id: str, conn=None) -> list:
             try:
                 kc = (json.loads(txt) or {}).get("key_context", "")[:160]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_provenance.py', 109, exc_info=True)
             chain.append({"seq": i, "id": cid, "at": ts, "key_context": kc})
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_provenance.py', 112, exc_info=True)
     finally:
         if own:
             try:
                 conn.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_session_provenance.py', 118, exc_info=True)
     return chain
 
 

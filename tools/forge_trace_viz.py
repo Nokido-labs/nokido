@@ -286,7 +286,7 @@ def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_trace_viz.py', 288, exc_info=True)
     ap = argparse.ArgumentParser(description="Call-flow runtime depuis un trace_id")
     ap.add_argument("target", help="'list' ou un trace_id")
     ap.add_argument("--limit", type=int, default=MAX_SPANS)

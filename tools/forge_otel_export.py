@@ -87,7 +87,7 @@ def export_span(name: str, trace_id: str, duration_ms: float = 0.0,
                 try:
                     span.set_attribute(f"nokido.{k}", v)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_otel_export.py', 89, exc_info=True)
             if not status_ok:
                 span.set_status(Status(StatusCode.ERROR))
     except Exception as exc:  # noqa: BLE001 - ne jamais casser l'appelant

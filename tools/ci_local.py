@@ -82,6 +82,67 @@ EXCLUDE = "Nokido.py,legacy,_attic,sandbox,inspirations,_mcp_repos,tmp_*.py"
 # L'ecart est sans effet tant que ci.yml reste manuel, mais la phrase, elle, envoyait
 # chercher la liste au mauvais endroit. Un commentaire perime coute une enquete.
 PURE_TESTS = [
+    # Verse le 2026-10-18 : test_hub_n vert (13/13) -- jeton seme dans un coffre de TEST isole (pytest seul).
+    "tests/nr/test_hub_n.py",
+    "tests/nr/test_coffre_test_isole_nr.py",
+    # Verse le 2026-10-18 : test_hub_l vert (14/14) depuis l'Option L reimplementee (9679f9505, decision owner).
+    "tests/nr/test_hub_l.py",
+    # Verse le 2026-10-18 : test_hub_web aligne sur la page ACTUELLE (decision owner) -- /dashboard sonde par
+    # refreshAll/pollStatus 15 s, ctf extrait, tooltips et tui retires ; contrat garde : chaque tuile a sa cle /status.
+    "tests/nr/test_hub_web.py",
+    # Verse le 2026-10-18 : test_hub_o repare -- il cherchait le module `recon`, retire du launcher le 2026-05-03
+    # (884374b3f) ; assertions conservees sur les modules surveilles reels (tui_bridge, graph). Pur.
+    "tests/nr/test_hub_o.py",
+    # Verse le 2026-10-18 : garde anti faux-calme -- le profileur MCP ne classe pas de « resultats vides » tant que
+    # result_bytes n'est pas mesure (erreur du jour, revenue). Pur : base SQLite jetable sous tmp_path.
+    "tests/nr/test_promcp_vides_lents_nr.py",
+    # Verse le 2026-10-18 : CSP du hub web centralisee dans app/web_hub/csp.py. Pur : module pur
+    # build_csp() sans IO + client TestClient de l'app. Snapshot mis a jour (offline souverain,
+    # CDN vendorés) et host reel 127.0.0.1 au lieu du placeholder d'affichage.
+    "tests/nr/test_hub_csp.py",
+    # Verse le 2026-10-18 : callers/definitions servis par un index par fichier en cache, resultats identiques a
+    # l'ancien algorithme. Pur : depot git jetable sous tmp_path, compteur de parses.
+    "tests/nr/test_callgraph_index_nr.py",
+    # Verse le 2026-10-18 : introspect ne relit plus tout le depot a chaque appel (grep natif git grep, cache
+    # d'imports par mtime). Pur : depot git jetable et app/ sous tmp_path, compteurs de lectures et de parses.
+    "tests/nr/test_introspect_rapide_nr.py",
+    # Verse le 2026-10-18 : le pre-controle DIT qu'un temoin pip-audit non versionne echappera a la CI de
+    # reference (recidives 26/09 et 14/10). Pur : temoin sous tmp_path, module de selection double.
+    "tests/nr/test_temoin_pip_audit_versionne_nr.py",
+    # Verses le 2026-10-18 (guet unique des exports de conversations, livraison OPENCODE_GPTOSS c489a3c2a relue) :
+    # lecture au fil de l'eau, fragments stables quand un export grandit, rien de tronque ; zips reconnus par le
+    # CONTENU, ecartes ET DITS, idempotence. Purs : exports synthetiques sous tmp_path, insertion injectee.
+    "tests/nr/test_conv_exports_nr.py",
+    "tests/nr/test_guet_exports_nr.py",
+    # Verse le 2026-10-18 : le guetteur de tache lit le POULS de l'executeur (surveillance muette 30 min
+    # pendant un travail reel, mesure du jour). Pur : tasks.db et pouls sous tmp_path, horloge injectee.
+    "tests/nr/test_job_watch_pouls_executeur_nr.py",
+    # Verses le 2026-10-18 : blocs ISOLES qui ne tournaient NULLE PART (declares dans BLOCS_ISOLES, absents
+    # d'ici). Mesures verts seuls (job_c7171b3e5c60) : 12 + 2 + 6 + 4 + 8 tests.
+    "tests/nr/test_inbox_ownership_route_nr.py",
+    "tests/nr/test_recon_run_consomme_le_scope_nr.py",
+    "tests/nr/test_hub_sse.py",
+    "tests/test_forge_openai_proxy_firewall.py",
+    "tests/test_rbac_views.py",
+    # Verse le 2026-10-18 : un bloc ISOLE hors PURE_TESTS ne tournait nulle part (10 sur 22, dont 5 rouges
+    # invisibles). Pur : lecture AST de ce fichier.
+    "tests/nr/test_blocs_isoles_dans_la_suite_pure_nr.py",
+    # Verse le 2026-10-17 : suite pure PORTABLE sur runner GitHub heberge (meme liste lue par AST,
+    # ecarts « poste » nommes, observation). Pur : tmp_path, aucun reseau, aucun service.
+    "tests/nr/test_suite_pure_portable_nr.py",
+    # Verse le 2026-10-17 : l'outillage du reseau de l'owner (forge_vm_dns, forge_swarm_team,
+    # nokido_netmap) lit ses adresses depuis la config, jamais en dur (P1 dist sans IP). Pur : AST.
+    "tests/nr/test_reseau_owner_lu_depuis_config_nr.py",
+    # Verse le 2026-10-17 : banc RED retroactif du garde TDD -- rouge sur HEAD (module HEAD precharge
+    # en memoire), vert sur l'arbre. Pur : depot git temporaire hermetique (config globale/systeme
+    # neutralisee), sous-processus Python local, aucun reseau, aucun service.
+    "tests/nr/test_red_retroactif_nr.py",
+    # Verse le 2026-10-17 : alerte locale owner au boot -- une PR Dependabot MERGEABLE est nommee au
+    # demarrage de session ; sortie illisible ou gh absent = ILLISIBLE DIT, jamais « aucune ». Pur :
+    # doublures `executer` + `_gh` monkeypatche, aucun vrai `gh`, aucun reseau, aucun service.
+    "tests/nr/test_alerte_pr_dependabot_prete_nr.py",
+    # Verse le 2026-10-17 : le superviseur journalise ses refus d'authentification 401. Pur.
+    "tests/nr/test_superviseur_journalise_ses_refus_nr.py",
     # Verse le 2026-10-13 : classement secret/config du migrateur de coffre (_PASSKEY, _API). Pur.
     "tests/nr/test_vault_migrate_classement_nr.py",
     "tests/nr/test_miroirs_depot_public_nr.py",
@@ -1861,6 +1922,174 @@ PURE_TESTS = [
     "tests/nr/test_dist_cartouches_nr.py",
     # Bail de priorite (2026-10-06) : la tache prioritaire prend le dessus et rend ce qu'elle a pris.
     "tests/nr/test_bail_priorite_nr.py",
+    "tests/nr/test_executif_hamilton_priorites_nr.py",
+    "tests/nr/test_executif_hamilton_observation_nr.py",
+    # Pression disque regulee (owner 2026-10-19, disque 100 %) : capteur disque.occupation_pct enfin branche.
+    "tests/nr/test_regulation_pression_disque_nr.py",
+    # Fuite de handles hors corps nommee + remede sans console admin (owner 2026-10-19, audiodg/SwUSB).
+    "tests/nr/test_fuite_handles_hors_corps_nr.py",
+    # Meta RAG a la demande en mode dense delegue (RCA AGY 6aacc26fe : 7 relectures de 46 Go le 19/10).
+    "tests/nr/test_rag_meta_a_la_demande_nr.py",
+    # Decision owner crawl4ai 19/10 : restart:no + memoire bornee + image epinglee par empreinte.
+    "tests/nr/test_crawl4ai_politique_owner_nr.py",
+    # Relecture owner LOCALE du jeu de reference RAG (19/10, portail :7400, rien ne sort de la machine).
+    "tests/nr/test_golden_relecture_nr.py",
+    # Executif Hamilton ARME pour la RAM (decision owner 19/10) : DIFFERABLE jusqu'au besoin, reprise apres calme.
+    "tests/nr/test_hamilton_arme_nr.py",
+    # Aucun travail d'executeur perdu : copie de sauvegarde quand aucun commit ne le garde (19/10, 5 livraisons perdues).
+    "tests/nr/test_executeur_sauvegarde_tout_travail_nr.py",
+    "tests/nr/test_executeur_n_ecrit_pas_l_arbre_partage_nr.py",
+    "tests/nr/test_impacte_liste_relative_racine_nr.py",
+    "tests/nr/test_sampler_muet_sous_pytest_nr.py",
+    "tests/nr/test_merge_gate_abandon_atomique_nr.py",
+    "tests/nr/test_preflight_verbose_dit_ses_pannes_nr.py",
+    "tests/nr/test_merge_gate_depuis_sauvegarde_nr.py",
+    "tests/nr/test_routage_servi_persiste_nr.py",
+    "tests/nr/test_hamilton_classe_chemin_confiance_nr.py",
+    "tests/nr/test_blocs_depuis_sauvegarde_nr.py",
+    "tests/nr/test_routeur_decide_sur_capacite_observee_nr.py",
+    "tests/nr/test_dialogue_expire_repli_tray_nr.py",
+    "tests/nr/test_organe_du_corps_gonfle_nr.py",
+    "tests/nr/test_arene_observe_les_integrations_nr.py",
+    "tests/nr/test_alerte_organe_gonfle_nr.py",
+    "tests/nr/test_scorecard_nr_illisibles_inconnu_nr.py",
+    "tests/nr/test_inventaire_tout_identifiable_nr.py",
+    "tests/nr/test_harness_relance_sans_marqueur_perime_nr.py",
+    "tests/nr/test_git_ne_remonte_pas_hors_du_tmp_nr.py",
+    "tests/nr/test_arbre_decision_prise_puis_etat_nr.py",
+    "tests/nr/test_reaffecter_base_sans_table_nr.py",
+    "tests/nr/test_repli_quota_garde_l_etat_d_avant_nr.py",
+    "tests/nr/test_trace_import_temoin_d_armement_nr.py",
+    "tests/nr/test_gate_run_job_script_args_liste_nr.py",
+    "tests/nr/test_vibe_reponse_finale_lue_dans_la_transcription_nr.py",
+    "tests/nr/test_sauvegarde_executeur_non_livre_nr.py",
+    "tests/nr/test_inventaire_cadence_declaree_nr.py",
+    "tests/nr/test_ordres_bureau_cli_pilote_nr.py",
+    "tests/nr/test_registre_transmet_la_preuve_au_bureau_nr.py",
+    "tests/nr/test_golden_rappel_nr.py",
+    "tests/nr/test_golden_rappel_chemin_du_corps_nr.py",
+    "tests/nr/test_tmp_path_sans_balayage_nr.py",
+    "tests/nr/test_golden_rappel_point_d_entree_nr.py",
+    "tests/nr/test_hamilton_hysteresis_rechute_nr.py",
+    "tests/nr/test_attribution_par_identite_nr.py",
+    "tests/nr/test_hamilton_arret_reprend_apres_calme_nr.py",
+    "tests/nr/test_tache_finie_pas_organe_muet_nr.py",
+    "tests/nr/test_routeur_ttft_mesure_nr.py",
+    "tests/nr/test_skill_enricher_nom_de_fichier_nr.py",
+    # Un sous-processus de test borne SOUS --timeout=30 : un blocage abattait toute la suite (20/10).
+    "tests/nr/test_sous_processus_borne_sous_la_suite_nr.py",
+    # Le lot du tmp_path O(1) se dit « pytest » : sous --turbo le coffre de test etait refuse (20/10).
+    "tests/nr/test_tmp_path_segment_pytest_nr.py",
+    # Le dossier d'un tmp_path reste <= 31 car. : la reference profonde passait MAX_PATH (20/10).
+    "tests/nr/test_tmp_path_court_nr.py",
+    # Le capteur oauth lit le profil OWNER ; illisible n'est jamais un login absent (20/10, faux « gh missing »).
+    "tests/nr/test_oauth_illisible_n_est_pas_absent_nr.py",
+    # Pouls : un replace refuse est reessaye avant le repli tronquant ; mesurer sans cache pytest (20/10).
+    "tests/nr/test_pouls_replace_refuse_reessaye_nr.py",
+    # La dette d'embeddings se lit chez le producteur, jamais par COUNT sur rag_chunks (20/10, usure disque).
+    "tests/nr/test_remediation_backlog_borne_nr.py",
+    # Un pytest imbrique (mesurer) est enracine dans son dossier : la reference 46c8adfa5 tombait sur une course (20/10).
+    "tests/nr/test_pytest_imbrique_isole_nr.py",
+    # Meme contrat pour le scorecard (module de juge, patch applique par l'owner sur derogation, 20/10).
+    "tests/nr/test_scorecard_pytest_isole_nr.py",
+    # Coagulation : inhibiteur (signal du soin = pas une lesion) + periode refractaire, fin de la CIVD (20/10).
+    "tests/nr/test_coagulation_inhibiteur_refractaire_nr.py",
+    # Cliquet : COUNT(*) FROM rag_chunks executes ne grandit pas ; zero dans remediation/coagulation (20/10).
+    "tests/nr/test_cliquet_count_rag_chunks_nr.py",
+    # Sous Windows la recette mesure Docker Engine dans WSL2 (sonde 39423950182) au lieu de le dire indisponible (20/10).
+    "tests/nr/test_docker_wsl2_windows_nr.py",
+    # Etape imports : gardes de plateforme, .pth relus, main()/__main__ d'un module importe non executes (20/10).
+    "tests/nr/test_imports_garde_plateforme_nr.py",
+    # Inventaire par famille de source avant le pack par licence, sans COUNT ni lecture des vecteurs (20/10).
+    "tests/nr/test_pack_inventaire_sources_nr.py",
+    # Chiffrement at-rest obligatoire par defaut (decision owner 20/10) : registre REQUIS, refus consigne,
+    # garde --sans-chiffrement avant tout poseur, etape chiffrement de la recette. Rapatrie du socle avec ce GREEN.
+    "tests/nr/test_chiffrement_obligatoire_par_defaut_nr.py",
+    # Knowledge Pack par source = par licence : schema, manifeste audite, export liste blanche en tar mmap (20/10).
+    "tests/nr/test_pack_par_source_licence_nr.py",
+    "tests/nr/test_pack_sources_cli_nr.py",
+    # Pack RFC : legende d'origine de chaque RFC jointe, RFC sans legende ecartee (IETF TLP 5.0, 20/10).
+    "tests/nr/test_pack_rfc_notice_par_rfc_nr.py",
+    # Le hook de chaque tour rappelle en dernier de repondre en francais (owner 20/10, « ancre le »).
+    "tests/nr/test_hook_tour_consigne_langue_nr.py",
+    # Cliquet : toute RFC citee par le code est dans l'audit RFC ou declaree obsolete avec son successeur (20/10).
+    "tests/nr/test_rfc_citees_par_le_code_dans_l_audit_nr.py",
+    # L'audit RFC se lance seul hors de la racine (chemin reel ; run_job mort en ModuleNotFoundError le 20/10).
+    "tests/nr/test_audit_rfc_lance_seul_nr.py",
+    # Le juge refuse une delegation qui ne produit rien : 0 commit, 0 fichier, aucun artefact pointe (20/10).
+    "tests/nr/test_juge_rien_produit_nr.py",
+    # L'arret gouverne de Docker se juge sur le MOTEUR eteint, attente bornee, sonde illisible = echec (20/10).
+    "tests/nr/test_arret_docker_juge_sur_le_moteur_nr.py",
+    # Ingestion OpenStax : sections citees au chapitre, CNXML en texte, flux, licence dite en tete (20/10).
+    "tests/nr/test_ingest_openstax_cnxml_nr.py",
+    "tests/nr/test_ingest_openstax_commit_epingle_nr.py",
+    # DeportEmbed selectionne par l'index partiel, jamais par un balayage de la table (cause de l'oscillation, 20/10).
+    "tests/nr/test_deport_embed_selection_indexee_nr.py",
+    # La CI publique provisionne le chiffrement par OS, sinon refus dit ; PASS Linux sur un vrai volume LUKS (20/10).
+    "tests/nr/test_ci_chiffrement_provisionne_nr.py",
+    # Un .py livre qui ne compile pas est refuse par le juge, verdict REJETEE (rejeu Vibe 3.0.1, 20/10).
+    "tests/nr/test_juge_syntaxe_livree_nr.py",
+    # La reclamation crawl4ai se relache, et l'arret gouverne de Docker la relache (GREEN OPENCODE_GLM 79bc9e45f, 20/10).
+    "tests/nr/test_crawl4ai_relache_nr.py",
+    # Sans commit produit, un pointeur de commit n'est pas une livraison (GREEN MISTRAL 96ff89ec9, codestral durci, 20/10).
+    "tests/nr/test_juge_pointeur_commit_sans_commit_nr.py",
+    # Vibe codestral durci : search_replace impose, ni todo ni skill, 60 tours (decision owner 20/10).
+    "tests/nr/test_vibe_codestral_durci_nr.py",
+    # La famille d'une source github: est son depot owner/repo, unite de licence du pack (GREEN MISTRAL d4980130b, 20/10).
+    "tests/nr/test_pack_famille_github_par_depot_nr.py",
+    # Un pack par source lit le domaine de son composant, index domain garde par +active (GREEN MISTRAL d54955bef, 20/10).
+    "tests/nr/test_pack_source_hors_reference_nr.py",
+    # macOS arm64 et x64 sont des plateformes de la distribution publique (GREEN MISTRAL ed35d559b, owner 20/10).
+    "tests/nr/test_distribution_macos_nr.py",
+    # Le manifeste declare les packs RFC (IETF TLP 5.0) et physiologie OpenStax (CC BY 4.0, domaine physiologie), 20/10.
+    "tests/nr/test_pack_manifeste_rfc_physiologie_nr.py",
+    # Census de l'essaim cloud : membres PROUVES vivants, repli DIT (RED 1da121b2a, GREEN GLM cb9637e1f repris, 20/10).
+    "tests/nr/test_census_essaim_cloud_nr.py",
+    # Un pack par source (tar) s'importe EN FLUX par la boucle d'ecriture du NPZ (GREEN OPENCODE_GPTOSS ce4a5c0f9, 20/10).
+    "tests/nr/test_pack_source_import_en_flux_nr.py",
+    # Un commit d'executeur refuse par le scorecard est un echec NOMME, quel que soit le pointer_ref (job_2a6a27b3, 20/10).
+    "tests/nr/test_juge_scorecard_refuse_nr.py",
+    # MemoryConsolidator : garde cible, pas de cycle au reveil avant l'intervalle (GREEN GPTOSS a030bd496, owner 20/10).
+    "tests/nr/test_consolidateur_garde_cible_nr.py",
+    # Controle FTS5 de rag_fts sur une COPIE, place exigee sur le volume de la base, nom de table strict (20/10).
+    "tests/nr/test_db_backup_controle_fts_nr.py",
+    # La sauvegarde de la base va sur E: par defaut, jamais dans le depot (GREEN MISTRAL e560ab5a5 corrige, 20/10).
+    "tests/nr/test_db_backup_dossier_par_defaut_nr.py",
+    # La coupure reseau du compte offline est reposee a chaque demarrage (systemd/launchd), GREEN GPTOSS 2afd6a9d9.
+    "tests/nr/test_pare_feu_offline_repose_au_demarrage_nr.py",
+    # La release construit et verifie chaque pack par source obligatoire (GREEN GPTOSS 53f28d7f2 corrige, 20/10).
+    "tests/nr/test_release_construit_les_packs_sources_nr.py",
+    # Chunks des fichiers de Nokido disparus desactives par la primitive, a blanc par defaut (owner 20/10).
+    "tests/nr/test_rag_sources_fantomes_retirees_nr.py",
+    # Promotion du dist : certification unique et verte (cible courte admise), scan du tarball par comptes (20/10).
+    "tests/nr/test_dist_promotion_gardes_nr.py",
+    # Chaque decision de bail (accord, refus, entree invalide) laisse une ligne au journal du hub (20/10).
+    "tests/nr/test_bail_journalise_au_hub_nr.py",
+    # La recette dit la cause d'un echec ollama (rc du pull, corps HTTP) ; runner macOS sans Docker = NON_TESTE (20/10).
+    "tests/nr/test_acceptance_ollama_docker_dit_la_cause_nr.py",
+    # Le hook Stop lit la FIN de la transcription (seek, budget) : MemoryError mesure le 20/10, garde desarme.
+    "tests/nr/test_hook_stop_transcript_borne_nr.py",
+    # Un double de sys.modules tient contre `from paquet import sous_module` (conftest, 20/10 : rouges d'ordre xdist).
+    "tests/nr/test_double_module_tient_contre_attribut_nr.py",
+    # Un depot de pair coupe a la borne le DIT ; outils pairs : borne + format POINTEURS (owner 19/10).
+    "tests/nr/test_pair_depot_tronque_dit_nr.py",
+    "tests/nr/test_inventaire_protheses_nr.py",
+    "tests/nr/test_lanceurs_superviseur_identifies_nr.py",
+    "tests/nr/test_keeper_drain_sans_rafale_d_arrets_nr.py",
+    "tests/nr/test_tests_du_garde_isolent_son_journal_nr.py",
+    "tests/nr/test_gate_impulsion_actes_non_comptes_nr.py",
+    "tests/nr/test_registre_fragments_tronques_nr.py",
+    "tests/nr/test_reaffectation_code_jamais_vers_agy_nr.py",
+    "tests/nr/test_file_owner_session_start_nr.py",
+    "tests/nr/test_recompense_par_resultat_nr.py",
+    "tests/nr/test_recompense_cli_nr.py",
+    "tests/nr/test_ecart_doc_code_bornes_de_mot_nr.py",
+    "tests/nr/test_gate_conseil_subprocess_exact_nr.py",
+    "tests/nr/test_plan_puct_roadmap_nr.py",
+    "tests/nr/test_vibe_sans_lecture_de_skills_nr.py",
+    "tests/nr/test_jeton_absent_reaffecte_nr.py",
+    "tests/nr/test_scorecard_du_diff_nr.py",
+    "tests/nr/test_tray_commande_faite_sur_retour_owner_nr.py",
     # Wiki GitHub du depot public (2026-10-07) : construit au commit du dist, clone garde, pages mortes retirees.
     "tests/nr/test_wiki_github_nr.py",
     # Pack RAG (2026-10-07) : la release refuse l'export NON FILTRE (sessions, memoire, veilles).
@@ -1918,6 +2147,107 @@ PURE_TESTS = [
     "tests/nr/test_agy_effet_fusion_non_livre_nr.py",
     # veille automatique : identite propre RSS_WATCHER, SERVICES non releve (2026-10-13). Hub simule.
     "tests/nr/test_rss_watcher_identite_propre_nr.py",
+    # POST_COMMIT au ring 3 pour indexer les commits, SERVICES non releve (2026-10-18). Registre lu.
+    "tests/nr/test_post_commit_indexe_au_ring_3_nr.py",
+    # archi-lint juge la mesure DEPORTEE faite sous le compte owner (decision owner 18/10). Dossier temporaire.
+    "tests/nr/test_archi_lint_mesure_deportee_nr.py",
+    # hook post-commit : journal refuse au compte du hub = repli sandbox/logs DIT, plus d'abandon muet (18/10). Tmp.
+    "tests/nr/test_post_commit_hook_journal_repli_nr.py",
+    # applicateur de verdicts de roadmap : rapport absent au commit = rc=2 DIT, plus de JSONDecodeError (18/10).
+    "tests/nr/test_roadmap_verif_appliquer_rapport_absent_nr.py",
+    # CI de reference : bail pris sous l'identite CI_REFERENCE (ring <= 3, sans ecriture), jamais SERVICES (18/10).
+    "tests/nr/test_ci_reference_identite_bail_nr.py",
+    # cliquet des ecrivains nus du RAG (decision owner C_06, 18/10) : le compte ne fait que descendre.
+    "tests/nr/test_cliquet_ecrivains_rag_nus_nr.py",
+    # RSI : une reference de mesure vide interdit l'acte L1 (cause de l'arret du 15/10), abstention sans frein (18/10).
+    "tests/nr/test_rsi_reference_vide_n_applique_pas_nr.py",
+    # reponse graduee : la coagulation differe sa passe lourde pendant un bail prioritaire arme et actif (18/10).
+    "tests/nr/test_travail_differe_pendant_un_bail_nr.py",
+    # guet des jobs : bilan JSON de l'ingestion GitHub (« inserted ») lu, plus de « sans ligne de bilan » (18/10).
+    "tests/nr/test_guet_bilan_json_ingestion_nr.py",
+    # C_06c : la veille RSS confronte ses alertes aux imports reels (forge_diff_analyzer), illisible != vide (18/10).
+    "tests/nr/test_veille_branche_diff_analyzer_nr.py",
+    # boucle A : taux de repli reussi apres refus (domaine executeurs, tasks.db), illisible != 0 (18/10).
+    "tests/nr/test_boucle_a_taux_repli_apres_refus_nr.py",
+    # circadien : firePhase reveille ses organes a la demande, IngestDaemon/MemoryConsolidator rallumes (owner 18/10).
+    "tests/nr/test_circadien_reveille_a_la_demande_nr.py",
+    # executeur : chaque commit exclut les fichiers sales d'avant la tache (90bc00bee en balayait 6 de trop, 18/10).
+    "tests/nr/test_commit_executeur_exclut_les_sales_d_avant_nr.py",
+    # callgraph : index persistant entre processus (cout a froid d'introspect, integre de 332030813, 18/10).
+    "tests/nr/test_callgraph_index_cache_disque_nr.py",
+    # executeur : git status refuse hors racine de worktree (2 ci_local tues a 6 Go, 18/10) ; palier par taille ;
+    # reaffectation apres [NON LIVRE].
+    "tests/nr/test_chemins_status_hors_worktree_nr.py",
+    "tests/nr/test_palier_executeur_taille_capacite_nr.py",
+    "tests/nr/test_reaffectation_apres_non_livre_nr.py",
+    # CLI routees : isolation par defaut des surfaces autonomes (audit RSI, 18/10).
+    "tests/nr/test_cli_route_isolation_par_defaut_nr.py",
+    # RSI L1 : SURVIT sans gain = defait ; memoire de l'oscillateur ; embed.max_workers declare ; repli Ollama ;
+    # ledger du juge (cause + origine, banc hors tableau de bord) ; convergence ; pont ombre (selection, liste blanche).
+    "tests/nr/test_l1_survit_sans_gain_nr.py",
+    "tests/nr/test_l1_calibration_memoire_saturation_nr.py",
+    "tests/nr/test_l1_embed_max_workers_declare_nr.py",
+    "tests/nr/test_llamacpp_chat_repli_ollama_nr.py",
+    "tests/nr/test_ledger_juge_cause_origine_nr.py",
+    "tests/nr/test_convergence_rsi_nr.py",
+    "tests/nr/test_pont_ombre_selection_nr.py",
+    "tests/nr/test_pont_ombre_filtre_machine_nr.py",
+    # unmet_intention : un plan marque historique en tete n'est plus une intention (owner 18/10).
+    "tests/nr/test_plan_historique_hors_intention_nr.py",
+    # integration : reconciliateur du merge gate ; ctl wake sur la route existante ; panorama a froid ; lot 1 ecrivains RAG.
+    "tests/nr/test_merge_gate_reconciliation_nr.py",
+    "tests/nr/test_ctl_wake_route_existante_nr.py",
+    "tests/nr/test_panorama_cache_disque_nr.py",
+    "tests/nr/test_migration_ecrivains_rag_lot1_nr.py",
+    "tests/nr/test_migration_ecrivains_rag_lot2_nr.py",
+    # roadmaps : arbre d'evolution `--arbre` en liste blanche (marqueur en tete, sans marqueur jamais CLOS ; NEMOTRON).
+    "tests/nr/test_roadmap_arbre_nr.py",
+    # effort LLM : le routeur EMET token_events a chaque appel reussi (0 ligne, recepteur sans emetteur, 18/10).
+    "tests/nr/test_routeur_emet_token_events_nr.py",
+    # amorce : tout service ACTIF lance par chemin charge sans la racine (liste derivee de services.toml ;
+    # NokidoMemoryConsolidator crashait toutes les 5 min, 18/10).
+    "tests/nr/test_amorce_services_actifs_nr.py",
+    # swarm : phase REDUCE deterministe (forge_swarm_reducer), branchee sur les 2 sorties de run_forge_swarm (18/10).
+    "tests/nr/test_swarm_reducer_nr.py",
+    # veille : rejeu des releases perdues C_06b-4 (anti-doublon par phrase FTS, illisible = refus, dry-run sans ecriture).
+    "tests/nr/test_rss_rejeu_releases_nr.py",
+    "tests/nr/test_veille_pypi_texte_enrichi_nr.py",
+    # audit RAM : une entree absente de la derniere passe du capteur de derive est PERIMEE (18/10).
+    "tests/nr/test_rss_watch_entree_perimee_nr.py",
+    # juge : contrat de metrique {nom, valeur, bruit, sens MIN|MAX}, correction eliminatoire (takehome, chantier 1).
+    "tests/nr/test_juge_metrique_contrat_nr.py",
+    # L1 : orientation MIN/MAX par dimension (cycles, duree, RAM), inconnue = ecart (takehome, chantier 1 pas 2).
+    "tests/nr/test_l1_orientation_min_nr.py",
+    # juge : capsule d'autopsie tracable et bornee + extrait des echecs garde par mesurer (takehome, chantier 2).
+    "tests/nr/test_capsule_autopsie_nr.py",
+    "tests/nr/test_capsule_reinjectee_nr.py",
+    # merge gate : oracle gele (worktree isole au SHA, tests proteges, PASS/FAIL/INVALID/UNKNOWN), takehome chantier 5.
+    "tests/nr/test_oracle_gele_nr.py",
+    # executeur : le travail d'une session en echec est preserve (commit INACHEVE, pas de reaffectation) -- 2
+    # livraisons NEMOTRON perdues le 18/10.
+    "tests/nr/test_travail_inacheve_preserve_nr.py",
+    # RSI : ratio REM (gains valides / kilo-jetons + s CPU), inconnu != 0, ralentir sur 3 fenetres connues (chantier 4b).
+    "tests/nr/test_rem_rsi_nr.py",
+    # coeur : capteur d'effort LLM relatif a la mediane 24 h, adrenaline graduee TTL 180 s (p1_coeur_suit_effort_llm).
+    "tests/nr/test_effort_llm_capteur_nr.py",
+    # guet : une archive Takeout mise de cote consigne sa STRUCTURE, jamais son contenu (chemin reel passage()).
+    "tests/nr/test_guet_structure_takeout_nr.py",
+    # pont pairs : journal du consentement OAuth + etat des demandes, jamais de secret (decision owner 18/10).
+    "tests/nr/test_pair_consentement_journal_nr.py",
+    # bloc proprioceptif : l'age du bilan sur CHAQUE ligne, un % RAM perime ne se lit plus comme actuel (18/10). Tmp.
+    "tests/nr/test_proprioception_age_sur_la_ligne_nr.py",
+    # introspect : un seul git grep par symbole, rg absent sonde une fois (passe native, 18/10). Sous-processus simules.
+    "tests/nr/test_introspect_un_grep_par_symbole_nr.py",
+    # SearXNG : rotation de la secret_key par le keeper, jamais affichee (owner 18/10 : fuite = rotation). Tmp.
+    "tests/nr/test_searxng_secret_rotation_nr.py",
+    # SearXNG : moteurs a API (github, arxiv, semantic scholar) dans `general` ; general bloque par CAPTCHA (18/10). Tmp.
+    "tests/nr/test_searxng_moteurs_api_nr.py",
+    # roadmap : applicateur des rapports de verification VERSIONNE (fin du script C:/tmp), cloture sur preuve (18/10). Pur.
+    "tests/nr/test_roadmap_verif_appliquer_nr.py",
+    # executeurs : toute instance OpenCode a son service et inversement ; >= 4 instances par defaut (owner 18/10).
+    "tests/nr/test_instances_opencode_ont_un_service_nr.py",
+    # dependances : le lock respecte la contrainte de transformers sur tokenizers (import mort le 18/10). Metadonnees.
+    "tests/nr/test_lock_tokenizers_compatible_transformers_nr.py",
     # gate P1 : lecture RAM dementie par la mesure directe = refus annule et dit (2026-10-13). psutil simule.
     "tests/nr/test_p1_ram_second_observateur_nr.py",
     # gardes RAM (should_throttle, admission ensure_service) sur plancher 60 s, bord >= 95 % a l'instant (2026-10-13).
@@ -2391,6 +2721,181 @@ PURE_TESTS = [
     "tests/nr/test_banc_collectif_nr.py",
     # Decision owner 15/10 : le modele Gemini vient de l'APPELANT ; un GEMINI_MODEL global ne l'ecrase plus.
     "tests/nr/test_gemini_modele_de_l_appelant_nr.py",
+    # Owner 16/10 : garde TDD « rouge d'abord » (registre des rouges du conftest + avertissement de governed_edit).
+    "tests/nr/test_garde_tdd_rouge_dabord_nr.py",
+    # Owner 16/10 (option a) : commandes a taper deposees par le hub, copiees par le tray (demander_ordre).
+    "tests/nr/test_commandes_owner_nr.py",
+    # Dette ui_audit_webhub_demo_residuelle (3) : postal DIT quand le registre live des agents manque.
+    "tests/nr/test_postal_registre_seed_dit_nr.py",
+    # Fait keeper_arrete_embedder_en_usage_sans_intention_20261015 (2) : ordres au superviseur attribuables.
+    "tests/nr/test_ordres_superviseur_attribuables_nr.py",
+    # Decision owner 16/10 « la mesure decide » : KPI premier passage de la CI de reference + RED cites.
+    "tests/nr/test_kpi_methode_nr.py",
+    # bb:active_bugs/tray_jamais_recharge_et_mode_dev_illisible_20261016 : mode DEV lisible, tray recharge.
+    "tests/nr/test_mode_dev_lisible_par_le_tray_nr.py",
+    "tests/nr/test_tray_se_recharge_sur_code_perime_nr.py",
+    # bb:active_bugs/secu_secrets_cloud_lus_dans_env_37_fichiers_geles_20261016 : jeton du hub au coffre d'abord.
+    "tests/nr/test_jetons_hub_coffre_d_abord_nr.py",
+    # Decision owner 16/10 : juge d'assertions qualifie (routeur, debate), backend inconnu refuse.
+    "tests/nr/test_juge_qualifie_nr.py",
+    # Owner 16/10 « pas vu les veilles avec crawl4ai » : une veille --urls refuse sans navigateur (Poka-Yoke).
+    "tests/nr/test_veille_refuse_sans_navigateur_nr.py",
+    # Gate recidive 16/10 : le keeper dit combien de processus il n'a pas pu lire (UNKNOWN != NO).
+    "tests/nr/test_keeper_illisibles_dits_nr.py",
+    # Essai partage n°2 (16/10) : RED de Claude, code d'AGY -- un juge de code muet rend NON NOTE, jamais 0.5.
+    "tests/nr/test_juge_de_code_non_note_nr.py",
+    # Essai partage n°3 (16/10) : lot 1, les cles fournisseurs se lisent au coffre d'abord (3003cb6ec).
+    "tests/nr/test_cles_fournisseurs_coffre_d_abord_nr.py",
+    # Secu 16/10 : une cle geree et morte (resolve -> (True, None)) fait sauter le fournisseur, jamais un repli env.
+    "tests/nr/test_rotation_cle_morte_saute_le_fournisseur_nr.py",
+    # Mesure 16/10 : PhenomBuffer aveugle se disait « calme » 60/60 cycles (capteurs illisibles = UNKNOWN, pas repos).
+    "tests/nr/test_phenom_aveugle_ne_se_dit_pas_calme_nr.py",
+    # Owner 16/10 « tu devrais etre sur des identites ? » : tuer exige une propriete prouvee (CONTROL != OWNERSHIP).
+    "tests/nr/test_identite_propriete_avant_kill_nr.py",
+    # GO owner 16/10 « refus au-dela » : disjoncteur d'impulsion + anti-polling (RED Claude, code AGY 463637989).
+    "tests/nr/test_gate_rafale_et_polling_nr.py",
+    # 16/10 : le mode observer journalise ce qu'il aurait refuse (RED Claude, code AGY 8f0309407).
+    "tests/nr/test_gate_journal_observer_nr.py",
+    # 16/10 : executeur Mistral Vibe partie 1 -- arguments bornes, capacite mesuree (RED Claude, code AGY 0a43efdae).
+    "tests/nr/test_executeur_vibe_nr.py",
+    # 16/10 : Vibe partie 2 -- binaire absolu dans le harness, job harness borne (RED Claude, code AGY bcf91b156).
+    "tests/nr/test_executeur_vibe_harness_nr.py",
+    # 16/10 : la passe de nuit juge avec le routeur, juge qualifie mesure 42 paires (RED Claude, code AGY 16b2912a2).
+    "tests/nr/test_consolidation_nuit_juge_routeur_nr.py",
+    # 16/10 : Vibe partie 3 -- plancher MISTRAL, aiguillage par helpers (refactor du clone), service coupe.
+    "tests/nr/test_executeur_vibe_aiguillage_nr.py",
+    # 16/10 : une seule admission pour MCP run_job ET POST /admin/run_job (trou signale par claude.ai).
+    "tests/nr/test_admission_job_deux_voies_nr.py",
+    # 16/10 : la CI de reference joue ses etages sous bail de priorite, identite CI_REFERENCE ring 2 (forme a).
+    "tests/nr/test_ci_reference_sous_bail_nr.py",
+    # 16/10 : commande owner intacte au presse-papier (journal local, jamais caviardee) et prete pour PowerShell.
+    "tests/nr/test_commandes_owner_texte_intact_nr.py",
+    # 16/10 : Vibe parle au hub MCP sous VIBE_HEADLESS, jeton injecte par le harness, config sans jeton (owner).
+    "tests/nr/test_vibe_authentifie_mcp_nr.py",
+    # 16/10 : lanceur owner nokido_vibe (VIBE_CLI, jeton au seul processus) + config utilisateur sans jeton.
+    "tests/nr/test_lanceur_vibe_nokido_nr.py",
+    # 16/10 : le hub se presente aux clients MCP sous le nom Nokido-Hub (Vibe affichait LaForge-Hub).
+    "tests/nr/test_hub_se_presente_sous_le_nom_nokido_nr.py",
+    # 16/10 : le recenseur des offres gratuites sonde des modeles NOMMES (--cible), trois etats.
+    "tests/nr/test_census_cible_nr.py",
+    # 16/10 : un cache non inscriptible ne jette plus la reponse d'Artificial Analysis (cause des « 0 modele »).
+    "tests/nr/test_aa_cache_illisible_ne_jette_pas_les_donnees_nr.py",
+    "tests/nr/test_routeur_ecarte_injoignables_prouves_nr.py",
+    "tests/nr/test_lifecycle_ecriture_authentifiee_nr.py",
+    "tests/nr/test_executeur_part_d_alpha_nr.py",
+    "tests/nr/test_verdict_automatique_nr.py",
+    "tests/nr/test_hub_impulsion_par_est_sonde_nr.py",
+    "tests/nr/test_roadmap_arbre_page_nr.py",
+    "tests/nr/test_plan_puct_v2_nr.py",
+    "tests/nr/test_process_inventory_perdus_comptes_nr.py",
+    "tests/nr/test_pointeur_fichier_symbole_nr.py",
+    "tests/nr/test_acp_veille_de_silence_nr.py",
+    "tests/nr/test_proxy_tools_intacts_nr.py",
+    "tests/nr/test_executeur_emet_transient_nr.py",
+    "tests/nr/test_hamilton_pause_avant_arret_nr.py",
+    "tests/nr/test_circadien_tir_par_fenetre_nr.py",
+    "tests/nr/test_jeton_jamais_journalise_nr.py",
+    "tests/nr/test_offline_trainer_pont_py314t_nr.py",
+    "tests/nr/test_free_tier_429_persistant_nr.py",
+    "tests/nr/test_harness_resultat_caviarde_nr.py",
+    "tests/nr/test_agy_reponse_vide_nr.py",
+    "tests/nr/test_ci_resume_ruff_nr.py",
+    "tests/nr/test_requetes_directes_8099_bornees_nr.py",
+    "tests/nr/test_swarm_graphe_nr.py",
+    "tests/nr/test_bus_taches_publiees_nr.py",
+    "tests/nr/test_bus_m2m_frame_nr.py",
+    "tests/nr/test_registre_unifie_free_tier_nr.py",
+    "tests/nr/test_roadmap_arbre_hors_etats_globaux_nr.py",
+    "tests/nr/test_archive_chiffree_flux_nr.py",
+    "tests/nr/test_graph_viz_lisible_nr.py",
+    "tests/nr/test_archive_tables_ombre_fts_nr.py",
+    "tests/nr/test_dependance_py7zr_declaree_nr.py",
+    "tests/nr/test_roadmap_arbre_dependances_nr.py",
+    "tests/nr/test_roadmap_carte_dependances_nr.py",
+    "tests/nr/test_arene_chemin_promotion_nr.py",
+    "tests/nr/test_crawl4ai_a_la_demande_nr.py",
+    "tests/nr/test_reaffectation_hedoniste_observee_nr.py",
+    "tests/nr/test_hamilton_classe_spawn_nr.py",
+    "tests/nr/test_hamilton_reconcile_classe_nr.py",
+    "tests/nr/test_cliquet_racine_donnees_nr.py",
+    "tests/nr/test_hamilton_job_classe_differable_nr.py",
+    "tests/nr/test_matrice_consomme_census_nr.py",
+    "tests/nr/test_codemod_muets_nr.py",
+    "tests/nr/test_hamilton_reconcile_au_boot_nr.py",
+    "tests/nr/test_lora_extracteur_citations_nr.py",
+    "tests/nr/test_lora_citations_ask_nr.py",
+    "tests/nr/test_roadmap_portes_groupees_nr.py",
+    "tests/nr/test_trace_import_nr.py",
+    "tests/nr/test_post_commit_etapes_survivent_nr.py",
+    "tests/nr/test_cliquet_cartes_derivees_nr.py",
+    "tests/nr/test_lora_palier2_registre_nr.py",
+    "tests/nr/test_executeur_panne_cli_nr.py",
+    "tests/nr/test_vibe_modele_census_nr.py",
+    "tests/nr/test_active_inference_lecture_unique_nr.py",
+    "tests/nr/test_preflight_panne_n_est_pas_feu_vert_nr.py",
+    "tests/nr/test_pair_boite_au_nom_nr.py",
+    "tests/nr/test_curiosite_capteur_illisible_nr.py",
+    "tests/nr/test_eval_fitness_baseline_inconnue_nr.py",
+    "tests/nr/test_metacognition_mention_n_est_pas_echec_nr.py",
+    "tests/nr/test_transient_caviarde_et_vide_cite_429_nr.py",
+    "tests/nr/test_reconcile_sans_effet_de_bord_nr.py",
+    "tests/nr/test_pages_ui_sans_jeton_nr.py",
+    "tests/nr/test_regulation_journal_et_stabilite_nr.py",
+    "tests/nr/test_write_retry_compte_les_verrous_nr.py",
+    "tests/nr/test_differable_sans_mesure_prouvee_nr.py",
+    "tests/nr/test_stop_decision_owner_prose_nr.py",
+    # test_census_essaim_cloud_nr.py : RED 1da121b2a sans GREEN -- inscrit au GREEN (CI de reference e6642dcf1 : 5 rouges).
+    "tests/nr/test_provenance_des_reveils_nr.py",
+    "tests/nr/test_provenance_registres_nr.py",
+    "tests/nr/test_isolation_reveils_et_registres_nr.py",
+    "tests/nr/test_executeur_reaffecte_nr.py",
+    "tests/nr/test_gardes_hub_phase2_nr.py",
+    "tests/nr/test_introspect_consultation_par_domaine_nr.py",
+    "tests/nr/test_veille_composants_declenchee_nr.py",
+    "tests/nr/test_demandes_owner_jamais_perdues_nr.py",
+    "tests/nr/test_juge_lit_le_contenu_livre_nr.py",
+    "tests/nr/test_lanceur_session_avec_jeton_nr.py",
+    "tests/nr/test_capture_sans_perte_nr.py",
+    "tests/nr/test_regle_d_or_tools_nr.py",
+    "tests/nr/test_whoami_scores_vivants_nr.py",
+    "tests/nr/test_quarantaine_levee_relance_nr.py",
+    "tests/nr/test_cle_de_garde_identite_prouvee_nr.py",
+    "tests/nr/test_worktree_marqueur_identite_dit_nr.py",
+    "tests/nr/test_contention_workdir_reporte_nr.py",
+    "tests/nr/test_harness_delai_depuis_le_demarrage_nr.py",
+    "tests/nr/test_vibe_mode_programmatique_nr.py",
+    "tests/nr/test_executeur_opencode_instances_nr.py",
+    "tests/nr/test_acp_opencode_instance_nr.py",
+    "tests/nr/test_veille_changelogs_flux_natifs_nr.py",
+    "tests/nr/test_capsule_annexe_par_pointeur_nr.py",
+    # 17/10 -- substrat d'orchestration : claim par sujet (RFC 7519/8693), OpenCode (modelId, relance, choix du modele),
+    # suspension cablee, ring des pairs en relecture, bail de mission des delegations longues.
+    "tests/nr/test_reclamation_par_sujet_prouve_nr.py",
+    "tests/nr/test_opencode_modele_et_relance_nr.py",
+    "tests/nr/test_opencode_choix_du_modele_nr.py",
+    "tests/nr/test_repli_hors_executeur_suspendu_nr.py",
+    "tests/nr/test_ring_des_pairs_relecture_nr.py",
+    "tests/nr/test_delegation_longue_signale_sa_progression_nr.py",
+    "tests/nr/test_delegation_declare_son_travail_au_superviseur_nr.py",
+    # 17/10 soir -- moindre privilege : une instance OpenCode recoit la seule cle de SON fournisseur ; les pairs web
+    # lisent le VIVANT (fichiers suivis d'alpha, ring <= 2, exclusions), plus le dist public perime.
+    "tests/nr/test_opencode_cle_du_seul_fournisseur_nr.py",
+    "tests/nr/test_pair_lire_vivant_nr.py",
+    # 17/10 soir -- l'effort de raisonnement de Codex suit la taille de la tache (quota Free : >= 9 %/mois par reponse).
+    "tests/nr/test_codex_effort_selon_taille_nr.py",
+    # 17/10 soir (P2) -- le guetteur de tache lit progress_at avant de crier FIGEE : STALE n'est pas DEAD.
+    "tests/nr/test_guetteur_tache_lit_le_progres_nr.py",
+    # 17/10 soir -- exception d'ESSAI aux sous-agents Claude : armee par l'owner, bornee, econome, mesuree.
+    "tests/nr/test_tool_gate_essai_sous_agents_nr.py",
+    # 17/10 soir -- tache [local] : Ollama en loopback, enabled_providers ferme, 0 jeton cloud (quotas forts preserves).
+    "tests/nr/test_opencode_tache_locale_nr.py",
+    # 17/10 nuit -- quota gratuit epuise : une relance sur repli_modele, dite (owner : quota openrouter puis bascule).
+    "tests/nr/test_opencode_repli_sur_quota_nr.py",
+    # 17/10 nuit -- digestion conv : hash sha256 + dedup de contenu a l'insertion (cause racine des doublons du 14/10).
+    "tests/nr/test_conv_hash_rempli_nr.py",
+    "tests/nr/test_executeur_ne_committe_jamais_le_marqueur_nr.py",
+    # Demande owner R7 b623ecc7915c : le pre-commit bloque transitoires, verrous orphelins, marqueur de worktree.
+    "tests/nr/test_precommit_bloque_les_transitoires_nr.py",
     # Mesure 15/10 (wj_fc7e31285b) : le verdict d'un job de veille se recalcule quand sa chaine termine.
     "tests/nr/test_job_veille_clos_quand_chaine_terminee_nr.py",
     # Client Gemini web (AGY, integre le 15/10) : surface figee, https, origine controlee, PKCE nettoye.
@@ -3164,6 +3669,35 @@ def _webhub_repond(port: int = 7400, timeout: float = 2.5) -> tuple:
         return False, "injoignable sur :%d (%s)" % (port, type(e).__name__)
 
 
+def _temoin_versionne(chemin) -> "bool | None":
+    """True si `chemin` est SUIVI par git dans ce depot, False s'il ne l'est pas, None si git est ILLISIBLE.
+
+    La CI de reference tourne dans un worktree au sha : elle ne voit QUE le versionne. Un temoin frais mais
+    non suivi rend le pre-controle vert et la reference rouge (gate critique NON MESURE) -- recidives du 26/09
+    et du 14/10, une reference perdue (~25 min). UNKNOWN n'est pas NO : git injoignable rend None, pas False.
+    """
+    try:
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(ROOT), "ls-files", "--error-unmatch",
+                            "--", str(chemin)], capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode == 0:
+        return True
+    err = (r.stderr or "").lower()
+    return False if ("did not match" in err or "outside repository" in err or "is outside" in err) else None
+
+
+def _note_versionnement(src) -> str:
+    v = _temoin_versionne(src)
+    if v is True:
+        return ""
+    if v is False:
+        return (" ; temoin NON versionne : la CI de reference (worktree au sha) ne le verra pas -- le versionner "
+                "sous sandbox/pip_audit_history")
+    return " ; versionnement du temoin ILLISIBLE (git injoignable)"
+
+
 def _mesure_pip_audit_deportee() -> tuple:
     """(frais, detail) — le gate JUGE ce qu'un autre compte a MESURE.
 
@@ -3189,9 +3723,45 @@ def _mesure_pip_audit_deportee() -> tuple:
     age_j, _source = _age_mesure(src)
     if age_j > _AUDIT_FRAICHEUR_J:
         return False, ("rapport %s vieux de %.1f j (> %d j, %s) : perime, pas absent"
-                       % (Path(src).name, age_j, _AUDIT_FRAICHEUR_J, _source))
+                       % (Path(src).name, age_j, _AUDIT_FRAICHEUR_J, _source)) + _note_versionnement(src)
     return True, ("mesure deportee %s, %.1f j (< %d j, %s)"
-                  % (Path(src).name, age_j, _AUDIT_FRAICHEUR_J, _source))
+                  % (Path(src).name, age_j, _AUDIT_FRAICHEUR_J, _source)) + _note_versionnement(src)
+
+_ARCHI_LINT_HISTORIQUE = ROOT / "sandbox" / "archi_lint_history"
+
+
+def _mesure_archi_lint_deportee(dossier=None) -> tuple:
+    """(frais, ok, detail) — archi-lint juge la mesure DEPORTEE faite sous le compte owner (decision owner 18/10).
+
+    semgrep meurt sous les comptes du hub : sa telemetrie construit un authenticator ca-certs au demarrage, et
+    ca-certs n'ouvre sous Windows que `CertOpenSystemStore(0, "ROOT")` du profil courant (lib/ca_certs.ml:87),
+    absent sous un compte de service. `--metrics=off` et la 1.172.0 n'y changent rien (mesure 18/10) ; les
+    mainteneurs ne prevoient pas de correctif (semgrep#11525). `forge_archi_lint.py --ecrire-mesure`, lance par la
+    tache planifiee owner, ecrit `archi_lint_<jour>.json` ; on n'en juge que la FRAICHEUR (meme regle que
+    pip-audit) et le verdict. `ok` vaut None tant qu'aucune mesure fraiche n'est lue.
+    """
+    d = Path(dossier) if dossier is not None else _ARCHI_LINT_HISTORIQUE
+    rapports = sorted(d.glob("archi_lint_*.json")) if d.is_dir() else []
+    if not rapports:
+        return False, None, ("aucun rapport deporte dans %s — lancer `forge_archi_lint.py --ecrire-mesure` "
+                             "sous le compte owner (tache planifiee)" % d)
+    src = rapports[-1]  # la date vit dans le nom (AAAA-MM-JJ) : l'ordre du nom est l'ordre du temps
+    age_j, source = _age_mesure(src)
+    if age_j > _AUDIT_FRAICHEUR_J:
+        return False, None, ("rapport %s vieux de %.1f j (> %d j, %s) : perime, pas absent"
+                             % (src.name, age_j, _AUDIT_FRAICHEUR_J, source))
+    try:
+        r = json.loads(src.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return False, None, "rapport %s ILLISIBLE (%s)" % (src.name, type(e).__name__)
+    if not r.get("fichiers_scannes"):
+        return False, None, "rapport %s sans fichier lu : pas une mesure" % src.name
+    v = _temoin_versionne(src)
+    note = ("" if v is True else " ; temoin NON versionne : la CI de reference ne le verra pas" if v is False
+            else " ; versionnement du temoin ILLISIBLE (git injoignable)")
+    return True, bool(r.get("ok")), ("mesure deportee %s, %.1f j (< %d j, %s), sha %s, %s fichiers, findings %s%s"
+                                     % (src.name, age_j, _AUDIT_FRAICHEUR_J, source, r.get("sha", "?"),
+                                        r.get("fichiers_scannes"), r.get("findings") or {}, note))
 
 # ── VITALITE DES GARDES : depuis QUAND ce gate a-t-il rendu un verdict REEL ? ─
 # _INCONCLUS ne voit qu'UN run. Un gate qui cesse d'etre lance — retire d'un
@@ -3588,6 +4158,26 @@ def _demande(nom: str) -> bool:
     return any(o in n for o in _ONLY)
 
 
+def resume_ruff(sortie: str) -> str | None:
+    """Resume LISIBLE d'une sortie ruff (19/10, item roadmap_p1_ci_github_apres_0212) : codes comptes et fichiers
+    touches, formats complet (`--> f:l:c`) et concis (`f:l:c: CODE`). Rien a resumer -> None, jamais un faux « 0 »."""
+    import re as _re
+    from collections import Counter as _Counter
+    codes, fichiers = _Counter(), []
+    for m in _re.finditer(r"^(?:([\w./\\-]+\.py):\d+:\d+:\s*)?([A-Z]{1,3}\d{3})\b", sortie or "", _re.M):
+        codes[m.group(2)] += 1
+        if m.group(1) and m.group(1) not in fichiers:
+            fichiers.append(m.group(1))
+    for m in _re.finditer(r"-->\s*([\w./\\-]+\.py):\d+:\d+", sortie or ""):
+        if m.group(1) not in fichiers:
+            fichiers.append(m.group(1))
+    if not codes:
+        return None
+    n = sum(codes.values())
+    return "ruff : %d violation(s) -- %s ; fichiers : %s" % (
+        n, ", ".join("%sx%d" % (c, k) for c, k in codes.most_common()), ", ".join(fichiers[:12]) or "?")
+
+
 def _run(name: str, cmd: list[str], blocking: bool, env: dict | None = None,
          rc_non_mesure: tuple = (), motifs_non_mesure: tuple = (),
          timeout_s: float | None = None) -> tuple[str, bool]:
@@ -3822,6 +4412,15 @@ _MOTIF_PORTAIL = (
     "son propre bloc."
 )
 
+# Blocs isoles ROUGES, hors PURE_TESTS le temps de leur reparation : NOMMES avec la raison MESUREE, jamais tus
+# (NR test_blocs_isoles_dans_la_suite_pure_nr). Mesure 2026-10-18 (job_c7171b3e5c60), chacun joue SEUL : ces
+# echecs ne dependent pas de l'ordre -- l'hypothese « purgeur web_hub » du 15/10 est refutee. Retirer une ligne
+# des que le fichier est vert ET verse dans PURE_TESTS.
+ISOLES_EN_REPARATION = {
+    # test_hub_l : repare par l'Option L reimplementee (9679f9505), vert 14/14 le 18/10 -> verse dans PURE_TESTS.
+    # test_hub_n : repare par le coffre de test isole (forge_secrets._coffre_test, decision owner 18/10), 13/13.
+}
+
 BLOCS_ISOLES = (
     ("tests/nr/test_epistemic_schema_absent_nr.py", _MOTIF_PORTAIL),
     # Importe `nokido_hub` pour appeler `inbox_stream` et COMPTER les `pop()` :
@@ -3851,6 +4450,12 @@ BLOCS_ISOLES = (
     ("tests/nr/test_tuile_orpheline_nr.py", _MOTIF_PORTAIL),
     ("tests/nr/test_ui_pages_rendent_nr.py", _MOTIF_PORTAIL),
     ("tests/test_forge_openai_proxy_firewall.py", _MOTIF_PORTAIL),
+    # Crash NATIF (access violation) a l'import pandas -> pyarrow dans le processus de la suite pure (~15 threads
+    # vivants), 2e occurrence mesuree le 18/10 (job_80583a2e9290 : bloc coupe a 1229 s, SUITE_INCOMPLETE) ; vert seul
+    # (2 passed). Isole pour que l'accident ne coupe plus toute la suite ; la cause reste ouverte (bb discovered_facts
+    # pyarrow_crash_2e_occurrence_20261018).
+    ("tests/nr/test_router_dt_dimension_modele_nr.py",
+     "import pyarrow tardif dans un processus charge = access violation (18/10) ; seul, il passe"),
     ("tests/test_rbac_views.py", _MOTIF_PORTAIL),
     ("tests/nr/test_proprietes_generatives_nr.py",
      "Hypothesis reparcourt sys.modules et parse l'AST de chaque module local a "
@@ -4693,6 +5298,9 @@ def main() -> int:
                          "-n 4. OPT-IN : le gate par defaut reste sequentiel tant que le mode parallele n'a pas "
                          "garde une publication reelle -- la CI de reference et le runner le passent EXPLICITEMENT "
                          "depuis le 14/10 (premiere publication gardee).")
+    ap.add_argument("--trace-import", default=None, dest="trace_import", metavar="MODULES",
+                    help="modules (separes par des virgules) dont le PREMIER chargement est journalise avec le test "
+                         "en cours (sandbox/trace_import.jsonl). Ex. pyarrow : nommer le test qui charge arrow.dll.")
     ap.add_argument("--turbo-workers", type=int, default=None, dest="turbo_workers",
                     help="nombre de workers xdist en --turbo (defaut : choisi sur la RAM LIBRE au depart, "
                          "4 / 3 / 2 -- voir _PALIERS_TURBO). Mesure du 14/10 : l'ancien defaut, la moitie des "
@@ -4720,6 +5328,12 @@ def main() -> int:
     ap.add_argument("--commit-corps", metavar="TEXTE", default=None,
                     help="corps optionnel du message de commit")
     a = ap.parse_args()
+    if getattr(a, "trace_import", None):
+        # 19/10 (owner : traceur a la prochaine CI) : herite par les sous-processus pytest et leurs workers xdist ;
+        # le conftest des NR arme tools/forge_trace_import -> sandbox/trace_import.jsonl.
+        os.environ["NOKIDO_TRACE_IMPORT"] = a.trace_import
+        # une SESSION commune a tous les workers xdist du run (sinon lire_derniere_session ne verrait qu'un worker)
+        os.environ.setdefault("NOKIDO_TRACE_SESSION", "ci-%d-%d" % (int(__import__("time").time()), os.getpid()))
     # ON FIGE ICI, AVANT TOUTE MESURE. Plus tard serait deja trop tard : c'est
     # precisement l'intervalle entre le debut des gates et le `git add` qu'il faut
     # couvrir, et d'autres surfaces partagent cet arbre.
@@ -4829,6 +5443,9 @@ def main() -> int:
             # 2 semaines de CI rouge. Le cache ne vaut pas un gate qui ment.
             [PY, "-m", "ruff", "check", "app", "tools", "--select=E9,F63,F7", "--no-cache"],
             blocking=True))
+        _resume = resume_ruff((_run.__dict__.get("dernier") or {}).get("sortie") or "")
+        if _resume:
+            print("  ▶ " + _resume, flush=True)
     else:
         print("\n\033[90m[skip] ruff absent — pip install ruff\033[0m")
 
@@ -4946,6 +5563,17 @@ def main() -> int:
         else:
             print("\n\033[90m[skip] archi-lint : semgrep absent — "
                   "golden-rules couvre le domaine\033[0m")
+        if not _sg_ok and _demande("archi-lint"):
+            # MESURE DEPORTEE (decision owner 18/10) : semgrep ne demarre pas sous ce compte, mais il tourne sous le
+            # compte owner ; une mesure FRAICHE y vaut verdict reel (le registre de vitalite sort de l'anergie).
+            # Le gate reste WARN, comme quand il tourne ici : `_run` rend `ok or not blocking`.
+            _al_frais, _al_ok, _al_detail = _mesure_archi_lint_deportee()
+            if _al_frais:
+                print("\n\033[1;36m── archi-lint (Golden Rules) [mesure deportee] ──\033[0m  (warn)")
+                print("  → %s (%s)" % ("OK" if _al_ok else "WARN", _al_detail), flush=True)
+                results.append(("archi-lint (Golden Rules)", True))
+            else:
+                print("  ↳ et AUCUNE mesure deportee exploitable : %s" % _al_detail)
     else:
         print("\n\033[90m[skip] forge_archi_lint.py absent\033[0m")
 
@@ -5251,7 +5879,7 @@ def main() -> int:
                 _liste = getattr(a, "impacte_fichiers", None)
                 if _liste:
                     from forge_ci_selection import liste_depuis_fichier
-                    _mods, _etat_diff = liste_depuis_fichier(_liste)
+                    _mods, _etat_diff = liste_depuis_fichier(_liste, racine=ROOT)
                 else:
                     # Auto-detection : correcte, mais ILLISIBLE sous le compte du
                     # hub (git refuse) — elle joue donc TOUT, ce qui est sur.

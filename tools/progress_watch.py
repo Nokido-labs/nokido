@@ -125,7 +125,7 @@ def main(argv=None) -> int:
                 else:
                     mx = v
             except (ValueError, IndexError):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/progress_watch.py', 127, exc_info=True)
     return suivre(job_id, gel_s=gel, max_s=mx)
 
 

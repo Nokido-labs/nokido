@@ -444,7 +444,7 @@ def reset_bridge() -> None:
             if hasattr(self, "_executor") and self._executor:
                 self._executor.shutdown(wait=False)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gemini_bridge.py', 446, exc_info=True)
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ def _emit_event(kind: str, data: dict) -> None:
         from nokido_agent.app.forge_postal import _emit  # type: ignore
         _emit(kind, data)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_job_notify.py', 51, exc_info=True)
 
 
 def boite_de(nom: str) -> str:

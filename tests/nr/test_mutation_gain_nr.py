@@ -47,10 +47,12 @@ def test_tableau_de_bord_agregats(tmp_path=None):
     """Point 6 : le dashboard doit dire si la boucle APPREND (taux d'acceptation, gains)."""
     from forge_mutation_judge import tableau_de_bord  # noqa: PLC0415
 
+    # Entrees de PRODUCTION horodatees (18/10 : sans `ts`, une entree est de l'historique de banc, exclue des taux).
+    ts = {"ts": "2026-10-18T12:00:00", "origine": "production"}
     entrees = [
-        {"verdict": "AMELIORE", "baseline": {"duree_s": 10.0}, "candidat": {"duree_s": 8.0}},
-        {"verdict": "SURVIT_SANS_GAIN"},
-        {"verdict": "MEURT", "cause": "recidive"},
+        dict(ts, verdict="AMELIORE", baseline={"duree_s": 10.0}, candidat={"duree_s": 8.0}),
+        dict(ts, verdict="SURVIT_SANS_GAIN"),
+        dict(ts, verdict="MEURT", cause="recidive"),
     ]
     tb = tableau_de_bord(entrees=entrees)
     assert tb["tentatives"] == 3

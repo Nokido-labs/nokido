@@ -93,7 +93,7 @@ def _build_worker_namespace() -> dict:
             mod = __import__(mod_name)
             ns[mod_name] = mod
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_worker.py', 95, exc_info=True)
 
     return ns
 
@@ -109,7 +109,7 @@ def _worker_process(req_q: multiprocessing.Queue, res_q: multiprocessing.Queue) 
 
         ctypes.windll.kernel32.SetConsoleTitleW("Nokido Hub Worker")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_worker.py', 111, exc_info=True)
 
     ns = _build_worker_namespace()
     logger.info("[HubWorker] Démarré — namespace prêt")
@@ -118,6 +118,7 @@ def _worker_process(req_q: multiprocessing.Queue, res_q: multiprocessing.Queue) 
         try:
             req = req_q.get(timeout=30)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_worker.py', 120, exc_info=True)
             continue
 
         if req is None:  # signal d'arrêt
@@ -199,6 +200,7 @@ class HubWorkerClient:
                     # Réponse d'un autre request — remettre dans la queue
                     self._res_q.put(res)
             except queue.Empty:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_worker.py', 201, exc_info=True)
                 continue
 
         return f"TIMEOUT after {timeout}s"
@@ -213,7 +215,7 @@ class HubWorkerClient:
             self._req_q.put(None)
             self._proc.join(timeout=3)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hub_worker.py', 215, exc_info=True)
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

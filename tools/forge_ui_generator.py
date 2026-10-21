@@ -15,7 +15,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
 import time
@@ -23,7 +22,15 @@ import urllib.request
 from pathlib import Path
 
 HUB = "http://localhost:8766"
-TOKEN = os.getenv("FORGE_MCP_TOKEN", "")
+# Lance par chemin, sys.path[0] = tools/ : sans cette amorce `from nokido_agent...` leve ModuleNotFoundError.
+import sys as _sys_amorce  # noqa: E402
+from pathlib import Path as _Path_amorce  # noqa: E402
+_RACINE_AMORCE = str(_Path_amorce(__file__).resolve().parent.parent)
+if _RACINE_AMORCE not in _sys_amorce.path:
+    _sys_amorce.path.insert(0, _RACINE_AMORCE)
+from nokido_agent.app.forge_secrets import get_secret  # noqa: E402  coffre d'abord, env en dernier repli (16/10)
+
+TOKEN = get_secret("FORGE_MCP_TOKEN") or ""
 ROOT = Path(__file__).parent.parent
 COMPONENTS_DIR = ROOT / "sandbox" / "ui_components"
 
@@ -140,7 +147,7 @@ def list_components() -> list[dict]:
         try:
             entries.append(json.loads(line))
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ui_generator.py', 149, exc_info=True)
     return entries
 
 

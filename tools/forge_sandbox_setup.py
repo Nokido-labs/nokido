@@ -13,6 +13,9 @@ Run as Administrator:
     LAFORGE_PYTHON tools/forge_sandbox_setup.py            # provision
     LAFORGE_PYTHON tools/forge_sandbox_setup.py --status   # show state only
     LAFORGE_PYTHON tools/forge_sandbox_setup.py --teardown # remove everything
+    LAFORGE_PYTHON tools/forge_sandbox_setup.py --pare-feu # POSIX only, root: repose
+                                                           # UNIQUEMENT la coupure reseau
+                                                           # (voir test_pare_feu_offline_...)
 
 Step 0 of the build is NOT here: the `_resolve_ring` fallback fix in
 nokido_hub.py must be applied separately.
@@ -598,6 +601,14 @@ def posix_pare_feu() -> str:
 
 
 def main_posix(args) -> int:
+    # 20/10 : --pare-feu AVANT tout le reste. `iptables -A` et l'ancre pf ne survivent pas au
+    # redemarrage : le superviseur root le repose a chaque boot. Ni compte, ni groupe, ni ACL.
+    if getattr(args, "pare_feu", False):
+        if os.geteuid() != 0:
+            print("ERROR: run as root (--pare-feu repose la regle de pare-feu).")
+            return 1
+        print("  pare-feu : %s" % posix_pare_feu())
+        return 0
     if args.status:
         for nom in (*POSIX_USERS, POSIX_TRUSTED):
             print("  %s: %s" % (nom, "present" if _posix_existe(nom) else "MISSING"))
@@ -630,7 +641,18 @@ def main() -> int:
         help="re-applique uniquement les ACL (sans toucher aux "
         "users / mots de passe / firewall / creds)",
     )
+    ap.add_argument(
+        "--pare-feu",
+        action="store_true",
+        help="(POSIX, root) repose UNIQUEMENT la coupure reseau du compte offline "
+        "-- ni compte, ni groupe, ni ACL",
+    )
     args = ap.parse_args()
+
+    if args.pare_feu and sys.platform == "win32":
+        # New-NetFirewallRule persiste d'elle-meme : rien a reposer, surtout pas un provisioning.
+        print("--pare-feu : sans objet sous Windows (la regle New-NetFirewallRule persiste).")
+        return 0
 
     if sys.platform != "win32":
         return main_posix(args)

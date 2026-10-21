@@ -64,7 +64,7 @@ for arg in sys.argv[2:]:
             try:
                 v = int(v)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_call.py', 66, exc_info=True)
         extra[k] = v
 
 # Construire le payload JSON-RPC correct

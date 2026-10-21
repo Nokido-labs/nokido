@@ -88,7 +88,7 @@ class ForgeProjectExporter:
                         ) or [entry.get("feedback", "")]
                         ctx["failure_lessons"].extend(lesson[:2])
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_exporter.py', 90, exc_info=True)
 
         # 2 — Génomique : vault/
         if self.vault_path.exists():
@@ -110,7 +110,7 @@ class ForgeProjectExporter:
                     )
                     ctx["scores"][mod] = g.get("score", 0)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_exporter.py', 112, exc_info=True)
 
         # 3 — Contraintes HD : lire __FORGE_TAGS__ + CONTRAINTES: dans les sources
         for fpath in sorted((self.root / "app").glob("*.py"))[:30]:
@@ -127,7 +127,7 @@ class ForgeProjectExporter:
                     for c in re.findall(r"! (.+)", cblock.group(1)):
                         ctx["constraints"].append(f"{fpath.name}: {c.strip()}")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_exporter.py', 129, exc_info=True)
 
         # 4 — Déduplication
         ctx["failure_lessons"] = list(dict.fromkeys(str(l) for l in ctx["failure_lessons"] if l))[
@@ -259,7 +259,7 @@ Le fichier `shadow_mutation/rag_index/experience_memory.jsonl` contient
                         zf.write(fp, arc)
                         total += 1
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_exporter.py', 261, exc_info=True)
         size_mb = zip_path.stat().st_size / 1024 / 1024
         print(f"  🎁 {total} fichiers | {size_mb:.1f} MB")
         return zip_path

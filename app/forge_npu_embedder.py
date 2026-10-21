@@ -108,7 +108,7 @@ def detect_hardware() -> dict:
         else:
             result["recommended_ep"] = "CPU"
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_npu_embedder.py', 110, exc_info=True)
     # Détecter AVX2 (CPU x86)
     try:
         import platform, subprocess
@@ -480,7 +480,7 @@ class NPUEmbedder:
                 db_count = conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]
                 conn.close()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_npu_embedder.py', 482, exc_info=True)
         return {
             "available": self.available,
             "provider": self.provider,

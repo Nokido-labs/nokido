@@ -66,6 +66,7 @@ def _count_verdicts(refined: str) -> dict:
             try:
                 d = json.loads(ln)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_job_watch_notify.py', 68, exc_info=True)
                 continue
             total += 1
             v = d.get("final", {}).get("verdict")

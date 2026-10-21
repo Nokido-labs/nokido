@@ -26,7 +26,7 @@ def _log(msg: str) -> None:
         with open(LOG, "a", encoding="utf-8") as fh:
             fh.write(f"{time.time():.0f} {msg}\n")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_hub_reload.py', 28, exc_info=True)
 
 
 def main() -> int:

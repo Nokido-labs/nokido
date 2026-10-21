@@ -68,7 +68,9 @@ def test_sans_identite_le_comptage_ancien_s_applique():
 
 def test_mesurer_rend_l_identite_des_tests_verts(monkeypatch):
     def faux_run(cmd, **_k):
-        return types.SimpleNamespace(returncode=0 if cmd[-1] == "tests/vert.py" else 1)
+        # le faux suit le contrat de subprocess.run(capture_output=True) : stdout/stderr toujours presents
+        # (a4335129b lit la sortie d'un echec ; le faux sans eux cassait la CI de reference e6642dcf1)
+        return types.SimpleNamespace(returncode=0 if cmd[-1] == "tests/vert.py" else 1, stdout="", stderr="")
 
     monkeypatch.setattr(mj.subprocess, "run", faux_run)
     r = mj.mesurer(["tests/vert.py", "tests/rouge.py"])

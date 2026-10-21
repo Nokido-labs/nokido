@@ -235,7 +235,15 @@ def test_la_telemetrie_VOYAGE_avec_la_preuve(monkeypatch, tmp_path):
 
 def test_sans_telemetrie_le_manifeste_ne_PORTE_pas_un_extra_vide(monkeypatch, tmp_path):
     """Contre-epreuve : un `extra` toujours present ferait croire a une mesure
-    la ou il n'y en a aucune."""
+    la ou il n'y en a aucune.
+
+    Hermetique (19/10) : sous un interpreteur hors lock (miniforge 3.12, le lock decrit laforge_py314), la
+    reconciliation ajoutait un `extra.dependances` LEGITIME et ce test rougissait sans rapport avec la telemetrie."""
+    import forge_ci_lock as _lock
+
+    monkeypatch.setattr(_lock, "fermeture", lambda *a, **k: {"paquets": {}})
+    monkeypatch.setattr(_lock, "reconcilier", lambda lock, inst: (
+        "CONFORME", {"attendus": 0, "ecarts": {}, "manquants": [], "hors_lock": []}))
     monkeypatch.setattr(cl, "_TELEMETRIE", [])
     m = _ecrire(monkeypatch, tmp_path, "SUITE_COMPLETE")
     assert "extra" not in m

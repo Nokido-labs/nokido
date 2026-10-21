@@ -140,7 +140,7 @@ class EventBus:
         try:
             self._dispatch_subscribers(event)
         except Exception:
-            pass  # fail-open
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_manager.py', 142, exc_info=True)
 
         # 4. Persistance Replay Log — ARCHIVAGE a 5 Mo, jamais destruction.
         #
@@ -270,6 +270,7 @@ class EventBus:
                             self.buffers[topic] = deque(maxlen=100)
                         self.buffers[topic].append(event)
                     except:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_state_manager.py', 272, exc_info=True)
                         continue
         except Exception as e:
             logger.error(f"Echec restauration EventBus: {e}")

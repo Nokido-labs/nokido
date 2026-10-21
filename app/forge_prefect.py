@@ -289,7 +289,7 @@ class PrefectManager:
                 try:
                     on_step(icon, msg)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_prefect.py', 291, exc_info=True)
 
         # 1. Clone ou pull
         _step("🔄", f"Sync {repo_url} ({branch})")

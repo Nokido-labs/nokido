@@ -42,7 +42,7 @@ def _log(msg):
         with open(os.path.join(sb, "db_preflight.log"), "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_preflight.py', 44, exc_info=True)
     print(f"[db_preflight] {msg}", flush=True)
 
 
@@ -126,7 +126,7 @@ def _should_deep_check(db_path):
         try:
             os.remove(_RESCUE_FLAG)  # one-shot : consommé au boot
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_preflight.py', 128, exc_info=True)
         return True, "sandbox/db_rescue.flag (force one-shot)"
     return False, f"header rapide (-wal={_wal_residual_bytes(db_path)}o, escalade full si KO)"
 
@@ -195,7 +195,7 @@ def relocate_if_symlink(db_path):
                 try:
                     os.remove(f)
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_preflight.py', 197, exc_info=True)
         _log(f"relocate: {db_path} symlink->fichier réel C: (depuis {target}) OK")
         return "relocated"
     except Exception as e:

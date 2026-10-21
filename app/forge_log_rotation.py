@@ -95,7 +95,7 @@ def migrate_to_rotating(logger: logging.Logger, *, max_bytes: int = MAX_BYTES, b
                 try:
                     h.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_log_rotation.py', 97, exc_info=True)
                 new_h = RotatingFileHandler(
                     base,
                     maxBytes=max_bytes,
@@ -140,7 +140,7 @@ def cap_existing_log(path: Path | str, *, keep_last_bytes: int = MAX_BYTES) -> b
         try:
             backup.write_bytes(b"")  # marker, sans copier 83 MB
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_log_rotation.py', 142, exc_info=True)
         path.write_bytes(tail)
         return True
     except Exception:

@@ -188,7 +188,7 @@ try:
         silent=True,
     )
 except Exception:
-    pass  # never block import
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_test_resource_calibrator.py', 190, exc_info=True)
 
 
 # ── Catégories de processus ───────────────────────────────────────────────────
@@ -447,7 +447,7 @@ class ResourceManager:
                     )
                 )
             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_test_resource_calibrator.py', 449, exc_info=True)
 
         # Trier : plus gros consommateurs en premier
         self._records.sort(key=lambda r: -r.rss_mb)
@@ -558,7 +558,7 @@ class ResourceManager:
             try:
                 p.nice(-5)
             except (PermissionError, psutil.AccessDenied):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_test_resource_calibrator.py', 560, exc_info=True)
             logger.info(f"[pin] {n} cores allocated, nice=-5")
         except Exception as e:
             logger.warning(f"[pin] {e}")

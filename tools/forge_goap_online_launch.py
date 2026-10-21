@@ -25,17 +25,22 @@ for _p in (str(_ROOT / "app"), str(_ROOT / "tools")):
 
 os.environ.setdefault("LAFORGE_GOAP_VALUE_NET", "online")  # intention : value_net online
 
-# Token hub AVANT l'import du bridge (HUB_TOKEN lu au niveau module). Best-effort vault.
-if not (os.getenv("LAFORGE_HUB_TOKEN") or os.getenv("FORGE_MCP_TOKEN")):
+# Token hub AVANT l'import du bridge (HUB_TOKEN lu au niveau module). Coffre d'ABORD (16/10) : il n'etait
+# interroge que si l'environnement etait vide -- l'env faisait autorite sur le coffre.
+def _poser_jeton_hub() -> None:
     try:
         # 2b-6 (2026-09-28) : par le guichet (transition dite), plus en direct au coffre.
         from nokido_agent.app.forge_secrets import get_secret
 
         _tok = get_secret("FORGE_MCP_TOKEN") or get_secret("HUB_TOKEN")
-        if _tok:
-            os.environ["LAFORGE_HUB_TOKEN"] = _tok
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 -- coffre inaccessible : l'env reste tel quel, et on le DIT
+        print("[goap_online] coffre inaccessible (%s) : jeton de l'environnement conserve" % type(exc).__name__)
+        return
+    if _tok:
+        os.environ["LAFORGE_HUB_TOKEN"] = _tok
+
+
+_poser_jeton_hub()
 
 from nokido_agent.tools.forge_goap_hub_bridge import Goal, GOAPPlanner, _default_actions  # noqa: E402
 from nokido_agent.app.forge_goap_intuition import make_default_providers  # noqa: E402

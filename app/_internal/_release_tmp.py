@@ -26,19 +26,19 @@ def _release_instance_lock():
                     _LOCK_FH.seek(0)
                     msvcrt.locking(_LOCK_FH.fileno(), msvcrt.LK_UNLCK, 1)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_release_tmp.py', 28, exc_info=True)
             else:
                 import fcntl
 
                 try:
                     fcntl.flock(_LOCK_FH.fileno(), fcntl.LOCK_UN)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_release_tmp.py', 35, exc_info=True)
             _LOCK_FH.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_release_tmp.py', 38, exc_info=True)
     try:
         if _LOCK_FILE.exists():
             _LOCK_FILE.unlink(missing_ok=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/_internal/_release_tmp.py', 43, exc_info=True)

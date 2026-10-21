@@ -36,6 +36,7 @@ class JsonQueryTool:
                                     raise KeyError(f"Key '{key}' not found in path.")
                             return {"result": result}
                         except (KeyError, IndexError, TypeError):
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_json_query.py', 38, exc_info=True)
                             continue # Try next line if key not found in current object
                 return {"error": f"Query '{query}' not found in any object in {file_path}"}
             else: # Assume .json

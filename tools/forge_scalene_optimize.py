@@ -40,6 +40,7 @@ def _extraire(txt: str) -> dict | None:
         try:
             obj, _ = dec.raw_decode(txt[i:])
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_scalene_optimize.py', 42, exc_info=True)
             continue
         if isinstance(obj, dict) and "files" in obj:
             return obj

@@ -296,6 +296,7 @@ class OllamaParallelRunner:
                             try:
                                 data = json.loads(line)
                             except json.JSONDecodeError:
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/routage.py', 298, exc_info=True)
                                 continue
                             tok = data.get("message", {}).get("content", "")
                             if tok:
@@ -1020,7 +1021,7 @@ class SmartRouter:
                 )
                 await self.rag_engine.add_session_message("exchange", "system", doc)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/routage.py', 1022, exc_info=True)
 
         return RouteResult(
             category=cat,

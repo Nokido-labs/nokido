@@ -155,7 +155,12 @@ def distill(project: str, output_dir: Path, include: list = None, rings: list = 
 
     # 2. RAG DB externe
     db_out = output_dir / (project + "_rag.db")
-    conn2 = sqlite3.connect(str(db_out))
+    # Chemin gouverne (socle) : `open_writer` (AUTOCOMMIT + WAL + busy_timeout) remplace la
+    # connexion nue (lot 2 de migration des ecrivains nus, 18/10) ; le lot reste UNE transaction
+    # explicite (BEGIN/COMMIT), sinon l'autocommit validerait chaque ligne une par une.
+    from nokido_agent.app.forge_db_path import open_writer
+
+    conn2 = open_writer(path=str(db_out))
     conn2.execute("""CREATE TABLE IF NOT EXISTS rag_chunks
         (id INTEGER PRIMARY KEY, source TEXT, domain TEXT, text TEXT,
          meta TEXT DEFAULT '{}')""")
@@ -166,8 +171,9 @@ def distill(project: str, output_dir: Path, include: list = None, rings: list = 
         + [(r["source"], r["domain"], r["text"]) for r in practices]
         + [("system_rules", "rules", r["content"]) for r in rules]
     )
+    conn2.execute("BEGIN")
     conn2.executemany("INSERT INTO rag_chunks(source,domain,text) VALUES(?,?,?)", all_chunks)
-    conn2.commit()
+    conn2.execute("COMMIT")
     conn2.close()
     print(f"✅ RAG DB externe → {db_out} ({len(all_chunks)} chunks)")
 

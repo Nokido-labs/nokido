@@ -3,8 +3,9 @@
 Contrats :
   1. il PART dans le dist (WORKFLOWS_DIST), se declenche au tag de version, et ne tourne QUE sur le depot public
      (le fichier vit aussi dans le prive : sans garde, chaque tag y echouerait sans secrets) ;
-  2. ses cibles sont EXACTEMENT celles de publish_multi.MIROIRS_PUBLICS (une forge ajoutee d'un cote et oubliee de
-     l'autre rougit ici) ;
+  2. ses forges sont EXACTEMENT celles de publish_multi.MIROIRS_PUBLICS (une forge ajoutee d'un cote et oubliee de
+     l'autre rougit ici) ; leurs ESPACES DE NOMS viennent de secrets du depot public, jamais ecrits dans le fichier --
+     sinon la generisation du dist les reecrit (mesure 0.20.12 : `user` -> `user`) ;
   3. aucun jeton dans une URL ni sur une ligne de commande -- en-tete http.extraHeader seulement ;
   4. un secret ABSENT est DIT (::error::) et fait echouer le job ; une forge en echec n'empeche pas les autres ;
   5. permissions minimales (contents: read), source = depot public lui-meme, branches + tags seulement.
@@ -55,10 +56,33 @@ def test_le_workflow_part_dans_le_dist_et_suit_la_fin_de_la_release():
     assert "refs/heads/main" in t and "describe --tags" in t, "verifie main ET le dernier tag"
 
 
+NAMESPACES = {"codeberg": "MIROIR_CODEBERG", "gitlab": "MIROIR_GITLAB", "sourceforge": "MIROIR_SF_USER"}
+
+
 def test_les_cibles_sont_celles_de_publish_multi():
+    """16/10 : les ESPACES DE NOMS ne sont plus ecrits dans le workflow (la generisation du dist les reecrivait en
+    `user`, mesure 0.20.12). Chaque forge de publish_multi y est par son HOTE ; son espace de noms vient d'un secret
+    du depot public, dont l'absence est DITE. Une forge ajoutee d'un cote et oubliee de l'autre rougit ici."""
+    from urllib.parse import urlsplit
     t = _texte()
+    assert set(_miroirs_publics()) == set(NAMESPACES), "forge sans secret d'espace de noms : %s" % set(_miroirs_publics())
     for nom, cible in _miroirs_publics().items():
-        assert cible["url"] in t, "%s : cible absente du workflow (%s)" % (nom, cible["url"])
+        assert urlsplit(cible["url"]).hostname in t, "%s : hote absent du workflow" % nom
+        assert "secrets.%s" % NAMESPACES[nom] in t, "%s : espace de noms non lu d'un secret" % nom
+        assert re.search(r"::error::%s absent" % NAMESPACES[nom], t), "%s absent doit etre DIT" % NAMESPACES[nom]
+    assert "secrets.MIROIR_HF_SPACE" in t and re.search(r"::error::MIROIR_HF_SPACE absent", t)
+
+
+def test_aucun_workflow_du_dist_n_est_altere_par_la_generisation():
+    """Mesure 0.20.12 (16/10) : ce NR lisait la SOURCE, le promoteur publie la forme GENERISEE. Cinq marqueurs
+    reecrits `user -> user` envoyaient Codeberg, SourceForge et le Space HF vers un compte qui n'existe pas -- le
+    workflow a du etre desactive sur le depot public. Chemin REEL : la fonction que le promoteur applique au dist.
+    Un workflow du dist doit en sortir IDENTIQUE, sinon ce qui tourne n'est pas ce qu'on a relu."""
+    import forge_dist_publish as m
+    for w in m.WORKFLOWS_DIST:
+        t = (ROOT / w).read_text(encoding="utf-8")
+        _, k = m.generiser_texte(t)
+        assert k == 0, "%s : %d marqueur(s) reecrits par la generisation -- version PUBLIEE != source" % (w, k)
 
 
 def test_aucun_jeton_dans_une_url():

@@ -105,6 +105,7 @@ class RAGVectorSource:
             try:
                 vec = np.array(json.loads(emb_raw.decode()), dtype=np.float32)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_universal.py', 107, exc_info=True)
                 continue
             if vec.shape[0] != self.expected_dim:
                 skipped_dim += 1
@@ -403,7 +404,7 @@ class UniversalGraph:
                     results.append((nid, float(np.dot(q_vec, emb))))
             return sorted(results, key=lambda x: -x[1])[:top_k]
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_universal.py', 405, exc_info=True)
         # Fallback textuel
         ql = query.lower()
         results = [(nid, sum(w in n.label.lower() for w in ql.split())) for nid, n in self._nodes.items()]
@@ -557,7 +558,7 @@ def score_edge(G, u: str, v: str) -> float:
             if na > 0 and nb > 0:
                 cosine = float(np.dot(a, b) / (na * nb))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_universal.py', 559, exc_info=True)
 
     jaccard = 0.0
     tu, tv = set(du.get("tags") or []), set(dv.get("tags") or [])

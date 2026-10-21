@@ -117,7 +117,7 @@ def _load_identity_rings() -> dict:
             }
             _RINGS_CACHE["mtime"] = m
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_workspace_guard.py', 119, exc_info=True)
     return _RINGS_CACHE["rings"]
 
 
@@ -337,6 +337,7 @@ def build_run_guard_header(allowed_abspaths: list[str], sous_processus: bool = F
         try:
             zones.append(_o.path.normcase(_o.path.abspath(p)))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_workspace_guard.py', 339, exc_info=True)
             continue
     return (_RUN_GUARD_TEMPLATE.replace("__ZONES__", repr(tuple(zones)))
             .replace("__SOUS_PROCESSUS__", repr(bool(sous_processus))))

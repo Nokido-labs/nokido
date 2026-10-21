@@ -44,6 +44,8 @@ Briques éparses, non assemblées :
 | Event mesh | Mesh événementiel distribué | **Spec, pas câblé** |
 | **Audio organ** | Signal qualia pour nœuds edge/mobile | **Roadmap** |
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 ---
 
 ## 1. Pourquoi une super app est une mauvaise idée

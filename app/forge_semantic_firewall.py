@@ -485,7 +485,7 @@ def _vault_store(tag: str, value: str) -> None:
         con.commit()
         con.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 487, exc_info=True)
 
 
 def deanonymize_log(text: str) -> str:
@@ -550,7 +550,7 @@ def _log_hmac_key() -> bytes:
         # `vault_set` aurait remplace la copie lisible par tous a chaque demarrage d'un
         # process bac a sable -- et « illisible » n'est pas « absent ».
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 552, exc_info=True)
     _LOG_HMAC_KEY = key or _os.urandom(32)  # fallback éphémère (jamais de SHA nu non-keyed)
     return _LOG_HMAC_KEY
 
@@ -773,7 +773,7 @@ class SemanticFirewall:
                 self._canaries[session_id] = canary
                 _canari_emis = canary
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 775, exc_info=True)
 
         # ── 5. Cognition AMI (#11) : perception + inférence active + MPC ─────────
         # Léger (~1ms SQLite, NumPy RAM, 0 réseau/GPU), best-effort, JAMAIS bloquant.
@@ -811,7 +811,7 @@ class SemanticFirewall:
 
             safe_context, safe_task, _ = _ca_align(safe_context, safe_task)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 813, exc_info=True)
 
         # AB4 — INSERTION de la marque, apres l'aligneur de cache : le bloc
         # sentinelle doit rester en FIN de contexte (meme place que dans
@@ -918,7 +918,7 @@ class SemanticFirewall:
                         response=response,
                     )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 920, exc_info=True)
 
         # ── 4. Hallucination signals ──────────────────────────────────────────
         resp_low = response.lower()
@@ -1004,7 +1004,7 @@ class SemanticFirewall:
                     float(_obs.get("surprise") or 0.0), int(_obs.get("n", 0) or 0)
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_semantic_firewall.py', 1006, exc_info=True)
             if cognition.get("high_surprise"):
                 self._stats["ami_high_surprise"] = self._stats.get("ami_high_surprise", 0) + 1
                 logger.info(f"[firewall][AMI] high surprise post-flight "

@@ -92,6 +92,7 @@ def _is_observable(p: Path) -> bool:
         except PermissionError:
             return False
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_config_refs_audit.py', 94, exc_info=True)
             continue
     return False
 
@@ -121,6 +122,7 @@ def scan() -> list[dict]:
         try:
             lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_config_refs_audit.py', 123, exc_info=True)
             continue
         for i, line in enumerate(lines, 1):
             s = line.strip()

@@ -90,7 +90,7 @@ PROVIDERS = {
         "ctx": 131000,
         "models": ["meta-llama/Llama-3.3-70B-Instruct"],
         "best_for": ["queries", "filter", "classify"],
-        "unavailable_if": lambda: not os.environ.get("HF_TOKEN"),
+        "unavailable_if": lambda: not _gs("HF_TOKEN"),
     },
     # RETIRE (owner 15/10 : « gpt4o_github n'existe plus, a supprimer ») : GitHub Models rend
     # 410 Gone depuis le 18/08 (raison dans forge_provider_alias.RETIRES). Plus aucune route.
@@ -110,7 +110,7 @@ PROVIDERS = {
         "ctx": 128000,
         "models": ["llama-3.1-sonar-large-128k-online"],
         "best_for": ["web_search_llm", "fact_check", "current_events"],
-        "unavailable_if": lambda: not os.environ.get("PERPLEXITY_API_KEY"),
+        "unavailable_if": lambda: not _gs("PERPLEXITY_API_KEY"),
     },
     # CHEAP - DeepSeek $0.01/1M tokens
     "deepseek": {
@@ -267,7 +267,7 @@ def select_provider(task_type: str) -> str:
                     return _p
             return "claude"  # dernier recours, garanti critical-capable
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_task_router.py', 269, exc_info=True)
     # KEYSTONE Ph2 (opt-in, OFF par defaut): selection efficacite-aware via le pool d'agy ;
     # ne remplace jamais la cascade ROUTING ci-dessous (fallback A = comportement actuel).
     if os.getenv('LAFORGE_KEYSTONE_PH2') == '1':
@@ -278,7 +278,7 @@ def select_provider(task_type: str) -> str:
                 if _kp in _s and _s[_kp].get('available'):
                     return _kp
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_task_router.py', 280, exc_info=True)
     candidates = ROUTING.get(task_type, ["groq", "ollama", "gemini"])
     if candidates == ["local"]:
         return "local"
@@ -308,7 +308,7 @@ async def route(task_type: str, payload: dict) -> dict:
 
             _log.getLogger("Nokido.TaskRouter").debug(f"[DT] {task_type} -> {_dt_provider} conf={_dt_conf:.2f}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_task_router.py', 310, exc_info=True)
     prompt = payload.get("prompt") or payload.get("objective", "")
     if not prompt:
         return {"ok": False, "error": "payload.prompt requis"}
@@ -387,7 +387,7 @@ async def route(task_type: str, payload: dict) -> dict:
 
                 _log_dt(_prompt, task_type, provider_name, result.get("latency_ms", 0), True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_task_router.py', 389, exc_info=True)
             return result
         last_err = (result or {}).get("error", "") or f"réponse non-ok de {provider_name}"
 

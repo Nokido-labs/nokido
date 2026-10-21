@@ -236,7 +236,7 @@ def anchor_results(results: dict) -> None:
             domain="mpc",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_night_trainer.py', 238, exc_info=True)
 
 
 def json_safe(obj):

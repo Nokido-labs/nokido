@@ -74,6 +74,7 @@ def main() -> int:
                 except Exception as e:  # noqa: BLE001
                     errs.append({"pid": p.info["pid"], "err": str(e)[:80]})
         except (psutil.NoSuchProcess, psutil.AccessDenied):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_kill_stale_executors.py', 76, exc_info=True)
             continue
     print(json.dumps({"se_debug": se, "found": found, "killed": killed, "errs": errs},
                      ensure_ascii=False))

@@ -218,7 +218,7 @@ class SovereignMembrane:
                 try:
                     return bytes.fromhex(env[2:])
                 except ValueError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 220, exc_info=True)
             return env.encode("utf-8")
 
         secret_file = Path(self._db).parent / ".membrane_master.key"
@@ -240,7 +240,7 @@ class SovereignMembrane:
         try:
             os.chmod(secret_file, 0o600)
         except (OSError, NotImplementedError):
-            pass  # Windows / FS ne supportant pas chmod
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 242, exc_info=True)
         return master
 
     @staticmethod
@@ -334,7 +334,7 @@ class SovereignMembrane:
             with open(wal_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 336, exc_info=True)
 
     def replay_wal_to_db(self) -> int:
         """Replay vault_wal.jsonl dans alias_map SQLite.
@@ -364,6 +364,7 @@ class SovereignMembrane:
                         rec = json.loads(line)
                         entries.append(rec)
                     except Exception:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 366, exc_info=True)
                         continue
             with closing(sqlite3.connect(self._db)) as conn:
                 for rec in entries:
@@ -377,14 +378,14 @@ class SovereignMembrane:
                             )
                             count += 1
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 379, exc_info=True)
                     elif rec.get("op") == "del":
                         try:
                             conn.execute(
                                 "DELETE FROM alias_map WHERE mission_id=? AND alias=?", (rec["mission"], rec["alias"])
                             )
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 386, exc_info=True)
                 conn.commit()
             self._load_aliases()
             return count
@@ -428,7 +429,7 @@ class SovereignMembrane:
                 result, rpt = self._guardian.sanitize(result, add_entropy=False)
                 count += rpt.get("neutralized_ips", 0) + rpt.get("neutralized_sigs", 0)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 430, exc_info=True)
 
         # Patterns étendus
         for pattern, category in self._EXTRA_PATTERNS:
@@ -721,13 +722,13 @@ class SovereignMembrane:
                 )
                 conn.commit()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 723, exc_info=True)
         # Callback externe (ex: BUS SSE)
         if self.audit_cb:
             try:
                 self.audit_cb(record)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sovereign_membrane.py', 729, exc_info=True)
 
     # ── Utilitaires ───────────────────────────────────────────────────────────
 

@@ -64,6 +64,9 @@ def unite_systemd(env: dict) -> str:
     lignes = ["[Unit]", "Description=Nokido Master Supervisor (root)", "After=network.target", "", "[Service]",
               "Type=simple", "WorkingDirectory=%s" % ROOT]
     lignes += ["Environment=%s=%s" % (k, v) for k, v in {**env, "HOME": HOME_ROOT_LINUX}.items()]
+    # 20/10 : la coupure reseau du compte offline ne survit pas au redemarrage (iptables -A) --
+    # le superviseur root la repose AVANT de demarrer. SANS "-" : pare-feu non pose = start refuse.
+    lignes += ["ExecStartPre=%s %s/tools/forge_sandbox_setup.py --pare-feu" % (sys.executable, ROOT)]
     lignes += ["ExecStart=%s run -A %s" % (_deno(), SUPERVISOR), "StandardOutput=append:%s" % JOURNAL_TACHE,
                "StandardError=append:%s" % JOURNAL_TACHE, "Restart=always", "RestartSec=5", "",
                "[Install]", "WantedBy=multi-user.target", ""]
@@ -71,18 +74,24 @@ def unite_systemd(env: dict) -> str:
 
 
 def daemon_launchd(env: dict) -> str:
+    import shlex
     from xml.sax.saxutils import escape as e
     envs = "".join("<key>%s</key><string>%s</string>" % (e(k), e(str(v)))
                    for k, v in {**env, "HOME": HOME_ROOT_MACOS}.items())
+    # 20/10 : ancre pf non chargee au boot -- /bin/sh -c repose le pare-feu PUIS enchaine le
+    # superviseur (echappement shlex sur chaque jalon ; `&&` = fail-closed, pas de demarrage sans regle).
+    chaine = "%s %s --pare-feu && exec %s run -A %s" % (
+        shlex.quote(sys.executable), shlex.quote(str(ROOT / "tools" / "forge_sandbox_setup.py")),
+        shlex.quote(_deno()), shlex.quote(SUPERVISOR))
     return ('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
             '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
             "<key>Label</key><string>com.nokido.master</string>"
-            "<key>ProgramArguments</key><array><string>%s</string><string>run</string><string>-A</string>"
-            "<string>%s</string></array><key>WorkingDirectory</key><string>%s</string>"
+            "<key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>%s</string>"
+            "</array><key>WorkingDirectory</key><string>%s</string>"
             "<key>EnvironmentVariables</key><dict>%s</dict>"
             "<key>StandardOutPath</key><string>%s</string><key>StandardErrorPath</key><string>%s</string>"
             "<key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n"
-            % (e(_deno()), SUPERVISOR, e(str(ROOT)), envs, e(str(JOURNAL_TACHE)), e(str(JOURNAL_TACHE))))
+            % (e(chaine), e(str(ROOT)), envs, e(str(JOURNAL_TACHE)), e(str(JOURNAL_TACHE))))
 
 
 def _root() -> bool:

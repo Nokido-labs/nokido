@@ -84,6 +84,7 @@ Format: diagnostic + code corrige + explication. Reponds en francais."""
                 with urllib.request.urlopen(req, timeout=30) as r:
                     return json.loads(r.read())["choices"][0]["message"]["content"].strip()
             except:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_deepseek.py', 86, exc_info=True)
                 continue
         return None
 

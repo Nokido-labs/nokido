@@ -20,7 +20,7 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/after_model_hook.py', 22, exc_info=True)
 
 ROOT = Path(__file__).resolve().parent.parent
 STATE_FILE = ROOT / "RAG" / "quota_state.json"
@@ -180,7 +180,7 @@ def _parse_whoami(text: str) -> list[str]:
             if isinstance(j, dict):
                 out.append(f"[job:{j.get('id', '?')}] {j.get('theme', '')[:120]}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/after_model_hook.py', 182, exc_info=True)
     return out
 
 
@@ -202,6 +202,6 @@ try:
         print("[/HOOK:INBOX]\nTraite ces elements avant de continuer.", flush=True)
 
 except urllib.error.URLError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/after_model_hook.py', 204, exc_info=True)
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/after_model_hook.py', 206, exc_info=True)

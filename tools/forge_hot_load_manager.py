@@ -364,7 +364,7 @@ class ForgeHotLoadManager:
                     None,
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_hot_load_manager.py', 366, exc_info=True)
 
         if not api_key:
             return {"error": "OPENROUTER_API_KEY absente dans Nokido.env"}

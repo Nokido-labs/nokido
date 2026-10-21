@@ -536,3 +536,74 @@ def test_les_deux_sites_agy_prennent_le_verrou(relatif, classe, fonction, prise,
     )
     assert _appelle(noeud, prise), f"{relatif}: {fonction} ne prend aucun verrou ({prise})"
     assert _appelle(noeud, liberation), f"{relatif}: {fonction} ne relache jamais le verrou ({liberation})"
+
+
+# --------------------------------------------------------------------------- #
+# 6. le chemin muet journalise SA PILE, pas seulement un mot                    #
+# --------------------------------------------------------------------------- #
+def test_cle_workdir_journalise_la_pile_si_la_normalisation_echoue(caplog, monkeypatch):
+    """TUE le mutant `booleen` (ligne 112, `exc_info=True`) du cliquet de mutation.
+
+    `cle_workdir_agy` avale un echec de normalisation du chemin puis journalise
+    un « chemin muet ». Journaliser SANS la pile (`exc_info=False`) perd la
+    cause : un repli qui ne dit pas POURQUOI il a replie est un silence de plus.
+    On exerce le chemin d'erreur REEL en ne detournant que `lm.os` (jamais
+    `os.path` global, qui appartient au reste de la session de test).
+    """
+    import logging
+    import os as _os
+
+    caplog.set_level(logging.DEBUG, logger=lm.__name__)
+
+    class _Path:
+        def __getattr__(self, nom):
+            return getattr(_os.path, nom)
+
+        def abspath(self, *a, **k):
+            raise RuntimeError("abspath indisponible")
+
+    class _Os:
+        path = _Path()
+
+    monkeypatch.setattr(lm, "os", _Os())
+    cle = lm.cle_workdir_agy(r"C:\tmp")  # ne doit PAS lever
+    assert cle.startswith("agy:workdir:") and "tmp" in cle.lower()
+    recs = [r for r in caplog.records if r.name == lm.__name__]
+    assert recs, "le chemin muet n'a ete journalise par personne : rien n'a ete exerce"
+    assert any(r.exc_info for r in recs), (
+        "le journal du chemin muet a ete emis SANS la pile (exc_info=False) : "
+        "la cause de l'echec est perdue"
+    )
+
+
+def test_la_tolerance_de_create_time_est_fermee_a_la_BORNE(monkeypatch):
+    """TUE le mutant `comparaison` (ligne 156, `>` -> `>=`) du cliquet.
+
+    La borne vaut EXACTEMENT 1 s : un ecart de 1,000 s reste le meme process
+    (`ecart > 1.0` est FAUX), au-dela il ne l'est plus. Les tests existants
+    n'eprouvaient que 0,5 s et 5 s — un `>=` y survit. Le vrai create_time
+    n'etant pas controlable au bit pres, on fixe la valeur via un faux `psutil`
+    pour que l'ecart vaille EXACTEMENT 1.0.
+    """
+    class _P:
+        @staticmethod
+        def create_time():
+            return 1000.0
+
+    class _Faux:
+        NoSuchProcess = type("NoSuchProcess", (Exception,), {})
+        AccessDenied = type("AccessDenied", (Exception,), {})
+
+        @staticmethod
+        def pid_exists(_pid):
+            return True
+
+        @staticmethod
+        def Process(_pid):
+            return _P()
+
+    monkeypatch.setattr(lm, "psutil", _Faux)
+    etat, motif = lm.etat_holder(4242, boot=999.0)  # ecart == 1.0 pile
+    assert etat == lm.ETAT_VIVANT, (
+        f"un ecart EXACTEMENT egal a la tolerance doit rester VIVANT, lu {etat} ({motif})"
+    )

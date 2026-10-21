@@ -140,7 +140,7 @@ def main() -> int:
                 "INSERT OR IGNORE INTO rag_fts (chunk_id, text, source, domain)"
                 " VALUES (?,?,?,?)", (r["id"], body, r["source"], args.domain))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_veille_depollute.py', 142, exc_info=True)
         changed += 1
     if args.apply:
         conn.commit()

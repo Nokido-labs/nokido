@@ -167,6 +167,7 @@ Reponds en francais. Pas de preambule. Vas droit au but."""
                 with urllib.request.urlopen(req, timeout=30) as r:
                     return json.loads(r.read())["choices"][0]["message"]["content"].strip()
             except:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_gemini.py', 169, exc_info=True)
                 continue
         return None
 
@@ -255,7 +256,7 @@ Reponds en francais. Pas de preambule. Vas droit au but."""
                                 if text:
                                     yield text, model, False
                             except:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_broker_gemini.py', 257, exc_info=True)
             yield "", model, True  # signal fin
         except Exception as e:
             self.log.debug(f"stream:{e}")

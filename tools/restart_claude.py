@@ -89,7 +89,7 @@ def restart_hub(purge_pyc=True):
             try:
                 shutil.rmtree(f"{BASE}/{d}")
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/restart_claude.py', 91, exc_info=True)
     subprocess.run(["nssm", "start", SVC], capture_output=True)
     for _ in range(24):
         time.sleep(1)
@@ -98,7 +98,7 @@ def restart_hub(purge_pyc=True):
             print("[restart_hub] Hub UP")
             return True
         except:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/restart_claude.py', 100, exc_info=True)
     print("[restart_hub] Hub timeout")
     return False
 

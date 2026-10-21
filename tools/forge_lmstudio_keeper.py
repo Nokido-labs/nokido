@@ -65,7 +65,7 @@ def _token() -> str:
         if t:
             return t
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_lmstudio_keeper.py', 67, exc_info=True)
     return get_secret("LMSTUDIO_TOKEN") or get_secret("LM_API_TOKEN") or ""
 
 

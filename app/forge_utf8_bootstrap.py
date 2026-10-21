@@ -50,7 +50,7 @@ def apply() -> bool:
         try:
             stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_utf8_bootstrap.py', 52, exc_info=True)
     return True
 
 

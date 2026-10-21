@@ -134,7 +134,7 @@ def plan_horizon(
             "n_candidates": n_candidates, "n_sequences": len(sequences),
         }, topic="reasoning")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mpc.py', 136, exc_info=True)
     return sequences
 
 
@@ -216,7 +216,7 @@ def _insert_self_play_trace(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mpc.py', 218, exc_info=True)
 
 
 def _online_update(
@@ -254,7 +254,7 @@ def _online_update(
 
         cost_online(state_emb, goal_emb, actual_cost, lr=lr)
     except Exception:
-        pass  # non-blocking: online update best-effort
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mpc.py', 256, exc_info=True)
 
 
 # ---------------------------------------------------------------------------

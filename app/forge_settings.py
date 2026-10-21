@@ -134,19 +134,19 @@ def _acquire_instance_lock() -> object:
             try:
                 ctypes.windll.kernel32.Beep(0, 0)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 136, exc_info=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 138, exc_info=True)
         try:
             import setproctitle
 
             setproctitle.setproctitle(t)
         except ImportError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 144, exc_info=True)
         try:
             sys.argv[0] = t
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 148, exc_info=True)
 
     _argv = " ".join(sys.argv)
     _role = (
@@ -178,7 +178,7 @@ def _acquire_instance_lock() -> object:
 
                 return psutil.pid_exists(pid)
             except ImportError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 180, exc_info=True)
             if sys.platform == "win32":
                 import subprocess
 
@@ -226,7 +226,7 @@ def _acquire_instance_lock() -> object:
             )
             _LOCK_FH.flush()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 228, exc_info=True)
 
     def _clear() -> None:
         """Clear."""
@@ -235,15 +235,15 @@ def _acquire_instance_lock() -> object:
             if _LOCK_FH and not _LOCK_FH.closed:
                 _LOCK_FH.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 237, exc_info=True)
         try:
             _LOCK_FILE.unlink(missing_ok=True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 241, exc_info=True)
         try:
             _LOCK_FH = open(str(_LOCK_FILE), "a+", encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 245, exc_info=True)
 
     try:
         _LOCK_FH = open(str(_LOCK_FILE), "a+", encoding="utf-8")
@@ -277,7 +277,7 @@ def _acquire_instance_lock() -> object:
                     try:
                         msvcrt.locking(_LOCK_FH.fileno(), msvcrt.LK_NBLCK, 1)
                     except OSError:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 279, exc_info=True)
                 else:
                     print(
                         f"\n[Nokido] TUI deja active"
@@ -300,13 +300,13 @@ def _acquire_instance_lock() -> object:
                     try:
                         fcntl.flock(_LOCK_FH.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                     except OSError:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 302, exc_info=True)
                 else:
                     print(f"\n[Nokido] TUI deja active (PID {pid2}).\n  Utilise --dev pour ignorer.\n")
                     _LOCK_FH.close()
                     sys.exit(1)
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 308, exc_info=True)
 
     _write()
 
@@ -325,22 +325,22 @@ def _release_instance_lock() -> None:
                     _LOCK_FH.seek(0)
                     msvcrt.locking(_LOCK_FH.fileno(), msvcrt.LK_UNLCK, 1)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 327, exc_info=True)
             else:
                 import fcntl
 
                 try:
                     fcntl.flock(_LOCK_FH.fileno(), fcntl.LOCK_UN)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 334, exc_info=True)
             _LOCK_FH.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 337, exc_info=True)
     try:
         if _LOCK_FILE.exists():
             _LOCK_FILE.unlink(missing_ok=True)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 342, exc_info=True)
 
 
 # =============================================================================
@@ -437,7 +437,7 @@ class Settings:
             if _n_sec:
                 pass  # silencieux au boot
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 439, exc_info=True)
 
         # ── 2. Enrichissement dynamique depuis l'environnement hôte ─────────────────
         # Injecte dans Nokido.env les variables présentes sur l'hôte
@@ -453,7 +453,7 @@ class Settings:
 
                 injecter_env_depuis_coffre()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_settings.py', 455, exc_info=True)
         missing = []
         for attr, env_key, type_, default in _SETTINGS_FIELDS:
             raw = _valeur_de_reglage(env_key)

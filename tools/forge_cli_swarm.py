@@ -58,6 +58,26 @@ def _classer(ok: bool, texte: str, erreur) -> str:
     return "OK"
 
 
+def membres_par_defaut(chemin=None, maintenant=None, max_age_s=6 * 3600) -> tuple:
+    """(membres, raison) : registre de forge_free_tier_census.ecrire_membres_vivants FRAIS -> ses membres OK et "" ;
+    absent, illisible, vide ou perime -> la liste historique DEFAULT_MEMBERS et la raison DITE (RED 1da121b2a ; GREEN
+    d'OPENCODE_GLM cb9637e1f repris le 20/10). Le chemin par defaut de l'essaim n'est pas encore cable ici."""
+    p = Path(chemin) if chemin else None
+    if p is None or not p.exists():
+        return DEFAULT_MEMBERS, "registre absent"
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return DEFAULT_MEMBERS, "registre illisible"
+    membres = doc.get("membres_ok") or []
+    if not membres:
+        return DEFAULT_MEMBERS, "registre vide"
+    age = (time.time() if maintenant is None else maintenant) - float(doc.get("mesure_le") or 0)
+    if age > max_age_s:
+        return DEFAULT_MEMBERS, "registre perime (%d s)" % int(age)
+    return membres, ""
+
+
 async def _one(member: str, task: str, max_tokens: int) -> dict:
     # Membre = "provider" OU "provider:model" -> pioche un modèle PRÉCIS d'un même backend
     # (LMStudio :1234 / Ollama hébergent N modèles joignables). Ex: "lmstudio_native:qwen2.5-7b",

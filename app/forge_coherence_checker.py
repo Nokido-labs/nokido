@@ -22,7 +22,7 @@ def _resolve_import(module_name: str, base_dir: Path) -> bool:
         if hasattr(sys, "stdlib_module_names") and module_name.split(".")[0] in sys.stdlib_module_names:
             return True
     except AttributeError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_coherence_checker.py', 24, exc_info=True)
 
     parts = module_name.split(".")
 

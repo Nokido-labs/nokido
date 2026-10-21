@@ -166,7 +166,7 @@ def _audit_db_access(db_path: str, direction: str, engine: str) -> None:
         finally:
             c.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_db_conn.py', 168, exc_info=True)
 
 
 def get_db(

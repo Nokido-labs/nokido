@@ -199,7 +199,7 @@ class AgenticEngine:
             try:
                 self.ui_callback(name, status)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agentic_engine.py', 201, exc_info=True)
 
     async def check_competence(self, skill: str) -> float:
         rag = _get_rag_engine()

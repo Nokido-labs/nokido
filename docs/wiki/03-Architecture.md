@@ -33,7 +33,7 @@ empreinte: INCONNUE
 
 This page gives a high-level overview. For the full technical reference,
 read [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md). For the philosophy, read
-[MANIFESTO.md](../../MANIFESTO.md).
+[the Manifesto](../i18n/MANIFESTO.en.md).
 
 ## 🧠 Hub MCP (`:8766`)
 
@@ -179,6 +179,8 @@ Optional but recommended for cross-organ choreography. Pub/sub event mesh
 written in TypeScript. Each `forge_event_stream` publication is observable
 by all subscribers.
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 ## 📂 Repository layout
 
 ```
@@ -207,7 +209,7 @@ LaForge/
 - I want to **use** Nokido → [02 — Quick Start](02-Quick-Start.md).
 - I want to **understand the internals** → `docs/ARCHITECTURE.md`.
 - I want to **contribute** → [CONTRIBUTING.md](../../CONTRIBUTING.md).
-- I want to **understand the why** → [MANIFESTO.md](../../MANIFESTO.md).## 🧬 Biological Constraints & Strict Anatomy
+- I want to **understand the why** → [Manifesto](../i18n/MANIFESTO.en.md).## 🧬 Biological Constraints & Strict Anatomy
 
 Nokido is no longer just a metaphor; its biological properties are strictly enforced constraints in the codebase (validated by the **Gate CI**):
 - **Strict Anatomical Census**: Every script, hook, and daemon (>140) must formally declare which organ it belongs to (orge_organ_agents.py). Unclassified modules are rejected.

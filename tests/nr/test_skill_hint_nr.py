@@ -46,6 +46,22 @@ def _skills(lignes):
     return [l.split()[1] for l in lignes]
 
 
+# Phrases REELLES de l'owner le 18/10, que le routeur a ratees -- l'agent a alors reecrit a la main ce que
+# forge_watch_agent et forge_ingest_github_repo font deja (owner : « le routeur d'intention doit avoir des lacunes »).
+@pytest.mark.parametrize("phrase,skill", [
+    ("lance des veilles sur ces sujets", "forge-veille-approfondie"),
+    ("n'oublie pas les veilles demandees", "forge-veille-approfondie"),
+    ("mais sur les depots github, tu as un autre outil d'ingestion ?", "forge-veille-rapide"),
+])
+def test_phrases_ratees_le_18_10(isole, phrase, skill):
+    assert skill in _skills(hint.suggerer("UserPromptSubmit", phrase, session="s18")), phrase
+
+
+def test_le_rappel_depot_github_nomme_l_outil_canonique(isole):
+    lignes = hint.suggerer("UserPromptSubmit", "ingere ces depots github", session="s18b")
+    assert any("forge_ingest_github_repo" in l for l in lignes), lignes
+
+
 def test_la_table_reelle_est_conforme():
     assert hint.verifier() == []
 

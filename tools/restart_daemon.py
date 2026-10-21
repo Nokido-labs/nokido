@@ -26,6 +26,7 @@ def kill_existing() -> int:
                     killed += 1
                     print(f"killed PID={proc.info['pid']}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/restart_daemon.py', 28, exc_info=True)
                 continue
     except ImportError:
         # Fallback Windows tasklist+taskkill

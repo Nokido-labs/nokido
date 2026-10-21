@@ -43,6 +43,7 @@ def scan_python_event_buses() -> dict:
         try:
             txt = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_event_mesh_audit.py', 45, exc_info=True)
             continue
         if len(txt) < 200:
             continue
@@ -65,6 +66,7 @@ def scan_deno_event_buses() -> dict:
         try:
             txt = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_event_mesh_audit.py', 67, exc_info=True)
             continue
         if "SystemBus" not in txt and "publish" not in txt and "subscribe" not in txt:
             continue

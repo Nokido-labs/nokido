@@ -149,7 +149,7 @@ class MarkerConverter:
                         rows = ["| " + " | ".join(str(c or "").strip() for c in row) + " |" for row in tbl[1:] if row]
                         page_md.append(f"\n{header}\n{sep}\n" + "\n".join(rows))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_store.py', 151, exc_info=True)
                 if page_md:
                     parts.append(f"<!-- page {i + 1} -->\n" + "\n".join(page_md))
 

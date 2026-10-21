@@ -76,7 +76,7 @@ def _tracer(verdict: str, kind: str, source: str, detail: str) -> None:
         _atrace("ingest", "memory_quality_gate", verdict, str(source)[:80],
                 f"{kind}: {detail}")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_memory_gate.py', 78, exc_info=True)
 
 
 def _emit_reject(kind: str, source: str, reason: str) -> None:

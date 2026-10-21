@@ -320,7 +320,7 @@ def _compte_owner() -> Optional[str]:
         if idx and len(parts) > idx[0] + 1:
             return parts[idx[0] + 1]
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_provider_admin.py', 322, exc_info=True)
     return None
 
 

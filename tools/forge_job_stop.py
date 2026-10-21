@@ -191,7 +191,7 @@ def main() -> int:
             try:
                 ch.terminate()
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_job_stop.py', 193, exc_info=True)
         # `wait_procs` leve AccessDenied quand le job tourne sous un compte que ce
         # compte-ci n'ouvre pas (mesure 2026-07-25 : sandbox-online vu de
         # LaForgeTrusted). Sans ce garde, l'exception coupait la fonction AVANT
@@ -205,7 +205,7 @@ def main() -> int:
                 if ch.is_running():
                     ch.kill()
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_job_stop.py', 207, exc_info=True)
         try:
             proc.terminate()
             try:

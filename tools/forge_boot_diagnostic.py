@@ -56,6 +56,7 @@ def _all_procs() -> dict:
         try:
             t[p.info["pid"]] = (p.info["name"] or "?", p.info["create_time"] or 0)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 58, exc_info=True)
             continue
     return t
 
@@ -70,7 +71,7 @@ def _sig(name: str, cmd: str) -> str:
         try:
             s += ":" + Path(toks[toks.index("-m") + 1]).name
         except (ValueError, IndexError):
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 72, exc_info=True)
     return s
 
 
@@ -119,6 +120,7 @@ def _procs_full():
                     or any(a in nm for a in ("vmmem", "wslservice", "docker", "lm studio"))):
                 rows[p.info["pid"]] = _row(p)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 121, exc_info=True)
             continue
     # rattacher les enfants opaques (python sans cmdline lisible, wrappers cmd) — fixpoint
     grew = True
@@ -133,6 +135,7 @@ def _procs_full():
                     rows[pid] = _row(p)
                     grew = True
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 135, exc_info=True)
                 continue
     out = sorted(rows.values(), key=lambda r: r["ctime"])
     orphelins = [r for r in out if "ORPHELIN" in r["parent"]]
@@ -248,6 +251,7 @@ def logs_nssm() -> dict:
                                  r"SYSTEM\CurrentControlSet\Services\%s" % nom)
             image = str(winreg.QueryValueEx(svc, "ImagePath")[0])
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 250, exc_info=True)
             continue
         if "nssm" not in image.lower():
             continue
@@ -293,6 +297,7 @@ def _services_full() -> list:
                     e["app_params"] = par
             svcs.append(e)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 295, exc_info=True)
             continue
     return svcs
 
@@ -336,6 +341,7 @@ def _aux() -> dict:
                                        "age_s": round(time.time() - p.info["create_time"])})
                         break
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 338, exc_info=True)
                 continue
     except Exception as e:  # noqa: BLE001
         res["err"] = str(e)[:80]
@@ -381,6 +387,7 @@ def snapshot(label: str) -> dict:
             snap["_file"] = str(fp)
             break
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 383, exc_info=True)
             continue
     return snap
 
@@ -447,7 +454,7 @@ def main(argv: list) -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 449, exc_info=True)
     if "--diff" in argv:
         i = argv.index("--diff")
         print(json.dumps(diff(argv[i + 1], argv[i + 2]), ensure_ascii=False, indent=2))
@@ -460,7 +467,7 @@ def main(argv: list) -> int:
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": snap["ts"], "resume": summ}, ensure_ascii=False) + "\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_boot_diagnostic.py', 462, exc_info=True)
     print(json.dumps(summ, ensure_ascii=False, indent=2))
     return 0
 

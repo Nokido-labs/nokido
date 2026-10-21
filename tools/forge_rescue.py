@@ -52,7 +52,7 @@ from pathlib import Path
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 54, exc_info=True)
 
 # ── CHEMINS ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ def _log(msg: str, level: str = "INFO"):
         with open(LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 82, exc_info=True)
 
 
 # ── ADMIN ────────────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ def _token_nokido() -> str:
             if "FORGE_MCP_TOKEN" in line and "=" in line:
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 132, exc_info=True)
     return ""
 
 
@@ -334,7 +334,7 @@ def cmd_restart_webhub():
                     pid = parts[-1]
                     break
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 336, exc_info=True)
     _run_admin([str(NSSM), "stop", "NokidoWebHub"], "nssm stop webhub")
     time.sleep(2)
     if pid:
@@ -723,7 +723,7 @@ def _gemini_session_state() -> dict:
         try:
             out["projects"] = json.loads(projects.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 725, exc_info=True)
 
     # 4. Hub network_log (50 derniers appels MCP de Gemini)
     db = ROOT / "RAG" / "embeddings.db"
@@ -749,7 +749,7 @@ def _gemini_session_state() -> dict:
             lines = dlog.read_text(encoding="utf-8", errors="replace").splitlines()
             out["daemon_log_tail"] = "\n".join(lines[-30:])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rescue.py', 751, exc_info=True)
 
     return out
 

@@ -130,6 +130,7 @@ def extract_skills(traces_db: Optional[Path] = None) -> list[CuratedSkill]:
         try:
             action = json.loads(r["action_json"])
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 132, exc_info=True)
             continue
         atype = str(action.get("type", "unknown"))[:80]
         ttype = str(r["task_type"] or "unknown")[:80]
@@ -219,7 +220,7 @@ def prune(
                     _atrace("skill_curator", "skill_promotion_review", "drop", "skill",
                             f"{s.success_rate:.0%}@{s.uses} non significatif (Wilson)")
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 221, exc_info=True)
             drop.append(s)
         else:
             keep.append(s)
@@ -248,9 +249,12 @@ def consolidate(skills: list[CuratedSkill], rag_db: Optional[Path] = None) -> in
     rag_db = rag_db if rag_db is not None else RAG_DB
     if not rag_db.exists():
         return 0
-    conn = sqlite3.connect(str(rag_db), timeout=15)
+    # Chemin gouverne (socle) : `open_writer` (AUTOCOMMIT + WAL + busy_timeout) remplace la connexion nue ; la boucle
+    # est un LOT (une connexion reutilisee) (lot 1, integre de c4f627a9f, 18/10).
+    from nokido_agent.app.forge_db_path import open_writer
+
+    conn = open_writer(path=str(rag_db))
     try:
-        conn.execute("PRAGMA journal_mode=WAL")
         _ensure_rag_schema(conn)
         cols = {r[1] for r in conn.execute("PRAGMA table_info(rag_chunks)").fetchall()}
         # Colonnes minimales communes vues dans le code Nokido :
@@ -290,7 +294,6 @@ def consolidate(skills: list[CuratedSkill], rag_db: Optional[Path] = None) -> in
             )
             conn.execute(sql, [payload[k] for k in keys])
             n += 1
-        conn.commit()
         # FTS sync (best-effort, table optionnelle)
         try:
             for s in skills:
@@ -302,7 +305,7 @@ def consolidate(skills: list[CuratedSkill], rag_db: Optional[Path] = None) -> in
                 )
             conn.commit()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 306, exc_info=True)
     finally:
         conn.close()
     return n
@@ -327,7 +330,7 @@ def _anchor(stats: dict) -> None:
             domain="ami",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 331, exc_info=True)
 
 
 # ── Cycle ───────────────────────────────────────────────────────────────────
@@ -407,7 +410,7 @@ def _acquire_pidfile() -> bool:
             if old != pid and _pid_alive_win(old):
                 return False
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 411, exc_info=True)
     PIDFILE.parent.mkdir(parents=True, exist_ok=True)
     PIDFILE.write_text(str(pid))
     return True
@@ -420,7 +423,7 @@ def _on_signal(signum, frame):
         if PIDFILE.exists() and int(PIDFILE.read_text().strip()) == os.getpid():
             PIDFILE.unlink()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 424, exc_info=True)
 
 
 def main() -> int:
@@ -508,7 +511,7 @@ def main() -> int:
         if PIDFILE.exists() and int(PIDFILE.read_text().strip()) == os.getpid():
             PIDFILE.unlink()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 512, exc_info=True)
     return 0
 
 

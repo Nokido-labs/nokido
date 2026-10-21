@@ -67,6 +67,8 @@ Routeur d'accélérateurs dédié (planifié, pas encore implémenté) :
 2. Route inférence ONNX par type tâche au meilleur backend : `DirectML > Vulkan > OpenVINO > HailoRT > EdgeTPU > CPU`.
 3. Surface endpoint `/api/accelerators` pour monitoring.
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 ## 🦋 Phase B — Neuromorphique (12-24 mois)
 
 Les puces neuromorphiques calculent par **spikes** (pilotées par l'événement, pas par

@@ -200,3 +200,67 @@ def test_cable_dans_sync_snapshot_apres_blocage():
     src = inspect.getsource(D.sync_snapshot)
     assert "_generiser_chemins_owner" in src
     assert src.index("_appliquer_politique_publique") < src.index("_generiser_chemins_owner")
+
+
+# Le NOM DE TAILNET (Tailscale) et le DDNS. Mesure du 2026-10-17 : le dist v0.20.12
+# publie portait le tailnet de l'owner dans proxy_deno/core/services.toml -- aucun
+# motif ne le couvrait (P1 « le dist ne doit pas etre fige sur mes IP »). Motifs
+# GENERIQUES, valeurs FICTIVES ici : la source de ce test est publiee elle aussi.
+TAILNET_FICTIF = "tailXXXX.ts.net"
+DDNS_FICTIF = "XXXX.duckdns.org"
+
+
+def test_tailnet_generise():
+    for src in ("url = 'https://desk.%s:8443'" % TAILNET_FICTIF, TAILNET_FICTIF.upper()):
+        out, n = D.generiser_texte(src)
+        assert n >= 1 and "9c3e1a" not in out.lower(), (src, out)
+        assert "tailxxxx.ts.net" in out.lower(), out
+
+
+def test_ddns_duckdns_generise():
+    out, n = D.generiser_texte("host = '%s'" % DDNS_FICTIF)
+    assert n >= 1 and "monserveur" not in out, out
+    assert "XXXX.duckdns.org" in out, out
+
+
+def test_tailnet_et_ddns_idempotents_et_domaines_nus_intouches():
+    for src in ("https://desk.%s" % TAILNET_FICTIF, DDNS_FICTIF):
+        une, _ = D.generiser_texte(src)
+        deux, n = D.generiser_texte(une)
+        assert deux == une and n == 0, (src, une, deux)
+    for src in ("doc : https://tailscale.com/kb/1081", "login.tailscale.com", "voir duckdns.org",
+                "https://www.duckdns.org/install.jsp"):
+        out, n = D.generiser_texte(src)
+        assert out == src and n == 0, (src, out)
+
+
+def test_la_defense_residuelle_voit_tailnet_et_ddns(tmp_path, monkeypatch):
+    for i, marq in enumerate((TAILNET_FICTIF, DDNS_FICTIF)):
+        dist = tmp_path / ("dist%d" % i)
+        dist.mkdir()
+        (dist / "services.toml").write_text("host = '%s'" % marq, encoding="utf-8")
+        with monkeypatch.context() as m:
+            m.setattr(D, "_GEN_SUBS", [])   # rien n'est substitue -> residuel
+            with pytest.raises(RuntimeError):
+                D._generiser_chemins_owner(dist)
+
+
+def test_un_fichier_non_utf8_ne_passe_pas_la_defense_en_silence(tmp_path):
+    """Mesure du 2026-10-17 (gate recidive) : un fichier NON UTF-8 etait saute en silence par la generisation
+    ET par la defense residuelle (`except Exception: continue`) -- un latin-1 portant un chemin owner partait
+    dans le dist public. Les marqueurs sont ASCII : la defense les voit meme dans un texte mal encode."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "vieux.cfg").write_bytes(b"racine = %NOKIDO_WORKSPACE%\nnote = caf\xe9\n")
+    with pytest.raises(RuntimeError):
+        D._generiser_chemins_owner(dist)
+
+
+def test_les_remplacants_tailnet_et_ddns_passent_la_defense(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "services.toml").write_text(
+        "a = 'https://desk.%s'\nb = '%s'\n" % (TAILNET_FICTIF, DDNS_FICTIF), encoding="utf-8")
+    D._generiser_chemins_owner(dist)        # ne doit PAS lever : les remplacants sont propres
+    txt = (dist / "services.toml").read_text(encoding="utf-8")
+    assert "9c3e1a" not in txt and "monserveur" not in txt, txt

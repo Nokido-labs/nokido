@@ -109,7 +109,7 @@ def cle_workdir_agy(workdir) -> str:
     try:
         p = os.path.abspath(os.path.expandvars(os.path.expanduser(p)))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lock_manager.py', 111, exc_info=True)
     p = os.path.normcase(os.path.normpath(p)).rstrip("\\/")
     return f"agy:workdir:{p}"
 
@@ -220,7 +220,7 @@ class LockManager:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lock_manager.py', 222, exc_info=True)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS locks_state (
                 resource TEXT PRIMARY KEY,
@@ -275,7 +275,7 @@ class LockManager:
             try:
                 conn.execute("ROLLBACK")
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lock_manager.py', 277, exc_info=True)
             return None, f"registre occupe ({e})"
         finally:
             conn.close()
@@ -332,7 +332,7 @@ class LockManager:
             try:
                 lk.release()
             except RuntimeError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_lock_manager.py', 334, exc_info=True)
         return True
 
     def _forcer_holder(self, resource: str | Tuple[str, str], pid, boot) -> None:

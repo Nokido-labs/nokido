@@ -315,13 +315,13 @@ def _reveiller_pool_local() -> None:
             from nokido_agent.app.forge_secrets import get_secret as _gs2
             _tok2 = _gs2("LAFORGE_SUPERVISOR_TOKEN") or ""
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 317, exc_info=True)
         _req2 = _ur2.Request("http://127.0.0.1:8765/supervisor/service/start/NokidoLMStudio",
                              data=b"", method="POST",
                              headers={"Authorization": "Bearer " + _tok2} if _tok2 else {})
         _ur2.urlopen(_req2, timeout=15).read()
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 323, exc_info=True)
 
 
 _M2M_CATS: dict = {}
@@ -348,7 +348,7 @@ def _m2m_categories() -> dict:
                 if isinstance(_v, dict) and _v.get("category"):
                     _M2M_CATS[str(_k).upper()] = str(_v["category"]).lower()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 350, exc_info=True)
     return _M2M_CATS
 
 
@@ -419,13 +419,14 @@ def _ack_m2m(body: str) -> str | None:
         try:
             _o = _j.loads(_essai)
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 421, exc_info=True)
             continue
         _txt = _o.get("text")
         if isinstance(_txt, str) and "{" in _txt:  # enveloppe {"text": "<json M2M>"}
             try:
                 _o = _j.loads(_txt[_txt.find("{"):])
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 427, exc_info=True)
         if isinstance(_o, dict):
             intent = str(_o.get("intent") or _o.get("intent_code") or "").upper()
             pointer = str(_o.get("pointer_ref") or "")
@@ -481,7 +482,7 @@ def tick() -> object:
         from nokido_agent.app.forge_postal import facteur as _facteur
         _facteur(os.environ.get("GEMINI_AUTO_CHANNEL", "GEMINI_OAUTH"))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 483, exc_info=True)
     mails = secretaire("GEMINI", ack=False)  # P0-1 : lecture NON-consommante, le claim exclut
     out = []
     for m in mails[:MAX_PER_TICK]:
@@ -521,7 +522,7 @@ def tick() -> object:
             publish("agent_op", {"agent": "GEMINI_AUTO", "action": "invoke gemini_cli (headless)",
                                  "from": m.get("from"), "prompt": prompt[:400]}, topic="postal")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 523, exc_info=True)
         # FIX contexte gemini_cli (WinError 5 du daemon) : invoque via forge_agent_proxy.ask
         # (provider=gemini_cli) — _BIN context-aware (USERPROFILE->user, fallback systemprofile/
         # .local) + firewall AUTO (__init_subclass__) + route À TRAVERS Nokido (le centre).
@@ -545,7 +546,7 @@ def tick() -> object:
             publish("agent_reply", {"agent": "GEMINI_AUTO", "to": m.get("from"),
                                     "response": (rs or "(vide/erreur)")[:400]}, topic="postal")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 547, exc_info=True)
         if rs.startswith("ERR") or "WinError" in rs or "Traceback" in rs or not rs:
             # gemini_cli a échoué (contexte/quota) -> NE PAS poster l'erreur comme réponse.
             unclaim(m.get("id"))  # P0-1 : échec CLI -> rend le courrier (retriable)
@@ -560,7 +561,7 @@ def tick() -> object:
                 out.append({"mail": m.get("id"), "post_flight_drift": getattr(_pfr, "reason", "?")})
                 continue
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 562, exc_info=True)
         post("GEMINI", m["from"], "[GEMINI-AUTO·" + via + "] " + rs, reply_to="GEMINI", in_reply_to=m.get("id"))
         ack_mail(m.get("id"), "GEMINI")  # P0-1 : traité -> acked (accusé de réception)
         out.append({"replied_to": m["from"], "mail": m.get("id"), "resp_len": len(rs)})
@@ -643,7 +644,7 @@ def _drain_agent_messages(token) -> list:
                          (status, _t.strftime("%Y-%m-%dT%H:%M:%S"), mid))
             conn.commit()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 645, exc_info=True)
 
     # WATERMARK D'AGE. Elargir la boite a fait apparaitre un ARRIERE de 19
     # courriers, dont certains du 3 aout : le repondeur s'est mis a leur
@@ -698,7 +699,7 @@ def _drain_agent_messages(token) -> list:
                 continue
             safe = getattr(pf, "safe_task", None) or body
         except Exception:  # noqa: BLE001 - firewall indispo : fail-open infra
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 700, exc_info=True)
         # COORDINATION D'ABORD : un ACK structure (COLLAB_PONG) est INSTANTANE et sans
         # LLM. La majorite des M2M sont de la coordination -> on ne bloque jamais le tick
         # sur un backend pour un simple ping, et un accuse (OK_DONE/PONG) se marque lu
@@ -762,7 +763,7 @@ def _drain_agent_messages(token) -> list:
                 out.append({"am_mail": mid, "post_flight_drift": getattr(pfr, "reason", "?")})
                 continue
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 764, exc_info=True)
         rid = "frm_" + _u.uuid4().hex[:12]
         try:
             conn.execute(
@@ -782,7 +783,7 @@ def _drain_agent_messages(token) -> list:
     try:
         conn.close()
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_gemini_autonomous_agent.py', 784, exc_info=True)
     return out
 
 

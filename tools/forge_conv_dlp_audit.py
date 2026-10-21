@@ -167,7 +167,7 @@ def main() -> int:
             par_famille[_famille(source)] += 1
             par_label[label] += 1
         except Exception:
-            pass  # scanner en echec sur ce chunk : ne pas conclure a l'absence
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_conv_dlp_audit.py', 169, exc_info=True)
 
     _log(f"{scannes} chunks scannes sur {len(domaines)} domaine(s) en {time.time() - t0:.1f}s")
     if not fuites:
@@ -204,7 +204,7 @@ def main() -> int:
                 (propre, cid),
             )
         except Exception:
-            pass  # FTS optionnel : le caviardage de rag_chunks fait foi
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_conv_dlp_audit.py', 206, exc_info=True)
         n += 1
     con.commit()
     con.close()

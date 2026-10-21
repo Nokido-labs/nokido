@@ -201,7 +201,7 @@ class SkillRAGBridge:
                     learner.update_score(sid, delta=gain)
                     updated += 1
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_rag_bridge.py', 203, exc_info=True)
 
         learner.save()
         self._last_bootstrap = time.time()
@@ -257,7 +257,7 @@ class SkillRAGBridge:
                 if learner.needs_learning(sid):
                     self._queue_disco(sid)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_rag_bridge.py', 259, exc_info=True)
 
         learner.save()
         return touched
@@ -413,7 +413,7 @@ class SkillRAGBridge:
 
             found.update(detect_skills(text))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_rag_bridge.py', 415, exc_info=True)
         return list(found)
 
     def _skill_to_topic(self, skill_id: str) -> str:
@@ -449,7 +449,7 @@ class SkillRAGBridge:
                         "needs_disco": learner.needs_learning(sid),
                     }
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_rag_bridge.py', 451, exc_info=True)
         return {
             "skills": skills_summary,
             "disco_queue": list(self._disco_queue),
@@ -529,7 +529,7 @@ class RAGReservoirReadout:
                 elapsed = time.time() - ts
                 return float(np.exp(-elapsed / self.decay_tau))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_rag_bridge.py', 531, exc_info=True)
         return 0.5
 
     def predict(

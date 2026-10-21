@@ -156,6 +156,9 @@ CNG "Microsoft Platform Crypto Provider" ouvre status 0x0 → TPM-backed via cty
   detect_drift heuristique → si OK retourne inchangé (0 LLM) → sinon re-style Ollama LOCAL
   laforge-qwen. Hors firewall, appelé par caller APRÈS post_flight.ok. Anti-récursion :
   litellm ollama direct, jamais call_cascade/ask. Toggle `FORGE_VOICE_NORMALIZE=0` défaut.
+
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 - **`forge_persona_tpm.py`** (NOUVEAU) : `tpm_available()` (NCryptOpenStorageProvider==0),
   `ensure_persona_key()` (ECDSA P-256 TPM-backed, NCRYPT_MACHINE_KEY_FLAG), `sign/verify`,
   `public_key_pem`. + `forge_integrity` : `CapabilityToken.encode(..., tpm_sign=False)`

@@ -59,7 +59,7 @@ def validate(code: str, extra: list[Callable[[str], list[str]]] | None = None) -
         try:
             diags.extend(v(code) or [])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_build_repair.py', 61, exc_info=True)
     return diags
 
 
@@ -101,7 +101,7 @@ def deterministic_fix(code: str) -> str:
         try:
             code = fn(code)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_build_repair.py', 103, exc_info=True)
     return code
 
 

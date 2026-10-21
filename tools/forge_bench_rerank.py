@@ -59,7 +59,7 @@ def _decode(blob):
             if isinstance(v, list) and len(v) == DIM:
                 return v
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_rerank.py', 61, exc_info=True)
     return None
 
 
@@ -134,6 +134,7 @@ def main() -> None:
         try:
             queries.append(json.loads(_l))
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_rerank.py', 136, exc_info=True)
             continue
     # qrels reconstruit depuis le mapping deterministe qid 'q{i:04d}' -> picked[i]
     # (replique forge_bench_questions ; robuste a un question-gen interrompu).
@@ -145,6 +146,7 @@ def main() -> None:
         try:
             idx = int(q["_id"].lstrip("q"))
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_rerank.py', 147, exc_info=True)
             continue
         if idx < len(picked):
             # multi-gold : tous les chunks du meme fichier source = pertinents

@@ -286,7 +286,7 @@ def generer(rels, racine=None, sonde=None, appliquer: bool = False, valider=None
             try:
                 p.unlink()
             except OSError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_generer_appui.py', 288, exc_info=True)
             return rel, None, motif_test
         return rel, cible, None
 

@@ -63,7 +63,7 @@ def set_active_mode(mode: str, reason: str = "") -> None:
             try:
                 s = _json.loads(_STATE_PATH.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_context.py', 65, exc_info=True)
         s["active_mode"] = mode
         s["permissions"] = permissions
         s["last_switch"] = time.strftime("%Y-%m-%dT%H:%M:%S")

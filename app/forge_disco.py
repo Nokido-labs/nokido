@@ -140,7 +140,7 @@ async def handle_disco(app, cmd_line: str) -> object:
                             f"# Manual Ingest: {_skill}" + chr(10) + chr(10) + _manual_content, encoding="utf-8"
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_disco.py', 142, exc_info=True)
 
                     _n = await rag_engine.ingest_web_content(
                         session_name=f"manual_{_skill.replace(' ', '_')}",
@@ -158,7 +158,7 @@ async def handle_disco(app, cmd_line: str) -> object:
                             sources=[_manual_source],
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_disco.py', 160, exc_info=True)
 
                     chat.write(
                         f"[green]✅ Ingestion manuelle[/] : [bold]{escape(_skill)}[/] ({_n} chunk(s) vectorisé(s))"
@@ -173,12 +173,12 @@ async def handle_disco(app, cmd_line: str) -> object:
                         try:
                             _lib_entry = agentic_engine.library_lookup(_skill)
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_disco.py', 175, exc_info=True)
                     _existing = []
                     try:
                         _existing = await rag_engine.search(_skill, k=5)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_disco.py', 180, exc_info=True)
                     _sources = list(
                         {c.get("source", "?").split(".pdf")[0].split("/")[-1].split("\\")[-1] for c in _existing}
                     )[:4]
@@ -236,7 +236,7 @@ async def handle_disco(app, cmd_line: str) -> object:
                         # Exclure les résultats de domaines bloqués
                         raw_all = [r for r in raw_all if _score(r) >= 0]
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_disco.py', 238, exc_info=True)
                     results = [r for r in raw_all if len(r) > 200]
                     chat.write(f"[dim]  ↳ {len(results)} résultat(s) qualifiés[/]")
                 else:

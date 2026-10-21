@@ -263,8 +263,11 @@ class MutationCycle:
         self.guard = guard or MutationGuard()
         self.agent = agent
 
-    def run_cycle(self, cible: str, tache: str, dry_run: bool = True) -> dict:
-        """dry_run=True par defaut : rien n'est ecrit sans demande explicite."""
+    def run_cycle(self, cible: str, tache: str, dry_run: bool = True, capsule_precedente: str | None = None) -> dict:
+        """dry_run=True par defaut : rien n'est ecrit sans demande explicite.
+
+        `capsule_precedente` : autopsie du tour d'avant rendue par le juge (pieces tracables, 18/10) ; elle entre
+        dans le prompt pour que la tentative suivante attaque le goulot mesure au lieu de repartir a l'aveugle."""
         if fichier_protege(cible):
             return {"ok": False, "etape": "portee",
                     "motif": "%s surveille le systeme : mutation interdite" % cible}
@@ -279,6 +282,9 @@ class MutationCycle:
                   "existantes, leurs docstrings et leurs annotations de type ; "
                   "n'invente aucune fonction ; ne raccourcis rien.\n\n"
                   "```python\n%s```\n" % (tache, original))
+        if capsule_precedente:
+            prompt += ("\nTentative precedente -- autopsie du juge (pieces tracables, ne pas les contredire) :\n%s\n"
+                       % capsule_precedente)
         try:
             mute = _code_seul(self.appel_llm(prompt))
         except Exception as exc:
@@ -315,5 +321,5 @@ class MutationCycle:
         garde = jr.get("verdict") == "AMELIORE"
         resultat.update({"ok": garde, "etape": "juge_gain", "applique": garde,
                          "verdict_juge": jr.get("verdict"), "gain": jr.get("gain"),
-                         "tests_cibles": tests, "note": jr.get("note")})
+                         "tests_cibles": tests, "note": jr.get("note"), "capsule": jr.get("capsule")})
         return resultat

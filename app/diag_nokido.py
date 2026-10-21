@@ -40,7 +40,7 @@ try:
     asyncio.run(Nokido.main())
 
 except SystemExit:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/diag_nokido.py', 42, exc_info=True)
 except Exception as e:
     msg = traceback.format_exc()
     log_path.write_text(msg, encoding="utf-8")

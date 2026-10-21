@@ -70,7 +70,11 @@
 </div>
 
 <script>
-const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content || "";
+// Le hub ne sert plus de jeton (route anonyme, 19/10) : saisi une fois, garde pour l'onglet.
+const TOK = document.querySelector('meta[name="laforge-bearer"]')?.content
+  || sessionStorage.getItem("laforge-bearer")
+  || (() => { const t = (prompt("Jeton du hub (garde pour cet onglet)") || "").trim();
+              if (t) sessionStorage.setItem("laforge-bearer", t); return t; })();
 const OUT = document.getElementById("out");
 const conn = document.getElementById("conn");
 function setStage(i, s){ const d=document.querySelector(`#st${i} .dot`); if(d) d.className="dot "+(s||""); }

@@ -14,7 +14,7 @@ try:
         AgentSynthesizer,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/planning.py', 16, exc_info=True)
 
 __all__ = [
     "AgentPlanner",

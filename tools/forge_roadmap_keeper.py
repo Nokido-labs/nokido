@@ -29,6 +29,7 @@ import argparse
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,6 +42,11 @@ CANON = ROOT / "docs" / "ROADMAP.md"                       # source de vérité 
 GEN = ROOT / "docs" / "ROADMAP.gen.md"                     # nom de regen (évite la race)
 WORKSPACE_GEN = ROOT / "sandbox" / "workspace" / "ROADMAP.gen.md"  # redirect run_job
 PREV = ROOT / "sandbox" / "workspace" / "roadmap_prev.md"  # snapshot pour --delta
+ARBRE_JSON = ROOT / "docs" / "roadmap_arbre.json"  # arbre d'évolution (UI web)
+# Carte RELISIBLE des dependances que le texte du SSoT n'ecrit pas sous forme de cle (19/10 : 26 citations pour 140 items).
+CARTE_DEPENDANCES = ROOT / "docs" / "roadmap_dependances.json"
+_ETATS_ARBRE = ("CLOS", "PARTIEL", "DECISION_OWNER", "OWNER_PLANIFIE",
+                "GELE", "SANS_MARQUEUR")
 
 # Contrat OrganAgent (organisme d'agents). Le keeper est un AGENT (état+proactif+autonome).
 CONTRACT = {
@@ -194,6 +200,148 @@ def status() -> dict:
     if not (p.exists() and p.stat().st_size > 0):
         return {"exists": False, "doc": str(p)}
     return _status(p.read_text("utf-8", "ignore"))
+
+
+# ── ARBRE D'ÉVOLUTION (UI web) ────────────────────────────────────────────────
+# Marqueur lu UNIQUEMENT en TÊTE du texte du fait, après un préfixe de priorité
+# éventuel (`P0: [PARTIEL ...]`) — même piège que `etat_roadmap` du SSoT : chercher
+# le marqueur au fil du texte fermerait un chantier par le mot « fait » de la
+# phrase qui le décrit (minage regex sur de la prose, mesuré le 2026-07-22).
+# Livré par OPENCODE_NEMOTRON (job_094dea4e), intégré et relu par CLAUDE le 18/10.
+_ARBRE_MARQUEUR = re.compile(r"^(?:P[012]\s*[:\-]\s*)?\[([^\]]{0,60})")
+_PRIO_ARBRE = re.compile(r"(?<![A-Za-z0-9])P([012])(?![0-9])", re.I)
+_RESTE_ARBRE = re.compile(r"reste\s*=", re.I)
+_CLOTURE_ARBRE = re.compile(r"^(CLOS|FAIT|LIVRE|RESOLU|TERMINE|FERME)\b")
+
+
+def _mot_normalise(mot: str) -> str:
+    """Majuscules + accents ASCII (patron `etat_roadmap` du SSoT)."""
+    return (mot.upper().replace("É", "E").replace("È", "E").replace("Ê", "E")
+            .replace("À", "A").replace("Â", "A").replace("Î", "I")
+            .replace("Ô", "O").replace("Û", "U").replace("Ï", "I"))
+
+
+def _etat_arbre(texte) -> str:
+    """État déclaré par le marqueur en TÊTE du texte, ou SANS_MARQUEUR.
+
+    LISTE BLANCHE : seul un marqueur reconnu qualifie l'item. Absence de marqueur,
+    marqueur inconnu, texte vide ou non-str : SANS_MARQUEUR — jamais CLOS. Clore
+    par défaut fermerait des chantiers vivants ; c'est le mode d'échec que la
+    doctrine sémantique du dépôt interdit (cf. `etat_roadmap`, SSoT).
+    Cohérence famille de clôture avec `_ROADMAP_CLOTURE` de forge_ssot_maintainer.
+    """
+    if not texte or not isinstance(texte, str):
+        return "SANS_MARQUEUR"
+    # 19/10 : « [DECISION 19/10 ~15 h, decision owner ...] » consigne une decision PRISE, pas un etat : l'etat se lit
+    # dans le segment qui suit (11 items rendus SANS_MARQUEUR par ce prefixe). [DECISION OWNER ...] n'est pas touche.
+    t = re.sub(r"^P[012]\s*[:\-]\s*", "", texte.strip())
+    while re.match(r"^\[DECISION\s+\d", t, re.I) and "]" in t:
+        t = t[t.index("]") + 1:].lstrip()
+    m = _ARBRE_MARQUEUR.match(t)
+    if not m:
+        return "SANS_MARQUEUR"
+    mot = _mot_normalise(m.group(1).strip())
+    if _CLOTURE_ARBRE.match(mot):
+        return "CLOS"
+    if re.match(r"^(PARTIEL|PARTIAL)\b", mot):
+        return "PARTIEL"
+    if mot.startswith("DECISION OWNER"):
+        return "DECISION_OWNER"
+    # `OWNER[\s_-]?PLANIFI` : attrape [OWNER-PLANIFIE]/[OWNER PLANIFIE]/[OWNER_PLANIFIE]
+    # mais PAS `[OWNER 2026-...]` (un simple espace suivi d'un chiffre n'est pas
+    # un marqueur de planification).
+    if re.match(r"^OWNER[\s_-]?PLANIFI", mot):
+        return "OWNER_PLANIFIE"
+    if re.match(r"^(GELE|SANS OBJET)", mot):
+        return "GELE"
+    return "SANS_MARQUEUR"
+
+
+def _priorite_arbre(cle, texte) -> str:
+    """P0/P1/P2 lu dans la clé d'abord (P0_audit…, p2_ctl…), sinon dans le texte ; "" sinon."""
+    for src in (cle, texte):
+        if src:
+            m = _PRIO_ARBRE.search(str(src))
+            if m:
+                return "P" + m.group(1)
+    return ""
+
+
+def _reste_arbre(texte) -> str:
+    """Texte après la PREMIÈRE occurrence de « reste = » (insensible casse), coupé au
+    premier « ] » suivant si présent, borné à 200 caractères ; "" si absent."""
+    if not texte or not isinstance(texte, str):
+        return ""
+    m = _RESTE_ARBRE.search(texte)
+    if not m:
+        return ""
+    suite = texte[m.end():]
+    crochet = suite.find("]")
+    if crochet != -1:
+        suite = suite[:crochet]
+    return suite.strip()[:200]
+
+
+def arbre(out=None) -> dict:
+    """Génère l'arbre d'évolution des roadmaps (JSON lisible par l'UI web, --arbre).
+
+    Lit le tableau noir (zone architecture_rules, category roadmap) et classe CHAQUE
+    item par l'état déclaré en tête de son texte — liste blanche : sans marqueur =
+    SANS_MARQUEUR, jamais CLOS. Les six compteurs de `par_etat` sont publiés même à
+    zéro (un comptage absent ne se distingue pas d'un comptage nul). `out` permet
+    d'écrire ailleurs que dans docs/ — pendant pytest, jamais de docs/ du dépôt.
+    """
+    try:
+        from nokido_agent.app.forge_swarm_blackboard import read_zone
+    except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+        from app.forge_swarm_blackboard import read_zone
+    faits = read_zone("architecture_rules", category="roadmap", limit=1000) or []
+    par_etat = {e: 0 for e in _ETATS_ARBRE}
+    items, exclus, valeurs = [], [], {}
+    for f in faits:
+        cle = str(f.get("key") or "")
+        val = f.get("value") or ""
+        # Decision owner 19/10 : CURRENT_ / NEXT_ disent l'ETAT GLOBAL du projet (RULES_SHARED), ce ne sont pas des
+        # items -- hors du denominateur, et nommes dans le document.
+        if cle.startswith(("CURRENT_", "NEXT_")) or str(val).lstrip().startswith(("CURRENT:", "NEXT:")):
+            exclus.append(cle)
+            continue
+        etat = _etat_arbre(val)
+        par_etat[etat] += 1
+        valeurs[cle] = str(val)
+        items.append({"cle": cle, "etat": etat,
+                      "priorite": _priorite_arbre(cle, val),
+                      "reste": _reste_arbre(val)})
+    # 19/10 (owner : « il n'y a aucune hierarchie ») : un item qui CITE la cle d'un autre en depend -- la resolution
+    # de l'item cite aide la sienne. Frontieres explicites : une cle prefixe d'une autre ne compte pas.
+    import re as _re
+    for it in items:
+        texte = valeurs.get(it["cle"], "")
+        it["cite"] = sorted(c["cle"] for c in items if c["cle"] and c["cle"] != it["cle"]
+                            and _re.search(r"(?<![\w-])%s(?![\w-])" % _re.escape(c["cle"]), texte))
+    # Carte des dependances : fusionnee aux citations ; une arete vers une cle inconnue est ECARTEE et comptee.
+    carte, carte_ecartees = "absente", 0
+    try:
+        aretes = (json.loads(Path(CARTE_DEPENDANCES).read_text(encoding="utf-8")) or {}).get("aretes") or []
+        carte = "lue"
+    except FileNotFoundError:
+        aretes = []
+    except (OSError, ValueError, AttributeError):
+        aretes, carte = [], "illisible"
+    par_cle = {it["cle"]: it for it in items}
+    for a in aretes:
+        de, vers = str((a or {}).get("de") or ""), str((a or {}).get("vers") or "")
+        if de in par_cle and vers in par_cle and de != vers:
+            par_cle[vers]["cite"] = sorted(set(par_cle[vers]["cite"]) | {de})
+        else:
+            carte_ecartees += 1
+    doc = {"genere_le": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "total": len(items), "par_etat": par_etat, "items": items, "etats_globaux_exclus": exclus,
+           "carte": carte, "carte_ecartees": carte_ecartees}
+    cible = Path(out) if out is not None else ARBRE_JSON
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    cible.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    return doc
 
 
 def finalize() -> dict:
@@ -610,8 +758,192 @@ try:
     from nokido_agent.app.forge_keeper_base import register as _register
     _register("roadmap", owns=CONTRACT["owns"], present=present, status=status,
               regen=regen, contract=CONTRACT, source="module")
-except Exception:  # noqa: BLE001 - base indispo -> keeper autonome quand même
+except Exception:  # noqa: BLE001 - muet-ok : registre indisponible a l'import, le keeper reste autonome
     pass
+
+
+# ── Planificateur AlphaGo de la roadmap (owner 18/10 ~23 h 40) ────────────────────
+# PUCT sur (item ouvert, repondeur libre) : Q = force mesuree du repondeur pour la classe de l'item (registre de
+# recompense, forge_motivation), P = poids de priorite x confiance dans le repondeur, n = visites passees de l'item.
+# OBSERVATION d'abord (decision owner) : le plan est journalise a cote des attributions reelles ; DUEL (arene) sur
+# les P0/P1 de code : deux ecrivains libres produisent chacun un candidat, l'oracle gele departage.
+_JOUABLES = ("PARTIEL", "OUVERT")
+_POIDS_PRIORITE = {"P0": 1.0, "P1": 0.6, "P2": 0.3}
+_C_PUCT = 1.0
+_Q_JAMAIS_ESSAYE = 0.25
+_RX_ECRIT = None
+# v2 (19/10, enquete AGY job_55a851be) : un reste qui cite un geste de l'owner n'est pas jouable par un repondeur.
+_RX_ATTENTE_OWNER = re.compile(r"\b(d[eé]cision|geste|d[eé]rogation|arbitrage)\s*(?:de\s+l['’]|d['’])?owner\b"
+                               r"|\battente\s+owner\b|\breposer\s+la\s+bascule\s+[àa]\s+l['’]owner\b", re.I)
+_EN_VOL = ("running", "claimed", "assigned")    # meme liste que tools/forge_task_executor._EN_VOL
+
+
+def attend_owner(item: dict) -> bool:
+    """Vrai si le reste de l'item attend un geste ou une decision de l'owner."""
+    return bool(_RX_ATTENTE_OWNER.search(str(item.get("reste") or "")))
+
+
+# PORTES (owner 19/10, « liens de cause a effet ») : mesure sur 58 items ouverts -- le graphe est plat (levier max 4
+# en aval), les causes COMMUNES sont des portes. Premiere porte reconnue dans cet ordre ; OWNER = attend_owner (une
+# seule definition, alignee sur `attente_owner` du plan). Rien de reconnu = LIBRE (jouable sans porte).
+_PORTES = (
+    ("RELANCE", re.compile(r"relanc|red[eé]marr|apr[eè]s\s+restart", re.I)),
+    ("CI", re.compile(r"\bCI\b|ci de r[eé]f[eé]rence")),
+    ("SERIE", re.compile(r"\bs[eé]rie\b|remesur|observ", re.I)),
+    ("EXECUTEUR", re.compile(r"ex[eé]cuteur|\bAGY\b|OpenCode|\bGLM\b", re.I)),
+)
+_ORDRE_PORTES = ["OWNER"] + [p for p, _ in _PORTES] + ["LIBRE"]
+
+
+def porte_item(item: dict) -> str:
+    if attend_owner(item):
+        return "OWNER"
+    reste = str(item.get("reste") or "")
+    return next((p for p, rx in _PORTES if rx.search(reste)), "LIBRE")
+
+
+def gestes_groupes(items: list) -> list:
+    """Une ligne par porte (hors LIBRE, hors CLOS) : {porte, n, cles, aval, poids}, aval = items ouverts debloques en
+    aval (fermeture des `cite`) ; poids = somme des _POIDS_PRIORITE des items de la porte et de leur aval (19/10 :
+    compter seul faisait passer 3 items P2 devant 2 items P0). Tri par poids, puis n + aval, puis ordre des portes. Pur."""
+    ouverts = {it.get("cle"): it for it in items if str(it.get("etat") or "").upper() != "CLOS"}
+    succ: dict = {}
+    for it in ouverts.values():
+        for c in it.get("cite") or []:
+            succ.setdefault(c, set()).add(it.get("cle"))
+    groupes: dict = {}
+    for cle, it in ouverts.items():
+        groupes.setdefault(porte_item(it), []).append(cle)
+    out = []
+    for porte, cles in groupes.items():
+        if porte == "LIBRE":
+            continue
+        aval, pile = set(), list(cles)
+        while pile:
+            for s in succ.get(pile.pop(), ()):
+                if s in ouverts and s not in aval:
+                    aval.add(s)
+                    pile.append(s)
+        poids = sum(_POIDS_PRIORITE.get(str(ouverts[k].get("priorite") or ""), 0.2) for k in set(cles) | aval)
+        out.append({"porte": porte, "n": len(cles), "cles": sorted(cles), "aval": len(aval), "poids": round(poids, 3)})
+    return sorted(out, key=lambda x: (-x["poids"], -(x["n"] + x["aval"]), _ORDRE_PORTES.index(x["porte"])))
+
+
+def _occupes(db=None) -> tuple:
+    """(agents en vol dans tasks.db, raison) ; base illisible -> (set(), raison NOMMEE), jamais un silence."""
+    import sqlite3
+    db = Path(db) if db is not None else Path(__file__).resolve().parents[1] / "sandbox" / "tasks.db"
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            rows = c.execute("SELECT DISTINCT upper(agent) FROM tasks WHERE status IN (%s)"
+                             % ",".join("?" * len(_EN_VOL)), _EN_VOL).fetchall()
+        finally:
+            c.close()
+    except Exception as exc:  # noqa: BLE001
+        return set(), "tasks.db ILLISIBLE (%s) : occupation inconnue, aucun repondeur retire" % type(exc).__name__
+    return {r[0] for r in rows if r[0]}, ""
+
+
+def classe_item(item: dict) -> str:
+    """M:ecrit si le reste demande du code (RED/GREEN, cabler, implementer, ecrire, coder), sinon M:lit."""
+    import re as _re
+    global _RX_ECRIT
+    if _RX_ECRIT is None:
+        _RX_ECRIT = _re.compile(r"\b(RED|GREEN|c[aâ]bler|impl[ée]menter|[ée]crire|coder|codemod|refactor)", _re.I)
+    return "M:ecrit" if _RX_ECRIT.search(str(item.get("reste") or "")) else "M:lit"
+
+
+def plan_puct(items: list, libres: list, resultats: list, visites: dict | None = None, duel: bool = True,
+              c: float = _C_PUCT) -> dict:
+    """Attributions (item, repondeur) par PUCT, gloutonnes : chaque repondeur libre recoit au plus un item ; un item
+    au plus un repondeur, sauf DUEL (P0/P1 de code, deux meilleurs ecrivains libres). Pur, sans E/S."""
+    import math
+    import sys as _s
+    _a = str(Path(__file__).resolve().parents[1] / "app")
+    if _a not in _s.path:
+        _s.path.insert(0, _a)
+    from forge_motivation import force_repondeurs
+    visites = visites or {}
+    jouables = [it for it in items if str(it.get("etat") or "").upper() in _JOUABLES]
+    attente = [it.get("cle") for it in jouables if attend_owner(it)]
+    jouables = [it for it in jouables if not attend_owner(it)]
+    forces = {cl: force_repondeurs(resultats, cl) for cl in ("M:ecrit", "M:lit")}
+
+    def _q(rep, cl):
+        u = (forces[cl].get(str(rep).upper()) or {}).get("utilite")
+        return _Q_JAMAIS_ESSAYE if u is None else u
+
+    total = sum(int(v) for v in visites.values()) + 1
+    paires = []
+    for it in jouables:
+        cl = classe_item(it)
+        n = int(visites.get(it.get("cle"), 0))
+        for rep in libres:
+            q = _q(rep, cl)
+            p = _POIDS_PRIORITE.get(str(it.get("priorite") or ""), 0.2) * max(0.05, min(1.0, (q + 1.0) / 2.0))
+            score = q + c * p * math.sqrt(total) / (1 + n)
+            paires.append({"cle": it.get("cle"), "repondeur": rep, "classe": cl, "priorite": it.get("priorite"),
+                           "q": round(q, 4), "p": round(p, 4), "n": n, "score": round(score, 4), "duel": False})
+    paires.sort(key=lambda x: -x["score"])
+    pris_rep, pris_item, out = set(), set(), []
+    for x in paires:
+        if x["repondeur"] in pris_rep or x["cle"] in pris_item:
+            continue
+        rivaux = [y for y in paires if y["cle"] == x["cle"] and y["repondeur"] not in pris_rep
+                  and y["repondeur"] != x["repondeur"] and y["q"] > 0]
+        if (duel and x["classe"] == "M:ecrit" and x["priorite"] in ("P0", "P1") and x["q"] > 0 and rivaux):
+            second = dict(rivaux[0], duel=True)
+            out.extend([dict(x, duel=True), second])
+            pris_rep.update({x["repondeur"], second["repondeur"]})
+        else:
+            out.append(x)
+            pris_rep.add(x["repondeur"])
+        pris_item.add(x["cle"])
+    return {"mode": "OBSERVATION", "attributions": out, "ecartes": len(items) - len(jouables),
+            "attente_owner": attente, "libres": list(libres), "portes": gestes_groupes(items)}
+
+
+def _visites_taches() -> tuple:
+    """{cle d'item: nombre de taches qui la citent} lu dans sandbox/tasks.db ; ({}, raison) si illisible."""
+    import sqlite3
+    db = Path(__file__).resolve().parents[1] / "sandbox" / "tasks.db"
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        descs = [str(r[0] or "") for r in c.execute("SELECT description FROM tasks")]
+        c.close()
+    except Exception as exc:  # noqa: BLE001
+        return {}, "tasks.db ILLISIBLE (%s) : visites inconnues, comptees 0" % type(exc).__name__
+    return descs, ""
+
+
+def _plan_cli(libres: list) -> dict:
+    """--plan : arbre (ou NOKIDO_PLAN_ARBRE), registre de recompense, visites ; journalise le plan (OBSERVATION)."""
+    import os as _os
+    import sys as _s
+    import time as _t
+    _a = str(Path(__file__).resolve().parents[1] / "app")
+    if _a not in _s.path:
+        _s.path.insert(0, _a)
+    from forge_motivation import lire_resultats
+    src = _os.environ.get("NOKIDO_PLAN_ARBRE")
+    # sans `out`, arbre() ecrit docs/roadmap_arbre.json : refuse au compte bac a sable (mesure 18/10)
+    sortie = Path(__file__).resolve().parents[1] / "sandbox" / "workspace" / "roadmap_arbre_plan.json"
+    items = (json.loads(Path(src).read_text(encoding="utf-8")) if src else arbre(out=str(sortie))).get("items") or []
+    resultats = lire_resultats(_os.environ.get("NOKIDO_MOTIVATION_RESULTATS") or None)
+    descs, raison = _visites_taches()
+    visites = {it.get("cle"): sum(1 for d in descs if it.get("cle") and it.get("cle") in d) for it in items} \
+        if isinstance(descs, list) else {}
+    occupes, raison_occ = _occupes()
+    retires = [x for x in libres if str(x).upper() in occupes]
+    plan = plan_puct(items, [x for x in libres if x not in retires], resultats, visites)
+    plan.update(ts=_t.time(), visites_raison=raison or None, occupes=retires, occupes_raison=raison_occ or None)
+    journal = Path(_os.environ.get("NOKIDO_PLAN_JOURNAL")
+                   or Path(__file__).resolve().parents[1] / "sandbox" / "plan_puct_observe.jsonl")
+    journal.parent.mkdir(parents=True, exist_ok=True)
+    with open(journal, "a", encoding="utf-8") as f:
+        f.write(json.dumps(plan, ensure_ascii=False) + "\n")
+    return plan
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -623,18 +955,37 @@ def _main() -> int:
     ap.add_argument("--present", nargs="?", const="terse",
                     choices=["full", "terse", "prio", "status", "delta"])
     ap.add_argument("--status", action="store_true")
+    ap.add_argument("--arbre", action="store_true",
+                    help="arbre d'évolution JSON (UI web) depuis le tableau noir")
     ap.add_argument("--contract", action="store_true")
     ap.add_argument("--fast", default="groq", help="provider rapide pour regen (défaut groq)")
     ap.add_argument("--ctx", default=None, help="contexte d'exécution (run_job|trusted)")
     ap.add_argument("--verify", action="store_true",
                     help="registre intent VÉRIFIÉ (dead/done/open : intention confrontée au code réel)")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--plan", action="store_true",
+                    help="planificateur AlphaGo (PUCT item x repondeur), OBSERVATION : plan journalise, rien attribue")
+    ap.add_argument("--libres", default="", help="avec --plan : repondeurs libres, separes par des virgules")
+    ap.add_argument("--html", default=None, metavar="CHEMIN",
+                    help="ecrit la page arbre d'evolution (vis-network embarque) ; le JSON va a cote")
     a = ap.parse_args()
     try:  # console Windows = cp1252 ; le registre vérifié contient →/emoji/unicode
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - muet-ok : console non reconfigurable, la sortie reste lisible en remplacement
         pass
 
+    if a.plan:
+        libres = [x.strip() for x in a.libres.split(",") if x.strip()]
+        print(json.dumps(_plan_cli(libres), ensure_ascii=False))
+        return 0
+    if a.html:
+        try:
+            from nokido_agent.app.web_hub.roadmap_arbre import ecrire_page
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from app.web_hub.roadmap_arbre import ecrire_page
+        doc = arbre(out=Path(a.html).with_suffix(".json"))
+        print(json.dumps({"page": str(ecrire_page(doc, a.html)), "items": len(doc.get("items") or [])}))
+        return 0
     if a.selftest:
         return _selftest()
     if a.contract:
@@ -642,6 +993,9 @@ def _main() -> int:
         return 0
     if a.status:
         print(json.dumps(status(), ensure_ascii=False, indent=2))
+        return 0
+    if a.arbre:
+        print(json.dumps(arbre(), ensure_ascii=False))
         return 0
     if a.verify:
         print(json.dumps(verify(), ensure_ascii=False, indent=1))

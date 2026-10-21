@@ -126,6 +126,41 @@ def marquer_cite(recherche_id: str, chunk_id: str, par: str = "") -> dict:
                     "force": FORT, "par": par, "ts": round(time.time(), 3)})
 
 
+_N_CITATION = 8          # mots consecutifs : en deca, une tournure commune passerait pour une citation
+_SOURCE_MIN = 8          # caracteres : une source plus courte se retrouve par hasard dans n'importe quel texte
+
+
+def _mots(texte: str) -> list[str]:
+    import re as _re
+
+    return _re.findall(r"\w+", str(texte or "").lower())
+
+
+def citations(texte: str, morceaux: list, n: int = _N_CITATION) -> list[str]:
+    """Ids des morceaux CITES par `texte` -- DETERMINISTE, sans LLM (palier 1 du rapport AGY du 19/10).
+
+    Un morceau est cite si la reponse reprend `n` mots consecutifs de son contenu, ou si elle NOMME sa source
+    (>= _SOURCE_MIN caracteres). Ordre = celui de `morceaux`, sans doublon. Dans le doute, rien : un faux positif
+    FORT empoisonne l'entrainement plus surement qu'un positif manque.
+    """
+    if not texte or not morceaux:
+        return []
+    mots = _mots(texte)
+    vus = {tuple(mots[i:i + n]) for i in range(len(mots) - n + 1)}
+    bas = str(texte).lower()
+    out = []
+    for m in morceaux:
+        cid = str((m or {}).get("id") or "")
+        if not cid or cid in out:
+            continue
+        cm = _mots((m or {}).get("content") or (m or {}).get("text") or "")
+        repris = any(tuple(cm[i:i + n]) in vus for i in range(len(cm) - n + 1))
+        src = str((m or {}).get("source") or "").strip().lower()
+        if repris or (len(src) >= _SOURCE_MIN and src in bas):
+            out.append(cid)
+    return out
+
+
 def _lignes(chemin: Path):
     """Journal + archives, du plus ancien au plus recent."""
     fichiers = [chemin.with_name(chemin.name + ".%d" % i) for i in range(ARCHIVES, 0, -1)]

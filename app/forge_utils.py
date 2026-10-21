@@ -67,6 +67,23 @@ def sha256_fichier(chemin) -> str:
     return h.hexdigest()
 
 
+def decouper_sans_perte(texte: str, taille: int) -> list:
+    """Decoupe un texte long en morceaux de `taille` au plus (fin de ligne ou d'espace si possible), jamais tronque.
+
+    Factorise le 2026-10-18 : `forge_conv_indexer._decouper_sans_perte` et `forge_conv_exports._morceaux` etaient
+    le MEME corps (cliquet clones, pre-controle de la CI de reference). Chacun garde son nom ; seul le corps est partage.
+    """
+    out, reste = [], texte
+    while len(reste) > taille:
+        coupe = max(reste.rfind("\n", 0, taille), reste.rfind(" ", 0, taille))
+        coupe = coupe if coupe > taille // 2 else taille
+        out.append(reste[:coupe])
+        reste = reste[coupe:].lstrip()
+    if reste:
+        out.append(reste)
+    return out
+
+
 def safe_shell_run(cmd: list[str], cwd: str | None = None, timeout: int = 30) -> dict:
     """Exécute une commande shell de manière robuste avec gestion d'encodage.
 

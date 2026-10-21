@@ -148,6 +148,11 @@ def _call(path: str, method: str = "GET") -> tuple[int, str]:
     tok = _token()
     if tok:
         req.add_header("authorization", tok)
+    # L'organe qui ordonne se NOMME (lu par _journalOrdre du superviseur) : sans lui l'ordre est journalise « ? »
+    # (15/10, arrets de NokidoLlamaEmbed retrouves seulement par le journal du keeper).
+    agent = os.environ.get("NOKIDO_CTL_AGENT", "").strip()
+    if agent:
+        req.add_header("LaForge-Agent-Name", agent)
     with urllib.request.urlopen(req, timeout=15) as r:
         return r.status, r.read().decode("utf-8", "replace")
 
@@ -268,13 +273,18 @@ def main() -> int:
             print("[ctl] relance NON ATTEINTE apres 90 s : %s -- lire laforge-master.log"
                   % ((e or {}).get("status", "superviseur illisible")))
             return 1
-        elif action in ("sleep", "wake") and len(args) >= 2:
-            st, body = _call(f"/supervisor/{action}/{args[1]}", method="POST")
+        elif action == "sleep" and len(args) >= 2:
+            st, body = _call(f"/supervisor/sleep/{args[1]}", method="POST")
+        elif action == "wake" and len(args) >= 2:
+            # 2026-10-18 (integre cafdbae37, NEMOTRON) : la route /supervisor/wake n'existe pas cote superviseur (404
+            # mesure). Le bon point d'entree est POST /supervisor/service/start/<nom>, qui cree l'etat d'un service
+            # disabled via etatALaDemande (meme logique que start/restart).
+            st, body = _call(f"/supervisor/service/start/{args[1]}", method="POST")
         elif action in ("start", "ensure") and len(args) >= 2:
             # Lanceur ON-DEMAND générique : /supervisor/service/start réveille
-            # même un service `disabled=true` (à la différence de /wake, qui ne
-            # touche pas les disabled). 'ensure' == 'start' (supervisor idempotent,
-            # no-op si déjà running). Usage : ensure NokidoSearxng.
+            # même un service `disabled=true` (à la différence de l'ancienne /wake).
+            # 'ensure' == 'start' (supervisor idempotent, no-op si déjà running).
+            # Usage : ensure NokidoSearxng.
             st, body = _call(f"/supervisor/service/start/{args[1]}", method="POST")
         elif action == "stop" and len(args) >= 2:
             st, body = _call(f"/supervisor/service/stop/{args[1]}", method="POST")

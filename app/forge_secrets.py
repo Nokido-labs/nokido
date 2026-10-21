@@ -490,6 +490,32 @@ def _noter(key: str, issue: str, source=None, illisibles=None, sante=None) -> di
     return e
 
 
+def _coffre_test(key: str):
+    """Coffre de TEST isole (decision owner 18/10, test_hub_n::test_stream_headers) : `<NOKIDO_COFFRE_TEST_DIR>/
+    coffre_test.json`, servi UNIQUEMENT sous pytest (PYTEST_CURRENT_TEST pose) et si le dossier est sous le dossier
+    temporaire du systeme ou porte un segment « pytest » (basetemp de ci_local). Hors de ces conditions : None, et
+    un dossier refuse est DIT. Un service lance sans pytest ne peut donc pas etre redirige vers un faux coffre."""
+    import json as _json
+    import logging as _logging
+    import tempfile as _tempfile
+    from pathlib import Path as _Path
+
+    dossier = os.environ.get("NOKIDO_COFFRE_TEST_DIR")
+    if not dossier or not os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+    p = _Path(dossier).resolve()
+    sous_tmp = str(p).lower().startswith(str(_Path(_tempfile.gettempdir()).resolve()).lower())
+    if not (sous_tmp or any(part.lower().startswith("pytest") for part in p.parts)):
+        _logging.getLogger("forge.secrets").warning("coffre de test IGNORE : dossier hors temporaire/pytest")
+        return None
+    try:
+        data = _json.loads((p / "coffre_test.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    v = data.get(key) if isinstance(data, dict) else None
+    return v if isinstance(v, str) and v else None
+
+
 def _sonder(nom: str, key: str):
     """(valeur, illisible) pour une source. Ne leve jamais.
 
@@ -644,6 +670,10 @@ def get_secret(key: str, required: bool = False) -> Optional[str]:
     Returns:
         Valeur du secret ou None
     """
+    # 0. Coffre de TEST isole : sous pytest seulement (cf. _coffre_test) ; jamais memorise.
+    _v_test = _coffre_test(key)
+    if _v_test:
+        return _v_test
     if key in _BASCULES_DE_POLITIQUE:
         # Relue a CHAQUE appel, jamais memorisee : c'est ce qui permet au garde
         # de se refermer quand l'operateur retire l'autorisation.

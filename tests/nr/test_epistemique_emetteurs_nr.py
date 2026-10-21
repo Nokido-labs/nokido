@@ -137,7 +137,9 @@ def base(tmp_path, monkeypatch):
 
     monkeypatch.setattr(forge_db_path, "open_writer",
                         lambda *a, **k: sqlite3.connect(str(db), isolation_level=None), raising=False)
-    monkeypatch.setattr(forge_db_path, "write_retry", lambda op: op(), raising=False)
+    # Le VRAI write_retry (seul open_writer, qu'il appelle, est double) : la doublure `lambda op: op()` contredisait
+    # son contrat `op(conn)` -- ce test passait pendant qu'en prod 28 fermetures sur 28 rendaient « ecriture refusee
+    # (TypeError) » (autonomous_loop_audit, epistemic_consolidation, mesure 16/10).
     return db
 
 
@@ -195,9 +197,23 @@ def test_le_parseur_distingue_illisible_de_vide():
 
 # ---------------------------------------------------- contradiction -> supersession
 
-def test_une_contradiction_reelle_ferme_lancienne_assertion(base):
+def test_sans_juge_qualifie_aucune_fermeture_n_est_actee(base, monkeypatch):
+    """16/10 : le juge local (qwen2.5-coder:1.5b) rendait 100 % `supersedes` (28/28, confiance 0,9-1,0, raison
+    stereotypee) ; le rejeu de ses verdicts fermait des textes DIFFERENTS et des paires dans les DEUX sens (rejeu
+    annule). Par defaut la reevaluation est ENREGISTREE, la fermeture SUSPENDUE et comptee -- jamais actee en silence."""
+    monkeypatch.delenv("LAFORGE_EPISTEMIC_FERMER", raising=False)
+    r = consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction,
+                          db_path=base, fenetre_j=LARGE)
+    ree = r["reevaluation"]
+    assert (ree["reevaluations"], r["fermees"], ree.get("fermetures_suspendues"), _meta_de(base, "vieux").get(
+        "valid_to")) == (1, 0, 1, None)
+
+
+def test_une_contradiction_reelle_ferme_lancienne_assertion(base, monkeypatch):
     """Le cas « A vrai hier, faux aujourd'hui », de bout en bout : extraction, jugement,
-    `claim_reevaluations` ecrit, `superseder` appele — meta ET colonne."""
+    `claim_reevaluations` ecrit, `superseder` appele — meta ET colonne. Fermeture AUTORISEE explicitement
+    (LAFORGE_EPISTEMIC_FERMER=1 : un juge qualifie a ete designe)."""
+    monkeypatch.setenv("LAFORGE_EPISTEMIC_FERMER", "1")
     r = consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction,
                           db_path=base, fenetre_j=LARGE)
     ree = r["reevaluation"]
@@ -261,6 +277,24 @@ def test_la_porte_refuse_une_corroboration_de_la_meme_source(base):
     assert _meta_de(base, "brouillon")["consensus_level"] == "draft"
 
 
+def test_le_juge_n_est_jamais_appele_sur_deux_assertions_de_la_meme_source(base):
+    """18/10 (mesure + decision owner « ne pas promouvoir ») : les 61 `supports` du juge qualifie etaient
+    61 paires de textes IDENTIQUES issues de la MEME source re-ingeree. La porte les aurait refusees (test
+    ci-dessus), mais en amont le juge etait PAYE pour chacune et le registre comptait des corroborations qui
+    n'en sont pas. Une copie n'est pas un temoin : la paire est ecartee AVANT le juge, et l'ecart est COMPTE."""
+    _ecrire(base, INSERT_CHUNK, "copie", TXT_NEUF, "https://docs.example/hub", "watch_veille", "veille", T2, "{}")
+    appels = []
+
+    def juge(ancienne, nouvelle):
+        appels.append((ancienne, nouvelle))
+        return {"relation": "supports", "confidence": 0.95, "rationale": "copie"}
+
+    ext = consol.process_batch(limit=10, extracteur=_extracteur, db_path=base, fenetre_j=LARGE)
+    b = consol.reevaluer(ext["claim_ids"], juge=juge, db_path=base, nom_juge="t")
+    assert b.get("paires_meme_source", 0) >= 1, "l'ecart d'une paire de meme source doit etre COMPTE, pas muet"
+    assert not [a for a, n in appels if a == n], "le juge a ete appele sur une assertion et sa propre copie"
+
+
 def test_la_porte_refuse_un_brouillon_sans_ancrage_semantique(base):
     _ecrire(base, INSERT_CHUNK, "autre", TXT_AUTRE, "conv://agent/s3", arch._TIER_BROUILLON,
             "agent:assistant:brouillon", T2, _meta("draft", T2))
@@ -271,7 +305,8 @@ def test_la_porte_refuse_un_brouillon_sans_ancrage_semantique(base):
 
 # ------------------------------------------------------ chemin vivant : as-of + conflits
 
-def test_le_chemin_vivant_ecarte_les_assertions_fermees_et_le_dit(base):
+def test_le_chemin_vivant_ecarte_les_assertions_fermees_et_le_dit(base, monkeypatch):
+    monkeypatch.setenv("LAFORGE_EPISTEMIC_FERMER", "1")  # une fermeture suppose un juge qualifie (16/10)
     consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction,
                       db_path=base, fenetre_j=LARGE)
     resultats = [{"id": "vieux", "content": TXT_VIEUX, "source": "rag:a"},
@@ -396,3 +431,130 @@ def test_la_consolidation_a_une_cadence_declaree_avec_llm_local_et_garde_ram():
     assert kw["requires_local_llm"].value is True
     corps = ast.get_source_segment(src, fonction)
     assert "_ram_gate(" in corps and "consolider(" in corps and "_local_llm_available()" in corps
+
+
+# DECISION OWNER 17/10, option (A) : les RE-JUGEMENTS par un juge qualifie vont dans une base SEPAREE (aucun
+# changement de schema de la grosse base) ; `reevaluer` relit les deux, le verdict du juge qualifie PRIME, l'ancien
+# verdict reste en base (rien supprime). Sans base de re-jugement, une paire deja jugee par le juge local ne
+# pouvait JAMAIS etre re-jugee (controle `deja` sur claim_reevaluations) -- le juge local degenere restait seul.
+def _juge_qualifie(ancienne, nouvelle):
+    return {"relation": "supports", "confidence": 0.3, "rationale": "juge qualifie (test)"}
+
+
+def test_un_rejugement_qualifie_va_dans_la_base_separee_et_prime(base, tmp_path, monkeypatch):
+    monkeypatch.delenv("LAFORGE_EPISTEMIC_FERMER", raising=False)
+    consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction, db_path=base, fenetre_j=LARGE)
+    avant = _lire(base, "SELECT older_claim_id, newer_claim_id, reevaluation_type, detected_by "
+                        "FROM claim_reevaluations")
+    assert len(avant) == 1, avant
+    ids = [r[0] for r in _lire(base, "SELECT id FROM chunk_claims")]
+    rejug = tmp_path / "rejugements.db"
+
+    b = consol.reevaluer(ids, juge=_juge_qualifie, db_path=base, nom_juge="qualifie", rejugement_db=rejug)
+    assert b["paires_jugees"] >= 1 and b["reevaluations"] == 1, b
+    # la grosse base n'a pas bouge : l'ancien verdict reste, rien n'est ajoute ni supprime
+    assert _lire(base, "SELECT older_claim_id, newer_claim_id, reevaluation_type, detected_by "
+                       "FROM claim_reevaluations") == avant
+    neuf = _lire(rejug, "SELECT older_claim_id, newer_claim_id, reevaluation_type, detected_by "
+                        "FROM claim_reevaluations")
+    assert [(r[0], r[1]) for r in neuf] == [(avant[0][0], avant[0][1])], neuf
+    assert neuf[0][2:] == ("supports", "qualifie"), neuf
+
+    eff = consol.verdict_effectif(avant[0][0], avant[0][1], db_path=base, rejugement_db=rejug)
+    assert eff and eff["relation"] == "supports" and eff["detected_by"] == "qualifie", eff
+
+    # idempotent : un second re-jugement ne repose pas la question
+    b2 = consol.reevaluer(ids, juge=_juge_qualifie, db_path=base, nom_juge="qualifie", rejugement_db=rejug)
+    assert b2["paires_jugees"] == 0, b2
+
+
+# DECISION OWNER 16/10 + item decision_owner_a_prendre_rejugement_epistemique : « faire re-juger les 36 supports par le
+# juge QUALIFIE et mesurer les verdicts AVANT toute ouverture de promouvoir_brouillon ». `reevaluer` promouvait (et
+# fermait, sous LAFORGE_EPISTEMIC_FERMER=1) des que le verdict etait sur : lancer la mesure l'aurait violee (18/10).
+def test_mesure_seule_compte_sans_promouvoir_ni_fermer(base, tmp_path, monkeypatch):
+    monkeypatch.setenv("LAFORGE_EPISTEMIC_FERMER", "1")
+    consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction, db_path=base, fenetre_j=LARGE)
+    ids = [r[0] for r in _lire(base, "SELECT id FROM chunk_claims")]
+    avant = _lire(base, "SELECT * FROM chunk_claims ORDER BY id")
+    sur = {"relation": "supports", "confidence": 0.99, "rationale": "juge qualifie sur (test)"}
+    b = consol.reevaluer(ids, juge=lambda a, n: sur, db_path=base, nom_juge="qualifie",
+                         rejugement_db=tmp_path / "r1.db", mesure_seule=True)
+    assert b["promotions_mesurees"] >= 1 and b["promus"] == 0 and b["promotions_refusees"] == 0, b
+    contra = {"relation": "contradicts", "confidence": 0.99, "rationale": "juge qualifie sur (test)"}
+    b2 = consol.reevaluer(ids, juge=lambda a, n: contra, db_path=base, nom_juge="qualifie",
+                          rejugement_db=tmp_path / "r2.db", mesure_seule=True)
+    assert b2["fermetures_mesurees"] >= 1 and b2["fermees"] == 0 and b2["fermetures_refusees"] == 0, b2
+    assert _lire(base, "SELECT * FROM chunk_claims ORDER BY id") == avant, "la grosse base ne bouge pas"
+
+
+def test_rejuger_supports_vise_les_supports_en_mesure_seule_vers_la_base_separee(base, tmp_path, monkeypatch):
+    """Chemin de l'item rejugement : les paires que le juge LOCAL a jugees -- QUEL QUE SOIT le type (mesure 18/10 :
+    %NOKIDO_DATA%\\embeddings.db porte 42 `supersedes` locaux et 0 `supports`, le libelle « 36 supports » ne designait rien) --
+    sont re-jugees par le juge qualifie, en MESURE SEULE, vers la base de re-jugement ; jamais de promotion."""
+    consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction, db_path=base, fenetre_j=LARGE)
+    vus = {}
+
+    def espion(ids, **k):
+        vus.update(k, ids=list(ids))
+        return {"paires_jugees": 0}
+
+    monkeypatch.setattr(consol, "reevaluer", espion)
+    consol.rejuger_supports_mesure(db_path=base, rejugement_db=tmp_path / "r.db", backend="routeur")
+    assert vus.get("mesure_seule") is True and vus.get("rejugement_db") == tmp_path / "r.db", vus
+    assert vus.get("ids"), "les assertions des paires `supports` sont selectionnees"
+
+
+def test_accord_inter_juges_mesure_sans_rien_ecrire(base, tmp_path, monkeypatch):
+    """Decision owner 18/10 (choix multiple) : avant d'ouvrir la promotion des 61 `supports`, un ECHANTILLON est re-juge
+    par un SECOND juge different ; on n'ouvre que si l'accord atteint 80 %. Mesure seule : aucune ecriture."""
+    consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction, db_path=base, fenetre_j=LARGE)
+    ids = [r[0] for r in _lire(base, "SELECT id FROM chunk_claims")]
+    rejug = tmp_path / "r.db"
+    consol.reevaluer(ids, juge=lambda a, n: {"relation": "supports", "confidence": 0.9, "rationale": "q"},
+                     db_path=base, nom_juge="qualifie_routeur", rejugement_db=rejug, mesure_seule=True)
+    avant = _lire(rejug, "SELECT * FROM claim_reevaluations")
+    d = consol.accord_inter_juges(n=10, juge2=lambda a, n: {"relation": "supports", "confidence": 0.8,
+                                                            "rationale": "j2"},
+                                  rejugement_db=rejug, db_path=base, graine=1)
+    assert d["n"] >= 1 and d["accord"] == d["n"] and d["taux"] == 1.0 and d["ouvrir"] is True, d
+    d2 = consol.accord_inter_juges(n=10, juge2=lambda a, n: {"relation": "unrelated", "confidence": 0.8,
+                                                             "rationale": "j2"},
+                                   rejugement_db=rejug, db_path=base, graine=1)
+    assert d2["taux"] == 0.0 and d2["ouvrir"] is False and d2["desaccords"], d2
+    assert _lire(rejug, "SELECT * FROM claim_reevaluations") == avant, "mesure seule : rien n'est ecrit"
+
+
+def test_juge_local7b_interroge_un_modele_local_plus_grand(monkeypatch):
+    """18/10 : le second juge `cerebras` est reste MUET 10/10 (job_81443261b41b) ; le juge `local` est le 1,5B qui
+    disait 42/42 supersedes. Second avis independant, gratuit et joignable : un modele local plus grand."""
+    vu = {}
+
+    class _R:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"response": "{\\"relation\\": \\"supports\\", \\"confidence\\": 0.7, \\"rationale\\": \\"x\\"}"}'
+
+    def faux_urlopen(req, timeout=None):
+        vu["corps"] = json.loads(req.data.decode("utf-8"))
+        return _R()
+
+    monkeypatch.setattr(consol.urllib.request, "urlopen", faux_urlopen)
+    v = consol.juge_backend("local7b")("a", "b")
+    assert vu["corps"]["model"] != consol.MODELE_LOCAL and "7b" in vu["corps"]["model"] or "qwen2.5" in vu["corps"]["model"]
+    assert v and v["relation"] == "supports", v
+
+
+def test_sans_base_de_rejugement_le_comportement_est_inchange(base, monkeypatch):
+    monkeypatch.delenv("LAFORGE_EPISTEMIC_FERMER", raising=False)
+    consol.consolider(limit=10, extracteur=_extracteur, juge=_juge_contradiction, db_path=base, fenetre_j=LARGE)
+    ids = [r[0] for r in _lire(base, "SELECT id FROM chunk_claims")]
+    b = consol.reevaluer(ids, juge=_juge_qualifie, db_path=base, nom_juge="qualifie")
+    assert b["paires_jugees"] == 0, b          # deja jugee dans la grosse base : pas re-posee
+    eff = consol.verdict_effectif(*_lire(base, "SELECT older_claim_id, newer_claim_id FROM claim_reevaluations")[0],
+                                  db_path=base)
+    assert eff and eff["relation"] != "supports", eff   # sans re-jugement, c'est le verdict d'origine

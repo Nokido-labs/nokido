@@ -49,7 +49,7 @@ def _is_online(agent):
                 if cand.exists() and (time.time() - cand.stat().st_mtime) < 300:
                     return True
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_peer_discovery.py', 51, exc_info=True)
         return False
 
 
@@ -116,7 +116,7 @@ def _selftest():
         try:
             tmp.unlink()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_peer_discovery.py', 118, exc_info=True)
 
 
 def main():

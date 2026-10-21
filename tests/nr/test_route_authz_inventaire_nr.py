@@ -1078,7 +1078,11 @@ def test_le_detecteur_distingue_emission_et_comparaison():
 #  Une liste blanche, jamais une exemption silencieuse.
 # ══════════════════════════════════════════════════════════════════════════
 
-_EMETTRICES_CONNUES = frozenset({"/forge/debate", "/forge/graph", "/forge/recon"})
+# DETTE FERMEE le 2026-10-19 (5fb4c1c11, decision owner) : /forge/debate, /forge/graph et /forge/recon ne
+# servent plus aucun jeton -- la liste blanche est VIDE, le garde est strict pour TOUTE route. Les trois
+# anciennes emettrices restent nommees pour la contre-epreuve inverse ci-dessous.
+_EMETTRICES_CONNUES = frozenset()
+_ANCIENNES_EMETTRICES = ("/forge/debate", "/forge/graph", "/forge/recon")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1212,24 +1216,21 @@ def test_aucune_route_NOUVELLE_ne_sert_un_credential():
         "ici en sachant qu'elle distribue une autorite." % nouvelles)
 
 
-def test_les_trois_emettrices_connues_le_sont_TOUJOURS():
-    """CONTRE-EPREUVE. Si elles cessaient d'emettre, ce fichier devrait le
-    dire -- sans quoi la liste blanche protegerait des routes devenues saines
-    et masquerait la prochaine."""
+def test_les_anciennes_emettrices_n_emettent_plus():
+    """CONTRE-EPREUVE INVERSE (19/10). Jusqu'a 5fb4c1c11 ces trois routes servaient le jeton et la liste
+    blanche les nommait ; elle est vide depuis. Qu'une d'elles recommence a emettre et ce test le DIT."""
     src = audit.HUB.read_text(encoding="utf-8", errors="replace")
     idx, lignes = audit._handlers(src)
     routes = {r["route"]: r for r in audit.auditer(avec_appelants=False)["routes"]}
     encore = []
-    for c in sorted(_EMETTRICES_CONNUES):
+    for c in _ANCIENNES_EMETTRICES:
         r = routes.get(c)
         if r is None:
             continue
         corps = audit._corps(r["handler"], idx, lignes)
         if corps is not None and audit._credential_emis(corps):
             encore.append(c)
-    assert encore, (
-        "AUCUNE des routes connues n'emet plus de credential -- tant mieux : "
-        "retirer `_EMETTRICES_CONNUES` et laisser le garde strict")
+    assert not encore, "route(s) servant DE NOUVEAU un credential : %s" % encore
 
 
 def test_le_detecteur_d_emission_distingue_deux_cas_construits():

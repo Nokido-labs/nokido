@@ -33,13 +33,17 @@ _log = logging.getLogger("forge.rag_via_hub")
 
 # En-tete d'un resultat rendu par l'outil `rag action=search` du hub :
 #   [chemin/source] (domaine, bm25=-37.2)
-_ENTETE = re.compile(r"^\[(?P<source>[^\]\n]+)\] \((?P<meta>[^)\n]*)\)\s*$", re.M)
+# 19/10 (relecture pair_4ab8ef90b633af3f) : l'outil `rag` ajoute ` [chunk:<id>]` (palier 2 LoRA, fdb5ea7be) -- l'ancien
+# motif exigeait `)` en fin de ligne et ne reconnaissait plus aucune en-tete (TUI : 0 resultat). Marqueur optionnel.
+_ENTETE = re.compile(r"^\[(?P<source>[^\]\n]+)\] \((?P<meta>[^)\n]*)\)(?: \[chunk:(?P<chunk>[^\]\n]+)\])?\s*$", re.M)
+_PIED = re.compile(r"^\[rag_recherche:[^\]\n]*\]\s*$", re.M)
 _MARQUES_REFUS = ("GATE_DENIED", "[Hub] Erreur", "unauthorized", "no_auth", "RBAC")
 
 
 def analyser_resultats(texte: str) -> List[Dict[str, Any]]:
     """Texte de `rag action=search` -> [{content, source, domain, score}] (meme forme que RAGEngine)."""
-    entetes = list(_ENTETE.finditer(texte or ""))
+    texte = _PIED.sub("", texte or "")          # le pied [rag_recherche:<rid>] n'appartient a aucun resultat
+    entetes = list(_ENTETE.finditer(texte))
     out = []
     for i, m in enumerate(entetes):
         fin = entetes[i + 1].start() if i + 1 < len(entetes) else len(texte)
@@ -47,6 +51,7 @@ def analyser_resultats(texte: str) -> List[Dict[str, Any]]:
         domaine = meta.split(",")[0].strip() if meta else ""
         sc = re.search(r"bm25=(-?[\d.]+)", meta or "")
         out.append({
+            "id": m.group("chunk"),
             "content": texte[m.end():fin].strip(),
             "source": m.group("source").strip(),
             "domain": domaine,

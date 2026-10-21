@@ -40,7 +40,7 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_FILE.read_text())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_auto_trigger.py', 42, exc_info=True)
     return {}
 
 

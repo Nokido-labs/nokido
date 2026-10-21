@@ -79,10 +79,10 @@ def owner(port: int) -> dict:
                         info["proc"] = p.name()
                         info["path"] = p.exe()
                     except Exception:  # noqa: BLE001
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ports.py', 81, exc_info=True)
                 break
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ports.py', 84, exc_info=True)
     return info
 
 

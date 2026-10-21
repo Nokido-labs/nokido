@@ -1,0 +1,13 @@
+{
+ "jour": "2026-10-18",
+ "sha": "85e3630d7f01",
+ "fichiers_scannes": 2682,
+ "findings": {
+  "WARNING": 90,
+  "ERROR": 43,
+  "INFO": 25
+ },
+ "erreurs_config": 1,
+ "ok": false,
+ "compte": "user"
+}

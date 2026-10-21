@@ -166,7 +166,7 @@ async def log_concurrent(db_path, agent_id: str, event_type: str, payload: str):
             conn.commit()
             conn.close()
         except Exception:
-            pass  # log non-bloquant
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dag_runner.py', 168, exc_info=True)
 
 
 async def execute_task_plan(task_id: str, plan: list[dict], entity_id: str = "laforge") -> dict:

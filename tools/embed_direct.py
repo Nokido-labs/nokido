@@ -46,7 +46,7 @@ def load_session():
     try:
         opts.add_session_config_entry("onnxruntime.relocatable_mem_type", "1")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/embed_direct.py', 48, exc_info=True)
     sess = ort.InferenceSession(str(MODEL_PATH), sess_options=opts, providers=providers)
     print(f"ONNX session: {backend} | inputs={[i.name for i in sess.get_inputs()]}", flush=True)
     return sess, backend

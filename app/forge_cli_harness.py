@@ -44,7 +44,7 @@ def kill_tree(pid):
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
                        capture_output=True, timeout=10)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cli_harness.py', 46, exc_info=True)
 
 
 class _PipeBackend:
@@ -75,7 +75,7 @@ class _PipeBackend:
                     break
                 self._q.put(b)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cli_harness.py', 77, exc_info=True)
         finally:
             self._q.put(None)
 
@@ -90,7 +90,7 @@ class _PipeBackend:
             if self.proc and self.proc.stdin:
                 self.proc.stdin.close()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cli_harness.py', 92, exc_info=True)
 
     def read(self, timeout=0.5):
         out = bytearray()
@@ -113,7 +113,7 @@ class _PipeBackend:
             if self.proc and self.proc.poll() is None:
                 kill_tree(self.proc.pid)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cli_harness.py', 115, exc_info=True)
 
 
 class _WinPtyBackend:
@@ -178,7 +178,7 @@ class _WinPtyBackend:
                 kill_tree(getattr(self.proc, "pid", None))
                 self.proc.terminate(force=True)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cli_harness.py', 180, exc_info=True)
 
 
 class CliHarness:
@@ -254,9 +254,13 @@ def agent_bin(name):
     import shutil
     name = (name or "").lower()
     envk = {"codex": "LAFORGE_CODEX_BIN", "claude": "LAFORGE_CLAUDE_BIN",
-            "gemini": "LAFORGE_GEMINI_BIN", "copilot": "LAFORGE_COPILOT_BIN"}.get(name)
+            "gemini": "LAFORGE_GEMINI_BIN", "copilot": "LAFORGE_COPILOT_BIN",
+            "vibe": "LAFORGE_VIBE_BIN"}.get(name)
     if envk and os.environ.get(envk):
         return os.environ[envk]
+    if name == "vibe":
+        home = os.environ.get("LAFORGE_AGENT_HOME", os.path.expanduser("~"))
+        return os.path.abspath(os.path.join(home, ".local", "bin", "vibe.exe"))
     if name == "codex":
         local = os.environ.get("LOCALAPPDATA", "")
         pats = [os.path.join(local, "OpenAI", "Codex", "bin", "*", "codex.exe"),
@@ -268,10 +272,52 @@ def agent_bin(name):
     return shutil.which(name) or name
 
 
-def _agent_env():
-    """OAuth context: the agent CLIs read their login from the owner profile."""
+# Identite MCP par agent (owner 16/10 : « il faut que vibe soit authentifie au mcp »). TABLE FIGEE : un job JSON
+# (fichier de sandbox/, forgeable par tout processus local) ne nomme AUCUN secret ; c'est le harness qui associe un
+# agent a SON jeton, lu au coffre au lancement et injecte au seul enfant -- jamais ecrit sur disque.
+# `vibe` = l'executeur (VIBE_HEADLESS) ; `vibe_cli` = l'owner a la main par tools/nokido_vibe.py (VIBE_CLI) --
+# deux identites distinctes au journal du hub, decision owner du 16/10. Table : variable d'environnement de l'enfant
+# -> cle du coffre. L'executeur recoit aussi NOTRE cle Mistral (forme b, owner 16/10 : Codestral mesure 125 req/min),
+# sous un nom DEDIE pour ne pas ecraser la cle propre de Vibe.
+_SECRETS_PAR_AGENT = {
+    "vibe": {"FORGE_TOKEN_VIBE_HEADLESS": "FORGE_TOKEN_VIBE_HEADLESS", "NOKIDO_MISTRAL_API_KEY": "MISTRAL_API_KEY"},
+    "vibe_cli": {"FORGE_TOKEN_VIBE_CLI": "FORGE_TOKEN_VIBE_CLI"},
+}
+
+
+def jeton_mcp(agent) -> dict:
+    """{variable: valeur} des secrets propres a `agent` (identite MCP, cle fournisseur), lus au coffre au moment de
+    l'appel ; un secret absent n'est pas injecte -- jamais une valeur vide, jamais une valeur au journal."""
+    table = _SECRETS_PAR_AGENT.get(agent or "") or {}
+    if not table:
+        return {}
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+    except Exception as e:  # noqa: BLE001
+        import logging
+        logging.getLogger("Nokido.Harness").warning(
+            "[harness] coffre indisponible pour %s (%s) : lance SANS ses secrets (401 attendu)", agent, type(e).__name__)
+        return {}
+    env = {}
+    for variable, cle in table.items():
+        try:
+            valeur = get_secret(cle)
+        except Exception as e:  # noqa: BLE001
+            import logging
+            logging.getLogger("Nokido.Harness").warning(
+                "[harness] secret %s illisible pour %s (%s) : non injecte", cle, agent, type(e).__name__)
+            continue
+        if valeur:
+            env[variable] = valeur
+    return env
+
+
+def _agent_env(agent=None):
+    """OAuth context: the agent CLIs read their login from the owner profile ; plus the agent's own MCP token."""
     home = os.environ.get("LAFORGE_AGENT_HOME", os.path.expanduser("~"))
-    return {"USERPROFILE": home, "HOME": home}
+    env = {"USERPROFILE": home, "HOME": home}
+    env.update(jeton_mcp(agent))
+    return env
 
 
 def harness_for(agent, args=None, interactive=False, cwd=None, stdin_devnull=False):
@@ -281,7 +327,7 @@ def harness_for(agent, args=None, interactive=False, cwd=None, stdin_devnull=Fal
     OAuth/console. Else spawn headless with `args` (caller drives)."""
     cmd = [agent_bin(agent)] + list(args or [])
     backend = "pty" if interactive else "auto"
-    return CliHarness(cmd, cwd=cwd or r"C:\tmp", env=_agent_env(), backend=backend,
+    return CliHarness(cmd, cwd=cwd or r"C:\tmp", env=_agent_env(agent), backend=backend,
                       stdin_devnull=stdin_devnull)
 
 

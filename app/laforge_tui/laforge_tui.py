@@ -100,7 +100,7 @@ class NokidoTUI(App):
                     try:
                         status_log.write(f"Response: {response.json()}")
                     except Exception:
-                        pass # Ignore if response is not json
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/laforge_tui/laforge_tui.py', 102, exc_info=True)
         
         except httpx.ConnectError as e:
             status_log.write(f"[bold red]Connection Error: Could not send restart command.[/bold red]")

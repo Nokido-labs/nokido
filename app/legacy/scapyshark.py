@@ -55,6 +55,7 @@ class MiniIDSAgent:
                     print(f"[PYSHARK] DNS {src} -> {dst}")
 
             except AttributeError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/scapyshark.py', 57, exc_info=True)
                 continue
 
     # ----------------------------

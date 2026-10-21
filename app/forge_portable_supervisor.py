@@ -215,7 +215,7 @@ class Worker:
             try:
                 logger.info(line.decode("utf-8", errors="replace").rstrip())
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_portable_supervisor.py', 217, exc_info=True)
 
     def is_alive(self) -> bool:
         if not self.proc:
@@ -301,7 +301,7 @@ class Supervisor:
             try:
                 signal.signal(sig, lambda *_: setattr(self, "_stop_requested", True))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_portable_supervisor.py', 303, exc_info=True)
 
         for sdef in self._load_services():
             w = Worker(sdef)

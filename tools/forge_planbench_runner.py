@@ -620,7 +620,7 @@ def run(provider: str = "mistral", max_entries: int = 50, dataset_path: Path | N
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_planbench_runner.py', 622, exc_info=True)
 
     return summary
 

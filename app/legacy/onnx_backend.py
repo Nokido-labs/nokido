@@ -44,14 +44,14 @@ try:
 
     HAS_SENTENCE_TRANSFORMERS = True
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/onnx_backend.py', 46, exc_info=True)
 
 try:
     import onnxruntime_genai as og
 
     HAS_ONNXRUNTIME_GENAI = True
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/onnx_backend.py', 53, exc_info=True)
 
 # =============================================================================
 # CONFIGURATION — CHEMINS MODÈLES

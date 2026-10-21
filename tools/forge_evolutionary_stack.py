@@ -87,7 +87,7 @@ class GenomicVault:
             try:
                 versions.append(json.loads(gf.read_text(encoding="utf-8")))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_evolutionary_stack.py', 89, exc_info=True)
         return sorted(versions, key=lambda x: x.get("archived_at", ""))
 
     def best_version(self, filepath: str) -> dict | None:
@@ -135,6 +135,7 @@ class PatternStacker:
             try:
                 d = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_evolutionary_stack.py', 137, exc_info=True)
                 continue
             if d.get("file") != filepath:
                 continue
@@ -182,6 +183,7 @@ class PatternStacker:
             try:
                 d = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_evolutionary_stack.py', 184, exc_info=True)
                 continue
             if d.get("file") != filepath:
                 continue
@@ -342,7 +344,7 @@ class EvolutionaryStack:
                     d = json.loads(gf.read_text(encoding="utf-8"))
                     scores.append(d.get("score", 0))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_evolutionary_stack.py', 344, exc_info=True)
             best = max(scores) if scores else 0
             trend = "↑" if len(scores) >= 2 and scores[-1] >= scores[-2] else "→"
             print(

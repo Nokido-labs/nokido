@@ -3,10 +3,8 @@
  "par_cle": {
   "app/forge_intent_parser.py|arithmetique": 1,
   "app/forge_intent_parser.py|comparaison": 1,
-  "app/forge_lock_manager.py|comparaison": 1,
   "tools/forge_dup_detector.py|booleen": 1,
   "tools/forge_golden_rules_ast.py|et_ou": 1,
-  "tools/forge_memory_gate.py|comparaison": 1,
   "tools/forge_retrieval_sweep.py|booleen": 1,
   "tools/forge_retrieval_sweep.py|et_ou": 1
  },
@@ -42,9 +40,9 @@
   {
    "module": "app/forge_lock_manager.py",
    "mutants": 12,
-   "score": 91.7,
-   "survivants": 1,
-   "tues": 11
+   "score": 100.0,
+   "survivants": 0,
+   "tues": 12
   },
   {
    "module": "app/forge_intent_parser.py",
@@ -63,9 +61,9 @@
   {
    "module": "tools/forge_memory_gate.py",
    "mutants": 8,
-   "score": 87.5,
-   "survivants": 1,
-   "tues": 7
+   "score": 100.0,
+   "survivants": 0,
+   "tues": 8
   }
  ]
 }

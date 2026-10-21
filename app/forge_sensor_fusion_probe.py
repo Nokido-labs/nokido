@@ -143,7 +143,7 @@ def _declared_heartbeats() -> dict[str, str]:
             if m and hb:
                 out[m.group(1)] = hb.group(1)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sensor_fusion_probe.py', 145, exc_info=True)
     _HB_DECLARED = out
     return out
 
@@ -162,7 +162,7 @@ def _heartbeat_age(service: str) -> float | None:
         if cand.exists():
             return max(0.0, time.time() - cand.stat().st_mtime)
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sensor_fusion_probe.py', 164, exc_info=True)
     return None
 
 
@@ -195,7 +195,7 @@ def _fleet() -> dict[str, dict]:
                 "heartbeat_path": info.get("heartbeat_path"),
             }
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sensor_fusion_probe.py', 197, exc_info=True)
     return out
 
 
@@ -265,7 +265,7 @@ def _organ_intervals() -> dict[str, float]:
             for k, v in re.findall(r'"([^"]+)"\s*:\s*(\d+)', bloc.group(1)):
                 out[k] = float(v)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_sensor_fusion_probe.py', 267, exc_info=True)
     _HB_LIMITS = out
     return out
 

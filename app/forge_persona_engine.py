@@ -206,7 +206,7 @@ class PersonaEngine:
                     # quel que soit le message (diagnostic 2026-08-11).
                     prompt += _scrub_host_paths(exemplars)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_persona_engine.py', 208, exc_info=True)
 
         # Gestion intelligente des tokens — directive dynamique selon pression budget.
         prompt += self._token_budget_directive()
@@ -222,7 +222,7 @@ class PersonaEngine:
 
             prompt += identity_anchor(role=p["name"], ring=ring, turn=turn, session_id=session_id)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_persona_engine.py', 224, exc_info=True)
 
         # Racine de confiance matérielle (AXE 8 PR-6) — preuve d'origine TPM-signée
         # de l'identité. Opt-in (FORGE_PERSONA_SIGN=1) pour éviter la latence TPM
@@ -233,7 +233,7 @@ class PersonaEngine:
 
                 prompt += f"\n[ANCHOR_SIG:{sign_identity(prompt)}]\n"
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_persona_engine.py', 235, exc_info=True)
 
         return prompt
 

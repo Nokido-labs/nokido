@@ -210,5 +210,5 @@ the chain-of-thought in context.
 
 - Tune cascade priorities in `app/forge_provider_specs.py`.
 - Add custom tools via `tools/forge_*.py` (see [CONTRIBUTING](../../CONTRIBUTING.md)).
-- Read the [Manifesto](../../MANIFESTO.md) for the *why* behind Nokido.
+- Read the [Manifesto](../i18n/MANIFESTO.en.md) for the *why* behind Nokido.
 - Configure a second client to see multi-agent orchestration (Claude + Gemini).

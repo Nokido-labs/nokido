@@ -128,7 +128,7 @@ async def _wait_for_ram(threshold: float = RAM_THRESHOLD_PCT, check_interval: fl
             logger.debug(f"[promo] RAM {pct:.0f}% > {threshold}% — attente {check_interval}s")
             await asyncio.sleep(check_interval)
     except ImportError:
-        pass  # psutil absent → on continue sans guardrail
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_promotion_queue.py', 130, exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -448,7 +448,7 @@ class PromotionOrchestrator:
             try:
                 self._pub_fn(topic, payload)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_promotion_queue.py', 450, exc_info=True)
 
         if promoted:
             logger.info(

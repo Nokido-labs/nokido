@@ -65,7 +65,7 @@ def _journaliser(noms: list) -> None:
         with JOURNAL.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": int(time.time()), "noms_tournes": noms}) + "\n")
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_coffre_rotation.py', 67, exc_info=True)
 
 
 def _destination(nom: str, transition: frozenset) -> str:

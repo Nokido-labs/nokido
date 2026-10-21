@@ -64,6 +64,8 @@ ACTIONS = {
                       "claude.ai et ChatGPT pourront s'y connecter (OAuth + quarantaine restent en place)."),
     "funnel-fermer": ("FERMER le Funnel Tailscale",
                       "Coupe l'acces de claude.ai et ChatGPT au connecteur des pairs."),
+    "audio-relancer": ("Relancer le service audio Windows",
+                       "Redemarre Audiosrv en administrateur (fenetre UAC) : audiodg renait, ses handles fuyants sont liberes ; coupure du son ~2 s."),
 }
 #: Ordres deposes SANS question : lecture seule, rien n'est expose ni coupe.
 SANS_CONFIRMATION = frozenset({"tailscale-statut"})
@@ -82,6 +84,12 @@ CONSOMMATEURS = frozenset({"TRAY", "MASTER"})
 ECHEANCE_S = 120.0                 # le tray interroge toutes les 10 s ; au-dela, il est absent
 
 DEPOSE, ORDRE, RIEN, REFUSE = "DEPOSE", "ORDRE", "RIEN", "REFUSE"
+
+#: Commandes a TAPER par l'owner (owner 2026-10-16, option a) : deposees par un agent AUTHENTIFIE via demander_ordre,
+#: copiees par le tray, jamais executees. A la difference des ordres (en memoire : eux s'executent), elles PERSISTENT
+#: jusqu'a traitement, dans logs/ que les comptes sandbox ne peuvent pas ecrire (mesure : PermissionError sur
+#: logs/mcp_service.log) -- un fichier de sandbox/ se forgerait.
+COMMANDES = ROOT / "logs" / "commandes_owner.jsonl"
 
 _ORDRES: list = []
 _PREUVES: dict = {}                # preuve -> (ordre, cible, echeance) ; en MEMOIRE du hub seulement
@@ -158,6 +166,79 @@ def en_attente(maintenant: float | None = None) -> list:
         return [dict(o) for o in _ORDRES]
 
 
+def _evenements_commandes() -> list:
+    try:
+        lignes = COMMANDES.read_text(encoding="utf-8").splitlines()
+    except OSError:  # muet-ok : aucun journal = aucune commande en attente
+        return []
+    evts = []
+    for ligne in lignes:
+        try:
+            evts.append(json.loads(ligne))
+        except ValueError:  # muet-ok : ligne tronquee (ecriture interrompue) = evenement absent, les autres valent
+            continue
+    return evts
+
+
+def commandes_en_attente() -> list:
+    evts = _evenements_commandes()
+    traitees = {e.get("id") for e in evts if e.get("evt") in ("faite", "annulee")}
+    return [e for e in evts if e.get("evt") == "depose" and e.get("id") not in traitees]
+
+
+def texte_caviarde(texte: str) -> bool:
+    """Le texte porte-t-il un marqueur de caviardage ([BASE64_SUSPECT_1], [PATH_WIN_1]...) ? Vecu 16/10 : relevee par
+    le hub, dont la sortie est caviardee pour les clients cloud, une commande arrivait alteree au presse-papier de
+    l'owner. Un texte ainsi altere ne se copie JAMAIS."""
+    import re
+
+    return bool(re.search(r"\[[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d+\]", str(texte or "")))
+
+
+def _prete_pour_powershell(texte: str) -> str:
+    """Le terminal de l'owner est PowerShell : un chemin CITE en tete suivi d'arguments y est une ParserError sans
+    l'operateur d'appel `&` (vecu 16/10)."""
+    t = str(texte or "").strip()
+    return "& " + t if t.startswith('"') else t
+
+
+def deposer_commande(demandeur: str, texte: str, raison: str = "") -> dict:
+    c = {"evt": "depose", "id": "cmd-" + uuid.uuid4().hex[:12], "texte": _prete_pour_powershell(texte),
+         "raison": str(raison or "")[:500], "demandeur": str(demandeur or "?"), "depose_a": time.time()}
+    with _VERROU:
+        COMMANDES.parent.mkdir(parents=True, exist_ok=True)
+        with open(COMMANDES, "a", encoding="utf-8") as f:
+            f.write(json.dumps(c, ensure_ascii=False) + "\n")
+    return c
+
+
+def marquer_commande(consommateur: str, cid: str, extrait_retour: str = "") -> dict:
+    """Le tray (ou le panneau) marque une commande TRAITEE ; un agent ne la fait pas disparaitre a la place de l'owner,
+    SAUF sur le retour que l'owner lui a colle (consigne owner 19/10, ancree) : l'extrait est la preuve, et la trace dit
+    « faite par l'owner, rapportee par <agent> »."""
+    qui = str(consommateur or "").upper().strip()
+    extrait = str(extrait_retour or "").strip()
+    if qui not in CONSOMMATEURS and not extrait:
+        return {"etat": REFUSE, "raison": "%s ne peut pas marquer une commande sans le retour colle par l'owner "
+                "(admis sans preuve : %s)" % (qui or "identite vide", ", ".join(sorted(CONSOMMATEURS)))}
+    if cid not in {c.get("id") for c in commandes_en_attente()}:
+        return {"etat": REFUSE, "raison": "commande %r inconnue ou deja traitee" % cid}
+    evt = {"evt": "faite", "id": cid, "par": qui, "ts": time.time()}
+    if qui not in CONSOMMATEURS:
+        # L'extrait vient du terminal de l'owner : meme scanner de secrets que le depot, FAIL-CLOSED (rien conserve
+        # si secret detecte ou scanner indisponible -- seule la longueur reste).
+        try:
+            from nokido_agent.tools.forge_governed_edit import _scan_secrets
+            garde = "" if _scan_secrets(extrait) else extrait[:300]
+        except Exception:  # noqa: BLE001 - muet-ok : scanner indisponible = extrait non conserve, longueur dite
+            garde = ""
+        evt.update(par="OWNER", rapporte_par=qui, extrait_retour=garde or "[non conserve, %d car.]" % len(extrait))
+    with _VERROU:
+        with open(COMMANDES, "a", encoding="utf-8") as f:
+            f.write(json.dumps(evt, ensure_ascii=False) + "\n")
+    return {"etat": "FAITE", "commande": cid}
+
+
 def prendre(consommateur: str, maintenant: float | None = None) -> dict:
     """Le tray prend le plus ancien ordre non echu. Usage UNIQUE : pris = retire."""
     qui = str(consommateur or "").upper().strip()
@@ -176,16 +257,20 @@ def prendre(consommateur: str, maintenant: float | None = None) -> dict:
     return {"etat": ORDRE, "ordre": ordre}
 
 
-async def redemarrer_stack(demandeur: str, raison: str = "", confirmer=None) -> dict:
+async def redemarrer_stack(demandeur: str, raison: str = "", confirmer=None, demandeur_prouve: bool = False) -> dict:
     """Demande a l'owner, par elicitation, de redemarrer la stack ; depose l'ordre s'il accepte.
 
     `confirmer` : coroutine (action, detail) -> {"etat": ...} ; par defaut
     `forge_mcp_elicitation.confirmer_owner`. Injectable pour les tests."""
-    if confirmer is None:
-        from nokido_agent.app.forge_mcp_elicitation import confirmer_owner as confirmer
     titre, effet = ACTIONS["restart"]
     detail = "%s\nDemande par %s%s\nLe tray execute l'ordre ; sans tray actif, il expire en %d s." % (
         effet, demandeur or "?", (" : %s" % raison) if raison else "", int(ECHEANCE_S))
+    if demandeur_prouve and _surface_de(demandeur) == "interactive":
+        # le cas D'ORIGINE (owner 17/10 « reboot stack ») : la question monte dans le CLI pilote prouve
+        return {"etat": "A_DEMANDER", "a_demander_dans_la_session": True, "depose": False,
+                "question": "%s\n%s" % (titre, detail), "commande": _commande_de_repli("restart")}
+    if confirmer is None:
+        from nokido_agent.app.forge_mcp_elicitation import confirmer_owner as confirmer
     r = await confirmer(titre, detail)
     etat = (r or {}).get("etat")
     if etat != "ACCEPTE":
@@ -257,8 +342,19 @@ def _executer_hub(ordre: str, demandeur: str, cible: str, texte: str, pointeur: 
     return {"etat": "EXECUTE" if (res or {}).get("ok") else "ECHEC", "ordre": ordre, "resultat": res}
 
 
+def _surface_de(agent: str):
+    """`surface` declaree (interactive / autonomous / internal) au registre des identites ; None si illisible --
+    jamais « interactive » par defaut : un registre muet garde le dialogue."""
+    try:
+        from nokido_agent.app import forge_videur as _v
+        _v._load_store()
+        return ((_v._cache.get("meta") or {}).get(str(agent or "").upper()) or {}).get("surface")
+    except Exception:  # noqa: BLE001 - illisible = None, et le dialogue reste la regle
+        return None
+
+
 async def demander_ordre(demandeur: str, ordre: str, raison: str = "", cible: str = "", texte: str = "",
-                         pointeur: str = "", confirmer=None) -> dict:
+                         pointeur: str = "", confirmer=None, demandeur_prouve: bool = False) -> dict:
     """Porte generique `hub action=demander_ordre ordre=<nom>`.
 
     - ordre du tray (ACTIONS) : question a l'owner par elicitation, ordre depose sur ACCEPTE ;
@@ -268,7 +364,24 @@ async def demander_ordre(demandeur: str, ordre: str, raison: str = "", cible: st
     """
     ordre = str(ordre or "").strip()
     if ordre == "restart":
-        return await redemarrer_stack(demandeur, raison, confirmer)
+        return await redemarrer_stack(demandeur, raison, confirmer, demandeur_prouve=demandeur_prouve)
+    if ordre == "commande-deposer":
+        # Une commande transite par le tray et le presse-papier : un secret y serait expose. Meme scanner que
+        # governed_edit ; FAIL-CLOSED (scanner indisponible = refus dit).
+        try:
+            from nokido_agent.tools.forge_governed_edit import _scan_secrets
+            fuites = _scan_secrets(str(texte))
+        except Exception as e:  # noqa: BLE001
+            return {"etat": REFUSE, "raison": "scan de secrets indisponible (%s) : depot refuse" % type(e).__name__}
+        if fuites:
+            _consigner("commande_refusee", demandeur=demandeur, motifs=len(fuites))
+            return {"etat": REFUSE, "raison": "la commande porte un secret (%d motif(s)) : jamais par le presse-papier"
+                    % len(fuites)}
+        return {"etat": DEPOSE, "commande": deposer_commande(demandeur, texte, raison)["id"]}
+    if ordre == "commandes-en-attente":
+        return {"etat": "LISTE", "commandes": commandes_en_attente()}
+    if ordre == "commande-faite":
+        return marquer_commande(demandeur, cible, extrait_retour=texte)  # texte = extrait du retour colle par l'owner
     if ordre not in ACTIONS and ordre not in ORDRES_HUB:
         return {"etat": REFUSE, "raison": "ordre inconnu %r (connus : %s)"
                 % (ordre, ", ".join(sorted(set(ACTIONS) | set(ORDRES_HUB))))}
@@ -290,13 +403,93 @@ async def demander_ordre(demandeur: str, ordre: str, raison: str = "", cible: st
     else:
         corps = "Execute par le tray, dans ta session ; sans tray actif, l'ordre expire en %d s." % int(ECHEANCE_S)
     detail = "%s\n%s\nDemande par %s%s" % (effet, corps, demandeur or "?", (" : %s" % raison) if raison else "")
+    if demandeur_prouve and _surface_de(demandeur) == "interactive":
+        # Owner 17/10 : la demande admin monte dans le CLI PILOTE (identite prouvee par son jeton, carte AGY
+        # job_04ab2eb5) -- la question se pose dans SA session ; l'accord de l'owner reste le geste qu'il lance.
+        return {"etat": "A_DEMANDER", "a_demander_dans_la_session": True, "depose": False,
+                "question": "%s\n%s" % (titre, detail), "commande": _commande_de_repli(ordre, cible, texte, pointeur)}
     r = await confirmer(titre, detail)
     etat = (r or {}).get("etat")
     if etat != "ACCEPTE":
         _consigner("non_depose", action=ordre, demandeur=demandeur, etat=etat)
-        return dict(r or {}, depose=False)
+        rep = dict(r or {}, depose=False)
+        if etat in ("EXPIRE", "INDISPONIBLE"):
+            # Repli PERSISTANT (19/10 : pair-approuver, dialogue expire a 120 s, rien depose) : la COMMANDE que
+            # l'owner lancera lui-meme -- son geste reste l'accord ; jamais un ordre executable sans ACCEPTE.
+            cmd = _commande_de_repli(ordre, cible, texte, pointeur)
+            try:
+                from nokido_agent.tools.forge_governed_edit import _scan_secrets
+                fuites = _scan_secrets(cmd) if cmd else []
+            except Exception as e:  # noqa: BLE001 - scanner indisponible : rien n'est depose, et c'est dit
+                fuites = ["scanner indisponible (%s)" % type(e).__name__]
+            if cmd and not fuites:
+                rep["repli_commande"] = deposer_commande(demandeur, cmd, "dialogue %s : %s" % (etat, titre))["id"]
+            elif cmd:
+                rep["repli_refuse"] = "%d motif(s) de secret ou scanner indisponible" % len(fuites)
+        return rep
     if ordre in ORDRES_HUB:
         return _executer_hub(ordre, demandeur, cible, texte, pointeur)
     o = deposer(ordre, demandeur, raison)
     return {"etat": DEPOSE, "depose": True, "ordre": o["id"], "echeance_s": ECHEANCE_S,
             "note": "REQUESTED != ACHIEVED : le tray doit prendre l'ordre"}
+
+
+def _commande_de_repli(ordre: str, cible: str = "", texte: str = "", pointeur: str = "") -> str | None:
+    """La commande console qui fait, par la main de l'owner, ce que le dialogue n'a pas pu faire accepter."""
+    racine = Path(__file__).resolve().parent.parent
+    try:
+        from nokido_agent.app.forge_python_bin import LAFORGE_PYTHON as py
+    except Exception:  # noqa: BLE001  # muet-ok : repli sur l'interpreteur courant, nomme dans la commande
+        py = sys.executable
+    outils = racine / "tools"
+    if ordre == "pair-approuver" and cible:
+        return '"%s" "%s" --approuver %s' % (py, outils / "forge_pair_quarantaine.py", cible)
+    if ordre == "pair-repondre" and cible and pointeur:
+        return '"%s" "%s" --repondre %s --pointer %s --texte "%s"' % (
+            py, outils / "forge_pair_quarantaine.py", cible, pointeur, str(texte).replace('"', "'")[:1000])
+    if ordre in ACTIONS:
+        return '"%s" "%s" --action %s' % (py, outils / "nokido_launcher.py", ordre)
+    return None
+
+
+# Remèdes hors corps (fuites de handles)
+REMEDES_HORS_CORPS = {"audiodg.exe": "audio-relancer"}
+
+
+def remede_hors_corps(fuyard: dict) -> str | None:
+    if not isinstance(fuyard, dict):
+        return None
+    name = fuyard.get("name")
+    if not name:
+        return None
+    for k, v in REMEDES_HORS_CORPS.items():
+        if k.lower() == str(name).lower():
+            return v
+    return None
+
+
+def proposer_remedes(fuyards: list) -> list:
+    props = []
+    if not isinstance(fuyards, list):
+        return props
+    for f in fuyards:
+        if not isinstance(f, dict):
+            continue
+        nom = f.get("name") or ""
+        ordre_nom = None
+        for k, v in REMEDES_HORS_CORPS.items():
+            if k.lower() == str(nom).lower():
+                ordre_nom = v
+                break
+        if not ordre_nom:
+            continue
+        props.append({
+            "intent": "NEED_HUMAN_APPROVAL",
+            "pointer_ref": f"ordre:{ordre_nom}",
+            "confidence": 0.9,
+            "fuyard": nom,
+            "pid": f.get("pid"),
+            "handles": f.get("handles"),
+            "pente_min": f.get("pente_min"),
+        })
+    return props

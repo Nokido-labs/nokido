@@ -54,12 +54,12 @@ async def run_watcher(poll: float, max_restarts: int, window_s: int) -> int:
             try:
                 loop.add_signal_handler(sig, _sigterm)
             except NotImplementedError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_watcher.py', 56, exc_info=True)
 
     try:
         await stop_event.wait()
     except (KeyboardInterrupt, asyncio.CancelledError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_watcher.py', 61, exc_info=True)
     finally:
         print("[watcher] stopping...")
         await w.stop()

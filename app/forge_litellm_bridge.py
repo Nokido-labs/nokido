@@ -246,7 +246,7 @@ class LiteLLMBridge:
                             logger.warning(f"[LiteLLMBridge] Réponse cloud injectée ({_inj.pattern[:40]}) — rejetée")
                             answer = ""
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_litellm_bridge.py', 248, exc_info=True)
                 # DEBUG_REVIVE_SOVEREIGN: desanonymiser la reponse (alias -> token reel)
                 if _is_cloud and answer and _smap:
                     try:

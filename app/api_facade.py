@@ -390,7 +390,7 @@ class AsyncNokidoFacade:
                 try:
                     return list(await fn(text, k=k))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/api_facade.py', 392, exc_info=True)
         # Fallback
         return await asyncio.to_thread(self._sync.rag_query, text, k=k)
 

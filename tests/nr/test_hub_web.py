@@ -46,31 +46,38 @@ class TestHub:
         assert d["status"] == "ok"
         assert "version" in d
 
-    def test_dashboard_html(self, client):
-        r = client.get("/")
+    # Aligne le 2026-10-18 sur la page ACTUELLE (decision owner) : le tableau vit sur /dashboard (« / » est la
+    # coque compilee), sonde par pollStatus via refreshAll toutes les 15 s ; ctf extrait vers nokido-redteam
+    # (22/08), tui et tooltips des voyants retires avec la reecriture. Le contrat garde : page <-> /status.
+    def test_dashboard_html(self, client, monkeypatch):
+        # 19/10 : la tuile `graph` n'est cliquable (donc `data-service`) que si sa sonde VIVANTE rend `live`
+        # (tile_state, liste blanche) -- vert a 01:15 graph_explorer debout, rouge a 02:40 graph_explorer DOWN, sans
+        # changement de code. La sonde est doublee : le contrat teste est « graph vivant => tuile graph presente ».
+        import app.web_hub.dashboard_html as _dh
+        monkeypatch.setattr(_dh, "probe_service", lambda cfg, *a, **k: {"state": "live"})
+        r = client.get("/dashboard")
         assert r.status_code == 200
         html = r.text.lower()
-        for kw in ("laforge", "<html", "refreshstatus", "data-service=\"ctf\""):
+        for kw in ("<html", "nokido hub", "function pollstatus", 'data-service="graph"'):
             assert kw in html, f"dashboard missing {kw!r}"
 
     def test_dashboard_polling_interval(self, client):
-        html = client.get("/").text
-        # Historiquement setInterval(refreshStatus, 5000). Depuis L : refreshAll
-        # (wrapper qui appelle applyFeatureFlags + refreshStatus).
-        assert ("setInterval(refreshAll, 5000)" in html
-                or "setInterval(refreshStatus, 5000)" in html)
+        html = client.get("/dashboard").text
+        assert re.search(r"setInterval\(\s*refreshAll\s*,\s*15000\s*\)", html), "sondage refreshAll 15 s absent"
 
-    def test_dashboard_dot_tooltip(self, client):
-        html = client.get("/").text
-        assert "dot.title" in html, "les tooltips de status dots doivent exister"
+    def test_chaque_tuile_du_tableau_a_sa_cle_dans_status(self, client):
+        tuiles = set(re.findall(r'data-service="(\w+)"', client.get("/dashboard").text))
+        cles = set(client.get("/status").json())
+        assert tuiles, "aucune tuile data-service : la page n'est plus celle qu'on croit"
+        assert tuiles <= cles, f"tuiles sans cle /status : {sorted(tuiles - cles)}"
 
     def test_status_shape(self, client):
         r = client.get("/status")
         assert r.status_code == 200
         d = r.json()
         assert d["hub"]["ok"] is True
-        for svc in ("recon", "graph", "ctf", "tui"):
-            assert svc in d, f"missing service key {svc}"
+        assert "graph" in d
+        assert "ctf" not in d, "ctf est extrait vers nokido-redteam (22/08) : sa cle ne doit pas revenir"
 
 
 # ---------------------------------------------------------------

@@ -100,7 +100,7 @@ def init_db() -> None:
         try:
             c.execute("ALTER TABLE audit_log ADD COLUMN span_id TEXT")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_audit_log.py', 102, exc_info=True)
         c.execute("CREATE INDEX IF NOT EXISTS idx_audit_span ON audit_log(span_id)")
     _INIT_DONE = True
 

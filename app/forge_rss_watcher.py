@@ -240,6 +240,20 @@ def fetch_github_release(repo: str) -> dict | None:
         return None
 
 
+def _texte_pypi(package: str, version: str, info: dict, date: str = "") -> str:
+    """Texte d'une release PyPI : la ligne « paquet version: resume » + les METADONNEES REELLES de l'API (Python
+    requis, date de publication, liens du projet). Le resume seul (< 80 car.) etait rejete par l'ingestion
+    (MIN_CHUNK_CHARS) ; rien n'est invente -- sans metadonnees, seule la premiere ligne reste."""
+    lignes = ["%s %s: %s" % (package, version, (info or {}).get("summary") or "")]
+    if (info or {}).get("requires_python"):
+        lignes.append("Python requis : %s" % info["requires_python"])
+    if date:
+        lignes.append("Publiee le : %s" % date[:10])
+    for nom, url in sorted(((info or {}).get("project_urls") or {}).items()):
+        lignes.append("%s : %s" % (nom, url))
+    return "\n".join(lignes)
+
+
 def fetch_pypi_release(package: str) -> dict | None:
     """Dernière version PyPI si publiée dans SINCE_DAYS."""
     url = f"https://pypi.org/pypi/{package}/json"
@@ -266,6 +280,7 @@ def fetch_pypi_release(package: str) -> dict | None:
             "summary": info.get("summary", ""),
             "url": info.get("project_url", f"https://pypi.org/project/{package}/"),
             "date": upload_time,
+            "texte": _texte_pypi(package, version, info, upload_time),
         }
     except Exception:
         return None
@@ -300,7 +315,7 @@ def fetch_arxiv(query: str, max_results: int = 5) -> list[dict]:
             if pub_dt < cutoff:
                 continue
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rss_watcher.py', 317, exc_info=True)
 
         authors = re.findall(r"<name>(.*?)</name>", entry)
         results.append(
@@ -488,6 +503,19 @@ def _ingest(text: str, source: str, domain: str, role: str, author: str, summary
 # ── Run veille ────────────────────────────────────────────────────────────────
 
 
+def _impacts_ruptures(alerts: list):
+    """C_06c (decision owner 18/10) : une alerte breaking/securite est confrontee aux imports REELS du code
+    (forge_diff_analyzer). Sans alerte : non calcule, et dit. Base illisible : ILLISIBLE, jamais [] (rien != illisible)."""
+    if not alerts:
+        return "non calcule : 0 alerte breaking/securite ce cycle"
+    try:
+        from nokido_agent.app.forge_diff_analyzer import analyze_all_watch_alerts
+        return analyze_all_watch_alerts()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[watch] analyse des ruptures ILLISIBLE (%s)", type(exc).__name__)
+        return "ILLISIBLE : %s: %s" % (type(exc).__name__, str(exc)[:120])
+
+
 def run_watch(since_days: int = SINCE_DAYS) -> dict:
     """
     Lance un cycle complet de veille.
@@ -539,7 +567,7 @@ def run_watch(since_days: int = SINCE_DAYS) -> dict:
         if _already_seen(state, ver_uid):
             continue
         v = _ingest(
-            text=f"{pkg} {rel['version']}: {rel['summary']}",
+            text=rel.get("texte") or f"{pkg} {rel['version']}: {rel['summary']}",
             source=rel["url"],
             domain="watch_alerts",
             role="release:pypi",
@@ -646,9 +674,133 @@ def run_watch(since_days: int = SINCE_DAYS) -> dict:
         "watch_urls": len(WATCH_URLS),
         "searxng_queries": len(WATCH_QUERIES_RYZENAI),
         "breaking_alerts": [f"{t} {n} {v}" for t, n, v, _ in alerts],
+        "impacts": _impacts_ruptures(alerts),
     }
     logger.info(f"[watch] DONE: {ingested} chunks ingérés, {len(alerts)} alertes")
     return summary
+
+
+# ── Rejeu des releases perdues (C_06b-4, decision owner 18/10) ───────────────────
+# Le trou du 19/08 au 13/10 a scelle des releases dans `seen` sans fragment en base, et
+# fetch_github_release ne lit que /releases/latest (7 j). Le rejeu cible un TAG passe, ingere par
+# le MEME chemin et le MEME format que run_watch, et ne marque vu que sur ingestion prouvee.
+# Reprise corrigee de la livraison OPENCODE_NEMOTRON (job_24ee0a6f, non commitee).
+
+
+def _release_github_par_tag(repo: str, tag: str) -> dict | None:
+    """Release GitHub d'un TAG donne (pas seulement la derniere), au format de fetch_github_release."""
+    import urllib.parse
+
+    body = _get("https://api.github.com/repos/%s/releases/tags/%s" % (repo, urllib.parse.quote(tag, safe="")),
+                headers=_github_token())
+    if not body or body.startswith("ERR"):
+        return None
+    try:
+        data = json.loads(body)
+    except ValueError:
+        logger.warning("[rejeu] reponse GitHub illisible pour %s %s", repo, tag)
+        return None
+    return {"title": data.get("name") or tag, "body": (data.get("body") or "")[:3000],
+            "url": data.get("html_url") or "https://github.com/%s/releases/tag/%s" % (repo, tag)}
+
+
+def _release_pypi_version(package: str, version: str) -> dict | None:
+    """Une version PyPI donnee (resume + url), pour le rejeu."""
+    body = _get("https://pypi.org/pypi/%s/%s/json" % (package, version))
+    if not body or body.startswith("ERR"):
+        return None
+    try:
+        info = json.loads(body)["info"]
+    except (ValueError, KeyError):
+        logger.warning("[rejeu] reponse PyPI illisible pour %s %s", package, version)
+        return None
+    upload = ((json.loads(body).get("urls") or [{}])[0] or {}).get("upload_time_iso_8601", "")
+    return {"summary": info.get("summary") or "", "texte": _texte_pypi(package, version, info, upload),
+            "url": info.get("release_url") or "https://pypi.org/project/%s/%s/" % (package, version)}
+
+
+def _deja_en_base(version: str, nom: str, genre: str = "gh"):
+    """La release a-t-elle DEJA un fragment de veille ? Par CONTENU (phrases FTS : watch_alerts ET version ET nom),
+    en lecture seule, dans rag_chunks_fts -- la table que store_chunks alimente (rag_fts ne porte que d'anciens
+    fragments : temoin positif fastapi 0.146.0 du 18/10 rendu « absent » quand on la lisait).
+
+    True / False, ou None si la base est illisible : INCONNU n'est jamais « absent » (sinon double ecriture)."""
+    def phrase(t):
+        return '"%s"' % str(t).replace('"', '""')
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % Path(DB_PATH).as_posix(), uri=True, timeout=5)
+        try:
+            # Fragment GitHub : « [watch_alerts:<version>] <auteur> <version> » -> on exige cet EN-TETE (phrase
+            # contigue), pas la version seule : un changelog plus recent qui CITE une ancienne version la ferait
+            # passer pour presente. Fragment PyPI (forme MESUREE le 18/10) : « [watch_alerts:] PyPI <paquet>
+            # <version> » ou « <paquet> <version>: » -- rien apres le ':', l'en-tete GitHub ne le verrait jamais.
+            if genre == "pypi":
+                motif = "%s AND (%s OR %s)" % (phrase("watch_alerts"), phrase("PyPI %s %s" % (nom, version)),
+                                               phrase("%s %s" % (nom, version)))
+            else:
+                # l'en-tete reprend le dernier segment de l'URL de la release, ENCODE (mesure apres le rejeu du
+                # 18/10 : « [watch_alerts:langchain-core%3D%3D1.6.3] ») -> forme brute OU encodee.
+                import urllib.parse
+                code = urllib.parse.quote(version, safe="")
+                entete = phrase("watch_alerts:%s" % version)
+                if code != version:
+                    entete = "(%s OR %s)" % (entete, phrase("watch_alerts:%s" % code))
+                motif = "%s AND %s" % (entete, phrase(nom))
+            n = con.execute("SELECT count(*) FROM rag_chunks_fts WHERE rag_chunks_fts MATCH ?", (motif,)).fetchone()[0]
+        finally:
+            con.close()
+        return n > 0
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[rejeu] presence illisible pour %s %s (%s) : pas d'ingestion", nom, version, type(e).__name__)
+        return None
+
+
+def rejouer(ids: list, *, dry_run: bool = True) -> dict:
+    """Rejoue des releases par identifiant `gh:owner/repo:tag` ou `pypi:paquet:version`.
+
+    dry_run (defaut) : n'ingere, ne marque et n'ecrit RIEN, rend le plan. Une action par id."""
+    state = _load_state()
+    plan, marques = {}, 0
+    for uid in ids:
+        morceaux = str(uid).split(":", 2)
+        if len(morceaux) != 3 or morceaux[0] not in ("gh", "pypi") or not all(morceaux[1:]) \
+                or (morceaux[0] == "gh" and "/" not in morceaux[1]):
+            plan[uid] = {"action": "REFUS_MAL_FORME", "raison": "attendu gh:owner/repo:tag ou pypi:paquet:version"}
+            continue
+        genre, nom, version = morceaux
+        present = _deja_en_base(version, nom.split("/")[-1], genre)
+        if present is None:
+            plan[uid] = {"action": "ILLISIBLE_REFUSE", "raison": "presence en base inconnue : pas d'ingestion"}
+            continue
+        if present:
+            plan[uid] = {"action": "IGNORE_DEJA_PRESENT", "raison": "un fragment watch_alerts existe deja"}
+            continue
+        if dry_run:
+            plan[uid] = {"action": "A_INGERER", "raison": "absent de la base ; --appliquer pour ingerer"}
+            continue
+        if genre == "gh":
+            rel = _release_github_par_tag(nom, version)
+            if rel:
+                body = rel["body"] or "%s %s released." % (nom, version)
+                v = _ingest(text="%s\n\n%s" % (rel["title"], body), source=rel["url"], domain="watch_alerts",
+                            role=_infer_release_role(body), author=nom, summary="%s %s (rejeu)" % (nom, version))
+        else:
+            rel = _release_pypi_version(nom, version)
+            if rel:
+                v = _ingest(text=rel.get("texte") or "%s %s: %s" % (nom, version, rel["summary"]), source=rel["url"],
+                            domain="watch_alerts", role="release:pypi", author=nom,
+                            summary="PyPI %s %s (rejeu)" % (nom, version))
+        if not rel:
+            plan[uid] = {"action": "ERREUR_FETCH", "raison": "release introuvable ou reponse illisible"}
+            continue
+        if _marquer_si_succes(state, uid, v, "rejeu %s" % uid):
+            marques += 1
+            plan[uid] = {"action": "INSERE", "fragments": v[1]}
+        else:
+            plan[uid] = {"action": "NON_INSERE", "verdict": v[0], "detail": v[2]}
+    if marques:
+        _save_state(state)
+    return plan
 
 
 def _infer_release_role(body: str) -> str:
@@ -710,7 +862,14 @@ if __name__ == "__main__":
     ap.add_argument("--daemon", action="store_true", help="boucle toutes les 6h")
     ap.add_argument("--interval", type=int, default=360, help="intervalle en minutes")
     ap.add_argument("--days", type=int, default=7, help="fenêtre temporelle en jours")
+    ap.add_argument("--rejouer", help="ids a rejouer, separes par des virgules (gh:owner/repo:tag,pypi:paquet:version)")
+    ap.add_argument("--appliquer", action="store_true", help="avec --rejouer : ingerer (sinon plan seul, rien d'ecrit)")
     args = ap.parse_args()
+
+    if args.rejouer:
+        ids = [x.strip() for x in args.rejouer.split(",") if x.strip()]
+        print(json.dumps(rejouer(ids, dry_run=not args.appliquer), ensure_ascii=False, indent=2))
+        raise SystemExit(0)
 
     if args.daemon:
         # Le pouls suit le rythme du COEUR ; la passe de veille reste une fonction

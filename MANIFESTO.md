@@ -1,5 +1,7 @@
 # Manifesto Nokido
 
+> *English version: [docs/i18n/MANIFESTO.en.md](docs/i18n/MANIFESTO.en.md). Ce texte français fait foi.*
+
 > *« Un système qui apprend, qui se souvient, qui se gouverne lui-même — sur ta machine, avec ton matériel, pour tes données. »*
 
 Nokido n'est pas un assistant IA de plus. C'est une **architecture vivante** posée sur un constat simple : l'IA contemporaine est massive, opaque, et dépend d'une infrastructure qu'on ne possède pas. Ce manifeste explique d'où vient ce projet, sur quels piliers intellectuels il repose, comment ses organes ont été pensés, et où il va — au rythme de l'évolution du silicium.
@@ -285,6 +287,8 @@ Trois familles à intégrer dès qu'un module open-source utile sort :
 
 → Module à câbler : `app/forge_npu_embedder.py` → généraliser en `forge_accelerator_router.py` (dispatch ONNX runtime selon backend détecté : DirectML / Vulkan / OpenVINO / NPU-XRT / EdgeTPU).
 
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
+
 ### 6.3 Moyen terme (2027-2029) — neuromorphique
 
 Les puces neuromorphiques ne calculent pas en chiffres flottants — elles propagent des **spikes** dans le temps. Adéquation parfaite avec le **cervelet Python** déjà implémenté en `snnTorch`.
@@ -362,6 +366,8 @@ Depuis la publication initiale de ce manifeste, l'architecture a muté d'une mé
 | **Phase B** | 12-24 mois | Neuromorphique embarqué (Akida, GrAI) | `forge_spike_router_service`, `forge_active_inference_agent` |
 | **Phase C** | 24-48 mois | Analogique / RRAM / photonique | `brain_worker` substrat swap |
 | **Phase D** | 48 mois+ | Grilles analogiques continues | Réécriture du paradigme "modèle pré-entraîné" |
+
+> Etat au 2026-10-19 : VISE, NON CONSTRUIT -- aucun module correspondant dans le depot ; suivi : item P2_ecarts_doc_code_a_construire_20261018.
 
 Chaque phase préserve l'API hub `:8766` MCP. Les clients (Claude Code, Gemini CLI, Codex CLI, Cline, et ceux qui n'existent pas encore) continueront à parler à la même surface — seul le **substrat** change dessous.
 

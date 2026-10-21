@@ -66,7 +66,7 @@ def _patched_event_worker(event_queue, db_path):
                 rows,
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_live_patch.py', 68, exc_info=True)
 
 
 # ── Patch /health et /metrics via registre d app Starlette ────────────────────
@@ -118,7 +118,7 @@ def patch_app(app, event_queue, db_path):
 
                 rag_count = _db.scalar("SELECT COUNT(*) FROM rag_chunks") or -1
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_live_patch.py', 120, exc_info=True)
             # Swarm state depuis live_bridge ou events.db
             swarm_state = "IDLE"
             swarm_seq = 0
@@ -128,7 +128,7 @@ def patch_app(app, event_queue, db_path):
                 swarm_state = lb_json.get("swarm.state", "IDLE")
                 swarm_seq = lb_json.get("swarm.seq", 0)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_live_patch.py', 130, exc_info=True)
             try:
                 import json as _json
 
@@ -137,7 +137,7 @@ def patch_app(app, event_queue, db_path):
                     _data = _json.loads(_cfg.read_text())
                     team_active = sum(1 for p in _data.get("participants", []) if p.get("active"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_live_patch.py', 139, exc_info=True)
             return JSONResponse(
                 {
                     "bridge_seq": snap.get("seq", 0),

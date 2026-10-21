@@ -1,0 +1,42 @@
+{
+  "_commentaire": "Instances OpenCode multi-modeles pilotees par ACP. Identifiants de modele a confirmer par `opencode models` : INCONNU (a confirmer empiriquement).",
+  "OPENCODE_GPTOSS": {
+    "modele": "",
+    "worktree": "opencode_gptoss",
+    "statut_modele": "ESSAI owner 17/10 ~21 h : modele PAR DEFAUT d'OpenCode (vide = aucun set_model, aucune cle). groq/openai/gpt-oss-120b : 2 timeouts ACP id=4 sur 2 depuis que la cle groq est appliquee ; les 6 GREEN fiables du jour tournaient sans modele applique. Retablir groq/openai/gpt-oss-120b si le defaut ne fait pas mieux."
+  },
+  "OPENCODE_NEMOTRON": {
+    "modele": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+    "repli_modele": "",
+    "_repli": "owner 17/10 : quota openrouter gratuit du jour d'abord (pas de paiement), puis modele par defaut d'OpenCode",
+    "worktree": "opencode_nemotron",
+    "statut_modele": "INCONNU (a confirmer par opencode models)"
+  },
+  "OPENCODE_GLM": {
+    "modele": "zai/glm-4.7-flash",
+    "repli_modele": "",
+    "_repli": "owner 17/10 ~22 h 50 : zai d'abord, puis modele par defaut d'OpenCode sur quota ou delai ACP depasse",
+    "worktree": "opencode_glm",
+    "statut_modele": "INCONNU (a confirmer par opencode models)"
+  },
+  "OPENCODE_DEFAUT2": {
+    "modele": "",
+    "worktree": "opencode_defaut2",
+    "statut_modele": "owner 18/10 « multiplie les executeurs tant que l'autoregulation laisse passer » : meme recette que GPTOSS (modele par defaut d'OpenCode, sans cle) ; le gate de ressources admet chaque tache"
+  },
+  "OPENCODE_DEFAUT3": {
+    "modele": "",
+    "worktree": "opencode_defaut3",
+    "statut_modele": "owner 18/10 : instance supplementaire, modele par defaut d'OpenCode"
+  },
+  "OPENCODE_DEFAUT4": {
+    "modele": "",
+    "worktree": "opencode_defaut4",
+    "statut_modele": "owner 18/10 : instance supplementaire, modele par defaut d'OpenCode"
+  },
+  "OPENCODE_DEFAUT5": {
+    "modele": "",
+    "worktree": "opencode_defaut5",
+    "statut_modele": "owner 18/10 : instance supplementaire, modele par defaut d'OpenCode"
+  }
+}

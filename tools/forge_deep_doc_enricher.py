@@ -109,7 +109,7 @@ def _llm_metadata(chunk: str) -> dict:
         if start >= 0:
             return json.loads(raw[start:end])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_deep_doc_enricher.py', 111, exc_info=True)
     return {"summary": "", "keywords": [], "domain": "doc"}
 
 

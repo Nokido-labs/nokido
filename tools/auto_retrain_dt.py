@@ -26,7 +26,7 @@ def _load_state() -> dict:
         try:
             return json.loads(STATE_PATH.read_text("utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/auto_retrain_dt.py', 28, exc_info=True)
     return {"ts": 0, "n_samples": 0, "accuracy": 0.0}
 
 
@@ -40,7 +40,7 @@ def _count_new_lines(since_ts: float) -> int:
             if d.get("ts", 0) > since_ts:
                 count += 1
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/auto_retrain_dt.py', 42, exc_info=True)
     return count
 
 

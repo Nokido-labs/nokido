@@ -64,7 +64,7 @@ def _cible_baseline() -> float:
         if isinstance(v, (int, float)) and v > 0:
             return float(v)
     except Exception:  # noqa: BLE001 - pas de baseline : plancher, jamais la fenetre
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_regulation_learner.py', 66, exc_info=True)
     return 120.0
 
 
@@ -108,6 +108,7 @@ def charger_ledger() -> list[dict]:
                 try:
                     out.append(json.loads(ligne))
                 except json.JSONDecodeError:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_regulation_learner.py', 110, exc_info=True)
                     continue
     return out
 

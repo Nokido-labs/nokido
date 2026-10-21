@@ -310,7 +310,7 @@ class SqlitePersister:
             try:
                 self._conn.close()
             except sqlite3.Error:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/jti_cache.py', 312, exc_info=True)
 
 
 # --------------------------------------------------------------------

@@ -748,6 +748,37 @@ def _action_funnel(ouvrir: bool) -> None:
     _action_tailscale_statut()
 
 
+def _action_dev_armer() -> None:
+    """Owner 2026-10-16 : « simplifier la bascule mode dev direct dans la tray ». forge_dev_mode EXIGE un
+    ADMINISTRATEUR (le jeton doit etre illisible par les comptes sandbox) : on ouvre une console ELEVEE (UAC) qui arme
+    puis reste ouverte sur son issue. Valider l'UAC EST le geste owner ; rien n'est contourne. Le mode DEV expire seul
+    au bout de 30 min (pas de geste de desarmement a proposer)."""
+    try:
+        from nokido_agent.app.forge_python_bin import LAFORGE_PYTHON as py
+    except Exception:  # noqa: BLE001 - repli dit : le python du panneau, en console
+        py = str(Path(sys.executable).with_name("python.exe"))
+    script = ROOT / "tools" / "forge_dev_mode.py"
+    args = subprocess.list2cmdline(["/k", str(py), str(script), "arm"]).replace("'", "''")
+    r = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
+                        "Start-Process -FilePath cmd.exe -Verb RunAs -ArgumentList '%s'" % args],
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if r.returncode != 0:
+        print("[dev] console administrateur NON ouverte (rc=%s) : %s -- UAC refusee ?"
+              % (r.returncode, (r.stderr or r.stdout).strip()[:300]))
+        return
+    print("[dev] console administrateur ouverte : elle arme le mode DEV (30 min) et affiche l'issue")
+
+
+def _action_audio_relancer() -> bool:
+    cmd = "Start-Process powershell -Verb RunAs -Wait -ArgumentList '-Command Restart-Service -Name Audiosrv -Force'"
+    r = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", cmd],
+        capture_output=True,
+        timeout=60,
+    )
+    return r.returncode == 0
+
+
 # Actions exposees au mode CLI. start/stop/restart lancent les .ps1 du Bureau, qui
 # s'AUTO-ELEVENT (UAC) : depuis un compte de service la fenetre UAC n'apparait jamais
 # et l'action pend en silence -- donc REFUS dit, jamais un faux depart.
@@ -762,8 +793,11 @@ ACTIONS = {
     "tailscale-statut": lambda: _action_tailscale_statut(),
     "funnel-ouvrir": lambda: _action_funnel(True),
     "funnel-fermer": lambda: _action_funnel(False),
+    "dev-armer": lambda: _action_dev_armer(),
+    "audio-relancer": lambda: _action_audio_relancer(),
 }
-ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart", "lancer")
+# dev-armer : l'UAC n'apparait que dans la session interactive de l'owner.
+ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart", "lancer", "dev-armer", "audio-relancer")
 
 
 def _cli(action: str) -> int:

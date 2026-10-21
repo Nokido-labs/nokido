@@ -152,10 +152,13 @@ class ConfidenceScorer:
         - Réponse = refus/erreur : 0.0 forcé
     """
 
+    # 19/10 (audit pair, affirmation 3) : PARLER d'une erreur n'est pas ETRE une erreur. Les motifs 2 et 3
+    # cherchaient n'importe ou dans les 200 premiers caracteres -- « L'erreur provient de... » tombait a 0.0 et
+    # declenchait une escalade. Ils sont ANCRES en tete : la reponse COMMENCE comme une erreur ou un vide.
     _REFUSAL_PATTERNS = [
         r"(?i)^(je|i)?\s*(ne\s*peux\s*pas|cannot|can'?t|refuse|décline|sorry)",
-        r"(?i)(erreur|error|exception|traceback|timeout)",
-        r"(?i)(no\s+result|aucun\s+résultat|pas\s+de\s+résultat)",
+        r"(?i)^\s*(?:\w*error|erreur|exception|timeout|traceback)\b[^\n]{0,40}?[:(]",
+        r"(?i)^\s*(?:no\s+results?|aucun\s+r[ée]sultat|pas\s+de\s+r[ée]sultat)\b",
     ]
 
     def score(self, response: str) -> SiloScore:
@@ -354,7 +357,7 @@ class MetaCognitionGate:
                     self._energy_used = max(0.0, restored)
                     self._last_spike_ts = _t.time()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metacognition_gate.py', 356, exc_info=True)
 
     def _check_energy(self, prompt: str) -> tuple[bool, str]:
         self._lif_decay()  # décroissance avant toute vérification
@@ -537,7 +540,7 @@ class MetaCognitionGate:
             try:
                 response = self.membrane.unwrap(response)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metacognition_gate.py', 539, exc_info=True)
 
         # ── 7. Decision record ────────────────────────────────────────────────
         elapsed = (time.perf_counter() - t0) * 1000
@@ -565,7 +568,7 @@ class MetaCognitionGate:
             try:
                 self.on_decision(decision)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metacognition_gate.py', 567, exc_info=True)
 
         return GateResult(
             response=response,

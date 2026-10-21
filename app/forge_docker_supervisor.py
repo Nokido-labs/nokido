@@ -231,6 +231,7 @@ class DockerSupervisor:
                 try:
                     msg = json.loads(raw.decode("utf-8", errors="replace").strip())
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_docker_supervisor.py', 233, exc_info=True)
                     continue
                 rid = msg.get("id")
                 if rid is None:

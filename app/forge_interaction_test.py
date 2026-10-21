@@ -195,7 +195,7 @@ async def _call_agent(
         try:
             _ctx.done(response)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_interaction_test.py', 197, exc_info=True)
 
     return response or f"[{agent_id}] (réponse vide)"
 
@@ -229,7 +229,7 @@ def _broadcast_state(agent_id: str, state: str, turn: int) -> None:
         bridge.json_set("interaction.turn", turn)
         bridge.json_set("interaction.ts", time.time())
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_interaction_test.py', 231, exc_info=True)
 
 
 # ── Scénario 1 : PING-PONG ────────────────────────────────────────────────────
@@ -631,7 +631,7 @@ async def run_scenario(
         conn.commit()
         conn.close()
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_interaction_test.py', 633, exc_info=True)
 
     return result
 

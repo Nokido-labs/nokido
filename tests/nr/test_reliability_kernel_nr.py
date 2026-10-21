@@ -56,8 +56,14 @@ _TASKS = _ROOT / "sandbox" / "tasks.db"
 # calibre sur une autre methode ne mesure rien. L'invariant interdit d'EMPIRER,
 # il n'exige pas d'avoir deja repare (regle owner : marquer [PERIME], jamais
 # supprimer).
-_RAG_FANTOMES_PLAFOND_PCT = 92.0
-_RAG_FANTOMES_REFERENCE_PCT = 90.6      # mesure conventionnelle du 2026-08-14
+# 20/10 -- RECALIBRAGE : la methode ci-dessus (`DISTINCT source LIKE '%.py' LIMIT 4000`) rendait 100 % parce que son
+# echantillon n'etait plus fait QUE de depots externes ingeres (aliasrobotics_cai, ag2ai_ag2, agentscope, amd_gaia...),
+# dont les chemins n'ont jamais existe dans cet arbre -- et ce LIKE balayait la base vivante (RAG/embeddings.db est un
+# lien vers V:, 50 Go). Population desormais : le code de Nokido (app/ tools/ tests/ proxy_deno/), lu par PLAGE sur
+# idx_rag_source, dedoublonnee par fichier. Mesure du 20/10 : 2 270 fichiers .py indexes, 204 fantomes = 8,99 %.
+_RAG_FANTOMES_PLAFOND_PCT = 9.5
+_RAG_FANTOMES_REFERENCE_PCT = 8.99      # mesure du 2026-10-20 (population = code de Nokido, par fichier)
+_RAG_PREFIXES_NOKIDO = ("app/", "tools/", "tests/", "proxy_deno/")
 
 
 def _registre() -> dict:
@@ -216,23 +222,23 @@ class TestRagNeSeDegradePas:
         db = _ROOT / "RAG" / "embeddings.db"
         if not db.exists():
             pytest.skip("base RAG absente")
+        requete = "SELECT DISTINCT source FROM rag_chunks WHERE source >= ? AND source < ?"
         con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
         try:
-            rows = [r[0] for r in con.execute(
-                "SELECT DISTINCT source FROM rag_chunks WHERE source LIKE '%.py' LIMIT 4000")]
+            plan = " ".join(str(r[-1]) for r in con.execute("EXPLAIN QUERY PLAN " + requete, ("app/", "app0")))
+            assert "USING" in plan and "INDEX" in plan, "la mesure balaierait rag_chunks : %s" % plan
+            chemins = set()
+            for prefixe in _RAG_PREFIXES_NOKIDO:
+                for (s,) in con.execute(requete, (prefixe, prefixe[:-1] + "0")):
+                    p = str(s).split("#")[0].split("::")[0].strip()
+                    if p.endswith(".py"):
+                        chemins.add(p)
         finally:
             con.close()
-        if not rows:
-            pytest.skip("aucune source fichier indexee")
-        fantomes = 0
-        for s in rows:
-            p = str(s).split("#")[0].strip()
-            if not p:
-                continue
-            chemin = Path(p) if Path(p).is_absolute() else _ROOT / p
-            if not chemin.exists():
-                fantomes += 1
-        pct = 100.0 * fantomes / len(rows)
+        if not chemins:
+            pytest.skip("aucune source de code Nokido indexee")
+        fantomes = sum(1 for p in chemins if not (_ROOT / p).exists())
+        pct = 100.0 * fantomes / len(chemins)
         assert pct <= _RAG_FANTOMES_PLAFOND_PCT, (
             f"sources fantomes a {pct:.1f} % (plafond {_RAG_FANTOMES_PLAFOND_PCT} %) : "
             f"la dette de memoire GRANDIT. Marquer les chunks perimes "

@@ -83,6 +83,7 @@ for _cand in (ROOT / "tools" / "forge_organ_map.json", ROOT / "sandbox" / "works
         if _ORGAN_MAP:
             break
     except Exception:
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_census.py', 85, exc_info=True)
         continue
 
 
@@ -224,6 +225,7 @@ def _read_head(fname, relpath=None):
             if p.is_file():
                 return p.read_text(encoding="utf-8", errors="replace")[:HEAD_CHARS]
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_census.py', 226, exc_info=True)
             continue
     return ""
 
@@ -319,7 +321,7 @@ def purpose(path):
             if s.startswith("#") and len(s) > 12:
                 return s.lstrip("# ")[:120]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_census.py', 321, exc_info=True)
     return ""
 
 

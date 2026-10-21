@@ -58,6 +58,21 @@ def _gs(k: str) -> str:
 ROOT = Path(__file__).resolve().parent.parent
 APP = Path(__file__).resolve().parent
 DB_PATH = ROOT / "sandbox" / "events.db"
+
+
+def _ollama_distant_url() -> str:
+    """URL de l'Ollama distant : NOKIDO_OLLAMA_REMOTE_URL, puis sandbox/reseau.local.json (non suivi), puis
+    localhost. Jamais d'adresse de l'owner en dur (P1 « le dist ne doit pas etre fige sur mes IP », 17/10)."""
+    import os as _os
+
+    url = _os.environ.get("NOKIDO_OLLAMA_REMOTE_URL", "").strip()
+    if not url:
+        try:
+            url = str(json.loads((ROOT / "sandbox" / "reseau.local.json").read_text(encoding="utf-8"))
+                      .get("ollama_remote_url") or "").strip()
+        except (OSError, ValueError, AttributeError):
+            url = ""
+    return url or "http://localhost:11434"
 TEAM_CONFIG_PATH = ROOT / "sandbox" / "swarm_team_config.json"
 
 # ── Data Model ────────────────────────────────────────────────────────────────
@@ -343,14 +358,14 @@ def _default_team() -> SwarmTeam:
         ),
         Participant(
             id="ollama_remote",
-            label="Ollama Remote (localhost)",
+            label="Ollama Remote",
             kind="remote_llm",
             provider="ollama_remote",
             icon="🌐",
             active=False,
             priority=4,
             async_call=True,
-            config={"url": "http://localhost:11434"},
+            config={"url": _ollama_distant_url()},
         ),
         # ── Agents MCP ────────────────────────────────────────────────────
         Participant(
@@ -582,7 +597,7 @@ class LeadOrchestrator:
                 }
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 599, exc_info=True)
 
         t0 = time.monotonic()
         actives = team.active
@@ -627,7 +642,7 @@ class LeadOrchestrator:
                     }
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 644, exc_info=True)
 
         team.status = "done"
         team.save()
@@ -670,7 +685,7 @@ class LeadOrchestrator:
 
                 broadcast({"type": "participant_done", "id": p.id, "dur_ms": dur, "chars": len(response)})
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 687, exc_info=True)
             return {
                 "participant_id": p.id,
                 "label": p.label,
@@ -837,7 +852,7 @@ class LeadOrchestrator:
         try:
             import urllib.request
 
-            url = config.get("url", "http://localhost:11434") + "/api/generate"
+            url = (config.get("url") or _ollama_distant_url()) + "/api/generate"
             model = config.get("model", "llama3")
             body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
             req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
@@ -908,7 +923,18 @@ class LeadOrchestrator:
 
         model = config.get("model") or os.environ.get("LITELLM_MODEL", "ollama/qwen2.5")
         api_base = config.get("api_base") or os.environ.get("LITELLM_API_BASE", "http://localhost:11434")
-        api_key = config.get("api_key") or os.environ.get("LITELLM_API_KEY", "")
+        api_key = config.get("api_key")
+        if not api_key:
+            try:
+                from nokido_agent.app.forge_secrets import get_secret
+
+                api_key = get_secret("LITELLM_API_KEY")
+            except Exception as _e:
+                import logging as _lg
+
+                _lg.getLogger(__name__).warning("coffre illisible pour LITELLM_API_KEY (%s) -> repli env", type(_e).__name__)
+        if not api_key:
+            api_key = os.environ.get("LITELLM_API_KEY", "")
         try:
             import asyncio as _aio
 
@@ -968,7 +994,7 @@ class LeadOrchestrator:
 
                 api_key = get_secret("GROQ_API_KEY") or ""
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 996, exc_info=True)
         if not api_key:
             return "[groq] GROQ_API_KEY manquant dans Nokido.env"
         try:
@@ -1011,7 +1037,7 @@ class LeadOrchestrator:
 
                 api_key = get_secret("XAI_API_KEY") or ""
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 1039, exc_info=True)
         if not api_key:
             return "[xai] XAI_API_KEY manquant dans Nokido.env"
         try:
@@ -1053,7 +1079,7 @@ class LeadOrchestrator:
 
                 api_key = get_secret("DEEPSEEK_API_KEY") or ""
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 1081, exc_info=True)
         if not api_key:
             return "[deepseek] DEEPSEEK_API_KEY manquant"
         try:
@@ -1089,14 +1115,20 @@ class LeadOrchestrator:
         """Appel Mistral AI direct."""
         import urllib.request as _ur, json as _j, os as _os
 
-        api_key = _os.environ.get("MISTRAL_API_KEY", "")
-        if not api_key:
-            try:
-                from nokido_agent.app.forge_secrets import get_secret
+        api_key = None
+        _gere = False
+        try:
+            from nokido_agent.app.forge_key_rotation import resolve
+            from nokido_agent.app.forge_secrets import get_secret
 
-                api_key = get_secret("MISTRAL_API_KEY") or ""
-            except Exception:
-                pass
+            _gere, _k = resolve("MISTRAL_API_KEY")
+            api_key = _k if _gere else (get_secret("MISTRAL_API_KEY") or "")
+        except Exception as _e:
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning("coffre/rotation illisible pour MISTRAL_API_KEY (%s) -> repli env", type(_e).__name__)
+        if not api_key and not _gere:  # sous rotation : None = sauter le fournisseur, jamais l'env (16/10)
+            api_key = _os.environ.get("MISTRAL_API_KEY", "")
         if not api_key:
             return "[mistral] MISTRAL_API_KEY manquant dans Nokido.env"
         try:
@@ -1159,7 +1191,7 @@ class LeadOrchestrator:
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_swarm_team.py', 1193, exc_info=True)
 
 
 # ── Singleton global ──────────────────────────────────────────────────────────

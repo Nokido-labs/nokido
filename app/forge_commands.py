@@ -60,7 +60,7 @@ def safe_write(path, content: str, agent: str = "Nokido") -> tuple[bool, str]:
             try:
                 os.unlink(tf_path)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 62, exc_info=True)
             msg = f"COMMIT GUARD FAIL: {p.name}: {e.msg[:120]} [{agent}]"
             logger.error(f"[Commit Guard] ❌ {msg}")
             return False, msg
@@ -527,7 +527,7 @@ async def _cmd_collab(app, args: str) -> None:
                         if _l.startswith("MCP_HTTP_PORT="):
                             _port = int(_l.split("=", 1)[1].strip())
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 529, exc_info=True)
 
                 # Verifier si le serveur tourne deja
                 _running = False
@@ -536,7 +536,7 @@ async def _cmd_collab(app, args: str) -> None:
                     _s.close()
                     _running = True
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 538, exc_info=True)
 
                 if _running:
                     chat.write(f"[green]✅ Serveur MCP HTTP deja actif sur :{_port}[/]")
@@ -554,7 +554,7 @@ async def _cmd_collab(app, args: str) -> None:
                                 _k, _v = _l.split("=", 1)
                                 _env[_k.strip()] = _v.strip()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 556, exc_info=True)
                     try:
                         _sub.Popen(
                             [_py, _srv, "--mode", "http", "--name", "CLINE"],
@@ -574,7 +574,7 @@ async def _cmd_collab(app, args: str) -> None:
                                 _running = True
                                 break
                             except Exception:
-                                pass
+                                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 576, exc_info=True)
                         if _running:
                             chat.write(f"[green]✅ Serveur MCP HTTP pret sur :{_port}[/]")
                         else:
@@ -655,5 +655,5 @@ async def dispatch_at(app, cmd_line: str) -> bool:
         try:
             app._chat_log().write(f"[red]❌ {cmd}: {e}[/]")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_commands.py', 657, exc_info=True)
     return True

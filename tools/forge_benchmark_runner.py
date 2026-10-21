@@ -210,7 +210,7 @@ def run(
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_benchmark_runner.py', 212, exc_info=True)
 
     return summary
 

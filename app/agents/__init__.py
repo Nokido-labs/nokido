@@ -67,7 +67,7 @@ try:
         heartbeat,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/__init__.py', 69, exc_info=True)
 
 # Orchestrateur autonome (DAG)
 try:
@@ -81,13 +81,13 @@ try:
         run_autonomous,
     )
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/__init__.py', 83, exc_info=True)
 
 # Handlers agentiques (pour dispatcher)
 try:
     from nokido_agent.app.forge_agentic import handle_agentic, handle_evolve
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/agents/__init__.py', 89, exc_info=True)
 
 
 __all__ = [

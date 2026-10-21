@@ -63,6 +63,7 @@ def search(query: str, globs: list[str], context: int, max_hits: int) -> dict:
         try:
             lines = p.read_text("utf-8", "replace").splitlines()
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_local_explore.py', 65, exc_info=True)
             continue
         for i, ln in enumerate(lines):
             if pat.search(ln):

@@ -85,6 +85,7 @@ def scanner(min_doc_lignes: int = 2) -> list[dict]:
             try:
                 arbre = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
             except (OSError, SyntaxError):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_hollow_sentinel.py', 87, exc_info=True)
                 continue
             classes_contrat = {
                 c.name for c in ast.walk(arbre)

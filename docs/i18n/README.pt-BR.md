@@ -58,7 +58,7 @@ que permitem que várias IAs — modelos locais, provedores na nuvem, agentes de
 Code, Codex CLI, OpenCode ou Antigravity — trabalhem juntas na sua máquina **sem virar um amontoado
 de agentes independentes**.
 
-Ele parte de três constatações, desenvolvidas no [Manifesto](../../MANIFESTO.md):
+Ele parte de três constatações, desenvolvidas no [Manifesto](MANIFESTO.en.md):
 
 1. **A maior parte da IA é externa.** Prompts, código e documentos trafegam por uma infraestrutura que não é sua.
 2. **A maior parte da IA é amnésica.** A memória é um acessório, não um alicerce.
@@ -1112,7 +1112,7 @@ O roadmap de hardware segue explicitamente essa progressão.
 ### Arquitetura aprofundada
 
 * [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](../../MANIFESTO.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md) · [English](MANIFESTO.en.md)
 
 ### Protocolos de agentes
 

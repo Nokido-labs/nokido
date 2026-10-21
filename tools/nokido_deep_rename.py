@@ -167,6 +167,7 @@ def main():
             try:
                 raw = open(p, "rb").read()
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_deep_rename.py', 169, exc_info=True)
                 continue
             low = raw.lower()
             if b"aforge" not in low and b"a-forge" not in low:

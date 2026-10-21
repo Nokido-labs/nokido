@@ -58,7 +58,7 @@ def main() -> int:
         try:
             p.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mcp_dynamic_selftest.py', 60, exc_info=True)
         rr = tf._registry_load()
         rr.pop("hello_dyn", None)
         tf._registry_save(rr)

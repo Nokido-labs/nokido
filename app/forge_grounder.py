@@ -56,7 +56,7 @@ def _ask(provider: str, message: str, max_tokens: int = 400) -> str:
             return '{"refuted": true, "confidence": 0.3, "reason": "firewall veto egress cloud"}'
         message = getattr(pf, "safe_task", None) or message
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_grounder.py', 58, exc_info=True)
     body = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": "ask", "arguments": {"provider": provider, "message": message, "max_tokens": max_tokens}},
@@ -101,6 +101,7 @@ def _gather_code(claim: str, limit: int = 5) -> list[dict]:
         try:
             src = open(f, encoding="utf-8", errors="replace").read()
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_grounder.py', 103, exc_info=True)
             continue
         base = os.path.basename(f)
         try:  # P3 : AST -> def/class dont le nom matche un mot-cle = preuve DEFINITIONNELLE (boost 10)
@@ -113,7 +114,7 @@ def _gather_code(claim: str, limit: int = 5) -> list[dict]:
                     scored.append((10, {"source": f"{base}:{node.lineno}", "score": "code:" + kind,
                                         "preview": f"{kind} {nm}: {doc[0] if doc else ''}"[:200]}))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_grounder.py', 115, exc_info=True)
         for i, line in enumerate(src.splitlines(), 1):  # grep ranked (nb mots-cles)
             hits = sum(1 for kw in kws if kw in line)
             if hits:
@@ -141,7 +142,7 @@ def _gather_rag(claim: str, limit: int = 5) -> list[dict]:
             srcs.append({"source": x.get("source"), "score": x.get("score"),
                          "preview": (x.get("preview") or "")[:200]})
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_grounder.py', 143, exc_info=True)
     return srcs
 
 

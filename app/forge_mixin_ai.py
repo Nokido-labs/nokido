@@ -76,7 +76,7 @@ try:
     Static = _Static
     RichLog = _RichLog
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_ai.py', 78, exc_info=True)
 
 from nokido_agent.app.forge_logging import debug_log  # centralisé
 
@@ -112,7 +112,7 @@ class AiMixin:
                     if len(_buf) > 2000:  # garder 2000 dernières lignes max
                         del _buf[:500]
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_ai.py', 114, exc_info=True)
                 return _orig(msg, *a, **kw)
 
             _log.write = _patched_write  # type: ignore
@@ -159,11 +159,11 @@ class AiMixin:
                 f"[dim]@help · @run · @rag · @audit · @estim[/]"
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_ai.py', 161, exc_info=True)
         try:
             self.query_one("#btn-model", Button).label = f"🤖 {self._current_model()[:18]}"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_ai.py', 165, exc_info=True)
         self._update_sidebar_title()
 
     async def _check_ollama_models(self) -> None:

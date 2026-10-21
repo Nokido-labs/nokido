@@ -131,7 +131,61 @@ def _ecriture_brute(rel: str):
                 mode = ast.unparse(n.args[1]) if len(n.args) > 1 else ""
                 if "w" in mode or "a" in mode:
                     sites.append(n.lineno)
-    return sorted(set(sites))
+    # FAUX POSITIF FERME LE 2026-10-17 (meme famille que le 14/10, meme etroitesse). `autre_fichier` est collant a
+    # l'echelle du MODULE : dans `forge_task_executor`, `job = Path(job)` (attente du harness) et
+    # `chemin = Path(env_cfg)` suffisaient a rendre suspects TOUS les `job.write_text` (jobs JSON du harness Codex et
+    # Vibe) et `chemin.write_text` (config MCP de Vibe) -- 26 pour un plafond de 25, sans un seul pouls ecrit.
+    # Exception LOCALE : un site est ecarte seulement si, DANS LA FONCTION qui le contient, TOUTES les affectations
+    # du nom nomment explicitement un autre fichier. Ne fait que RETIRER des sites ; contre-epreuve sur tout le depot
+    # suivi : seul forge_task_executor sort, aucun site retire dans les 25 autres (nokido_hub:1350, vrai pouls, reste).
+    ecartes = set()
+    for fn in (x for x in ast.walk(arbre) if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        affect: dict = {}
+        for x in ast.walk(fn):
+            if isinstance(x, ast.Assign):
+                for t in x.targets:
+                    if isinstance(t, ast.Name):
+                        affect.setdefault(t.id, []).append(x.value)
+        for x in ast.walk(fn):
+            if isinstance(x, ast.Call) and isinstance(x.func, ast.Attribute) and x.lineno in sites:
+                base = x.func.value
+                while isinstance(base, ast.Attribute):
+                    base = base.value
+                if isinstance(base, ast.Name) and affect.get(base.id) and all(
+                        _nomme_un_autre_fichier(v) for v in affect[base.id]):
+                    ecartes.add(x.lineno)
+    return sorted(set(sites) - ecartes)
+
+
+def _nomme_un_autre_fichier(v) -> bool:
+    """La valeur affectee nomme explicitement un AUTRE fichier : litteral a extension, ni `.heartbeat` ni f-string."""
+    return (not any(isinstance(c, ast.JoinedStr) for c in ast.walk(v)) and ".heartbeat" not in ast.unparse(v)
+            and any(isinstance(c, ast.Constant) and isinstance(c.value, str)
+                    and "." in c.value.replace("\\", "/").rsplit("/", 1)[-1] for c in ast.walk(v)))
+
+
+def test_un_job_json_dans_sa_fonction_n_est_pas_un_pouls_mais_un_vrai_pouls_reste_compte(tmp_path, monkeypatch):
+    """NR du correctif du 17/10, dans les DEUX sens : l'exception locale ne masque jamais un vrai pouls."""
+    src = (
+        "from pathlib import Path\n"
+        "def _hb_file(a):\n"
+        "    return Path('sandbox') / f'task_executor_{a}.heartbeat'\n"
+        "def attendre(job):\n"
+        "    job = Path(job)\n"
+        "    return job.exists()\n"
+        "def deleguer(jid):\n"
+        "    job = Path('jobs') / (jid + '.json')\n"
+        "    job.write_text('{}')\n"
+        "def battre(a):\n"
+        "    hb = _hb_file(a)\n"
+        "    hb.write_text('{}')\n"
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "faux_module.py").write_text(src, encoding="utf-8")
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    sites = _ecriture_brute("tools/faux_module.py")
+    assert 9 not in sites, "le job JSON du harness est compte comme un pouls"
+    assert 12 in sites, "le vrai pouls brut (hb.write_text) n'est plus compte : faux negatif"
 
 
 def _recensement() -> tuple[dict, list]:

@@ -276,7 +276,7 @@ def handle_app_factory(args: str = "", **kw: object) -> str:
         if len(code) > 100:
             scaffold = code
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_advanced.py', 278, exc_info=True)
     (proj / "src" / "main.py").write_text(scaffold, encoding="utf-8")
     out.append(f"[Scaffold] {len(scaffold)} chars")
     (proj / "README.md").write_text(f"# {name}\nGenere par LaForge\n")
@@ -394,7 +394,7 @@ def handle_safety_audit(args: str = "", **kw: object) -> str:
                     leaks.append(f"{fname}: {ctx}")
                     break
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_handler_advanced.py', 396, exc_info=True)
     out.append(f"[Scan] {len(leaks)} leaks / {len(staged)} stagés")
     out.extend(leaks[:5])
     gi = ROOT / ".gitignore"

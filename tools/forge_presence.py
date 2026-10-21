@@ -63,7 +63,7 @@ def mark_seen(agent: str, meta: dict | None = None) -> None:
         if arrived:
             _emit_arrival(a)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_presence.py', 65, exc_info=True)
 
 
 def _emit_arrival(agent: str) -> None:

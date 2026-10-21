@@ -49,7 +49,9 @@ HUB_URL = os.environ.get("FORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
 
 
 def load_token() -> str:
-    tok = os.environ.get("FORGE_MCP_TOKEN", "")
+    from nokido_agent.app.forge_secrets import get_secret  # coffre d'abord, env en dernier repli (16/10)
+
+    tok = get_secret("FORGE_MCP_TOKEN") or ""
     if tok:
         return tok
     env = ROOT / "Nokido.env"

@@ -80,6 +80,7 @@ def process_once() -> int:
         try:
             spec = json.loads(req.read_text(encoding="utf-8"))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wasm_bridge.py', 82, exc_info=True)
             continue
         res = run_wasmedge(spec.get("wasm_path", ""), spec.get("func"),
                            spec.get("args") or [], int(spec.get("timeout", 30)))
@@ -88,7 +89,7 @@ def process_once() -> int:
         try:
             req.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wasm_bridge.py', 90, exc_info=True)
         n += 1
     return n
 
@@ -140,14 +141,14 @@ def submit_wasm(wasm_path: str, func: str | None = None, args: list | None = Non
             try:
                 res.unlink()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wasm_bridge.py', 142, exc_info=True)
             return out
         time.sleep(poll)
     for p in (req, res):
         try:
             p.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_wasm_bridge.py', 149, exc_info=True)
     return {"ok": False, "rc": -1, "stdout": "", "stderr": f"bridge timeout {wait_s}s",
             "elapsed_ms": int(wait_s * 1000)}
 

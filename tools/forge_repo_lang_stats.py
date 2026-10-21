@@ -25,6 +25,7 @@ def main() -> None:
         try:
             sz = os.path.getsize(ROOT / f)
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_repo_lang_stats.py', 27, exc_info=True)
             continue
         sizes[ext] = sizes.get(ext, 0) + sz
         if ext == ".py":

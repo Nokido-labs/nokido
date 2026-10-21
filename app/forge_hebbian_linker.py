@@ -131,6 +131,7 @@ def coactivation_search_results(conn) -> dict[tuple[str, str], int]:
         try:
             results = json.loads(srj or "[]")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hebbian_linker.py', 133, exc_info=True)
             continue
         for r in (results or [])[:5]:  # top-5 only
             url = r.get("url")
@@ -172,6 +173,7 @@ def reinforce_links(conn, coactivations: dict[tuple[str, str], int], kind: str, 
             n += 1
         except sqlite3.IntegrityError:
             # FK violation : a ou b n'existe plus dans biblio_raw
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hebbian_linker.py', 173, exc_info=True)
             continue
     conn.commit()
     return {"created_or_updated": n, "kind": kind}
@@ -282,7 +284,7 @@ def main() -> int:
         try:
             (SANDBOX / "hebbian_linker.pid").write_text(str(os.getpid()), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hebbian_linker.py', 284, exc_info=True)
 
     # Le TICK est le metabolisme : il porte le pouls a chaque tour. La plasticite
     # hebbienne reste une fonction LENTE declenchee tous les N ticks -- 6 h est un

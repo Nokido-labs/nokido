@@ -69,7 +69,7 @@ async def _smart_ask(
         _fw_safe_task = _pf.safe_task or task
         _fw_mapping = _pf.mapping
     except ImportError:
-        pass  # firewall optionnel
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_participants.py', 71, exc_info=True)
     except Exception as _fwe:
         logger.debug(f"[_smart_ask] firewall pre skip: {_fwe}")
 
@@ -93,7 +93,7 @@ async def _smart_ask(
                             logger.warning(f"[_smart_ask] meta_eval drift: {_drift}")
                             _snap_rag_state(f"DRIFT détecté ({role}): {_drift[:120]}")
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_participants.py', 95, exc_info=True)
                     # ── Post-flight firewall ──────────────────────────────
                     try:
                         _post = _fw.post_flight(resp, task=task, session_id=session_id)
@@ -104,7 +104,7 @@ async def _smart_ask(
                                 return f"[RÉPONSE_BLOQUÉE:{_post.tag}] Régénération locale..."
                             # Hallucination / format → meta_eval déjà loggué, on continue
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_participants.py', 106, exc_info=True)
                     # ── Restore placeholders DLP ──────────────────────────
                     if _fw_mapping:
                         resp = _fw.restore(resp, _fw_mapping)
@@ -133,7 +133,7 @@ async def _smart_ask(
                             f"[{h.get('source', '')} {h.get('score', 0):.2f}] {h.get('text', '')[:300]}" for h in _hits
                         )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/_participants.py', 135, exc_info=True)
     if role in ("chef", "laforge"):
         return await _nokido_ask(task, context=context, max_tokens=max_tokens)
     else:

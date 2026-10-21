@@ -108,7 +108,7 @@ def _extract(rpc: dict) -> "tuple[str, dict]":
         if isinstance(inner, dict):
             return text, inner
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_format_bridge.py', 110, exc_info=True)
     return text, {}
 
 
@@ -200,7 +200,7 @@ async def ask_via_hub(prompt: str, provider: str, max_tokens: int, thread_id: st
                 tags=["ingress", agent],
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_format_bridge.py', 202, exc_info=True)
 
     return AskResult(True, reply=reply, provider=actual, it=len(prompt) // 4, ot=len(str(reply)) // 4)
 

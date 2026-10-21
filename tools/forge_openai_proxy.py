@@ -50,7 +50,9 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 HUB_URL = os.environ.get("FORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
-TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
+from nokido_agent.app.forge_secrets import get_secret  # noqa: E402  coffre d'abord, env en dernier repli (16/10)
+
+TOKEN = get_secret("FORGE_MCP_TOKEN") or ""
 
 # Bounded concurrency to upstream hub - prevents proxy event-loop starvation
 # under burst load (N parallel requests with 30s+ timeout each).
@@ -297,6 +299,7 @@ def _table_clients() -> dict:
                 if int(meta.get("ring", 4)) > 3:
                     continue          # au plancher, rien a prouver
             except (TypeError, ValueError):
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_openai_proxy.py', 301, exc_info=True)
                 continue
             val = get_secret("FORGE_TOKEN_%s" % nom)
             if val:
@@ -447,7 +450,7 @@ def _extract_ask_text(rpc_resp: dict) -> tuple[str, dict]:
         if isinstance(inner, dict):
             return text, inner
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_openai_proxy.py', 451, exc_info=True)
     return text, {}
 
 
@@ -1106,7 +1109,7 @@ async def chat_completions(request: Request) -> JSONResponse | StreamingResponse
             if any(t in str(model).lower() for t in ("cascade", "coder", "qwen", "local", "llama")):
                 _ensure_backend("llama_native")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_openai_proxy.py', 1110, exc_info=True)
         stream = bool(body.get("stream", False))
         temperature = body.get("temperature", 0.7)
 
@@ -1492,7 +1495,7 @@ async def responses(request: Request) -> JSONResponse:
                                          etype="upstream_error", status=502, code="firewall_post_blocked")
                 reply = fw.restore(reply, pf.mapping)
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_openai_proxy.py', 1496, exc_info=True)
         return JSONResponse(_wrap_responses(str(reply), model, usage=(inner or {}).get("usage")))
     except Exception as e:  # noqa: BLE001
         return _openai_error(str(e), etype="internal_error", status=500)

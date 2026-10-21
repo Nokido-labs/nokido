@@ -156,7 +156,7 @@ def _collect_docs() -> list:
             try:
                 out.append(f"[{p.relative_to(ROOT)}]\n" + p.read_text("utf-8", "ignore")[:4000])
             except Exception:  # noqa: BLE001
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 158, exc_info=True)
     return out
 
 
@@ -179,6 +179,7 @@ def _collect_blackboard() -> list:
                 if v:
                     out.append(f"[blackboard:{zone}:{k}]\n{str(v)[:1500]}")
         except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 181, exc_info=True)
             continue
     return out
 
@@ -233,7 +234,7 @@ def _capture_state() -> dict:
                     "restarts": s.get("restarts", 0),
                 })
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 235, exc_info=True)
     return {
         "hub_version": health.get("version", ""),
         "hub_ts": health.get("ts", ""),
@@ -259,7 +260,7 @@ def _synth_roadmap_json(level: list) -> dict:
         if i >= 0 and j > i:
             return _json.loads(raw[i:j + 1])
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 261, exc_info=True)
     return {"current_milestone": "", "next_milestone": "", "blockers": [],
             "P0": [], "P1": [], "P2": [], "_degraded": "json synth KO -> markdown reste la source"}
 
@@ -282,7 +283,7 @@ def _write_roadmap_state(level: list) -> None:
         from nokido_agent.app.forge_resolver import writable_path
         out, _red = writable_path(STATE_OUT, context=_os.environ.get("LAFORGE_CTX", "run_job"))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 284, exc_info=True)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(_json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
     n_items = sum(len(doc["roadmap"][k]) for k in ("P0", "P1", "P2"))
@@ -401,7 +402,7 @@ def main() -> int:
         from nokido_agent.app.forge_resolver import writable_path
         _out, _red = writable_path(OUT, context=_os.environ.get("LAFORGE_CTX", "run_job"))
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_roadmap_synth.py', 403, exc_info=True)
     _out.parent.mkdir(parents=True, exist_ok=True)
     _out.write_text(content, encoding="utf-8")
     print(f"[ok] ecrit {_out} ({len(content)} chars)")

@@ -165,7 +165,7 @@ def arm() -> str:
         try:
             TOKEN_FILE.unlink()
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_dev_mode.py', 167, exc_info=True)
         raise SystemExit(
             "dev-mode REFUSE : le jeton ne peut pas etre protege (%s).\n"
             "  Sans ACL SYSTEM+Administrateurs, un process sandboxe le lirait --\n"
@@ -210,6 +210,29 @@ def is_armed() -> tuple[bool, int]:
         return True, remaining
     except Exception:  # noqa: BLE001  (expired / tampered / bad secret)
         return False, 0
+
+
+def etat_lisible() -> dict:
+    """Etat AFFICHABLE du mode DEV pour un compte qui VOIT le jeton sans pouvoir le LIRE (tray de l'owner non eleve).
+
+    16/10 (bb:active_bugs/tray_jamais_recharge_et_mode_dev_illisible_20261016) : l'ACL SYSTEM+Administrateurs rend le
+    jeton illisible au compte owner ; `is_armed` avalait l'exception et le tray affichait « non valide » pendant que le
+    garde etait ARME. L'horodatage se lit sans ACL : echeance = horodatage + TTL_S. Seul un admin ecrit ce jeton, donc
+    l'affichage ne se fabrique pas depuis un sandbox. Le garde du hub, lui, continue de decider par `is_armed`."""
+    if not TOKEN_FILE.exists():
+        return {"etat": "ABSENT", "reste_s": 0, "source": "aucun jeton"}
+    try:
+        TOKEN_FILE.read_text(encoding="utf-8")
+    except PermissionError:
+        try:
+            reste = int(TOKEN_FILE.stat().st_mtime + TTL_S - time.time())
+        except OSError as exc:
+            return {"etat": "ILLISIBLE", "reste_s": 0, "source": "jeton protege, horodatage illisible (%s)"
+                    % type(exc).__name__}
+        return {"etat": "ARME" if reste > 0 else "EXPIRE", "reste_s": max(0, reste),
+                "source": "horodatage du jeton protege"}
+    arme, reste = is_armed()
+    return {"etat": "ARME" if arme else "NON_VALIDE", "reste_s": reste, "source": "jeton lu"}
 
 
 def main() -> int:

@@ -50,7 +50,7 @@ def read_clipboard() -> tuple[str, str]:
         finally:
             win32clipboard.CloseClipboard()
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/paste_clean.py', 52, exc_info=True)
     # Fallback : pyperclip
     try:
         import pyperclip
@@ -72,7 +72,7 @@ def write_clipboard(content: str) -> bool:
             win32clipboard.CloseClipboard()
         return True
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/paste_clean.py', 74, exc_info=True)
     try:
         import pyperclip
 

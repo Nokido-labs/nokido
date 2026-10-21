@@ -155,7 +155,7 @@ def main() -> int:
             try:
                 _corps = _e.read().decode("utf-8", "replace")[:220]
             except Exception:  # noqa: BLE001 - corps illisible, le code suffit
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_cloud_probe.py', 157, exc_info=True)
             print("  %-8s HTTP %s  %s" % ("modal", _e.code, _corps))
         except Exception as _e:  # noqa: BLE001
             print("  %-8s ERR %s: %s" % ("modal", type(_e).__name__, str(_e)[:200]))
@@ -205,7 +205,7 @@ def main() -> int:
             try:
                 corps = e.read().decode("utf-8", "replace")[:200]
             except Exception:  # noqa: BLE001 - corps illisible, le code suffit
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_cloud_probe.py', 207, exc_info=True)
             print("  %-8s HTTP %s  %s" % (nom, e.code, corps))
         except Exception as e:  # noqa: BLE001
             print("  %-8s ERR %s: %s" % (nom, type(e).__name__, str(e)[:160]))

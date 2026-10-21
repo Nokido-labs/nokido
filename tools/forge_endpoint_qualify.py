@@ -135,7 +135,7 @@ def qualify_provider(name: str, cfg: dict) -> list:
         tier = sp.get("tier", "")
         caps = sp.get("capabilities", [])
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_qualify.py', 137, exc_info=True)
     caps_s = ",".join(caps)
     models = cfg.get("models") or ["?"]
 
@@ -202,7 +202,7 @@ def main() -> int:
         REPORT.parent.mkdir(parents=True, exist_ok=True)
         REPORT.write_text(report, encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_endpoint_qualify.py', 204, exc_info=True)
     print("\n" + report)
     print(f"\n[report] {REPORT}")
     return 0

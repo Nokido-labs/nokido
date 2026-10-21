@@ -63,7 +63,7 @@ def verify_directml() -> bool:
         print(f"DirectML: {'✓ available' if has_dml else '✗ not detected'}")
         return has_dml
     except ImportError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/install_ortgenai_directml.py', 65, exc_info=True)
 
     try:
         import onnxruntime_genai as ort_genai

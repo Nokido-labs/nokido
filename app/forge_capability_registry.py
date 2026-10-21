@@ -51,7 +51,7 @@ def providers_for(use_case: str, free_only: bool = False, include_edges: bool = 
                 if req and req.issubset(edge_caps):
                     out.append(f"edge:{e.get('name', '?')}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_capability_registry.py', 53, exc_info=True)
     return out
 
 

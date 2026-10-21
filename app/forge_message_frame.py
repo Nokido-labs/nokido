@@ -124,7 +124,7 @@ class MessageFrame:
                     ),
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_message_frame.py', 126, exc_info=True)
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), ensure_ascii=False, default=str)
@@ -386,7 +386,7 @@ def hydrate_queues_on_boot(db_path: str | None = None) -> dict[str, int]:
                     ag = row["to_agent"]
                     counts[ag] = counts.get(ag, 0) + 1
             except Exception as _fe:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_message_frame.py', 388, exc_info=True)
         conn.close()
     except Exception as _e:
         print(f"[hydrate] ERR: {_e}", flush=True)

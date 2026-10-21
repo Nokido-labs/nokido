@@ -102,7 +102,7 @@ def span(
                 payload=payload,
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_span.py', 104, exc_info=True)
         # Dual-emit OTLP -> Phoenix/Jaeger (fail-open, batché). audit.db reste la
         # source SOUVERAINE du tree (forge_trace_viz) ; OTel = dashboard live optionnel.
         try:
@@ -118,11 +118,11 @@ def span(
             _otel(name, trace_id, duration_ms=dur, agent=agent or "",
                   target=target or "", status_ok=(status == 0))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_span.py', 120, exc_info=True)
         try:
             _current_span.reset(tok)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_span.py', 124, exc_info=True)
 
 
 def _is_coro(fn) -> bool:
@@ -165,7 +165,7 @@ if __name__ == "__main__":
 
         set_trace_id(tid)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_span.py', 167, exc_info=True)
     with span("hub.dispatch", agent="hub", target="ask"):
         with span("router.cascade", agent="llm_router"):
             with span("provider:groq", agent="agent_proxy", target="llama-70b"):

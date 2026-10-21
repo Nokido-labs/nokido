@@ -63,7 +63,7 @@ def prefetch_dns(hosts: list) -> None:
             result = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
             _dns_cache[host] = result[0][4][0]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_performance_tuner.py', 65, exc_info=True)
 
     threads = [threading.Thread(target=_resolve, args=(h,), daemon=True) for h in hosts]
     for t in threads:

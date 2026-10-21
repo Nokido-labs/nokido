@@ -62,7 +62,7 @@ def _verdicted_seqs(con) -> set:
             if s is not None:
                 done.add(int(s))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gate_consumer.py', 64, exc_info=True)
     return done
 
 
@@ -118,7 +118,7 @@ def serve(interval: int = 30, rounds: int = 0):
 
             beat_daemon("gate_consumer", intentions=len(v or []), interval_s=interval)
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gate_consumer.py', 120, exc_info=True)
         i += 1
         if rounds and i >= rounds:
             break

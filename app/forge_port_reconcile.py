@@ -53,7 +53,7 @@ def _supervisor_ports() -> dict:
             if i.get("status") == "running" and port and i.get("pid"):
                 out[int(port)] = (n, int(i["pid"]))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_port_reconcile.py', 55, exc_info=True)
     return out
 
 

@@ -84,7 +84,7 @@ def gate(task_type: str, sandbox: str = "local", network: bool = False,
         if req.get("asl") in (2, 3) and (trust or "").strip().lower() in _EXEC_TRUSTED:
             eff_min_rank = 0
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rsp_gate.py', 86, exc_info=True)
 
     if rank < eff_min_rank:
         reasons.append(f"sandbox '{sandbox}' (rang {rank}) < confinement requis {eff_min_rank} (gVisor/Docker)")

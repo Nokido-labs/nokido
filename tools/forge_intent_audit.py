@@ -105,6 +105,7 @@ def audit(globs: list[str]) -> dict:
                     try:
                         _t = _fp.read_text(encoding="utf-8", errors="replace")
                     except OSError:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_intent_audit.py', 107, exc_info=True)
                         continue
                     for _nom in cibles:
                         if _nom in _t:

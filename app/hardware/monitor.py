@@ -114,7 +114,7 @@ def detect() -> dict:
         result["ram_total_gb"] = round(mem.total / 1024**3, 1)
         result["ram_avail_gb"] = round(mem.available / 1024**3, 1)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/monitor.py', 116, exc_info=True)
 
     return result
 

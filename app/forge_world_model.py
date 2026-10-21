@@ -166,14 +166,14 @@ def _cached_encode_actions(action_texts: list[str]) -> np.ndarray:
             if int(cached["n"]) == n:
                 return cached["embs"]
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_world_model.py', 168, exc_info=True)
     from nokido_agent.app.forge_state_encoder import encode_state_batch
 
     embs = np.array(encode_state_batch(action_texts), dtype="float32")
     try:
         np.savez(str(_ACTION_EMBS_CACHE), embs=embs, n=np.array(n))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_world_model.py', 175, exc_info=True)
     return embs
 
 
@@ -214,7 +214,7 @@ def train(
             model = NMLP.load(save_path)
             print(f"[world_model] Resumed from {save_path}")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_world_model.py', 216, exc_info=True)
 
     if n == 0:
         print("[world_model] No traces yet — saving untrained model (random init)")

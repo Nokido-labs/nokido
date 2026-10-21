@@ -193,7 +193,7 @@ class MetricsCollector:
             with open(self._log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(m.to_dict(), ensure_ascii=False) + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_metrics.py', 195, exc_info=True)
 
     # ── Agrégats ────────────────────────────────────────────────────────────
 

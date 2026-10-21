@@ -255,7 +255,7 @@ def status() -> dict:
                 out["by_phase"].setdefault(p.get("phase", "?"), {}).setdefault(st, 0)
                 out["by_phase"][p.get("phase", "?")][st] += 1
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/dispatch_migration_tasks.py', 257, exc_info=True)
     except Exception as e:
         out["error"] = str(e)
     return out

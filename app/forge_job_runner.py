@@ -66,6 +66,90 @@ def params_depuis_corps(body: dict) -> dict:
     }
 
 
+def admettre_lancement(script: str, online: bool = False, lane: str = "") -> dict:
+    """Admission d'un job detache -- la MEME pour toutes les voies (MCP `run_job`, POST /admin/run_job).
+
+    Mesure 2026-10-16 (signale par claude.ai, verifie sur alpha c781664df) : la voie REST lancait
+    sans AUCUN des trois controles de la voie MCP. Un garde qu'on franchit en changeant de porte ne
+    garde rien : le controle vit ici, dans l'organe qui lance.
+
+    1. LANE DEDUITE (2026-08-29) : sans lane, l'anti-stacking ne s'armait pas -- cinq jobs lourds
+       empiles le meme jour ont sature la RAM et fait tomber le hub. La lane porte le NOM DU FICHIER :
+       deux lancements du meme travail s'excluent, des fichiers differents restent paralleles (swarm
+       et fan-out intacts). `@online` : meme fichier, AUTRE compte, pas le meme travail (2026-09-27).
+    2. EMBOLIE (2026-08-02) : un job relance a 96 % de RAM a gonfle jusqu'a la famine memoire (dwm.exe
+       tue, bureau fige). `check_ressources` est FAIL-CLOSED et tente de LIBERER avant de refuser.
+    3. LANE OCCUPEE : refus reactif (router ailleurs), pas d'empilement.
+
+    BLOQUANT (mesure CPU, liberation puis re-mesure) : un appelant async le passe a
+    `asyncio.to_thread` -- appele dans la boucle du hub, ce controle l'a figee 567 s en 7 jours
+    (2026-10-01). Rend {ok: True, lane} ou {ok: False, admit: False, lane, reason, ...}.
+    """
+    if not lane:
+        src = str(script or "").replace("\\", "/")
+        lane = "auto:%s" % (src.rsplit("/", 1)[-1] or "job")
+        if online:
+            lane += "@online"
+    try:
+        from nokido_agent.app import forge_lane_admission as _la
+    except ImportError:
+        return {"ok": True, "lane": lane}  # muet-ok: module du depot absent -> on ne bloque pas le hub
+    res = _la.check_ressources(heavy=True)
+    if not res.get("ok"):
+        return {"ok": False, "admit": False, "lane": lane, "reason": res.get("reason"),
+                "reserve": res.get("reserve"), "freed_gb": res.get("freed_gb"),
+                "alt_cloud": res.get("alt"),
+                "react": "machine saturee : alleger, attendre, ou router cloud :free"}
+    occupe = _la.current(lane)
+    if occupe:
+        return {"ok": False, "admit": False, "lane": lane, "busy_by": occupe.get("holder"),
+                "reason": f"lane '{lane}' occupee (1 job lourd/lane)",
+                "alt_cloud": getattr(_la, "ALT_CLOUD", None),
+                "react": "ne pas empiler : router cloud :free / autre lane / attendre"}
+    return {"ok": True, "lane": lane}
+
+
+async def liberer_lane_a_la_fin(job_id: str, lane: str, pas_s: float = 3.0, cap_s: float = 7200.0) -> bool:
+    """Rend le bail de lane quand le job a ecrit son `.rc` (cap 2 h = TTL du bail).
+
+    `launch_job` enregistre la lane sans prendre de bail ; l'appelant le prend apres le lancement.
+    Sans ce veilleur, un bail pris n'est rendu qu'a l'expiration : le meme travail reste refuse 2 h.
+    """
+    import asyncio
+
+    rcf = JOBS_DIR / f"{job_id}.rc"
+    attendu = 0.0
+    while not rcf.exists() and attendu < cap_s:
+        await asyncio.sleep(pas_s)
+        attendu += pas_s
+    try:
+        from nokido_agent.app import forge_lane_admission as _la
+
+        _la.release(lane, job_id)
+        return True
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("Nokido.JobRunner").warning(
+            "[lane] bail NON rendu sur %s (%s) | consequence: le meme travail reste refuse jusqu'au TTL",
+            lane, type(e).__name__)
+        return False
+
+
+_VEILLEURS: set = set()
+
+
+def veiller_liberation(job_id: str, lane: str):
+    """Programme `liberer_lane_a_la_fin` dans la boucle courante en GARDANT une reference : une tache
+    asyncio sans reference peut etre ramassee avant sa fin, et le bail ne serait jamais rendu."""
+    import asyncio
+
+    t = asyncio.get_running_loop().create_task(liberer_lane_a_la_fin(job_id, lane))
+    _VEILLEURS.add(t)
+    t.add_done_callback(_VEILLEURS.discard)
+    return t
+
+
 def launch_job(script: str, online: bool = False, lane: str = "",
                rss_cap_mb: int | None = None, script_args: str = "") -> dict:
     """Lance `script` (.py) détaché. Retourne {ok, job_id, pid} ou {ok:False,error}.
@@ -276,6 +360,9 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         "rc_file": str(rc_f),
         "started": datetime.now().isoformat(),
         "status": "running",
+        # HAMILTON (19/10, carte AGY d50229242) : un job detache est admis heavy=True -> DIFFERABLE, decide cote hub ;
+        # reconcile_jobs le lit (survivant sous saturation = A_SUSPENDRE, jamais de kill).
+        "classe": "DIFFERABLE",
     }
     rec_f.write_text(json.dumps(rec), encoding="utf-8")
     return {"ok": True, "job_id": job_id, "pid": res.get("pid")}
@@ -548,6 +635,30 @@ def read_job(job_id: str, tail: int = 4000) -> dict:
     }
 
 
+def reconcilier_au_boot() -> dict:
+    """Reconciliation appliquee au DEMARRAGE du hub (derogation owner 19/10, spec Hamilton RED_4).
+
+    Lancee dans un thread par nokido_hub.main : ne leve jamais -- un boot ne casse pas pour un bilan, et un bilan
+    rate se DIT (`ok: False`, `erreur`). Rend le resume de reconcile_jobs(apply=True), sans le detail par fiche.
+    """
+    import logging as _lg
+
+    try:
+        r = reconcile_jobs(apply=True)
+    except Exception as e:  # noqa: BLE001 - le boot continue, l'echec est rendu et journalise
+        _lg.getLogger("Nokido.JobRunner").warning("reconciliation au boot ECHEC : %s", e)
+        return {"ok": False, "erreur": "%s: %s" % (type(e).__name__, str(e)[:200])}
+    resume = {k: v for k, v in r.items() if k != "details"}
+    resume["ok"] = True
+    # 19/10 (relecture pair_0891188ab09db024) : `details` retire, une ecriture refusee ou une lane non rendue
+    # disparaissait du bilan -- elle y reste, nommee.
+    resume["incidents"] = [d for d in r.get("details", [])
+                           if d.get("ECRITURE_REFUSEE") or d.get("lane_release_error")]
+    resume["a_suspendre_fiches"] = [d["fiche"] for d in r.get("details", []) if d.get("verdict") == "A_SUSPENDRE"]
+    _lg.getLogger("Nokido.JobRunner").info("reconciliation au boot : %s", resume)
+    return resume
+
+
 def reconcile_jobs(apply: bool = False) -> dict:
     """Reconcilie les fiches de job avec le REEL. Ne supprime JAMAIS une fiche.
 
@@ -565,8 +676,9 @@ def reconcile_jobs(apply: bool = False) -> dict:
         import psutil
     except Exception:
         psutil = None
-    out: dict = {"vus": 0, "done": 0, "dead": 0, "vivants": 0, "indetermine": 0,
+    out: dict = {"vus": 0, "done": 0, "dead": 0, "vivants": 0, "indetermine": 0, "a_suspendre": 0,
                  "psutil_dispo": psutil is not None, "applique": apply, "details": []}
+    sature: list = []  # HAMILTON RED_4 : mesure prise une fois, au premier DIFFERABLE vivant
     for rec_f in sorted(JOBS_DIR.glob("*.json")):
         out["vus"] += 1
         try:
@@ -618,6 +730,22 @@ def reconcile_jobs(apply: bool = False) -> dict:
                 continue
             if vivant is True:
                 out["vivants"] += 1
+                # Survivant DIFFERABLE sous saturation = SIGNALE A_SUSPENDRE (owner 16/10 : suspension, jamais kill).
+                # Mesure indisponible = saturation pour le seul DIFFERABLE ; classe absente = NORMAL, intact.
+                if str(rec.get("classe") or "").upper() == "DIFFERABLE":
+                    if not sature:
+                        try:
+                            # etat_ressources : MESURE SANS EFFET (19/10, relecture pair_0891188ab09db024) --
+                            # check_ressources evincait (_try_reserve) et journalisait un refus, meme au boot.
+                            from nokido_agent.app.forge_lane_admission import etat_ressources
+                            er = etat_ressources(heavy=True) or {}
+                            sature.append((er.get("sature") is not False, er.get("motif") or "mesure indisponible"))
+                        except Exception as e:  # noqa: BLE001 - doctrine du doute : le differable ne passe pas
+                            sature.append((True, "mesure indisponible (%s)" % type(e).__name__))
+                    if sature[0][0]:
+                        out["a_suspendre"] += 1
+                        out["details"].append({"fiche": rec_f.name, "verdict": "A_SUSPENDRE",
+                                               "motif": sature[0][1], "pid": pid})
                 continue
             verdict, raison = "dead", "aucun rc, et le process n'est plus la (ou pid recycle)"
         rec["status"] = verdict

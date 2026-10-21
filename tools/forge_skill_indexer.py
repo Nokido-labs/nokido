@@ -28,7 +28,7 @@ def _resolve_token() -> str:
         if val:
             return str(val)
     except Exception:  # noqa: BLE001 - le coffre est optionnel hors hub
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_skill_indexer.py', 30, exc_info=True)
     import os as _os
 
     return _os.environ.get("FORGE_MCP_TOKEN") or _os.environ.get("LAFORGE_MCP_TOKEN") or ""

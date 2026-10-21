@@ -914,7 +914,7 @@ heartbeat_tier = "fast"   # cycle 15s — RT
 
 [[service]]
 name = "NokidoIngestDaemon"
-disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoIngestDaemon
+disabled = false  # on-demand 2026-06-03, RALLUME par decision owner 2026-10-18 (circadien_tire_dans_le_vide)
 wave = 4
 cmd = "${PYTHON}"
 args = ["app/forge_ingestion_pipeline.py", "--daemon", "--interval", "300"]
@@ -1498,7 +1498,7 @@ disabled = false
 # bufferise par blocs -- le journal de l'organe montrait les requetes par paquets sous un meme horodatage,
 # une requete publique de 11:29 n'y figurait pas, et un arret dur perdait le tampon. Diagnostiquer le 502
 # du connecteur claude.ai exige de voir chaque requete A L'INSTANT ou elle arrive.
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", PYTHONUNBUFFERED = "1", NOKIDO_PAIR_PUBLIC_URL = "https://desktop-xxxx.tailf7242.ts.net" }
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONUTF8 = "1", PYTHONUNBUFFERED = "1", NOKIDO_PAIR_PUBLIC_URL = "https://desktop-xxxx.tailXXXX.ts.net" }
 
 [[service]]
 # Relais SORTANT vers le plan de controle OpenAI. Il long-polle en HTTPS et relaie
@@ -1748,6 +1748,161 @@ heartbeat = "sandbox/task_executor_antigravity.heartbeat"
 heartbeat_tier = "slow"
 
 [[service]]
+# CODEX AUTONOME (decision owner 15/10 : « apres la release 0.20.12, 3/jour » ; SSoT
+# decision_owner_codex_autonome_apres_0212_20261015). COUPE PAR DEFAUT : l'armer est un geste owner, apres la
+# creation du worktree dedie nokido_worktrees/codex (branche agent/codex, profil owner). L'execution passe par
+# NokidoHarnessWorker (`codex exec` dans le worktree) ; cette instance depose le job, l'attend et juge ce qui est
+# LIVRE (commits, artefact verifie). Plafond LAFORGE_CODEX_QUOTA_JOUR (3) juge AVANT de prendre une tache :
+# au-dela elle reste pending pour le lendemain (BUDGET_EXCEEDED dit une fois par jour). Memes chemins que
+# NokidoTaskExecutorAntigravity (${NOKIDO_DEPOT}, jamais ${ROOT}).
+name = "NokidoTaskExecutorCodex"
+logboot = true
+# ARME par l'owner le 16/10 (« ok pour ces 4 points ») apres creation du worktree nokido_worktrees/codex
+# (branche agent/codex, a 1b19b3d1e) ; 0 tache CODEX en attente au moment de l'armement (mesure tasks.db).
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "CODEX"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_codex.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+# MISTRAL VIBE AUTONOME (owner 16/10 : « tu ne peux pas utiliser plus de cli ? »). COUPE PAR DEFAUT : l'armer est
+# un geste owner, apres creation du worktree dedie nokido_worktrees/mistral (branche agent/mistral).
+# Memes chemins et privileges que NokidoTaskExecutorAntigravity (${NOKIDO_DEPOT}, runAs=interactive).
+# ARME le 2026-10-16 sur GO owner (« ok pour les 4 »), apres creation du worktree.
+name = "NokidoTaskExecutorMistral"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "MISTRAL"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_mistral.heartbeat"
+heartbeat_tier = "slow"
+
+# OPENCODE AUTONOME MULTI-MODELES (owner 17/10 : « double ou triple des opencode autonomes sur differents modeles en
+# ring 1 sur le MCP » ; GO owner jetons + hub). Une instance par service, pilotee par ACP (tools/forge_task_executor.py
+# _delegate_to_opencode ; config/opencode_instances.json) ; worktrees nokido_worktrees/opencode_<x> (branche
+# agent/opencode_<x>) crees le 17/10 ; jeton DERIVE de chaque instance lu au coffre, absent = delegation refusee et dite.
+[[service]]
+name = "NokidoTaskExecutorOpencodeGptoss"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_GPTOSS"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_gptoss.heartbeat"
+heartbeat_tier = "slow"
+
+# Owner 18/10 « multiplie les executeurs, le plus possible tant que ca passe » : 4 instances OpenCode modele par
+# defaut (recette GPTOSS). Worktrees nokido_worktrees/opencode_defautN crees par l'owner ; le gate de ressources
+# admet ou differe chaque tache. NR tests/nr/test_instances_opencode_ont_un_service_nr.py.
+[[service]]
+name = "NokidoTaskExecutorOpencodeDefaut2"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT2"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_defaut2.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorOpencodeDefaut3"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT3"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_defaut3.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorOpencodeDefaut4"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT4"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_defaut4.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorOpencodeDefaut5"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT5"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_defaut5.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorOpencodeNemotron"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_NEMOTRON"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_nemotron.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
+name = "NokidoTaskExecutorOpencodeGlm"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_GLM"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_opencode_glm.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
 name = "NokidoChainExecutor"
 logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
@@ -1765,7 +1920,7 @@ heartbeat_tier = "fast"   # ticker concurrent 20s ; superviseur restart si fige 
 
 [[service]]
 name = "NokidoMemoryConsolidator"
-disabled = true  # on-demand 2026-06-03 : wake via tools/forge_supervisor_ctl.py ensure NokidoMemoryConsolidator
+disabled = false  # on-demand 2026-06-03, RALLUME par decision owner 2026-10-18 (circadien_tire_dans_le_vide)
 wave = 4
 cmd = "${PYTHON}"
 args = ["tools/forge_memory_consolidator.py", "--daemon"]
@@ -1775,6 +1930,10 @@ essential = false
 env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 heartbeat = "sandbox/memory_consolidator.heartbeat"
 heartbeat_tier = "slow"   # cycle 12h — pas besoin polling agressif
+# cycle_s PROUVE : INTERVAL_S = 43_200 dans tools/forge_memory_consolidator.py (l.46) -- sans lui l'inventaire le
+# declarait « fige » a 647 min (19/10).
+cycle_s = 43200
+heartbeat_max_s = 129600   # derivee : forge_temps_mort.seuil_mort = max(90, 3 x cycle_s)
 
 [[service]]
 name = "NokidoOfflineTrainer"

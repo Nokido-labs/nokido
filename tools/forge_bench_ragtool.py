@@ -31,7 +31,7 @@ def _load_jsonl(p: Path) -> list:
         try:
             out.append(json.loads(line))
         except json.JSONDecodeError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_ragtool.py', 33, exc_info=True)
     return out
 
 
@@ -72,7 +72,7 @@ def main() -> None:
                 if isinstance(jv, list) and len(jv) == 1024:
                     v = jv
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_ragtool.py', 74, exc_info=True)
         if v is None or not cid:
             continue
         ids.append(cid)
@@ -106,6 +106,7 @@ def main() -> None:
         try:
             idx = int(q["_id"].lstrip("q"))
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_ragtool.py', 108, exc_info=True)
             continue
         if idx >= len(picked):
             continue

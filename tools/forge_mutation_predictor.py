@@ -149,7 +149,7 @@ class MutationPredictor:
             )
             cls_count = sum(1 for n in _ast.walk(tree) if isinstance(n, _ast.ClassDef))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_predictor.py', 151, exc_info=True)
 
         # Historique du module depuis experience_memory
         import json as _json
@@ -168,7 +168,7 @@ class MutationPredictor:
                     else:
                         past_ko += 1
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_predictor.py', 170, exc_info=True)
 
         # Agent dominant
         agent = agents[0] if agents else "unknown"
@@ -262,7 +262,7 @@ class MutationPredictor:
                 try:
                     records.append(parser(line))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_mutation_predictor.py', 264, exc_info=True)
 
         if len(records) < 10:
             return 0.0

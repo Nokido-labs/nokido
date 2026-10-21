@@ -58,7 +58,7 @@ def _lazy(module: str, fn: str) -> object:
             try:
                 app._chat_log().write(f"[red]{cmd} erreur: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch.py', 60, exc_info=True)
 
     return _handler
 
@@ -85,7 +85,7 @@ def _lazy_at(module: str, fn: str) -> object:
             try:
                 app._chat_log().write(f"[red]{cmd} erreur: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch.py', 87, exc_info=True)
 
     return _handler
 
@@ -113,7 +113,7 @@ def _delegate(method_name: str) -> object:
             try:
                 app._chat_log().write(f"[red]{cmd} erreur: {e}[/]")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_dispatch.py', 115, exc_info=True)
 
     return _handler
 

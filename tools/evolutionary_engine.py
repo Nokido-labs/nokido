@@ -766,11 +766,25 @@ class MultiLLMBridge:
         import urllib.request as _ur
 
         _s.path.insert(0, str(ROOT / "app"))
+        key = None
         try:
-            from nokido_agent.app.forge_settings import get_settings as _gs
+            from nokido_agent.app.forge_secrets import get_secret
 
-            key = getattr(_gs(), "ANTHROPIC_API_KEY", "") or _o.environ.get("ANTHROPIC_API_KEY", "")
-        except Exception:
+            key = get_secret("ANTHROPIC_API_KEY")
+        except Exception as _e:
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning("coffre illisible pour ANTHROPIC_API_KEY (%s) -> repli settings/env", type(_e).__name__)
+        if not key:
+            try:
+                from nokido_agent.app.forge_settings import get_settings as _gs
+
+                key = getattr(_gs(), "ANTHROPIC_API_KEY", "")
+            except Exception as _e:
+                import logging as _lg
+
+                _lg.getLogger(__name__).warning("settings illisibles pour ANTHROPIC_API_KEY (%s) -> repli env", type(_e).__name__)
+        if not key:
             key = _o.environ.get("ANTHROPIC_API_KEY", "")
         if not key:
             return cls._ollama_fallback(prompt, temperature)
@@ -1050,6 +1064,7 @@ class EvolutionaryRouter:
                 try:
                     d = json.loads(line)
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1066, exc_info=True)
                     continue
                 a = d.get("last_mutation_agent") or d.get("agent", "")
                 if a not in stats or d.get("file") != filepath:
@@ -1089,6 +1104,7 @@ class EvolutionaryRouter:
             try:
                 d = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1105, exc_info=True)
                 continue
             hist_risk = d.get("complexity_risk", d.get("analytics", {}).get("volatility", -1))
             if hist_risk < 0 or abs(hist_risk - current_risk) >= window:
@@ -1119,6 +1135,7 @@ class EvolutionaryRouter:
             try:
                 d = json.loads(line)
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1135, exc_info=True)
                 continue
             a = d.get("last_mutation_agent") or d.get("agent", "")
             if a != agent or d.get("file") != filepath:
@@ -1255,7 +1272,7 @@ class RAGEnricher:
             _src = (ROOT / filepath).read_text(encoding="utf-8", errors="replace")
             _, _risk = ForgeAnalytics.analyze_structural_complexity(_src)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1271, exc_info=True)
 
         card = {
             "timestamp": _dt.datetime.now(tz=_dt.UTC).isoformat(),
@@ -1316,7 +1333,7 @@ class RAGEnricher:
             )
             print(f"[RAG/DISCO] Leçon ancrée: {_query[:60]}")
         except Exception as _de:
-            pass  # disco optionnel — ne bloque pas le pipeline
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1332, exc_info=True)
 
     @classmethod
     def inject_high_density_docstring(cls, content: str, metadata: dict) -> str:
@@ -1556,19 +1573,33 @@ class SourceDiscovery:
 
     @classmethod
     def _get_key(cls) -> str:
-        """Récupère la clé Gemini depuis settings ou env."""
+        """Récupère la clé Gemini depuis le coffre, settings ou env."""
+        key = None
         try:
+            from nokido_agent.app.forge_secrets import get_secret
+
+            key = get_secret("GEMINI_API_KEY")
+        except Exception as _e:
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning("coffre illisible pour GEMINI_API_KEY (%s) -> repli settings/env", type(_e).__name__)
+        if not key:
+            try:
+                import sys as _s
+
+                _s.path.insert(0, str(ROOT / "app"))
+                from nokido_agent.app.forge_settings import get_settings as _gs
+
+                key = getattr(_gs(), "GEMINI_API_KEY", "")
+            except Exception as _e:
+                import logging as _lg
+
+                _lg.getLogger(__name__).warning("settings illisibles pour GEMINI_API_KEY (%s) -> repli env", type(_e).__name__)
+        if not key:
             import os as _o
-            import sys as _s
 
-            _s.path.insert(0, str(ROOT / "app"))
-            from nokido_agent.app.forge_settings import get_settings as _gs
-
-            return getattr(_gs(), "GEMINI_API_KEY", "") or _o.environ.get("GEMINI_API_KEY", "")
-        except Exception:
-            import os
-
-            return os.environ.get("GEMINI_API_KEY", "")
+            key = _o.environ.get("GEMINI_API_KEY", "")
+        return key or ""
 
     @classmethod
     def fetch_docs(cls, code: str, task: str) -> str:
@@ -1871,7 +1902,7 @@ def run_evolutionary(
                                     {"content": _c, "agent": _fork.name, "target": _orig_tgt}
                                 )
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 1901, exc_info=True)
             # Fallback : utiliser le fichier muté courant comme unique candidat
             if not _candidates:
                 _cur = (ROOT / _orig_tgt).read_text(encoding="utf-8", errors="replace")
@@ -2169,7 +2200,7 @@ class CuriosityEngine:
                             sources=[f"curiosity:{adj_skill}"],
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 2199, exc_info=True)
                     discovered.append(adj_skill)
             else:
                 print(f"  [CURIOSITY] {adj_skill} déjà maîtrisé ({adj_mastery:.0%})")
@@ -2275,7 +2306,7 @@ class IntelligentCerberusLoop:
                         continue
                     print(f"  [ML] P={_prob:.2f} → GO")
             except Exception:
-                pass  # prédicteur optionnel — ne jamais bloquer Cerberus
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 2305, exc_info=True)
             candidates = self._spawn_candidates(agents, prompt, temp, len(original))
             if not candidates:
                 self._escalate_agents()
@@ -2356,7 +2387,7 @@ class IntelligentCerberusLoop:
                     gen=attempt,
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 2386, exc_info=True)
             # Échec — adapte la stratégie selon le diagnostic
             self._adapt_strategy(diag, ranked, attempt)
 
@@ -2619,7 +2650,7 @@ if __name__ == "__main__":
                 try:
                     _tf.unlink()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/evolutionary_engine.py', 2649, exc_info=True)
                 try:
                     _ast_fix.parse(_fixed)
                     _best = _fixed

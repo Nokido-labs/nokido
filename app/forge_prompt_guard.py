@@ -484,7 +484,7 @@ def generate_canary(session_id: str = "") -> str:
             try:  # éviction FIFO du plus ancien (borne dure anti-DoS mémoire)
                 _CANARY_REGISTRY.pop(next(iter(_CANARY_REGISTRY)))
             except StopIteration:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_prompt_guard.py', 486, exc_info=True)
         _CANARY_REGISTRY[canary] = session_id or "local"
     return canary
 
@@ -701,7 +701,7 @@ def build_safe_system(
             if _ns:
                 system += "\n\n---\nVOIX INTERIEURE (narrateur) :\n" + _ns[:1200] + "\n---"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_prompt_guard.py', 703, exc_info=True)
 
     # ── 7. Token Canari ───────────────────────────────────────────────────────
     # Place le canary dans un bloc sentinelle a la FIN du prompt avec une

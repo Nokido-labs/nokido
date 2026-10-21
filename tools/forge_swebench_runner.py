@@ -151,7 +151,7 @@ def _read_env(key: str) -> str:
         if val:
             return val
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 153, exc_info=True)
     env_file = ROOT / "Nokido.env"
     if env_file.exists():
         for line in env_file.read_text(encoding="utf-8").splitlines():
@@ -587,7 +587,7 @@ def _rmtree_robust(path: Path) -> bool:
             _os.chmod(p, _st.S_IWRITE)
             func(p)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 589, exc_info=True)
 
     if path.exists():
         _sh.rmtree(str(path), onerror=_onerror)
@@ -774,6 +774,7 @@ def _find_relevant_files(
         try:
             rel = p.relative_to(repo_path)
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 776, exc_info=True)
             continue
         low = rel.as_posix().lower()
         if any(
@@ -784,6 +785,7 @@ def _find_relevant_files(
         try:
             raw = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 786, exc_info=True)
             continue
         txt = raw.lower()
         tf = {t: txt.count(t) for t in qset if t in txt}
@@ -793,7 +795,7 @@ def _find_relevant_files(
                 if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef, _ast.ClassDef)):
                     syms.add(node.name.lower())
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 795, exc_info=True)
         docs.append((rel, low, tf, syms))
     if not docs:
         return [], 0
@@ -910,7 +912,7 @@ def _skeleton_file(source: str) -> str:
                 try:
                     s += f": {_ast.unparse(a.annotation)}"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 912, exc_info=True)
             parts.append(s)
         return ", ".join(parts)
 
@@ -921,7 +923,7 @@ def _skeleton_file(source: str) -> str:
                 try:
                     bases = "(" + ", ".join(_ast.unparse(b) for b in node.bases) + ")"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 923, exc_info=True)
             ds = docstr(node)
             out.append(f"L{node.lineno}: class {node.name}{bases}:  {ds}")
             for item in node.body:
@@ -932,7 +934,7 @@ def _skeleton_file(source: str) -> str:
                         try:
                             ret = f" -> {_ast.unparse(item.returns)}"
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 934, exc_info=True)
                     ds2 = docstr(item)
                     out.append(
                         f"  L{item.lineno}:   {prefix} {item.name}({fmt_args(item.args)}){ret}  {ds2}"
@@ -945,7 +947,7 @@ def _skeleton_file(source: str) -> str:
                 try:
                     ret = f" -> {_ast.unparse(node.returns)}"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 947, exc_info=True)
             ds = docstr(node)
             out.append(f"L{node.lineno}: {prefix} {node.name}({fmt_args(node.args)}){ret}  {ds}")
 
@@ -1010,6 +1012,7 @@ def _callgraph_context(repo_path: Path, priority_files: list, keywords: set, cap
             fp = f if f.is_absolute() else repo_path / f
             tree = _ast.parse(fp.read_text(encoding="utf-8", errors="replace"))
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1012, exc_info=True)
             continue
         for node in _ast.walk(tree):
             if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) and node.name.lower() in keywords:
@@ -1024,6 +1027,7 @@ def _callgraph_context(repo_path: Path, priority_files: list, keywords: set, cap
                 continue
             tree = _ast.parse(src)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1026, exc_info=True)
             continue
         rel = str(f.relative_to(repo_path)).replace("\\", "/")
         for node in _ast.walk(tree):
@@ -1121,14 +1125,14 @@ def _read_files_context(
             parts.append(snippet)
             total += len(snippet)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1123, exc_info=True)
 
     try:
         cg = _callgraph_context(repo_path, files[: max(n_full, 1)], keywords)
         if cg:
             parts.append(cg)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1130, exc_info=True)
     return "\n\n".join(parts)
 
 
@@ -1173,7 +1177,7 @@ def _check_patch_applies(patch_text: str, repo_path: Path) -> tuple[bool, str]:
     try:
         tmp.unlink()
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1175, exc_info=True)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
@@ -1224,7 +1228,7 @@ def _difflib_patch(
                 if s <= fail_line - 1 <= e and (e - s) < (target_end - target_start):
                     target_start, target_end = s, e
     except SyntaxError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 1226, exc_info=True)
 
     old_section = "".join(all_lines[target_start:target_end])
 
@@ -2111,7 +2115,7 @@ def _run_repro(
         try:
             pf.unlink()
         except OSError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2113, exc_info=True)
         if not ok:
             return False, "apply_failed"
     rf = repo_path / "_swe_reproduce.py"
@@ -2159,7 +2163,7 @@ def _swarm_audit(instance: dict, plan: str, candidates: list, provider: str) -> 
         if m and 0 <= int(m.group(1)) < len(candidates):
             return int(m.group(1))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2161, exc_info=True)
     return min(range(len(candidates)), key=lambda i: candidates[i]["n_changed"])
 
 
@@ -2268,6 +2272,7 @@ def _secondary_file_edits(
         try:
             src = (repo_path / f).read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2270, exc_info=True)
             continue
         skels.append(f"### {f.as_posix()}\n{_skeleton_file(src)[:3000]}")
     if not skels:
@@ -2304,6 +2309,7 @@ def _secondary_file_edits(
         try:
             old = fp.read_text(encoding="utf-8", errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2306, exc_info=True)
             continue
         new = _apply_coder_output(parts[i + 1], old)
         if not new or new == old:
@@ -2467,7 +2473,7 @@ def generate_patch_swarm(
                     try:
                         _prepare_repo_for_test(repo_path)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2469, exc_info=True)
                     _prep_done = True
                 ok, _out = _run_repro(early_repro, c["patch"], repo_path, instance)
                 if ok and _constrained():
@@ -2522,7 +2528,7 @@ def generate_patch_swarm(
                             flush=True,
                         )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2524, exc_info=True)
             except Exception:
                 patched_content = ""
             if patched_content:
@@ -2553,7 +2559,7 @@ def generate_patch_swarm(
                 if 0 < n2 <= n_changed:
                     patched_content, patch, n_changed = pc2, p2, n2
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2555, exc_info=True)
 
     applied = False
     if patch:
@@ -2714,7 +2720,7 @@ def _lint_files(repo_path: Path, patch_text: str) -> tuple[bool, str]:
         except py_compile.PyCompileError as e:
             return False, f"syntax_error {rel}: {str(e)[:160]}"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2716, exc_info=True)
     return True, "ok"
 
 
@@ -2977,7 +2983,7 @@ def run_evaluate_local(
             domain="systeme",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_swebench_runner.py', 2979, exc_info=True)
 
     return summary
 

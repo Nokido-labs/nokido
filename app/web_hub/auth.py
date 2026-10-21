@@ -189,7 +189,7 @@ class AuthConfig:
 
                 admin_token = _gs("LAFORGE_ADMIN_TOKEN") or None
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/auth.py', 191, exc_info=True)
         ttl = int(os.environ.get("LAFORGE_JWT_TTL", "3600"))
 
         if admin_token:
@@ -324,6 +324,7 @@ def verify_token(cfg: AuthConfig, token: str) -> Optional[dict]:
             )
             break
         except _jwt.InvalidTokenError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/auth.py', 326, exc_info=True)
             continue
     if payload is None:
         return None

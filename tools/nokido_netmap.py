@@ -13,6 +13,8 @@ Navigation :
 __FORGE_COLOR__ = "reseau/topology : carte reseau interactive en terminal"  # organe declare le 2026-09-06 (audit de raccordement)
 
 import curses
+import json
+import os
 import re
 import time
 from pathlib import Path
@@ -25,7 +27,7 @@ INVENTORY_DIR = SCAN_DIR / "inventory"
 NODES = [
     {
         "id": "gw",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Gateway",
         "mac": "20-66-cf",
         "type": "infra",
@@ -35,7 +37,7 @@ NODES = [
     },
     {
         "id": "host",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Nokido",
         "mac": "—",
         "type": "host",
@@ -45,7 +47,7 @@ NODES = [
     },
     {
         "id": "tv",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Samsung TV",
         "mac": "38-86-f7",
         "type": "iot",
@@ -55,7 +57,7 @@ NODES = [
     },
     {
         "id": "bulb",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Smart Bulb",
         "mac": "7c-49-eb",
         "type": "iot",
@@ -65,7 +67,7 @@ NODES = [
     },
     {
         "id": "air",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Philips Air",
         "mac": "e4-bc-96",
         "type": "iot",
@@ -85,7 +87,7 @@ NODES = [
     },
     {
         "id": "mob1",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Mobile A",
         "mac": "56-d1-7e",
         "type": "mobile",
@@ -95,7 +97,7 @@ NODES = [
     },
     {
         "id": "mob2",
-        "ip": "localhost",
+        "ip": "?",
         "label": "Mobile B",
         "mac": "ea-c1-4e",
         "type": "mobile",
@@ -105,7 +107,7 @@ NODES = [
     },
     {
         "id": "pc",
-        "ip": "localhost",
+        "ip": "?",
         "label": "PC/Laptop",
         "mac": "c4-57-6e",
         "type": "host",
@@ -114,6 +116,24 @@ NODES = [
         "notes": "Intel WiFi — OS inconnu",
     },
 ]
+
+# Les adresses LAN de l'owner ne vivent plus dans le code (P1 « le dist ne doit pas etre fige sur mes IP »,
+# owner 17/10) : surcouche locale NON SUIVIE `sandbox/reseau.local.json` -> {"netmap_ip": {"gw": "...", ...}},
+# ou le fichier designe par NOKIDO_RESEAU_LOCAL. Absente : adresses « ? », et l'outil le DIT au lancement.
+_RESEAU_LOCAL = Path(os.environ.get("NOKIDO_RESEAU_LOCAL")
+                     or Path(__file__).resolve().parents[1] / "sandbox" / "reseau.local.json")
+
+
+def _ip_locales() -> dict:
+    try:
+        return dict(json.loads(_RESEAU_LOCAL.read_text(encoding="utf-8")).get("netmap_ip") or {})
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+_IP_LOCALES = _ip_locales()
+for _n in NODES:
+    _n["ip"] = str(_IP_LOCALES.get(_n["id"], _n["ip"]))
 
 LINKS = [
     ("gw", "host", "wired"),
@@ -141,6 +161,7 @@ def parse_scans():
         try:
             txt = fname.read_text(errors="replace")
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 163, exc_info=True)
             continue
         # Trouver IPs et leurs ports
         for block in re.split(r"Nmap scan report for ", txt)[1:]:
@@ -160,7 +181,7 @@ def parse_scans():
             if m and "8008" in txt:
                 updates["cast_ip"] = m.group(1)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 182, exc_info=True)
     return updates
 
 
@@ -221,7 +242,7 @@ def draw_topology(stdscr, nodes, selected_idx, scroll_y=0):
         stdscr.addstr(0, 0, header[: w - 1], curses.color_pair(4) | curses.A_BOLD)
         stdscr.addstr(1, 0, "─" * min(w - 1, 78), curses.color_pair(4))
     except curses.error:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 243, exc_info=True)
 
     # Dessiner les liens (simples tirets entre noeuds)
     for src, dst, ltype in LINKS:
@@ -241,7 +262,7 @@ def draw_topology(stdscr, nodes, selected_idx, scroll_y=0):
                 try:
                     stdscr.addch(sy - scroll_y, x, lchar, curses.color_pair(lcolor))
                 except curses.error:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 263, exc_info=True)
 
     # Dessiner les noeuds
     node_positions = {}
@@ -278,7 +299,7 @@ def draw_topology(stdscr, nodes, selected_idx, scroll_y=0):
             stdscr.addstr(y + 1, x, line2[: COL_W - 1], curses.color_pair(5) | attr)
             stdscr.addstr(y + 2, x, line3[: COL_W - 1], curses.color_pair(risk_col) | attr)
         except curses.error:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 300, exc_info=True)
 
     # Legend
     legend_y = h - 2
@@ -290,7 +311,7 @@ def draw_topology(stdscr, nodes, selected_idx, scroll_y=0):
             curses.color_pair(4),
         )
     except curses.error:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 312, exc_info=True)
 
     stdscr.refresh()
     return node_positions
@@ -343,7 +364,7 @@ def draw_inspect(stdscr, node):
         try:
             stdscr.addstr(i, 0, txt[: w - 1], curses.color_pair(col) | attr)
         except curses.error:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 365, exc_info=True)
 
     stdscr.refresh()
 
@@ -401,8 +422,11 @@ def main(stdscr):
 
 
 if __name__ == "__main__":
+    if not _IP_LOCALES:
+        print("[netmap] %s absent ou illisible : adresses inconnues (« ? ») -- modele : config/reseau.example.json"
+              % _RESEAU_LOCAL)
     try:
         curses.wrapper(main)
     except KeyboardInterrupt:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_netmap.py', 429, exc_info=True)
     print("\nNokido netmap closed.")

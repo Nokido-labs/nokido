@@ -154,14 +154,14 @@ class IdleWatchdog:
                 try:
                     last_ts = _json.loads(state_path.read_text("utf-8")).get("ts", 0.0)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/idle_watchdog.py', 156, exc_info=True)
             new_lines = 0
             for line in log_path.read_text("utf-8", errors="replace").splitlines():
                 try:
                     if _json.loads(line).get("ts", 0) > last_ts:
                         new_lines += 1
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/idle_watchdog.py', 163, exc_info=True)
             if new_lines >= 50:
                 script = _ROOT / "tools" / "auto_retrain_dt.py"
                 _sp.Popen(
@@ -219,7 +219,7 @@ class IdleWatchdog:
             try:
                 _LOCK.unlink(missing_ok=True)
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/idle_watchdog.py', 221, exc_info=True)
 
     def _write_state(self, idle_sec: float) -> None:
         """Écrit l état dans sandbox/idle_state.json pour monitoring."""
@@ -231,7 +231,7 @@ class IdleWatchdog:
                 try:
                     state = json.loads(_STATE.read_text(encoding="utf-8"))
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/idle_watchdog.py', 233, exc_info=True)
             state[self.service_name] = {
                 "idle_sec": round(idle_sec, 1),
                 "timeout": self.idle_timeout,
@@ -245,7 +245,7 @@ class IdleWatchdog:
             except ImportError:
                 _STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/hardware/idle_watchdog.py', 247, exc_info=True)
 
     def _shutdown(self) -> None:
         """Arrête le service NSSM proprement."""

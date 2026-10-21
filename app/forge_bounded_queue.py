@@ -127,7 +127,7 @@ class BoundedQueue:
         try:
             self._q.task_done()
         except ValueError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_bounded_queue.py', 129, exc_info=True)
 
     # ----- introspection -------------------------------------------------
 

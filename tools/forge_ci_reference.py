@@ -24,6 +24,7 @@ from __future__ import annotations
 __FORGE_COLOR__ = "qualite/ci-de-reference : certifie un sha en un etage"
 
 import argparse
+import contextlib
 import subprocess
 import sys
 from pathlib import Path
@@ -87,7 +88,34 @@ def retirer_temoin(chemin: Path = TEMOIN_CI) -> None:
         print("[temoin] NON retire (%s) : le gate le jugera perime par le pid" % type(exc).__name__, flush=True)
 
 
-def main(argv=None, executer=subprocess.run) -> int:
+IDENTITE = "CI_REFERENCE"
+
+
+def _bail(sha: str):
+    """Bail de priorite au hub sous l'identite PROPRE de la CI (decision owner 16/10, forme a).
+
+    Mesure 16/10 : bail ARME depuis le 14/10, jamais pris -- la CI, son client prevu, ne le demandait pas.
+    Arme, il exige ring <= 3 : CI_REFERENCE est ring 2, jeton FORGE_TOKEN_CI_REFERENCE au coffre. Ne leve
+    jamais : une regulation injoignable se DIT et la CI continue sans priorite."""
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        from nokido_agent.app.forge_resource_manager import bail_priorite
+    except Exception as e:  # noqa: BLE001
+        return contextlib.nullcontext({"ok": False, "error": "REGULATION_INDISPONIBLE(%s)" % type(e).__name__})
+    return bail_priorite("CI de reference %s" % sha, classe="court", ttl_s=3600.0, agent=IDENTITE)
+
+
+def _dire_bail(res) -> str:
+    res = res or {}
+    b = res.get("bail") or {}
+    if b.get("id"):
+        # Le bail porte `mode` (ARME | OBSERVATION) ; absent = INCONNU, jamais range d'un cote par defaut.
+        return "PRIS %s (%s)" % (b["id"], b.get("mode") or "mode INCONNU")
+    return "NON PRIS (%s) -- la CI continue sans priorite" % (res.get("error") or res.get("detail") or "?")
+
+
+def main(argv=None, executer=subprocess.run, bail=None) -> int:
     ap = argparse.ArgumentParser(description="CI de reference d'un sha (un etage par defaut)")
     ap.add_argument("--sha", required=True, help="sha a certifier (celui qu'on poussera)")
     ap.add_argument("--deux-etages", action="store_true",
@@ -109,13 +137,19 @@ def main(argv=None, executer=subprocess.run) -> int:
     reelle = executer is subprocess.run   # un test qui simule l'executeur ne pose pas de temoin dans le depot
     if reelle:
         poser_temoin(sha)
+    if bail is None:
+        # Seule une execution REELLE demande le bail : un test qui simule l'executeur n'endort jamais
+        # un service du poste.
+        bail = _bail if reelle else (lambda _sha: contextlib.nullcontext({"ok": False, "error": "SIMULE"}))
     try:
-        for etage, args, delai in etapes:
-            rc = jouer(etage, args, delai, sha, dossier, executer)
-            if rc != 0 and etage != "complete":
-                print("GATES ROUGES : suite complete NON lancee", flush=True)
-                return rc
-        return rc
+        with bail(sha) as pris:
+            print("bail de priorite : %s" % _dire_bail(pris), flush=True)
+            for etage, args, delai in etapes:
+                rc = jouer(etage, args, delai, sha, dossier, executer)
+                if rc != 0 and etage != "complete":
+                    print("GATES ROUGES : suite complete NON lancee", flush=True)
+                    return rc
+            return rc
     finally:
         if reelle:
             retirer_temoin()

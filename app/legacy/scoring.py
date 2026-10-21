@@ -491,6 +491,7 @@ async def _run_bench(ollama_url: str, model: str) -> BenchResult:
                     try:
                         data = json.loads(raw.decode("utf-8", errors="replace").strip())
                     except Exception:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/legacy/scoring.py', 493, exc_info=True)
                         continue
                     tok = data.get("message", {}).get("content", "")
                     if tok:

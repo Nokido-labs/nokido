@@ -297,7 +297,7 @@ def _check_daemon_heartbeats() -> tuple:
             from nokido_agent.app import forge_active_inference as _ai
             z = _ai.observe_signal("daemons_stale", phase, float(n_stale)).get("z")
         except Exception:  # noqa: BLE001 — le pouls ne casse jamais sur son modèle
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 299, exc_info=True)
         _ctx = f" | phase={phase}" + (f" z={z}" if z is not None else " (modèle immature)")
         _detail = f"{n_stale}/{n_tot} daemons déclarés stale: {sorted(stale)[:6]}{_extra}{_ctx}"
         if phase.startswith("boot"):
@@ -341,7 +341,7 @@ def _check_wal_bloat() -> tuple:
                 if gb >= WAL_BLOAT_GB:
                     big.append(f"{wal.name}={gb:.1f}Go")
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 343, exc_info=True)
     return (EMBOLIE if big else CLEAR), (f"WAL enflés: {big}" if big else "WAL sains")
 
 
@@ -455,7 +455,7 @@ def _check_mute_ports() -> tuple:
             from nokido_agent.app import forge_active_inference as _ai
             z = _ai.observe_signal("ports_muets", phase, float(n_mute)).get("z")
         except Exception:  # noqa: BLE001 — le pouls ne casse jamais sur son modèle
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 457, exc_info=True)
         _ctx = f" | phase={phase}" + (f" z={z}" if z is not None else " (modèle immature)")
 
         if phase.startswith("boot"):
@@ -774,7 +774,7 @@ def pulse() -> dict:
             verdict=verdict,
         )
     except Exception:  # noqa: BLE001 — la publication santé ne casse jamais le pouls
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 776, exc_info=True)
     return {"verdict": verdict, "embolies": embolies, "warns": warns, "points": points}
 
 

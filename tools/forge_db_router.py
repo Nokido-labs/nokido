@@ -149,12 +149,12 @@ class _ConnectionPool:
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_router.py', 151, exc_info=True)
             for conn in self._duckdb.values():
                 try:
                     conn.close()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_router.py', 156, exc_info=True)
             self._sqlite.clear()
             self._duckdb.clear()
 
@@ -259,7 +259,7 @@ class ForgeDBRouter:
                     cur = self.sqlite.execute(sql, params)
                     return cur.fetchall()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_db_router.py', 261, exc_info=True)
             raise RuntimeError(f"[DB ROUTER] {e}") from e
 
     def executemany(self, sql: str, params_list: list) -> None:

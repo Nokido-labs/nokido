@@ -251,7 +251,7 @@ def main() -> None:
                         )
                         urllib.request.urlopen(_rq, timeout=15).read()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rebuild_local.py', 253, exc_info=True)
                     for _ in range(50):
                         time.sleep(3)
                         if _server_up():

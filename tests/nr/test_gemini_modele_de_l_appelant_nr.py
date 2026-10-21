@@ -63,6 +63,32 @@ def test_le_modele_pose_par_l_appelant_gagne_sur_le_global(monkeypatch):
     assert vus == ["gemini-choisi-par-l-appelant"]
 
 
+def test_le_connecteur_mcp_gemini_ne_lit_plus_le_global():
+    """15/10 (bb:roadmap_p2_gemini_model_deux_verites_20261015) : Nokido.env porte GEMINI_MODEL=gemini-2.5-pro, 429 sur
+    la cle gratuite ; tools/forge_gemini_mcp_connector.py le lisait encore, avec un defaut perime
+    (flash-preview-05-20). Le modele vient de l'appelant ; sans choix, la famille flash-lite. Par l'AST (le code, pas
+    les commentaires) : l'import du connecteur exige le SDK Google et le coffre, un echec d'import serait un faux rouge."""
+    import ast
+
+    for nom in ("forge_gemini_mcp_connector.py", "forge_gemini_mcp_proxy.py"):
+        src = (Path(__file__).resolve().parents[2] / "tools" / nom).read_text(encoding="utf-8")
+        lit_global = [ast.unparse(n) for n in ast.walk(ast.parse(src))
+                      if isinstance(n, ast.Call) and ast.unparse(n).startswith("os.environ.get('GEMINI_MODEL'")]
+        assert not lit_global, (nom, lit_global)
+
+
+def test_la_synchro_des_modeles_n_impose_plus_le_global():
+    """16/10 : dernier lecteur restant (bb:roadmap_p2_gemini_model_deux_verites_20261015) -- forge_gemini_models_sync
+    lisait get_secret("GEMINI_MODEL") comme modele « impose ». Un modele global impose est ce que la decision owner du
+    15/10 supprime. Par l'AST : le code, pas les commentaires."""
+    import ast
+
+    src = (Path(__file__).resolve().parents[2] / "tools" / "forge_gemini_models_sync.py").read_text(encoding="utf-8")
+    lit_global = [ast.unparse(n) for n in ast.walk(ast.parse(src))
+                  if isinstance(n, ast.Call) and ast.unparse(n).startswith("get_secret('GEMINI_MODEL'")]
+    assert not lit_global, lit_global
+
+
 def test_sans_choix_le_defaut_de_la_classe_gagne_sur_le_global(monkeypatch):
     vus = []
     _faux_genai(monkeypatch, vus)

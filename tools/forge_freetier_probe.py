@@ -14,7 +14,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HUB = "http://127.0.0.1:8766/mcp"
-TOK = os.environ.get("FORGE_MCP_TOKEN") or os.environ.get("FORGE_TOKEN_CLAUDE") or ""
+def _jeton_sonde() -> str:
+    """Coffre d'abord (16/10), jeton maitre puis jeton CLAUDE ; sans le paquet nokido_agent : repli env DIT."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("FORGE_MCP_TOKEN") or get_secret("FORGE_TOKEN_CLAUDE") or ""
+    except ImportError:
+        print("[freetier_probe] coffre inaccessible : repli sur l'environnement", file=sys.stderr)
+        return os.environ.get("FORGE_MCP_TOKEN") or os.environ.get("FORGE_TOKEN_CLAUDE") or ""
+
+
+TOK = _jeton_sonde()
 
 PROVIDERS = [
     "github_deepseek_v3", "github_gpt41_mini", "github_gpt4o_mini", "github_llama_70b",

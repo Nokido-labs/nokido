@@ -116,7 +116,7 @@ Get-WinEvent -LogName System -MaxEvents 500 |
                     evt["record_id"] = int(evt["record_id"])
                     events.append(evt)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_service_crash_watcher.py', 118, exc_info=True)
         return events
     except Exception as e:
         logger.warning(f"query crash events fail: {e}")
@@ -130,7 +130,7 @@ def _evt_epoch(evt: dict) -> float:
         try:
             return datetime.fromisoformat(str(t).replace("Z", "+00:00")).timestamp()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_service_crash_watcher.py', 132, exc_info=True)
     return time.time()
 
 
@@ -175,7 +175,7 @@ def _check_crash_loop(service: str, crash_epoch: float, persist_fn) -> None:
 
         release("cortisol", 0.85, {"reason": "crash_loop", "service": service, "count": count})
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_service_crash_watcher.py', 177, exc_info=True)
 
 
 def _log_crash(events: list[dict]):

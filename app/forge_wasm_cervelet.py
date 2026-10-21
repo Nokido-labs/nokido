@@ -51,7 +51,7 @@ def _resolve_wsl_ip() -> str:
             if ip:
                 return ip
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_wasm_cervelet.py', 53, exc_info=True)
     return "localhost"
 
 import sys

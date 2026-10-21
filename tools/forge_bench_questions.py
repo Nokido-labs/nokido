@@ -37,7 +37,7 @@ def _wait_server(timeout: int = 150) -> bool:
                 if r.status == 200:
                     return True
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_questions.py', 39, exc_info=True)
         time.sleep(3)
     return False
 

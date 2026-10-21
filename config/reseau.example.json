@@ -1,0 +1,10 @@
+{
+ "_note": "MODELE (valeurs FICTIVES RFC 5737). Copier en sandbox/reseau.local.json (non suivi) et y mettre vos adresses. Lu par tools/forge_vm_dns.py (vm_host), app/forge_swarm_team.py (ollama_remote_url), tools/nokido_netmap.py (netmap_ip). Les variables NOKIDO_VM_HOST / NOKIDO_OLLAMA_REMOTE_URL priment.",
+ "vm_host": "192.0.2.10",
+ "ollama_remote_url": "http://192.0.2.10:11434",
+ "netmap_ip": {
+  "gw": "192.0.2.1",
+  "host": "192.0.2.20",
+  "pc": "198.51.100.30"
+ }
+}

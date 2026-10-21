@@ -115,7 +115,7 @@ if ($GarderHub) {
         foreach ($c in $cibles) {
             try {
                 $null = Invoke-RestMethod -Method POST -Uri ("http://127.0.0.1:8765/supervisor/service/stop/" + $c.Name) `
-                    -Headers @{Authorization = "Bearer $supTok"} -TimeoutSec 10
+                    -Headers @{Authorization = "Bearer $supTok"; "LaForge-Agent-Name" = "NOKIDO_STOP"} -TimeoutSec 10
                 Write-Ok "$($c.Name) (vague $($c.Value.wave)) arrete par le superviseur"; $stopped++
             } catch {
                 Write-Warn ("$($c.Name) - arret refuse : " + (($_.Exception.Message -split "`r?`n")[0])); $failed++

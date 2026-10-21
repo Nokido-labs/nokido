@@ -34,6 +34,10 @@ for _p in (ROOT, ROOT / "app", ROOT / "tools"):
 
 HEARTBEAT = ROOT / "sandbox" / "coagulation.heartbeat"
 LOG = ROOT / "logs" / "coagulation.log"
+# Periode refractaire (20/10, fin de la CIVD) : apres un soin complet, pas de nouveau soin avant REFRACTAIRE_S --
+# comme l'hemostase, qui ne relance pas la cascade sur un caillot deja forme.
+REFRACTAIRE_S = 1800
+_REFRACTAIRE = ROOT / "sandbox" / "coagulation_refractaire.json"
 
 
 def _stamped(msg: str) -> str:
@@ -81,6 +85,11 @@ def _triage(ev: dict) -> tuple:
     if any(s in blob for s in _SERVICE):
         return "escalate", "service dégradé — restart=lanceur (humain)"
     if any(s in blob for s in _REMEDIABLE):
+        # Inhibiteur (20/10) : un signal SIGNE par la remediation est le produit du soin, pas une lesion -- le
+        # soigner relancait la remediation qui le reemettait (CIVD, toutes les ~5 min). L'alarme, elle, passe :
+        # securite et service sont tries AVANT ce point.
+        if '"origine": "forge_remediation"' in blob or "'origine': 'forge_remediation'" in blob:
+            return "ack", "produit du soin (inhibiteur) : ne relance pas la remediation"
         return "heal", "remédiable (forge_remediation borné)"
     if _sev_num(ev) >= 0.9:
         return "escalate", "haute sévérité non classée — prudence"
@@ -171,8 +180,22 @@ def coagulate(limit: int = 200, armed: bool = False, max_rounds: int = 30) -> di
         tally["rounds"] += 1
         if len(batch) < limit:
             break
-    # heal BORNÉ (une passe) via le moteur existant — n'AGIT que si armed.
+    # heal BORNÉ (une passe) via le moteur existant — n'AGIT que si armed ; jamais deux soins dans la periode
+    # refractaire (le dernier soin est consigne dans _REFRACTAIRE).
     if heal_needed:
+        try:
+            dernier = float(json.loads(_REFRACTAIRE.read_text(encoding="utf-8")).get("dernier_soin", 0))
+        except (OSError, ValueError, TypeError):
+            dernier = 0.0  # muet-ok : aucun soin consigne = pas de periode refractaire en cours
+        reste = REFRACTAIRE_S - (time.time() - dernier)
+        if reste > 0:
+            heal_needed = False
+            tally["remediation"] = {"ok": True, "differe": "periode refractaire : %d s restantes" % int(reste)}
+    if heal_needed:
+        try:
+            _REFRACTAIRE.write_text(json.dumps({"dernier_soin": time.time()}), encoding="utf-8")
+        except OSError:  # muet-ok : periode refractaire non consignee = le prochain soin n'attend pas, il se fait
+            pass
         try:
             from nokido_agent.app.forge_opsec import is_human_locked
             if armed and is_human_locked():
@@ -194,9 +217,17 @@ def coagulate(limit: int = 200, armed: bool = False, max_rounds: int = 30) -> di
             release("DOPAMINE_SUCCESS", level=min(0.8, tally["consumed"] / 500.0),
                     ttl_s=900, source="coagulation")
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_coagulation.py', 196, exc_info=True)
     _log(f"[COAGULATION] {json.dumps(tally, ensure_ascii=False)}")
     return tally
+
+
+def _travail_differe() -> bool:
+    try:
+        from nokido_agent.app.forge_resource_manager import travail_differe
+    except ImportError:
+        return False  # muet-ok : gestionnaire de ressources absent = aucun bail lisible, la passe se fait comme avant
+    return travail_differe("NokidoCoagulation")
 
 
 def watch(interval: int = 300, rounds: int = 0, armed: bool = False) -> int:
@@ -205,7 +236,10 @@ def watch(interval: int = 300, rounds: int = 0, armed: bool = False) -> int:
     i, last, last_n = 0, 0.0, 0
     while rounds == 0 or i < rounds:
         now = time.time()
-        if i == 0 or now - last >= interval:
+        if (i == 0 or now - last >= interval) and _travail_differe():
+            # Bail prioritaire actif : le pouls continue, la passe lourde attend (retentee a chaque tour).
+            print(json.dumps({"differe": "bail prioritaire actif : passe lourde differee"}), flush=True)
+        elif i == 0 or now - last >= interval:
             t = coagulate(armed=armed)
             last, last_n = now, t.get("consumed", 0)
             print(json.dumps({"consumed": last_n, "escalate": t.get("escalate")},

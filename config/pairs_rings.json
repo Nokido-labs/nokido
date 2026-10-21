@@ -1,0 +1,8 @@
+{
+  "_doc": "Ring des pairs du connecteur (tools/forge_pair_mcp.py, _ring_du_pair). Decision owner 2026-10-17 : « ring 2 pour les pairs (claude.ai, ChatGPT web), et seulement pour les annexes de relecture ; d'ici la, cette lecture reste fermee a tous. = OK ». Cle = nom de client OAuth (client_name), compare sans casse et a l'egalite ; un nom absent d'ici n'a AUCUN ring (refus INCONNU). Une capsule n'ouvre ses annexes que si elle declare usage_annexes = \"relecture\". Aucun secret dans ce fichier.",
+  "decision": "bb:decision_owner_politiques_autonomie_et_pairs_20261017",
+  "pairs": {
+    "claude": 2,
+    "chatgpt": 2
+  }
+}

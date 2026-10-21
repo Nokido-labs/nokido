@@ -88,7 +88,7 @@ def _trace(purpose: str, ok: bool, local: bool, ms: float, chars: int) -> None:
                                  "local": local, "ms": round(ms, 1), "chars": chars}))
         _TRACE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_internal_sampling.py', 90, exc_info=True)
 
 
 def sample(prompt: str, purpose: str = "unspecified", max_tokens: int | None = None,
@@ -153,6 +153,7 @@ def usage(limit: int = 50) -> list[dict]:
             try:
                 out.append(json.loads(line))
             except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_internal_sampling.py', 155, exc_info=True)
                 continue
         return out
     except Exception:  # noqa: BLE001

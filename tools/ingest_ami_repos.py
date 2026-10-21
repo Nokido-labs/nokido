@@ -111,7 +111,7 @@ try:
             domain="rag",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/ingest_ami_repos.py', 113, exc_info=True)
 except Exception as e:
     print(f"  Watch job error: {e}")
 

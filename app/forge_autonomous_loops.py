@@ -168,6 +168,10 @@ def _in_preferred_window(window: tuple[int, int] | None) -> bool:
     return h >= start or h <= end
 
 
+EVAL_SANDBOX = Path(__file__).resolve().parent.parent / "sandbox"   # baseline eval_fitness (constante : NR)
+_EVAL_PEREMPTION_S = 14 * 86400
+
+
 @register_pattern(
     "eval_fitness", interval_sec=7200,
     description="Surveille scores benchmark (HumanEval/BFCL/SWE), proposal si régression >5%.",
@@ -187,15 +191,25 @@ def pat_eval_fitness() -> dict:
     cur = latest_scores()
     if not cur:
         return {"scores": {}, "note": "aucun JSON benchmark"}
-    sbx = _P(__file__).resolve().parent.parent / "sandbox"
+    # 19/10 (audit pair, affirmation 5) : baseline QUALIFIEE. Absente ou illisible -> regressions None (INCONNU),
+    # jamais [] ; une illisible est GELEE (renommee), jamais ecrasee par des scores peut-etre degrades.
+    sbx = _P(EVAL_SANDBOX)
     sf = sbx / "eval_fitness_state.json"
-    prev = {}
-    try:
-        if sf.exists():
-            prev = _j.loads(sf.read_text(encoding="utf-8")).get("scores", {})
-    except Exception as e:
-        log.warning(f"[eval_fitness] état précédent illisible ({e}) — baseline vide, régression indétectable ce tour")
-    regr = detect_regression(prev, cur)
+    prev, baseline, perimee = {}, "ABSENTE", False
+    if sf.exists():
+        try:
+            etat = _j.loads(sf.read_text(encoding="utf-8"))
+            prev, baseline = etat.get("scores", {}) or {}, "LUE"
+            perimee = (_t.time() - float(etat.get("ts") or 0)) > _EVAL_PEREMPTION_S
+        except Exception as e:
+            baseline = "ILLISIBLE"
+            log.warning(f"[eval_fitness] baseline illisible ({e}) — GELEE, régression INCONNUE ce tour")
+            try:
+                sf.rename(sbx / ("eval_fitness_state.illisible-%d.json" % int(_t.time())))
+            except OSError as e2:
+                log.warning(f"[eval_fitness] baseline illisible non gelee ({e2})")
+    regr = detect_regression(prev, cur) if baseline == "LUE" else None
+    disparus = sorted(set(prev) - set(cur))
     if regr:
         ts = int(_t.time())
         try:
@@ -225,25 +239,49 @@ def pat_eval_fitness() -> dict:
         sf.write_text(_j.dumps({"scores": cur, "ts": _t.time()}, ensure_ascii=False), encoding="utf-8")
     except Exception as e:
         log.warning(f"[eval_fitness] baseline non écrite ({e}) — prochaine détection de régression faussée")
-    return {"scores": cur, "regressions": regr}
+    return {"scores": cur, "regressions": regr, "baseline": baseline, "baseline_perimee": perimee,
+            "disparus": disparus}
 
 
 # ══════════════════════════════════════════════════════════════════════
 # LOCAL LLM helpers (FREE only)
 # ══════════════════════════════════════════════════════════════════════
+# Repli (audit 18/10 verifie : :8080 accepte TCP puis se tait, /health muet en 2 s ; Ollama :11434 repond en 0,04 s) :
+# une sonde /health a 1 s, gardee 60 s, choisit la voie AVANT l'appel -- jamais 30 s d'attente pour rendre "".
+_LLAMA_SANTE_CACHE: dict = {}
+OLLAMA_REPLI_URL = os.environ.get("LAFORGE_OLLAMA_REPLI_URL", "http://127.0.0.1:11434/v1/chat/completions")
+OLLAMA_REPLI_MODELE = os.environ.get("LAFORGE_OLLAMA_REPLI_MODELE", "qwen2.5-coder:7b")   # meme famille que :8080
+
+
+def _llama_vivant() -> bool:
+    c = _LLAMA_SANTE_CACHE
+    if c and time.time() - c.get("ts", 0.0) < 60:
+        return c["vivant"]
+    try:
+        urllib.request.urlopen(LLAMACPP_URL.rsplit("/v1/", 1)[0] + "/health", timeout=1.0).read(64)
+        vivant = True
+    except Exception as e:  # noqa: BLE001 - muet ou refuse : la voie est fermee, et c'est DIT
+        log.info(f"llamacpp :8080 muet ({type(e).__name__}) : repli Ollama {OLLAMA_REPLI_MODELE}")
+        vivant = False
+    c.update(ts=time.time(), vivant=vivant)
+    return vivant
+
+
 def _llamacpp_chat(prompt: str, max_tokens: int = 200, timeout: int = 30) -> str:
-    """Call llamacpp_native :8080 OpenAI-compat. Returns text or empty."""
+    """Call llamacpp_native :8080 OpenAI-compat, ou Ollama :11434 si :8080 est muet (18/10). Returns text or empty."""
+    vivant = _llama_vivant()
     try:
         body = json.dumps(
             {
-                "model": "qwen2.5-coder",
+                "model": "qwen2.5-coder" if vivant else OLLAMA_REPLI_MODELE,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
                 "temperature": 0.2,
             }
         ).encode("utf-8")
         req = urllib.request.Request(
-            LLAMACPP_URL, data=body, headers={"Content-Type": "application/json"}, method="POST"
+            LLAMACPP_URL if vivant else OLLAMA_REPLI_URL, data=body,
+            headers={"Content-Type": "application/json"}, method="POST"
         )
         resp = urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8")
         d = json.loads(resp)
@@ -627,6 +665,15 @@ def submit_candidate_to_judge(ref_exp: str, rel: str, nouveau: str,
 
 _DOCS_HISTORIQUES = ("/archive/", "/wiki/", "/launch/")
 _DEPORTE_CACHE: dict = {"set": frozenset(), "ts": 0.0}
+# Decision owner 18/10 : un plan ancien se DECLARE historique par son en-tete, le doc reste en place.
+_MARQUEUR_PLAN_HISTORIQUE = "<!-- nokido: plan-historique -->"
+
+
+def _est_plan_historique(txt: str) -> bool:
+    """Doc de plan marque historique EN TETE (2 000 premiers caracteres) : plus une intention.
+
+    En tete seulement : un doc qui CITE le marqueur dans son corps ne se declasse pas."""
+    return _MARQUEUR_PLAN_HISTORIQUE in txt[:2000]
 
 
 def _docs_deportes() -> frozenset:
@@ -691,6 +738,13 @@ def _est_doc_d_intention(rel: str) -> bool:
     return nom == "manifesto" or "/specs/" in rel or bool(mots & {"roadmap", "plan"})
 
 
+# Nom de module cite dans un doc, BORNE des deux cotes (18/10, instruction AGY job_ff1fee28) : sans borne,
+# `test_forge_public_mirror_nr.py` et `forge_starter.pyc` devenaient deux « modules absents » a arbitrer.
+import re as _re_doc  # noqa: E402 -- le module n'importe pas `re` en tete (il l'importait localement)
+
+_RX_MODULE_DOC = _re_doc.compile(r'(?<!\w)((?:app/|tools/)?forge_\w+\.py)(?!\w)')
+
+
 def _modules_absents_des_docs() -> list[dict]:
     """Modules forge_* cités dans les docs mais ABSENTS du code = intentions non tenues.
 
@@ -710,7 +764,7 @@ def _modules_absents_des_docs() -> list[dict]:
         dirs[:] = [d for d in dirs if d not in skip]
         for f in files:
             present.add(f)
-    rx_mod = _re.compile(r'`?((?:app/|tools/)?forge_\w+\.py)`?')
+    rx_mod = _RX_MODULE_DOC
     ecarter = {"forge_pii_detector.py"}  # exemple de module SUPPRIMÉ (CLAUDE.md §3)
     trouve: dict[str, str] = {}
     # Exclure les docs HISTORIQUES : archive/wiki/launch décrivent le passé ou des
@@ -719,7 +773,7 @@ def _modules_absents_des_docs() -> list[dict]:
     # étaient déjà implémentés ailleurs). Le scan par nom ment ; ne scanner que
     # les docs d'intention vivants.
     # Liste BLANCHE depuis le 2026-09-25 (cf. _est_doc_d_intention) ; l'ecarte est COMPTE et dit.
-    vus = lus = 0
+    vus = lus = historiques = 0
     for dp, dirs, files in os.walk(ROOT):
         dirs[:] = [d for d in dirs if d not in skip]
         for f in files:
@@ -734,13 +788,17 @@ def _modules_absents_des_docs() -> list[dict]:
                 txt = open(fp, encoding="utf-8", errors="replace").read()
             except Exception:  # muet-ok: .md illisible, on scanne le suivant
                 continue
+            if _est_plan_historique(txt):
+                historiques += 1
+                continue
             for m in rx_mod.findall(txt):
                 b = os.path.basename(m)
                 if b in present or b in ecarter or b in trouve:
                     continue
                 trouve[b] = os.path.relpath(fp, ROOT).replace("\\", "/")
     log.info(f"[unmet_intention] {lus} doc(s) d'intention lus sur {vus} .md vus -- {vus - lus} ecarte(s) "
-             f"par la liste blanche (MANIFESTO, specs/, mot roadmap|plan ; memory/ et historiques exclus)")
+             f"par la liste blanche (MANIFESTO, specs/, mot roadmap|plan ; memory/ et historiques exclus), "
+             f"dont {historiques} plan(s) marque(s) historique(s) en tete")
     return [{"module": b, "source_doc": src} for b, src in sorted(trouve.items())]
 
 
@@ -3924,6 +3982,66 @@ def _proposer(param: str, current_value: str, suggested_value: str, reason: str,
 
 
 
+# Pont ombre en LISTE BLANCHE (decision owner 18/10) : seul ce que le juge sait evaluer passe.
+# Mesure du jour : les 15 A_TRAITER etaient tous ECART_DOC_CODE -- une decision owner, pas un candidat.
+_TRAITEMENTS_POUR_LE_JUGE = frozenset({"MUTATION_CODE_JUGEE"})
+_TRAITEMENTS_OWNER = frozenset({"ECART_DOC_CODE", "RELANCE_OU_OWNER"})
+
+
+def file_owner_ombre(registre: list) -> list:
+    """Dossiers A_TRAITER (au DERNIER reexamen) dont le traitement revient a l'owner : sortis du pont
+    ombre, ils attendent un arbitrage (construire / dater le doc / relancer). Ordre : premier vu."""
+    dernier, premier = {}, {}
+    for e in sorted((e for e in registre if e.get("kind") == "triage" and e.get("dossier")),
+                    key=lambda e: str(e.get("ts") or "")):
+        dernier[e["dossier"]] = e
+        premier.setdefault(e["dossier"], str(e.get("ts") or "~"))
+    file = []
+    for d, e in dernier.items():
+        rex = e.get("reexamen") or {}
+        if rex.get("verdict") != "A_TRAITER" or e.get("treatment") not in _TRAITEMENTS_OWNER:
+            continue
+        file.append({"dossier": d, "treatment": e.get("treatment"), "organe": e.get("organ"),
+                     "cibles": sorted(rex.get("par_cible") or {}), "motif": e.get("motif"),
+                     "premier_vu": premier[d]})
+    return sorted(file, key=lambda x: x["premier_vu"])
+
+
+def selectionner_dossier_ombre(registre: list):
+    """Pont « ombre » (elargissement RSI n°2, decision owner 18/10), etape 1 : LE dossier A_TRAITER le plus recurrent,
+    jamais un dossier deja soumis (`ombre_soumis` / `candidate_verdict`) -- un candidat refuse n'est pas reessaye.
+    Egalite -> le premier vu. Rien d'eligible -> None."""
+    soumis = {e.get("dossier") for e in registre if e.get("kind") in ("ombre_soumis", "candidate_verdict")}
+    compte, premier, organe, dernier = {}, {}, {}, {}
+    for e in sorted((e for e in registre if e.get("kind") == "triage" and e.get("dossier")),
+                    key=lambda e: str(e.get("ts") or "")):
+        d = e["dossier"]
+        dernier[d] = (e.get("reexamen") or {}).get("verdict")   # le DERNIER reexamen decide (mesure 18/10)
+        if d in soumis or dernier[d] != "A_TRAITER" or e.get("treatment") not in _TRAITEMENTS_POUR_LE_JUGE:
+            continue
+        compte[d] = compte.get(d, 0) + 1
+        premier[d] = min(premier.get(d, "~"), str(e.get("ts") or "~"))
+        organe.setdefault(d, e.get("organ"))
+    compte = {d: n for d, n in compte.items() if dernier.get(d) == "A_TRAITER"}
+    if not compte:
+        return None
+    d = min(compte, key=lambda k: (-compte[k], premier[k]))
+    return {"dossier": d, "recurrence": compte[d], "organe": organe[d], "premier_vu": premier[d]}
+
+
+_VERDICTS_SANS_GAIN = ("SURVIT_SANS_GAIN", "REVERTE", "REVERT_NON_PROUVE")
+
+
+def _valeurs_sans_gain(entrees: list, nom: str, jours: int = 30) -> set:
+    """Valeurs de `nom` deja jugees SANS GAIN (neutre ou recul) depuis moins de `jours` : la memoire qui manquait a
+    l'oscillateur (audit 18/10). Au-dela, le systeme a pu changer : le verdict ne bloque plus."""
+    import time as _t
+    limite = _t.strftime("%Y-%m-%dT%H:%M:%S", _t.localtime(_t.time() - jours * 86400))
+    return {(e.get("application") or {}).get("nouvelle") for e in entrees
+            if e.get("kind") == "post_application" and e.get("cible") == "param:%s" % nom
+            and e.get("verdict") in _VERDICTS_SANS_GAIN and str(e.get("ts") or "") >= limite}
+
+
 @register_pattern(
     "l1_calibration",
     interval_sec=6 * 3600,
@@ -3960,12 +4078,12 @@ def pat_l1_calibration() -> dict:
                       if e.get("kind") == "application" and e.get("cible") == "param:%s" % nom)
         lo, hi = decl.get("min", cur), decl.get("max", cur)
         sens = (1.25, 0.75) if n_actes % 2 == 0 else (0.75, 1.25)
-        cand = cur
-        for f in sens:
-            cand = max(lo, min(hi, int(round(cur * f))))
-            if cand != cur:
-                break
+        deja = _valeurs_sans_gain(entrees, nom)   # memoire des verdicts (18/10) : jamais re-proposer un sans-gain
+        possibles = [c for c in (max(lo, min(hi, int(round(cur * f)))) for f in sens) if c != cur]
+        cand = next((c for c in possibles if c not in deja), cur)
         if cand == cur:
+            if possibles:
+                out.setdefault("satures", []).append(nom)   # les deux sens deja juges sans gain
             continue
         _proposer(
             param="l1:%s" % nom, current_value=str(cur), suggested_value=str(cand),

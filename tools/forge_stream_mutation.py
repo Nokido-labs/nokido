@@ -153,7 +153,7 @@ def stream_worker(
                             if ms > latency_warn_ms:
                                 print(f"  ⚠ [LATENCY:{ms}ms] {agent} — lent")
                         except ValueError:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_stream_mutation.py', 155, exc_info=True)
 
                 elif "[RESULT:KO]" in line_s:
                     fail_count += 1

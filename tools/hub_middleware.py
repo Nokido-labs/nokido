@@ -372,7 +372,7 @@ def validate_mcp_body(body: Any) -> tuple[bool, dict, list]:
         if raw_size > MAX_PAYLOAD_BYTES:
             return False, {}, [f"payload too large: {raw_size} bytes"]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/hub_middleware.py', 374, exc_info=True)
 
     cleaned = {}
 

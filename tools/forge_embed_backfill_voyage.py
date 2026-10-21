@@ -36,7 +36,7 @@ def _get_key():
 
         key = get_secret("VOYAGE_API_KEY")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_embed_backfill_voyage.py', 38, exc_info=True)
     if not key:
         import os
 

@@ -139,7 +139,7 @@ def _load_cost_data(db_path: Path = TRACES_DB, limit: int = 50000):
             target = float(np.clip(ca, 0.0, 1.0))
             data.append((x, target))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cost_net.py', 141, exc_info=True)
     return data
 
 
@@ -167,7 +167,7 @@ def train(
         try:
             model = CostNet.load(save_path)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cost_net.py', 169, exc_info=True)
 
     losses = []
     t0 = time.time()

@@ -95,7 +95,7 @@ def add_template() -> int:
             print(f"rubrique deja presente dans {env_path.name}, skip")
             return 0
     except FileNotFoundError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_secret_audit.py', 97, exc_info=True)
     with open(env_path, "a", encoding="utf-8") as f:
         f.write(FREE_TIER_TEMPLATE)
     print(f"rubrique free-tier (commentee, 7 providers) ajoutee a {env_path.name}")

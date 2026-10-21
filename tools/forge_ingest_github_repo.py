@@ -41,11 +41,14 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import sys
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -104,8 +107,118 @@ def _garder(nom: str, prefixe: str | None = None) -> bool:
     return p.suffix.lower() in KEEP_SUFFIXES
 
 
-def fetch(owner: str, repo: str, ref: str | None,
-          prefixe: str | None = None) -> tuple[list[tuple[str, str]], dict]:
+# -- OpenStax (decision owner 20/10) : manuel de physiologie en CNXML, ingere en PRIVE, cite au chapitre ------------
+_NS_COL = "{http://cnx.rice.edu/collxml}"
+_NS_MD = "{http://cnx.rice.edu/mdml}"
+_NS_CNX = "{http://cnx.rice.edu/cnxml}"
+LIVRE_OPENSTAX = "OpenStax, Anatomy and Physiology 2e"
+
+
+def _garder_openstax(nom: str) -> bool:
+    """Seulement les sections (modules/<id>/index.cnxml) et la collection : pas les 500 Mo de medias du depot."""
+    n = nom.replace("\\", "/")
+    return bool(re.fullmatch(r"modules/m\d+/index\.cnxml", n) or re.fullmatch(r"collections/[^/]+\.collection\.xml", n))
+
+
+def url_tarball(owner: str, repo: str, ref: str) -> str:
+    """Archive d'une BRANCHE, ou d'un COMMIT epingle (40 hex) -- 20/10 : OpenStax n'est CC BY qu'avant le 19/03/2026."""
+    if re.fullmatch(r"[0-9a-f]{40}", ref or ""):
+        return f"https://codeload.github.com/{owner}/{repo}/tar.gz/{ref}"
+    return f"https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{ref}"
+
+
+def citations_collection(xml: str) -> tuple[dict, str]:
+    """({module: "Unite > Chapitre"}, licence declaree par la collection : libelle et URL)."""
+    racine = ET.fromstring(xml)
+    el_lic = racine.find(".//%slicense" % _NS_MD)
+    licence = ("%s (%s)" % ((el_lic.text or "").strip(), el_lic.get("url") or "")) if el_lic is not None else ""
+    cit: dict = {}
+
+    def parcourir(contenu, chemin):
+        for el in contenu:
+            if el.tag == _NS_COL + "module":
+                cit[el.get("document")] = " > ".join(chemin)
+            elif el.tag == _NS_COL + "subcollection":
+                sous = el.find(_NS_COL + "content")
+                if sous is not None:
+                    parcourir(sous, chemin + [(el.findtext(_NS_MD + "title") or "").strip()])
+    contenu = racine.find(_NS_COL + "content")
+    if contenu is not None:
+        parcourir(contenu, [])
+    return cit, licence
+
+
+def cnxml_vers_texte(xml: str) -> tuple[str, str]:
+    """(titre, texte) d'une section CNXML : titres, paragraphes, items et legendes ; ni balise ni media."""
+    racine = ET.fromstring(xml)
+    titre = (racine.findtext(_NS_CNX + "title") or racine.findtext(".//%stitle" % _NS_MD) or "").strip()
+    blocs: list[str] = []
+
+    def parcourir(el):
+        for e in el:
+            tag = e.tag.split("}")[-1]
+            if tag in ("media", "image", "metadata"):
+                continue
+            if tag in ("title", "para", "caption", "item"):
+                t = " ".join("".join(e.itertext()).split())
+                if t:
+                    blocs.append(t)
+            else:
+                parcourir(e)
+    contenu = racine.find(_NS_CNX + "content")
+    if contenu is not None:
+        parcourir(contenu)
+    return titre, "\n\n".join(blocs)
+
+
+def preparer_openstax(fichiers) -> list[tuple[str, str, str]]:
+    """[(interne, texte, entete)] : chaque section en texte, avec sa citation et la licence de la collection."""
+    cit, licence = {}, ""
+    for interne, contenu in fichiers:
+        if interne.endswith(".collection.xml"):
+            c, licence = citations_collection(contenu)
+            cit.update(c)
+    if "NonCommercial" in licence or "by-nc" in licence:
+        lic = "CC BY-NC-SA 4.0 : usage prive, jamais redistribue"
+    elif "/licenses/by/4.0" in licence:
+        lic = "CC BY 4.0, Rice University / OpenStax, https://openstax.org"
+    else:
+        lic = "%s : usage prive, jamais redistribue" % (licence or "licence INCONNUE")
+    out = []
+    for interne, contenu in fichiers:
+        if not interne.endswith(".cnxml"):
+            continue
+        try:
+            titre, texte = cnxml_vers_texte(contenu)
+        except ET.ParseError as e:
+            print("[openstax] %s illisible (%s) : section ecartee" % (interne, e), file=sys.stderr)
+            continue
+        module = interne.replace("\\", "/").split("/")[1]
+        entete = "[%s -- %s -- %s (%s)]" % (LIVRE_OPENSTAX, cit.get(module) or "hors chapitre", titre, lic)
+        out.append((interne, texte, entete))
+    return out
+
+
+def lignes_a_indexer(fichiers, slug: str) -> list[tuple[str, str, str]]:
+    """(id, source, fragment) de chaque fichier ; un 3e element (entete) est repete en tete de CHAQUE fragment."""
+    lignes: list[tuple[str, str, str]] = []
+    for f in fichiers:
+        interne, texte = f[0], f[1]
+        entete = f[2] if len(f) > 2 else ""
+        for chunk in _chunks(texte):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            if entete:
+                chunk = entete + "\n" + chunk
+            source = f"github:{slug}/{interne}"
+            cid = hashlib.sha256((source + chunk).encode()).hexdigest()[:16]
+            lignes.append((cid, source, chunk))
+    return lignes
+
+
+def fetch(owner: str, repo: str, ref: str | None, prefixe: str | None = None, openstax: bool = False,
+          tmpdir=None) -> tuple[list[tuple[str, str]], dict]:
     """Rend [(chemin_dans_le_depot, contenu), ...] + un rapport de collecte.
 
     Le rapport DIT ce qui a ete ecarte et pourquoi : un collecteur qui rend
@@ -114,10 +227,18 @@ def fetch(owner: str, repo: str, ref: str | None,
     refs = [ref] if ref else ["main", "master"]
     blob = last_err = None
     for r in refs:
-        url = f"https://codeload.github.com/{owner}/{repo}/tar.gz/refs/heads/{r}"
+        url = url_tarball(owner, repo, r)
         try:
             with urllib.request.urlopen(url, timeout=120) as resp:
-                blob = resp.read()
+                if openstax:
+                    # depot de 509 Mo : EN FLUX vers un fichier, jamais d'un bloc en memoire (RAM a 80 % le 20/10)
+                    dossier = Path(tmpdir) if tmpdir else Path(tempfile.gettempdir())
+                    dossier.mkdir(parents=True, exist_ok=True)
+                    blob = dossier / f"{owner}_{repo}_{r}.tar.gz"
+                    with open(blob, "wb") as sortie:
+                        shutil.copyfileobj(resp, sortie, 1 << 20)
+                else:
+                    blob = resp.read()
             ref = r
             break
         except urllib.error.HTTPError as e:
@@ -130,29 +251,37 @@ def fetch(owner: str, repo: str, ref: str | None,
     fichiers: list[tuple[str, str]] = []
     ecartes: dict[str, int] = {"extension_ou_dossier": 0, "trop_gros": 0, "illisible": 0}
     total = 0
-    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
-        for membre in tar.getmembers():
-            if not membre.isfile():
-                continue
-            # le tarball GitHub prefixe tout par "<repo>-<ref>/"
-            interne = membre.name.split("/", 1)[1] if "/" in membre.name else membre.name
-            if not _garder(interne, prefixe):
-                ecartes["extension_ou_dossier"] += 1
-                continue
-            if membre.size > MAX_FILE_SIZE:
-                ecartes["trop_gros"] += 1
-                continue
-            flux = tar.extractfile(membre)
-            if flux is None:
-                ecartes["illisible"] += 1
-                continue
-            texte = flux.read().decode("utf-8", errors="replace")
-            total += len(texte)
-            if total > MAX_TOTAL:
-                raise SystemExit(
-                    f"[ingest_repo] {total} chars > cap {MAX_TOTAL} — depot trop gros"
-                )
-            fichiers.append((interne, texte))
+    source_tar = {"name": str(blob)} if isinstance(blob, Path) else {"fileobj": io.BytesIO(blob)}
+    # Un manuel n'est pas un depot de code : sections plus longues (MathML), volume plus grand -- bornes DITES.
+    max_fichier = 2_000_000 if openstax else MAX_FILE_SIZE
+    max_total = 80_000_000 if openstax else MAX_TOTAL
+    try:
+        with tarfile.open(mode="r:gz", **source_tar) as tar:
+            for membre in tar.getmembers():
+                if not membre.isfile():
+                    continue
+                # le tarball GitHub prefixe tout par "<repo>-<ref>/"
+                interne = membre.name.split("/", 1)[1] if "/" in membre.name else membre.name
+                if not (_garder_openstax(interne) if openstax else _garder(interne, prefixe)):
+                    ecartes["extension_ou_dossier"] += 1
+                    continue
+                if membre.size > max_fichier:
+                    ecartes["trop_gros"] += 1
+                    continue
+                flux = tar.extractfile(membre)
+                if flux is None:
+                    ecartes["illisible"] += 1
+                    continue
+                texte = flux.read().decode("utf-8", errors="replace")
+                total += len(texte)
+                if total > max_total:
+                    raise SystemExit(
+                        f"[ingest_repo] {total} chars > cap {max_total} — depot trop gros"
+                    )
+                fichiers.append((interne, texte))
+    finally:
+        if isinstance(blob, Path):
+            blob.unlink(missing_ok=True)
 
     if not fichiers:
         raise SystemExit(
@@ -163,17 +292,9 @@ def fetch(owner: str, repo: str, ref: str | None,
                       "ecartes": ecartes, "chars": total}
 
 
-def index(fichiers: list[tuple[str, str]], slug: str, domain: str) -> dict:
+def index(fichiers: list, slug: str, domain: str) -> dict:
     now = int(time.time())
-    lignes: list[tuple[str, str, str]] = []
-    for interne, texte in fichiers:
-        for chunk in _chunks(texte):
-            chunk = chunk.strip()
-            if not chunk:
-                continue
-            source = f"github:{slug}/{interne}"
-            cid = hashlib.sha256((source + chunk).encode()).hexdigest()[:16]
-            lignes.append((cid, source, chunk))
+    lignes = lignes_a_indexer(fichiers, slug)
 
     def _op(conn):
         inserted = skipped = 0
@@ -226,15 +347,21 @@ def main() -> int:
                          "indispensable sur un gros depot dont on ne veut que la doc")
     ap.add_argument("--dry-run", action="store_true",
                     help="telecharge et compte, n'ecrit RIEN en base")
+    ap.add_argument("--openstax", action="store_true",
+                    help="manuel OpenStax en CNXML : sections citees au chapitre, licence de la collection en tete "
+                         "de chaque fragment, tarball recu en flux (owner 20/10)")
     args = ap.parse_args()
 
     owner, repo = parse_slug(args.url)
     slug = f"{owner}/{repo}"
-    fichiers, collecte = fetch(owner, repo, args.ref, args.prefixe)
+    fichiers, collecte = fetch(owner, repo, args.ref, args.prefixe, openstax=args.openstax)
+    if args.openstax:
+        fichiers = preparer_openstax(fichiers)
+        collecte["sections"] = len(fichiers)
 
     rapport: dict = {"repo": slug, "url": args.url, "domain": args.domain,
                      "collecte": collecte,
-                     "fichiers": [n for n, _ in fichiers][:60]}
+                     "fichiers": [f[0] for f in fichiers][:60]}
     rapport["index"] = ("DRY-RUN — aucune ecriture" if args.dry_run
                         else index(fichiers, slug, args.domain))
     print(json.dumps(rapport, ensure_ascii=False, indent=2))

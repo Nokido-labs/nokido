@@ -57,7 +57,7 @@ async def detect_best_model(role: str = "chef") -> str:
                 if available:
                     return sorted(available)[0]
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/mode_ping.py', 59, exc_info=True)
     return ""
 
 
@@ -137,7 +137,7 @@ async def run_mode_ping_v2(chat: object, task: str, session: CollabSession | Non
             docs = await re_eng.search(task, k=3)
             rag_ctx = "\n".join(d.get("text", d.get("content", ""))[:300] for d in docs)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/mode_ping.py', 139, exc_info=True)
 
     t = create_task(title=task[:60], description=task, task_type="research", executor="laforge")
     task_id = t["id"]
@@ -186,7 +186,7 @@ async def run_mode_ping(chat: object, task: str, turns: int = 3) -> str:
             docs = prune_rag_context(_raw_docs, intent=_intent, k=3)
             rag_ctx = "\n".join(d.get("content", "")[:300] for d in docs)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/mode_ping.py', 188, exc_info=True)
 
     from nokido_agent.app.forge_task_bus import create_task, inject_rag_context
 

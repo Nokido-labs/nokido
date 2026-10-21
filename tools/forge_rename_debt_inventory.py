@@ -66,6 +66,7 @@ def walk(root: Path):
                 if p.stat().st_size > MAX_BYTES:
                     continue  # dataset/dump : jamais du code
             except OSError:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_rename_debt_inventory.py', 68, exc_info=True)
                 continue
             yield p
 

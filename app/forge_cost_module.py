@@ -65,7 +65,7 @@ def task_cost(state_emb: np.ndarray, goal_emb: np.ndarray) -> float:
 
             return float(predict_cost(state_emb, goal_emb))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_cost_module.py', 67, exc_info=True)
     from nokido_agent.app.forge_state_encoder import cosine_similarity
 
     sim = cosine_similarity(state_emb, goal_emb)

@@ -249,7 +249,7 @@ def llama_down() -> dict:
                        capture_output=True, text=True, errors="replace", timeout=60)
         time.sleep(3)
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_llm_ondemand.py', 251, exc_info=True)
     if not _sert(CIBLES["llama"]["sonde"]):
         return {"cible": "llama", "action": "down", "ok": True,
                 "detail": "tache Nokido-Llama-Up terminee, job ferme"}
@@ -420,7 +420,7 @@ def main() -> int:
             fh.write("%s  %s %s\n%s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"),
                                           action, cible, sortie))
     except OSError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_llm_ondemand.py', 422, exc_info=True)
     return 0 if all(r.get("ok") for r in resultats) else 4
 
 

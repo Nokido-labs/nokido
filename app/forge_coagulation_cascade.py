@@ -138,7 +138,7 @@ def _is_worker_retired(name: str, age_s: int) -> bool:
             if "Running" in (r.stdout or ""):
                 return False  # service actif → vrai breach
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_coagulation_cascade.py', 140, exc_info=True)
     return True  # > 24h ET aucun service running = retiré
 
 
@@ -177,14 +177,14 @@ def capture_state(worker: str) -> str:
                 lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
                 snap[p.name] = lines[-50:]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_coagulation_cascade.py', 179, exc_info=True)
     # PID file si présent
     pid_path = SANDBOX / f"{worker}.pid"
     if pid_path.exists():
         try:
             snap["last_pid"] = pid_path.read_text(encoding="utf-8").strip()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_coagulation_cascade.py', 186, exc_info=True)
     return json.dumps(snap, ensure_ascii=False)[:8000]  # cap 8KB
 
 
@@ -250,7 +250,7 @@ def escalate_embolie(conn, worker: str, breach: dict) -> dict:
             reason=f"embolie {worker} crash >= {EMBOLIE_THRESHOLD} en {EMBOLIE_WINDOW_S}s",
         )
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_coagulation_cascade.py', 252, exc_info=True)
     # 2. Alert via agent_messages
     msg_id = f"coag_embolie_{int(time.time())}"
     payload = json.dumps(

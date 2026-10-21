@@ -37,6 +37,10 @@ from typing import Any, Optional
 _APP_DIR = Path(__file__).resolve().parent
 if str(_APP_DIR) not in sys.path:
     sys.path.insert(0, str(_APP_DIR))
+# Lance par chemin (services.toml) : la RACINE rend `nokido_agent` importable (16/10).
+_RACINE_AMORCE = str(_APP_DIR.parent)
+if _RACINE_AMORCE not in sys.path:
+    sys.path.insert(0, _RACINE_AMORCE)
 
 import networkx as nx
 
@@ -366,7 +370,7 @@ async def run_communities(payload: dict):
         Gu = gs.G.to_undirected() if gs.G.is_directed() else gs.G
         modularity = round(nx.community.modularity(Gu, comms), 4)
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_explorer.py', 372, exc_info=True)
     return {"ok": True, "n_communities": len(comms), "method": method, "modularity": modularity, "communities": summary}
 
 
@@ -382,11 +386,11 @@ async def run_paths(payload: dict):
     try:
         src = int(src)
     except (ValueError, TypeError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_explorer.py', 388, exc_info=True)
     try:
         dst = int(dst)
     except (ValueError, TypeError):
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_graph_explorer.py', 392, exc_info=True)
     result = gs.paths(src, dst, k=k)
     return {"ok": True, **result}
 

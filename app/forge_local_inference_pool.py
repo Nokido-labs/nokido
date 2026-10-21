@@ -134,7 +134,7 @@ def _default_backends() -> dict:
         try:
             backends["cloud_free"] = make_openrouter_free_backend()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_local_inference_pool.py', 136, exc_info=True)
     return backends
 
 
@@ -343,7 +343,7 @@ class LensRoutedPool:
             try:
                 merged.extend(json.loads(o).get(self.merge_key, []) or [])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_local_inference_pool.py', 345, exc_info=True)
         return json.dumps({self.merge_key: merged})
 
     def make_infer_fn(self, *, schema=None, tag=None):
@@ -446,7 +446,7 @@ def make_cloud_remote_fn(*, slots=None, max_tokens: int = 1400, temperature: flo
                             pfr = fw.post_flight(txt, task=prompt, expected_fmt="json" if schema else "text")
                             txt = getattr(pfr, "response", None) or txt
                         except Exception:
-                            pass
+                            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_local_inference_pool.py', 448, exc_info=True)
                         return fw.restore(txt, mapping)
                     last = f"{name}: {res.get('error')}"
                     if _is_rate_limited(res.get("error", "")) and attempt < retries - 1:

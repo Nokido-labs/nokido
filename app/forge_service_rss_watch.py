@@ -235,9 +235,20 @@ def derives(ratio: float = RATIO_DERIVE) -> list[dict]:
     except Exception:  # noqa: BLE001
         _total_go = None
     out = []
-    for nom, e in _charger().items():
+    etat_charge = _charger()
+    # DERNIERE PASSE = le plus recent horodatage : une passe ecrit le MEME `now` pour tout ce qu'elle mesure. Une
+    # entree absente de cette passe est PERIMEE (audit RAM 18/10 : NokidoLlamaNative lu a 5,11 Go 26 min apres
+    # sa mise en sommeil) -- aucun seuil invente, la cadence est celle du capteur lui-meme.
+    passe = max((float(v.get("dernier_ts") or 0) for v in etat_charge.values()), default=0.0)
+    for nom, e in etat_charge.items():
         ref, cur, n = e.get("rss_min"), e.get("rss_dernier"), int(e.get("n") or 0)
         if cur is None:
+            continue
+        ts = float(e.get("dernier_ts") or 0)
+        if passe and ts < passe - 1.0:
+            out.append({"service": nom, "etat": "perime", "rss_dernier_connu_go": cur,
+                        "age_min": int((passe - ts) // 60), "echantillons": n,
+                        "pourquoi": "absent de la derniere passe : valeur PASSEE, ni saine ni en derive"})
             continue
         if ref is None or n < MIN_ECHANTILLONS:
             out.append({"service": nom, "etat": "sans_reference",
@@ -378,6 +389,7 @@ def _main(argv=None) -> int:
             "pic_transitoire": [x for x in d if x["etat"] == "pic_transitoire"],
             "part_machine": [x for x in d if x["etat"] == "part_machine"],
             "sans_reference": [x["service"] for x in d if x["etat"] == "sans_reference"],
+            "perimes": [{"service": x["service"], "age_min": x["age_min"]} for x in d if x["etat"] == "perime"],
             "jamais_mesures": jamais,
             "sains": len([x for x in d if x["etat"] == "sain"]),
         }, ensure_ascii=False, indent=2))

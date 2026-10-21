@@ -175,7 +175,7 @@ def alignment_health() -> dict:
             burst = sum(1 for e in ev if e.get("ts", 0) >= tmax - 300
                         and any(x in (e.get("verdict") or "") for x in ("deny", "reject", "drop")))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_alignment_invariants.py', 177, exc_info=True)
     # F5 : anomalie = capteur qui perd des events OU rafale de refus (derive active/attaque).
     # Distinct du drift d'enforcement : le verdict reste pilote par l'ecart au set-point.
     anomaly = sensor_fail > 0 or burst >= _BURST_THRESHOLD

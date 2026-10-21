@@ -181,7 +181,7 @@ def _chunk_code(filepath: str, content: str) -> list[tuple[str, str]]:
                 chunks.append((f"src:{filepath}:{name}:{cid}", text))
             return chunks
     except SyntaxError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ingest_self.py', 183, exc_info=True)
 
     # Fallback : découpe par blocs de CHUNK_MAX
     for i in range(0, len(content), CHUNK_MAX - len(header)):
@@ -247,7 +247,7 @@ Nokido émet les tokens LF- et reste souverain.
             infra_path.write_text(manifest, encoding="utf-8")
             logger.info("[IngestSelf] INFRA.md généré")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ingest_self.py', 249, exc_info=True)
     return manifest
 
 

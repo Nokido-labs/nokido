@@ -865,7 +865,7 @@ def _purge_conv_archives(dry: bool) -> dict:
             try:
                 con.executemany("DELETE FROM conv_archives_fts WHERE arch_id=?", arch)
             except sqlite3.Error:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_log_retention.py', 867, exc_info=True)
             con.executemany("DELETE FROM rag_chunks WHERE id=?", chunks)
             con.commit()
         return {"conv_archives_pruned": n, "keep_per_agent": keep, "dry_run": dry}
@@ -1267,11 +1267,27 @@ def _purge_signal_emissions(dry: bool) -> dict:
                     "SELECT COALESCE(SUM(n), 0) FROM %s" % t).fetchone()[0]
             except sqlite3.OperationalError:
                 out["%s_couples" % t] = "table absente (module pas encore sollicite)"
+        # Tables PAR EVENEMENT (19/10) : journal date des secretions (stabilite) et provenances des reveils
+        # (qui/pourquoi). Elles croissent avec le temps : purge au-dela de la retention, compte DIT, dry compris.
+        maintenant = time.time()
+        for t, retention in (("emissions_journal", 14 * 86400), ("provenances", 90 * 86400)):
+            try:
+                if dry:
+                    out["%s_purges" % t] = con.execute(
+                        "SELECT COUNT(*) FROM %s WHERE ts < ?" % t, (maintenant - retention,)).fetchone()[0]
+                else:
+                    out["%s_purges" % t] = con.execute(
+                        "DELETE FROM %s WHERE ts < ?" % t, (maintenant - retention,)).rowcount
+                    con.commit()
+                out["%s_retention_j" % t] = retention // 86400
+            except sqlite3.OperationalError:
+                out["%s_purges" % t] = "table absente (module pas encore sollicite)"
         con.close()
     except Exception as exc:
         return {"signal_emissions_error": "%s: %s" % (type(exc).__name__, str(exc)[:90])}
-    out["purge"] = ("aucune — bornees par UPSERT ; la trace fait le diagnostic "
-                    "(degenerescence, et lectures vs transductions pour le leurre)")
+    out["purge"] = ("emissions/lectures/transductions : aucune — bornees par UPSERT ; la trace fait le diagnostic "
+                    "(degenerescence, et lectures vs transductions pour le leurre) ; emissions_journal 14 j, "
+                    "provenances 90 j")
     return out
 
 

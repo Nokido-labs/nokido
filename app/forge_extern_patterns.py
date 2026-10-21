@@ -121,7 +121,7 @@ class _ASTExtractor(ast.NodeVisitor):
             try:
                 bases.append(ast.unparse(b))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_extern_patterns.py', 123, exc_info=True)
         methods = []
         for item in node.body:
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -358,10 +358,11 @@ def ingest_ast_nodes_to_rag(
     Pointer: FAISS returns chunk_id → load meta from rag_chunks → exact AST.
     Returns number of rows inserted.
     """
-    import hashlib, json, sqlite3
+    import hashlib, json
 
-    db_path = db_path or Path(__file__).resolve().parent.parent / "RAG" / "embeddings.db"
-    conn = sqlite3.connect(db_path)
+    from nokido_agent.app import forge_db_path as _dbp
+
+    db = str(db_path or Path(__file__).resolve().parent.parent / "RAG" / "embeddings.db")
     inserted = 0
 
     def _insert(node: dict, kind: str):
@@ -378,17 +379,24 @@ def ingest_ast_nodes_to_rag(
         chunk_id = hashlib.sha256(f"{source}:{text}".encode()).hexdigest()[:16]
         meta_json = json.dumps({"ast_kind": kind, "lib": lib_name, "node": node}, ensure_ascii=False)
         try:
-            conn.execute(
-                """INSERT OR IGNORE INTO rag_chunks
-                   (id, text, source, domain, meta, quality_score)
-                   SELECT ?, ?, ?, ?, ?, ?
-                   WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)""",
-                (chunk_id, text, source, "extern_pattern", meta_json, 0.85, chunk_id),
-            )
-            # sync FTS5
-            conn.execute(
-                "INSERT OR IGNORE INTO rag_fts(chunk_id, text, source, domain) VALUES (?,?,?,?)",
-                (chunk_id, text, source, "extern_pattern"),
+            # Une ecriture par noeud, reprise sur verrou (`write_retry`) ; le socle ouvre sa PROPRE connexion, bornee a
+            # `db`. Le `try` garde la tolerance PAR NOEUD d'origine (lot 1, integre de c4f627a9f, 18/10).
+            _dbp.write_retry(
+                lambda c: (
+                    c.execute(
+                        """INSERT OR IGNORE INTO rag_chunks
+                           (id, text, source, domain, meta, quality_score)
+                           SELECT ?, ?, ?, ?, ?, ?
+                           WHERE NOT EXISTS (SELECT 1 FROM rag_chunks WHERE id = ?)""",
+                        (chunk_id, text, source, "extern_pattern", meta_json, 0.85, chunk_id),
+                    ),
+                    # sync FTS5
+                    c.execute(
+                        "INSERT OR IGNORE INTO rag_fts(chunk_id, text, source, domain) VALUES (?,?,?,?)",
+                        (chunk_id, text, source, "extern_pattern"),
+                    ),
+                ),
+                path=db,
             )
             inserted += 1
         except Exception as e:
@@ -403,8 +411,6 @@ def ingest_ast_nodes_to_rag(
             m_copy["class"] = cls["name"]
             _insert(m_copy, "method")
 
-    conn.commit()
-    conn.close()
     logger.info(f"[ast_ingest] {lib_name}: {inserted} AST nodes → rag_chunks.meta")
     return inserted
 

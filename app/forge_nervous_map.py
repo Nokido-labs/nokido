@@ -99,17 +99,17 @@ def organ_agents() -> dict:
         from nokido_agent.app import forge_keeper_base as kb
         out["keepers"] = sorted(kb.discover().keys())
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_nervous_map.py', 101, exc_info=True)
     try:
         from nokido_agent.app import forge_flow_control as fc
         out["flow_control"] = sorted(fc.team()["agents"].keys())
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_nervous_map.py', 106, exc_info=True)
     try:
         from nokido_agent.app import forge_organ_agents as oa
         out["organ_families"] = [r["family"] for r in oa.census()["families"]]
     except Exception:  # noqa: BLE001
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_nervous_map.py', 111, exc_info=True)
     return out
 
 

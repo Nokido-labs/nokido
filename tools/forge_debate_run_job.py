@@ -28,7 +28,7 @@ try:
                "SENTENCE_TRANSFORMERS_HOME", "XDG_CACHE_HOME"):
         os.environ.setdefault(_k, str(_HFC))
 except Exception:  # noqa: BLE001
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_debate_run_job.py', 30, exc_info=True)
 
 
 def main():

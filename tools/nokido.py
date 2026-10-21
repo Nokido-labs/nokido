@@ -38,7 +38,7 @@ try:
 
     load_env_file()
 except Exception:
-    pass  # fail-silent : l env shell reste prioritaire
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido.py', 40, exc_info=True)
 
 
 def _dim(s):
@@ -158,7 +158,13 @@ def cmd_doctor() -> int:
             print(f"  [{_r('KO')}] {m}")
             rc = 1
 
-    token = os.environ.get("LAFORGE_ADMIN_TOKEN")
+    try:  # coffre d'abord (get_secret replie lui-meme sur l'env) ; coffre illisible -> env, DIT (16/10)
+        from nokido_agent.app.forge_secrets import get_secret
+
+        token = get_secret("LAFORGE_ADMIN_TOKEN")
+    except Exception as _e_tok:  # noqa: BLE001
+        print(f"  [{_r('KO')}] coffre illisible ({type(_e_tok).__name__}) -> repli environnement")
+        token = os.environ.get("LAFORGE_ADMIN_TOKEN")
     if token:
         print(f"  [{_g('OK')}] LAFORGE_ADMIN_TOKEN set ({len(token)} chars)")
     else:

@@ -183,7 +183,7 @@ try:
 
     Static = _Static
 except ImportError:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 185, exc_info=True)
 
 
 # Fonctions globales de Nokido.py — lazy via __main__
@@ -273,7 +273,7 @@ class PatchMixin:
         try:
             self.query_one("#staging-indicator", Static).update(icons.get(state, ""))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 275, exc_info=True)
 
     def _saved_sessions(self) -> List[str]:
         """Saved sessions."""
@@ -578,7 +578,7 @@ class PatchMixin:
                                     f"[{_tag}|{_d.get('source', '?')[:20]}] {_d.get('content', '')[:250]}"
                                 )
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 580, exc_info=True)
                 rag_ctx = "\n".join(_ctx_parts[:12])
                 chat.write(f"[dim]  📖 {len(_ctx_parts)} extraits RAG[/]")
             except Exception as _re:
@@ -755,7 +755,7 @@ class PatchMixin:
                 _gauge = self.query_one("#entropy-gauge", EntropyGauge)
                 _gauge.refresh_entropy(agentic_engine.entropy_level(), agentic_engine.entropy_color())
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 757, exc_info=True)
 
         chat.write(
             f"[bold #58a6ff]Audit v{version_manager.current_version}[/]"
@@ -774,7 +774,7 @@ class PatchMixin:
                     f"\nA:{reply_a[:1000]}\nB:{reply_b[:500]}\nC:{reply[:2000]}",
                 )
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 776, exc_info=True)
 
         # ── Parser suggestions Agent C ─────────────────────────────────────
         self.last_audit_suggestions = []
@@ -819,7 +819,7 @@ class PatchMixin:
             try:
                 self.query_one("#chat-input", _lazy("AutocompleteInput")).focus()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 821, exc_info=True)
         else:
             chat.write("[dim]Aucune suggestion Agent C exploitable.[/]")
 
@@ -873,7 +873,7 @@ class PatchMixin:
 
                     _f.write(_r.sub(r"\[.*?\]", "", msg) + "\n")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 875, exc_info=True)
 
         def _ver_key(path: Path) -> list:
             """Ver key.
@@ -1059,7 +1059,7 @@ class PatchMixin:
                     version_manager._loop_id = None
                     version_manager._loop_trunk = None
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1061, exc_info=True)
 
                 # Archiver l'ancienne version dans versions/
                 try:
@@ -1072,7 +1072,7 @@ class PatchMixin:
                         (base_dir / "versions").mkdir(exist_ok=True)
                         _sh.copy2(_old, _arc)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1074, exc_info=True)
 
                 _vlog(f"  ✅ Mergé       : {best_path.name} → workspace/")
                 _vlog("  📦 Ancien      : archivé dans versions/")
@@ -1151,15 +1151,9 @@ class PatchMixin:
             )
 
             def log_fn(msg: str) -> None:
-                """Log fn.
-
-                Args:
-                    msg: Description.
-                """
-                try:
-                    self._chat_log().write(msg)
-                except Exception:
-                    pass
+                """Ecrit au journal du chat ; une erreur est journalisee, jamais propagee."""
+                from nokido_agent.app.forge_trace_context import appeler_sans_lever
+                appeler_sans_lever(lambda: self._chat_log().write(msg), ou="forge_mixin_patch.log_fn")
 
             async def run_loop() -> None:
                 """Run loop."""
@@ -1213,7 +1207,7 @@ class PatchMixin:
                         )
                         log_fn(f"[dim]→ Traceback complet : logs/loop_error_{loop_id}.log[/]")
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1215, exc_info=True)
                     version_manager.end_loop_trunk(merge=False)
 
             self._loop_task = asyncio.create_task(run_loop())
@@ -1328,7 +1322,7 @@ class PatchMixin:
             with open(_DATA_DIR / "gold_samples.jsonl", "a", encoding="utf-8") as _gf:
                 _gf.write(json.dumps(_gold, ensure_ascii=False) + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1330, exc_info=True)
         if _ask_restart:
             self._propose_restart(f"suggestion {num} → v{_nv}")
         return True
@@ -1356,12 +1350,12 @@ class PatchMixin:
                     try:
                         await self.terminal.disconnect()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1358, exc_info=True)
                     try:
                         if HAS_ONNX:
                             shutdown_onnx_backend()
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_mixin_patch.py', 1363, exc_info=True)
                     await _aio.sleep(0.3)
                     import os as _os, sys as _sys
 

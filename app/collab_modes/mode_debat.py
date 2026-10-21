@@ -151,7 +151,7 @@ async def run_mode_debat(chat: object, task: str, rounds: int = 2) -> str:
             if sid and sid != "collab":
                 set_paranoid_mode(sid, True)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/collab_modes/mode_debat.py', 153, exc_info=True)
 
     exchanges.append(
         {

@@ -758,7 +758,13 @@ def main():
 
     # 3. SKILL.md pour IAs
     if not args.no_skill:
-        update_skill_md(changed, dry_run=args.dry_run)
+        # 19/10 : non bloquant, comme ses voisines. Sous le compte bac a sable, JOURNAL_COMMITS.md est refuse
+        # (PermissionError) ; l'exception tuait main() et les etapes 4.5 (cartes), 4.55 et 4.6 ne tournaient plus
+        # depuis le 17/10 23:01 (73 cartes derivees). L'echec est DIT, les etapes suivantes tournent.
+        try:
+            update_skill_md(changed, dry_run=args.dry_run)
+        except Exception as e:  # noqa: BLE001 - n'emporte jamais le post-commit
+            log.warning("SKILL.md: echec (%s: %s) -- etapes suivantes maintenues", type(e).__name__, str(e)[:160])
     else:
         log.info("SKILL.md: skipped (--no-skill)")
 

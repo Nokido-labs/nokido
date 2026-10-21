@@ -381,7 +381,7 @@ def _post(body: bytes, req_id: Any = None, attempt: int = 0) -> bytes:
                 try:
                     r.fp.raw._sock.settimeout(_SSE_IDLE)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/mcp_stdio_bridge.py', 383, exc_info=True)
                 last = None
                 _deadline = time.monotonic() + _SSE_MAX
                 for line in r:
@@ -655,7 +655,7 @@ def _handle_single(obj: dict) -> bytes | None:
                 _write_out(notif)
                 logger.info("tools/list_changed envoyé post-initialized (spec §3.1)")
             except:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/mcp_stdio_bridge.py', 657, exc_info=True)
 
         _th.Thread(target=_notify_changed, daemon=True).start()
 

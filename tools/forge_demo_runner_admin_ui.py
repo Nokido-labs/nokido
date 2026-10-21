@@ -131,7 +131,7 @@ def main() -> int:
                     )
                     time.sleep(1.0)
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_runner_admin_ui.py', 133, exc_info=True)
             time.sleep(1.0)
             ctx.close()
             browser.close()

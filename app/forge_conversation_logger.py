@@ -164,11 +164,18 @@ def log_turn(
         logger.warning("[CONV_LOG] DLP indisponible (%s) | consequence: tour %s NON copie "
                        "dans rag_chunks (journal intact)", type(_e_dlp).__name__, chunk_id)
     if rag_etat != "NON_INDEXE_DLP_INDISPONIBLE":
-        conn.execute(
-            "INSERT OR REPLACE INTO rag_chunks(id,text,source,domain,role_hint,author,ingested_at) VALUES(?,?,?,?,?,?,?)",
-            (chunk_id, text_chunk, f"session:{session_id}", EPISODIC_DOMAIN, role, agent, ts),
+        # `write_retry` ouvre sa PROPRE connexion : on lui donne `path=db`, la base que `_get_conn(db)` vient de lire.
+        # Le defaut du socle ferait partir la copie dans la base historique quand `db_path=` designe une autre base.
+        # (lot 1 de migration des ecrivains nus, integre de c4f627a9f, 18/10)
+        from nokido_agent.app import forge_db_path as _dbp
+
+        _dbp.write_retry(
+            lambda c: c.execute(
+                "INSERT OR REPLACE INTO rag_chunks(id,text,source,domain,role_hint,author,ingested_at) VALUES(?,?,?,?,?,?,?)",
+                (chunk_id, text_chunk, f"session:{session_id}", EPISODIC_DOMAIN, role, agent, ts),
+            ),
+            path=db,
         )
-        conn.commit()
     conn.close()
 
     print(f"[CONV_LOG] turn={turn_idx} role={role} session={session_id[:8]} chunk={chunk_id}", flush=True)
@@ -244,21 +251,23 @@ def _auto_consolidate(session_id: str, db_path: str) -> None:
         summary_text += "  [" + t["role"] + "] " + t["content"][:200] + "\n"
 
     chunk_id = f"lt_{session_id[:8]}_{datetime.now().strftime('%H%M%S')}"
-    conn2 = _get_conn(db_path)
-    conn2.execute(
-        "INSERT OR REPLACE INTO rag_chunks(id,text,source,domain,role_hint,author,ingested_at) VALUES(?,?,?,?,?,?,?)",
-        (
-            chunk_id,
-            summary_text[:MAX_CHUNK_CHARS],
-            f"session:{session_id}",
-            LONGTERM_DOMAIN,
-            "consolidation",
-            "SYSTEM",
-            datetime.now().isoformat(),
+    from nokido_agent.app import forge_db_path as _dbp
+
+    _dbp.write_retry(
+        lambda c: c.execute(
+            "INSERT OR REPLACE INTO rag_chunks(id,text,source,domain,role_hint,author,ingested_at) VALUES(?,?,?,?,?,?,?)",
+            (
+                chunk_id,
+                summary_text[:MAX_CHUNK_CHARS],
+                f"session:{session_id}",
+                LONGTERM_DOMAIN,
+                "consolidation",
+                "SYSTEM",
+                datetime.now().isoformat(),
+            ),
         ),
+        path=db_path,
     )
-    conn2.commit()
-    conn2.close()
     print(f"[CONV_LOG] consolidation → {chunk_id} ({len(summary_text)}c)", flush=True)
 
 

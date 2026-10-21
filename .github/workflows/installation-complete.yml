@@ -18,9 +18,9 @@ on:
   workflow_dispatch:
     inputs:
       pack_version:
-        description: "Version de la release dont importer le Knowledge Pack"
+        description: "Version de la release PUBLIEE dont importer le Knowledge Pack (vide = la derniere publiee)"
         required: false
-        default: "0.20.9"
+        default: ""
       paquet:
         description: "Parcours paquet : 'construire' (wheel du clone teste) ou une spec pip (nokido-agent[organisme]==X)"
         required: false
@@ -30,19 +30,76 @@ permissions:
   contents: read
 
 jobs:
+  # Pack CANDIDAT (owner 16/10 : « il faut etre sur d'avoir des livrables fonctionnels E2E »). Une repetition (push
+  # essai/**) importe le Knowledge Pack de la release BROUILLON vX -- X = version du snapshot teste -- et non celui d'une
+  # release deja publiee : 0.20.12 a ete essayee avec le pack 0.20.9 (defaut fige) alors que le pack livre etait refuse
+  # par l'importeur. Brouillon absent = repetition ROUGE, jamais un repli silencieux sur un vieux pack.
+  # Seul job en `contents: write` : l'API ne montre un brouillon qu'a qui peut pousser. Il ne fait que LIRE la release
+  # et le pyproject (checkout clairseme), sans executer de code du depot.
+  pack-candidat:
+    name: Pack candidat (release brouillon)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha256: ${{ steps.dl.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: pyproject.toml
+          sparse-checkout-cone-mode: false
+      - id: v
+        run: echo "version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")" >> "$GITHUB_OUTPUT"
+      - id: dl
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          brouillon=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.draft and .tag_name == \"v$V\") | .id" | head -n 1)
+          if [ -z "$brouillon" ]; then
+            echo "::error::aucune release BROUILLON v$V : le pack candidat n'est pas depose, la repetition ne testerait pas les connaissances livrees"
+            exit 1
+          fi
+          mkdir -p pack
+          gh release download "v$V" --repo "$GITHUB_REPOSITORY" --pattern "nokido_knowledge_pack_v$V.npz" --dir pack
+          sha=$(sha256sum "pack/nokido_knowledge_pack_v$V.npz" | cut -d' ' -f1)
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          echo "pack candidat v$V (brouillon $brouillon) : $sha"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pack-candidat
+          path: pack/
+          if-no-files-found: error
+
   installation:
     name: Installation complete ${{ matrix.os }}
+    needs: [pack-candidat]
+    # dispatch (livrables PUBLIES) : pack-candidat est saute ; repetition : il doit avoir reussi
+    if: ${{ always() && (needs.pack-candidat.result == 'success' || needs.pack-candidat.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        # 3 OS (owner 16/10 : « livrer des versions sur les 3 OS pleinement fonctionnelles ») -- l'installation
+        # complete (protheses, embedder, pack, RAG, hub) ne tournait que sous Windows et Ubuntu.
+        os: [windows-latest, ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
+      - name: Pack candidat (repetition)
+        if: github.event_name == 'push'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: pack-candidat
+          path: _pack
       # La commande d'installation que nokido-doctor donne a l'utilisateur, dans le shell qu'il utiliserait.
       # 3e passe (07/10) : lance depuis bash sous Windows, install.ps1 prenait le tar de Git Bash
       # (« Cannot connect to C: resolve failed »), n'extrayait rien, et affichait « installed successfully ».
@@ -58,9 +115,63 @@ jobs:
         run: |
           curl -fsSL https://deno.land/install.sh | sh
           echo "$HOME/.deno/bin" >> "$GITHUB_PATH"
+      # Conteneurs LINUX sous Windows (audit de la dist publique, 20/10) : la sonde sonde-wsl2-windows.yml a MESURE
+      # WSL2 fonctionnel sur windows-latest, docker.io demarre par systemd dans Ubuntu-24.04 et le CLI Windows pilote
+      # ce daemon par DOCKER_HOST (run 39423950182). Limite DITE : Docker Engine dans WSL2, PAS Docker Desktop. Un echec
+      # ici n'arrete pas la recette : son etape docker rend alors NON_TESTE en nommant WSL2.
+      - name: Docker Engine dans WSL2 (Windows)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          wsl --install -d Ubuntu-24.04 --web-download --no-launch
+          $u = @('-d','Ubuntu-24.04','-u','root','-e')
+          wsl @u apt-get update -qq
+          wsl @u apt-get install -y -qq docker.io
+          # systemd demarre docker.io a l'installation : une surcharge le fait AUSSI ecouter tcp://127.0.0.1:2375,
+          # contenu passe par l'entree standard (aucun guillemetage pwsh -> sh, 1re passe de la sonde).
+          wsl @u mkdir -p /etc/systemd/system/docker.service.d
+          "[Service]`nExecStart=`nExecStart=/usr/bin/dockerd -H fd:// -H tcp://127.0.0.1:2375 --containerd=/run/containerd/containerd.sock`n" | wsl @u tee /etc/systemd/system/docker.service.d/tcp.conf
+          wsl @u systemctl daemon-reload
+          wsl @u systemctl restart docker
+          # WSL arrete une distribution sans processus client : un `sleep` la garde vivante jusqu'a la fin du job.
+          Start-Process wsl -ArgumentList '-d','Ubuntu-24.04','-u','root','-e','sleep','infinity' -WindowStyle Hidden
+          $env:DOCKER_HOST = "tcp://127.0.0.1:2375"
+          $os = ""
+          for ($i = 0; $i -lt 40; $i++) {
+            $os = docker version --format '{{.Server.Os}}/{{.Server.Arch}}' 2>$null
+            if ($os) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $os) { wsl @u journalctl -u docker --no-pager -n 20; exit 1 }
+          "Server=$os"
+          "DOCKER_HOST=tcp://127.0.0.1:2375" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      # Chiffrement at-rest OBLIGATOIRE depuis 230f9e15b (decision owner 20/10, « Provisionner, sinon refus dit ») :
+      # les runners GitHub n'ont ni VeraCrypt ni cryptsetup, donc la recette s'arreterait. On PROVISIONNE par OS AVANT
+      # la recette ; chaque installation continue-on-error -- un echec n'arrete pas le job, la recette passe alors un
+      # refus EXPLICITE motive « runner CI » que le rapport dit (jamais un faux vert silencieux).
+      - name: Chiffrement at-rest -- Windows (VeraCrypt)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: choco install veracrypt -y --no-progress
+      - name: Chiffrement at-rest -- Linux (cryptsetup/LUKS)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cryptsetup
+      - name: Chiffrement at-rest -- macOS (VeraCrypt)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        run: brew install --cask veracrypt
       - name: Acceptation de l'installation complete
         env:
-          NOKIDO_PACK_VERSION: ${{ inputs.pack_version || '0.20.9' }}
+          NOKIDO_PACK_VERSION: ${{ inputs.pack_version || needs.pack-candidat.outputs.version }}
+          NOKIDO_PACK_FICHIER: ${{ github.event_name == 'push' && format('{0}/_pack/nokido_knowledge_pack_v{1}.npz', github.workspace, needs.pack-candidat.outputs.version) || '' }}
+          NOKIDO_PACK_SHA256: ${{ needs.pack-candidat.outputs.sha256 }}
           # dans le dossier de travail : `~` n'est pas developpe par upload-artifact sous Windows (1er passage, 07/10)
           NOKIDO_RUNTIME: ${{ github.workspace }}/_runtime
           PYTHONUTF8: "1"
@@ -81,17 +192,45 @@ jobs:
   # desinstallation et residus. Le clone ne sert qu'a fournir le script : cwd et PYTHONPATH l'excluent du parcours.
   paquet:
     name: Parcours paquet ${{ matrix.os }}
+    needs: [pack-candidat]
+    if: ${{ always() && (needs.pack-candidat.result == 'success' || needs.pack-candidat.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
+      - name: Pack candidat (repetition)
+        if: github.event_name == 'push'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: pack-candidat
+          path: _pack
+      # Chiffrement at-rest OBLIGATOIRE (230f9e15b, decision owner 20/10) : provisionne par OS AVANT la recette, un
+      # echec n'arrete pas le job. `nokido-composants --tout` exige VeraCrypt (Windows/macOS) ou cryptsetup (Linux) ;
+      # la ou le provisionnement echoue, le parcours passe `--sans-chiffrement --motif-refus` (refus consigne, DIT).
+      - name: Chiffrement at-rest -- Windows (VeraCrypt)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: choco install veracrypt -y --no-progress
+      - name: Chiffrement at-rest -- Linux (cryptsetup/LUKS)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y cryptsetup
+      - name: Chiffrement at-rest -- macOS (VeraCrypt)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        shell: bash
+        run: brew install --cask veracrypt
       - name: Parcours du README (wheel du snapshot, ou spec PyPI)
         shell: bash
         env:
@@ -99,6 +238,9 @@ jobs:
           PYTHONUTF8: "1"
           # par l'environnement, jamais interpole dans le script : une entree n'est pas du code
           SPEC_PAQUET: ${{ inputs.paquet || 'construire' }}
+          NOKIDO_PACK_VERSION: ${{ inputs.pack_version || needs.pack-candidat.outputs.version }}
+          NOKIDO_PACK_FICHIER: ${{ github.event_name == 'push' && format('{0}/_pack/nokido_knowledge_pack_v{1}.npz', github.workspace, needs.pack-candidat.outputs.version) || '' }}
+          NOKIDO_PACK_SHA256: ${{ needs.pack-candidat.outputs.sha256 }}
         run: |
           set -e
           if [ "$SPEC_PAQUET" = "construire" ]; then
@@ -131,7 +273,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-24.04, macos-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7

@@ -107,7 +107,7 @@ def _decode(blob) -> list:
             if isinstance(v, list) and len(v) == DIM:
                 return v
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_beir.py', 109, exc_info=True)
     return None
 
 
@@ -268,6 +268,7 @@ def main() -> None:
         try:
             queries.append(json.loads(_l))
         except json.JSONDecodeError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_beir.py', 270, exc_info=True)
             continue
     # qrels reconstruit (mapping deterministe qid 'q{i:04d}' -> picked[i])
     gchunks = [c for c in sample if 250 <= len(c["text"]) <= 4000]
@@ -278,6 +279,7 @@ def main() -> None:
         try:
             idx = int(q["_id"].lstrip("q"))
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_bench_beir.py', 280, exc_info=True)
             continue
         if idx < len(picked):
             qrels[q["_id"]] = {picked[idx]["id"]: 1}

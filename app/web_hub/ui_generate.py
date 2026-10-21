@@ -604,7 +604,7 @@ def generate_ui(
                 "\n\nDonnees disponibles :\n```json\n" + json.dumps(data_source, indent=2, default=str)[:1500] + "\n```"
             )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/web_hub/ui_generate.py', 606, exc_info=True)
 
     prompt = SYSTEM_PROMPT_UI + "\n\nGenere : " + description + data_ctx
 

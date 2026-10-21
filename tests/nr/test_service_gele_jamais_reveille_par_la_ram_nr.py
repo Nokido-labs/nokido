@@ -51,3 +51,31 @@ def test_garde_du_garde():
             '    state.status === "sleeping"\n  ) {\n    log(`Waking ${n}`);\n  }\n}\n')
     conds = _reveils_ram(faux)
     assert len(conds) == 1 and "!state.def.disabled" not in conds[0]
+
+
+# --- Sommeil VOULU (bail de priorite, 17/10) -------------------------------------------------------------------------
+# Mesure 16/10 (logs/supervisor/laforge-master.log) : 21:36:16 POST /supervisor/sleep/NokidoDeportEmbed (le bail de la
+# CI de reference) ; 21:37:07 « Waking NokidoDeportEmbed (RAM now 69.7%) » SANS trace POST -- le reveil RAM levait un
+# sommeil VOULU 51 s apres, en pleine CI. Un sommeil explicite porte une ECHEANCE bornee (jamais eternel : un appelant
+# qui compterait sur le reveil RAM ne perd pas son service pour toujours) ; seule une intention (wake, restart) le leve.
+def _branche(src: str, action: str) -> str:
+    i = src.index('if (action === "%s") {' % action)
+    return _sans_commentaires(src[i:src.index("\n    }", i)])
+
+
+def test_le_reveil_ram_respecte_un_sommeil_voulu():
+    conds = _reveils_ram(SUP.read_text(encoding="utf-8"))
+    assert conds
+    for c in conds:
+        assert "sommeilVouluJusquaMs" in c, "reveil RAM sans garde du sommeil voulu : un bail ne tient pas :\n" + c
+
+
+def test_le_sommeil_explicite_pose_une_echeance_bornee():
+    b = _branche(SUP.read_text(encoding="utf-8"), "sleep")
+    assert "state.sommeilVouluJusquaMs = Date.now() +" in b and "SOMMEIL_VOULU_TTL_MS" in b, b
+
+
+def test_une_intention_leve_le_sommeil_voulu():
+    src = SUP.read_text(encoding="utf-8")
+    for action in ("wake", "restart"):
+        assert "state.sommeilVouluJusquaMs = 0" in _branche(src, action), action

@@ -60,6 +60,7 @@
   <button class="tab on" id="tabC" onclick="show('chat')">💬 Chat</button>
   <button class="tab" id="tabS" onclick="show('schema')">🕸 Schéma</button>
   <span id="conn" class="conn off">déconnecté</span>
+  <span id="registre" class="conn off" title="provenance des rings/canaux affichés">registre : liste locale (live non lu)</span>
 </header>
 <div class="wrap">
   <div class="col left">
@@ -181,7 +182,13 @@ function connect(){ const es=new EventSource("/api/swarm/stream");
 // (ring/canal = registre source de vérité ; rôles curés gardés ; nouveaux agents auto-ajoutés).
 fetch('/api/agents').then(r=>r.json()).then(d=>{ if(d&&d.ok) for(const[n,m] of Object.entries(d.agents||{})){
   if(!AGENTS[n]) AGENTS[n]={role:(m.transport||'agent'),ring:m.ring,ch:m.channel};
-  else { AGENTS[n].ring=m.ring; AGENTS[n].ch=m.channel; } } renderAgents(); }).catch(()=>{});
+  else { AGENTS[n].ring=m.ring; AGENTS[n].ch=m.channel; } }
+  registre(d&&d.ok, d&&d.ok ? "" : (d&&d.error)||"réponse sans ok"); renderAgents(); })
+  .catch(e=>registre(false, String(e)));
+// Echec du registre live = le DIRE : les rings/canaux affichés viennent alors de la liste codée ci-dessus.
+function registre(live, raison){ const el=document.getElementById("registre");
+  el.textContent = live ? "registre : live" : "registre : liste locale (live indisponible)";
+  el.className = "conn " + (live ? "on" : "off"); el.title = live ? "/api/agents" : ("/api/agents : " + raison); }
 connect(); setInterval(renderAgents,5000);
 </script>
 </body>

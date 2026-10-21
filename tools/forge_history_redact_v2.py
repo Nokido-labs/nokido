@@ -89,7 +89,7 @@ def count_tight_files(ref):
             try:
                 res.append((path, int(parts[-1])))
             except ValueError:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_history_redact_v2.py', 91, exc_info=True)
     return res
 
 
@@ -123,7 +123,7 @@ for line in g(["grep", "-cI", "REMOVED_TOKEN", "refs/heads/alpha"], check=False)
     try:
         removed += int(line.split(":")[-1])
     except ValueError:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_history_redact_v2.py', 125, exc_info=True)
 
 alpha_tight = count_tight_files("refs/heads/alpha")
 non_detection = [(p, c) for p, c in alpha_tight if p not in DETECTION_FILES]

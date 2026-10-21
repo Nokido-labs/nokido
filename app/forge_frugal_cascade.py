@@ -192,7 +192,7 @@ def _heuristic_confidence(text: str, prompt: str) -> float:
             json.loads(text.strip())
             score += 0.3
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_frugal_cascade.py', 194, exc_info=True)
 
     # Has structure
     if "\n" in text or "- " in text or "1. " in text:

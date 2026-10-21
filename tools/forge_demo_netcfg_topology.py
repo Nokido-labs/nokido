@@ -71,6 +71,7 @@ def main() -> int:
                     time.sleep(5.0)
                     break
                 except Exception:
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_demo_netcfg_topology.py', 73, exc_info=True)
                     continue
 
             time.sleep(max(0, args.duration - 15))

@@ -198,6 +198,7 @@ def _fiches() -> dict[str, dict]:
             d = json.loads(f.read_text(encoding="utf-8"))
             out[d["compte"]] = d["capacites"]
         except (OSError, ValueError, KeyError):
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_compte_capabilites.py', 200, exc_info=True)
             continue
     return out
 

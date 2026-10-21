@@ -1,9 +1,10 @@
-# Pack knowledge : la base de connaissances RAG, exportee en int8.
+# Pack knowledge : le Knowledge Pack essentiel (fragments prouves publics, vecteurs bge-m3 en float16 -- l'ancien
+# en-tete disait int8, le code n'a jamais ecrit que du float16) et un pack par SOURCE documentaire tierce.
 schema = "nokido-distribution/pack"
 version_schema = 1
 id = "knowledge"
 statut = "PRET"
-plateformes = ["windows-x64", "linux-x64"]
+plateformes = ["windows-x64", "linux-x64", "macos-arm64", "macos-x64"]
 
 [[composant]]
 id = "knowledge-pack"
@@ -16,4 +17,238 @@ taille = "au_build"
 # dans un fichier publie du depot public (au commit promu) : son contenu EST le depot, sous sa licence.
 # L'ancien export (toute la base : veilles tierces, memoire de l'owner) etait NOASSERTION -- et refuse.
 licence = "AGPL-3.0-or-later"
+obligatoire = true
+
+# ── Packs par SOURCE documentaire tierce (decisions owner du 2026-10-20) ────────────────────────────────────────
+# Un pack par source = par licence, chacun avec sa NOTICE ; tous obligatoires : tout est telecharge par defaut.
+# Licence, conditions et preuve : audit source par source du 20/10 (tableau noir discovered_facts,
+# licences_rag_public_20261020, lot 2 : docs/audit/licences_docsets_lot2_20261020.md d'AGY). JAMAIS livres :
+# documentations Claude et Claude Code (conditions commerciales d'Anthropic), Pro Git (CC BY-NC-SA), et Redis --
+# retire le 20/10 : sa documentation actuelle (redis/docs) est en CC BY-NC-SA 4.0, seules d'anciennes archives
+# (redis-doc) etaient en CC BY-SA ; la version de notre docset est inconnue, donc on s'abstient. Liste blanche : une
+# source absente d'ici n'est jamais exportee.
+
+# RFC (20/10) : IETF TLP 5.0 section 3.c.iii (audit AGY 536584cee) ; la NOTICE joint la legende de CHAQUE RFC retenue.
+[[composant]]
+id = "knowledge-rfc"
+description = "RFC de l'IETF citees par le code et l'owner : fragments verbatim et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "rfc"
+licence = "IETF-TLP-5.0"
+conditions = "fragments verbatim attribues ; legende d'origine et auteurs de chaque RFC joints a la NOTICE"
+preuve = "https://trustee.ietf.org/license-info/"
+obligatoire = true
+
+# Physiologie (20/10) : OpenStax Anatomy and Physiology 2e, domaine `physiologie` ; LICENSE lue a la source au commit
+# epingle b0058a743b (« Attribution 4.0 International »).
+[[composant]]
+id = "knowledge-physiologie-openstax"
+description = "OpenStax Anatomy and Physiology 2e : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "github:openstax/osbooks-anatomy-physiology"
+domaine = "physiologie"
+licence = "CC-BY-4.0"
+conditions = "attribution : OpenStax, Anatomy and Physiology 2e, Rice University, https://openstax.org ; texte modifie (decoupe en fragments, en-tete d'attribution sur chacun)"
+preuve = "https://github.com/openstax/osbooks-anatomy-physiology/blob/b0058a743b/LICENSE"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-python"
+description = "Documentation Python (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Python"
+licence = "PSF-2.0"
+conditions = "attribution ; notice de copyright et texte de la licence PSF v2 conserves"
+preuve = "https://docs.python.org/3/license.html"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-django"
+description = "Documentation Django (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Django"
+licence = "BSD-3-Clause"
+conditions = "attribution ; notice de copyright, conditions et clause de non-garantie conservees"
+preuve = "https://github.com/django/django/blob/main/LICENSE"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-flask"
+description = "Documentation Flask (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Flask"
+licence = "BSD-3-Clause"
+conditions = "attribution ; notice de copyright et clause de non-garantie conservees"
+preuve = "https://flask.palletsprojects.com/en/latest/license/"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-javascript-mdn"
+description = "Documentation JavaScript de MDN (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:JavaScript"
+licence = "CC-BY-SA-2.5"
+conditions = "attribution a Mozilla Contributors ; partage a l'identique (ShareAlike) pour le texte, CC0 pour le code"
+preuve = "https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Licensing_levels"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-postgresql"
+description = "Documentation PostgreSQL (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:PostgreSQL"
+licence = "PostgreSQL"
+conditions = "reproduction de la notice de copyright, des deux paragraphes de licence et de la clause de non-garantie"
+preuve = "https://www.postgresql.org/about/licence/"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-typescript"
+description = "Documentation TypeScript (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:TypeScript"
+licence = "CC-BY-4.0"
+conditions = "attribution (credit Microsoft / TypeScript, lien vers la licence CC BY 4.0)"
+preuve = "https://github.com/microsoft/TypeScript-Website/blob/v2/LICENSE"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-cmake"
+description = "Documentation CMake (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:CMake"
+licence = "BSD-3-Clause"
+conditions = "attribution ; notice de copyright Kitware et clause de non-garantie conservees"
+preuve = "https://cmake.org/licensing/"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-docker"
+description = "Documentation Docker (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Docker"
+licence = "Apache-2.0"
+conditions = "notice de copyright et texte de la licence Apache 2.0 conserves ; mention que le texte est decoupe en fragments ; clause de non-garantie"
+preuve = "https://github.com/docker/docs/blob/main/LICENSE"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-nodejs"
+description = "Documentation Node.js (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:NodeJS"
+licence = "MIT"
+conditions = "attribution ; notice de copyright et texte de la licence MIT conserves"
+preuve = "https://github.com/nodejs/node/blob/main/LICENSE"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-numpy"
+description = "Documentation NumPy (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:NumPy"
+licence = "BSD-3-Clause"
+conditions = "attribution (NumPy Developers) ; notice de copyright, conditions et clause de non-garantie conservees"
+preuve = "https://numpy.org/doc/stable/license.html"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-sqlite"
+description = "Documentation SQLite (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:SQLite"
+licence = "LicenseRef-Domaine-Public-SQLite"
+conditions = "aucune restriction : code et documentation dedies au domaine public par leurs auteurs"
+preuve = "https://www.sqlite.org/copyright.html"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-rust"
+description = "Documentation Rust (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Rust"
+licence = "MIT OR Apache-2.0"
+conditions = "attribution ; notices de copyright et de licence conservees (MIT ou Apache 2.0 au choix)"
+preuve = "https://github.com/rust-lang/rust/blob/master/COPYRIGHT"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-go"
+description = "Documentation Go (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Go"
+licence = "CC-BY-4.0"
+conditions = "attribution aux auteurs de Go, lien vers la licence CC BY 4.0, mention que le texte est decoupe en fragments ; exemples de code sous BSD"
+preuve = "https://go.dev/doc/copyright"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-scipy"
+description = "Documentation SciPy (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:SciPy"
+licence = "BSD-3-Clause"
+conditions = "attribution (SciPy Developers) ; notice de copyright, conditions et clause de non-garantie conservees"
+preuve = "https://github.com/scipy/scipy/blob/main/LICENSE.txt"
+obligatoire = true
+
+[[composant]]
+id = "knowledge-docset-pandas"
+description = "Documentation pandas (docset) : fragments et vecteurs bge-m3"
+source = "construit"
+construit = "rag_pack_source"
+sha256 = "au_build"
+taille = "au_build"
+famille = "docset:Pandas"
+licence = "BSD-3-Clause"
+conditions = "attribution (PyData Development Team) ; notice de copyright, conditions et clause de non-garantie conservees"
+preuve = "https://github.com/pandas-dev/pandas/blob/main/LICENSE"
 obligatoire = true

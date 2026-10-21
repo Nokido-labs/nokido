@@ -394,6 +394,52 @@ def _ps1_parse_gate(files: list[str]) -> int:
     return 0
 
 
+# ── Garde transitoires / verrous orphelins (demande owner R7 demande_b623ecc7915c) ──────────────────────────────
+# Livre par OPENCODE_GPTOSS (job_ff49eb01) ; son commit avait ete REFUSE par la garde syntaxique (insertion au milieu
+# du docstring de _ts_parse_gate) -- applique et repare a l'integration.
+_VERROUS_LEGITIMES = {"requirements-ci.lock", "vendor.lock"}
+
+
+def _fichiers_transitoires(ajoutes: list[str], modifies: list[str]) -> list[str]:
+    """Fichiers AJOUTES transitoires ou verrous orphelins a bloquer, plus tout marqueur de worktree.
+
+    - *.tmp, *.swp, *.swo, *~ ajoutes ;
+    - *.lock ajoute dont le nom de base n'est pas dans _VERROUS_LEGITIMES ;
+    - `.nokido.agent` (nom de base), ajoute OU modifie : marqueur d'identite LOCAL d'un worktree.
+    Un verrou deja suivi qui change (dans `modifies`) n'est PAS un orphelin.
+    """
+    bloques = []
+    for f in ajoutes:
+        name = Path(f).name
+        if name.endswith((".tmp", ".swp", ".swo", "~")) or name == ".nokido.agent" or (
+                name.endswith(".lock") and name not in _VERROUS_LEGITIMES):
+            bloques.append(f)
+    bloques.extend(f for f in modifies if Path(f).name == ".nokido.agent")
+    return bloques
+
+
+def _transitoires_gate(files: list[str]) -> int:
+    """Lit l'index (A -> ajoutes ; M/C/R -> modifies, chemin = derniere colonne) et BLOQUE les transitoires."""
+    r = _git(["diff", "--cached", "--name-status", "--diff-filter=ACMR"])
+    ajoutes: list[str] = []
+    modifies: list[str] = []
+    for ligne in (l.strip() for l in r.stdout.splitlines()):
+        parts = ligne.split("\t") if ligne else []
+        if len(parts) < 2:
+            continue
+        if parts[0].startswith("A"):
+            ajoutes.append(parts[-1])
+        elif parts[0].startswith(("M", "C", "R")):
+            modifies.append(parts[-1])
+    bloques = _fichiers_transitoires(ajoutes, modifies)
+    if not bloques:
+        return 0
+    for b in bloques:
+        print(f"[gate][transitoires] BLOQUE : {b} (fichier transitoire, verrou orphelin ou marqueur de worktree)")
+    print(f"[gate][transitoires] {len(bloques)} fichier(s) bloque(s) : les retirer de l'index (git restore --staged)")
+    return 1
+
+
 def _ts_parse_gate(files: list[str]) -> int:
     """Parse-check les .ts stagés via `deno lint --json`. BLOQUE sur erreur de PARSE.
 
@@ -639,6 +685,15 @@ def _precommit() -> int:
         _recidive_warn(files)
     except Exception as e:
         print(f"[gate][recidive] skip: {str(e)[:80]}")
+    # BLOQUANT : transitoires, verrous orphelins, marqueur de worktree (demande owner R7 b623ecc7915c).
+    try:
+        rc_tr = _transitoires_gate(files)
+    except Exception as e:  # noqa: BLE001 — le gate ne casse jamais sur son propre outil
+        print(f"[gate][transitoires] skip: {str(e)[:80]}")
+        rc_tr = 0
+    rc_tr = _bloquant_ou_derogation("transitoires", rc_tr, files)
+    if rc_tr != 0:
+        return rc_tr
     # BLOQUANT, en dernier pour que tous les diagnostics soient affiches d'abord.
     try:
         rc_ts = _ts_parse_gate(files)

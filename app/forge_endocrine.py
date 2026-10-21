@@ -314,7 +314,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         try:
             conn.execute(ddl)
         except sqlite3.OperationalError:
-            pass  # colonne déjà présente
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_endocrine.py', 316, exc_info=True)
     conn.commit()
 
 
@@ -482,7 +482,7 @@ def release(
         if str(_dbp.db_path()) == str(DB):
             _socle = _dbp
     except ImportError:  # socle absent : on n'empire pas
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_endocrine.py', 484, exc_info=True)
 
     if _socle is not None:
         _socle.write_retry(_do)
@@ -496,7 +496,7 @@ def release(
     # APRES l'ecriture : on constate une secretion FAITE, pas une intention. Compter
     # avant fabriquerait un emetteur fantome, et un capteur de couplage qui invente
     # un emetteur est pire qu'un capteur muet -- il ferme l'enquete.
-    _constater_emission(hormone)
+    _constater_emission(hormone, _effective_level, ttl_s)
     return {
         "hormone": hormone,
         "level": level,
@@ -507,7 +507,8 @@ def release(
     }
 
 
-def _constater_emission(hormone: str) -> None:
+def _constater_emission(hormone: str, level: Optional[float] = None,
+                        ttl_s: Optional[int] = None) -> None:
     """CONSTATE la secretion pour le capteur de couplage (`forge_signal_coupling`).
 
     Pose au CHOKEPOINT de la glande et non chez chaque appelant : biologiquement
@@ -516,10 +517,13 @@ def _constater_emission(hormone: str) -> None:
     statique ne pouvait pas rendre ce service : elle a rate une ecriture passant par
     une clef de configuration (mesure 2026-07-30 sur `llama.wanted`, 14 lectures
     trouvees, 0 ecriture, verdict FAUX).
+
+    Le NIVEAU effectif (somme des glandes, 0 a l'extinction) et le ttl l'accompagnent :
+    `forge_signal_coupling` en tient le journal date que lit `stabilite()` (19/10).
     """
     try:
         from nokido_agent.app.forge_signal_coupling import emit_signal
-        emit_signal(hormone, emitter="forge_endocrine.release")
+        emit_signal(hormone, emitter="forge_endocrine.release", level=level, ttl_s=ttl_s)
     except Exception:
         pass  # muet-ok : l'observabilite ne casse JAMAIS la secretion qu'elle observe
 

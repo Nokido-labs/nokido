@@ -58,7 +58,7 @@ Physiologie, die mehrere KIs — lokale Modelle, Cloud-Anbieter, Coding-Agenten 
 Codex CLI, OpenCode oder Antigravity — auf Ihrem Rechner zusammenarbeiten lassen, **ohne dass sie
 zu einem Haufen unabhängiger Agenten werden**.
 
-Es geht von drei Beobachtungen aus, die im [Manifest](../../MANIFESTO.md) ausgeführt werden:
+Es geht von drei Beobachtungen aus, die im [Manifest](MANIFESTO.en.md) ausgeführt werden:
 
 1. **Die meiste KI ist extern.** Prompts, Code und Dokumente laufen über Infrastruktur, die Ihnen nicht gehört.
 2. **Die meiste KI ist gedächtnislos.** Gedächtnis ist ein Zusatz, kein Fundament.
@@ -1115,7 +1115,7 @@ Die Hardware-Roadmap folgt explizit diesem Fortschritt.
 ### Tiefgehende Architektur
 
 * [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
-* [`MANIFESTO.md`](../../MANIFESTO.md)
+* [`MANIFESTO.md`](../../MANIFESTO.md) · [English](MANIFESTO.en.md)
 
 ### Agenten-Protokolle
 

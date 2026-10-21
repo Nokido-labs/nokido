@@ -246,6 +246,7 @@ def scan_memoires(dossier: Path) -> dict:
         try:
             textes[f.name] = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_recurrence_audit.py', 248, exc_info=True)
             continue
     if not textes:
         return {"__etat__": "ILLISIBLE", "__raison__": "lecture refusee sur tous les .md"}
@@ -387,6 +388,7 @@ def scan_sessions(dossier: Path) -> dict:
                     try:
                         ev = json.loads(ligne)
                     except Exception:
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_recurrence_audit.py', 389, exc_info=True)
                         continue
                     if ev.get("type") != "user":
                         continue
@@ -674,7 +676,7 @@ def main() -> int:
         try:
             flux.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_recurrence_audit.py', 676, exc_info=True)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--memoires", default=str(MEMOIRES_DEFAUT))

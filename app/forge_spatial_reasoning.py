@@ -55,7 +55,7 @@ def _embedding_from_blob(blob: bytes) -> list[float] | None:
             n = len(blob) // 4
             return list(struct.unpack(f"{n}f", blob))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_spatial_reasoning.py', 57, exc_info=True)
     if isinstance(blob, str):
         try:
             return json.loads(blob)

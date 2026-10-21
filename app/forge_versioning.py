@@ -538,7 +538,7 @@ class ForgeSaveOrchestrator:
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(entry + "\n")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_versioning.py', 540, exc_info=True)
 
     def history_tail(self, n: int = 20) -> List[Dict]:
         """Retourne les N dernières opérations."""
@@ -797,7 +797,7 @@ class VersionManager:
             try:
                 new_work_path.unlink(missing_ok=True)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_versioning.py', 799, exc_info=True)
             return None
 
         # Archive l'ancienne version dans workspace (seulement hors loop)
@@ -841,7 +841,7 @@ class VersionManager:
                 if prev_lines > 100 and new_lines < prev_lines * 0.5:
                     return f"trop court : {new_lines} lignes vs {prev_lines} (<50%)"
             except Exception:
-                pass  # lecture prev_path optionnelle — non bloquant
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_versioning.py', 843, exc_info=True)
 
         # 3. Marqueurs structurels (tout fichier Nokido complet les contient)
         required = ["class DevOpsApp", "def _handle_audit", "version_manager"]
@@ -867,7 +867,7 @@ class VersionManager:
             try:
                 backlog = json.loads(backlog_file.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_versioning.py', 869, exc_info=True)
         backlog.append(
             {
                 "timestamp": datetime.now().isoformat(),
@@ -883,7 +883,7 @@ class VersionManager:
         try:
             backlog_file.write_text(json.dumps(backlog, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_versioning.py', 885, exc_info=True)
 
     def get_current_code(self) -> str:
         """Get current code."""

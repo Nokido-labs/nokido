@@ -19,9 +19,9 @@ def test_predict_impact_keeper_safe():
 
 
 def test_predict_impact_hub_dangerous():
-    res = predict_impact("LaForgeMCP", "stop")
+    res = predict_impact("NokidoMCP", "stop")  # renomme LaForgeMCP -> NokidoMCP (un nom inconnu rendait 'safe')
     assert res["verdict"] == "dangerous"
-    assert "LaForgeMCP" in res["essential_affected"]
+    assert "NokidoMCP" in res["essential_affected"]
     assert len(res["transitive_dependents"]) > 0
 
 

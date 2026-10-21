@@ -56,6 +56,7 @@ def count(root):
             try:
                 t = open(os.path.join(dp, f), encoding="utf-8", errors="surrogateescape").read()
             except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_verify.py', 58, exc_info=True)
                 continue
             for k, rx in list(KEEP_PATTERNS.items()) + list(RESIDUAL.items()):
                 res[k] += len(rx.findall(t))

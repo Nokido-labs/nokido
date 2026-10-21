@@ -218,7 +218,7 @@ class GhostRouter:
             try:
                 del self._llm
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 220, exc_info=True)
             self._llm = None
             self._llm_path = ""
             gc.collect()
@@ -354,7 +354,7 @@ class GhostRouter:
                     if txt2 and len(txt2) > 20:
                         return txt2
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 356, exc_info=True)
                 return self.generate_npu(prompt, task, system)
             return f"[ERR] cloud {provider}: {e}"
 
@@ -377,7 +377,7 @@ class GhostRouter:
 
             prompt = inject_header(prompt, task=task, step=step, total=total)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 379, exc_info=True)
         # OpenRouter free — priorité si clé dispo
         if provider == "openrouter_free":
             try:
@@ -418,7 +418,7 @@ class GhostRouter:
 
             update_state(last_output=text[:150] if text else "empty")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 420, exc_info=True)
         return text, provider, task
 
 
@@ -443,9 +443,9 @@ try:
                 if _v:
                     _os_cr.environ[_envk] = _v
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 445, exc_info=True)
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 447, exc_info=True)
 
 # Init performance au chargement du module
 try:
@@ -453,7 +453,7 @@ try:
 
     init_performance()
 except Exception:
-    pass
+    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_ghost_router.py', 455, exc_info=True)
 
 _router = None
 _router_lock = threading.Lock()

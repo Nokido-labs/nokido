@@ -524,7 +524,7 @@ def log_breach_attempt(
             _cn.commit()
             _cn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_secret_guard.py', 526, exc_info=True)
 
     except Exception as e:
         logger.error(f"[SECRET_GUARD] Echec log_breach_attempt: {e}")

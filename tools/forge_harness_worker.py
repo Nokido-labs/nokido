@@ -116,12 +116,23 @@ def process_job(job):
         try:
             kill_tree(getattr(h._b.proc, "pid", None))
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_harness_worker.py', 118, exc_info=True)
         t.join(5)
         if not result:
             return {"ok": False, "error": "timeout/wedge -> killed",
                     "backend": getattr(h, "backend", "?")}
     return result or {"ok": False, "error": "no result"}
+
+
+def _caviarder_resultat(res: dict) -> dict:
+    """RED7 (19/10) : output/screen/error d'un agent dont l'environnement porte FORGE_TOKEN_<AGENT> passent par le
+    redacteur EXISTANT (tools/forge_log_redact.redact) avant d'etre ecrits et relus par l'executeur."""
+    try:
+        from nokido_agent.tools.forge_log_redact import redact
+    except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+        from forge_log_redact import redact
+    return {k: (redact(v) if k in ("output", "screen", "error") and isinstance(v, str) else v)
+            for k, v in (res or {}).items()}
 
 
 def _run_pending():
@@ -134,11 +145,13 @@ def _run_pending():
         if marker.exists():
             continue
         try:
+            jf.with_suffix(".started").write_text("1", encoding="utf-8")
             job = json.loads(jf.read_text(encoding="utf-8"))
             res = process_job(job)
         except Exception as e:  # noqa: BLE001
             res = {"ok": False, "error": repr(e)[:400]}
-        jf.with_suffix(".result.json").write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+        jf.with_suffix(".result.json").write_text(json.dumps(_caviarder_resultat(res), ensure_ascii=False),
+                                                  encoding="utf-8")
         marker.write_text("1", encoding="utf-8")
         done += 1
     return done
@@ -149,7 +162,7 @@ def _watch(interval=3.0):
         try:
             _run_pending()
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_harness_worker.py', 164, exc_info=True)
         _heartbeat()
         time.sleep(interval)
 

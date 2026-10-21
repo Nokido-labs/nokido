@@ -99,6 +99,7 @@ def build_repomap(repo_root) -> dict:
         try:
             rel = p.relative_to(root).as_posix()
         except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_warpgrep.py', 101, exc_info=True)
             continue
         if any(x in ("/" + rel.lower()) for x in _SKIP):
             continue
@@ -106,6 +107,7 @@ def build_repomap(repo_root) -> dict:
             src = p.read_text(encoding="utf-8", errors="ignore")
             tree = ast.parse(src)
         except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_warpgrep.py', 108, exc_info=True)
             continue
         symbols: list[str] = []
         toks: list[str] = list(_split_ident(rel))

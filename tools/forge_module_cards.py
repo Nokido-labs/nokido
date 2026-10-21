@@ -96,7 +96,7 @@ def sig_of(fn) -> dict:
         try:
             decos.append(ast.unparse(d)[:30])
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_cards.py', 98, exc_info=True)
     doc = (ast.get_docstring(fn) or "").strip().split("\n", 1)[0][:100]
     return {"name": fn.name, "args": names[:8], "returns": ret, "deco": decos, "doc": doc,
             "async": isinstance(fn, ast.AsyncFunctionDef)}
@@ -217,7 +217,7 @@ def load_cards() -> dict:
         try:
             return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_cards.py', 219, exc_info=True)
     return build_cards()
 
 
@@ -307,7 +307,7 @@ def refresh_changed(names: list[str]) -> int:
                     domain="systeme",
                 )
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_cards.py', 309, exc_info=True)
     return ingest_cards(fresh)
 
 
@@ -350,13 +350,13 @@ def proprioceptive_write(file_path, content: str, *, action: str = "patch", refr
         try:
             tmp.unlink()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_cards.py', 352, exc_info=True)
         return {"ok": False, "written": False, "error": f"io: {e}"}
     if refresh:
         try:
             refresh_changed([p.name])  # L1 : perception fraiche, ciblee (+ nociception si necrose)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_module_cards.py', 358, exc_info=True)
     return {"ok": True, "written": True, "sha": hashlib.sha1(content.encode("utf-8", "replace")).hexdigest()[:12]}
 
 

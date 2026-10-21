@@ -3,6 +3,11 @@
   "cablage": [
     {
       "event": "PostToolUse",
+      "script": "hook_context_firewall.py",
+      "matcher": "Bash|PowerShell|mcp__laforge-sovereign-hub__run"
+    },
+    {
+      "event": "PostToolUse",
       "script": "hook_posttool_validate.py",
       "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
     },
@@ -10,6 +15,16 @@
       "event": "PostToolUse",
       "script": "hook_posttool_validate.py",
       "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "hook_tool_budget_gate.py",
+      "matcher": "Bash|PowerShell|Read|Grep|Glob|WebSearch|WebFetch|mcp__laforge-sovereign-hub__run|mcp__playwright__.*|Write|Edit"
+    },
+    {
+      "event": "PostToolUseFailure",
+      "script": "hook_tool_budget_gate.py",
+      "matcher": "Bash|PowerShell|Read|Grep|Glob|WebSearch|WebFetch|mcp__laforge-sovereign-hub__run|mcp__playwright__.*"
     },
     {
       "event": "PreCompact",
@@ -39,12 +54,12 @@
     {
       "event": "PreToolUse",
       "script": "hook_capability_gate.py",
-      "matcher": "mcp__laforge-sovereign-hub__run|Bash"
+      "matcher": "mcp__laforge-sovereign-hub__run|Bash|PowerShell|mcp__playwright__.*|Monitor|Read|mcp__laforge-sovereign-hub__governed_edit|Edit|Write"
     },
     {
       "event": "PreToolUse",
       "script": "hook_pretool_guard.py",
-      "matcher": "Write|Edit|mcp__laforge-sovereign-hub__governed_edit"
+      "matcher": "Edit|Write|mcp__laforge-sovereign-hub__governed_edit"
     },
     {
       "event": "PreToolUse",
@@ -55,6 +70,11 @@
       "event": "PreToolUse",
       "script": "hook_search_guard.py",
       "matcher": "Read|Grep|Glob"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "hook_tool_budget_gate.py",
+      "matcher": "Bash|PowerShell|Read|Grep|Glob|WebSearch|WebFetch|mcp__laforge-sovereign-hub__run|mcp__playwright__.*"
     },
     {
       "event": "SessionStart",
@@ -85,6 +105,16 @@
       "event": "Stop",
       "script": "forge_ci_stop_hook.py",
       "matcher": "*"
+    },
+    {
+      "event": "Stop",
+      "script": "forge_ci_stop_hook.py",
+      "matcher": ""
+    },
+    {
+      "event": "Stop",
+      "script": "forge_dialogue_score_session.py",
+      "matcher": ""
     },
     {
       "event": "Stop",

@@ -54,6 +54,7 @@ def _graphe_imports() -> tuple[dict, dict, int]:
         try:
             arbre = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/nokido_cutover_runbook.py', 56, exc_info=True)
             continue
         for n in ast.walk(arbre):
             cible = None

@@ -86,7 +86,7 @@ def recommended_worker_count(
             ram_budget = max(1, int((ram_gb * ram_safety_factor) // model_size_gb))
             base = min(base, ram_budget)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_python_runtime.py', 88, exc_info=True)
 
     return max(1, base)
 

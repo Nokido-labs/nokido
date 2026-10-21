@@ -71,7 +71,7 @@ def _hub_pulse() -> dict:
         if isinstance(h, dict):
             return h
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 73, exc_info=True)
     return {}
 
 
@@ -133,7 +133,7 @@ def _sense() -> str | None:
             if age is not None and age > 120:
                 msgs.append(f"⚠ pouls hub vieux ({int(age)}s) — organe lent/silencieux")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 135, exc_info=True)
 
     # alertes ORGANES — forge_critical_events (axone critique, persistant, survit restart)
     try:
@@ -195,12 +195,12 @@ def _sense() -> str | None:
                 src = sorted({(c.get("source") or "?") for c in alerts})
                 msgs.append("bus Deno: %d alert/spike récents (%s)" % (len(alerts), ", ".join(src)[:60]))
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 197, exc_info=True)
 
     try:
         SENSE_STATE.write_text(json.dumps({"up": health["up"], "marker": marker, "t": now}), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 202, exc_info=True)
 
     if not msgs:
         return None
@@ -319,7 +319,7 @@ def _annoter_peremption(payload, created_at, sender=None) -> str:
         elif age_j >= 0.125:                      # sous 3 h on se tait : un garde
             notes.append("age %.0f h" % (age_j * 24))   # qui crie a faux se fait desarmer
     except Exception:  # noqa: BLE001 - date illisible : on n'invente pas d'age
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 321, exc_info=True)
 
     sha = None
     try:
@@ -331,12 +331,12 @@ def _annoter_peremption(payload, created_at, sender=None) -> str:
                 try:
                     p = {**p, **json.loads(inner)}
                 except Exception:  # noqa: BLE001
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 333, exc_info=True)
             v = p.get("sha") or p.get("head_sha") or p.get("target_sha")
             if isinstance(v, str) and len(v) >= 7:
                 sha = v
     except Exception:  # noqa: BLE001 - payload illisible : aucune affirmation
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 338, exc_info=True)
 
     if sha:
         h = _head_sha()
@@ -464,7 +464,7 @@ def _postal() -> list[str]:
         try:
             pc.execute("UPDATE mail SET status='acked', ts_acked=? WHERE id=?", (nowf, mid))
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 466, exc_info=True)
     try:
         pc.commit()
     finally:
@@ -554,7 +554,7 @@ def _intention() -> str:
             _PROMPT = str(evt.get("prompt") or evt.get("user_prompt") or "")
             return _PROMPT[:400]
     except Exception:  # noqa: BLE001 — pas du JSON : on prend le texte tel quel
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 556, exc_info=True)
     return brut.strip()[:400]
 
 
@@ -597,6 +597,13 @@ def _stdout_utf8() -> None:
         print(f"[claude-hook] stdout non reconfigure ({type(e).__name__}) : accents a risque", file=sys.stderr)
 
 
+# Owner 20/10 (cinq rappels en une heure, puis « ancre le ») : le plugin tiers caveman injecte a chaque message une
+# consigne en ANGLAIS et la sortie derivait vers sa langue. Cette ligne part a CHAQUE tour, en DERNIER : le texte le
+# plus recent du contexte est celui qui pese le plus.
+LANGUE = ("[langue] Réponds en FRANÇAIS, accents compris : messages, questions à choix multiple, résumés. "
+          "Le style abrégé du mode caveman s'écrit en français ; seuls les identifiants techniques restent tels quels.")
+
+
 def main() -> None:
     _stdout_utf8()
     out: list[str] = []
@@ -636,12 +643,12 @@ def main() -> None:
             out.append(m)
     except Exception as e:  # noqa: BLE001
         print(f"[claude-hook] memoire error: {e}", file=sys.stderr)
-    if out:
-        print("\n".join(out))
+    out.append(LANGUE)
+    print("\n".join(out))
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        pass  # un RÉFLEXE ne doit JAMAIS casser le prompt utilisateur (fail-safe absolu)
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 646, exc_info=True)

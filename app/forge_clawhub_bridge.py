@@ -576,7 +576,7 @@ class SkillStore:
             try:
                 return json.loads(self._index_path.read_text(encoding="utf-8"))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_clawhub_bridge.py', 578, exc_info=True)
         return {}
 
     def _save(self, index: dict):

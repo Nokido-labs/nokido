@@ -32,6 +32,25 @@ ECHANTILLON = (  # forme REELLE de `rag action=search` (releve le 25/09)
 )
 
 
+# 19/10 (relecture pair claude.ai pair_4ab8ef90b633af3f) : depuis le palier 2 LoRA (fdb5ea7be), l'outil `rag` ajoute
+# ` [chunk:<id>]` a chaque en-tete et un pied `[rag_recherche:<rid>]`. _ENTETE exigeait `)` en FIN de ligne : 0 resultat,
+# la TUI ne trouvait plus rien -- et ce NR restait vert sur l'echantillon du 25/09. Forme REELLE du 19/10 :
+ECHANTILLON_V2 = (
+    "[coollabsio_coolify/public/js/nls.messages.fr.js] (sdk_gitingest, bm25=-37.2) [chunk:c1a2]\n"
+    "raccourci clavier ...\n\n"
+    "[mammouth_ai_code/docs/fr/keybinds.mdx] (sdk_gitingest, dense+rerank) [chunk:c3b4]\n"
+    "Vous n'avez pas besoin d'utiliser une touche leader ...\n\n"
+    "[rag_recherche:rid42]"
+)
+
+
+def test_la_forme_avec_chunk_et_pied_est_analysee():
+    r = rvh.analyser_resultats(ECHANTILLON_V2)
+    assert [x["id"] for x in r] == ["c1a2", "c3b4"]
+    assert r[0]["score"] == -37.2 and r[1]["content"].startswith("Vous n'avez pas besoin")
+    assert all("rag_recherche" not in x["content"] for x in r)
+
+
 class _Client:
     def __init__(self, texte):
         self.texte, self.appels = texte, []

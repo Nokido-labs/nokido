@@ -125,7 +125,7 @@ class RAGJanitor:
             try:
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_janitor.py', 127, exc_info=True)
             return removed
         finally:
             conn.close()

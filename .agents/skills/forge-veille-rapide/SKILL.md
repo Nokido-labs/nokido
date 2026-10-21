@@ -30,6 +30,16 @@ description: "À utiliser quand l'owner donne une ou plusieurs URL précises à 
 > (traçabilité), pas pour le RAG. La section « Workflow » ci-dessous décrit
 > l'ANCIEN chemin — la garder comme référence de la fiche biblio seulement.
 
+## Dépôt GitHub : l'outil existe, ne pas le réécrire (2026-10-18)
+
+Un **dépôt GitHub** (code, `docs/`, README) s'ingère EN ENTIER par
+`tools/forge_ingest_github_repo.py --url https://github.com/<owner>/<repo>`
+(`run action=run_job ... online=true`) : tarball public via la stdlib (tout compte), découpage
+de `forge_gitingest_sdk_ingest`, source `github:<owner>/<repo>/<chemin>` (retrait propre),
+dédup `skipped_dedup`. Payé le 18/10 : un script maison n'a ingéré que les README (325
+fragments) là où l'outil en a rendu 7 731, dont `docs/AB-RESULTS.md` — la mesure qui
+justifiait la veille. Vérifier ensuite par un terme témoin en `rag_chunks_fts`.
+
 ## Quand se déclencher
 
 - L'utilisateur fournit **une ou plusieurs URLs précises** (release notes,
@@ -65,6 +75,13 @@ description: "À utiliser quand l'owner donne une ou plusieurs URL précises à 
    - `rag_fts` est une AUTRE table, toujours lue par une quarantaine de modules (`introspect`,
      `hook_recon_first`, le preflight des leçons, le connecteur des pairs) : pour que la veille y
      soit visible aussi, y insérer `(chunk_id, text, source, domain)`, comme le font `anchor_*`.
+   - ⚠️ **Jamais `WHERE chunk_id = ?` sur `rag_fts`** (ni DELETE ni SELECT) : la colonne est `UNINDEXED`,
+     chaque appel est un PLEIN SCAN de la table, et un DELETE tient le verrou d'écriture pendant tout ce temps
+     (payé le 15/10 : veille figée 20 min à 17 Mo/s de lecture, `introspect` du hub expiré, job tué).
+     Forme qui marche : existence par la clef primaire `SELECT 1 FROM rag_chunks WHERE id = ?` ; si le fragment
+     existe déjà, sa présence dans `rag_fts` se vérifie par `rag_fts MATCH '"<mots du texte>"' AND chunk_id = ?`
+     (indexé). Une transaction par source (`BEGIN IMMEDIATE` … `COMMIT`) : un arrêt ne laisse pas de demi-écriture.
+     Modèle : `C:/tmp/drafts/rsi/veille_claude_desktop.py`.
 4. **Exécution** : un `run_job` détaché (plusieurs URL = long ; plafond 70 s des appels hub).
    Modèle : `sandbox/workspace/veille_github_bp3.py`.
 5. **Vérifier** là où le moteur lit : `rag_chunks_fts MATCH '<terme témoin de la page>'` doit

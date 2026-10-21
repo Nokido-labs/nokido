@@ -171,7 +171,7 @@ def _fetch_gemini_quota_local() -> dict[str, Any]:
             info["active_account"] = data.get("active")
             info["available_accounts_count"] = len(data.get("old", [])) + (1 if data.get("active") else 0)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quota_tracker.py', 173, exc_info=True)
 
     oauth_creds = home_gemini / "oauth_creds.json"
     info["oauth_creds_present"] = oauth_creds.exists()
@@ -197,13 +197,13 @@ def _fetch_gemini_quota_local() -> dict[str, Any]:
                         }
                     )
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quota_tracker.py', 199, exc_info=True)
             info["recent_errors"] = recent_errors
             # Detecter quota epuise
             if any("quota" in (e.get("msg") or "").lower() for e in recent_errors):
                 info["likely_quota_exhausted"] = True
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quota_tracker.py', 205, exc_info=True)
     return info
 
 

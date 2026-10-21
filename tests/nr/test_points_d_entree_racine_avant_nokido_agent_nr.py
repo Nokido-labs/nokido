@@ -112,6 +112,27 @@ def test_aucun_outil_n_importe_nokido_agent_avant_son_amorce():
     assert not fautes, "import nokido_agent AVANT toute insertion dans sys.path :\n  " + "\n  ".join(fautes)
 
 
+def test_un_service_qui_importe_nokido_agent_en_fonction_amorce_la_racine():
+    """Mesure 2026-10-16 : NokidoPhenomBuffer bat (journal toutes les 5 min) mais rend « calme » a affect nul et
+    n'ecrit plus son pouls depuis le 11/09. Ses `from nokido_agent.app import ...` sont DANS des fonctions, sous
+    except/pass, et le module n'insere que app/ : `_violation` (imports de niveau module, toute insertion acceptee)
+    ne le voyait pas. Un service lance par chemin qui importe nokido_agent OU QUE CE SOIT doit amorcer la RACINE."""
+    fautes, vus = [], 0
+    for nom, f in _entrees():
+        arbre = ast.parse(f.read_text(encoding="utf-8", errors="replace"))
+        if not any(_nka(x) for x in ast.walk(arbre)):
+            continue
+        vus += 1
+        corps = arbre.body
+        texte = "\n".join(ast.unparse(y) for y in corps
+                          if not isinstance(y, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and _mute(y))
+        texte += "\n" + "\n".join(ast.unparse(y) for y in corps if isinstance(y, (ast.Assign, ast.AnnAssign)))
+        if f.parent.name == "app" and not any(k in texte for k in RACINE_ECRITE + ("dirname(APP)",)):
+            fautes.append("%s (%s)" % (nom, f.name))
+    assert vus >= 10, "moins de services important nokido_agent que mesure : le lecteur ne voit plus le TOML"
+    assert not fautes, "service app/ qui importe nokido_agent sans amorcer la RACINE :\n  " + "\n  ".join(fautes)
+
+
 def test_garde_du_garde_alias_et_ordre():
     ok = ast.parse("import sys as _s\n_s.path.insert(0, 'R')\nfrom nokido_agent.app import x\n").body
     ko = ast.parse("import sys\nfrom nokido_agent.app import x\nsys.path.insert(0, 'R')\n").body

@@ -362,7 +362,7 @@ class AutonomousOrchestrator:
 
             urllib.request.urlopen("http://localhost:11434/api/tags", timeout=1)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_autonomous_orchestrator.py', 364, exc_info=True)
         try:
             if str(APP) not in sys.path:
                 sys.path.insert(0, str(APP))
@@ -371,7 +371,7 @@ class AutonomousOrchestrator:
             if LlamaCppBridge().is_available():
                 available.append("llamacpp")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_autonomous_orchestrator.py', 373, exc_info=True)
         import os
 
         for key, agent in [
@@ -465,7 +465,7 @@ class AutonomousOrchestrator:
             conn.commit()
             conn.close()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_autonomous_orchestrator.py', 467, exc_info=True)
 
     def last_graph(self) -> Optional[dict]:
         """Last graph."""

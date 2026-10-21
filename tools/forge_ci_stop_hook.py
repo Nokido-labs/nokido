@@ -46,7 +46,7 @@ def _save(head, done, concl):
         STATE.write_text(json.dumps({"head": head, "done": bool(done), "concl": concl},
                                     ensure_ascii=False), encoding="utf-8")
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ci_stop_hook.py', 48, exc_info=True)
 
 
 def _via_gh(branch: str) -> dict:

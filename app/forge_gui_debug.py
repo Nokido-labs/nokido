@@ -98,7 +98,7 @@ def gui_debug_log(source: str, message: str, level: str = "info", exc: Optional[
         try:
             _OVERLAY_REF.push_entry(entry)
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 100, exc_info=True)
 
 
 def gui_debug_clear() -> None:
@@ -109,7 +109,7 @@ def gui_debug_clear() -> None:
         try:
             _OVERLAY_REF.refresh_all()
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 111, exc_info=True)
 
 
 # =============================================================================
@@ -181,7 +181,7 @@ try:
                 if entry["level"] == "error" and not self._visible:
                     self.toggle_visibility()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 183, exc_info=True)
 
         def refresh_all(self) -> None:
             """Rejoue tout le buffer dans le RichLog."""
@@ -191,7 +191,7 @@ try:
                 for entry in _DEBUG_BUFFER:
                     self.push_entry(entry)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 193, exc_info=True)
 
         def toggle_visibility(self) -> None:
             """Toggle visibility."""
@@ -253,7 +253,7 @@ def patch_app_for_debug(app) -> None:
     try:
         app.handle_exception = _patched_handle_exception
     except Exception:
-        pass
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 255, exc_info=True)
 
     # ── 2. Vérification modules HAS_* ─────────────────────────────────────────
     import sys as _sys
@@ -325,7 +325,7 @@ def patch_app_for_debug(app) -> None:
         try:
             app._handle_at = _patched_handle_at
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_gui_debug.py', 327, exc_info=True)
 
     logger.info("[gui-debug] patch_app_for_debug appliqué")
 

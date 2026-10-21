@@ -281,6 +281,19 @@ def call_lmstudio(prompt: str, timeout: int = 120) -> str:
 
 
 def _groq_key() -> str:
+    key = None
+    try:
+        from nokido_agent.app.forge_key_rotation import resolve
+        from nokido_agent.app.forge_secrets import get_secret
+
+        _managed, _k = resolve("GROQ_API_KEY")
+        if _managed:  # sous rotation : elle decide seule ; None = sauter le fournisseur, jamais l'env (16/10)
+            return _k or ""
+        key = get_secret("GROQ_API_KEY") or ""
+    except Exception as _e:
+        logger.warning("coffre/rotation illisible pour GROQ_API_KEY (%s) -> repli env", type(_e).__name__)
+    if key:
+        return key
     key = os.environ.get("GROQ_API_KEY", "")
     if key:
         return key
@@ -293,7 +306,9 @@ def _groq_key() -> str:
 
 
 def call_groq(prompt: str, timeout: int = 30) -> str:
-    key = _read_env("GROQ_API_KEY")
+    # _groq_key() couvre deja env + Nokido.env hors rotation ; un second lecteur re-servait l'env
+    # quand la rotation declare toutes les cles mortes (16/10).
+    key = _groq_key()
     if not key:
         return "[ERR groq] GROQ_API_KEY absent"
     try:
@@ -622,7 +637,17 @@ def _extract_prompt(msg: sqlite3.Row) -> str:
 
 
 _HUB_URL = "http://127.0.0.1:8766"
-_HUB_TOKEN = os.environ.get("FORGE_MCP_TOKEN", "")
+
+
+def _hub_token() -> str:
+    """Jeton du hub lu au coffre a chaque appel (get_secret replie lui-meme sur l'env) -- 16/10."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("FORGE_MCP_TOKEN") or ""
+    except Exception as _e:
+        logger.warning("coffre illisible pour le jeton du hub (%s) -> appel sans jeton", type(_e).__name__)
+        return ""
 
 
 def _hub_shell(cmd: str, workdir: str = "", timeout: int = 120) -> str:
@@ -637,8 +662,9 @@ def _hub_shell(cmd: str, workdir: str = "", timeout: int = 120) -> str:
         },
     }
     hdrs: dict = {"Content-Type": "application/json"}
-    if _HUB_TOKEN:
-        hdrs["Authorization"] = f"Bearer {_HUB_TOKEN}"
+    _jeton = _hub_token()
+    if _jeton:
+        hdrs["Authorization"] = f"Bearer {_jeton}"
     try:
         req = urllib.request.Request(
             f"{_HUB_URL}/mcp",

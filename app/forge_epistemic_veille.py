@@ -83,7 +83,7 @@ def _load_or_compute_pca():
                 }
                 return _PCA_DATA
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_epistemic_veille.py', 85, exc_info=True)
 
     try:
         conn = sqlite3.connect(db_path())
@@ -110,7 +110,7 @@ def _load_or_compute_pca():
                 if v.size == 1024:
                     vecs.append(v)
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_epistemic_veille.py', 112, exc_info=True)
 
         if len(vecs) < 100:
             return None
@@ -185,7 +185,15 @@ def _coverage_dense_brut(query: str) -> dict:
             return _j.loads(r.read())
 
     try:
-        qv = _post("http://127.0.0.1:8099/v1/embeddings", {"input": [query]})["data"][0]["embedding"]
+        # 19/10 (voie longue) : la requete passe par la borne du routeur, sur le MEME embedder (:8099, espace Qdrant).
+        try:
+            from nokido_agent.app.forge_embed_router import _llama8099_call
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from forge_embed_router import _llama8099_call
+        _vecs = _llama8099_call([query], timeout=20)
+        if not _vecs:
+            raise RuntimeError("embedder :8099 indisponible ou requete refusee")
+        qv = _vecs[0]
         hits = _post("http://127.0.0.1:6333/collections/nokido_sovereign_rag/points/search",
                      {"vector": {"name": "dense", "vector": qv}, "limit": 30, "with_payload": True}, 15)["result"]
         dense_ids = [h["payload"].get("chunk_id") for h in hits]
@@ -322,6 +330,12 @@ def coverage_score(query: str, context: str = "") -> dict:
         return {"ok": False, "error": repr(e), "gap": None, "score": None, "n_results": None, "tier": None,
                 "verdict": "rag_indisponible", "dependance": "preflight RAG (forge_self_correction)",
                 "instrument": "coverage_score"}
+    if v.get("tier") == "illisible":
+        # 19/10 : le preflight DIT desormais la panne de ses niveaux SQLite ; avant, elle sortait `none` + 0 resultat,
+        # lue ici comme une LACUNE (knowledge_gap + cortisol sur une panne technique).
+        return {"ok": False, "error": "pannes: %s" % ", ".join(v.get("pannes") or []), "gap": None, "score": None,
+                "n_results": None, "tier": "illisible", "verdict": "rag_indisponible",
+                "dependance": "preflight RAG (forge_self_correction)", "instrument": "coverage_score"}
     results = v.get("results") or []
     n = len(results)
     top = max((float(r.get("score", 0) or 0) for r in results), default=0.0)
@@ -363,7 +377,7 @@ def feel_gap(domain: str, query: Optional[str] = None, context: str = "",
                 "n_results": cov.get("n_results"),
             })
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_epistemic_veille.py', 373, exc_info=True)
         try:
             from nokido_agent.app.forge_endocrine import release
 
@@ -376,7 +390,7 @@ def feel_gap(domain: str, query: Optional[str] = None, context: str = "",
                 meta={"domain": domain, "score": cov.get("score")},
             )
         except Exception:  # noqa: BLE001
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_epistemic_veille.py', 386, exc_info=True)
         out["felt"] = True
         out["veille_objective"] = (
             f"Documentation et fonctionnement de: {domain}. Donne définitions précises, "

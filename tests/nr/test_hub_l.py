@@ -52,26 +52,42 @@ def client(monkeypatch):
     return c
 
 
+# L'interface principale « / » est le hub compile (design_handoff_nokido/ui_kits/hub/hub-compiled.js) ; l'ancien
+# tableau a tuiles que valide cette classe est CONSERVE en repli sur /dashboard (app.py). Mesure 2026-10-18 : ces
+# tests interrogeaient encore « / » et ne tournaient nulle part (hors PURE_TESTS).
+DASHBOARD = "/dashboard"
+
+
 class TestDashboardFeatureFlags:
     def test_has_data_feature_key(self, client):
-        html = client.get("/").text
-        # Chaque card de service doit avoir data-feature-key
-        for svc in ("ctf", "recon", "graph", "tui"):
+        """Chaque carte de SERVICES dotee d'un drapeau `feature_*` DECLARE porte sa cle.
+
+        Decision owner 18/10 : la liste figee (ctf, recon, graph, tui) exigeait les cartes de deux modules retires
+        (ctf, tui, absents de SERVICES) ; on suit les cartes REELLES, et feature_ctf / feature_tui sont geles.
+        """
+        from app.web_hub.app import SERVICES
+        from app.web_hub.config import _SCHEMA
+
+        html = client.get(DASHBOARD).text
+        drapeaux = {f.key for f in _SCHEMA if f.key.startswith("feature_")}
+        portes = [s for s in SERVICES if f"feature_{s}" in drapeaux]
+        assert portes, "aucune carte n'a de drapeau declare : le test ne verifierait rien"
+        for svc in portes:
             assert f'data-feature-key="feature_{svc}"' in html, \
                 f"card {svc} manque data-feature-key"
 
     def test_js_apply_feature_flags(self, client):
-        html = client.get("/").text
+        html = client.get(DASHBOARD).text
         assert "applyFeatureFlags" in html
         assert "/api/config" in html  # le JS fetch la config
         assert "data-feature-key" in html  # selector utilise
 
     def test_nav_link_launcher(self, client):
-        html = client.get("/").text
+        html = client.get(DASHBOARD).text
         assert 'href="/launcher"' in html
 
     def test_refresh_all_startup(self, client):
-        html = client.get("/").text
+        html = client.get(DASHBOARD).text
         # refreshAll() est appele au demarrage et en interval
         assert "refreshAll" in html
 
@@ -164,5 +180,6 @@ class TestApiManagedFlag:
             if m.startswith("app.web_hub"):
                 del sys.modules[m]
         from app.web_hub.launcher import MODULES
-        for k in ("tui_bridge", "recon", "graph"):
+        # `recon` retire du launcher le 2026-05-03 (884374b3f) ; modules reels geres par l'API :
+        for k in ("tui_bridge", "graph", "opencode"):
             assert MODULES[k].api_managed is True, f"{k} devrait etre api_managed"

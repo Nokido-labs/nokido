@@ -139,7 +139,7 @@ def _watch_loop(interval: float = 20.0):
                     print(f"[faiss-sidecar] DB changée ({_IDX['n']} -> {c}, age {int(age)}s) — reload index", flush=True)
                     load_index()
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_faiss_sidecar.py', 141, exc_info=True)
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -266,7 +266,7 @@ def main(argv: list) -> int:
             try:
                 port = int(argv[argv.index("--port") + 1])
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_faiss_sidecar.py', 268, exc_info=True)
         return serve(port)
     print(__doc__)
     return 0

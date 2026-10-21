@@ -22,7 +22,7 @@ machine without becoming a heap of independent agents. The
 
 This wiki is the **operator manual** — installation, configuration, day-to-day
 workflows, troubleshooting. For the *why* behind Nokido's design, read
-[MANIFESTO.md](../../MANIFESTO.md). For the technical internals, read
+[the Manifesto](../i18n/MANIFESTO.en.md). For the technical internals, read
 [docs/ARCHITECTURE.md](../ARCHITECTURE.md).
 
 ---

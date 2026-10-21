@@ -147,7 +147,7 @@ def get_machine_key() -> str:
                 if lines:
                     hw_id = lines[0]
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 149, exc_info=True)
             if not hw_id:
                 try:
                     out = subprocess.check_output(
@@ -158,7 +158,7 @@ def get_machine_key() -> str:
                     errors="replace")
                     hw_id = out.strip()
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 160, exc_info=True)
 
         elif platform.system() == "Linux":
             for f in ["/etc/machine-id", "/sys/class/dmi/id/product_uuid"]:
@@ -168,7 +168,7 @@ def get_machine_key() -> str:
                         hw_id = p.read_text().strip()
                         break
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 170, exc_info=True)
 
         # Fallback universel
         if not hw_id or hw_id in ("", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"):
@@ -365,12 +365,12 @@ def cold_backup(
                     try:
                         dst_con.close()
                     except Exception:  # noqa: BLE001
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 367, exc_info=True)
                 if src_con is not None:
                     try:
                         src_con.close()
                     except Exception:  # noqa: BLE001
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 372, exc_info=True)
                 # Force release des handles Windows avant la prochaine tentative
                 import gc as _gc
 
@@ -380,7 +380,7 @@ def cold_backup(
                 try:
                     db_backup.unlink()
                 except OSError:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 382, exc_info=True)
             raise RuntimeError(f"Backup DB echoue apres 3 retries : {last_err}") from last_err
 
     # Sauvegarder rag_files/ si mode knowledge ou full
@@ -604,7 +604,7 @@ def list_backups() -> list[dict]:
             try:
                 entry.update(json.loads(mf.read_text(encoding="utf-8")))
             except Exception:
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 606, exc_info=True)
         result.append(entry)
     return result
 
@@ -676,7 +676,7 @@ def _set_writable(path: Path) -> None:
                     try:
                         p.chmod(0o644)
                     except Exception:
-                        pass
+                        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_snapshot.py', 678, exc_info=True)
     except Exception as e:
         logger.debug(f"[snapshot] set_writable: {e}")
 

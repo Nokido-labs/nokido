@@ -588,9 +588,18 @@ def check(channel: str, payload: Union[str, dict, None]) -> Tuple[bool, Dict[str
             publish("m2m_violation", {"channel": channel, **{k: v[k] for k in ("code", "intent", "words") if k in v}},
                     topic="m2m")
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_m2m_protocol.py', 590, exc_info=True)
         if mode() == "error":
             return False, v
+    elif os.environ.get("NOKIDO_BUS_TACHES", "1") != "0":
+        # 19/10 : le flux /api/swarm/stream ne voyait que les FAUTES (318 m2m_violation sur 2 000 lignes, aucune trame
+        # reussie). Une trame conforme est publiee aussi ; interrupteur coupe par le conftest des NR.
+        try:
+            from nokido_agent.app.forge_swarm_bus import publish
+
+            publish("m2m_frame", {"channel": channel, **{k: v[k] for k in ("code", "intent") if k in v}}, topic="m2m")
+        except Exception:  # muet-ok : le flux ne casse jamais le canal qu'il raconte
+            pass
     return True, v
 
 
