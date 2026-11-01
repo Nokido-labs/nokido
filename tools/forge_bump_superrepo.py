@@ -205,6 +205,22 @@ def _pointeurs_inchanges(paths) -> bool:
     return True
 
 
+def _sha_a_figer(sha: str, tip: str, ancetre) -> tuple:
+    """Sha a figer dans le gitlink : TOUJOURS un commit publie. `ancetre(a, b)` = a est ancetre de b.
+
+    HEAD == distant -> HEAD. HEAD ancetre du distant (retard local) -> HEAD, publie. Distant ancetre du HEAD
+    (avance locale NON publiee, 1/11 : 8 commits hors CI au-dessus du sha certifie et pousse) -> le DISTANT, au
+    lieu de refuser. Divergence -> (None, refus) : un gitlink non publie rend le submodule irrecuperable au clone."""
+    if sha == tip:
+        return sha, ""
+    if ancetre(sha, tip):
+        return sha, "est en retard sur le distant ; on fige %s, qui EST publie" % sha[:8]
+    if ancetre(tip, sha):
+        return tip, "a de l'avance locale NON publiee (%s) ; on fige le distant %s, publie" % (sha[:8], tip[:8])
+    return None, ("HEAD %s n'est PAS publie (distant %s, divergent) — pousser le submodule AVANT de "
+                  "reaccrocher le superrepo" % (sha[:8], tip[:8]))
+
+
 def _committer_pointeurs(paths, sujet: str, corps: str = ""):
     """Commit des SEULS gitlinks, par un INDEX TEMPORAIRE : HEAD + les pointeurs, rien d'autre, sans pathspec.
 
@@ -413,15 +429,15 @@ def main() -> int:
             say("ERREUR: distant de %s illisible — on ne bumpe pas a l'aveugle "
                 "(un gitlink invalide casse le clone, l'inaction ne casse rien)" % cible)
             return 2
-        if sha != tip:
-            # `_git` rend "" quand rc==0 (donc ancetre) et None sinon : le doute
-            # profite au refus, parce que les deux erreurs n'ont pas le meme cout.
-            if di._git(sub, "merge-base", "--is-ancestor", sha, tip) is None:
-                say("ERREUR: %s HEAD %s n'est PAS publie (distant %s) — pousser le "
-                    "submodule AVANT de reaccrocher le superrepo" % (cible, sha[:8], tip[:8]))
-                return 2
-            say("  note : %s a de l'avance locale ; on fige %s, qui EST publie"
-                % (cible, sha[:8]))
+        # `_git` rend "" quand rc==0 (donc ancetre) et None sinon : le doute
+        # profite au refus, parce que les deux erreurs n'ont pas le meme cout.
+        sha, note = _sha_a_figer(sha, tip, lambda a, b, _s=sub: di._git(
+            _s, "merge-base", "--is-ancestor", a, b) is not None)
+        if sha is None:
+            say("ERREUR: %s %s" % (cible, note))
+            return 2
+        if note:
+            say("  note : %s %s" % (cible, note))
         r = git("update-index", "--cacheinfo", "160000,%s,%s" % (sha, cible))
         if r.returncode != 0:
             say("ERREUR update-index %s rc=%s: %s"

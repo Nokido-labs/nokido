@@ -1343,6 +1343,17 @@ def _aligner_bloc_pip(dist: Path, paquet: str, servie: str | None) -> None:
         return
     for p in _module_readme_pip().ecrire(dist, paquet, servie):
         print("[pip] bloc aligne sur %s : %s" % (servie, p.relative_to(dist)))
+    # Owner 1/11 : conformite des README en tous points, jugee sur l'ARBRE PUBLIE (un lien vers un fichier exclu du
+    # dist y devient un lien mort) avant tout commit. Un ecart = promotion refusee, dite.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "forge_readme_conformite", Path(__file__).with_name("forge_readme_conformite.py"))
+    conf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conf)
+    ecarts = conf.verifier(dist)
+    if ecarts:
+        raise SystemExit("[readme] README du dist NON conformes :\n  %s" % "\n  ".join(str(e) for e in ecarts))
+    print("[readme] README du dist conformes (forge_readme_conformite)")
 
 
 # Cartouches du dist (2026-10-02, owner : « le cartouche CI ne s'affiche plus »). Le README de la
@@ -1507,9 +1518,11 @@ def main() -> int:
     print(f"  dist repo : {dist}")
     if not args.push:
         print("  re-run with --push to publish to Codeberg + GitHub")
-    print("  then attach assets to the Release :")
+    # 1/11 : une Release PUBLIEE a la main apres le tag casse le workflow « Release to PyPI » (son job Release trouve
+    # le tag pris ; README pip et tests 3 OS sautes). En BROUILLON, le workflow la publie avec wheel + sdist.
+    print("  then attach assets to a DRAFT Release (the tag workflow publishes it after PyPI) :")
     print(f"    gh release create v{args.version} {TMP}/nokido-release/"
-          f"v{args.version}/* --repo {DIST_REPO_GITHUB} --title v{args.version}")
+          f"v{args.version}/* --repo {DIST_REPO_GITHUB} --title v{args.version} --draft")
     print("=" * 64)
     return 0
 

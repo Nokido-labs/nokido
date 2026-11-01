@@ -393,6 +393,19 @@ def ctrl_politique_export():
     return VERT, "profil public : %d regles, domaines critiques couverts" % len(motifs)
 
 
+def ctrl_readme_conforme():
+    """Les README publics (README.md + docs/i18n) sont-ils conformes en tous points ? (owner 1/11)"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("forge_readme_conformite",
+                                                  ROOT / "tools" / "forge_readme_conformite.py")
+    conf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(conf)
+    ecarts = conf.verifier(ROOT)
+    if ecarts:
+        return ROUGE, "%d ecart(s) : %s" % (len(ecarts), "; ".join(str(e) for e in ecarts[:3]))
+    return VERT, "README conformes (version, langue, titres, liens, fuites)"
+
+
 CONTROLES = [
     ("syntaxe", ctrl_syntaxe),
     ("modules versionnes", ctrl_modules_versionnes),
@@ -401,6 +414,7 @@ CONTROLES = [
     ("composition", ctrl_composition),
     ("filet clonable", ctrl_filet_clonable),
     ("politique export", ctrl_politique_export),
+    ("readme conforme", ctrl_readme_conforme),
 ]
 
 def ctrl_secrets_historique():

@@ -240,6 +240,51 @@ def _delegations(db=None, maintenant=None) -> str:
     return "DÉL %d %s%s" % (len(rows), " ".join(morceaux), reste)
 
 
+def _tours(charge, etat=None):
+    """(tours, appels d'outils) de la session, depuis `transcript_path` du payload (P0, decision owner 20/10).
+
+    Le .jsonl ecrit UNE ligne par bloc : un tour = un message.id assistant DISTINCT d'avec le precedent, un appel =
+    un bloc tool_use. Lecture INCREMENTALE depuis l'offset memorise (le transcript pese des dizaines de Mo) ; seules
+    les lignes COMPLETES sont lues. Autre transcript ou fichier raccourci -> repart de zero. Rend None si le
+    transcript est absent ou illisible (INCONNU, pas zero). Ne leve JAMAIS."""
+    try:
+        chemin = (charge or {}).get("transcript_path") if isinstance(charge, dict) else None
+        if not chemin or not os.path.isfile(chemin):
+            return None
+        etat = Path(etat) if etat else RACINE / "sandbox" / "statusline_tours.json"
+        try:
+            e = json.loads(etat.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - muet-ok : premier passage ou illisible
+            e = {}
+        taille = os.path.getsize(chemin)
+        if e.get("chemin") != chemin or int(e.get("offset") or 0) > taille:
+            e = {"chemin": chemin, "offset": 0, "tours": 0, "outils": 0, "dernier_id": None}
+        with open(chemin, "rb") as f:
+            f.seek(int(e["offset"]))
+            bloc = f.read()
+        fin = bloc.rfind(b"\n")
+        if fin >= 0:
+            for brute in bloc[:fin + 1].splitlines():
+                try:
+                    m = json.loads(brute.decode("utf-8", "replace")).get("message") or {}
+                except Exception:  # noqa: BLE001 - muet-ok : ligne non JSON
+                    continue
+                if not isinstance(m, dict) or m.get("role") != "assistant":
+                    continue
+                if m.get("id") and m["id"] != e.get("dernier_id"):
+                    e["tours"] += 1
+                    e["dernier_id"] = m["id"]
+                contenu = m.get("content")
+                if isinstance(contenu, list):
+                    e["outils"] += sum(1 for b in contenu if isinstance(b, dict) and b.get("type") == "tool_use")
+            e["offset"] = int(e["offset"]) + fin + 1
+            etat.parent.mkdir(parents=True, exist_ok=True)
+            etat.write_text(json.dumps(e), encoding="utf-8")
+        return e["tours"], e["outils"]
+    except Exception:  # noqa: BLE001 - une statusline qui plante est une statusline qu'on retire
+        return None
+
+
 def main():
     global _BRUT
     try:
@@ -265,6 +310,9 @@ def main():
         motif = "adaptateur KO (" + type(exc).__name__ + ")"
     amont = _statusline_amont()
     mien = _ligne(ev, charge) if ev else ("usage " + motif)
+    tours = _tours(charge)
+    if tours:
+        mien = mien + " | " + ("TOURS %d OUTILS %d" % tours)
     deleg = _delegations()
     if deleg:
         mien = mien + " | " + deleg

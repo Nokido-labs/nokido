@@ -189,6 +189,15 @@ PURE_TESTS = [
     "tests/nr/test_opencode_quota_bascule_ollama_cloud_nr.py",
     "tests/nr/test_verdict_effet_rien_produit_toutes_voies_nr.py",
     "tests/nr/test_statusline_delegations_nr.py",
+    # 1/11 : economie de contexte (etapes 1-3, P0, compacteur git), bump, coupe-circuit AGY -- zero service externe
+    "tests/nr/test_blackboard_sans_cle_index_nr.py",
+    "tests/nr/test_bump_superrepo_head_en_avance_nr.py",
+    "tests/nr/test_cmd_compactor_git_quote_nr.py",
+    "tests/nr/test_coupe_circuit_essai_consomme_une_fois_nr.py",
+    "tests/nr/test_delegation_coupe_circuit_3_etats_nr.py",
+    "tests/nr/test_governed_edit_champs_dedoublonnes_nr.py",
+    "tests/nr/test_plafond_sortie_run_selon_rc_nr.py",
+    "tests/nr/test_statusline_tours_outils_nr.py",
     "tests/nr/test_executeur_commit_sans_transitoires_nr.py",
     "tests/nr/test_scope_defaut_preserve_deep_explore_nr.py",
     "tests/nr/test_fast_test_runner_interpreteur_nr.py",
@@ -1375,6 +1384,7 @@ PURE_TESTS = [
     "tests/nr/test_memory_compactor_datation_nr.py",
     "tests/nr/test_capability_audit_nr.py",
     "tests/nr/test_readme_pip_nr.py",
+    "tests/nr/test_readme_conformite_nr.py",   # owner 1/11 : README conformes en tous points (bloquant)
     "tests/nr/test_doctor_vivant_nr.py",
     # Ingestion de doc (01/10) : version courante seule a la re-ingestion, agregats
     # `llms-full.txt` ecartes, entree lexicale gardee pour un chunk inchange. Base

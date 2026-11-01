@@ -48,7 +48,8 @@ def test_compact_transform_telegraphique():
     assert props["action"]["enum"] == ["alpha", "beta", "gamma"]
     assert t["inputSchema"]["required"] == ["action"]
     assert len(props["action"]["description"]) <= 81
-    assert len(props["explanation"]["description"]) < 100
+    # 31/10 : la consigne d'`explanation` vit dans les instructions serveur, plus par outil -> description retiree.
+    assert "description" not in props["explanation"]
 
 
 def test_compact_ne_mute_pas_le_canonique():

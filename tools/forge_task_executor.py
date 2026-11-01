@@ -57,7 +57,10 @@ except ImportError:  # repli checkout : tools/ dans sys.path
     import forge_palier_effort as _palier
 
 ROOT = Path(__file__).resolve().parent.parent
-(ROOT / "logs").mkdir(exist_ok=True)
+try:
+    (ROOT / "logs").mkdir(exist_ok=True)
+except OSError:  # muet-ok : dossier deja la ou non creable sous ce compte ; le FileHandler dira son propre echec
+    pass
 
 # Le fichier de log appartient au compte qui fait tourner le service ; un autre
 # compte (bac a sable du hub, session owner) ne peut PAS l'ouvrir en ecriture.
@@ -806,7 +809,7 @@ def reinitialiser_surfaces_indisponibles() -> None:
 _reinitialiser_surfaces_indisponibles = reinitialiser_surfaces_indisponibles
 
 
-def _executeur_suspendu(agent: str) -> str | None:
+def _executeur_suspendu(agent: str, maintenant: float | None = None) -> str | None:
     """Le motif de suspension de `agent`, ou None s'il n'est pas suspendu.
 
     Une suspension DECIDEE se DECLARE au registre sous `suspendu: {depuis, motif}`
@@ -819,7 +822,7 @@ def _executeur_suspendu(agent: str) -> str | None:
     motif_surface = surface_est_indisponible(nom)
     if motif_surface is not None:
         return f"surface indisponible (motif : {motif_surface})"
-    repos = executeur_en_repos(nom)  # coupe-circuit fournisseur OpenCode (24/10)
+    repos = executeur_en_repos(nom, maintenant=maintenant)  # coupe-circuit fournisseur OpenCode (24/10)
     if repos:
         return f"en repos (coupe-circuit fournisseur) : {repos}"
     spec =(_lire_registre().get("agents") or {}).get(nom)
@@ -1402,7 +1405,9 @@ def _read_spec(description: str, token: str) -> tuple[str, str]:
     if not m:
         return "", ""
     zone, key = m.group(1), m.group(2)
-    resp = _hub_call("blackboard_read_zone", {"zone_name": zone}, token, timeout=30)
+    # La cle cible le fait : sans elle, une grosse zone rend l'index des cles (economie contexte 1/11) et une
+    # zone de plus de `limit` faits masquait un fait ancien.
+    resp = _hub_call("blackboard_read_zone", {"zone_name": zone, "key": key}, token, timeout=30)
     body = _hub_text(resp)
     spec = ""
     try:
@@ -5024,6 +5029,10 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
     log.info(f"  DELEGATE {str(task_id)[:24]} -> {inst} {'OK' if ok else 'KO'} {effet}"
              + ("" if ok else " | rendu : " + _tete_rendu(detail)))
     _consigner_verdict_auto(inst, task_id, ok, effet, detail, rendu)
+    if not ok:
+        enregistrer_echec_executeur(inst, detail)  # coupe-circuit 3 etats : 2 echecs consécutifs = OPEN (15 min)
+    else:
+        enregistrer_succes_executeur(inst)
     if not ok and _est_panne_fournisseur(detail):
         enregistrer_panne_fournisseur(inst, detail)  # coupe-circuit (24/10) : 2 en 30 min = repos
     # Travail INACHEVE preserve sur la branche : on ne reaffecte pas (la reprise repartirait d'alpha et
@@ -5143,8 +5152,147 @@ def _ordre_repli_pour(source, ecrit: bool = True) -> tuple:
 # PARTAGE entre les processus executeurs (fichier) : celui qui reaffecte n'est pas celui qui a vu la panne.
 _COUPE_CIRCUIT_SEUIL = 2
 _COUPE_CIRCUIT_FENETRE_S = 1800.0
+_COUPE_CIRCUIT_COOLDOWN_S = 900.0  # 15 min cooldown (patron OmniRoute plan S3)
 _RE_PANNE_FOURNISSEUR = re.compile(
     r"-32603|overloaded|surcharg|\b429\b|too many requests|rate.?limit|SilenceACP|silence de l'agent|BOUCLE SANS PROGRES", re.I)
+
+
+def _cooldown_coupe_circuit_s() -> float:
+    try:
+        return float(os.environ.get("LAFORGE_COUPE_CIRCUIT_COOLDOWN_S", "") or _COUPE_CIRCUIT_COOLDOWN_S)
+    except (TypeError, ValueError):
+        return _COUPE_CIRCUIT_COOLDOWN_S
+
+
+def statut_coupe_circuit(agent: str, maintenant: float | None = None) -> tuple[str, str | None]:
+    """Statut formel a 3 etats ('CLOSED', 'OPEN', 'HALF_OPEN') du coupe-circuit par executeur.
+
+    - CLOSED : fonctionnement normal ;
+    - OPEN : bloque apres N=2 sorties vides ou echecs/reaffectations consecutives ;
+    - HALF_OPEN : cooldown ecoule (15 min), autorise une seule tache d'essai.
+    Rend (etat, motif). En cas d'etat absent ou illisible -> ('CLOSED', None) (UNKNOWN != NO).
+    LECTURE PURE (01/11) : ne modifie jamais l'etat sur disque. La transition vers HALF_OPEN
+    se calcule dynamiquement ; l'ecriture se fait lors de autoriser_essai_half_open / enregistrer_*.
+    """
+    nom = (agent or "").upper()
+    if not nom:
+        return "CLOSED", None
+    etat_global = _lire_coupe_circuit()
+    e = etat_global.get(nom)
+    if not isinstance(e, dict):
+        return "CLOSED", None
+
+    st = str(e.get("etat") or "").upper()
+    t = time.time() if maintenant is None else float(maintenant)
+
+    # Cooldown ecoule ?
+    until = float(e.get("open_until") or e.get("repos_jusqu_a") or 0.0)
+    if until and t >= until:
+        if st == "OPEN":
+            return "HALF_OPEN", str(e.get("motif") or "HALF_OPEN (cooldown ecoule, essai permis)")
+        if not st:
+            return "CLOSED", None
+
+    # Compatibilite ancien format repos
+    repos_jusqu_a = e.get("repos_jusqu_a")
+    if st not in ("CLOSED", "OPEN", "HALF_OPEN"):
+        if repos_jusqu_a and t < float(repos_jusqu_a):
+            st = "OPEN"
+        else:
+            st = "CLOSED"
+
+    if st == "OPEN":
+        motif = str(e.get("motif") or "OPEN (coupe-circuit actif)")
+        if "OPEN" not in motif:
+            motif = f"OPEN : {motif}"
+        return "OPEN", motif
+
+    if st == "HALF_OPEN":
+        return "HALF_OPEN", str(e.get("motif") or "HALF_OPEN (essai en cours ou en attente)")
+
+    return "CLOSED", None
+
+
+def autoriser_essai_half_open(agent: str, maintenant: float | None = None) -> tuple[bool, str]:
+    """En HALF_OPEN, autorise une et une seule tentative de tache d'essai.
+
+    Rend (autorise, raison). En CLOSED, autorise sans verrou d'essai. En OPEN, refuse.
+    L'ecriture de transition (OPEN -> HALF_OPEN avec trial_active=True) et de verrouillage vit ici.
+    """
+    nom = (agent or "").upper()
+    st, motif = statut_coupe_circuit(nom, maintenant=maintenant)
+    if st == "CLOSED":
+        return True, "circuit ferme"
+    if st == "OPEN":
+        return False, f"circuit ouvert : {motif}"
+    if st == "HALF_OPEN":
+        etat_global = _lire_coupe_circuit()
+        e = etat_global.get(nom) if isinstance(etat_global.get(nom), dict) else {}
+        if e.get("trial_active"):
+            return False, f"essai en cours (HALF_OPEN verrouille) pour {nom}"
+        e["etat"] = "HALF_OPEN"
+        e["trial_active"] = True
+        etat_global[nom] = e
+        _ecrire_coupe_circuit(etat_global)
+        return True, f"essai autorise pour {nom} en HALF_OPEN"
+    return True, "statut inconnu traite comme autorise"
+
+
+def enregistrer_succes_executeur(agent: str) -> None:
+    """Enregistre le succes d'une tache pour `agent` : reinitialise les echecs et referme le circuit (CLOSED)."""
+    nom = (agent or "").upper()
+    if not nom:
+        return
+    etat_global = _lire_coupe_circuit()
+    e = etat_global.get(nom) if isinstance(etat_global.get(nom), dict) else {}
+    e["etat"] = "CLOSED"
+    e["echecs_consecutifs"] = 0
+    e["trial_active"] = False
+    e["pannes"] = []
+    e.pop("motif", None)
+    e.pop("open_until", None)
+    e.pop("repos_jusqu_a", None)
+    etat_global[nom] = e
+    _ecrire_coupe_circuit(etat_global)
+    log.info(f"  COUPE-CIRCUIT {nom} referme (CLOSED) apres succes")
+
+
+def enregistrer_echec_executeur(agent: str, detail: str = "", maintenant: float | None = None) -> str | None:
+    """Compte un echec consecutif (sortie vide, reaffectation ou panne fournisseur).
+
+    Apres N=2 echecs consecutifs (ou en HALF_OPEN) -> bascule en OPEN pour cooldown (15 min).
+    Rend le motif si passage ou maintien en OPEN, None sinon.
+    """
+    nom = (agent or "").upper()
+    if not nom:
+        return None
+    t = time.time() if maintenant is None else float(maintenant)
+    etat_global = _lire_coupe_circuit()
+    e = etat_global.get(nom) if isinstance(etat_global.get(nom), dict) else {}
+
+    st, _ = statut_coupe_circuit(nom, maintenant=t)
+    cpt = int(e.get("echecs_consecutifs") or 0) + 1
+    e["echecs_consecutifs"] = cpt
+    e["trial_active"] = False
+
+    cooldown = _cooldown_coupe_circuit_s()
+    jusqu_a = t + cooldown
+    motif = None
+
+    if st == "HALF_OPEN" or cpt >= _COUPE_CIRCUIT_SEUIL:
+        tete = str(detail or "").strip().splitlines()[0][:160] if str(detail or "").strip() else "echec delegation"
+        motif = (f"OPEN jusqu'a {time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(jusqu_a))} : {cpt} echec(s) "
+                 f"consecutifs (dernier : {tete})")
+        e["etat"] = "OPEN"
+        e["open_until"] = jusqu_a
+        e["repos_jusqu_a"] = jusqu_a
+        e["repos_depuis"] = t
+        e["motif"] = motif
+        log.warning(f"  COUPE-CIRCUIT {nom} bascule en OPEN -- {motif}")
+
+    etat_global[nom] = e
+    _ecrire_coupe_circuit(etat_global)
+    return motif
 
 
 def _est_opencode(agent: str) -> bool:
@@ -5224,12 +5372,15 @@ def enregistrer_panne_fournisseur(agent: str, detail: str, maintenant: float | N
 
 
 def executeur_en_repos(agent: str, maintenant: float | None = None) -> str | None:
-    """Motif du repos de `agent` s'il court encore, None sinon (expire, absent, etat illisible)."""
+    """Motif du repos ou etat OPEN de `agent` s'il court encore, None sinon (expire, absent, etat illisible)."""
     nom = (agent or "").upper()
+    st, motif = statut_coupe_circuit(nom, maintenant=maintenant)
+    if st == "OPEN":
+        return motif or "REPOS (coupe-circuit OPEN)"
     e = _lire_coupe_circuit().get(nom) if nom else None
     if not isinstance(e, dict):
         return None
-    fin = e.get("repos_jusqu_a")
+    fin = e.get("repos_jusqu_a") or e.get("open_until")
     if not isinstance(fin, (int, float)):
         return None
     t = time.time() if maintenant is None else float(maintenant)
@@ -5451,10 +5602,13 @@ def _reaffecter(task: dict, motif: str, ordre=None, rendu: str = ""):
         _gratuit = _repli_gratuit_seul()
         vivants = [a for a in (ordre or _ORDRE_REPLI)
                    if a not in essayes and not (_gratuit and a in _SURFACES_PAYANTES)
-                   and _executeur_bat(a) and not _executeur_suspendu(a) and not _opencode_hors_quota(a)]
+                   and _executeur_bat(a) and not _executeur_suspendu(a) and not _opencode_hors_quota(a)
+                   and statut_coupe_circuit(a)[0] != "OPEN"]
         if _gratuit and any(a in _SURFACES_PAYANTES for a in (ordre or _ORDRE_REPLI)):
             log.info(f"  {str(task['id'])[:24]} : repli gratuit seul -- {', '.join(_SURFACES_PAYANTES)} ecarte(s)")
-        vers = vivants[0] if vivants else None
+        # L'essai HALF_OPEN se CONSOMME sur le seul candidat retenu : appele dans le filtre, il verrouillait l'essai
+        # de CHAQUE candidat HALF_OPEN evalue, choisi ou non (relecture 1/11 de la livraison AGY).
+        vers = next((a for a in vivants if autoriser_essai_half_open(a)[0]), None)
         try:  # 19/10 OBSERVATION : ce qu'aurait choisi l'ordre hedoniste (force mesuree) -- ne decide RIEN
             from nokido_agent.app.forge_motivation import ordre_hedoniste
             classe = (task["classe"] if "classe" in task.keys() else "") or "M:ecrit"
@@ -5947,6 +6101,13 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
                                            ordre=_ordre_repli_pour(task)):  # code : jamais AGY (18/10)
                                 continue
                             log.warning(f"  {task['id'][:24]} : {_agent_dedie} autonome INDISPONIBLE ({_pq}) -- laissee pending")
+                            break
+                        _permis_essai, _raison_essai = autoriser_essai_half_open(_agent_dedie)
+                        if not _permis_essai:
+                            if _reaffecter(task, f"{_agent_dedie} coupe-circuit ({_raison_essai})",
+                                           ordre=_ordre_repli_pour(task)):
+                                continue
+                            log.warning(f"  {task['id'][:24]} : {_agent_dedie} coupe-circuit ({_raison_essai}) -- laissee pending")
                             break
                         with _lock_delegations:
                             if _delegations_en_vol >= LAFORGE_TASK_PARALLEL:

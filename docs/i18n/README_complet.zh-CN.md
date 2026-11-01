@@ -84,10 +84,17 @@ Nokido 区分大多数项目混为一谈的三件事：**声明的**、**观测�
 
 ## 🚀 快速开始
 
-<!-- PIP:BEGIN nokido-agent version=none -->
-`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
-trusts: a version reaches it only after the install proof on Linux, Windows
-and macOS. Until then, install from a clone.
+<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
+**通过 PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), 在 Linux、Windows 和 macOS 上完成安装验证后发布. 完整的有机体、其锁定版本的组件（已验证校验和），然后是 hub：
+
+```bash
+pip install "nokido-agent[organisme]==0.20.15"
+nokido-composants --tout          # deno、llama.cpp、模型、知识包、本地令牌
+nokido-doctor                     # 这台机器具备什么、缺少什么或无法读取什么
+nokido-hub                        # 然后：curl http://localhost:8766/health
+```
+
+仅客户端（连接现有 hub）： `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 **从克隆安装** —— 即 CI 自身使用的路径（[详情](#-安装指南)）：
@@ -1260,7 +1267,7 @@ Nokido 并非要成为另一个聊天机器人。
 
 ---
 
-## License
+## 许可证
 
 **AGPLv3-or-later** · 提供商业许可
 

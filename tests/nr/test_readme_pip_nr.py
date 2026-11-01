@@ -250,9 +250,10 @@ def test_les_huit_README_portent_le_bloc_et_il_est_coherent():
     """Une traduction qui perd le bloc ne suivrait plus PyPI -- en silence."""
     m = _mod()
     fs = m.fichiers(ROOT)
-    assert len(fs) == 8, [p.name for p in fs]
+    assert len(fs) == 16, [p.name for p in fs]   # 1/11 : + docs/README_complet.md et ses 7 traductions
     for p in fs:
-        statut, note = m.coherence(p.read_text(encoding="utf-8"), "nokido-agent")
+        # 1/11 : chaque traduction porte le bloc de SA langue (avant : le bloc anglais partout, que ce test exigeait)
+        statut, note = m.coherence(p.read_text(encoding="utf-8"), "nokido-agent", m.langue_de(p))
         assert statut == m.ALIGNE, "%s : %s" % (p.name, note)
 
 

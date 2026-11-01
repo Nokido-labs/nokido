@@ -104,10 +104,17 @@ verlässt. Ihre eigene Compliance hängt weiterhin davon ab, wie Sie es einsetze
 
 ## 🚀 Schnellstart
 
-<!-- PIP:BEGIN nokido-agent version=none -->
-`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
-trusts: a version reaches it only after the install proof on Linux, Windows
-and macOS. Until then, install from a clone.
+<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
+**Von PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), veröffentlicht nach dem Installationsnachweis unter Linux, Windows und macOS. Der vollständige Organismus, seine fixierten Komponenten (Prüfsummen verifiziert), dann der Hub:
+
+```bash
+pip install "nokido-agent[organisme]==0.20.15"
+nokido-composants --tout          # deno, llama.cpp, Modelle, Knowledge Pack, lokales Token
+nokido-doctor                     # was dieser Rechner hat, was fehlt oder was er nicht lesen kann
+nokido-hub                        # dann: curl http://localhost:8766/health
+```
+
+Nur Client (spricht mit einem bestehenden Hub): `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 **Aus einem Klon** — der Weg, den auch die CI nimmt ([Details](#-installation)):
@@ -243,11 +250,11 @@ Der primäre Embedding-Raum ist:
 
 Das Gedächtnis ist darauf ausgelegt, die Lebensdauer einzelner Modellsitzungen zu überdauern.
 
-## Regulation
+## Regulierung
 
 CPU, RAM, GPU/NPU, Speicherplatzdruck, Warteschlangendruck, Latenz und Provider-Kapazitäten können das Systemverhalten beeinflussen.
 
-## Governance
+## Steuerung
 
 Probabilistische Generierung wird, wo immer möglich, von deterministischen Prüfungen getrennt.
 
@@ -1143,7 +1150,7 @@ Prüfen Sie vor einer Weiterverbreitung stets die geltenden Upstream-Bedingungen
 
 ---
 
-# 📝 Contributor License Agreement
+# 📝 Lizenzvereinbarung für Mitwirkende
 
 Beiträge erfordern die Annahme des Nokido-CLA, da das Projekt ein duales Lizenzmodell pflegt.
 
@@ -1195,7 +1202,7 @@ Nokido ist so konzipiert, dass sich die kognitive Architektur weiterentwickeln k
 
 ---
 
-# 🗺️ Roadmap
+# 🗺️ Fahrplan
 
 ### Kurzfristig
 
@@ -1273,7 +1280,7 @@ Die Hardware-Roadmap folgt explizit diesem Fortschritt.
 
 * [`docs/wiki/13-Hardware-Roadmap.md`](../../docs/wiki/13-Hardware-Roadmap.md)
 
-### Community
+### Gemeinschaft
 
 * [`CONTRIBUTING.md`](../../CONTRIBUTING.md)
 * [`CODE_OF_CONDUCT.md`](../../CODE_OF_CONDUCT.md)

@@ -523,6 +523,13 @@ def _lister_dossier(p, maxi: int = 200) -> str:
             + ("\n... %d de plus (non listees)" % reste if reste > 0 else ""))
 
 
+# Economie de contexte (owner 1/11, etape 3) : champs constants d'un retour d'outil, deja dits a CET agent dans
+# l'heure -> retires et nommes dans `deja_dit` (OMIS, pas absent). Etat du processus hub : un restart re-dit tout.
+_CHAMPS_DEJA_DITS: dict = {}
+_CHAMPS_DEDOUBLONNABLES = ("avertissement_reflexe", "note")
+_DEJA_DIT_TTL_S = 3600.0
+
+
 class ToolRegistry:
     """Registre unifie des outils MCP pour Nokido (HTTP & STDIO)."""
 
@@ -588,6 +595,59 @@ class ToolRegistry:
             else:
                 out[k] = sv[:200] if len(sv) > 200 else sv
         return out
+
+    _MOTIF_ECHEC_SORTIE = (r"Traceback \(most recent call last\)|\bFAILED\b|\b[1-9]\d* (?:failed|errors?)\b"
+                           r"|^ERR[: ]|ÉCHEC|exit_code\": [1-9]")
+
+    def _plafonner_sortie(self, result: str, name: str, agent: str) -> str:
+        """Plafond des sorties BRUTES (run/browser/netcfg) selon le code de sortie (owner 1/11, etape 1 du plan
+        d'economie, reglage « succes 6k, echec 12k »). Tete 35 % / queue 60 % : le bilan (pytest, rc) vit en QUEUE.
+        Le COMPLET est archive (CCR, read action=archived). JSON de `commands=[...]` : plafond PAR ENTREE selon son
+        exit_code. Texte nu, rc inconnu : echec seulement si la sortie porte une marque d'echec (le complet reste
+        recuperable, un mauvais classement ne perd rien). FORGE_TOOL_OUTPUT_CAP = plafond d'echec (0 = desactive),
+        FORGE_TOOL_OUTPUT_CAP_SUCCES = plafond de succes."""
+        if not isinstance(result, str) or name not in ("run", "browser", "netcfg"):
+            return result
+        try:
+            cap_echec = int(os.environ.get("FORGE_TOOL_OUTPUT_CAP", "12000"))
+            cap_succes = min(cap_echec, int(os.environ.get("FORGE_TOOL_OUTPUT_CAP_SUCCES", "6000")))
+        except ValueError:
+            cap_echec, cap_succes = 12000, 6000
+        if not cap_echec:
+            return result
+
+        import re as _re_cap
+
+        def _cap(texte: str, rc) -> str:
+            echec = (rc != 0) if rc is not None else bool(_re_cap.search(self._MOTIF_ECHEC_SORTIE, texte, _re_cap.M))
+            cap = cap_echec if echec else cap_succes
+            if len(texte) <= cap:
+                return texte
+            ccr = self._archive_blob(texte, agent, f"tool.{name}.output")
+            ptr = (f"\n\n[… SORTIE TRONQUÉE par le hub : {len(texte)} chars ({name}, "
+                   f"{'echec' if echec else 'succes'}). "
+                   + (f"COMPLET récupérable : read(action='archived', id='{ccr}'). …]\n\n"
+                      if ccr else "Affine (grep/offset/limit) ou interroge via `rag`. …]\n\n"))
+            return texte[: int(cap * 0.35)] + ptr + texte[-int(cap * 0.60):]
+
+        if result.lstrip()[:1] in ("{", "["):
+            try:
+                data = json.loads(result)
+            except ValueError:
+                return _cap(result, None)
+            entrees = data if isinstance(data, list) else [data]
+            change = False
+            for e in entrees:
+                if not isinstance(e, dict):
+                    continue
+                for k in ("stdout", "stderr"):
+                    v = e.get(k)
+                    if isinstance(v, str):
+                        nv = _cap(v, e.get("exit_code"))
+                        if nv is not v:
+                            e[k], change = nv, True
+            return json.dumps(data, ensure_ascii=False) if change else result
+        return _cap(result, None)
 
     def _archive_blob(self, text: str, agent: str, label: str) -> "Optional[str]":
         """Stashe un blob TEXTE complet sous sandbox/ccr/<id>.txt, récupérable via
@@ -1260,26 +1320,7 @@ class ToolRegistry:
                 if isinstance(result, str) and name in _CAP_TOOLS:
                     if result.lstrip()[:1] not in ("{", "["):  # JSON laissé intact
                         result = self._strip_output_noise(result)
-                    _cap = int(os.environ.get("FORGE_TOOL_OUTPUT_CAP", "12000"))
-                    if _cap and len(result) > _cap:
-                        _is_json = result.lstrip()[:1] in ("{", "[")
-                        if _is_json:
-                            try:
-                                json.loads(result)
-                            except Exception:
-                                _is_json = False
-                        if not _is_json:
-                            # CCR réversible : stashe le COMPLET (zéro perte du milieu),
-                            # renvoie head+tail+pointeur de récupération. Fallback (échec
-                            # archivage) = ancien comportement (re-grep/rag).
-                            _full_n = len(result)
-                            _ccr = self._archive_blob(result, agent, f"tool.{name}.output")
-                            _ptr = (
-                                f"\n\n[… SORTIE TRONQUÉE par le hub : {_full_n} chars ({name}). "
-                                + (f"COMPLET récupérable : read(action='archived', id='{_ccr}'). …]\n\n"
-                                   if _ccr else "Affine (grep/offset/limit) ou interroge via `rag`. …]\n\n")
-                            )
-                            result = result[: int(_cap * 0.8)] + _ptr + result[-int(_cap * 0.15) :]
+                    result = self._plafonner_sortie(result, name, agent)
                 # -- ENVELOPPE M2M -- auto-surface postal, UNIVERSEL (ce dispatcher = toutes les
                 # surfaces MCP : HTTP CLI + desktop via bridge). Flag OFF par defaut + fail-open :
                 # ne casse JAMAIS un tool call. Anti-spoof (identite forte) : ring < 4 = token-
@@ -1884,7 +1925,8 @@ class ToolRegistry:
             hint = m.group(0) if (m and m.group(0) not in first) else ""
             budget = self._COMPACT_DESC_MAX - (len(hint) + 1 if hint else 0)
             if len(first) > budget:
-                first = first[: max(0, budget - 1)].rstrip() + "..."
+                # budget - 3 : les points de suspension COMPTENT (budget - 1 sortait a budget + 2 : introspect 202 > 200)
+                first = first[: max(0, budget - 3)].rstrip() + "..."
             if hint:
                 first = (first + " " + hint)[: self._COMPACT_DESC_MAX]
             t2["description"] = first
@@ -3729,6 +3771,28 @@ class ToolRegistry:
         suffix = f" | WARN: {len(_warnings)} DB patterns" if _warnings else ""
         return f"SUCCESS: {path.name} mis a jour.{suffix}"
 
+    @staticmethod
+    def _dedoublonner_champs(verdict: dict, agent: str, maintenant: float | None = None) -> dict:
+        """Retire de `verdict` les champs de _CHAMPS_DEDOUBLONNABLES deja rendus a `agent` depuis moins de
+        _DEJA_DIT_TTL_S, et les nomme dans `deja_dit`. Ne touche jamais ok/verified/path ni un refus.
+        Statique, appelee par la CLASSE : des tests appellent handle_governed_edit avec un faux `self`."""
+        if not isinstance(verdict, dict) or not verdict.get("ok"):
+            return verdict
+        t = time.time() if maintenant is None else float(maintenant)
+        vus = _CHAMPS_DEJA_DITS.setdefault(str(agent or "?"), {})
+        omis = []
+        for champ in _CHAMPS_DEDOUBLONNABLES:
+            if champ not in verdict:
+                continue
+            if t - vus.get(champ, float("-inf")) < _DEJA_DIT_TTL_S:
+                verdict.pop(champ)
+                omis.append(champ)
+            else:
+                vus[champ] = t
+        if omis:
+            verdict["deja_dit"] = ",".join(omis)
+        return verdict
+
     async def handle_governed_edit(self, args: dict, agent: str, ring: int) -> str:
         """Edition GOUVERNEE in-process : content complet OU blocs SEARCH/REPLACE.
 
@@ -3910,7 +3974,7 @@ class ToolRegistry:
         except Exception as _e:  # noqa: BLE001 - jamais bloquer une edition
             verdict["invariant_indisponible"] = type(_e).__name__
 
-        return _j.dumps(verdict, ensure_ascii=False)
+        return _j.dumps(ToolRegistry._dedoublonner_champs(verdict, agent), ensure_ascii=False)
 
     async def handle_query(self, args: dict, agent: str, ring: int) -> str:
         """HORS DE LA BOUCLE (2026-10-01, GO owner) : tout le travail SQLite part dans un fil.
@@ -6041,9 +6105,12 @@ class ToolRegistry:
         return conn
 
     def _avertissement_agent(self, ag_raw: str):
-        """Owner 30/10 : une tache adressee a OPENCODE (aucun executeur de ce nom) est restee 25 min orpheline,
-        acceptee sans un mot. Avertissement NON bloquant (observer avant d'enforcer) quand aucun service de
-        services.toml ne porte `--agent <ag_raw>` ; rend None si l'agent est servi ou si le fichier est illisible."""
+        """Owner 30/10 & 01/11 :
+        1. Une tache adressee a OPENCODE (aucun executeur de ce nom) est restee 25 min orpheline.
+        2. Une tache assignee a un agent hors quota (_opencode_hors_quota) ou dont le coupe-circuit dit OPEN
+           doit avertir immediatement en proposant un executeur eligible.
+        Avertissement NON bloquant (UNKNOWN != NO) ; rend None si l'agent est eligible ou etat illisible.
+        """
         import re as _re_ag
         try:
             _toml = (self.root / "proxy_deno" / "core" / "services.toml").read_text(encoding="utf-8",
@@ -6051,11 +6118,39 @@ class ToolRegistry:
         except OSError:
             return None
         _servis = {a.upper() for a in _re_ag.findall(r'"--agent",\s*"([^"]+)"', _toml)}
-        if not _servis or ag_raw in _servis:
-            return None
-        _proches = sorted(a for a in _servis if a.split("_")[0] == ag_raw.split("_")[0])
-        return ("aucun executeur ne porte --agent %s : la tache attendra qu'une surface la reclame (task claim)%s"
-                % (ag_raw, (" ; executeurs proches : %s" % ", ".join(_proches)) if _proches else ""))
+        _proches = sorted(a for a in _servis if a.split("_")[0] == ag_raw.split("_")[0] and a != ag_raw)
+
+        # 1. Agent non servi dans services.toml
+        if _servis and ag_raw not in _servis:
+            return ("aucun executeur ne porte --agent %s : la tache attendra qu'une surface la reclame (task claim)%s"
+                    % (ag_raw, (" ; executeurs proches : %s" % ", ".join(_proches)) if _proches else ""))
+
+        # 2. Agent servi mais hors quota ou en coupe-circuit OPEN
+        try:
+            try:
+                from nokido_agent.tools import forge_task_executor as _fte
+            except ImportError:
+                import forge_task_executor as _fte
+            # Verification coupe-circuit
+            st_cc, motif_cc = _fte.statut_coupe_circuit(ag_raw)
+            if st_cc == "OPEN":
+                # Trouver un eligible parmi les proches ou servis
+                eligibles = [a for a in _servis if a != ag_raw and _fte.statut_coupe_circuit(a)[0] != "OPEN" and not _fte._opencode_hors_quota(a)]
+                prop = (sorted([a for a in eligibles if a.split("_")[0] == ag_raw.split("_")[0]]) or sorted(eligibles))
+                prop_str = f" ; executeurs proches eligibles : {', '.join(prop)}" if prop else ""
+                return f"executeur {ag_raw} en coupe-circuit OPEN ({motif_cc}){prop_str}"
+
+            # Verification hors quota
+            motif_quota = _fte._opencode_hors_quota(ag_raw)
+            if motif_quota:
+                eligibles = [a for a in _servis if a != ag_raw and not _fte._opencode_hors_quota(a) and _fte.statut_coupe_circuit(a)[0] != "OPEN"]
+                prop = (sorted([a for a in eligibles if a.split("_")[0] == ag_raw.split("_")[0]]) or sorted(eligibles))
+                prop_str = f" ; executeurs proches eligibles : {', '.join(prop)}" if prop else ""
+                return f"executeur {ag_raw} hors quota ({motif_quota}){prop_str}"
+        except Exception:  # noqa: BLE001 - muet-ok : avertissement NON bloquant, etat illisible = INCONNU, pas un refus
+            pass
+
+        return None
 
     def _services_executeurs_de(self, ag_raw: str) -> list:
         """Services de services.toml qui portent `--agent <ag_raw>` et ne sont pas coupes (`disabled = true`). Meme
@@ -7083,7 +7178,23 @@ class ToolRegistry:
             )
         except Exception as e:
             return f"ERR: {type(e).__name__}: {e}"
-        return _json.dumps({"zone": zone, "count": len(rows), "facts": rows}, ensure_ascii=False)
+        sortie = _json.dumps({"zone": zone, "count": len(rows), "facts": rows}, ensure_ascii=False)
+        # Economie de contexte (owner 1/11, etape 2) : sans cle ni prefixe, une grosse zone rendait ~50 000 car.
+        # relus a chaque tour. Au-dela du seuil : l'INDEX des cles, et comment cibler. full=true garde l'ancien rendu.
+        _cible = args.get("key") or flt.get("key") or args.get("key_prefix") or flt.get("key_prefix")
+        _full = str(args.get("full") or flt.get("full") or "").lower() in ("1", "true", "oui", "yes")
+        try:
+            _seuil = int(os.environ.get("LAFORGE_BB_INDEX_SEUIL", "") or 8000)
+        except ValueError:
+            _seuil = 8000
+        if _cible or _full or len(sortie) <= _seuil:
+            return sortie
+        index = [{"key": r.get("key"), "category": r.get("category"), "age_days": r.get("age_days"),
+                  "taille": len(str(r.get("value") or ""))} for r in rows]
+        return _json.dumps({"zone": zone, "count": len(rows), "index": index,
+                            "conseil": "zone de %d car. : cibler par key=<cle> ou key_prefix=<prefixe>, "
+                                       "ou filter={\"full\": true} pour tous les faits" % len(sortie)},
+                           ensure_ascii=False)
 
     async def handle_blackboard_propose_fact(self, args: dict, agent: str, ring: int) -> str:
         """Propose un fait dans le tableau noir swarm (write-funnel mono-writer + ACL ring)."""

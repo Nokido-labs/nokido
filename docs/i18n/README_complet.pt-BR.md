@@ -89,10 +89,17 @@ continua dependendo de como você o implanta — e o que o Nokido **não** afirm
 
 ## 🚀 Início rápido
 
-<!-- PIP:BEGIN nokido-agent version=none -->
-`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
-trusts: a version reaches it only after the install proof on Linux, Windows
-and macOS. Until then, install from a clone.
+<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
+**Pelo PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), publicado após a prova de instalação em Linux, Windows e macOS. O organismo completo, seus componentes fixados (somas de verificação conferidas) e depois o hub:
+
+```bash
+pip install "nokido-agent[organisme]==0.20.15"
+nokido-composants --tout          # deno, llama.cpp, modelos, knowledge pack, token local
+nokido-doctor                     # o que esta máquina tem, não tem ou não consegue ler
+nokido-hub                        # depois: curl http://localhost:8766/health
+```
+
+Somente cliente (fala com um hub existente): `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 **A partir de um clone** — o caminho que a própria CI usa ([detalhes](#-instalação)):
@@ -794,19 +801,19 @@ Para extras de ML/embeddings:
 
 Após a instalação, verifique as três superfícies fundamentais.
 
-### 1. Hub health
+### 1. Saúde do hub
 
 ```bash
 curl http://localhost:8766/health
 ```
 
-### 2. Secrets vault
+### 2. Cofre de segredos
 
 ```bash
 nokido-secrets status
 ```
 
-### 3. MCP discovery
+### 3. Descoberta MCP
 
 ```bash
 curl -s \
@@ -1178,7 +1185,7 @@ O Nokido foi projetado para que a arquitetura cognitiva possa evoluir enquanto o
 
 ---
 
-# 🗺️ Roadmap
+# 🗺️ Roteiro
 
 ### Curto prazo
 

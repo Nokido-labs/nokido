@@ -67,18 +67,16 @@ Jedes Modul deklariert sein Organ (`__FORGE_COLOR__`), und die Zählung `forge_m
 <!-- DIST:nokido-agent -->
 
 <!-- PIP:BEGIN nokido-agent version=0.20.15 -->
-**From PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), published after the
-install proof on Linux, Windows and macOS. The complete organism, its pinned components
-(checksums verified), then the hub:
+**Von PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), veröffentlicht nach dem Installationsnachweis unter Linux, Windows und macOS. Der vollständige Organismus, seine fixierten Komponenten (Prüfsummen verifiziert), dann der Hub:
 
 ```bash
 pip install "nokido-agent[organisme]==0.20.15"
-nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token
-nokido-doctor                     # what this machine has, lacks, or cannot read
-nokido-hub                        # then: curl http://localhost:8766/health
+nokido-composants --tout          # deno, llama.cpp, Modelle, Knowledge Pack, lokales Token
+nokido-doctor                     # was dieser Rechner hat, was fehlt oder was er nicht lesen kann
+nokido-hub                        # dann: curl http://localhost:8766/health
 ```
 
-Client only (talks to an existing hub): `pip install nokido-agent==0.20.15`.
+Nur Client (spricht mit einem bestehenden Hub): `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 | Voraussetzung | Gemessen |
@@ -123,7 +121,7 @@ Jeder Client erhält sein eigenes Agent-Token aus dem Tresor; ein anonymer Aufru
 
 Der Hub stellt auch `GET /api/graph/proprioception` zur Verfügung: Importe / Importiert-von / Aufruf-Graph pro Datei, berechnet aus dem AST-Index seiner eigenen Quelle.
 
-# 🔬 Projektstatus
+## 🔬 Projektstatus
 
 Jede Zeile paart eine **deklarierte** Reife mit dem **Beweis in diesem Repository**; `tools/forge_capability_audit.py` scheitert in CI, wenn ein ✅ keinen Beweis hat oder ein pausierter Dienst als operational angezeigt wird. Für den lebenden Zustand, fragen Sie den Körper: `nokido-doctor --vivant` (aus einem Klon: `python tools/nokido_doctor.py --vivant`).
 
@@ -163,11 +161,11 @@ NEURAL SUBSTRATE
 
 Nokido ist ein **Alpha-Stadium Forschungs- und Ingenieurprojekt**; was es **nicht** beansprucht (AGI, garantierte Selbstheilung, Produktionsstabilität für jedes Subsystem...) ist in [dem vollständigen README](../../docs/README_complet.md#%EF%B8%8F-what-nokido-does-not-claim) geschrieben.
 
-# 🔐 Sicherheit
+## 🔐 Sicherheit
 
 Geheimnisse leben in einem Maschinen-Tresor (DPAPI · Keychain · libsecret), nie in `.env`. Aufrufer erhalten einen Integritätsring (sechsringige RBAC); ausgehender Text durchquert das `SemanticFirewall` und die `SovereignMembrane`, bevor er ein Cloud-Modell erreicht; der Hub bindet an localhost und Cloud-Zugriff ist opt-in. Lesen Sie [`SECURITY.md`](../../SECURITY.md), bevor Sie etwas außerhalb von localhost exponieren, und offenlegen Sie Schwachstellen zuerst privat. Modell: [07 — Sicherheit](../../docs/wiki/07-Security-Model.md) · [08 — Tresor und Geheimnisse](../../docs/wiki/08-Vault-and-Secrets.md).
 
-# 📚 Dokumentation
+## 📚 Dokumentation
 
 * [Vollständiges README](../../docs/README_complet.md) — Idee, Organismus, Protokolle, Installationspfade, Roadmap, Prinzipien
 * [Wiki-Index](../../docs/wiki/Home.md) (EN / FR) · [Was ist neu](../../docs/wiki/25-Whats-New.md)

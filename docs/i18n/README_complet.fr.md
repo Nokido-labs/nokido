@@ -104,10 +104,17 @@ ne revendique **pas** est écrit plus bas.
 
 ## 🚀 Démarrage rapide
 
-<!-- PIP:BEGIN nokido-agent version=none -->
-`pip install nokido-agent` — **not on PyPI yet.** PyPI is the only index this README
-trusts: a version reaches it only after the install proof on Linux, Windows
-and macOS. Until then, install from a clone.
+<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
+**Depuis PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), publié après la preuve d'installation sous Linux, Windows et macOS. L'organisme complet, ses composants épinglés (sommes de contrôle vérifiées), puis le hub :
+
+```bash
+pip install "nokido-agent[organisme]==0.20.15"
+nokido-composants --tout          # deno, llama.cpp, modèles, knowledge pack, jeton local
+nokido-doctor                     # ce que cette machine a, n'a pas, ou ne peut pas lire
+nokido-hub                        # puis : curl http://localhost:8766/health
+```
+
+Client seul (parle à un hub existant) : `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 **Depuis un clone** — le chemin que la CI elle-même utilise ([détails](#-installation)) :

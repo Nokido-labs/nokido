@@ -20,8 +20,19 @@ def _charger():
     return mod
 
 
+def _isoler_chien(hw, tmp_path, monkeypatch):
+    """Le chien de garde ouvre le VRAI logs/harness_worker_faulthandler.log : dans l'arbre partage, le worker en
+    marche le tient et le compte du bac ne peut l'ouvrir (PermissionError -> job en echec, aucun pouls ; mesure 1/11,
+    vert sur un worktree de CI). Le test ecrit dans tmp_path."""
+    if hasattr(hw, "_CHEMIN_CHIEN"):
+        monkeypatch.setattr(hw, "_CHEMIN_CHIEN", tmp_path / "chien.log")
+    if hasattr(hw, "_FICHIER_CHIEN"):
+        monkeypatch.setattr(hw, "_FICHIER_CHIEN", None)
+
+
 def test_le_pouls_bat_pendant_un_job_long(tmp_path, monkeypatch):
     hw = _charger()
+    _isoler_chien(hw, tmp_path, monkeypatch)
     monkeypatch.setattr(hw, "JOBS", tmp_path)
     monkeypatch.setattr(hw, "_POULS_PENDANT_JOB_S", 0.05)
     battements = []
@@ -41,6 +52,7 @@ def test_le_pouls_bat_pendant_un_job_long(tmp_path, monkeypatch):
 
 def test_le_battement_s_arrete_avec_le_job(tmp_path, monkeypatch):
     hw = _charger()
+    _isoler_chien(hw, tmp_path, monkeypatch)
     monkeypatch.setattr(hw, "JOBS", tmp_path)
     monkeypatch.setattr(hw, "_POULS_PENDANT_JOB_S", 0.05)
     battements = []

@@ -694,7 +694,8 @@ def c_statut(readme: str, pyproject: str, toml: str | None = None) -> dict:
         return _v(nom, INDETERMINE, None, None, "bloc « Project status » introuvable")
     etats = _services_coupes(toml)
     ecarts, mesurees = [], 0
-    section = re.split(r"\n# ", readme.split("# 🔬 Project status", 1)[-1], maxsplit=1)[0]
+    # 1/11 : sections en `##` -- couper sur le titre suivant de niveau 1 OU 2, sinon la section filait jusqu'au bout
+    section = re.split(r"\n#{1,2} ", readme.split("# 🔬 Project status", 1)[-1], maxsplit=1)[0]
     if "nokido-doctor --vivant" not in section:
         ecarts.append("la section ne designe pas la mesure vivante (`nokido-doctor --vivant`)")
     ci_src = _lire("tools/ci_local.py") or ""

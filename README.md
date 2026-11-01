@@ -138,7 +138,7 @@ and an A2A Tier-1 surface complete MCP. Setup: [04 — MCP clients](docs/wiki/04
 The hub also exposes `GET /api/graph/proprioception`: imports / imported-by / call-graph per file, computed from the
 AST index of its own source.
 
-# 🔬 Project status
+## 🔬 Project status
 
 Each line pairs a **declared** maturity with the **evidence in this repository**; `tools/forge_capability_audit.py`
 fails CI when a ✅ has no evidence or a paused service is shown as operational. For the living state, ask the body:
@@ -182,7 +182,7 @@ Nokido is an **alpha-stage research and engineering project**; what it does **no
 self-healing, production stability for every subsystem…) is written in
 [the full README](docs/README_complet.md#%EF%B8%8F-what-nokido-does-not-claim).
 
-# 🔐 Security
+## 🔐 Security
 
 Secrets live in a machine vault (DPAPI · Keychain · libsecret), never in `.env`. Callers get an integrity ring (six-ring
 RBAC); outbound text crosses the `SemanticFirewall` and the `SovereignMembrane` before any cloud model; the hub binds
@@ -190,7 +190,7 @@ to localhost and cloud access is opt-in. Read [`SECURITY.md`](SECURITY.md) befor
 and disclose vulnerabilities privately first. Model: [07 — Security](docs/wiki/07-Security-Model.md) ·
 [08 — Vault and secrets](docs/wiki/08-Vault-and-Secrets.md).
 
-# 📚 Documentation
+## 📚 Documentation
 
 * [Full README](docs/README_complet.md) — idea, organism, protocols, installation paths, roadmap, principles
 * [Wiki index](docs/wiki/Home.md) (EN / FR) · [What's new](docs/wiki/25-Whats-New.md)

@@ -203,7 +203,8 @@ def test_les_traductions_portent_le_MEME_tableau_que_le_README():
     2026-10-01 : elles avaient garde l'ancien tableau (A2A « operational ») apres la
     correction de l'anglais -- deux fois en une semaine. Le bloc doit etre identique."""
     import re
-    motif = re.compile(r"\n# 🔬[^\n]*\n.*?```text\n(.*?)```", re.S)
+    # 1/11 : les sections du README sont passees en `##` (gate de conformite, titres coherents)
+    motif = re.compile(r"\n#{1,6} 🔬[^\n]*\n.*?```text\n(.*?)```", re.S)
     ref = motif.search((ROOT / "README.md").read_text(encoding="utf-8"))
     assert ref, "tableau de statut introuvable dans README.md"
     for p in sorted((ROOT / "docs" / "i18n").glob("README.*.md")):

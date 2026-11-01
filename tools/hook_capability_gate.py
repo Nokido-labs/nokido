@@ -417,10 +417,12 @@ REGLES: list[tuple[str, str]] = [
 # d'action est ce qui doit trancher.
 REGLES_JOB_SEULEMENT: list[tuple[str, str]] = [
     (r"tools[/\\]ci_local\.py",
-     "TRAVAIL LONG lance : ne le surveille PAS en pollant le log. Un notifieur "
-     "existe -- `run action=run_job script=tools/forge_job_watch_notify.py "
-     "script_args=\"--progress sandbox/jobs/<job>.progress.json --rc "
-     "sandbox/jobs/<job>.rc --to CLAUDE\"` (--progress et --to sont OBLIGATOIRES). "
+     "TRAVAIL LONG lance : ne le surveille PAS en pollant le log. Arme un Monitor "
+     "VISIBLE de l'owner (owner 1/11 « je ne vois aucun monitor ») : Monitor command="
+     "`\"<LAFORGE_PYTHON>\" \"<repo>/tools/forge_job_watch_cli.py\" --job <job_id>` "
+     "(seule forme admise par bash_guard). Client sans Monitor : run_job "
+     "tools/forge_job_watch_notify.py script_args=\"--progress sandbox/jobs/<job>.progress.json "
+     "--rc sandbox/jobs/<job>.rc --to CLAUDE\" (--progress et --to OBLIGATOIRES). "
      "Et le `.rc` est un SIGNAL, pas le verdict : conclure sur le temoin STRUCTURE "
      "(sandbox/ci_<compte>/pytest_pur_junit.xml), jamais sur la progression. "
      "Recidive mesuree le 2026-09-03 PUIS le 2026-09-07."),

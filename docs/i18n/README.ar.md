@@ -67,18 +67,16 @@
 <!-- DIST:nokido-agent -->
 
 <!-- PIP:BEGIN nokido-agent version=0.20.15 -->
-**From PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), published after the
-install proof on Linux, Windows and macOS. The complete organism, its pinned components
-(checksums verified), then the hub:
+**من PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), نُشر بعد إثبات التثبيت على Linux وWindows وmacOS. الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:
 
 ```bash
 pip install "nokido-agent[organisme]==0.20.15"
-nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token
-nokido-doctor                     # what this machine has, lacks, or cannot read
-nokido-hub                        # then: curl http://localhost:8766/health
+nokido-composants --tout          # deno، llama.cpp، النماذج، حزمة المعرفة، الرمز المحلي
+nokido-doctor                     # ما لدى هذا الجهاز وما ينقصه وما لا يستطيع قراءته
+nokido-hub                        # ثم: curl http://localhost:8766/health
 ```
 
-Client only (talks to an existing hub): `pip install nokido-agent==0.20.15`.
+عميل فقط (يتصل بـ hub موجود): `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 | المتطلب | المقيس |
@@ -123,7 +121,7 @@ docker compose -f docker/nokido/docker-compose.yml --profile core up -d
 
 المركز يكشف أيضًا عن `GET /api/graph/proprioception`: عمليات استيراد/مُستورد بواسطة/مخطط استدعاء لكل ملف، محسوب من فهرس AST لمصدره الخاص.
 
-# 🔬 حالة المشروع
+## 🔬 حالة المشروع
 
 ```text
                                   DECLARED             EVIDENCE IN THIS REPOSITORY

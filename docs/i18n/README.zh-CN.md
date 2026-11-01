@@ -67,18 +67,16 @@ Nokido 将**声明的**、**观察到的**和**验证的**严格区分：响应�
 <!-- DIST:nokido-agent -->
 
 <!-- PIP:BEGIN nokido-agent version=0.20.15 -->
-**From PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), published after the
-install proof on Linux, Windows and macOS. The complete organism, its pinned components
-(checksums verified), then the hub:
+**通过 PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), 在 Linux、Windows 和 macOS 上完成安装验证后发布. 完整的有机体、其锁定版本的组件（已验证校验和），然后是 hub：
 
 ```bash
 pip install "nokido-agent[organisme]==0.20.15"
-nokido-composants --tout          # deno, llama.cpp, models, knowledge pack, local token
-nokido-doctor                     # what this machine has, lacks, or cannot read
-nokido-hub                        # then: curl http://localhost:8766/health
+nokido-composants --tout          # deno、llama.cpp、模型、知识包、本地令牌
+nokido-doctor                     # 这台机器具备什么、缺少什么或无法读取什么
+nokido-hub                        # 然后：curl http://localhost:8766/health
 ```
 
-Client only (talks to an existing hub): `pip install nokido-agent==0.20.15`.
+仅客户端（连接现有 hub）： `pip install nokido-agent==0.20.15`.
 <!-- PIP:END -->
 
 | 要求 | 实测 |
@@ -123,7 +121,7 @@ Hub 在 `http://localhost:8766/mcp` 上提供 MCP 服务。支持的客户端和
 
 Hub 还暴露 `GET /api/graph/proprioception`：基于自身源的 AST 索引计算的每个文件的导入 / 被导入 / 调用图。
 
-# 🔬 项目状态
+## 🔬 项目状态
 
 每行将**声明的**成熟度与**此仓库中的证据**配对；当 ✅ 没有证据或暂停的服务显示为正在运行时，`tools/forge_capability_audit.py` 会导致 CI 失败。对于活跃状态，询问主体：`nokido-doctor --vivant`（从克隆：`python tools/nokido_doctor.py --vivant`）。
 
@@ -163,11 +161,11 @@ NEURAL SUBSTRATE
 
 Nokido 是一个**alpha 阶段的研究和工程项目**；它**不**声称的功能（AGI、保证自我修复、每个子系统的生产稳定性...）写在[完整 README](../../docs/README_complet.md#%EF%B8%8F-what-nokido-does-not-claim)中。
 
-# 🔐 安全
+## 🔐 安全
 
 密钥存储在机器保险库中（DPAPI · Keychain · libsecret），绝不在 `.env` 中。调用者获得完整性环（六环 RBAC）；任何云模型处理前的出站文本会穿过 `SemanticFirewall` 和 `SovereignMembrane`；hub 绑定到 localhost，云访问是可选的。在将任何内容暴露到 localhost 之外之前，阅读 [`SECURITY.md`](../../SECURITY.md)，并首先私下披露漏洞。模型：[07 — 安全](../../docs/wiki/07-Security-Model.md) · [08 — 保险库和密钥](../../docs/wiki/08-Vault-and-Secrets.md)。
 
-# 📚 文档
+## 📚 文档
 
 * [完整 README](../../docs/README_complet.md) — 概念、生命体、协议、安装路径、路线图、原则
 * [Wiki 索引](../../docs/wiki/Home.md) (EN / FR) · [更新内容](../../docs/wiki/25-Whats-New.md)

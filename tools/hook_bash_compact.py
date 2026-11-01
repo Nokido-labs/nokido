@@ -59,7 +59,9 @@ def main():
     if not cmd or "forge_cmd_compactor" in cmd or "|" in cmd:  # déjà pipé / déjà compacté
         _noop()
     low = cmd.lower()
-    if not any(low.startswith(p) for p in SAFE_PREFIXES):
+    # prefixes compares en MINUSCULES : « git -C » en majuscule ne matchait jamais `low` (hook muet sur tout git -C,
+    # mesure 1/11, NR test_chemin_reel_le_hook_reecrit_un_git_C_entre_guillemets).
+    if not any(low.startswith(p.lower()) for p in SAFE_PREFIXES):
         _noop()
     # garde-fou mutation : ne JAMAIS toucher ces verbes
     if any(w in low for w in ("commit", "push", "rebase", "reset", "checkout", "status", "diff", " rm ")):
@@ -74,8 +76,12 @@ def main():
             _noop()
     except Exception:
         _noop()
-    safe_cmd = cmd.replace('"', '\\"')
-    rewritten = f'{cmd} 2>&1 | "{PY}" "{COMPACTOR}" --cmd "{safe_cmd}"'
+    # La commande voyage en BASE64 (alphabet sans guillemet) : `--cmd "<cmd echappee>"` cassait des qu'elle portait
+    # deja des \" (mesure 1/11 : « unrecognized arguments », la commande ECHOUAIT au lieu d'etre compactee).
+    import base64
+    b64 = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    # pipefail : sans lui, le code de sortie est celui du COMPACTEUR (toujours 0) -- un echec git se lirait reussi.
+    rewritten = f'set -o pipefail; {cmd} 2>&1 | "{PY}" "{COMPACTOR}" --cmd-b64 {b64}'
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

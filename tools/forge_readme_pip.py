@@ -87,8 +87,97 @@ def _organisme_servi(version: str) -> bool:
         return False
 
 
-def rendre(paquet: str, version: str) -> str:
-    """Le corps du bloc pour cet etat de l'index."""
+# Owner 1/11 : le bloc des 7 traductions etait reste en ANGLAIS (une seule langue savait se rendre). Chaque README porte
+# le bloc de SA langue ; l'anglais garde son rendu historique a l'octet (compatibilite des blocs deja publies).
+TEXTES = {
+    "fr": dict(depuis="Depuis PyPI", apres="publié après la preuve d'installation sous Linux, Windows et macOS",
+               organisme="L'organisme complet, ses composants épinglés (sommes de contrôle vérifiées), puis le hub :",
+               composants="deno, llama.cpp, modèles, knowledge pack, jeton local",
+               doctor="ce que cette machine a, n'a pas, ou ne peut pas lire",
+               hub="puis : curl http://localhost:8766/health", client="Client seul (parle à un hub existant) :",
+               absent="`pip install {p}` — **pas encore sur PyPI.** PyPI est le seul index auquel ce README se fie : "
+                      "une version n'y arrive qu'après la preuve d'installation sous Linux, Windows et macOS. "
+                      "D'ici là, installez depuis un clone."),
+    "es": dict(depuis="Desde PyPI", apres="publicado tras la prueba de instalación en Linux, Windows y macOS",
+               organisme="El organismo completo, sus componentes fijados (sumas de control verificadas) y luego el hub:",
+               composants="deno, llama.cpp, modelos, knowledge pack, token local",
+               doctor="lo que esta máquina tiene, le falta o no puede leer",
+               hub="después: curl http://localhost:8766/health", client="Solo cliente (habla con un hub existente):",
+               absent="`pip install {p}` — **todavía no está en PyPI.** PyPI es el único índice en el que confía este "
+                      "README: una versión solo llega allí tras la prueba de instalación en Linux, Windows y macOS. "
+                      "Mientras tanto, instale desde un clon."),
+    "de": dict(depuis="Von PyPI", apres="veröffentlicht nach dem Installationsnachweis unter Linux, Windows und macOS",
+               organisme="Der vollständige Organismus, seine fixierten Komponenten (Prüfsummen verifiziert), dann der Hub:",
+               composants="deno, llama.cpp, Modelle, Knowledge Pack, lokales Token",
+               doctor="was dieser Rechner hat, was fehlt oder was er nicht lesen kann",
+               hub="dann: curl http://localhost:8766/health", client="Nur Client (spricht mit einem bestehenden Hub):",
+               absent="`pip install {p}` — **noch nicht auf PyPI.** PyPI ist der einzige Index, dem dieses README "
+                      "vertraut: Eine Version gelangt erst nach dem Installationsnachweis unter Linux, Windows und "
+                      "macOS dorthin. Bis dahin aus einem Klon installieren."),
+    "pt-BR": dict(depuis="Pelo PyPI", apres="publicado após a prova de instalação em Linux, Windows e macOS",
+                  organisme="O organismo completo, seus componentes fixados (somas de verificação conferidas) e depois o hub:",
+                  composants="deno, llama.cpp, modelos, knowledge pack, token local",
+                  doctor="o que esta máquina tem, não tem ou não consegue ler",
+                  hub="depois: curl http://localhost:8766/health", client="Somente cliente (fala com um hub existente):",
+                  absent="`pip install {p}` — **ainda não está no PyPI.** O PyPI é o único índice em que este README "
+                         "confia: uma versão só chega lá após a prova de instalação em Linux, Windows e macOS. Até lá, "
+                         "instale a partir de um clone."),
+    "zh-CN": dict(depuis="通过 PyPI", apres="在 Linux、Windows 和 macOS 上完成安装验证后发布",
+                  organisme="完整的有机体、其锁定版本的组件（已验证校验和），然后是 hub：",
+                  composants="deno、llama.cpp、模型、知识包、本地令牌", doctor="这台机器具备什么、缺少什么或无法读取什么",
+                  hub="然后：curl http://localhost:8766/health", client="仅客户端（连接现有 hub）：",
+                  absent="`pip install {p}` — **尚未发布到 PyPI。** PyPI 是本 README 唯一信任的索引：版本只有在 "
+                         "Linux、Windows 和 macOS 上完成安装验证后才会发布。在此之前，请从克隆安装。"),
+    "ja": dict(depuis="PyPI から", apres="Linux・Windows・macOS でのインストール検証後に公開",
+               organisme="完全なオーガニズム、固定されたコンポーネント（チェックサム検証済み）、そして hub：",
+               composants="deno、llama.cpp、モデル、ナレッジパック、ローカルトークン",
+               doctor="このマシンにあるもの、足りないもの、読めないもの",
+               hub="次に：curl http://localhost:8766/health", client="クライアントのみ（既存の hub に接続）：",
+               absent="`pip install {p}` — **まだ PyPI にありません。** この README が信頼するインデックスは PyPI "
+                      "だけです：バージョンは Linux・Windows・macOS でのインストール検証後にのみ公開されます。"
+                      "それまではクローンからインストールしてください。"),
+    "ar": dict(depuis="من PyPI", apres="نُشر بعد إثبات التثبيت على Linux وWindows وmacOS",
+               organisme="الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:",
+               composants="deno، llama.cpp، النماذج، حزمة المعرفة، الرمز المحلي",
+               doctor="ما لدى هذا الجهاز وما ينقصه وما لا يستطيع قراءته",
+               hub="ثم: curl http://localhost:8766/health", client="عميل فقط (يتصل بـ hub موجود):",
+               absent="`pip install {p}` — **ليس على PyPI بعد.** PyPI هو الفهرس الوحيد الذي يثق به هذا الملف: لا "
+                      "تصل إليه نسخة إلا بعد إثبات التثبيت على Linux وWindows وmacOS. حتى ذلك الحين، ثبّت من نسخة "
+                      "مستنسخة."),
+}
+
+
+def langue_de(chemin) -> str:
+    """README.md / README_complet.md -> en ; docs/i18n/README[_complet].<langue>.md -> <langue>."""
+    m = re.match(r"^README(?:_complet)?\.(.+)\.md$", Path(chemin).name)
+    return m.group(1) if m else "en"
+
+
+def _rendre_traduit(paquet: str, version: str, t: dict) -> str:
+    lien = "[`%s %s`](https://pypi.org/project/%s/%s/)" % (paquet, version, paquet, version)
+    if version == AUCUNE:
+        return t["absent"].format(p=paquet) + "\n"
+    if _organisme_servi(version):
+        return ("**%s** — %s, %s. %s\n\n"
+                "```bash\npip install \"%s[organisme]==%s\"\n"
+                "nokido-composants --tout          # %s\n"
+                "nokido-doctor                     # %s\n"
+                "nokido-hub                        # %s\n```\n\n"
+                "%s `pip install %s==%s`.\n"
+                % (t["depuis"], lien, t["apres"], t["organisme"], paquet, version, t["composants"], t["doctor"],
+                   t["hub"], t["client"], paquet, version))
+    return ("**%s** — %s, %s :\n\n```bash\npip install %s==%s\nnokido-doctor                   # %s\n```\n"
+            % (t["depuis"], lien, t["apres"], paquet, version, t["doctor"]))
+
+
+def rendre(paquet: str, version: str, langue: str = "en") -> str:
+    """Le corps du bloc pour cet etat de l'index, dans `langue`."""
+    if langue != "en":
+        if langue not in TEXTES:
+            raise ValueError("langue sans texte du bloc pip : %r (l'ajouter a TEXTES)" % langue)
+        if version == ILLISIBLE:
+            raise ValueError("ILLISIBLE ne s'ecrit jamais dans un README")
+        return _rendre_traduit(paquet, version, TEXTES[langue])
     if version not in (AUCUNE, ILLISIBLE) and _organisme_servi(version):
         return ("**From PyPI** — [`%s %s`](https://pypi.org/project/%s/%s/), published after the\n"
                 "install proof on Linux, Windows and macOS. The complete organism, its pinned components\n"
@@ -110,12 +199,12 @@ def rendre(paquet: str, version: str) -> str:
             % (paquet, version, paquet, version, paquet, version))
 
 
-def bloc(paquet: str, version: str) -> str:
+def bloc(paquet: str, version: str, langue: str = "en") -> str:
     """Le bloc complet, marqueurs compris : la seule forme que le controle accepte."""
     if version != AUCUNE and not _RE_VERSION.match(version or ""):
         raise ValueError("version non ecrivable dans un README : %r" % version)
     return "<!-- PIP:BEGIN %s version=%s -->\n%s<!-- PIP:END -->" % (
-        paquet, version, rendre(paquet, version))
+        paquet, version, rendre(paquet, version, langue))
 
 
 def lire(texte: str) -> dict | None:
@@ -147,18 +236,20 @@ def _negations_hors_bloc(texte: str) -> list[str]:
     return [m.group(0) for m in _RE_NEGATION_PIP.finditer(_RE_BLOC.sub("", texte))]
 
 
-def coherence(texte: str, paquet: str = PAQUET) -> tuple[str, str]:
-    """Hors ligne : le bloc est-il exactement celui que sa declaration genere ?"""
+def coherence(texte: str, paquet: str = PAQUET, langue: str = "en") -> tuple[str, str]:
+    """Hors ligne : le bloc est-il exactement celui que sa declaration genere, dans sa langue ?"""
     d = lire(texte)
     if d is None:
         return INDETERMINE, "aucun bloc <!-- PIP:BEGIN --> : rien a mesurer"
     if d["paquet"] != paquet:
         return DIVERGE, "le bloc annonce %s, le paquet est %s" % (d["paquet"], paquet)
     try:
-        attendu = bloc(paquet, d["version"])
+        attendu = bloc(paquet, d["version"], langue)
     except ValueError as exc:
         return DIVERGE, str(exc)
     if d["bloc"] != attendu:
+        if langue != "en" and d["bloc"] == bloc(paquet, d["version"]):
+            return DIVERGE, "bloc pip reste en ANGLAIS dans la traduction %s : le regenerer (--ecrire)" % langue
         return DIVERGE, "bloc retouche a la main : le regenerer (--ecrire)"
     hors = _commandes_hors_bloc(texte, paquet)
     if hors:
@@ -184,8 +275,13 @@ def verifier(texte: str, paquet: str, servie: str) -> tuple[str, str]:
 
 
 def fichiers(racine: Path) -> list[Path]:
-    """README.md et ses traductions ; seuls ceux qui portent un bloc comptent."""
-    return [p for p in [racine / "README.md", *sorted((racine / "docs" / "i18n").glob("README.*.md"))]
+    """README.md, docs/README_complet.md et leurs traductions ; seuls ceux qui portent un bloc comptent.
+
+    1/11 (owner, conformite en tous points) : les README_complet portent AUSSI un bloc pip ; non couverts, ils
+    restaient a `none` (« pas encore sur PyPI ») dans le depot public pendant que PyPI servait la version."""
+    i18n = racine / "docs" / "i18n"
+    return [p for p in [racine / "README.md", *sorted(i18n.glob("README.*.md")),
+                        racine / "docs" / "README_complet.md", *sorted(i18n.glob("README_complet.*.md"))]
             if p.is_file()]
 
 
@@ -193,9 +289,9 @@ def ecrire(racine: Path, paquet: str, version: str) -> list[Path]:
     """Aligne le bloc de chaque fichier sur `version` ; rend les fichiers modifies."""
     if version == ILLISIBLE:
         raise ValueError("ILLISIBLE ne s'ecrit jamais dans un README")
-    nouveau = bloc(paquet, version)
     changes = []
     for p in fichiers(racine):
+        nouveau = bloc(paquet, version, langue_de(p))
         texte = p.read_text(encoding="utf-8")
         d = lire(texte)
         if d is None or d["bloc"] == nouveau:
@@ -225,7 +321,7 @@ def main(argv=None) -> int:
     if a.coherence:
         pire = 0
         for p in cibles:
-            statut, note = coherence(p.read_text(encoding="utf-8"), a.paquet)
+            statut, note = coherence(p.read_text(encoding="utf-8"), a.paquet, langue_de(p))
             print("%-11s %s  %s" % (statut, p.relative_to(racine), note))
             pire = max(pire, {ALIGNE: 0, DIVERGE: 1}.get(statut, 2))
         return pire
