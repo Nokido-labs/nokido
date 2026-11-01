@@ -86,10 +86,13 @@ jobs:
           if [ -z "$K" ]; then echo "::error::SF_DEPLOY_KEY absent : SourceForge NON PUBLIE"; echo sourceforge >> manquants; exit 0; fi
           if [ -z "$SF_USER" ]; then echo "::error::MIROIR_SF_USER absent : SourceForge NON PUBLIE"; echo sourceforge >> manquants; exit 0; fi
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$K" > ~/.ssh/sf && chmod 600 ~/.ssh/sf
+          # 1/11 : « Too many authentication failures » avec une cle neuve -- on nettoie un eventuel \r (contenu
+          # venu de Windows), on DIT quelle cle est lue (empreinte publique) et on trace l'authentification.
+          printf '%s\n' "$K" | tr -d '\r' > ~/.ssh/sf && chmod 600 ~/.ssh/sf
+          ssh-keygen -lf ~/.ssh/sf || echo "::error::SF_DEPLOY_KEY illisible comme cle privee (format)"
           ssh-keyscan git.code.sf.net >> ~/.ssh/known_hosts 2>/dev/null
           rc=0
-          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sf -o IdentitiesOnly=yes" \
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sf -o IdentitiesOnly=yes -o LogLevel=VERBOSE" \
             git -C src.git push "ssh://$SF_USER@git.code.sf.net/p/nokido/code" \
             'refs/heads/main:refs/heads/main' 'refs/tags/*:refs/tags/*' || rc=$?
           rm -f ~/.ssh/sf
@@ -104,7 +107,15 @@ jobs:
           if [ -z "$HF_SPACE" ]; then echo "::error::MIROIR_HF_SPACE absent : Space HF NON PUBLIE"; echo hf >> manquants; exit 0; fi
           git clone --depth 1 "$SOURCE" depot
           if [ ! -d depot/vitrine/hf_space ]; then echo "::error::vitrine/hf_space absente du depot public"; echo hf >> manquants; exit 0; fi
-          H="Authorization: Bearer $T"
+          # 1/11 : push refuse avec deux jetons en Bearer (« could not read Username »). On DIT le compte et le ROLE
+          # du jeton (jamais le jeton), puis on pousse en Basic identifiant:jeton -- toujours par en-tete, masque.
+          I=$(curl -s -H "Authorization: Bearer $T" https://huggingface.co/api/whoami-v2)
+          HF_USER=$(printf '%s' "$I" | python3 -c "import json,sys;print(json.load(sys.stdin).get('name',''))" 2>/dev/null)
+          ROLE=$(printf '%s' "$I" | python3 -c "import json,sys;d=json.load(sys.stdin);print(((d.get('auth') or {}).get('accessToken') or {}).get('role','?'))" 2>/dev/null)
+          echo "compte HF : ${HF_USER:-ILLISIBLE} | role du jeton : ${ROLE:-ILLISIBLE}"
+          B=$(printf '%s:%s' "$HF_USER" "$T" | base64 -w0)
+          echo "::add-mask::$B"
+          H="Authorization: Basic $B"
           git -c http.extraHeader="$H" clone "https://huggingface.co/spaces/$HF_SPACE" space
           rsync -a --delete --exclude .git depot/vitrine/hf_space/ space/
           git -C space add -A

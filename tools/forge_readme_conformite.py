@@ -27,8 +27,8 @@ __FORGE_COLOR__ = "observabilite/audit : conformite des README publics en tous p
 import argparse
 import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 _ICI = Path(__file__).resolve().parent
 if str(_ICI) not in sys.path:
@@ -57,8 +57,10 @@ def _familles(racine: Path) -> list[tuple[Path, list[Path]]]:
             (racine / "docs" / "README_complet.md", sorted(i18n.glob("README_complet.*.md")))]
 
 
-@dataclass(frozen=True)
-class Ecart:
+class Ecart(NamedTuple):
+    """NamedTuple, pas @dataclass : forge_dist_publish et forge_release_gate chargent ce module par fichier sans
+    l'inscrire dans sys.modules, et @dataclass (annotations differees) y cherche son module -> AttributeError
+    (promotion v0.20.16 morte le 1/11, job_abb7d280a8dd)."""
     point: int
     fichier: str
     detail: str

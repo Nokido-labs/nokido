@@ -91,6 +91,29 @@ def test_aucun_jeton_dans_une_url():
     assert "http.extraHeader" in t
 
 
+def _etape(debut: str) -> str:
+    t = _texte()
+    i = t.index("- name: %s" % debut)
+    j = t.find("\n      - name:", i + 1)
+    return t[i:j if j > 0 else len(t)]
+
+
+def test_sourceforge_dit_quelle_cle_il_lit():
+    """1/11 : « Too many authentication failures » malgre une cle neuve ; le journal ne disait pas quelle cle etait
+    lue. La cle est nettoyee (\\r d'un contenu Windows), son EMPREINTE publique affichee, l'authentification tracee."""
+    e = _etape("SourceForge")
+    assert "tr -d '\\r'" in e and "ssh-keygen -lf" in e and "LogLevel=VERBOSE" in e
+
+
+def test_hugging_face_dit_le_role_et_pousse_en_basic_masque():
+    """1/11 : push refuse (« could not read Username ») avec deux jetons differents en `Authorization: Bearer`. Le
+    workflow affiche le compte et le ROLE du jeton (whoami-v2, jamais le jeton) et pousse en Basic identifiant:jeton,
+    valeur masquee dans les journaux ; toujours par en-tete, jamais dans l'URL."""
+    e = _etape("Space Hugging Face")
+    assert "whoami-v2" in e and "role" in e
+    assert "Authorization: Basic" in e and "::add-mask::" in e
+
+
 def test_un_secret_absent_est_dit_et_une_forge_en_echec_n_arrete_pas_les_autres():
     t = _texte()
     for s in SECRETS:

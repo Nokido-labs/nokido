@@ -1385,6 +1385,9 @@ PURE_TESTS = [
     "tests/nr/test_capability_audit_nr.py",
     "tests/nr/test_readme_pip_nr.py",
     "tests/nr/test_readme_conformite_nr.py",   # owner 1/11 : README conformes en tous points (bloquant)
+    "tests/nr/test_pack_cache_paresseux_nr.py",   # owner 1/11 : le pack reprend ses vecteurs, embedder si neuf
+    "tests/nr/test_release_sdist_propagation_nr.py",   # 1/11 : preuve sdist attend la propagation TestPyPI
+    "tests/nr/test_pack_sans_traductions_nr.py",   # 1/11 : docs/i18n hors du Knowledge Pack (rag_direct)
     "tests/nr/test_doctor_vivant_nr.py",
     # Ingestion de doc (01/10) : version courante seule a la re-ingestion, agregats
     # `llms-full.txt` ecartes, entree lexicale gardee pour un chunk inchange. Base

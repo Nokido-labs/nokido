@@ -536,10 +536,19 @@ jobs:
           if not py2.is_file():
               note("sdist installable", "FAIL", "venv secondaire indisponible")
           else:
-              r = run([str(py2), "-m", "pip", "install", "--no-cache-dir",
-                       "--no-binary", "nokido-agent",
-                       "--index-url", INDEX, "--extra-index-url", EXTRA,
-                       "nokido-agent==%s" % VERSION], cwd=str(base), env=env)
+              # 1/11 (v0.20.16, linux-x64) : l'index TestPyPI listait encore 0.20.15 quelques secondes apres
+              # l'upload -- « No matching distribution found » = PROPAGATION, pas un sdist casse. On attend que
+              # l'index serve la version (6 x 30 s), tout autre refus de pip reste un echec immediat.
+              for _essai in range(6):
+                  r = run([str(py2), "-m", "pip", "install", "--no-cache-dir",
+                           "--no-binary", "nokido-agent",
+                           "--index-url", INDEX, "--extra-index-url", EXTRA,
+                           "nokido-agent==%s" % VERSION], cwd=str(base), env=env)
+                  if r.returncode == 0 or "No matching distribution found" not in r.stderr:
+                      break
+                  print("  sdist : index TestPyPI pas encore a jour (essai %d/6), attente 30 s" % (_essai + 1),
+                        flush=True)
+                  time.sleep(30)
               if r.returncode != 0:
                   note("sdist installable", "FAIL",
                        "pip refuse de construire depuis le sdist : %s"

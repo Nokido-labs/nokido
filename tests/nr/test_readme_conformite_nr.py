@@ -135,6 +135,20 @@ def test_le_gate_est_branche_partout():
     assert '"tests/nr/test_readme_conformite_nr.py"' in (ROOT / "tools" / "ci_local.py").read_text(encoding="utf-8")
 
 
+def test_chemin_reel_charge_par_fichier_comme_la_promotion():
+    """Mesure 1/11 (promotion v0.20.16, job_abb7d280a8dd) : forge_dist_publish et forge_release_gate chargent le
+    module par spec_from_file_location SANS l'inscrire dans sys.modules ; @dataclass y cherchait son module -> AttributeError,
+    promotion morte. Le NR emprunte CE chemin, pas l'import du test."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("conformite_par_fichier", ROOT / "tools" / "forge_readme_conformite.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.verifier(ROOT) == []
+    sys.path.insert(0, str(ROOT / "tools"))
+    import forge_release_gate as G
+    assert G.ctrl_readme_conforme()[0] == G.VERT
+
+
 def test_le_depot_est_conforme():
     ecarts = C.verifier(ROOT)
     assert not ecarts, "\n".join(str(e) for e in ecarts)

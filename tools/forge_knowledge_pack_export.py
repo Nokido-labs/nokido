@@ -581,7 +581,9 @@ def export_pack(dist: Path, output: Path | None = None, version: str = "0.0.0", 
 SELECTION_NATIF = "natif"
 CLASSES_NATIF = {".md": "doc", ".py": "code", ".toml": "config", ".yaml": "config", ".yml": "config",
                  ".json": "config", ".txt": "doc"}
-EXCLUS_NATIF = ("tests/", ".agents/", ".github/")  # tests = bruit pour le RAG ; .agents = copie de docs/skills
+# tests = bruit pour le RAG ; .agents = copie de docs/skills ; docs/i18n (choix owner 1/11) = traductions qui dupliquent
+# l'anglais x 7 et passaient devant la doc d'installation (rag_direct rouge sur 3 OS depuis v0.20.15)
+EXCLUS_NATIF = ("tests/", ".agents/", ".github/", "docs/i18n/")
 TAILLE_MAX_NATIF = 512_000                          # au-dela : compte « trop_gros » et LISTE, jamais tronque
 ESSENTIELS = ("README.md", "CHANGELOG.md", "docs/ARCHITECTURE.md", "RULES_SHARED.md", "SECURITY.md",
               "CONTRIBUTING.md", "MANIFESTO.md")
@@ -807,18 +809,45 @@ def embedder_pret(sonde=None, attente_s: float = ATTENTE_EMBEDDER_S, pas_s: floa
                    "dans logs/supervisor/NokidoLlamaKeeper.log" % (horloge() - debut, essais, ram))
 
 
-def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.0.0", dry_run: bool = False,
-                      embed_fn=None, cache_pack=None) -> dict:
-    if embed_fn is None and not dry_run:
-        pret, motif = embedder_pret()
+def fonction_embed(embed_fn=None, cache=None, dry_run: bool = False, preflight=None):
+    """La fonction de vectorisation du pack, et QUAND l'embedder doit tenir (owner 1/11).
+
+    Sans cache : la sonde passe AVANT tout (refus avant le 1er lot, mesure du 1/11). Avec cache (pack precedent, meme
+    espace bge-m3, meme decoupage) : l'embedder n'est sonde -- donc reveille -- qu'au PREMIER fragment absent du
+    cache ; zero fragment neuf = zero embedder. « l'embedder va rendre exactement pareil qu'avant » (owner)."""
+    base = embed_fn or _embed_bge_m3_local
+    if preflight is None and (embed_fn is not None or dry_run):
+        sonder = None
+    else:
+        sonder = preflight or embedder_pret
+
+    def _exiger():
+        pret, motif = sonder()
         print("[pack natif] %s" % motif, flush=True)
         if not pret:
             raise SystemExit("[pack natif] REFUSE AVANT VECTORISATION : " + motif)
-    d = Dist(dist)
+
+    if not cache:
+        if sonder:
+            _exiger()
+        return base
+    etat = {"sonde": sonder is None}
+
+    def paresseux(textes):
+        if not etat["sonde"]:
+            _exiger()
+            etat["sonde"] = True
+        return base(textes)
+    return embed_avec_cache(paresseux, cache)
+
+
+def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.0.0", dry_run: bool = False,
+                      embed_fn=None, cache_pack=None) -> dict:
     cache = cache_depuis_pack(cache_pack) if cache_pack else {}
-    fn = embed_avec_cache(embed_fn or _embed_bge_m3_local, cache) if cache else (embed_fn or _embed_bge_m3_local)
     if cache_pack:
         print("[pack natif] cache : %d vecteur(s) repris de %s" % (len(cache), Path(cache_pack).name), flush=True)
+    fn = fonction_embed(embed_fn, cache, dry_run)
+    d = Dist(dist)
     retenus, cr = selectionner_natif(d, _juge_public(), fn)
     stats = {"format": FORMAT, "selection": SELECTION_NATIF, "version": version, "dist_commit": d.commit,
              "retenus": len(retenus), "depuis_cache": getattr(fn, "depuis_cache", 0),

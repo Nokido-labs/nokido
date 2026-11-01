@@ -819,7 +819,8 @@ def main() -> int:
     # alors qu'un fichier ecrit a cote n'en aurait aucune.
     assets.append(write_vendor_lock(out_dir / "vendor.lock"))
     if not args.skip_pack:
-        assets.append(build_rag_pack(out_dir, args.version, args.repo))
+        # 1/11 (owner) : la voie de la promotion ne transmettait pas --cache-pack -> 44 797 fragments revectorises
+        assets.append(build_rag_pack(out_dir, args.version, args.repo, cache_pack=args.cache_pack))
     avec_sources = not (args.skip_pack or args.skip_packs_sources)
     if avec_sources:
         assets.extend(build_rag_packs_sources(out_dir, args.version, man))

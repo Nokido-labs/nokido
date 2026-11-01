@@ -91,7 +91,9 @@ async function attendreArret(
   maxMs: number,
 ): Promise<boolean> {
   if (proc) {
-    let timer: number | undefined;
+    // 1/11 : `number` refuse par le controle de types des runners (setTimeout rend un Timeout avec les types Node) --
+    // « Installation complete / Organisme complet » rouge sur les 3 OS depuis v0.20.15. Type porte par setTimeout.
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<boolean>((resolve) => {
       timer = setTimeout(() => resolve(false), maxMs);
     });
