@@ -84,17 +84,17 @@ Nokido هو **بيئة تشغيل محلية أولًا لكائن اصطناع�
 
 ## 🚀 بدء سريع
 
-<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
-**من PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), نُشر بعد إثبات التثبيت على Linux وWindows وmacOS. الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:
+<!-- PIP:BEGIN nokido-agent version=0.20.16 -->
+**من PyPI** — [`nokido-agent 0.20.16`](https://pypi.org/project/nokido-agent/0.20.16/), نُشر بعد إثبات التثبيت على Linux وWindows وmacOS. الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.15"
+pip install "nokido-agent[organisme]==0.20.16"
 nokido-composants --tout          # deno، llama.cpp، النماذج، حزمة المعرفة، الرمز المحلي
 nokido-doctor                     # ما لدى هذا الجهاز وما ينقصه وما لا يستطيع قراءته
 nokido-hub                        # ثم: curl http://localhost:8766/health
 ```
 
-عميل فقط (يتصل بـ hub موجود): `pip install nokido-agent==0.20.15`.
+عميل فقط (يتصل بـ hub موجود): `pip install nokido-agent==0.20.16`.
 <!-- PIP:END -->
 
 **من نسخة مستنسخة** — المسار الذي تستخدمه CI نفسها ([التفاصيل](#-التثبيت)):

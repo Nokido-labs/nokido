@@ -92,17 +92,17 @@ afirma está escrito más abajo.
 
 ## 🚀 Inicio rápido
 
-<!-- PIP:BEGIN nokido-agent version=0.20.15 -->
-**Desde PyPI** — [`nokido-agent 0.20.15`](https://pypi.org/project/nokido-agent/0.20.15/), publicado tras la prueba de instalación en Linux, Windows y macOS. El organismo completo, sus componentes fijados (sumas de control verificadas) y luego el hub:
+<!-- PIP:BEGIN nokido-agent version=0.20.16 -->
+**Desde PyPI** — [`nokido-agent 0.20.16`](https://pypi.org/project/nokido-agent/0.20.16/), publicado tras la prueba de instalación en Linux, Windows y macOS. El organismo completo, sus componentes fijados (sumas de control verificadas) y luego el hub:
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.15"
+pip install "nokido-agent[organisme]==0.20.16"
 nokido-composants --tout          # deno, llama.cpp, modelos, knowledge pack, token local
 nokido-doctor                     # lo que esta máquina tiene, le falta o no puede leer
 nokido-hub                        # después: curl http://localhost:8766/health
 ```
 
-Solo cliente (habla con un hub existente): `pip install nokido-agent==0.20.15`.
+Solo cliente (habla con un hub existente): `pip install nokido-agent==0.20.16`.
 <!-- PIP:END -->
 
 **Desde un clon** — el camino que usa la propia CI ([detalles](#-instalación)):
