@@ -104,17 +104,17 @@ ne revendique **pas** est écrit plus bas.
 
 ## 🚀 Démarrage rapide
 
-<!-- PIP:BEGIN nokido-agent version=0.20.16 -->
-**Depuis PyPI** — [`nokido-agent 0.20.16`](https://pypi.org/project/nokido-agent/0.20.16/), publié après la preuve d'installation sous Linux, Windows et macOS. L'organisme complet, ses composants épinglés (sommes de contrôle vérifiées), puis le hub :
+<!-- PIP:BEGIN nokido-agent version=0.20.17 -->
+**Depuis PyPI** — [`nokido-agent 0.20.17`](https://pypi.org/project/nokido-agent/0.20.17/), publié après la preuve d'installation sous Linux, Windows et macOS. L'organisme complet, ses composants épinglés (sommes de contrôle vérifiées), puis le hub :
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.16"
+pip install "nokido-agent[organisme]==0.20.17"
 nokido-composants --tout          # deno, llama.cpp, modèles, knowledge pack, jeton local
 nokido-doctor                     # ce que cette machine a, n'a pas, ou ne peut pas lire
 nokido-hub                        # puis : curl http://localhost:8766/health
 ```
 
-Client seul (parle à un hub existant) : `pip install nokido-agent==0.20.16`.
+Client seul (parle à un hub existant) : `pip install nokido-agent==0.20.17`.
 <!-- PIP:END -->
 
 **Depuis un clone** — le chemin que la CI elle-même utilise ([détails](#-installation)) :

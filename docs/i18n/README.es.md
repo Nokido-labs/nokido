@@ -66,17 +66,17 @@ Cada módulo declara su órgano (`__FORGE_COLOR__`) y el censo `forge_module_cen
 
 <!-- DIST:nokido-agent -->
 
-<!-- PIP:BEGIN nokido-agent version=0.20.16 -->
-**Desde PyPI** — [`nokido-agent 0.20.16`](https://pypi.org/project/nokido-agent/0.20.16/), publicado tras la prueba de instalación en Linux, Windows y macOS. El organismo completo, sus componentes fijados (sumas de control verificadas) y luego el hub:
+<!-- PIP:BEGIN nokido-agent version=0.20.17 -->
+**Desde PyPI** — [`nokido-agent 0.20.17`](https://pypi.org/project/nokido-agent/0.20.17/), publicado tras la prueba de instalación en Linux, Windows y macOS. El organismo completo, sus componentes fijados (sumas de control verificadas) y luego el hub:
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.16"
+pip install "nokido-agent[organisme]==0.20.17"
 nokido-composants --tout          # deno, llama.cpp, modelos, knowledge pack, token local
 nokido-doctor                     # lo que esta máquina tiene, le falta o no puede leer
 nokido-hub                        # después: curl http://localhost:8766/health
 ```
 
-Solo cliente (habla con un hub existente): `pip install nokido-agent==0.20.16`.
+Solo cliente (habla con un hub existente): `pip install nokido-agent==0.20.17`.
 <!-- PIP:END -->
 
 | Requisito | Medido |

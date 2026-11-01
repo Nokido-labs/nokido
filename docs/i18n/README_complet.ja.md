@@ -86,17 +86,17 @@ Nokido は、多くのプロジェクトが混同する三つのものを区別�
 
 ## 🚀 クイックスタート
 
-<!-- PIP:BEGIN nokido-agent version=0.20.16 -->
-**PyPI から** — [`nokido-agent 0.20.16`](https://pypi.org/project/nokido-agent/0.20.16/), Linux・Windows・macOS でのインストール検証後に公開. 完全なオーガニズム、固定されたコンポーネント（チェックサム検証済み）、そして hub：
+<!-- PIP:BEGIN nokido-agent version=0.20.17 -->
+**PyPI から** — [`nokido-agent 0.20.17`](https://pypi.org/project/nokido-agent/0.20.17/), Linux・Windows・macOS でのインストール検証後に公開. 完全なオーガニズム、固定されたコンポーネント（チェックサム検証済み）、そして hub：
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.16"
+pip install "nokido-agent[organisme]==0.20.17"
 nokido-composants --tout          # deno、llama.cpp、モデル、ナレッジパック、ローカルトークン
 nokido-doctor                     # このマシンにあるもの、足りないもの、読めないもの
 nokido-hub                        # 次に：curl http://localhost:8766/health
 ```
 
-クライアントのみ（既存の hub に接続）： `pip install nokido-agent==0.20.16`.
+クライアントのみ（既存の hub に接続）： `pip install nokido-agent==0.20.17`.
 <!-- PIP:END -->
 
 **クローンから** — CI 自身が使う手順です（[詳細](#-インストール)）：
