@@ -68,21 +68,25 @@ def test_seul_le_hors_corps_est_un_fuyard():
     assert f[0]["pente_min"] == pytest.approx(200.0) and f[1].get("pente_min") is None
 
 
-def test_ordre_audio_relancer_confirme_et_execute_par_le_tray():
-    assert "audio-relancer" in ob.ACTIONS and "audio-relancer" not in ob.SANS_CONFIRMATION
+def test_audio_relancer_retire_des_ordres_et_du_tray_recours_au_panneau():
+    """31/10 (choix owner) : fuite corrigee a la source (APO Razer desinstalle, pente +1,1/min) -- l'ordre n'est plus
+    deposable ni porte par le tray ; l'action manuelle du panneau (UAC) reste en recours."""
+    assert "audio-relancer" not in ob.ACTIONS
     lanceur = (RACINE / "tools" / "nokido_launcher.py").read_text(encoding="utf-8")
     tray = (RACINE / "tools" / "nokido_tray.py").read_text(encoding="utf-8")
     assert '"audio-relancer"' in lanceur and "Audiosrv" in lanceur
-    assert '"audio-relancer"' in tray
+    assert '"audio-relancer"' not in tray
 
 
-def test_remede_connu_propose_inconnu_seulement_nomme():
-    assert ob.remede_hors_corps({"name": "audiodg.exe"}) == "audio-relancer"
-    assert ob.remede_hors_corps({"name": "SwUSB.exe"}) is None
-    props = ob.proposer_remedes([{"name": "audiodg.exe", "pid": 5252, "handles": 690705, "pente_min": 200.0},
-                                 {"name": "SwUSB.exe", "pid": 7756, "handles": 195394}])
+def test_aucun_remede_invente_sans_ordre_deposable(monkeypatch):
+    # 31/10 : plus de remede deposable pour audiodg -> rien n'est propose (la fuite reste signalee ailleurs)
+    assert ob.remede_hors_corps({"name": "audiodg.exe"}) is None
+    assert ob.proposer_remedes([{"name": "audiodg.exe", "pid": 5252, "handles": 690705, "pente_min": 200.0}]) == []
+    # le mecanisme reste : un remede declare {processus: ordre} est propose en NEED_HUMAN_APPROVAL, l'inconnu non
+    monkeypatch.setattr(ob, "REMEDES_HORS_CORPS", {"fuyard.exe": "un-ordre"})
+    props = ob.proposer_remedes([{"name": "fuyard.exe", "pid": 1, "handles": 9}, {"name": "SwUSB.exe", "pid": 2}])
     assert len(props) == 1
-    assert props[0]["intent"] == "NEED_HUMAN_APPROVAL" and props[0]["pointer_ref"] == "ordre:audio-relancer"
+    assert props[0]["intent"] == "NEED_HUMAN_APPROVAL" and props[0]["pointer_ref"] == "ordre:un-ordre"
 
 
 def test_le_corps_mesure_la_pente_et_propose_le_remede():

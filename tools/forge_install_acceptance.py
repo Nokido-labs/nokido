@@ -176,14 +176,54 @@ def _chiffrement():
     return mesurer_volume_luks()
 
 
-def arguments_chiffrement_recette(present, systeme):
+def provisionner_chiffrement(systeme, executer=subprocess.run, env=None) -> dict:
+    """Tente de provisionner l'outil de chiffrement at-rest sur runner CI (decision owner 20/10).
+    Hors CI : aucune commande n'est executee (raison: hors_ci).
+    En CI : installe VeraCrypt (Windows/Darwin) ou cryptsetup (Linux).
+    Rend dict {tente, rc, raison}."""
+    if env is None:
+        env = os.environ
+    ci = (env.get("CI") or "").strip().lower() == "true"
+    ga = (env.get("GITHUB_ACTIONS") or "").strip().lower() == "true"
+    if not (ci or ga):
+        return {"tente": "", "rc": None, "raison": "hors_ci"}
+
+    commandes = {
+        "Windows": "choco install veracrypt -y --no-progress",
+        "Darwin": "brew install --cask veracrypt",
+        "Linux": "sudo apt-get install -y cryptsetup",
+    }
+    cmd = commandes.get(systeme)
+    if not cmd:
+        for k, v in commandes.items():
+            if k.lower() == str(systeme).lower():
+                cmd = v
+                break
+    if not cmd:
+        return {"tente": "", "rc": None, "raison": "systeme_inconnu:%s" % systeme}
+
+    try:
+        res = executer(cmd.split(), capture_output=True, text=True, timeout=900)
+        rc = getattr(res, "returncode", res) if res is not None else None
+        raison = ""
+    except Exception as e:  # noqa: BLE001 -- commande absente, timeout, etc.
+        rc = None
+        raison = "ILLISIBLE:" + type(e).__name__
+    return {"tente": cmd, "rc": rc, "raison": raison}
+
+
+def arguments_chiffrement_recette(present, systeme, provision=None):
     """Arguments a passer a `nokido-composants` pour la recette : rien si le chiffrement est PRESENT ; sinon
     `--sans-chiffrement --motif-refus <motif>` -- un refus EXPLICITE motive « runner CI », jamais un blocage muet
     (decision owner 20/10 « Provisionner, sinon refus dit »)."""
     if present:
         return []
-    motif = ("runner CI %s : chiffrement at-rest non provisionne (VeraCrypt/cryptsetup absents) -- refus explicite "
-             "consigne pour la recette" % systeme)
+    if provision and provision.get("tente"):
+        motif = ("runner CI %s : provisionnement tente : %s rc=%s -- refus explicite consigne pour la recette"
+                 % (systeme, provision.get("tente"), provision.get("rc")))
+    else:
+        motif = ("runner CI %s : chiffrement at-rest non provisionne (VeraCrypt/cryptsetup absents) -- refus explicite "
+                 "consigne pour la recette" % systeme)
     return ["--sans-chiffrement", "--motif-refus", motif]
 
 
@@ -475,8 +515,11 @@ def _docker():
         # 20/10 (essai 0.20.13) : le runner GitHub macOS n'a pas Docker -- NON_TESTE DIT, comme Windows sans daemon.
         # Sur le Mac d'un UTILISATEUR (hors CI), Docker absent reste FAIL : la barre ne baisse pas pour lui.
         if os.environ.get("GITHUB_ACTIONS") and os.environ.get("RUNNER_OS") == "macOS":
-            return "NON_TESTE", ("runner GitHub macOS : Docker absent de l'image du runner -- "
-                                 "ollama et les services conteneurs se mesurent sur un Mac equipe de Docker")
+            # 21/10 (.github/workflows/sonde-docker-macos.yml) : kern.hv_support=0 sur ce runner -- pas de
+            # virtualisation imbriquee, donc ni Docker Desktop ni colima ne peuvent y demarrer une VM Linux.
+            return "NON_TESTE", ("runner GitHub macOS : Docker absent de l'image du runner et kern.hv_support=0 "
+                                 "(mesure 21/10, aucune VM Linux possible) -- ollama et les services conteneurs "
+                                 "se mesurent sur un Mac equipe de Docker")
         return "FAIL", "docker absent"
     rc, out = sh(["docker", "compose", "-f", "docker-compose.yml", "config", "--services"], timeout=120)
     return ("PASS" if rc == 0 else "FAIL"), "services declares : %s" % out.split()
@@ -516,6 +559,23 @@ def _ollama():
         return "FAIL", "api/generate HTTP %s : %s || api/pull : %s || api/tags : %s" % (
             e.code, e.read()[:400].decode("utf-8", "replace"), etat_pull, tags)
     return ("PASS" if rep.strip() else "FAIL"), "reponse : %r" % rep[:120]
+
+
+@etape("reglage_gpu")
+def _reglage_gpu():
+    """29/10 (GO owner) : la proposition de proposer() doit etre LIVREE -- services.toml installe, fiches de modeles,
+    library=Vulkan au journal d'Ollama (NOKIDO_OLLAMA_LOG) quand l'iGPU est active. Ecart = FAIL (recette rouge)."""
+    c = composants()
+    spec = importlib.util.spec_from_file_location("hostcap_recette", ROOT / "app" / "forge_host_capabilities.py")
+    hc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hc)
+    prop = hc.proposer()["proposition"]
+    if not prop.get("env") and not prop.get("num_gpu_par_modele"):
+        return "NON_TESTE", "aucun reglage propose : %s" % " | ".join(prop.get("motifs") or [])[:240]
+    chemin = os.environ.get("NOKIDO_OLLAMA_LOG")
+    journal = Path(chemin).read_text(encoding="utf-8", errors="replace") if chemin and Path(chemin).is_file() else None
+    v = c.verifier_reglage_gpu(prop, ROOT / "proxy_deno" / "core" / "services.toml", None, journal)
+    return v["etat"], v["detail"]
 
 
 @etape("lmstudio")
@@ -1096,9 +1156,22 @@ def _p_composants():
     except Exception as e:  # noqa: BLE001 -- sonde illisible : refus explicite, et on le DIT
         present = False
         print("[paquet_composants] sonde du chiffrement illisible (%s) : refus explicite" % type(e).__name__, flush=True)
-    refus = arguments_chiffrement_recette(present, platform.system())
+    prov = None
+    if not present:
+        prov = provisionner_chiffrement(platform.system())
+        try:
+            present = bool(composants().chiffrement_present())
+        except Exception as e:  # noqa: BLE001 -- sonde illisible : refus explicite, et on le DIT
+            present = False
+            print("[paquet_composants] sonde du chiffrement illisible (%s) : refus explicite" % type(e).__name__, flush=True)
+    refus = arguments_chiffrement_recette(present, platform.system(), provision=prov)
     rc, out = _sh_p([_bin("nokido-composants")] + args + refus, timeout=5400)
-    dit = "chiffrement PRESENT" if present else "chiffrement ABSENT : refus explicite (%s)" % refus[2]
+    if present and prov and prov.get("tente"):
+        dit = "chiffrement PRESENT (provisionne : %s)" % prov.get("tente")
+    elif present:
+        dit = "chiffrement PRESENT"
+    else:
+        dit = "chiffrement ABSENT : refus explicite (%s)" % refus[2]
     return ("PASS" if rc == 0 else "FAIL"), "%s ; rc %s ; %s" % (dit, rc, out[-1500:])
 
 
@@ -1283,7 +1356,7 @@ def main() -> int:
         # base et le pack ; doctor a la fin juge l'installation terminee. `_chiffrement` (mesure, 20/10) se tient
         # juste AVANT le premier poseur : l'etape qui arrete rien ne sert qu'a etre vue avant qu'il soit trop tard.
         sequence = (_env, _deps, _chiffrement, _doctor_initial, _llama, _modeles, _embedder, _hub, _base, _pack,
-                    _rag_direct, _rag_hub, _ui, _docker, _ollama, _lms, _doctor_final)
+                    _rag_direct, _rag_hub, _ui, _docker, _ollama, _reglage_gpu, _lms, _doctor_final)
     for f in sequence:
         f()
     R.pop("_", None)

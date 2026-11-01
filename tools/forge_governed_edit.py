@@ -268,6 +268,69 @@ def _executeur_autonome(agent) -> bool:
     return False
 
 
+def noms_non_definis(code: str) -> list[str]:
+    """Noms NON DEFINIS d'un source Python (pyflakes F821), tries, sans doublon. 27/10 : `json.loads` dans un
+    module qui importe `json as _json` passait « AST+secret OK » et a coute deux tours de NR. Syntaxe cassee ou
+    pyflakes absent -> [] : la syntaxe est le travail de la garde AST, et ce sas n'est qu'un AVERTISSEMENT."""
+    try:
+        from pyflakes import api
+        from pyflakes import messages as _m
+    except ImportError:
+        return []
+
+    class _Rapport:
+        def __init__(self):
+            self.noms = set()
+
+        def unexpectedError(self, *_a):
+            pass
+
+        def syntaxError(self, *_a):
+            pass
+
+        def flake(self, msg):
+            if isinstance(msg, _m.UndefinedName):
+                self.noms.add(msg.message_args[0])
+
+    r = _Rapport()
+    try:
+        api.check(code, "governed.py", r)
+    except Exception:  # noqa: BLE001 -- un sas d'avertissement ne fait jamais echouer une ecriture
+        return []
+    return sorted(r.noms)
+
+
+# GARDE ANTI-TRONCATURE (31/10, derogation owner tracee). Preuve : le 27/10 02:24:13 VIBE_HEADLESS a appele
+# governed_edit content="..." sur app/forge_byte_router.py -- 314 lignes remplacees par 3 caracteres, verdict ok ;
+# meme classe le 19/10 (forge_token_monitor 681 -> 71) et le 21/10 (2 NR perdus). NR
+# tests/nr/test_governed_write_refuse_troncature_nr.py.
+_PLACEHOLDERS = frozenset({"...", "…", "# ...", "#...", "<...>", "[...]", "pass", "todo", "# todo"})
+_TRONC_MIN_LIGNES = 50
+_TRONC_RATIO = 0.25
+
+
+def _verdict_troncature(p: Path, content: str) -> str | None:
+    """Motif de refus si `content` TRONQUE un fichier existant non vide, sinon None. Fichier absent ou illisible :
+    None (creation inchangee ; l'illisible est juge par les autres gardes)."""
+    try:
+        if not p.is_file():
+            return None
+        ancien = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if not ancien.strip():
+        return None
+    n_ancien = len(ancien.splitlines())
+    n_nouveau = len(content.splitlines())
+    if content.strip().lower() in _PLACEHOLDERS:
+        return ("contenu PLACEHOLDER %r a la place de %d lignes : refus (troncature, cf. 27/10 forge_byte_router) "
+                "-- editer par blocs SEARCH/REPLACE, ou supprimer explicitement" % (content.strip()[:12], n_ancien))
+    if n_ancien >= _TRONC_MIN_LIGNES and n_nouveau < n_ancien * _TRONC_RATIO:
+        return ("reecriture de %d lignes en %d (< %d %%) : refus (troncature probable) -- editer par blocs "
+                "SEARCH/REPLACE, decouper, ou supprimer explicitement" % (n_ancien, n_nouveau, int(_TRONC_RATIO * 100)))
+    return None
+
+
 def governed_write(path: str, content: str, agent: str = "UNKNOWN",
                    allow_create: bool = True, allow_critical: bool = False) -> dict:
     """Écrit `content` dans `path` après gouvernance. Retourne un verdict structuré.
@@ -369,6 +432,10 @@ def governed_write(path: str, content: str, agent: str = "UNKNOWN",
                     "reason": f"{rel} = module-JUGE -> no_self_score_edit: agent '{agent}' refuse "
                               f"(anti reward-tampering ; LAFORGE_ALLOW_JUDGE_WRITE=1 pour owner)"}
 
+    _tronc = _verdict_troncature(p, content)
+    if _tronc:
+        return {"ok": False, "blocked": "troncature", "path": rel, "reason": _tronc}
+
     warns = _tree_lock_check_and_claim(rel, agent)
 
     try:
@@ -412,6 +479,10 @@ def governed_write(path: str, content: str, agent: str = "UNKNOWN",
     verdict = {"ok": True, "path": rel, "bytes": len(relu.encode("utf-8")), "warnings": warns,
                "verified": "relecture disque identique",
                "note": "AST+secret OK ; tree_lock claim ; contenu RELU verifie ; le git-gate re-scanne au commit"}
+    if rel.endswith(".py"):
+        _nnd = noms_non_definis(relu)
+        if _nnd:  # observation (gate neuf non bloquant) : un NameError se voit AVANT l'execution
+            verdict["noms_non_definis"] = _nnd
     try:  # garde TDD (owner 16/10) : un avertissement, jamais un echec de l'ecriture
         _tdd = avertissement_tdd(rel)
         if _tdd:

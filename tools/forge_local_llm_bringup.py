@@ -214,6 +214,15 @@ def _ecrire_config_litellm() -> Path:
     return CONFIG_LITELLM
 
 
+def argv_litellm(exe, config) -> list:
+    """Commande du proxy litellm, liee a la BOUCLE LOCALE (owner 1/11).
+
+    Sans `--host`, le proxy ecoute sur 0.0.0.0 (defaut litellm) : sans `master_key`, il servait donc le reseau
+    local sans authentification, en litellm 1.96.2 -- la version visee par CVE-2026-114612 (elevation vers
+    proxy_admin). Ses seuls clients sont sur cette machine (sonde ci-dessous : http://127.0.0.1:4000)."""
+    return [str(exe), "--config", str(config), "--host", "127.0.0.1", "--port", "4000"]
+
+
 def main() -> int:
     if "--inventaire" in sys.argv:
         # Lecture seule : quel compte VOIT quoi. Les comptes sandbox ne lisent
@@ -273,8 +282,7 @@ def main() -> int:
          [str(llama), "-m", str(modele_gguf), "--port", port_llamacpp, "-c", "4096"]
          if llama.exists() and modele_gguf.exists() else None, ""),
         ("litellm", "http://127.0.0.1:4000/v1",
-         [str(litellm_exe), "--config", str(_ecrire_config_litellm()), "--port", "4000"]
-         if litellm_exe.exists() else None, ""),
+         argv_litellm(litellm_exe, _ecrire_config_litellm()) if litellm_exe.exists() else None, ""),
     ]
 
     print(f"compte d'execution : {os.environ.get('USERNAME', '?')} — "

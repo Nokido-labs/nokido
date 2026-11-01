@@ -728,7 +728,20 @@ _SEARX_LAST_ENSURE_TS = 0.0
 _ENSURE_COOLDOWN_S = 30.0
 
 
-def _ensure_searxng(wait_s: "int | None" = None) -> bool:
+def _relacher_docker(chain_id: str) -> "dict | None":
+    """FIN = SIGNAL : une chaine au verdict terminal relache SA reclamation Docker.
+    La derniere retire docker.wanted et arrete les conteneurs sans attendre le TTL.
+    Jamais fatal : un echec est journalise, pas avale."""
+    try:
+        from nokido_agent.tools.forge_docker_keeper import release_claim
+
+        return release_claim(chain_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[watch] relache Docker de {chain_id} KO: {e}")
+        return None
+
+
+def _ensure_searxng(wait_s: "int | None" = None, owner: "str | None" = None) -> bool:
     """Réveil ON-DEMAND de SearXNG via le seam central (superviseur =
     propriétaire du lifecycle), puis attente readiness sur :8080.
 
@@ -760,10 +773,36 @@ def _ensure_searxng(wait_s: "int | None" = None) -> bool:
         except Exception:
             return False
 
-    if _up():
-        return True
+    # HYGIENE (owner 30/10 « c'est de l'hygiene systematique ») : un appel PONCTUEL (sans owner -- recherche web,
+    # sonde) posait docker.wanted et ne le rendait JAMAIS ; reveil rate a 17:27, Docker est reste allume. Il prend
+    # desormais la reclamation nommee `searxng_ponctuel` et la RELACHE a toute sortie (le delai de grace du keeper
+    # garde Docker pour les recherches qui suivent). Un appel AVEC owner garde son contrat : la chaine relache.
+    _ponctuel = not owner
+    _reclamant = owner or "searxng_ponctuel"
 
-    tools_dir = str(_Path(__file__).resolve().parent.parent / "tools")
+    def _fin(resultat: bool) -> bool:
+        if _ponctuel:
+            try:
+                from nokido_agent.tools.forge_docker_keeper import release_claim
+
+                release_claim(_reclamant)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[watch] release Docker (ponctuel) KO: {e}")
+        return resultat
+
+    # Reclamation NOMMEE, posee meme si SearXNG repond deja : c'est elle que
+    # le verdict terminal relache (compteur : la derniere seule coupe).
+    try:
+        from nokido_agent.tools.forge_docker_keeper import claim_docker
+
+        claim_docker(_reclamant)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[watch] claim Docker KO: {e}")
+
+    if _up():
+        return _fin(True)
+
+    tools_dir =str(_Path(__file__).resolve().parent.parent / "tools")
     if tools_dir not in _sys.path:
         _sys.path.insert(0, tools_dir)
     if not _recent_ensure:
@@ -786,7 +825,7 @@ def _ensure_searxng(wait_s: "int | None" = None) -> bool:
             logger.info(f"[watch] SearXNG ensure via superviseur -> HTTP {st}")
         except Exception as e:
             logger.warning(f"[watch] SearXNG ensure KO (superviseur injoignable): {e}")
-            return False
+            return _fin(False)
     else:
         logger.debug(
             "[watch] SearXNG ensure deja sollicite <%.0fs -> attente readiness",
@@ -824,10 +863,10 @@ def _ensure_searxng(wait_s: "int | None" = None) -> bool:
     while _t.time() < deadline:
         if _up():
             logger.info("[watch] SearXNG prêt")
-            return True
+            return _fin(True)
         _t.sleep(3)
     logger.warning(f"[watch] SearXNG pas prêt après {wait_s}s -> dégrade academic")
-    return False
+    return _fin(False)
 
 
 # Moteurs SearXNG ACTIFS dans les categories de la veille, lus sur /config (cache 1 h). Voir _moteurs_searxng.
@@ -1835,6 +1874,23 @@ def run_watch_job(job_id: str) -> dict:
     return {"ok": True, "job_id": job_id, "status": "delegated"}
 
 
+def _reveiller_consommateur() -> str:
+    """Reveille NokidoWatchAgent (service on-demand) par la route de la regulation (/service/start). 28/10 : 6 veilles
+    restaient `pending keywords`, le consommateur absent du superviseur depuis un redemarrage complet -- create_job ne
+    reveillait personne. Sous pytest : jamais le vrai superviseur."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return "SAUTE_SOUS_TEST"
+    import urllib.request as _ur
+
+    from nokido_agent.app import forge_resource_manager as _rm
+
+    req = _ur.Request(_rm._url_reveil("NokidoWatchAgent"), method="POST",
+                      headers=_rm._supervisor_auth_headers("WATCH_AGENT"))
+    with _ur.urlopen(req, timeout=4):
+        pass
+    return "DEMANDE"
+
+
 def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM") -> str:
     """Crée un nouveau job via agent_chain_nodes."""
     import secrets
@@ -1884,6 +1940,10 @@ def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM"
     write_retry(_tx)
 
     print(f"[WATCH] Chain lancée: {chain_id} — {theme[:50]} (7 nodes créés)", flush=True)
+    try:
+        _reveiller_consommateur()
+    except Exception as e:  # noqa: BLE001 - la chaine est ecrite ; seul le reveil a echoue, et on le DIT
+        logger.warning(f"[watch] NokidoWatchAgent non reveille ({type(e).__name__}) : {chain_id} attend son consommateur")
     return chain_id
 
 

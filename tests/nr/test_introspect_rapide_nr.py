@@ -56,7 +56,11 @@ def test_le_grep_passe_par_un_outil_natif_et_rend_le_meme_resultat(tmp_path, mon
     vrai = Path.read_text
 
     def compte(self, *a, **k):
-        lectures.append(str(self))
+        # Seules les lectures DU DEPOT FOUILLE comptent (26/10) : le patch est global au processus, et la CI de
+        # reference 194919b0d a compte une lecture du coffre (C:/ProgramData/NokidoCoffre) faite au meme moment
+        # par un autre organe -- ce n'etait pas le grep qui relisait le corpus en Python.
+        if Path(self).resolve().is_relative_to(repo.resolve()):
+            lectures.append(str(self))
         return vrai(self, *a, **k)
 
     monkeypatch.setattr(Path, "read_text", compte)

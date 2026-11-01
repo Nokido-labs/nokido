@@ -92,6 +92,19 @@ def _est_admin() -> bool:
         return False
 
 
+def _etat_jeton_par_date() -> str:
+    """Etat du jeton lu par sa DATE (stat, sans lire son contenu protege) : absent, ACTIF ou EXPIRE."""
+    try:
+        age = time.time() - TOKEN_FILE.stat().st_mtime
+    except FileNotFoundError:
+        return "absent"
+    except OSError as e:
+        return "date ILLISIBLE (%s)" % type(e).__name__
+    if age > TTL_S:
+        return "EXPIRE depuis %d min (sans effet ; un armement admin l'ecrase)" % ((age - TTL_S) // 60)
+    return "ACTIF encore %d min" % ((TTL_S - age) // 60)
+
+
 def _diagnostic_jeton() -> str:
     """'' si la voie est libre, sinon ce qui bloque ET comment en sortir."""
     if not TOKEN_FILE.exists():
@@ -122,17 +135,24 @@ def arm() -> str:
     # REGLE : ne jamais poser un verrou dont on n'a pas d'abord verifie qu'on
     # saurait le reprendre. On teste donc l'autorite AVANT la moindre ecriture,
     # et un blocage existant est signale AVEC sa voie de sortie.
+    # LA CAUSE D'ABORD (owner 21/10). Hors console admin, l'armement est impossible par construction ; accuser
+    # d'abord « un jeton protege subsiste » (souvent EXPIRE, donc sans effet) faisait chercher une panne absente.
+    if not _est_admin():
+        etat = _etat_jeton_par_date()
+        sortie = ("" if etat == "absent" else
+                  "\n  Fermer le jeton existant (console ADMINISTRATEUR) :\n    & \"%s\" \"%s\" disarm"
+                  % (sys.executable, __file__))
+        raise SystemExit(
+            "dev-mode REFUSE : console NON ADMINISTRATEUR.\n"
+            "  Le jeton doit etre illisible par les comptes sandbox (c'est TOUTE\n"
+            "  sa fonction) ; seul un admin peut poser cette ACL et la reprendre.\n"
+            "  Jeton actuel : %s.\n"
+            "  Rien n'a ete ecrit -- aucun residu a nettoyer.\n"
+            "  Armer depuis une console ADMINISTRATEUR.%s" % (etat, sortie)
+        )
     bloque = _diagnostic_jeton()
     if bloque:
         raise SystemExit("dev-mode REFUSE : " + bloque)
-    if not _est_admin():
-        raise SystemExit(
-            "dev-mode REFUSE : ce process n'est pas ADMINISTRATEUR.\n"
-            "  Le jeton doit etre illisible par les comptes sandbox (c'est TOUTE\n"
-            "  sa fonction) ; seul un admin peut poser cette ACL et la reprendre.\n"
-            "  Rien n'a ete ecrit -- aucun residu a nettoyer.\n"
-            "  Armer depuis une console ADMINISTRATEUR."
-        )
 
     mgr = _manager()
     token = mgr.create_manifest("dev-mode", IntegrityRing.DEV, duration_s=TTL_S)

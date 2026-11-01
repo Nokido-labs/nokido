@@ -65,6 +65,30 @@ CONSIGNE = ("Fin de tour sur une attente passive (« %s »). Consigne owner perm
             "vide, et alors lister ce qui reste.")
 
 
+def monitor_arme(maintenant: float | None = None) -> str | None:
+    """job_id d'un Monitor ARME sur un job encore en vol, sinon None (owner 1/11 : quota a 20 %).
+
+    Meme etat que le garde anti-polling (`hook_capability_gate`, cle `monitors` de gate_state.json : job_id ->
+    expiration) : un Monitor non expire dont le job n'a pas de `.rc` reveillera le tour au verdict ; forcer un tour
+    de plus pendant qu'il veille re-facture tout l'historique pour rien. Etat absent ou illisible = None : l'absence
+    de preuve d'un Monitor ne rend jamais muet (UNKNOWN n'est pas OUI).
+    """
+    etat = Path(os.environ.get("NOKIDO_GATE_ETAT") or ROOT / "sandbox" / "workspace" / "gate_state.json")
+    jobs = Path(os.environ.get("NOKIDO_GATE_JOBS") or ROOT / "sandbox" / "jobs")
+    try:
+        monitors = json.loads(etat.read_text(encoding="utf-8")).get("monitors") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    t = time.time() if maintenant is None else maintenant
+    for jid, expire in monitors.items():
+        try:
+            if float(expire) > t and not (jobs / ("%s.rc" % jid)).exists():
+                return str(jid)
+        except (TypeError, ValueError):
+            continue  # muet-ok : expiration illisible pour CE moniteur, les autres restent juges
+    return None
+
+
 def decider(texte: str, deja_relance: bool) -> str | None:
     """Rend la raison du blocage, ou None pour laisser finir le tour."""
     if deja_relance or not texte:
@@ -147,6 +171,17 @@ def main() -> int:
         return 0
     texte = dernier_message(Path(chemin))
     raison = decider(texte, bool(charge.get("stop_hook_active")))
+    if raison:
+        veille = monitor_arme()
+        if veille:                            # le Monitor reveillera le tour : ne pas payer un tour de plus
+            try:
+                JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+                with JOURNAL.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps({"ts": time.time(), "session": charge.get("session_id"),
+                                         "muet_monitor": veille}, ensure_ascii=False) + "\n")
+            except OSError as exc:
+                print("[stop_attente_passive] journal non ecrit (%s)" % type(exc).__name__, file=sys.stderr)
+            raison = None
     # Garde « decision owner en prose » : OBSERVATION (decision owner 19/10) -- journalise toujours, ne bloque que
     # sous l'interrupteur NOKIDO_GARDE_DECISION_PROSE=bloquant, une fois le bruit mesure.
     prose = decider_decision_prose(texte, outils_du_tour(Path(chemin)))

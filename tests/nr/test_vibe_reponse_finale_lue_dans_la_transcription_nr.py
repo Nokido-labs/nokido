@@ -48,12 +48,13 @@ def test_une_reponse_de_lecture_juste_n_est_plus_jugee_vide(tmp_path, monkeypatc
     monkeypatch.setattr(T, "_battement_delegation", lambda *_a, **_k: contextlib.nullcontext())
     monkeypatch.setattr(T, "_attendre_harness", lambda *_a, **_k: {"ok": True, "output": _transcription()})
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *_a, **_k: "")
-    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt, avant: (ok, "commits produits : 0", None))
+    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt, avant, **_k: (ok, "commits produits : 0", None))
     monkeypatch.setattr(T, "_consigner_verdict_auto", lambda *_a, **_k: None)
     monkeypatch.setattr(T, "_motif_reaffectation_apres", lambda *_a, **_k: None)
     vus = {}
     monkeypatch.setattr(T, "_clore_delegation", lambda task_id, token, ok, detail, intent=None: vus.update(ok=ok,
                                                                                                          detail=detail))
+    monkeypatch.setattr(T, "_cle_mistral_au_coffre", lambda: True)
     T._delegate_to_vibe({"id": "job_vibe_lecture_nr", "description": "lis"}, "tok")
     assert vus.get("ok") is True, vus.get("detail", "")[-300:]
     assert "AUCUN EFFET" not in vus.get("detail", "")

@@ -31,6 +31,7 @@ GATE_DENIED: ring:ring 4 <= requis 3
 ---
 
 @RULES_SHARED.md
+@docs/RULES_CLIENTS_SANS_HOOKS.md
 
 ---
 
@@ -270,4 +271,6 @@ Pour éviter de figer l'interface CLI et de saturer le contexte :
 
 <!-- LAFORGE_HARMONIZATION -->
 # Nokido regles communes (emanation) — voir aussi hub `point rules` / `point roadmap`
-@~/Script python IA/Nokido/RULES_SHARED.md
+# (deja importees en relatif plus haut : @RULES_SHARED.md. L'import ABSOLU vers le depot principal
+#  (~/Script python IA/Nokido/RULES_SHARED.md) a ete retire le 30/10 : AGY le chargeait au demarrage, hors de ses
+#  worktrees -> read_file refuse en headless, 6 taches de code mortes.)

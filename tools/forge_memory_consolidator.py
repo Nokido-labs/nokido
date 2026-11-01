@@ -310,21 +310,37 @@ def main() -> int:
         return 0
 
     logger.info("Memory consolidator daemon started — interval=%ds pid=%d", INTERVAL_S, os.getpid())
+    from nokido_agent.app.forge_heartbeat import Cadence
+
+    cad = Cadence("memory_consolidator", cycle_s=INTERVAL_S)
     # 20/10 : reveil du regulateur -> attendre la fin de l'intervalle avant tout cycle.
     attente = _attente_avant_cycle(state, time.time())
     if attente > 0:
         logger.info("Premier cycle differe de %ds (debut du dernier cycle deja enregistre)", int(attente))
-        time.sleep(attente)
-    while True:
-        try:
-            results = run_consolidation_cycle(state)
-            _save_state(state)
-            _write_heartbeat(results)
-        except Exception as exc:
-            logger.error("cycle error: %s", exc)
-            _write_heartbeat({"error": str(exc)})
-        logger.info("Sleeping %ds", INTERVAL_S)
-        time.sleep(INTERVAL_S)
+        cad.differer(attente)
+    _boucle_daemon(state, cad)
+    return 0
+
+
+def _boucle_daemon(state: dict, cad, tours: int | None = None) -> None:
+    """Le POULS bat a chaque tick, le travail lourd une fois par cycle (forge_heartbeat.Cadence).
+
+    30/10 : `time.sleep(INTERVAL_S)` (12 h) sans aucun pouls -> le demon epistemique lisait l'organe « silencieux,
+    cense tourner » 12 cycles de suite, alors que son dernier cycle etait OK. STALE n'est pas DEAD : perfusion (tick)
+    et progression (dernier cycle, ok ou non) se publient sur deux axes. `tours` borne la boucle pour le NR."""
+    n = 0
+    while tours is None or n < tours:
+        n += 1
+        if cad.tour():
+            try:
+                results = run_consolidation_cycle(state)
+                _save_state(state)
+                cad.cycle_termine(True, interval_s=INTERVAL_S, last_results=results)
+                logger.info("Cycle termine ; prochain dans %ds (pouls a chaque tick)", INTERVAL_S)
+            except Exception as exc:  # noqa: BLE001 - le cycle en echec se DIT (progres_ok=False), la boucle continue
+                logger.error("cycle error: %s", exc)
+                cad.cycle_termine(False, interval_s=INTERVAL_S, last_results={"error": str(exc)})
+        cad.dormir()
 
 
 if __name__ == "__main__":

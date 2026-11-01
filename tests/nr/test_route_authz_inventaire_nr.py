@@ -59,7 +59,15 @@ import forge_route_authz_audit as audit  # noqa: E402
 # 2026-09-26, DECISION OWNER : /api/push sort de la liste PUBLIQUE declaree (une route retiree n'elargit pas
 # la surface publique, plafond de 3) et entre ICI, ouverte et SUE : son handler du hub ne porte aucune garde,
 # rend 410 `gone`, ne lit ni n'ecrit rien, aucun appelant mesure. Ni garde ni suppression (fichier critique).
-SENSIBLES_CONNUES: set = {"/api/push"}
+#
+# 2026-10-30 (CLAUDE, rouge preexistant releve par le lot d'authentification) : /oauth/token et /acp/sign ne sont PAS
+# ouvertes -- leur garde est DELEGUEE, et le detecteur ne la voit pas (meme cas que /api/login, CALL_SITE !=
+# DECISION_SITE). Verifie dans le code le 30/10 :
+#   /oauth/token -> forge_oauth_route.traiter : preuve DPoP liee exigee (400 invalid_dpop_proof), subject_token signe,
+#       concordance du PID (_verif_pid), puis tx.echanger « bloquant » ; aucune emission sans ces trois preuves.
+#   /acp/sign    -> forge_acp_hub.traiter_signature : Bearer exige (401), signer_decision verifie jeton et portee (403).
+# Inscrites pour que la liste reste SUE ; toute route nouvelle de ce genre doit etre verifiee de la meme facon.
+SENSIBLES_CONNUES: set = {"/api/push", "/oauth/token", "/acp/sign"}
 _HISTORIQUE_SENSIBLES = {
     # ── RESTENT SANS GARDE, chacune pour une raison MESUREE ────────────────
     # `/api/sandbox/runtimes` : sa docstring declare « pas d'auth, read-only ».

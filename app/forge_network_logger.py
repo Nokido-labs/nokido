@@ -47,6 +47,7 @@ MAX_HISTORY = 500
 class NetworkChannel(str, Enum):
     # Canaux entrants (qui appelle le hub)
     STDIO_CLAUDE = "STDIO_CLAUDE"  # Claude Desktop via mcp_stdio_bridge
+    HTTP_CLAUDE = "HTTP_CLAUDE"  # Claude Code CLI via MCP Streamable HTTP (owner 29/10 : n'est PAS du stdio)
     GEMINI_OAUTH = "GEMINI_OAUTH"  # Gemini CLI authentifie OAuth Google
     GEMINI_API = "GEMINI_API"  # Gemini via cle API (forge_agent_proxy)
     CLINE_MCP = "CLINE_MCP"  # Cline VS Code extension
@@ -192,15 +193,54 @@ def _journaliser_reponse(tool: str, agent, ring, reponse, status, latence_ms) ->
                   "tronque": len(brut) > EXTRAIT_ACTE_MAX})
 
 
+_ACTES_MAX_OCTETS = 20 * 1024 * 1024
+# Lectures journalisees (owner 31/10) : la carte d'attention lisait un journal qui ne portait AUCUNE lecture,
+# donc elle restait vide en production. Chemin + symbole seulement, jamais le contenu ni la reponse.
+_OUTILS_LECTURES_ACTES = {"read", "read_function_body", "get_file_skeleton"}
+
+
 def _ecrire_acte(acte: dict) -> None:
-    """Ajoute une ligne au journal des actes ; un echec d'ecriture est DIT, jamais avale."""
+    """Ajoute une ligne au journal des actes ; un echec d'ecriture est DIT, jamais avale.
+
+    ROTATION (31/10) : le journal pesait 49,6 Mo sans aucune rotation. Au-dela de _ACTES_MAX_OCTETS il passe en
+    `.1` (une generation gardee) ; les lecteurs bornes (_dernieres_lignes) n'en lisent que la fin."""
     try:
         _JOURNAL_ACTES.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if _JOURNAL_ACTES.stat().st_size > _ACTES_MAX_OCTETS:
+                import os as _os  # noqa: PLC0415
+
+                _os.replace(_JOURNAL_ACTES, _JOURNAL_ACTES.with_name(_JOURNAL_ACTES.name + ".1"))
+        except OSError:  # muet-ok : journal absent (premiere ligne) ou rotation impossible -> on continue d'ajouter
+            pass
         with open(_JOURNAL_ACTES, "a", encoding="utf-8") as f:
             f.write(json.dumps(acte, ensure_ascii=False) + "\n")
     except OSError as exc:
         logger.warning("[net_log] acte NON journalise (%s) : %s %s", type(exc).__name__,
                        acte.get("agent"), acte.get("outil"))
+
+
+def _journaliser_lecture(tool: str, agent, ring, charge) -> None:
+    """Une LECTURE (owner 31/10) : chemin + symbole seulement, pour la carte d'attention.
+
+    Jamais le contenu, jamais la reponse (~250 octets par lecture). Charge HTTP coupee en amont (JSON
+    incomplet) : les champs sont repris du texte, sinon l'extrait reste vide -- jamais une lecture inventee."""
+    arguments = _arguments_appel(charge)
+    forme = "ARGUMENTS"
+    if arguments is None:
+        forme, texte = "TEXTE_NON_ANALYSABLE", str(charge)
+        arguments = {k: v for k in ("action", "path", "file_path", "function_name")
+                     if (v := _champ_brut(texte, k))}
+    extrait = json.dumps({k: arguments[k] for k in ("action", "path", "file_path", "function_name")
+                          if k in arguments}, ensure_ascii=False, default=str)
+    try:
+        from nokido_agent.app.forge_semantic_firewall import redact_for_log as _scrub
+        extrait = _caviarder(_scrub(extrait, reversible=True), tool)
+    except Exception as exc:  # noqa: BLE001 - une lecture non caviardee ne s'ecrit PAS en clair
+        extrait = "[CAVIARDAGE INDISPONIBLE : %s -- extrait non ecrit]" % type(exc).__name__
+    _ecrire_acte({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "sens": "LECTURE", "agent": agent or "?",
+                  "ring": ring, "outil": tool, "action": arguments.get("action"), "statut": "OK",
+                  "forme": forme, "extrait": extrait[:EXTRAIT_ACTE_MAX]})
 
 
 def net_log(
@@ -220,8 +260,13 @@ def net_log(
     meta: Optional[dict] = None,
     client_ip: Optional[str] = None,
     session_id: Optional[str] = None,
+    principal: Optional[str] = None,
+    declared: Optional[str] = None,
 ) -> dict:
-    """Log un event réseau via forge_mcp_security.audit() (backend natif)."""
+    """Log un event réseau via forge_mcp_security.audit() (backend natif).
+
+    `agent` garde son sens (nom de surface) ; `principal` (identite authentifiee) et
+    `declared` (en-tete declare) s'y ajoutent, lus de l'acteur courant si non fournis."""
     # Filtre keepalive : poll local = bruit pur, 61% du volume, info nulle
     if agent in ("local", None) and tool == "poll" and (latency_ms or 0) < 5:
         return {}
@@ -236,10 +281,19 @@ def net_log(
     except Exception:
         _tid = "system"
 
+    try:
+        from nokido_agent.app.forge_trace_context import get_actor
+        _actor = get_actor()
+    except Exception:
+        _actor = {}
+    _principal = principal or _actor.get("principal") or agent or "UNKNOWN"
+    _declared = declared or _actor.get("declared") or "UNKNOWN"
     args = {
         "direction": str(direction),
         "trace_id": _tid,  # tôt dans le payload -> survit à la troncature ~180c
         "agent": agent or "?",
+        "principal": _principal,
+        "declared": _declared,
         "ring": ring,
         "latency_ms": latency_ms,
         "provider": provider,
@@ -266,13 +320,28 @@ def net_log(
     if payload_out:
         args["out"] = apercu_out[:200]
     if meta:
-        args["meta"] = _scrub(meta, reversible=True)
+        _meta = _scrub(meta, reversible=True)
+        if isinstance(_meta, dict):
+            # Cles courtes du canal mesure : placees juste APRES ring (jamais avant : 22/10
+            # 17 h 39, placees apres trace_id elles chassaient agent/ring hors de la ligne
+            # tronquee de TOUT l'audit) ; la coupe de forge_mcp_security.audit est a 160 car.
+            _tot = {k: _meta.pop(k) for k in ("transport_signale", "canal_contradictoire") if k in _meta}
+            _args = {}
+            for k, v in args.items():
+                _args[k] = v
+                if k == "ring":
+                    _args.update(_tot)
+            args = _args
+        if _meta:
+            args["meta"] = _meta
 
     # Acte d'un agent (outil qui AGIT, requete entrante) : trace lisible a cote de l'audit.
     if payload_in and tool in _OUTILS_ACTES and str(direction).endswith("IN"):
         _journaliser_acte(tool, agent, ring, payload_in, status)
     elif payload_out and tool in _OUTILS_ACTES and str(direction).endswith("OUT"):
         _journaliser_reponse(tool, agent, ring, payload_out, status, latency_ms)
+    elif payload_in and tool in _OUTILS_LECTURES_ACTES and str(direction).endswith("IN"):
+        _journaliser_lecture(tool, agent, ring, payload_in)
 
     # Écriture dans mcp_audit.log via le backend natif
     native = _get_audit()
@@ -292,6 +361,8 @@ def net_log(
         "provider": provider,
         "model": model,
         "agent": agent,
+        "principal": _principal,
+        "declared": _declared,
         "ring": ring,
         "latency_ms": latency_ms,
         "status": status or "OK",
@@ -537,13 +608,16 @@ def log_stdio_out(tool: str, agent: str, ring: int, result: str, latency_ms: flo
     )
 
 
-def log_cloud_out(provider: str, model: str, agent: str, message: str, session_id: Optional[str] = None):
+def log_cloud_out(provider: str, model: str, agent: str, message: str, session_id: Optional[str] = None,
+                  *, principal: str = "", declared: str = ""):
     return net_log(
         NetworkChannel.CLOUD,
         Direction.OUT,
         provider=provider,
         model=model,
         agent=agent,
+        principal=principal or None,
+        declared=declared or None,
         session_id=session_id,
         payload_in=str(message)[:400],
         status="CALL",
@@ -585,6 +659,7 @@ def log_cloud_in(
     latency_ms: float,
     tokens: Optional[int] = None,
     session_id: Optional[str] = None,
+    *, principal: str = "", declared: str = "",
 ):
     is_err = str(response).startswith(("ERR", "Error"))
     return net_log(
@@ -597,6 +672,8 @@ def log_cloud_in(
         status=statut_erreur_cloud(response) if is_err else "OK",
         payload_out=str(response)[:400],
         meta={"tokens": tokens} if tokens else None,
+        principal=principal or None,
+        declared=declared or None,
         session_id=session_id,
     )
 
@@ -610,3 +687,110 @@ def log_internal(event_type: str, agent: str, data: dict, status: str = "OK"):
         status=status,
         payload_in=json.dumps(data, ensure_ascii=False)[:400],
     )
+
+
+# ── Carte d'attention DERIVEE (symbiose Licklider, owner 31/10) ─────────────────────────────────────────────────
+_OUTILS_LECTURE = {"read", "read_function_body", "get_file_skeleton", "get_function_dependencies"}
+_OUTILS_ECRITURE = {"governed_edit", "write"}
+_RE_CHEMIN_ACTE = re.compile(r'"?(?:path|file_path)"?\s*[:=]\s*"?([^",)\s]+)')
+_RE_SYMBOLE_ACTE = re.compile(r'"function_name"\s*:\s*"([^"]+)"')
+COLLISION_S = 120              # une ecriture plus recente = fichier « en chirurgie »
+_ETAG_PAR_STAT: Dict[str, tuple] = {}   # chemin -> (mtime_ns, taille, etag) : relu seulement s'il a change
+
+
+def carte_attention(fenetre_s: int = 1800, n: int = 7, maintenant: Optional[float] = None,
+                    lignes_max: int = 4000, octets_max: int = 1_000_000, racine=None) -> dict:
+    """Les `n` fichiers les plus chauds des `fenetre_s` dernieres secondes, lus dans le JOURNAL D'ACTES.
+
+    Zero ecriture nouvelle : une carte ecrite apres chaque lecture aurait multiplie les ecritures du tableau noir
+    (mono-ecrivain, chaque fait journalise). La matiere existe deja ici, caviardee. La BORNE DIT COMBIEN : au plus
+    `lignes_max` lignes et `octets_max` octets depuis la fin (le journal d'audit a pese 107 Mo). Un acte sans chemin
+    lisible est COMPTE (`actes_sans_chemin`), jamais devine. L'etag est celui du fichier au moment de la carte : un
+    delegue relit par `si_etag` / `depuis_etag` au lieu de tout recharger.
+    """
+    from datetime import datetime
+    now = time.time() if maintenant is None else maintenant
+    fichiers: Dict[str, dict] = {}
+    sans_chemin = illisibles = 0
+    for ligne in _dernieres_lignes(_JOURNAL_ACTES, lignes_max, octets_max):
+        try:
+            acte = json.loads(ligne)
+            t = datetime.strptime(acte.get("ts", ""), "%Y-%m-%dT%H:%M:%S").timestamp()
+        except (ValueError, TypeError, AttributeError):
+            illisibles += 1          # COMPTEE, jamais tue : une ligne d'acte illisible n'est pas une ligne absente
+            continue
+        outil = acte.get("outil")
+        if now - t > fenetre_s or outil not in (_OUTILS_LECTURE | _OUTILS_ECRITURE):
+            continue
+        extrait = str(acte.get("extrait") or "")
+        m = _RE_CHEMIN_ACTE.search(extrait)
+        if not m:
+            sans_chemin += 1
+            continue
+        chemin = m.group(1).replace("\\", "/")
+        f = fichiers.setdefault(chemin, {"chemin": chemin, "dernier": t, "lectures": 0, "ecritures": 0,
+                                          "agents": [], "symboles": [], "derniere_ecriture": None})
+        f["dernier"] = max(f["dernier"], t)
+        f["ecritures" if outil in _OUTILS_ECRITURE else "lectures"] += 1
+        if outil in _OUTILS_ECRITURE:
+            f["derniere_ecriture"] = max(t, f["derniere_ecriture"] or t)
+            f["ecrivain"] = str(acte.get("agent") or "?")
+        agent = str(acte.get("agent") or "?")
+        if agent not in f["agents"]:
+            f["agents"].append(agent)
+        s = _RE_SYMBOLE_ACTE.search(extrait)
+        if s and s.group(1) not in f["symboles"]:
+            f["symboles"] = (f["symboles"] + [s.group(1)])[-5:]
+    chauds = sorted(fichiers.values(), key=lambda f: -f["dernier"])[:n]
+    racine = Path(racine) if racine else Path(__file__).resolve().parents[1]   # les actes portent des chemins relatifs
+    for f in chauds:
+        f["age_s"] = int(now - f.pop("dernier"))
+        ecrit = f.pop("derniere_ecriture")
+        # MULTI-AGENTS (31/10) : un fichier ecrit il y a moins de COLLISION_S est « en chirurgie » -- un delegue
+        # relit par si_etag AVANT tout governed_edit, au lieu d'ecraser l'edition d'un pair.
+        f["risque_collision"] = ecrit is not None and now - ecrit < COLLISION_S
+        if ecrit is None:
+            f.pop("ecrivain", None)
+        p = Path(f["chemin"]) if Path(f["chemin"]).is_absolute() else racine / f["chemin"]
+        try:
+            st = p.stat()
+            cle = (st.st_mtime_ns, st.st_size)
+            connu = _ETAG_PAR_STAT.get(str(p))
+            if connu and connu[:2] == cle:
+                f["etag"] = connu[2]          # inchange a la nanoseconde : pas de relecture
+            else:
+                from nokido_agent.app.forge_token_cache import etag as _etag
+                f["etag"] = _etag(p.read_text(encoding="utf-8", errors="replace"))
+                _ETAG_PAR_STAT[str(p)] = cle + (f["etag"],)
+        except (OSError, ImportError) as exc:
+            f["etag"] = "ILLISIBLE (%s)" % type(exc).__name__
+    return {"fenetre_s": fenetre_s, "fichiers": chauds, "fichiers_vus": len(fichiers),
+            "lectures_totales": sum(v["lectures"] for v in fichiers.values()),
+            "actes_sans_chemin": sans_chemin, "lignes_illisibles": illisibles,
+            "borne": "%d lignes / %d octets depuis la fin" % (lignes_max, octets_max)}
+
+
+def consigne_attention(n: int = 5, **kw) -> str:
+    """La carte d'attention en LIGNES IMPERATIVES, pour l'en-tete d'une consigne deleguee : les petits modeles
+    (7B/8B) suivent une regle courte mieux qu'un JSON. Collision en tete. Carte vide ou indisponible = "" : la
+    consigne part inchangee, l'en-tete est un confort, jamais une condition. L'etag est celui de l'ARBRE PARTAGE :
+    un delegue dans son worktree peut lire un autre contenu -- la relecture complete reste alors correcte, c'est dit."""
+    try:
+        c = carte_attention(n=n, **kw)
+    except Exception as exc:  # noqa: BLE001 - un en-tete facultatif ne casse jamais une delegation
+        logger.debug("[attention] carte indisponible pour la consigne (%s)", type(exc).__name__)
+        return ""
+    fichiers = c.get("fichiers") or []
+    if not fichiers:
+        return ""
+    lignes = ["[CARTE D'ATTENTION %d min : fichiers chauds de l'arbre partage]" % (c["fenetre_s"] // 60)]
+    for f in sorted(fichiers, key=lambda f: not f.get("risque_collision")):
+        if f.get("risque_collision"):
+            lignes.append("- %s | ECRIT tres recemment par %s : RISQUE DE COLLISION, relire juste avant governed_edit"
+                          % (f["chemin"], f.get("ecrivain", "?")))
+        elif str(f.get("etag", "")).startswith("ILLISIBLE"):
+            lignes.append("- %s | lu par %s" % (f["chemin"], ", ".join(f.get("agents") or ["?"])))
+        else:
+            lignes.append('- %s | etag=%s | relire par si_etag="%s"' % (f["chemin"], f["etag"], f["etag"]))
+    lignes.append("(etag de l'arbre partage : si ton worktree differe, la relecture complete reste correcte)")
+    return "\n".join(lignes) + "\n\n"

@@ -402,17 +402,36 @@ def _pid_alive_win(pid: int) -> bool:
         return False
 
 
+def _pid_create_time(pid: int):
+    """Heure de creation du processus (float) ou None si illisible."""
+    try:
+        import psutil
+        return float(psutil.Process(pid).create_time())
+    except Exception:  # muet-ok : illisible -> None, et l'appelant retombe sur la prudence (refus)
+        return None
+
+
 def _acquire_pidfile() -> bool:
+    # 24/10 (bug_skill_curator_pidfile_pid_recycle) : le pidfile porte pid:heure_de_creation. Un pid vivant dont
+    # l'heure differe est un pid RECYCLE (arret dur Windows) : preuve ecartee, on prend la place. Heure illisible ou
+    # ancien format = prudence (refus, comportement d'avant). NR test_skill_curator_pidfile_recycle_nr.
     pid = os.getpid()
     if PIDFILE.exists():
         try:
-            old = int(PIDFILE.read_text().strip())
+            raw = PIDFILE.read_text().strip()
+            pid_s, _, ts_s = raw.partition(":")
+            old = int(pid_s)
             if old != pid and _pid_alive_win(old):
-                return False
+                stored = float(ts_s) if ts_s else None
+                real = _pid_create_time(old)
+                recycle = stored is not None and real is not None and abs(stored - real) > 1.0
+                if not recycle:
+                    return False
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_curator.py', 411, exc_info=True)
     PIDFILE.parent.mkdir(parents=True, exist_ok=True)
-    PIDFILE.write_text(str(pid))
+    ct = _pid_create_time(pid)
+    PIDFILE.write_text(f"{pid}:{ct}" if ct is not None else str(pid))
     return True
 
 
@@ -446,8 +465,15 @@ def main() -> int:
     MIN_SCORE = args.min_score
 
     if args.daemon and not _acquire_pidfile():
-        print("[skill_curator] another instance running, exit", flush=True)
-        return 0
+        # Sortie VOLONTAIRE, dite au superviseur par le code du contrat (un 0 dirait aussi « rien a faire ») :
+        # docs/enquete_skill_curator_faux_crash.md, NR test_skill_curator_instance_vivante_code_dedie_nr.
+        contrat = Path(__file__).resolve().parent.parent / "config" / "codes_sortie_organes.json"
+        try:
+            code = int(json.loads(contrat.read_text(encoding="utf-8"))["INSTANCE_DEJA_VIVANTE"])
+        except Exception:
+            code = 75  # contrat illisible : meme valeur, jamais 0
+        print("[skill_curator] another instance running, exit %d" % code, flush=True)
+        return code
 
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)

@@ -1112,7 +1112,33 @@ def _chemin_journal() -> str:
     return _chemin_workspace("NOKIDO_GATE_JOURNAL", "gate_journal.jsonl")
 
 
-def _journaliser_refus(outil: str, motif: str, mode: str) -> None:
+_CMD_JOURNAL_MAX = 80
+
+
+def _cmd_pour_journal(outil: str, entree: dict | None) -> str:
+    """Commande de l'appel, CAVIARDEE puis tronquee a 80 car. (jamais un secret en clair ; "" si indisponible)."""
+    try:
+        entree = entree or {}
+        court = str(outil or "").rsplit("__", 1)[-1]
+        if court in ("Bash", "PowerShell"):
+            brut = str(entree.get("command") or "")
+        elif court == "run":
+            brut = " ".join([str(entree.get("code") or "")] + [str(c) for c in (entree.get("commands") or [])]).strip()
+            brut = brut or str(entree.get("action") or "")
+        else:
+            return ""
+        if not brut:
+            return ""
+        if _RACINE_DEPOT not in sys.path:
+            sys.path.insert(0, _RACINE_DEPOT)
+        from app.forge_semantic_firewall import redact_for_log
+        # Caviarder le texte ENTIER avant de couper : couper d'abord laisserait un jeton tronque non reconnu.
+        return str(redact_for_log(brut))[:_CMD_JOURNAL_MAX]
+    except Exception:  # muet-ok : caviardage indisponible -> pas de commande plutot qu'un secret en clair
+        return ""
+
+
+def _journaliser_refus(outil: str, motif: str, mode: str, entree: dict | None = None) -> None:
     chemin = ""
     try:
         chemin = _chemin_journal()
@@ -1124,6 +1150,8 @@ def _journaliser_refus(outil: str, motif: str, mode: str) -> None:
             "outil": outil,
             "motif": motif,
             "mode": mode,
+            "cmd": _cmd_pour_journal(outil, entree),
+            "est_sonde": bool(est_sonde(outil, entree or {})),
         }, ensure_ascii=False)
         with open(chemin, "a", encoding="utf-8") as f:
             f.write(ligne + "\n")
@@ -1131,9 +1159,9 @@ def _journaliser_refus(outil: str, motif: str, mode: str) -> None:
         print(f"[gate] erreur ecriture journal ({chemin or '?'}) : {e}", file=sys.stderr)
 
 
-def _appliquer_decision_refus(pourquoi: str, outil: str = "") -> None:
+def _appliquer_decision_refus(pourquoi: str, outil: str = "", entree: dict | None = None) -> None:
     mode = os.environ.get("NOKIDO_GATE_MODE", "observer").strip().lower()
-    _journaliser_refus(outil=outil, motif=pourquoi, mode=mode)
+    _journaliser_refus(outil=outil, motif=pourquoi, mode=mode, entree=entree)
     if mode == "refuser":
         print(pourquoi, file=sys.stderr)
         try:
@@ -1162,8 +1190,25 @@ def _appliquer_decision_refus(pourquoi: str, outil: str = "") -> None:
 
 
 
-def _appliquer_decision_avertissement(message: str) -> None:
+def _contexte_filtre(message: str, session) -> str | None:
+    """P1a (GO owner 22/10) : un rappel deja montre a l'identique a cette session n'est pas reinjecte
+    (tools/forge_hook_rappel). Seul le texte non bloquant passe ici : un refus n'est JAMAIS filtre, et la
+    sensibilisation (promotion en mur) compte chaque declenchement, montre ou non. Filtre indisponible : on montre."""
+    try:
+        dossier = os.path.dirname(os.path.abspath(__file__))
+        if dossier not in sys.path:
+            sys.path.insert(0, dossier)
+        import forge_hook_rappel
+        return forge_hook_rappel.filtrer(message, session or "")
+    except Exception:  # noqa: BLE001 -- muet-ok : sans filtre, le rappel est montre (jamais de silence par defaut)
+        return message
+
+
+def _appliquer_decision_avertissement(message: str, session=None) -> None:
     print(message, file=sys.stderr)
+    message = _contexte_filtre(message, session)
+    if not message:
+        return
     try:
         print(json.dumps({
             "hookSpecificOutput": {
@@ -1331,7 +1376,7 @@ def main() -> int:
     # --- VERDICTS SOUVERAINS : anti-polling et rafale d'impulsion ---
     bloque_poll, pourquoi_poll = verdict_anti_polling(tool_name, entree)
     if bloque_poll:
-        _appliquer_decision_refus(pourquoi_poll, outil=tool_name)
+        _appliquer_decision_refus(pourquoi_poll, outil=tool_name, entree=entree)
         return 0
 
     if court == "Monitor":
@@ -1339,10 +1384,10 @@ def main() -> int:
 
     statut_imp, pourquoi_imp = verdict_impulsion(tool_name, entree)
     if statut_imp == "refus":
-        _appliquer_decision_refus(pourquoi_imp, outil=tool_name)
+        _appliquer_decision_refus(pourquoi_imp, outil=tool_name, entree=entree)
         return 0
     elif statut_imp == "avertissement":
-        _appliquer_decision_avertissement(pourquoi_imp)
+        _appliquer_decision_avertissement(pourquoi_imp, ev.get("session_id"))
         return 0
 
     # --- MUR de depense, AVANT le filtre sur `action` : les outils navigateur
@@ -1389,6 +1434,9 @@ def main() -> int:
     touche_forme, pourquoi_forme = verdict_forme(ev.get("tool_name") or "", entree)
     if touche_forme:
         print(pourquoi_forme, file=sys.stderr)
+        pourquoi_forme = _contexte_filtre(pourquoi_forme, ev.get("session_id"))
+        if not pourquoi_forme:
+            return 0
         try:
             print(json.dumps({
                 "hookSpecificOutput": {
@@ -1462,6 +1510,9 @@ def main() -> int:
             return 0
 
         print(msg, file=sys.stderr)
+        msg = _contexte_filtre(msg, ev.get("session_id"))
+        if not msg:
+            return 0
         try:
             print(json.dumps({
                 "hookSpecificOutput": {

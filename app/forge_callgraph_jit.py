@@ -529,6 +529,100 @@ def get_function_dependencies(func_name: str, file_path: str = "") -> dict:
     return res
 
 
+ANTIREBOND_S = 60.0
+_DERNIERE_OBSERVATION: dict = {}
+
+
+def signatures_publiques_changees(blocks: str) -> list:
+    """Fonctions PUBLIQUES dont la signature change ou disparait dans des blocs SEARCH/REPLACE (governed_edit).
+
+    Symbiose (owner 31/10), rayon d'impact. Analyse de FRAGMENTS (un bloc n'est pas un module complet) : l'en-tete
+    `def nom(...)` est delimite en comptant la profondeur des parentheses (chaines comprises), puis NORMALISE par
+    `ast` -- valeurs par defaut `x=(1, 2)`, annotations `Callable[[int], str]`, signatures multilignes : sans faux
+    positif. Un en-tete coupe par le bloc vaut `TRONQUEE` (dit, jamais devine). `_privees` ignorees (rayon = module).
+    """
+    import ast
+    import re
+    paire = re.compile(r"<{7}\s*SEARCH\s*\n(.*?)\n={7}\s*\n(.*?)\n>{7}\s*REPLACE", re.S)
+    debut = re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(", re.M)
+
+    def _sigs(t):
+        out = {}
+        for m in debut.finditer(t):
+            nom, i0, prof, ferme, chaine = m.group(1), m.end() - 1, 0, -1, None
+            for i in range(i0, len(t)):
+                ch = t[i]
+                if chaine:
+                    if ch == chaine and t[i - 1] != "\\":
+                        chaine = None
+                elif ch in "'\"":
+                    chaine = ch
+                elif ch == "(":
+                    prof += 1
+                elif ch == ")":
+                    prof -= 1
+                    if prof == 0:
+                        ferme = i
+                        break
+            if ferme < 0:
+                out[nom] = "TRONQUEE"
+                continue
+            brut = t[i0:ferme + 1]
+            try:
+                out[nom] = ast.unparse(ast.parse("def %s%s:\n    pass" % (nom, brut)).body[0].args)
+            except SyntaxError:
+                out[nom] = re.sub(r"\s+", "", brut)
+        return out
+    casses = []
+    for m in paire.finditer(blocks or ""):
+        avant, apres = _sigs(m.group(1)), _sigs(m.group(2))
+        for nom, args in avant.items():
+            if not nom.startswith("_") and apres.get(nom) != args and nom not in casses:
+                casses.append(nom)
+    return casses
+
+
+def observer_rayon_impact(chemin: str, blocks: str, agent: str = "?", journal=None) -> list:
+    """OBSERVATION (« observer avant d'enforcer ») : journalise les appelants des signatures publiques modifiees par
+    un governed_edit, SANS bloquer. Le calcul des appelants part en tache de fond : une edition n'attend jamais
+    l'observation. Appelants illisibles = ILLISIBLE dans le journal, jamais 0. Le seuil d'escalade (confirmer_owner,
+    accord a usage unique) se fixera sur la distribution observee. Rend les fonctions observees (vide = rien)."""
+    import threading
+    import time
+    if not str(chemin).endswith(".py"):
+        return []
+    casses = signatures_publiques_changees(blocks)
+    if not casses:
+        return []
+    # ANTIREBOND (31/10) : un essaim ou une boucle enchaine des micro-editions sur le meme fichier ; un calcul
+    # d'appelants par (chemin, fonction) et par minute suffit a l'observation, au lieu d'un parcours par edition.
+    maintenant = time.time()
+    a_mesurer = [n for n in casses if maintenant - _DERNIERE_OBSERVATION.get((chemin, n), 0.0) >= ANTIREBOND_S]
+    for n in a_mesurer:
+        _DERNIERE_OBSERVATION[(chemin, n)] = maintenant
+    if not a_mesurer:
+        return casses
+    dest = Path(journal) if journal else Path(__file__).resolve().parents[1] / "logs" / "rayon_impact_observation.jsonl"
+    # ROTATION (31/10) par la primitive EXISTANTE : 5 Mo, une generation ; ecriture sure entre fils (les mesures
+    # partent de taches de fond concurrentes). Nom derive du chemin : un journal de test n'ajoute pas de handler
+    # au logger du journal reel.
+    from nokido_agent.app.forge_log_rotation import get_rotating_logger
+    journal_obs = get_rotating_logger("rayon_impact_obs:%s" % dest, path=dest, fmt="%(message)s",
+                                      max_bytes=5 * 1024 * 1024, backup_count=1)
+
+    def _mesurer():
+        for nom in a_mesurer:
+            try:
+                appelants = len(get_function_dependencies(nom, chemin).get("callers") or [])
+            except Exception as exc:  # noqa: BLE001 - observation : dite, jamais bloquante
+                appelants = "ILLISIBLE (%s)" % type(exc).__name__
+            journal_obs.info(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "agent": agent, "chemin": chemin,
+                                         "fonction": nom, "appelants": appelants}, ensure_ascii=False))
+
+    threading.Thread(target=_mesurer, name="rayon_impact_obs", daemon=True).start()
+    return casses
+
+
 def _selftest() -> int:
     import json
     ce = callees("get_function_dependencies", "app/forge_callgraph_jit.py")

@@ -275,6 +275,9 @@ def test_codex_sans_effet_n_est_pas_un_succes(tmp_path, monkeypatch):
 
 def test_le_plafond_codex_se_juge_avant_de_prendre_la_tache():
     boucle = SOURCE.read_text(encoding="utf-8").split("def run_loop", 1)[1]
+    # 30/10 : le mode enquete (84cae4556) reclame ses taches PLUS HAUT dans la boucle, sans jamais lancer Codex ;
+    # l'invariant porte sur la branche des agents DEDIES (celle qui lance Codex) : on part de son point d'entree.
+    boucle = boucle.split("_agent_dedie = ", 1)[1]
     # Le point de claim est _reclamer depuis b202705bd (claim atomique au nom du sujet) ; l'invariant ne change pas.
     assert boucle.index("_quota_codex()") < boucle.index("_reclamer("), \
         "une tache prise puis refusee pour quota serait brulee au lieu de rester pending"

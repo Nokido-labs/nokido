@@ -29,7 +29,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PYTHON = __import__("os").path.expanduser(r"~\miniforge3\python.exe")
+# 24/10 : l'interpreteur QUI FAIT TOURNER le runner. `~\miniforge3\python.exe` se resolvait sur le profil du compte
+# qui lance -> FileNotFoundError sous run_job (compte LaForgeSbx*). NR test_fast_test_runner_interpreteur_nr.
+PYTHON = sys.executable
 
 IGNORE_ALWAYS = [
     "--ignore=tests/test_nokido_loops.py",
@@ -274,7 +276,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="FORGE_PERF_TEST_V2")
-    parser.add_argument("target", nargs="?", default="tests/nr/", help="Dossier ou fichier de test")
+    parser.add_argument("target", nargs="*", default=["tests/nr/"], help="Dossier(s) ou fichier(s) de test")
     parser.add_argument(
         "--srt", action="store_true", help="Selective Regression Testing (git diff)"
     )

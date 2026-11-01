@@ -9,10 +9,10 @@ empreinte: INCONNUE
 
 # 06 — Hub API reference
 
-<!-- revu-le: 2026-08-27 -->
-> Updated: 2026-08-27
+<!-- revu-le: 2026-10-30 -->
+> Updated: 2026-10-30
 
-The hub exposes **49 MCP tools** (ring 1) + REST endpoints on `:8766`. Dynamic/forged
+The hub exposes **56 MCP tools** in its core registry (`_raw_tool_catalog` in `app/forge_mcp_registry.py:1936-2957`) + REST endpoints on `:8766`. Dynamic/forged
 tools (`dyn_*`, `forge_call_dynamic`, `forge_list_dynamic_tools`, `forge_spawn_swarm`)
 are generated at runtime and not listed here by nature; owner-only tools (`agy_*`) are
 gated by RBAC.
@@ -42,13 +42,13 @@ Git, Python, shell, trusted_script, GitHub, atlas, snapshot.
 - `sandbox`: `local|docker|ps_clm|windows|wasm`, `container`, `timeout`.
 
 #### `read`
-Read a file or tail logs.
+Read a file or tail logs. Supports conditional reads (`si_etag` parameter, RFC 9110) returning `INCHANGE` or diff.
 - `action`: `file|tail_logs`
-- `path`, `lines`, `pattern`.
+- `path`, `lines`, `pattern`, `si_etag`.
 
 #### `read_function_body`
-Extract a single function/class from a file (AST-precise).
-- `file_path`, `function_name`.
+Extract a single function/class from a file (AST-precise). Supports conditional reads (`si_etag` parameter).
+- `file_path`, `function_name`, `si_etag`.
 
 #### `query`
 SQL on `RAG/embeddings.db` (ring 0 only — use `rag` for ring 2+).
@@ -63,8 +63,8 @@ sandbox is ACL-blocked. RING_0.
 - `path`, `content` (full write) **or** `blocks` (Aider SEARCH/REPLACE, ~-80% tokens).
 
 #### `get_file_skeleton`
-AST skeleton of a Python file : imports + class/function signatures, bodies elided.
-- `file_path`.
+AST skeleton of a Python file : imports + class/function signatures, bodies elided. Supports conditional reads (`si_etag` parameter).
+- `file_path`, `si_etag`.
 
 #### `get_function_dependencies`
 JIT function-level call-graph : callees + callers of a function.
@@ -138,6 +138,7 @@ Hub state & utilities.
 Task lifecycle.
 - `action`: `assign|claim|result|status`
 - `task_id`, `job_id`, `description`, `agent`, `intent`, `priority`, `result`.
+- Calling `action=status` without `task_id` returns an overview of active delegations across agents (commit 25a07462d). See [25 — What's New](25-Whats-New.md).
 
 #### `event`
 EventBus.

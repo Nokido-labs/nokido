@@ -198,6 +198,12 @@ def runtime(dists=None) -> dict:
             # Le chemin source n'est PAS ecrit : ce lock part au depot public.
             exclus.append((normaliser(nom), "installation editable locale (dossier de cette machine)"))
             continue
+        # 31/10 : forge-bm25 est passe d'editable a une WHEEL LOCALE (`file:///C:/tmp/.../*.whl`, build maturin
+        # owner du 30/10) et s'est retrouve EPINGLE : `pip install --no-deps -r` le chercherait sur l'index et
+        # casserait le rollback. Meme raison que l'editable -- un fichier de CETTE machine --, meme traitement.
+        if "archive_info" in direct and str(direct.get("url", "")).lower().startswith("file:"):
+            exclus.append((normaliser(nom), "archive locale (fichier de cette machine, absent de l'index)"))
+            continue
         groupes.setdefault(normaliser(nom), []).append(d)
     # DOUBLONS (mesure 2026-10-13 : 14 paires dans laforge_py314, restes de montees) : pip freeze lit l'ANCIEN
     # dist-info, le code charge est le RECENT. On garde la copie dont le RECORD correspond au disque ; sans

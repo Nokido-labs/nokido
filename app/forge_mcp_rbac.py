@@ -78,6 +78,7 @@ except ImportError:
 _TOOL_REQUIRED_RING: dict[str, int] = {
     # --- les 14 completes le 2026-09-12 (plafond effectif mesure) ---
     "absorb_rfc_knowledge": 2,
+    "acp": 1,                 # pilote un CLI sous le compte owner
     "agy_add_dir": 2,
     "agy_config": 3,          # divergence : intention codee = 1 si action=write
     "agy_run": 2,

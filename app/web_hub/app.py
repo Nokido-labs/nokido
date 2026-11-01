@@ -487,6 +487,12 @@ from .redaction_middleware import RedactionMiddleware  # noqa: E402
 
 app.add_middleware(RedactionMiddleware)
 
+# Taille de corps bornee (audit R7, 2026-10-29) : inscrit EN DERNIER, donc le plus EXTERNE -- un corps trop gros est
+# refuse (413) avant toute lecture par l'authentification ou une route. 109 routes lisaient le corps sans borne.
+from .taille_corps_middleware import TailleCorpsMiddleware  # noqa: E402
+
+app.add_middleware(TailleCorpsMiddleware)
+
 
 # --- STATIC : charte UI commune (nokido.css / nokido.js / sidebar.html etc.)
 # Public (whitelisted dans is_public_path) -- pas d'auth requise.
@@ -607,6 +613,9 @@ app.include_router(provider_router)
 from app.web_hub.services_views import router as ondemand_router  # noqa: E402
 
 app.include_router(ondemand_router)
+from app.web_hub.acp_views import router as acp_router  # noqa: E402
+
+app.include_router(acp_router)
 # redteam_views deplace en zone lab (nokido-redteam, separation 2026-08-22, cf L398
 # /ctf) : import OPTIONNEL, monte seulement si le module lab est present. Fail-closed
 # et coherent avec le gating recon plus bas -- pas de lab => pas de route redteam.

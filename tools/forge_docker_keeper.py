@@ -450,6 +450,206 @@ def ensure_docker() -> None:
         log.warning("ensure_docker: flag write failed: %s", exc)
 
 
+def _claims_path() -> Path:
+    return WANT_FLAG.with_name("docker.claims.json")
+
+
+def _lire_claims() -> list:
+    try:
+        d = json.loads(_claims_path().read_text(encoding="utf-8"))
+        return [str(x) for x in d] if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _ecrire_claims(claims: list) -> None:
+    try:
+        _claims_path().parent.mkdir(parents=True, exist_ok=True)
+        _claims_path().write_text(json.dumps(sorted(set(claims))), encoding="utf-8")
+    except OSError as exc:
+        log.warning("claims write failed: %s", exc)
+
+
+def claim_docker(owner: str) -> None:
+    """Une chaine reclame Docker EN SON NOM : compteur de reclamations + docker.wanted."""
+    _ecrire_claims(_lire_claims() + [str(owner)])
+    _annuler_release_at("reclamation de %s" % owner)
+    ensure_docker()
+
+
+# ── DELAI DE GRACE avant l'arret (GO owner 28/10) ───────────────────────────
+# On DIFFERE l'extinction, on ne la desarme jamais (CLAUDE.md 6.ter §5 : Docker est dynamique).
+_GRACE_DEFAUT_S = 180.0
+_GRACE_PAR_INTENTION_S = 120.0
+_GENE_MAX_S = 30.0
+
+
+def _release_at_path() -> Path:
+    return WANT_FLAG.with_name("docker.release_at")
+
+
+def delai_de_grace(intentions, palier) -> float:
+    """Pure. Secondes a attendre avant d'arreter Docker.
+
+    base LAFORGE_DOCKER_GRACE_S (180) + 120 s par intention en attente, plafond = TTL de docker.wanted ;
+    RALENTISSEMENT x0.5, GENE 30 s max, DETRESSE/CRITIQUE 0. Palier illisible (ILLISIBLE/INCONNU/None) :
+    base SANS extension -- UNKNOWN != NO, donc ni 0 ni calme etendu. Intentions None : idem, pas d'extension."""
+    try:
+        base = float(os.environ.get("LAFORGE_DOCKER_GRACE_S", _GRACE_DEFAUT_S))
+        if base < 0:
+            base = _GRACE_DEFAUT_S
+    except ValueError:
+        base = _GRACE_DEFAUT_S
+    if palier in ("DETRESSE", "CRITIQUE"):
+        return 0.0
+    if palier not in ("CALME", "RALENTISSEMENT", "GENE"):
+        return base
+    n = intentions if isinstance(intentions, int) and not isinstance(intentions, bool) and intentions > 0 else 0
+    d = min(base + _GRACE_PAR_INTENTION_S * n, max(WANT_TTL_S, base))
+    if palier == "RALENTISSEMENT":
+        return d * 0.5
+    if palier == "GENE":
+        return min(d, _GENE_MAX_S)
+    return d
+
+
+def palier_courant() -> str:
+    """Palier de pression RAM du moment, par la fonction du proprietaire (`palier_pression_ram`, meme entree que
+    le tick Hamilton : plancher 60 s sinon instant, memoire libre). Illisible -> "ILLISIBLE", jamais CALME."""
+    try:
+        _app = str(ROOT / "app")
+        if _app not in sys.path:
+            sys.path.insert(0, _app)
+        from nokido_agent.app.forge_resource_manager import get_snapshot, palier_pression_ram
+
+        snap = get_snapshot()
+        ram = snap.get("ram_pct_plancher_60s", snap.get("ram_pct"))
+        return palier_pression_ram(ram, float(snap.get("ram_free_gb") or 0.0))
+    except Exception as exc:  # noqa: BLE001 - dit ci-dessous : ILLISIBLE != CALME
+        log.warning("palier_courant ILLISIBLE (%s)", type(exc).__name__)
+        return "ILLISIBLE"
+
+
+# Une chaine de veille reclamera Docker tant qu'elle n'a pas depasse son etape `crawl` (search = SearXNG,
+# crawl = crawl4ai). `agent_chain_nodes` n'a AUCUN index (status/chain_id) : l'interroger serait un SCAN de
+# table ; on lit donc `watch_jobs` (index idx_watch_status(status, step)), dont `step` = etape courante.
+_ETAPES_DOCKER = ("keywords", "search", "refine", "crawl")
+_STATUTS_ACTIFS = ("pending", "running", "en_cours")
+_REQUETES_INTENTIONS = [(
+    "SELECT COUNT(*) FROM watch_jobs WHERE status IN (?,?,?) AND step IN (?,?,?,?)",
+    _STATUTS_ACTIFS + _ETAPES_DOCKER,
+)]
+
+
+def intentions_docker_en_attente(db=None) -> "int | None":
+    """Nombre de chaines/jobs de veille qui reclameront encore Docker. Lecture seule, par index.
+    Base illisible -> None (UNKNOWN != 0)."""
+    import sqlite3
+
+    try:
+        if db is None:
+            _app = str(ROOT / "app")
+            if _app not in sys.path:
+                sys.path.insert(0, _app)
+            from nokido_agent.app.forge_db_path import db_path
+
+            db = db_path()
+        conn = sqlite3.connect("file:%s?mode=ro" % Path(db).as_posix(), uri=True, timeout=2.0)
+        try:
+            return int(sum(conn.execute(sql, args).fetchone()[0] for sql, args in _REQUETES_INTENTIONS))
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 - dit : None remonte, jamais 0
+        log.warning("intentions_docker_en_attente ILLISIBLE (%s)", type(exc).__name__)
+        return None
+
+
+def _annuler_release_at(raison: str) -> None:
+    p = _release_at_path()
+    try:
+        existait = p.exists()
+        if existait:
+            p.unlink()
+    except OSError as exc:
+        log.warning("release_at non retire: %s", exc)
+        return
+    if existait:
+        _audit("release_annule", "arret differe annule : %s" % raison)
+
+
+def _arreter_apres_grace(motif: str) -> dict:
+    _audit("release", motif)
+    return _release_docker()
+
+
+def _tick_release_at(now: float) -> "dict | None":
+    """Tick du keeper : arrete Docker si l'echeance de grace est atteinte et qu'aucune reclamation n'est revenue.
+    Le delai est REEVALUE avec le palier et les intentions du moment (une degradation avance l'arret, jamais
+    ne le recule au-dela de l'echeance posee)."""
+    p = _release_at_path()
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        debut, echeance = float(d["debut"]), float(d["echeance"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _audit("release_at_illisible", "docker.release_at illisible (%s) : aucun arret decide ce tick "
+               "(la relache de secours TTL+grace reste armee)" % type(exc).__name__)
+        return None
+    if _lire_claims():
+        _annuler_release_at("une reclamation est revenue")
+        return None
+    palier = palier_courant()
+    n = intentions_docker_en_attente()
+    due = min(echeance, debut + delai_de_grace(n, palier))
+    if now < due:
+        return None
+    try:
+        p.unlink()
+    except OSError as exc:
+        log.warning("release_at non retire: %s", exc)
+    return _arreter_apres_grace("echeance de grace atteinte (delai pose %.0f s, palier %s, intentions %s)"
+                                % (float(d.get("delai", 0)), palier, n))
+
+
+def release_claim(owner: str) -> dict:
+    """Une chaine terminee relache SA reclamation. Idempotent. La derniere retire
+    docker.wanted puis DIFFERE l'arret de `delai_de_grace(intentions, palier)` secondes
+    (docker.release_at) ; delai 0 = arret immediat. Une autre reclamation encore
+    active interdit toute coupure."""
+    restantes = [c for c in _lire_claims() if c != str(owner)]
+    _ecrire_claims(restantes)
+    if restantes:
+        return {"released": False, "claims_restantes": restantes}
+    try:
+        WANT_FLAG.unlink()
+    except FileNotFoundError:  # muet-ok : relachement IDEMPOTENT, un drapeau deja absent est l'etat vise
+        pass
+    except OSError as exc:
+        log.warning("release_claim: unlink docker.wanted failed: %s", exc)
+    palier = palier_courant()
+    n = intentions_docker_en_attente()
+    delai = delai_de_grace(n, palier)
+    motif = ("derniere reclamation relachee (%s) : delai %.0f s (palier %s, intentions %s)"
+             % (owner, delai, palier, "INCONNU" if n is None else n))
+    if delai <= 0:
+        _audit("release", motif + " -> arret immediat")
+        return {"released": True, "differe": False, "detail": _release_docker()}
+    now = time.time()
+    rec = {"debut": now, "echeance": now + delai, "delai": delai, "intentions": n, "palier": palier,
+           "motif": motif}
+    try:
+        p = _release_at_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(rec), encoding="utf-8")
+    except OSError as exc:
+        # echeance non posable : on ne laisse pas Docker sans fin de vie, on arrete comme avant.
+        _audit("release", motif + " ; release_at NON ecrit (%s) -> arret immediat" % type(exc).__name__)
+        return {"released": True, "differe": False, "detail": _release_docker()}
+    _audit("release", motif + " -> arret differe", echeance=rec["echeance"])
+    return {"released": True, "differe": True, "release_at": rec}
+
+
 def _docker_info_ok() -> tuple[bool, str]:
     try:
         r = subprocess.run(
@@ -883,7 +1083,18 @@ def _release_docker() -> dict:
     mine = [n for n in names if _OWN_CONTAINERS.search(n)]
     foreign = [n for n in names if n not in mine]
     out["foreign_laisses"] = foreign
+    # Un conteneur a la demande ne revient pas sans reclamation : on retire la reclamation et on pose
+    # restart=no AVANT l'arret (un conteneur cree en restart=always remonte avec le moteur).
+    try:
+        CRAWL4AI_FLAG.unlink(missing_ok=True)
+    except OSError as exc:
+        out["crawl4ai_flag"] = "non retire: %s" % type(exc).__name__
     for n in mine:
+        try:
+            subprocess.run(["docker", "update", "--restart=no", n], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            out.setdefault("restart_non_pose", []).append("%s: %s" % (n, type(exc).__name__))
         try:
             subprocess.run(["docker", "stop", n], capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=45)
@@ -902,7 +1113,154 @@ def _release_docker() -> dict:
             out["engine_stderr"] = (r.stderr or "")[:120]
     except Exception as exc:  # noqa: BLE001
         out["engine"] = "indisponible: %s" % type(exc).__name__
+    out["engine_verdict"] = _verifier_arret_moteur(out)
+    out["etat_reel"] = verifier_etat_arret()
     return out
+
+
+def _distros_wsl_docker_arretees() -> bool | None:
+    """Verifie si les distributions WSL docker-desktop* sont arretees.
+    Rend True si arretees, False si au moins une tourne, None si illisible."""
+    if sys.platform != "win32":
+        return True
+    try:
+        r = subprocess.run(["wsl", "--list", "--running", "-q"],
+                           capture_output=True, timeout=15)
+        if r.returncode != 0:
+            r = subprocess.run(["wsl", "--list", "--running"],
+                               capture_output=True, timeout=15)
+            if r.returncode != 0:
+                return None
+        raw = r.stdout or b""
+        txt = raw.decode("utf-16", errors="replace") if b"\x00" in raw else raw.decode("utf-8", errors="replace")
+        en_cours = [
+            l.strip() for l in txt.splitlines()
+            if l.strip() and any(d in l.lower() for d in ("docker-desktop", "docker-desktop-data"))
+        ]
+        return len(en_cours) == 0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def verifier_etat_arret(sonde_docker=None, sonde_wsl=None) -> str:
+    """REQUESTED != ACHIEVED : lit l'etat reel apres un arret demande.
+
+    Sondes :
+      - Docker repond-il ?
+      - Distributions WSL docker-desktop* arretees ?
+
+    Verdicts (journalise) :
+      - ARRETE : Docker ne repond pas ET toutes les distros WSL docker-desktop* arretees.
+      - ENCORE_VIVANT : Docker repond encore OU au moins une distro WSL docker-desktop* encore active.
+      - ILLISIBLE : sonde indisponible / en erreur. ILLISIBLE n'est JAMAIS interprete comme ARRETE.
+    """
+    docker_up = None
+    wsl_arrete = None
+
+    # 1. Sonde Docker
+    try:
+        fn_docker = sonde_docker if sonde_docker is not None else _moteur_repond
+        res_d = fn_docker()
+        if res_d is None or res_d == "ILLISIBLE":
+            docker_up = None
+        elif isinstance(res_d, str):
+            if res_d.upper() in ("UP", "VIVANT", "ENCORE_VIVANT", "TRUE"):
+                docker_up = True
+            elif res_d.upper() in ("DOWN", "ARRETE", "FALSE"):
+                docker_up = False
+            else:
+                docker_up = None
+        else:
+            docker_up = bool(res_d)
+    except Exception:  # noqa: BLE001
+        docker_up = None
+
+    # 2. Sonde WSL
+    try:
+        fn_wsl = sonde_wsl if sonde_wsl is not None else _distros_wsl_docker_arretees
+        res_w = fn_wsl()
+        if res_w is None or res_w == "ILLISIBLE":
+            wsl_arrete = None
+        elif isinstance(res_w, (list, tuple, set)):
+            wsl_arrete = (len(res_w) == 0)
+        elif isinstance(res_w, str):
+            if res_w.upper() in ("ARRETE", "STOPPED", "TRUE"):
+                wsl_arrete = True
+            elif res_w.upper() in ("VIVANT", "RUNNING", "ENCORE_VIVANT", "FALSE"):
+                wsl_arrete = False
+            else:
+                wsl_arrete = None
+        elif isinstance(res_w, bool):
+            wsl_arrete = res_w
+        else:
+            wsl_arrete = None
+    except Exception:  # noqa: BLE001
+        wsl_arrete = None
+
+    # 3. Arbitrage strict
+    if docker_up is True:
+        verdict = "ENCORE_VIVANT"
+        detail = "daemon Docker repond encore"
+    elif docker_up is False and wsl_arrete is False:
+        verdict = "ENCORE_VIVANT"
+        detail = "daemon Docker muet mais distribution WSL docker-desktop encore active"
+    elif docker_up is False and wsl_arrete is True:
+        verdict = "ARRETE"
+        detail = "daemon Docker muet et distributions WSL docker-desktop arretees"
+    else:
+        verdict = "ILLISIBLE"
+        raisons = []
+        if docker_up is None:
+            raisons.append("sonde Docker illisible")
+        if wsl_arrete is None:
+            raisons.append("sonde WSL illisible")
+        detail = " ; ".join(raisons) or "etat indisponible"
+
+    log.info("verification etat arret : %s (%s)", verdict, detail)
+    _audit("verify_stop", detail, verdict=verdict, docker_up=docker_up, wsl_arrete=wsl_arrete)
+    return verdict
+
+
+# Alias pour interoperabilite et callers
+verifier_etat_reel = verifier_etat_arret
+verifier_etat_reel_arret = verifier_etat_arret
+verifier_arret_effectif = verifier_etat_arret
+verifier_fin_de_vie = verifier_etat_arret
+
+
+def _moteur_repond() -> bool:
+    try:
+        r = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"], capture_output=True,
+                           text=True, errors="replace", timeout=10)
+        return r.returncode == 0 and bool((r.stdout or "").strip())
+    except Exception:  # noqa: BLE001 - pas de reponse = pas de moteur
+        return False
+
+
+def _attendre_moteur_eteint(delai_s: float, pas_s: float = 2.0) -> bool:
+    for _ in range(max(1, int(delai_s // pas_s)) + 1):
+        if not _moteur_repond():
+            return True
+        time.sleep(pas_s)
+    return False
+
+
+def _verifier_arret_moteur(out: dict) -> str:
+    """REQUESTED != ACHIEVED : attend l'effet, escalade (seule distribution docker-desktop, jamais
+    `wsl --shutdown` qui toucherait les autres distributions), puis rend un verdict honnete."""
+    if "intact" in str(out.get("engine", "")):
+        return "NON ARRETE : moteur volontairement conserve (%s)" % out["engine"]
+    if _attendre_moteur_eteint(20.0):
+        return "ARRETE (docker desktop stop)"
+    for distro in ("docker-desktop", "docker-desktop-data"):
+        try:
+            subprocess.run(["wsl", "--terminate", distro], capture_output=True, text=True,
+                           errors="replace", timeout=30)
+        except Exception as exc:  # noqa: BLE001
+            out.setdefault("terminate_ko", []).append("%s: %s" % (distro, type(exc).__name__))
+    if _attendre_moteur_eteint(20.0):
+        return "ARRETE (wsl --terminate docker-desktop)"
+    return "NON ARRETE : le daemon repond encore apres desktop stop (20 s) et wsl --terminate docker-desktop (20 s)"
 
 
 def _maybe_release(now: float) -> dict | None:
@@ -910,6 +1268,10 @@ def _maybe_release(now: float) -> dict | None:
     if not RELEASE_ENABLED:
         return None
     if _docker_wanted():
+        return None
+    if _release_at_path().exists():
+        # Grace en cours : c'est _tick_release_at qui decide. Sans ce garde, docker.wanted retire (age None)
+        # laissait cette relache de secours couper Docker au tick suivant -- grace annulee (NR tick reel 28/10).
         return None
     if now - float(_STATE["last_release_ts"]) < _RELEASE_REFRACTORY_S:
         return None
@@ -1117,7 +1479,7 @@ def main() -> int:
             iok, ver = _docker_info_ok()
             # Docker tourne — quelqu'un le reclame-t-il encore ? La decision se
             # prend ICI, pas dans un minuteur : le tick ne fait qu'evaluer.
-            relache = _maybe_release(time.monotonic())
+            relache = _tick_release_at(time.time()) or _maybe_release(time.monotonic())
             crawl4ai = None if relache else _demarrer_crawl4ai(time.monotonic())
             integ = _surveiller_integration_wsl(ver if iok else None)
             _write_heartbeat(
@@ -1161,6 +1523,7 @@ def main() -> int:
                 _consecutive_failures = 0
                 stats["consecutive_failures"] = 0
                 stats["monitor_only"] = True
+                _annuler_release_at("daemon deja arrete : rien a differer")
                 _write_heartbeat("idle", stats)
                 time.sleep(TICK_S)
                 continue

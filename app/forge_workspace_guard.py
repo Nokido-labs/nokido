@@ -285,8 +285,42 @@ def _gz_ok(_p):
     if _ap.endswith(".pyc") or "__pycache__" in _ap:
         return True
     return any(_ap == _z or _ap.startswith(_z + _GO.sep) for _z in _GZ)
+# Base RAG (owner 24/10 : « les balayages massifs du RAG sont inadmissibles ») : budget
+# d'etapes SQLite PAR REQUETE sur toute connexion vers embeddings.db, lecture seule comprise.
+_gz_rag_cible = [False]
+def _gz_rag_garde(_cx):
+    _B = __BUDGET_RAG__
+    _n = [0]
+    def _gz_rag_raz(_sql):
+        _n[0] = 0
+    def _gz_rag_pas():
+        _n[0] += 1000
+        if _n[0] > _B:
+            _GS.stderr.write(
+                "WORKSPACE_GUARD: requete interrompue sur la base RAG (budget %d etapes "
+                "depasse) : balayage complet interdit (RULES_SHARED, owner 24/10). "
+                "EXPLAIN QUERY PLAN d'abord ; index, `+active`, FTS.\\n" % _B)
+            return 1
+        return 0
+    _cx.set_trace_callback(_gz_rag_raz)
+    _cx.set_progress_handler(_gz_rag_pas, 1000)
+# L'evenement `sqlite3.connect/handle` part AVANT la fin de Connection.__init__ (mesure :
+# « Base Connection.__init__ not called ») : le hook repere la base, l'enveloppe arme.
+import sqlite3 as _GQ
+def _gz_rag_enveloppe(_orig):
+    def _gz_connect(*_ga, **_gk):
+        _gz_rag_cible[0] = False
+        _cx = _orig(*_ga, **_gk)
+        if _gz_rag_cible[0]:
+            _gz_rag_cible[0] = False
+            _gz_rag_garde(_cx)
+        return _cx
+    return _gz_connect
+_GQ.connect = _GQ.dbapi2.connect = _gz_rag_enveloppe(_GQ.dbapi2.connect)
 def _gz_hook(_ev, _a):
-    if _ev == "open":
+    if _ev == "sqlite3.connect":
+        _gz_rag_cible[0] = bool(_a) and "embeddings.db" in str(_a[0]).lower()
+    elif _ev == "open":
         _p = _a[0] if _a else None
         _m = _a[1] if len(_a) > 1 else None
         _fl = _a[2] if len(_a) > 2 else None
@@ -320,7 +354,13 @@ _GS.addaudithook(_gz_hook)
 """
 
 
-def build_run_guard_header(allowed_abspaths: list[str], sous_processus: bool = False) -> str:
+# Budget d'etapes VM SQLite par requete sur embeddings.db. Une lecture indexee en coute
+# quelques centaines ; un parcours de rag_chunks (45 Go) des dizaines de millions.
+BUDGET_RAG_ETAPES = 2_000_000
+
+
+def build_run_guard_header(allowed_abspaths: list[str], sous_processus: bool = False,
+                           budget_rag: int = BUDGET_RAG_ETAPES) -> str:
     """Construit un header Python qui installe un audit hook bloquant toute
     écriture/suppression hors des préfixes `allowed_abspaths`, et tout spawn
     sauf si `sous_processus` (parite shell, decidee par le hub).
@@ -340,7 +380,8 @@ def build_run_guard_header(allowed_abspaths: list[str], sous_processus: bool = F
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_workspace_guard.py', 339, exc_info=True)
             continue
     return (_RUN_GUARD_TEMPLATE.replace("__ZONES__", repr(tuple(zones)))
-            .replace("__SOUS_PROCESSUS__", repr(bool(sous_processus))))
+            .replace("__SOUS_PROCESSUS__", repr(bool(sous_processus)))
+            .replace("__BUDGET_RAG__", repr(int(budget_rag))))
 
 
 def run_guard_header_for(agent: str, ring: int, root, sous_processus: bool = False) -> str:

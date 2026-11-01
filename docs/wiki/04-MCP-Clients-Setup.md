@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # 04 — MCP clients setup
 
-<!-- revu-le: 2026-08-30 -->
-> Updated: 2026-08-30
+<!-- revu-le: 2026-10-30 -->
+> Updated: 2026-10-30
 
 Nokido exposes its **MCP tools** via JSON-RPC 2.0 on `http://127.0.0.1:8766/mcp` — the list
 each agent sees depends on its ring (see the table below ; `tools/list` gives the exact set).
@@ -35,7 +35,7 @@ The hub maps `X-Agent-Name` to a **RBAC ring** :
 | Agent | Ring | Default tools count |
 |---|---|---|
 | `CLAUDE_CLI` / `CLAUDE` | 2 | 11+ |
-| `GEMINI` | 3 | 24+ |
+| `ANTIGRAVITY` | 1 | 24+ |
 | `CODEX` | 2 | 25 |
 | `CLINE` | 1 | 15+ |
 | `TRAY` | 4 | 3 (public) |
@@ -77,10 +77,9 @@ setup or debugging.
 - `~/.claude.json` — both the **local** (`projects[..].mcpServers`) and **user** scopes.
   They take precedence over `.mcp.json` : a stale token left there keeps answering
   **401** even after `.mcp.json` is fixed ;
-- HTTP clients : Gemini CLI (`~/.gemini/settings.json`), Antigravity
-  (`~/.gemini/config/mcp_config.json`), VS Code native (`%APPDATA%\Code\User\mcp.json`,
-  key `servers`), Copilot (`<workspace>/.github/mcp.json`, at the super-repo root). Other
-  files : `--client <path>` (repeatable).
+- HTTP clients : Antigravity (`~/.gemini/config/mcp_config.json`), VS Code native
+  (`%APPDATA%\Code\User\mcp.json`, key `servers`), Copilot (`<workspace>/.github/mcp.json`,
+  at the super-repo root), OpenCode, Mistral Vibe. Other files : `--client <path>` (repeatable).
 
 ```bash
 LAFORGE_PYTHON tools/forge_mcp_json_sync.py --dry-run   # what would change, nothing written
@@ -304,6 +303,20 @@ rules at session start. A working template lives in this repo's
 ```
 
 Cline uses two modes : `Plan` (ring 1, reasoning) and `Act` (ring 1, execution).
+
+---
+
+## OpenCode & Mistral Vibe
+
+Both OpenCode and Mistral Vibe are supported as first-class MCP HTTP clients (see badges in `README.md` and [25 — What's New](25-Whats-New.md)) :
+- **OpenCode** : config via `config/clients/opencode/README.md` and `opencode.json` (`http://127.0.0.1:8766/mcp`, `FORGE_TOKEN_OPENCODE`).
+- **Mistral Vibe** : configured with its HTTP MCP endpoint and bearer token from the vault.
+
+---
+
+## What's New & recent updates
+
+See [25 — What's New (October 2026)](25-Whats-New.md) for recent architectural additions : conditional reads (`si_etag`), ACP router, and task delegation tracking.
 
 ---
 

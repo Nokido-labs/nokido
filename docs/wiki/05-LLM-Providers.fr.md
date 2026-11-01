@@ -9,12 +9,12 @@ empreinte: INCONNUE
 
 # 05 — Providers LLM
 
-<!-- revu-le: 2026-09-29 -->
-> Mise à jour : 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Mise à jour : 2026-10-30
 
 > 🌐 [English](05-LLM-Providers.md) · **Français**
 
-Nokido route vers **29 providers** (3 locaux + 26 cloud) via cascade prioritaire. Chacun a un tier, un quota, une liste de capacités, et une clé API stockée en vault.
+Nokido route vers **20 vendors · 39 routed slots** (par cas d'usage, couvrant providers locaux, CLI-OAuth et cloud) via cascade prioritaire. Chacun a un tier, un quota, une liste de capacités, et une clé API stockée en vault.
 
 ## 🖥️ UI admin web
 
@@ -55,8 +55,8 @@ Providers qui pilotent un CLI tiers déjà authentifié (OAuth dans le profil us
 `SemanticFirewall` pre/post **auto** (Golden Rule #4). Exécutés en contexte du user
 (auth dans `~/`), donc `USERPROFILE`/`HOME` pointés sur le user réel (le hub tourne SYSTEM).
 
-Trois slots au 2026-09-29 (tier `subscription_quota`) : `claude_agent_sdk`, `claude_cli`
-(ancien `claude -p`, même pool de quota que l'Agent SDK) et `gemini_cli` (`gemini -p`,
+Trois slots au 2026-10-30 (tier `subscription_quota`) : `claude_agent_sdk`, `claude_cli`
+(ancien `claude -p`, même pool de quota que l'Agent SDK) et `gemini_cli` (`gemini -p` / Antigravity agy,
 quota gratuit Google AI Studio). L'ancien slot `copilot_cli` n'existe plus.
 
 ## ⚡ Tier 1 — Cloud free (quotas généreux)
@@ -69,7 +69,7 @@ GitHub Models (`github_gpt41_mini`, `github_gpt4o_mini`, `github_codestral`,
 
 Quotas et modèles bougent avec les fournisseurs : la liste **vivante**, avec quota, clé et
 statut de chaque slot, est `/admin/providers` ; la source est
-`app/forge_provider_specs.py::PROVIDER_SPECS`. Ne pas reprendre un quota de cette page dans une décision.
+`app/forge_provider_specs.py::PROVIDER_SPECS`. Ne pas reprendre un quota de cette page dans une décision. Voir aussi [25 — Nouveautés](25-Whats-New.fr.md) pour les améliorations récentes du tracking de quota et du recensement free-tier.
 
 ## 💵 Tier 2 — Payant / opt-in
 

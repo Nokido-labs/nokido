@@ -88,6 +88,64 @@ def test_appliquer_deplace_le_texte_SANS_en_perdre_un_caractere(tmp_path):
     assert corps.strip() in cible
 
 
+# --- resserrer (P1 levier 3, GO owner 22/10) : le RESUME d'une section deja deportee avait grossi -------------------
+
+DEJA = """# Regles
+
+## Avant (2026-01-01)
+
+Du texte A.
+
+## Une section deja partie (2026-07-30) — DEPORTEE
+
+Cette section pesait **4549 caracteres, 14% de ce fichier**, et le noyau
+resident est re-envoye a CHAQUE tour. Elle vit desormais dans
+[`docs/X.md`](docs/X.md) — **rien n'a ete supprime**.
+
+Ce qui reste vrai et n'a pas besoin d'etre relu pour agir :
+
+""" + "\n".join("- puce longue numero %02d " % i + "x" * 120 for i in range(8)) + """
+
+## Apres (2026-02-02)
+
+Du texte B.
+"""
+
+
+def test_resserrer_archive_mot_pour_mot_et_remplace_par_plus_court(tmp_path):
+    src, arch = _source(tmp_path, DEJA), tmp_path / "docs" / "RESUMES.md"
+    anciennes = "\n".join("- puce longue numero %02d " % i + "x" * 120 for i in range(8))
+    assert frd.resserrer(src, "Une section deja partie", arch, ["puce courte"], appliquer=True) == 0
+    reste, archive = src.read_text(encoding="utf-8"), arch.read_text(encoding="utf-8")
+    assert anciennes in archive, "les anciennes puces doivent etre archivees MOT POUR MOT"
+    assert "puce longue numero 03" not in reste and "- puce courte" in reste
+    assert arch.name in reste, "le pointeur doit nommer l'archive du resume"
+    assert "Du texte A." in reste and "Du texte B." in reste and "docs/X.md" in reste
+    assert len(reste) < len(DEJA)
+
+
+def test_resserrer_ajoute_a_l_archive_sans_l_ecraser(tmp_path):
+    src, arch = _source(tmp_path, DEJA), tmp_path / "RESUMES.md"
+    arch.write_text("contenu deja archive\n", encoding="utf-8")
+    frd.resserrer(src, "Une section deja partie", arch, ["puce courte"], appliquer=True)
+    assert arch.read_text(encoding="utf-8").startswith("contenu deja archive")
+
+
+def test_resserrer_refuse_une_section_non_deportee_ou_qui_ne_maigrit_pas(tmp_path):
+    src, arch = _source(tmp_path, DEJA), tmp_path / "RESUMES.md"
+    with pytest.raises(SystemExit):
+        frd.resserrer(src, "Avant", arch, ["x"], appliquer=True)
+    with pytest.raises(SystemExit):
+        frd.resserrer(src, "Une section deja partie", arch, ["y" * 5000], appliquer=True)
+    assert src.read_text(encoding="utf-8") == DEJA and not arch.exists()
+
+
+def test_resserrer_a_blanc_n_ecrit_rien(tmp_path):
+    src, arch = _source(tmp_path, DEJA), tmp_path / "RESUMES.md"
+    assert frd.resserrer(src, "Une section deja partie", arch, ["puce courte"], appliquer=False) == 0
+    assert src.read_text(encoding="utf-8") == DEJA and not arch.exists()
+
+
 def test_un_deport_qui_FERAIT_GROSSIR_le_noyau_est_REFUSE(tmp_path):
     """Le but du deport est le budget : un pointeur plus cher que sa section
     retourne le geste contre lui-meme, en silence. Mesure 2026-09-19.

@@ -12,15 +12,21 @@ PARTS = [
     ("docs/ (199 files)", "docs/gitingest_docs.txt"),
 ]
 
-sections = []
-for label, rel in PARTS:
-    p = ROOT / rel
-    if p.exists() and p.stat().st_size > 100:
-        sections.append(f"# SECTION: {label}\n" + p.read_text(encoding="utf-8", errors="replace"))
-        print(f"  + {label}: {p.stat().st_size:,} bytes")
-    else:
-        print(f"  ! skip {label} (missing or empty)")
+def main():
+    # 28/10 : l'ecriture de docs/gitingest_nokido.txt etait au chargement du module ; elle est sous main().
+    sections = []
+    for label, rel in PARTS:
+        p = ROOT / rel
+        if p.exists() and p.stat().st_size > 100:
+            sections.append(f"# SECTION: {label}\n" + p.read_text(encoding="utf-8", errors="replace"))
+            print(f"  + {label}: {p.stat().st_size:,} bytes")
+        else:
+            print(f"  ! skip {label} (missing or empty)")
 
-out = ROOT / "docs" / "gitingest_nokido.txt"
-out.write_text(SEP.join(sections), encoding="utf-8")
-print(f"\n=> {out.name}: {out.stat().st_size:,} bytes ({len(sections)} sections)")
+    out = ROOT / "docs" / "gitingest_nokido.txt"
+    out.write_text(SEP.join(sections), encoding="utf-8")
+    print(f"\n=> {out.name}: {out.stat().st_size:,} bytes ({len(sections)} sections)")
+
+
+if __name__ == "__main__":
+    main()

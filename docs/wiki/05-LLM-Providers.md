@@ -9,10 +9,10 @@ empreinte: INCONNUE
 
 # 05 — LLM providers
 
-<!-- revu-le: 2026-09-29 -->
-> Updated: 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Updated: 2026-10-30
 
-Nokido routes to **30 providers** (3 local + 3 CLI-OAuth + 24 cloud) via
+Nokido routes to **20 vendors · 39 routed slots** (by use-case, covering local, CLI-OAuth, and cloud providers) via
 cascade priority. Each one has a tier, a quota, a list of capabilities, and a
 vault-stored API key (CLI-OAuth providers use no key — see below).
 
@@ -60,8 +60,8 @@ Providers that drive a third-party CLI already authenticated (OAuth in the user 
 `SemanticFirewall` pre/post **automatic** (Golden Rule #4). Run in the user's context
 (auth lives in `~/`), so `USERPROFILE`/`HOME` point at the real user (the hub runs as SYSTEM).
 
-Three slots on 2026-09-29 (tier `subscription_quota`) : `claude_agent_sdk`, `claude_cli`
-(legacy `claude -p`, same quota pool as the Agent SDK) and `gemini_cli` (`gemini -p`,
+Three slots on 2026-10-30 (tier `subscription_quota`) : `claude_agent_sdk`, `claude_cli`
+(legacy `claude -p`, same quota pool as the Agent SDK) and `gemini_cli` (`gemini -p` / Antigravity agy,
 Google AI Studio free quota). The former `copilot_cli` slot is gone.
 
 | Provider | CLI | Notes |
@@ -80,7 +80,7 @@ GitHub Models family (`github_gpt41_mini`, `github_gpt4o_mini`, `github_codestra
 
 Quotas and models move with the vendors : the **live** list, with each slot's quota,
 key and status, is `/admin/providers` ; the source is `app/forge_provider_specs.py::PROVIDER_SPECS`.
-Do not copy a quota from this page into a decision.
+Do not copy a quota from this page into a decision. See also [25 — What's New](25-Whats-New.md) for recent quota tracking and free-tier census improvements.
 
 ## 💵 Tier 2 — Paid / opt-in
 

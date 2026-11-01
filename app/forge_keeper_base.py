@@ -98,7 +98,7 @@ def discover() -> dict:
         ("canon", "CLAUDE.md + RULES_SHARED.md (règles de session)", "forge_module_census", "read fichier canon"),
         ("organ_map", "organ_map_full.json (anatomie 714 organes)", "forge_module_census", "carte organes"),
         ("skills", "docs/skills + ~/.claude|.gemini/skills", "forge_skill_sync", "--discover/--preview"),
-        ("workflow", "plans déportés (sandbox/workspace/wf_plan_*.json)", "forge_workflow", "submit/run_plan"),
+        ("workflow", "plans déportés (sandbox/workspace/wf_plan_*.json)", "forge_workflow", "ecrire_plan/run_plan"),
         ("agents", "config/agent_identities.json (identité×ring)", "forge_videur", "resolve_identity"),
         ("providers", "pool LLM live (cloud+local)", "forge_resolver", "live_providers"),
         ("gate", "politique de routage 3-voies + prior appris", "forge_orchestration_gate", "plan_route/classify"),

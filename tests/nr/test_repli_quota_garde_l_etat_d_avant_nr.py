@@ -65,7 +65,7 @@ def test_le_repli_preserve_avec_l_etat_d_avant_le_premier_tour(tmp_path, monkeyp
 
     monkeypatch.setattr(T, "_preserver_livraison", _preserver)
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, wt_, avant, autorises=None: (True, "commits produits : 1", "OK_DONE"))
+                        lambda ok, detail, wt_, avant, autorises=None, desc=None: (True, "commits produits : 1", "OK_DONE"))
     monkeypatch.setattr(T, "_consigner_verdict_auto", lambda *_a, **_k: None)
     monkeypatch.setattr(T, "_motif_reaffectation_apres", lambda *_a, **_k: None)
     monkeypatch.setattr(T, "_clore_delegation", lambda *a, **k: vus.setdefault("clos", a))

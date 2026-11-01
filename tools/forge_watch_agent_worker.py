@@ -48,6 +48,10 @@ if "pytest" not in sys.modules:
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app"
 sys.path.insert(0, str(APP))
+# 27/10 : lance PAR CHEMIN (superviseur), sys.path[0] = tools/ -> `nokido_agent` introuvable, crash en boucle,
+# 8 chaines de veille restees pending sans consommateur. La racine resout l'espace de noms.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from nokido_agent.app.forge_chain_executor import ChainExecutor  # noqa: E402
 

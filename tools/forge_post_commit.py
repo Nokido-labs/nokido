@@ -630,43 +630,67 @@ description: >
 
 
 # ── 4. Mettre à jour README.md avec stats live ───────────────────────────────
-def update_readme_stats(dry_run: bool = False):
-    """Injecte les stats live (modules, chunks RAG) dans README.md."""
+_STATS_DEBUT = "<!-- STATS:BEGIN -->"
+_STATS_FIN = "<!-- STATS:END -->"
+
+
+def update_readme_stats(dry_run: bool = False) -> dict:
+    """Injecte les stats (modules, volume RAG) dans README.md, par une mesure BORNEE.
+
+    Owner 21/10 : jamais de COUNT ni de length(embedding) sur rag_chunks (46 Go, deux balayages complets, et
+    `timeout` ne borne que l'attente du verrou). Le volume se lit par MAX(rowid) -- dernier noeud du b-tree -- et
+    s'ecrit `≈` ; les embeddings, sans mesure bornee, s'ecrivent `non_mesure`. Base ouverte en LECTURE SEULE (un
+    chemin absent n'est jamais cree). Un echec se DIT (ILLISIBLE, WARNING) et laisse la derniere mesure intacte :
+    l'ancien `except: return` muet a fige ces chiffres depuis le 23/09 sans que personne le sache."""
     readme = ROOT / "README.md"
     if not readme.exists():
-        return
-
-    # Stats rapides
+        return {"etat": "ILLISIBLE", "motif": "README.md absent"}
+    n_py = len(list((ROOT / "app").glob("forge_*.py")))
+    n_chunks = None
+    motif = ""
     try:
-        n_py = len(list((ROOT / "app").glob("forge_*.py")))
-        with sqlite3.connect(str(DB), timeout=5) as conn:
-            n_chunks = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
-            n_embed = conn.execute(
-                "SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NOT NULL AND length(embedding) > 10"
-            ).fetchone()[0]
-    except Exception:
-        return
+        conn = sqlite3.connect("file:%s?mode=ro" % Path(DB).as_posix(), uri=True, timeout=5)
+        try:
+            n_chunks = conn.execute("SELECT MAX(rowid) FROM rag_chunks").fetchone()[0]
+        finally:
+            conn.close()
+        if not n_chunks:  # NULL (table vide) : une absence de mesure n'est pas 0
+            n_chunks, motif = None, "MAX(rowid) vide"
+    except Exception as exc:  # noqa: BLE001 -- dit, jamais muet
+        n_chunks, motif = None, "%s: %s" % (type(exc).__name__, exc)
+        log.warning("README stats ILLISIBLE (%s) -- ecrit ILLISIBLE dans la zone stats", motif)
 
     sha = _get_commit_sha()
     ts = time.strftime("%Y-%m-%d")
-    badge_line = (
-        f"<!-- STATS:{sha}:{ts} modules={n_py} rag_chunks={n_chunks} embeddings={n_embed} -->"
+    val = "ILLISIBLE" if n_chunks is None else "≈%d" % n_chunks
+    zone = (
+        f"{_STATS_DEBUT}\n<!-- STATS:{sha}:{ts} modules={n_py} rag_chunks{'=' if n_chunks is None else ''}{val} "
+        f"embeddings=non_mesure (MAX(rowid), borne) -->\n{_STATS_FIN}"
     )
 
     content = readme.read_text(encoding="utf-8")
-    # Remplacer la ligne STATS existante ou ajouter en fin
     import re
 
-    new_content, n = re.subn(r"<!-- STATS:[^>]+ -->", badge_line, content)
-    if n == 0:
-        new_content = content.rstrip() + f"\n\n{badge_line}\n"
+    # Seule la zone entre marqueurs est reecrite ; ancienne ligne STATS isolee migree ; sinon ajout en fin.
+    if _STATS_DEBUT in content and _STATS_FIN in content:
+        i = content.index(_STATS_DEBUT)
+        j = content.index(_STATS_FIN, i) + len(_STATS_FIN)
+        new_content = content[:i] + zone + content[j:]
+    else:
+        new_content, n = re.subn(r"<!-- STATS:[^>]+ -->", lambda _m: zone, content, count=1)
+        if n == 0:
+            new_content = content.rstrip() + f"\n\n{zone}\n"
 
+    etat_mesure = "ILLISIBLE" if n_chunks is None else None
     if dry_run:
-        log.info(f"[DRY] README stats: {n_py} modules, {n_chunks} chunks, {n_embed} embeddings")
-        return
+        log.info(f"[DRY] README stats: {n_py} modules, rag_chunks {val}")
+        return {"etat": etat_mesure or "DRY", "modules": n_py, "rag_chunks_approx": n_chunks, "motif": motif}
 
     readme.write_text(new_content, encoding="utf-8")
-    log.info(f"README.md stats: modules={n_py} chunks={n_chunks} embeddings={n_embed}")
+    log.info(f"README.md stats: modules={n_py} rag_chunks {val} (MAX(rowid), borne)")
+    if etat_mesure:
+        return {"etat": "ILLISIBLE", "motif": motif, "modules": n_py}
+    return {"etat": "ECRIT", "modules": n_py, "rag_chunks_approx": n_chunks}
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────

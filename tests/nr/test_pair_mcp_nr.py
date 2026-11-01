@@ -71,6 +71,7 @@ def test_la_surface_exposee_est_exactement_la_liste_figee(pair):
     assert set(m.OUTILS) == {"etat_corps", "point_ssot", "recherche_rag", "journal_commits",
                              "derniere_capsule", "proposer_fait", "envoyer_message",
                              "soumettre_tache", "lire_reponses",
+                             "deposer_fragment", "lire_document",   # depot long par fragments (owner 24/10)
                              "suivre"}   # accuses de SES depots, lecture seule (owner 2026-09-29)
     source = (ROOT / "tools/forge_pair_mcp.py").read_text(encoding="utf-8")
     for interdit in ("governed_edit", "run_job", "forge_mcp_registry", "nokido_hub", "get_secret",

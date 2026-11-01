@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-cli_tail_capture.py — Tail-watcher pour Gemini CLI + Cline.
+cli_tail_capture.py — Tail-watcher pour l'ex-Gemini CLI + Cline.
+ATTENTION (2026-10-24) : Gemini CLI est mort depuis le 2026-07-04 -> sa source ci-dessous est TARIE.
+Son remplacant AGY CLI ecrit ses sessions ailleurs (observe le 23/10 : ~/.gemini/antigravity-cli/brain/<session>/)
+et n'est PAS capture ici (item bb:bug_capture_sessions_agy_absente_20261024).
 
 Les deux CLIs persistent leur conversation sur disque ; ce script lit
 les nouveaux tours depuis la derniere execution et les ingere dans
 agent_messages via cli_capture_lib.record_turn.
 
 Sources :
-  - Gemini CLI : %USERPROFILE%/.gemini/tmp/<project>/chats/session-*.jsonl
+  - ex-Gemini CLI (source tarie) : %USERPROFILE%/.gemini/tmp/<project>/chats/session-*.jsonl
                  (1 ligne JSON par tour, premiere ligne = metadata session)
   - Cline      : %USERPROFILE%/AppData/Roaming/Code/User/globalStorage/
                  rooveterinaryinc.roo-cline/tasks/<task_id>/
@@ -203,6 +206,133 @@ def capture_gemini(verbose: bool = False) -> int:
 
 
 # ------------------------------------------------------------------ #
+# AGY CLI (Antigravity) : ~/.gemini/antigravity-cli/brain/<uuid>/.system_generated/logs/transcript.jsonl
+# Schema (celui que lit deja forge_conv_indexer.iter_agy_chunks) : 1 ligne JSON par etape
+# {step_index, source, type, status, created_at (ISO ou epoch), content, tool_calls[{name,args}]}
+# ------------------------------------------------------------------ #
+
+AGY_BRAIN_DIR = Path(__import__("os").path.expanduser("~/.gemini/antigravity-cli/brain"))
+AGY_TRANSCRIPT_GLOB = "*/.system_generated/logs/transcript.jsonl"
+
+
+def _agy_redact(text: str) -> str:
+    """Caviardage AVANT ecriture : forge_conv_sanitizer puis le redacteur du pare-feu ; jamais le clair."""
+    out = str(text or "")
+    try:
+        from nokido_agent.app.forge_conv_sanitizer import _redact
+
+        out = _redact(out)
+    except Exception:  # noqa: BLE001 -- repli : le redacteur de la lib de capture (e-mails au minimum)
+        __import__("logging").getLogger(__name__).debug("sanitizer indisponible", exc_info=True)
+    from nokido_agent.tools.cli_capture_lib import _rediger_spool
+
+    return _rediger_spool(out)
+
+
+def _agy_role(msg: dict) -> str:
+    # Schema reel : source in {USER_EXPLICIT, MODEL, SYSTEM} ("system" est un role admis par record_turn)
+    exact = {"user_explicit": "user", "model": "assistant", "system": "system"}
+    src = str(msg.get("source") or "").lower()
+    if src in exact:
+        return exact[src]
+    src = str(msg.get("source") or msg.get("type") or "").lower()
+    if "user" in src or "human" in src:
+        return "user"
+    if "tool" in src or "function" in src:
+        return "tool"
+    if "model" in src or "assistant" in src or "agent" in src:
+        return "assistant"
+    return "assistant" if msg.get("tool_calls") else (src[:20] or "unknown")
+
+
+def _agy_ts(v: Any) -> str | None:
+    from datetime import datetime
+
+    if isinstance(v, (int, float)):
+        v = v / 1000.0 if v > 1e11 else v
+        return datetime.fromtimestamp(v, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return str(v) if v else None
+
+
+def _agy_text(msg: dict) -> str:
+    c = msg.get("content", "")
+    if isinstance(c, str):
+        texte = c
+    elif isinstance(c, list):
+        texte = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in c)
+    else:
+        texte = json.dumps(c, ensure_ascii=False) if c else ""
+    outils = [
+        f"[tool: {str(tc['name'])[:40]}] {json.dumps(tc.get('args', {}), ensure_ascii=False)[:500]}"
+        for tc in (msg.get("tool_calls") or [])
+        if isinstance(tc, dict) and tc.get("name")
+    ]
+    return "\n".join(p for p in [texte, *outils] if p)
+
+
+def capture_agy(verbose: bool = False, brain_dir: Path | None = None, db_path: Path | None = None) -> int:
+    """Ingere les etapes AGY dans agent_messages (surface antigravity -> from_agent cli_antigravity,
+    meta.agent=ANTIGRAVITY). Curseur par fichier ; dedup par hash (id stable de record_turn)."""
+    import glob
+
+    base = brain_dir if brain_dir is not None else AGY_BRAIN_DIR
+    cursors = _load_cursors()
+    inserted = 0
+    for p in glob.glob(str(base / AGY_TRANSCRIPT_GLOB)):
+        fp = Path(p)
+        key = f"agy::{fp.as_posix()}"
+        try:
+            stat = fp.stat()
+            lines = [ln for ln in fp.read_text(encoding="utf-8", errors="ignore").splitlines() if ln.strip()]
+        except Exception:
+            __import__("logging").getLogger(__name__).debug("agy illisible %s", fp, exc_info=True)
+            continue
+        cur = cursors.get(key, {"count": 0, "size": 0, "mtime": 0.0})
+        if stat.st_size < cur.get("size", 0):
+            cur = {"count": 0, "size": 0, "mtime": 0.0}
+        if stat.st_size == cur.get("size") and stat.st_mtime == cur.get("mtime"):
+            continue
+        session = fp.parent.parent.parent.name
+        ok = True
+        for idx, line in enumerate(lines):
+            if idx < cur.get("count", 0):
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/cli_tail_capture.py', 302, exc_info=True)
+                continue  # ligne en cours d'ecriture
+            if not isinstance(msg, dict):
+                continue
+            texte = _agy_redact(_agy_text(msg))
+            if not texte.strip():
+                continue
+            meta = {"agent": "ANTIGRAVITY", "step_index": msg.get("step_index"), "type": msg.get("type")}
+            for k in ("input_tokens", "output_tokens", "cache_read_tokens"):
+                if msg.get(k) is not None:  # jamais 0 fabrique ; `thinking` volontairement non ingere
+                    meta[k] = msg[k]
+            mid = record_turn(
+                surface="antigravity",
+                role=_agy_role(msg),
+                content=texte,
+                session=session,
+                ts=_agy_ts(msg.get("created_at")),
+                meta=meta,
+                db_path=db_path,
+            )
+            if mid:
+                inserted += 1
+            else:
+                ok = False  # echec d'ecriture : curseur non avance (zero perte)
+        if ok:
+            cursors[key] = {"count": len(lines), "size": stat.st_size, "mtime": stat.st_mtime}
+        if verbose:
+            print(f"[agy] {session}: {inserted} so far")
+    _save_cursors(cursors)
+    return inserted
+
+
+# ------------------------------------------------------------------ #
 # Cline                                                               #
 # ------------------------------------------------------------------ #
 
@@ -385,8 +515,10 @@ def capture_claude(verbose: bool = False) -> int:
 # ------------------------------------------------------------------ #
 
 
-def run_once(do_gemini: bool, do_cline: bool, do_claude: bool, verbose: bool) -> int:
+def run_once(do_gemini: bool, do_cline: bool, do_claude: bool, verbose: bool, do_agy: bool = True) -> int:
     n = 0
+    if do_agy:
+        n += capture_agy(verbose=verbose)
     if do_gemini:
         n += capture_gemini(verbose=verbose)
     if do_cline:
@@ -405,16 +537,18 @@ def main() -> int:
     ap.add_argument("--gemini-only", action="store_true")
     ap.add_argument("--cline-only", action="store_true")
     ap.add_argument("--claude-only", action="store_true")
+    ap.add_argument("--agy-only", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
-    exclusive = sum([args.gemini_only, args.cline_only, args.claude_only])
+    exclusive = sum([args.gemini_only, args.cline_only, args.claude_only, args.agy_only])
+    do_agy = args.agy_only or exclusive == 0
     do_gemini = args.gemini_only or exclusive == 0
     do_cline = args.cline_only or exclusive == 0
     do_claude = args.claude_only or exclusive == 0
 
     if not args.watch:
-        n = run_once(do_gemini, do_cline, do_claude, args.verbose)
+        n = run_once(do_gemini, do_cline, do_claude, args.verbose, do_agy)
         print(f"[cli_tail_capture] inserted {n} new turn(s)")
         return 0
 
@@ -424,7 +558,7 @@ def main() -> int:
     )
     while True:
         try:
-            n = run_once(do_gemini, do_cline, do_claude, args.verbose)
+            n = run_once(do_gemini, do_cline, do_claude, args.verbose, do_agy)
             if n and args.verbose:
                 print(f"[cli_tail_capture] +{n} turn(s)")
         except KeyboardInterrupt:

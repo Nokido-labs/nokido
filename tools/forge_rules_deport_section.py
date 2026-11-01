@@ -182,6 +182,61 @@ def deporter(source: Path, motif: str, vers: Path, appliquer: bool, resume=None,
     return 0
 
 
+_MARQUE_RESUME = "Ce qui reste vrai et n'a pas besoin d'etre relu pour agir :"
+
+
+def resserrer(source: Path, motif: str, archive: Path, resume, appliquer: bool) -> int:
+    """Section DEJA deportee dont le resume (« Ce qui reste vrai ») a grossi : ses puces actuelles sont ARCHIVEES
+    mot pour mot dans `archive` (ajout, jamais d'ecrasement), puis remplacees par `resume`, plus court.
+    P1 levier 3 (GO owner 22/10) : les resumes des sept sections deportees pesaient ~11 000 car. du noyau resident.
+    Meme gardes que `deporter` : reconstitution exacte, comptabilite dite, archive relue AVANT d'ecrire la source."""
+    if source.name not in AUTORISES:
+        raise SystemExit("REFUS : %s hors du perimetre %s" % (source.name, sorted(AUTORISES)))
+    original = source.read_text(encoding="utf-8")
+    titre, _corps, debut, fin = trouver(original, motif)
+    section = original[debut:fin]
+    if "DEPORTEE" not in titre:
+        raise SystemExit("REFUS : « %s » n'est pas deportee -- utiliser le deport, pas le resserrement" % titre)
+    i = section.find(_MARQUE_RESUME)
+    if i < 0:
+        raise SystemExit("REFUS : pas de resume « Ce qui reste vrai » dans « %s »" % titre)
+    j = i + len(_MARQUE_RESUME)
+    anciennes = section[j:].strip()
+    puces = [str(x).strip() for x in (resume or []) if str(x).strip()]
+    if not puces:
+        raise SystemExit("REFUS : resume vide -- le residu ne s'invente pas, il est FOURNI")
+    try:
+        lien = archive.relative_to(RACINE).as_posix()
+    except ValueError:
+        lien = archive.as_posix()
+    puces.append("Resume complet d'avant le resserrement : [`%s`](%s)." % (lien, lien))
+    neuve = section[:j] + "\n\n" + "\n".join("- %s" % b for b in puces) + "\n\n"
+    avant, apres = original[:debut], original[fin:]
+    if avant + section + apres != original:
+        raise SystemExit("REFUS : reconstitution non exacte -- rien n'est ecrit.")
+    if len(neuve) >= len(section):
+        raise SystemExit("REFUS : le nouveau resume (%d car.) ne fait pas maigrir la section (%d car.)"
+                         % (len(neuve), len(section)))
+    neuf = avant + neuve + apres
+    print("section       %s" % titre)
+    print("resume        %d -> %d car. ; source %d -> %d car." % (len(section), len(neuve), len(original), len(neuf)))
+    print("archive       %s (%d car. archives mot pour mot)" % (archive, len(anciennes)))
+    if not appliquer:
+        print("\n[dry-run] rien n'a ete ecrit. Ajouter --appliquer.")
+        return 0
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    prec = archive.read_text(encoding="utf-8") if archive.exists() else (
+        "<!-- RESUMES retires du noyau resident (%s) par forge_rules_deport_section --resserrer.\n"
+        "     Le texte n'a pas ete modifie : seul son LIEU a change. -->\n\n"
+        "# Resumes des sections deportees, retires du noyau resident\n" % source.name)
+    archive.write_text(prec + "\n## %s\n\n%s\n" % (titre, anciennes), encoding="utf-8")
+    if anciennes not in archive.read_text(encoding="utf-8"):
+        raise SystemExit("REFUS : archive relue sans les anciennes puces -- source INTACTE.")
+    source.write_text(neuf, encoding="utf-8")
+    print("\nOK — resume resserre. Verifier : LAFORGE_PYTHON tools/forge_context_budget.py")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--source", required=True)
@@ -194,12 +249,16 @@ def main(argv=None) -> int:
                          "DUR et affirmait le resume d'une AUTRE section "
                          "(defaut paye le 2026-09-19).")
     ap.add_argument("--appliquer", action="store_true")
+    ap.add_argument("--resserrer", action="store_true",
+                    help="section DEJA deportee : archiver son resume dans --vers et le remplacer par --resume")
     ap.add_argument("--meme-si-plus-gros", action="store_true",
                     dest="meme_si_plus_gros",
                     help="deporter meme si le pointeur coute plus cher que la section")
     a = ap.parse_args(argv)
     src = Path(a.source) if Path(a.source).is_absolute() else RACINE / a.source
     dst = Path(a.vers) if Path(a.vers).is_absolute() else RACINE / a.vers
+    if a.resserrer:
+        return resserrer(src, a.section, dst, a.resume, a.appliquer)
     return deporter(src, a.section, dst, a.appliquer, a.resume,
                     a.meme_si_plus_gros)
 

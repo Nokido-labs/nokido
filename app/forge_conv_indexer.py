@@ -435,7 +435,9 @@ def iter_agy_chunks(jsonl_path: Path) -> Iterator[tuple[str, str]]:
         return
 
     for msg in _lignes_json(lignes, jsonl_path):
-        role = str(msg.get("source") or msg.get("type") or "agy")[:20]
+        _src = str(msg.get("source") or "").lower()
+        role = {"user_explicit": "user", "model": "assistant", "system": "system"}.get(
+            _src, str(msg.get("source") or msg.get("type") or "agy")[:20])
         texte = _extract_text(msg.get("content", ""))
 
         outils = []
@@ -1244,6 +1246,48 @@ def _etat_racine(racine: Path) -> str:
         return "ILLISIBLE"
 
 
+_CAPTURE_AGY_BORNE = 10000
+
+
+def verifier_capture_agy(db_path: Path | None = None, brain_dir: Path | None = None,
+                         fenetre_s: float = 86400.0) -> dict:
+    """Verifie sur l'ARTEFACT (rag_chunks) que des sessions AGY ont ete indexees dans la fenetre.
+
+    Lecture par plage de source indexee (idx_rag_source) : `conv_agy/` <= source < `conv_agy0`,
+    jamais LIKE ni balayage. etat : OK / ALERTE (0 indexee alors que des transcripts existent
+    sur disque) / UNKNOWN (base ou racine illisible : jamais un 0 invente).
+    """
+    db_path = db_path or RAG_DB
+    brain_dir = brain_dir if brain_dir is not None else AGY_HISTORY
+    base = {"indexees_24h": None, "sur_disque": None}
+    if _etat_racine(brain_dir) != "OK":
+        return {**base, "etat": "UNKNOWN", "raison": "racine AGY illisible ou absente"}
+    try:
+        sur_disque = len(list(brain_dir.glob("*/.system_generated/logs/transcript.jsonl")))
+    except OSError as e:
+        return {**base, "etat": "UNKNOWN", "raison": f"disque: {type(e).__name__}"}
+    if not Path(db_path).exists():
+        return {**base, "sur_disque": sur_disque, "etat": "UNKNOWN", "raison": "base absente"}
+    seuil = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - fenetre_s))
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % Path(db_path).as_posix(), uri=True, timeout=5)
+        try:
+            # Plage INDEXEE (EXPLAIN 24/10 : SEARCH USING INDEX idx_rag_source) et BORNEE : le verdict ne depend que de
+            # 0 / non nul ; au-dela de la borne, `plafond_atteint` le DIT (une borne dit combien, jamais en silence).
+            n = con.execute("SELECT COUNT(*) FROM (SELECT 1 FROM rag_chunks WHERE source >= ? AND source < ? "
+                            "AND ingested_at >= ? LIMIT ?)",
+                            ("conv_agy/", "conv_agy0", seuil, _CAPTURE_AGY_BORNE)).fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        return {**base, "sur_disque": sur_disque, "etat": "UNKNOWN", "raison": f"base: {type(e).__name__}"}
+    out = {"indexees_24h": n, "sur_disque": sur_disque, "etat": "OK",
+           "borne": _CAPTURE_AGY_BORNE, "plafond_atteint": n >= _CAPTURE_AGY_BORNE}
+    if n == 0 and sur_disque > 0:
+        out.update(etat="ALERTE", alerte="capture_agy_absente")
+    return out
+
+
 def couverture() -> dict:
     """Depuis QUAND chaque source est-elle couverte ?
 
@@ -1497,7 +1541,13 @@ def index_incremental(etat_path: Path | None = None, racine: Path | None = None)
     if time.time() - float(etat.get("_derniere_complete", 0)) > 86400:
         autres = {"gemini": index_gemini_sessions(project_name=None), "agy": index_agy_sessions(),
                   "codex": index_codex_sessions()}
-        etat["_derniere_complete"] = time.time()
+        # Un echec (dossier illisible, acces refuse) ne doit PAS armer le delai de 24 h : retente a la passe suivante.
+        _echecs = [k for k, v in autres.items() if isinstance(v, dict) and v.get("ok") is False]
+        if _echecs:
+            log.warning("[conv_indexer] sources en echec (reessai prochaine passe) : %s",
+                        {k: autres[k].get("error") for k in _echecs})
+        else:
+            etat["_derniere_complete"] = time.time()
     tmp = etat_path.with_suffix(".tmp")
     tmp.parent.mkdir(parents=True, exist_ok=True)
     tmp.write_text(json.dumps(etat, ensure_ascii=False), encoding="utf-8")

@@ -60,6 +60,26 @@ def test_verifier_n_expose_pas_la_valeur(monkeypatch, capsys):
     assert json.loads(sortie.out)["longueur_jeton"] == len(JETON)
 
 
+def test_cli_reel_provenance_verifier_liste_la_cle_sans_la_valeur():
+    """Traverse le VRAI main() en sous-processus ; seul le coffre est simule (jeton factice)."""
+    import subprocess
+    prog = ("import sys; sys.path.insert(0, %r); import forge_mcp_json_sync as f; "
+            "f.vault_get = lambda k: 'jeton-factice-nr' if k == 'FORGE_TOKEN_NR_X' else None; "
+            "f.vault_available = lambda: True; sys.argv = ['x'] + sys.argv[1:]; sys.exit(f.main())"
+            % str(Path(__file__).resolve().parents[2] / "tools"))
+    base = [sys.executable, "-c", prog, "--emit-headers", "NR_X"]
+    kw = dict(capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25)
+    p = subprocess.run(base + ["--provenance", "task_executor", "--verifier"], **kw)
+    assert p.returncode == 0
+    d = json.loads(p.stdout)
+    assert "LaForge-Provenance" in d["cles"] and d["longueur_jeton"] == len("jeton-factice-nr")
+    assert "jeton-factice-nr" not in p.stdout + p.stderr
+    p = subprocess.run(base + ["--provenance", "task_executor"], **kw)
+    assert json.loads(p.stdout)["LaForge-Provenance"] == "TASK_EXECUTOR"
+    p = subprocess.run(base, **kw)
+    assert json.loads(p.stdout)["LaForge-Provenance"] == "INCONNUE"
+
+
 def test_un_serveur_a_helper_n_est_jamais_reecrit_en_clair(monkeypatch):
     _coffre(monkeypatch, {"FORGE_TOKEN_CLAUDE": JETON})
     cfg = {"mcpServers": {"hub": {"type": "http", "headersHelper": "x",
@@ -67,3 +87,51 @@ def test_un_serveur_a_helper_n_est_jamais_reecrit_en_clair(monkeypatch):
     nouveau, changements = fms._patch_config(cfg)
     assert "Authorization" not in nouveau["mcpServers"]["hub"]["headers"]
     assert changements[0][1].startswith("HEADERS_HELPER")
+
+
+# --- Phase 2 identites : mesure de CLAUDE_CODE_ENTRYPOINT (journal, sans changer l'identite) ---
+
+def _chemin_journal(tmp_path):
+    return tmp_path / "sandbox" / "logs" / "headers_helper.jsonl"
+
+
+def _journal(tmp_path):
+    p = _chemin_journal(tmp_path)
+    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()] if p.exists() else []
+
+
+def test_journal_entrypoint_cli(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("NOKIDO_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CODE_ENTRYPOINT", "cli")
+    _coffre(monkeypatch, {"FORGE_TOKEN_CLAUDE": JETON})
+    rc, sortie = _lancer(monkeypatch, capsys, "--emit-headers", "CLAUDE", "--provenance", "x")
+    lignes = _journal(tmp_path)
+    assert rc == 0 and len(lignes) == 1
+    assert lignes[0]["entrypoint"] == "cli" and lignes[0]["agent"] == "CLAUDE"
+    assert set(lignes[0]) == {"ts", "agent", "provenance", "entrypoint", "parent_pid"}
+    assert json.loads(sortie.out)["Authorization"] == "Bearer " + JETON
+
+
+def test_journal_entrypoint_absent(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("NOKIDO_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("CLAUDE_CODE_ENTRYPOINT", raising=False)
+    _coffre(monkeypatch, {"FORGE_TOKEN_CLAUDE": JETON})
+    _lancer(monkeypatch, capsys, "--emit-headers", "CLAUDE")
+    assert _journal(tmp_path)[0]["entrypoint"] == "ABSENT"
+
+
+def test_journal_sans_jeton(monkeypatch, capsys, tmp_path):
+    monkeypatch.setenv("NOKIDO_DATA_DIR", str(tmp_path))
+    _coffre(monkeypatch, {"FORGE_TOKEN_CLAUDE": JETON})
+    _lancer(monkeypatch, capsys, "--emit-headers", "CLAUDE")
+    brut = _chemin_journal(tmp_path).read_text(encoding="utf-8")
+    assert JETON not in brut and "Bearer" not in brut
+
+
+def test_echec_ecriture_journal_ne_change_rien(monkeypatch, capsys, tmp_path):
+    fichier = tmp_path / "pasundossier"
+    fichier.write_text("x")
+    monkeypatch.setenv("NOKIDO_DATA_DIR", str(fichier))
+    _coffre(monkeypatch, {"FORGE_TOKEN_CLAUDE": JETON})
+    rc, sortie = _lancer(monkeypatch, capsys, "--emit-headers", "CLAUDE")
+    assert rc == 0 and json.loads(sortie.out)["Authorization"] == "Bearer " + JETON

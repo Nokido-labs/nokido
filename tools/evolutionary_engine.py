@@ -230,7 +230,9 @@ class CerberusGuard:
         # ProcessPoolExecutor pour pytest/AST (CPU bound)
         # Mais ProcessPool ne peut pas picler les méthodes d'instance →
         # on utilise ThreadPoolExecutor avec subprocess (chaque thread lance un process)
-        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        # C2.1 (29/10) : sans `with`, un delai ne fait plus attendre la tache en sortie de bloc
+        executor = ThreadPoolExecutor(max_workers=n_workers)
+        try:
             futures = {
                 executor.submit(self.evaluate, original, c.get("content", original), fname, i): (
                     i,
@@ -250,6 +252,8 @@ class CerberusGuard:
                 enriched["feedback"] = feedback
                 results.append(enriched)
                 print(f"  [FORK {idx}] score={score}/100 — {feedback}")
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
 
         results.sort(key=lambda x: -x["score"])
 
@@ -2495,7 +2499,9 @@ class IntelligentCerberusLoop:
 
         if pool:
             print(f"  [CLOUD] {len(pool)} agent(s) en parallèle")
-            with ThreadPoolExecutor(max_workers=len(pool)) as ex:
+            # C2.1 (29/10) : sans `with`, un delai ne fait plus attendre la tache en sortie de bloc
+            ex = ThreadPoolExecutor(max_workers=len(pool))
+            try:
                 # inject_tools=False pour cloud — Groq/GitHub ne supportent pas les MCP tools
                 # Filtrer par ML avant de lancer les appels cloud
                 futs = {
@@ -2521,6 +2527,8 @@ class IntelligentCerberusLoop:
                     except Exception as e:
                         print(f"  [LLM ERR] {agent}: {str(e)[:50]}")
                         self._strategy["skip_agents"].add(agent)
+            finally:
+                ex.shutdown(wait=False, cancel_futures=True)
 
         print(f"  [SPAWN] {len(results)}/{target} candidats collectés")
         return results

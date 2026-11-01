@@ -38,10 +38,18 @@ def scene(monkeypatch):
     """Un drift MESURE, un distant qui porte deja le sha, git mocke."""
     journal = []
 
-    def _git(*a, timeout=None, arbre=False):
+    def _git(*a, timeout=None, arbre=False, index=None):
         journal.append(list(a))
         if a[:1] == ("diff",):
             return _Proc(rc=1)          # quelque chose EST stage
+        # 1/11 : le commit passe par un index temporaire bati sur l'entree du pointeur lue dans le vrai index
+        if a[:2] == ("ls-files", "--stage"):
+            return _Proc(out="160000 %s 0\tNokido\n" % SHA)
+        # 26/10 : le staging se juge sur les VALEURS du pointeur (index :p contre HEAD:p), plus sur un diff
+        if a[:2] == ("rev-parse", ":Nokido"):
+            return _Proc(out=SHA + "\n")
+        if a[:2] == ("rev-parse", "HEAD:Nokido"):
+            return _Proc(out="0" * 40 + "\n")
         if a[:2] == ("rev-parse", "HEAD"):
             return _Proc(out="superrepo-head\n")
         return _Proc()
@@ -115,11 +123,11 @@ def test_un_commit_en_ECHEC_n_est_jamais_publie(scene, monkeypatch):
     """Publier apres un commit rate republierait l'ancien etat en le disant neuf."""
     vrai_git = fbs.git
 
-    def _git_ko(*a, timeout=None, arbre=False):
+    def _git_ko(*a, timeout=None, arbre=False, index=None):
         if a[:1] == ("commit",):
             scene.append(list(a))
             return _Proc(rc=1, err="hook refuse")
-        return vrai_git(*a, timeout=timeout, arbre=arbre)
+        return vrai_git(*a, timeout=timeout, arbre=arbre, index=index)
 
     monkeypatch.setattr(fbs, "git", _git_ko)
     rc = _lancer(monkeypatch, "--commit", "--push", "--message", "sujet court")

@@ -81,3 +81,51 @@ def test_pas_non_livre_pour_un_rapport_qui_pointe_son_artefact_ni_pour_un_commit
     assert m._non_livre("[effet observe] commits produits : 2 (a..b) ; fichiers non commites : 3", "") is None
     assert m._non_livre("[effet observe] commits produits : 0 (a..b) ; fichiers non commites : 0", "") is None
     assert m._non_livre("[effet observe] git ILLISIBLE dans x : rien n'est prouve", "") is None
+
+
+# 22/10 (bug_juge_compte_les_commits_d_alpha_comme_livraison) : `--first-parent --no-merges` n'ecarte que les
+# FUSIONS ; un ff-only ou un rebase sur alpha pendant la tache rend alpha lineaire et `avant..apres` le compte.
+def _depot_alpha(d):
+    _git(d, "init", "-q", "-b", "alpha")
+    _commit(d, "base.txt")
+    _git(d, "checkout", "-q", "-b", "wip")
+
+
+def _alpha_avance(d, n=3):
+    _git(d, "checkout", "-q", "alpha")
+    for i in range(n):
+        _commit(d, "alpha%d.txt" % i)
+    _git(d, "checkout", "-q", "wip")
+
+
+def test_ff_sur_alpha_sans_commit_propre_compte_zero(tmp_path):
+    m = _mod()
+    _depot_alpha(tmp_path)
+    _alpha_avance(tmp_path)
+    avant = m._etat_git(str(tmp_path))
+    _git(tmp_path, "merge", "-q", "--ff-only", "alpha")
+    effet = m._effet_observe(str(tmp_path), avant)
+    assert "commits produits : 0" in effet, effet
+
+
+def test_ff_sur_alpha_puis_un_commit_propre_compte_un(tmp_path):
+    m = _mod()
+    _depot_alpha(tmp_path)
+    _alpha_avance(tmp_path)
+    avant = m._etat_git(str(tmp_path))
+    _git(tmp_path, "merge", "-q", "--ff-only", "alpha")
+    _commit(tmp_path, "mien.txt")
+    effet = m._effet_observe(str(tmp_path), avant)
+    assert "commits produits : 1" in effet, effet
+
+
+def test_rebase_sur_alpha_compte_seulement_les_commits_propres(tmp_path):
+    m = _mod()
+    _depot_alpha(tmp_path)
+    _commit(tmp_path, "mien0.txt")
+    _alpha_avance(tmp_path)
+    avant = m._etat_git(str(tmp_path))
+    _git(tmp_path, "rebase", "-q", "alpha")
+    _commit(tmp_path, "mien1.txt")
+    effet = m._effet_observe(str(tmp_path), avant)
+    assert "commits produits : 2" in effet, effet

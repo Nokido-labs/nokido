@@ -305,8 +305,10 @@ def _write(sub: list, vecs: list) -> None:
     conn = sqlite3.connect(str(DB), timeout=30)
     conn.execute("PRAGMA busy_timeout=15000")
     try:
+        # Binaire float32 = forme CANONIQUE (owner 29/10 : fin du JSON, 5x plus gros ; decodeurs tolerants depuis le 01/10)
+        from nokido_agent.app.forge_embed_router import encode_blob
         for (rid, cid, _), vec in zip(sub, vecs):
-            conn.execute("UPDATE rag_chunks SET embedding=? WHERE id=?", (json.dumps(vec), cid))
+            conn.execute("UPDATE rag_chunks SET embedding=? WHERE id=?", (encode_blob(vec), cid))
         conn.commit()
     finally:
         conn.close()

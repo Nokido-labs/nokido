@@ -1,0 +1,6 @@
+{
+  "repli_connexion_max": false,
+  "forcer_connexion_max": false,
+  "forcer_note": "Decision owner 30/10 « oui en attendant » ESSAYEE puis DESARMEE (job_9b5d2a58) : sans cle, claude -p repond « Not logged in » car l'executeur le lance en --bare (forge_task_executor._args_claude), qui exige la cle API ; retirer --bare reactiverait les hooks et le CLAUDE.md de l'owner dans la session deleguee (5 Edit refuses le 22/10). CLAUDE_HEADLESS revient avec le quota API du 01/11.",
+  "note": "Politique owner 22/10 : sans cle API, `claude -p` retombe EN SILENCE sur la connexion Max de l'owner. false = le harness REFUSE de demarrer (DISABLED_BY_POLICY) ; true = repli autorise sur le quota Max. Interrupteur versionne, reversible par un commit. Fichier absent ou illisible = refus (UNKNOWN n'est pas OUI)."
+}

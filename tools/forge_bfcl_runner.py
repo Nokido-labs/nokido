@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -31,7 +32,8 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 BFCL_DIR = ROOT / "RAG" / "bfcl"
-BFCL_DIR.mkdir(exist_ok=True)
+# Cree au moment d'ECRIRE (run), plus a l'import : le 26/10 le worktree de preuve de la CI (sans RAG/) faisait
+# echouer la collecte de 2 NR (FileNotFoundError), et un dossier cree a l'import salirait l'arbre juge.
 
 _GH_BASE = "https://raw.githubusercontent.com/ShishirPatil/gorilla/main/berkeley-function-call-leaderboard/bfcl_eval/data"
 
@@ -101,6 +103,7 @@ def ensure_dataset(dataset_path: Path | None = None, category: str = "simple") -
         sys.exit(1)
 
     url_q, url_a = _CATEGORY_URLS[category]
+    BFCL_DIR.mkdir(parents=True, exist_ok=True)  # le cache s'ecrit ici (le dossier n'est plus cree a l'import)
     print(f"[bfcl] Downloading {category}...")
     raw_q = _fetch(url_q)
     if not raw_q:
@@ -285,10 +288,13 @@ def call_llm(prompt: str, provider: str = "groq") -> str:
         key = _read_env("GROQ_API_KEY")
         if not key:
             return "[ERR] GROQ_API_KEY absent"
-        d = _http_post(
+        # _retry_post (backoff sur 429) : le 26/10, 28/50 cas perdus en 429 sans reessai (limite par minute).
+        d = _retry_post(
             "https://api.groq.com/openai/v1/chat/completions",
             {
-                "model": "llama-3.3-70b-versatile",
+                # 26/10 : llama-3.3-70b-versatile -> HTTP 404 (retire) ; gpt-oss-120b = modele Groq que sert le hub
+                # (offre gratuite, ~200 000 jetons/jour : un run de 50 cas tient, 164 non).
+                "model": os.environ.get("LAFORGE_BFCL_GROQ_MODEL", "openai/gpt-oss-120b"),
                 "messages": [{"role": "user", "content": prompt[:6000]}],
                 # 512 : un array parallel de N appels deborde 256
                 "max_tokens": 512,
@@ -329,7 +335,8 @@ def call_llm(prompt: str, provider: str = "groq") -> str:
         d = _http_post(
             "https://api.cerebras.ai/v1/chat/completions",
             {
-                "model": "llama3.1-70b",
+                # 26/10 : llama3.1-70b -> HTTP 404 (retire) ; gpt-oss-120b = modele que sert le hub sur Cerebras.
+                "model": os.environ.get("LAFORGE_BFCL_CEREBRAS_MODEL", "gpt-oss-120b"),
                 "messages": [{"role": "user", "content": prompt[:4000]}],
                 "max_tokens": 512,
                 "temperature": 0.0,
@@ -618,6 +625,12 @@ def _schema_validate(predicted, entry: dict) -> tuple[bool, str]:
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 
+# CANARI (26/10) : si les CANARI_N premiers cas sont TOUS des erreurs d'appel (404 modele retire, 429,
+# LiteLLM), le fournisseur est en panne : la passe s'arrete, n'ecrit AUCUN JSON de mesure ni ancre RAG,
+# et le dit (`non_mesure`). Mesure 26/10 : 0/50, 28/50 en 429, 404 -- 50 appels brules a chaque fois.
+CANARI_N = 3
+
+
 def run(
     provider: str = "groq",
     max_entries: int = 50,
@@ -662,6 +675,10 @@ def run(
             response = call_llm(prompt, provider)
         except Exception as e:
             response = f"[ERR] {e}"
+        # Une erreur d'APPEL (exception OU « [ERR] ... » rendu en texte par _router_call) est une llm_error :
+        # le 26/10 elle partait au parseur, classee no_parse, errors restait a 0 -> 0/50 lu comme une MESURE.
+        err_appel = str(response).startswith("[ERR]")
+        if err_appel:
             errors += 1
         predicted = _parse_call(response)
         # repair-loop validé-par-SCHÉMA (oracle déterministe, 0 GT) : régénère sur violation
@@ -704,7 +721,9 @@ def run(
                     escalade_errs.append(f"{esc_prov}: schema {fb2[:60]}")
         elapsed = round(time.time() - t_call, 2)
         reason = ""
-        if gt is None:
+        if err_appel:
+            passed, reason = False, "llm_error: %s" % str(response)[6:120]
+        elif gt is None:
             passed = None
         elif category == "parallel":
             passed, reason = _score_parallel(
@@ -726,6 +745,7 @@ def run(
             {
                 "idx": i,
                 "pass": passed,
+                "reason": reason,  # detail PAR CAS (26/10) : llm_error vs no_parse vs mauvais appel
                 "elapsed_s": elapsed,
                 "repairs": attempts,
                 "predicted": predicted,
@@ -735,6 +755,11 @@ def run(
                 "response": response[:300],
             }
         )
+        if i + 1 == CANARI_N and errors == CANARI_N and len(subset) > CANARI_N:
+            canari = "%d/%d temoins en erreur d'appel : %s" % (errors, CANARI_N, str(response)[:120])
+            print(f"[bfcl] CANARI : {canari} -> passe arretee, NON_MESURE (rien n'est ecrit)")
+            return {"provider": provider, "category": category, "strict": strict, "n_total": len(subset),
+                    "non_mesure": True, "canari": canari, "errors": errors, "results": results}
         time.sleep(0.8)  # rate limit (mistral-small ~1 req/s safe)
 
     # Frame FINAL : la boucle emet AVANT chaque entree -> jamais total/total
@@ -769,6 +794,7 @@ def run(
     # Nom UNIQUE par run : un run relance avec le meme nom ECRASE la preuve
     # (mesure 21/08 : le JSON HumanEval du 91,5 % publie a ete reecrit).
     stamp = tag or time.strftime("%Y%m%d-%H%M")
+    BFCL_DIR.mkdir(parents=True, exist_ok=True)
     out = BFCL_DIR / f"bfcl_{provider}_{category}_{len(subset)}{'_r' + str(repair) if repair else ''}_{stamp}.json"
     out.write_text(json.dumps(summary, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
@@ -817,7 +843,7 @@ if __name__ == "__main__":
     parser.add_argument("--tag", default="",
                         help="suffixe du JSON de sortie (défaut: horodatage — jamais écraser un résultat)")
     args = parser.parse_args()
-    run(
+    _s = run(
         provider=args.provider,
         max_entries=args.max,
         category=args.category,
@@ -827,3 +853,5 @@ if __name__ == "__main__":
         dataset_path=Path(args.dataset) if args.dataset else None,
         strict=not args.loose,
     )
+    # Passe arretee par le canari : le .rc du job le dit (2), jamais un 0 qui passerait pour une mesure.
+    sys.exit(2 if _s.get("non_mesure") else 0)

@@ -139,7 +139,19 @@ def _ecriture_brute(rel: str):
     # du nom nomment explicitement un autre fichier. Ne fait que RETIRER des sites ; contre-epreuve sur tout le depot
     # suivi : seul forge_task_executor sort, aucun site retire dans les 25 autres (nokido_hub:1350, vrai pouls, reste).
     ecartes = set()
+    # 31/10 (meme famille, 4e fois) : `for nom in _FICHIERS_CONTEXTE: f = chemin / nom; f.write_text(...)` dans
+    # forge_task_executor -- `_FICHIERS_CONTEXTE = ("GEMINI.md", "AGENTS.md", "CLAUDE.md")`. Une liste LITTERALE de
+    # fichiers nommes (extension, aucun `.heartbeat`) parcourue par une boucle nomme un autre fichier.
+    listes_de_fichiers = set()
+    for x in arbre.body:
+        if (isinstance(x, ast.Assign) and isinstance(x.value, (ast.Tuple, ast.List, ast.Set)) and x.value.elts
+                and all(isinstance(e, ast.Constant) and isinstance(e.value, str) and ".heartbeat" not in e.value
+                        and "." in e.value.replace("\\", "/").rsplit("/", 1)[-1] for e in x.value.elts)):
+            listes_de_fichiers.update(t.id for t in x.targets if isinstance(t, ast.Name))
     for fn in (x for x in ast.walk(arbre) if isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef))):
+        noms_surs = frozenset(x.target.id for x in ast.walk(fn)
+                              if isinstance(x, ast.For) and isinstance(x.target, ast.Name)
+                              and isinstance(x.iter, ast.Name) and x.iter.id in listes_de_fichiers)
         affect: dict = {}
         for x in ast.walk(fn):
             if isinstance(x, ast.Assign):
@@ -152,14 +164,25 @@ def _ecriture_brute(rel: str):
                 while isinstance(base, ast.Attribute):
                     base = base.value
                 if isinstance(base, ast.Name) and affect.get(base.id) and all(
-                        _nomme_un_autre_fichier(v) for v in affect[base.id]):
+                        _nomme_un_autre_fichier(v, noms_surs) for v in affect[base.id]):
                     ecartes.add(x.lineno)
     return sorted(set(sites) - ecartes)
 
 
-def _nomme_un_autre_fichier(v) -> bool:
-    """La valeur affectee nomme explicitement un AUTRE fichier : litteral a extension, ni `.heartbeat` ni f-string."""
-    return (not any(isinstance(c, ast.JoinedStr) for c in ast.walk(v)) and ".heartbeat" not in ast.unparse(v)
+def _nomme_un_autre_fichier(v, noms_surs=frozenset()) -> bool:
+    """La valeur affectee nomme explicitement un AUTRE fichier : litteral a extension, sans `.heartbeat`.
+
+    24/10 : une f-string n'est plus exclue d'office. Le temporaire atomique du coupe-circuit OpenCode
+    (`chemin.with_name(f"{chemin.name}.{pid}.tmp")`, forge_task_executor) etait compte comme pouls -- 26 pour
+    un plafond de 25 sans un seul pouls ecrit (meme famille que les 14/10 et 17/10). Une f-string qui CONSTRUIT
+    un nom `.heartbeat` reste comptee : le test `.heartbeat` porte sur le texte entier.
+
+    `noms_surs` : variables de boucle qui parcourent une liste litterale de fichiers nommes (31/10) --
+    `racine / nom` nomme alors un de ces fichiers."""
+    if (isinstance(v, ast.BinOp) and isinstance(v.op, ast.Div) and isinstance(v.right, ast.Name)
+            and v.right.id in noms_surs):
+        return True
+    return (".heartbeat" not in ast.unparse(v)
             and any(isinstance(c, ast.Constant) and isinstance(c.value, str)
                     and "." in c.value.replace("\\", "/").rsplit("/", 1)[-1] for c in ast.walk(v)))
 
@@ -186,6 +209,54 @@ def test_un_job_json_dans_sa_fonction_n_est_pas_un_pouls_mais_un_vrai_pouls_rest
     sites = _ecriture_brute("tools/faux_module.py")
     assert 9 not in sites, "le job JSON du harness est compte comme un pouls"
     assert 12 in sites, "le vrai pouls brut (hb.write_text) n'est plus compte : faux negatif"
+
+
+def test_une_liste_litterale_de_fichiers_n_est_pas_un_pouls_mais_une_liste_de_pouls_si(tmp_path, monkeypatch):
+    """NR du 31/10, dans les DEUX sens : parcourir ("A.md", "B.md") n'ecrit pas de pouls ; parcourir une liste
+    qui contient un `.heartbeat` en ecrit un, et reste compte."""
+    src = (
+        "from pathlib import Path\n"
+        "CONTEXTE = ('GEMINI.md', 'AGENTS.md')\n"
+        "POULS = ('a.heartbeat', 'b.heartbeat')\n"
+        "def _hb_file(a):\n"
+        "    return Path('sandbox') / f'x_{a}.heartbeat'\n"
+        "def alleger(chemin):\n"
+        "    for nom in CONTEXTE:\n"
+        "        f = chemin / nom\n"
+        "        f.write_text('allege')\n"
+        "def battre(chemin):\n"
+        "    for nom in POULS:\n"
+        "        f = chemin / nom\n"
+        "        f.write_text('{}')\n"
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "faux_module.py").write_text(src, encoding="utf-8")
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    sites = _ecriture_brute("tools/faux_module.py")
+    assert 9 not in sites, "un fichier de contexte .md parcouru en boucle est compte comme un pouls"
+    assert 13 in sites, "une boucle sur des .heartbeat n'est plus comptee : faux negatif"
+
+
+def test_un_temporaire_atomique_en_fstring_n_est_pas_un_pouls(tmp_path, monkeypatch):
+    """NR du 24/10, dans les DEUX sens : le .tmp d'un etat JSON n'est pas un pouls ; un pouls nomme par f-string reste."""
+    src = (
+        "import os\n"
+        "from pathlib import Path\n"
+        "def _hb_file(a):\n"
+        "    return Path('sandbox') / f'task_executor_{a}.heartbeat'\n"
+        "def ecrire_etat(chemin):\n"
+        "    tmp = chemin.with_name(f'{chemin.name}.{os.getpid()}.tmp')\n"
+        "    tmp.write_text('{}')\n"
+        "def battre(a):\n"
+        "    hb = Path('sandbox') / f'{a}.heartbeat'\n"
+        "    hb.write_text('{}')\n"
+    )
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "faux_module.py").write_text(src, encoding="utf-8")
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    sites = _ecriture_brute("tools/faux_module.py")
+    assert 7 not in sites, "le temporaire atomique d'un etat JSON est compte comme un pouls"
+    assert 10 in sites, "un vrai pouls nomme par f-string n'est plus compte : faux negatif"
 
 
 def _recensement() -> tuple[dict, list]:

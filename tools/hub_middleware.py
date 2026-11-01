@@ -224,6 +224,7 @@ _ALLOWED_TOOLS = {
     "agy_add_dir",
     "agy_config",
     "agy_run",                  # owner-only cote RBAC, inutile de le doubler ici
+    "acp",                      # 28/10 (owner) : sessions ACP via NokidoAcpWorker ; ring 1 cote RBAC
     "cross_platform_fs",
     # Allowlist STATIQUE du /mcp : sans elle un tool declare au catalogue ET
     # autorise cote RBAC ressort quand meme en 400 « not allowed » a l'execution.
@@ -295,10 +296,28 @@ def validate_tool_name(name: Any) -> tuple[bool, str]:
     if not isinstance(name, str):
         return False, "tool name must be string"
     name = name.strip().lower()
-    if name not in _ALLOWED_TOOLS:
+    if name not in _ALLOWED_TOOLS and not _outil_docker_du_catalogue(name):
         logger.warning("TOOL_BLOCKED: %s", name)
         return False, f"tool '{name}' not allowed"
     return True, name
+
+
+def _outil_docker_du_catalogue(name: str) -> bool:
+    """docker_<outil> admis s'il figure au CATALOGUE EN CACHE du gateway Docker MCP (28/10) : tools/list le montrait
+    et la liste blanche statique le refusait (TOOL_BLOCKED). Seuls les noms reellement exposes par le gateway
+    passent ; l'autorisation reste a la garde de ring du registre. Catalogue illisible/absent -> refus."""
+    if not name.startswith("docker_") or len(name) > 72:
+        return False
+    try:
+        from nokido_agent.app.forge_docker_supervisor import catalogue_en_cache
+        cat = catalogue_en_cache()
+    except Exception as e:  # noqa: BLE001 - fail-closed, et dit
+        logger.warning("catalogue docker illisible (%s) : %s refuse", type(e).__name__, name)
+        return False
+    if cat.get("etat") not in ("FRAIS", "PERIME"):
+        return False
+    natifs = {str(t.get("name", "")).lower() for t in cat.get("outils") or [] if isinstance(t, dict)}
+    return name[len("docker_"):] in natifs
 
 
 def validate_arguments(args: Any, tool: str = "") -> tuple[bool, dict, list]:

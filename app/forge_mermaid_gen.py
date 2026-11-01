@@ -219,8 +219,12 @@ def generate_mermaid(
                     )
                 )
 
-            with _cf.ThreadPoolExecutor(max_workers=1) as _pool:
+            # C2.1 (29/10) : sans `with`, le delai libere l'appelant (shutdown sans attente de la tache)
+            _pool = _cf.ThreadPoolExecutor(max_workers=1)
+            try:
                 raw = _pool.submit(_runner).result(timeout=timeout_s * 2)
+            finally:
+                _pool.shutdown(wait=False, cancel_futures=True)
 
         source = "qwen2.5-coder-llamacpp"
     except Exception as e:

@@ -40,6 +40,9 @@ _THRESHOLD = float(os.environ.get("LAFORGE_TOOL_SCOPE_MIN_CONF", "0.5"))
 CORE_TOOLS = frozenset({
     "tool_scope", "hub", "run", "read", "rag", "task",
     "forge_call_dynamic", "forge_list_dynamic_tools",
+    # Regression e9707fb40 : forge_deep_explore (recon, 246 appels/7j pour CLAUDE,
+    # utilise par presque tous les roles) disparaissait du scope de role par defaut.
+    "forge_deep_explore",
     # `introspect` = la porte AVANT d'agir : elle doit exister quelle que soit
     # l'intention declaree. Un agent qui a declare « code_recon » et un agent qui
     # a declare « veille » ont le meme besoin de savoir ce que le corps sait
@@ -85,14 +88,16 @@ TOOL_GROUPS: Dict[str, tuple] = {
         "web_search", "crawl", "biblio", "research_agent", "ask", "query",
     ),
     "orchestration_swarm": (
-        "orchestrate", "loop_orchestrate", "plan", "route_dt", "route_task",
+        "orchestrate", "loop_orchestrate", "plan", "route_task",   # route_dt : route_task mode=dt (31/10)
         "forge_spawn_swarm", "trigger_autonomous_evolution",
-        "forge_trigger_audit", "skill", "dyn_orchestrate", "dyn_skill_forge",
+        # 31/10 : dyn_orchestrate / dyn_skill_forge ne sont plus listes (phase 2 de l'audit des schemas) ;
+        # forge_call_dynamic les appelle par leur nom.
+        "forge_trigger_audit", "skill", "forge_call_dynamic", "forge_list_dynamic_tools",
         "ask",
     ),
     "comms_agents": (
         "event", "blackboard_read_zone", "blackboard_propose_fact",
-        "agy_run", "agy_config", "agy_add_dir",
+        "agy_run", "agy_config", "agy_add_dir", "acp",
     ),
 }
 
@@ -156,6 +161,8 @@ def _reset() -> None:
     # perimetre calcule par le precedent, et passait pour de mauvaises raisons.
     # Une fonction qui dit « purge les caches » les purge TOUS.
     _ROLE_CACHE.clear()
+    _usage_cache["mtime"] = -1.0
+    _usage_cache["data"] = {}
 
 
 def _router(embed_fn=None):
@@ -232,6 +239,77 @@ def active_tools_for(agent: str) -> Optional[Set[str]]:
         return None
 
 
+# ── Scope de rôle ACTIF PAR DÉFAUT (décision owner 2026-10-24) ──
+# Visibilité de tools/list seule : le dispatch reste ouvert, CORE toujours visible.
+# Désarmement explicite : LAFORGE_TOOLS_LIST_ROLESCOPE=0|off|false|no (geste owner).
+# Échappatoire par client : `tool_scope set intent=all` (même TTL que tout scope).
+_FULL_INTENTS = frozenset({"all", "full", "tout", "*"})
+_USAGE_FILE = _ROOT / "sandbox" / "tool_usage_role.json"
+_USAGE_MIN_DEFAUT = 3
+_usage_cache = {"mtime": -1.0, "data": {}}
+
+
+def rolescope_enabled() -> bool:
+    """Désarmé explicitement (0|off|false|no) => False. Armé explicitement
+    (1|on|true) => True. Non défini => actif SEULEMENT si le snapshot d'usage
+    existe et est lisible : sans lui la règle « outil utilisé >= N fois » ne joue
+    pas et le scope retirerait des outils réellement utilisés (régression
+    2026-10-24) -> fail-open (DÉSARMÉ) tant que la règle n'est pas applicable."""
+    v = os.environ.get("LAFORGE_TOOLS_LIST_ROLESCOPE", "").strip().lower()
+    if v in ("0", "off", "false", "no"):
+        return False
+    if v in ("1", "on", "true", "yes"):
+        return True
+    return usage_snapshot_ok()
+
+
+def usage_snapshot_ok() -> bool:
+    """Le snapshot d'usage (tool_usage_role.json) existe, est un JSON objet avec « usage »."""
+    try:
+        d = json.loads(_USAGE_FILE.read_text(encoding="utf-8"))
+        return isinstance(d, dict) and isinstance(d.get("usage"), dict)
+    except Exception:
+        return False
+
+
+def full_view_requested(agent: str) -> bool:
+    """Le client a demandé la liste pleine (`tool_scope set intent=all`), non expiré."""
+    try:
+        entry = _load_state().get(str(agent or "").upper())
+        if not entry or not entry.get("full"):
+            return False
+        return not (_TTL_S and (time.time() - float(entry.get("ts", 0))) > _TTL_S)
+    except Exception:
+        return False
+
+
+def _load_usage() -> Dict[str, Any]:
+    try:
+        st = _USAGE_FILE.stat()
+    except OSError:
+        return {}
+    if st.st_mtime != _usage_cache["mtime"]:
+        try:
+            d = json.loads(_USAGE_FILE.read_text(encoding="utf-8"))
+            _usage_cache["data"] = d if isinstance(d, dict) else {}
+        except Exception:
+            _usage_cache["data"] = {}
+        _usage_cache["mtime"] = st.st_mtime
+    return _usage_cache["data"]
+
+
+def role_usage_tools(agent: str) -> Set[str]:
+    """Outils appelés >= N fois sur la fenêtre (snapshot produit par
+    tools/forge_scope_role_mesure.py) : ils rejoignent le groupe du rôle. Fail-open (vide)."""
+    try:
+        d = _load_usage()
+        n_min = int(os.environ.get("LAFORGE_TOOL_SCOPE_USAGE_MIN") or d.get("min_calls") or _USAGE_MIN_DEFAUT)
+        calls = (d.get("usage") or {}).get(str(agent or "").upper()) or {}
+        return {t for t, n in calls.items() if int(n) >= n_min}
+    except Exception:
+        return set()
+
+
 # ── Scope PAR DÉFAUT dérivé du système (Agent Policier — ferme le bypass opt-out) ──
 # Le périmètre attendu d'un agent NE doit PAS dépendre de sa bonne volonté (SCOPE_SET
 # opt-in + TTL). Fallback system-owned : agent_profiles.specialites -> MÊME router que
@@ -305,6 +383,11 @@ def _normaliser(txt: str) -> Set[str]:
     return {m.strip() for m in plat.split(" ") if m.strip()}
 
 
+# Score minimal du gagnant lexical : un mot isole (ex. « exploration ») est trop
+# faible pour restreindre un agent ; il en faut au moins deux concordants.
+_LEXICAL_SCORE_MIN = 2
+
+
 def _route_lexicale(spec: str) -> Optional[str]:
     """Groupe designe par les mots-clefs, ou None si ce n'est pas net.
 
@@ -317,8 +400,8 @@ def _route_lexicale(spec: str) -> Optional[str]:
         return None
     scores = {g: len(mots & lex) for g, lex in _LEXIQUE_GROUPES.items()}
     meilleur = max(scores.values()) if scores else 0
-    if meilleur == 0:
-        return None
+    if meilleur < _LEXICAL_SCORE_MIN:
+        return None  # un seul mot faible ne decide pas : abstention, liste pleine
     gagnants = [g for g, s in scores.items() if s == meilleur]
     if len(gagnants) != 1:
         return None  # ambigu : on s'abstient plutot que de trancher au hasard
@@ -326,9 +409,17 @@ def _route_lexicale(spec: str) -> Optional[str]:
     return groupe if groupe in TOOL_GROUPS else None
 
 
-def role_scope_for(agent: str, embed_fn=None) -> Optional[Set[str]]:
+def role_scope_for(agent: str, embed_fn=None, base_only: bool = False) -> Optional[Set[str]]:
     """Scope attendu dérivé du profil système (specialites -> router). Cache TTL.
-    None = non dérivable (pas de profil / embedder down / confiance faible) -> fail-open."""
+    None = non dérivable (pas de profil / embedder down / confiance faible) -> fail-open.
+    `base_only` : sans les outils ajoutés par l'usage réel (mesure des régressions)."""
+    base = _role_scope_base(agent, embed_fn)
+    if base is None or base_only:
+        return base
+    return base | role_usage_tools(agent)
+
+
+def _role_scope_base(agent: str, embed_fn=None) -> Optional[Set[str]]:
     if not agent:
         return None
     key = str(agent).upper()
@@ -392,6 +483,8 @@ def expected_scope_for(agent: str, embed_fn=None) -> tuple:
     declared = active_tools_for(agent)
     if declared:
         return declared, "declared"
+    if full_view_requested(agent):
+        return None, "declared_all"
     role = role_scope_for(agent, embed_fn=embed_fn)
     if role:
         # La source NOMME la methode : un perimetre obtenu par repli lexical dit
@@ -409,6 +502,13 @@ def set_scope(agent: str, intent: str, embed_fn=None) -> Dict[str, Any]:
         return {"intent_code": "ERR_NO_AGENT"}
     if not (intent or "").strip():
         return {"intent_code": "ERR_NO_INTENT"}
+    if str(intent).strip().lower() in _FULL_INTENTS:
+        data = dict(_load_state())
+        data[agent] = {"group": "all", "tools": [], "full": True,
+                       "intent": "all", "confidence": 1.0, "ts": time.time()}
+        _save_state(data)
+        _notify_list_changed(agent, "set:all")
+        return {"intent_code": "SCOPE_FULL", "scope": "full", "ttl_s": _TTL_S}
     try:
         group, score = _router(embed_fn).route(intent)
     except Exception as e:  # embedder down -> liste pleine, jamais bloquer
@@ -436,6 +536,27 @@ def set_scope(agent: str, intent: str, embed_fn=None) -> Dict[str, Any]:
     }
 
 
+def set_scope_groupe(agent: str, groupe: str) -> Dict[str, Any]:
+    """Scope DETERMINISTE par groupe connu (aucun embedder) -- pour un executeur qui sait deja ce que la tache demande.
+
+    30/10 (owner, chasse aux tokens) : une tache AGY taille S coutait 132 k tokens d'entree, le catalogue MCP complet
+    repartant a chaque tour ; `set_scope` passait par le routeur semantique (embedder souvent endormi -> liste pleine).
+    Groupe inconnu -> refus DIT, rien n'est ecrit."""
+    agent = str(agent or "").upper()
+    if not agent:
+        return {"intent_code": "ERR_NO_AGENT"}
+    if groupe not in TOOL_GROUPS:
+        return {"intent_code": "ERR_GROUPE_INCONNU", "groupe": groupe, "connus": sorted(TOOL_GROUPS)}
+    tools = sorted(set(TOOL_GROUPS[groupe]))
+    data = dict(_load_state())
+    data[agent] = {"group": groupe, "tools": tools, "intent": "groupe:%s" % groupe, "confidence": 1.0,
+                   "ts": time.time()}
+    _save_state(data)
+    _notify_list_changed(agent, "set:%s" % groupe)
+    return {"intent_code": "SCOPE_SET", "group": groupe, "n_tools": len(set(tools) | set(CORE_TOOLS)),
+            "ttl_s": _TTL_S}
+
+
 def clear_scope(agent: str, notify: bool = True) -> Dict[str, Any]:
     agent = str(agent or "").upper()
     data = dict(_load_state())
@@ -454,6 +575,10 @@ def scope_status(agent: str) -> Dict[str, Any]:
     if not entry:
         return {"intent_code": "SCOPE_STATUS", "scoped": False}
     age = time.time() - float(entry.get("ts", 0))
+    if entry.get("full"):
+        return {"intent_code": "SCOPE_STATUS", "scoped": False, "group": "all",
+                "full": bool(age <= _TTL_S) if _TTL_S else True,
+                "age_s": int(age), "ttl_s": _TTL_S}
     return {
         "intent_code": "SCOPE_STATUS",
         "scoped": bool(age <= _TTL_S) if _TTL_S else True,

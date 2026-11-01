@@ -19,10 +19,10 @@ exécute chaque phase (parallel = fan-out ; pipeline = chaîne, sortie N -> entr
 synthétise, persiste. Routeur de planif = forge_orchestration_gate.classify (voie DEPORT).
 
 ANTI-DUP : réutilise forge_resolver (pré-vol), forge_agent_proxy.ask (agents), run_job
-(déportation, via submit). forge_dag_runner (deps arbitraires) = Phase 2. forge_swarm_debate
+(déportation, via ecrire_plan). forge_dag_runner (deps arbitraires) = Phase 2. forge_swarm_debate
 et forge_roadmap_synth deviennent des PLANS soumis ici.
 
-Phase 1 (ce fichier) = run_plan (exécution, déportable) + submit (déport run_job) + selftest
+Phase 1 (ce fichier) = run_plan (exécution, déportable) + ecrire_plan (écrit le plan, ne lance rien) + selftest
 (ask injectable, 0 réseau). CLI : forge_workflow.py --plan <fichier.json> (lancé en run_job).
 """
 from __future__ import annotations
@@ -141,8 +141,11 @@ def ecrire_plan(plan: dict, *, online: bool = True, notify: str = "CLAUDE") -> d
 
 
 def submit(plan: dict, *, online: bool = True, notify: str = "CLAUDE") -> dict:
-    """Ancien nom de `ecrire_plan`, gardé tant qu'un appelant l'importe (forge_orchestration_gate,
-    module juge : sa bascule appartient à son auteur). N'a jamais lancé de job."""
+    """DÉPRÉCIÉ : ancien nom de `ecrire_plan`. N'a jamais lancé de job ; avertit (DeprecationWarning) pour
+    qu'un appelant resté sur l'ancien nom le voie. Aucun appelant du dépôt ne l'utilise plus (22/10)."""
+    import warnings
+    warnings.warn("forge_workflow.submit est déprécié : utiliser ecrire_plan (il écrit le plan, "
+                  "il ne lance rien)", DeprecationWarning, stacklevel=2)
     return ecrire_plan(plan, online=online, notify=notify)
 
 
@@ -190,8 +193,8 @@ def _selftest() -> int:
     chk(res["sections"] == ["P1", "P2"], f"phases exécutées: {res['sections']}")
     chk("P1" in res["body"] and "P2" in res["body"], "body contient les 2 phases")
     chk("### D" in res["result"], "résultat final contient la sortie du dernier agent de pipeline")
-    s = submit(plan)
-    chk("plan_path" in s and Path(s["plan_path"]).exists(), "submit écrit le plan (déport)")
+    s = ecrire_plan(plan)
+    chk("plan_path" in s and Path(s["plan_path"]).exists(), "ecrire_plan écrit le plan (sans le lancer)")
     print(f"selftest: {ok}/{total} OK")
     return 0 if ok == total else 1
 

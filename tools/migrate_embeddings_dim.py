@@ -60,8 +60,10 @@ def migrate(db_path: Path, dry_run: bool, batch_size: int = 50):
         if new_vec is None or len(new_vec) != 1024:
             failed += 1
             continue
+        # Binaire float32 = forme CANONIQUE (owner 29/10 : fin du JSON, 5x plus gros)
+        from nokido_agent.app.forge_embed_router import encode_blob
         conn.execute(
-            "UPDATE rag_chunks SET embedding=? WHERE id=?", (json.dumps(new_vec), chunk_id)
+            "UPDATE rag_chunks SET embedding=? WHERE id=?", (encode_blob(new_vec), chunk_id)
         )
         migrated += 1
         if migrated % batch_size == 0:

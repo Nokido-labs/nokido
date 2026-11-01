@@ -65,7 +65,10 @@ ACTIONS_PANNEAU = ("start", "stop", "restart", "restart-hub", "status",
                    # Tailscale (2026-09-29) : seule la session owner peut le piloter.
                    "tailscale-statut", "funnel-ouvrir", "funnel-fermer",
                    # Mode DEV (2026-10-16) : console administrateur, l'UAC est le geste owner.
-                   "dev-armer", "audio-relancer")
+                   "dev-armer")
+# 31/10 (owner) : « audio-relancer » RETIRE du tray -- la fuite de handles d'audiodg venait de l'APO Razer 7.1
+# (RZSurroundApo.dll), Razer desinstalle par l'owner ; pente mesuree +1,1 handles/min (30 min) puis 463 handles a 12:41.
+# L'ordre et l'action restent au panneau (nokido_launcher, UAC) si la fuite revenait.
 MARQUE_SVG = ROOT / "app" / "web_hub" / "static" / "nokido-mark-light.svg"
 TRAY_DEJA_ACTIF = 3  # code de sortie d'une seconde instance, lu par nokido_launcher._start_tray
 
@@ -367,8 +370,9 @@ def _python_console() -> str:
 
 
 def lancer_panneau(action: str, origine: str = "menu") -> bool:
-    """`Nokido Control Panel.bat --action <action>` dans une console VISIBLE (`cmd /k` :
-    elle reste ouverte, l'owner lit l'issue). Rend False, et le DIT, si rien n'est lance."""
+    """`Nokido Control Panel.bat --action <action>` dans une console VISIBLE. Owner 30/10 :
+    la fenetre se FERME quand l'action reussit (`cmd /c`) ; un echec la garde ouverte
+    (`|| pause`), l'owner lit l'erreur. Rend False, et le DIT, si rien n'est lance."""
     if action not in ACTIONS_PANNEAU:
         _notify(f"Action inconnue du panneau : {action}")
         return False
@@ -377,9 +381,9 @@ def lancer_panneau(action: str, origine: str = "menu") -> bool:
         return False
     ligne = subprocess.list2cmdline([str(PANNEAU_BAT), "--action", action])
     try:
-        # Guillemets EXTERIEURS : cmd /k retire le premier et le dernier guillemet de la
+        # Guillemets EXTERIEURS : cmd /c retire le premier et le dernier guillemet de la
         # ligne ; sans eux, le chemin du lanceur (« Script python IA ») serait coupe.
-        subprocess.Popen(f'cmd.exe /k "{ligne}"', cwd=str(ROOT),
+        subprocess.Popen(f'cmd.exe /c "{ligne} || pause"', cwd=str(ROOT),
                          creationflags=subprocess.CREATE_NEW_CONSOLE)
     except Exception as e:
         _notify(f"Panneau non lancé ({action}) : {e}")
@@ -565,7 +569,31 @@ def _prendre_ordre():
     if action not in ACTIONS_PANNEAU:
         _notify(f"Ordre {ordre.get('id')} ignoré : action inconnue {action!r}")
         return
+    if ordre.get("a_valider"):
+        # Owner 30/10 : l'ordre demande par le CLI pilote se VALIDE ici, dans une fenetre ; rien sans le Oui.
+        if not _valider_par_fenetre(ordre):
+            _notify(f"Ordre {ordre.get('id')} ({action}) NON validé : rien n'est exécuté")
+            return
+        lancer_panneau(action, origine=f"ordre {ordre.get('id')} de {ordre.get('demandeur')}, validé par fenêtre")
+        return
     lancer_panneau(action, origine=f"ordre {ordre.get('id')} de {ordre.get('demandeur')}, confirmé par l'owner")
+
+
+def _valider_par_fenetre(ordre: dict) -> bool:
+    """Fenetre Oui/Non au premier plan pour un ordre `a_valider` (owner 30/10). Seul Oui rend True ; une fenetre
+    impossible a ouvrir rend False et le DIT : jamais une execution sans validation."""
+    try:
+        import ctypes
+
+        texte = ("Nokido demande : %s\nDemandé par %s%s\n\nValider cet ordre ?"
+                 % (ordre.get("action"), ordre.get("demandeur") or "?",
+                    (" : %s" % ordre.get("raison")) if ordre.get("raison") else ""))
+        # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST ; IDYES = 6
+        rep = ctypes.windll.user32.MessageBoxW(None, texte, "Nokido — ordre à valider", 0x4 | 0x20 | 0x10000 | 0x40000)
+        return rep == 6
+    except Exception as exc:  # noqa: BLE001 - fenetre impossible = NON, et le dire
+        _notify(f"Fenêtre de validation impossible ({type(exc).__name__}) : ordre {ordre.get('id')} NON exécuté")
+        return False
 
 
 def _quit(icon, item):
@@ -589,7 +617,9 @@ def _relancer_si_perime(action: str) -> bool:
     16/10 (bb:active_bugs/tray_jamais_recharge_et_mode_dev_illisible_20261016) : le stop epargne le tray et le
     lanceur s'arrete sur l'instance unique (code 3) -- le tray de 06:23 a survecu a deux relances sans jamais
     recharger son code. La nouvelle instance attend la sortie de celle-ci (`--attendre-pid`) pour prendre le mutex."""
-    if action not in ("start", "restart"):
+    # 30/10 : TOUTE action de panneau, pas seulement start/restart -- l'owner n'utilise que « Restart HUB seul » ;
+    # le tray de 09:11 n'a donc jamais recharge 66a76c36e (cmd /c) et sa fenetre restait ouverte.
+    if action not in ACTIONS_PANNEAU:
         return False
     perimes = _code_perime()
     icon = _state.get("_icon")
@@ -729,9 +759,6 @@ def _build_menu(icon) -> pystray.Menu:
         pystray.MenuItem(f"Mode DEV : {_state.get('mode_dev') or '?'}", None, enabled=False),
         # le geste passe par le PANNEAU (calque) : console administrateur, l'UAC est le geste owner
         pystray.MenuItem("🔓 Armer le mode DEV (30 min, UAC)", _panneau("dev-armer")),
-        # 2b36b46a3 declarait l'action sans geste au menu (calque rompu, CI de reference e6642dcf1) : remede hors corps
-        # audiodg propose par le resource_manager, l'UAC est le geste owner.
-        pystray.MenuItem("🔊 Relancer le service audio Windows (UAC)", _panneau("audio-relancer")),
         *autorite,
         pystray.Menu.SEPARATOR,
         # Agents : presence REELLE (porte + hub) et provenance, plus la liste figee de get_mode

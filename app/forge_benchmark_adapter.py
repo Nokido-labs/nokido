@@ -40,6 +40,56 @@ def swebench_cache_dir() -> Path:
     return Path(os.environ.get("SWEBENCH_CACHE_DIR") or (swebench_dir().parent / "swebench_cache"))
 
 
+# Validite d'une MESURE (owner 26/10). Mesure : HumanEval « 7,3 % » = 152 llm_error sur 164 (les 12 cas executes ont
+# tous reussi), BFCL date du 31/05, cognitif du 14/08 -- et eval_fitness proposait des correctifs sur ces chiffres.
+AGE_MAX_JOURS = 30.0      # au-dela, le score decrit un corps qui n'existe plus
+SEUIL_PANNE = 0.5         # part des cas perdus par panne de fournisseur au-dela de laquelle ce n'est plus une mesure
+_PANNES = ("llm_error", "provider_error", "api_error", "timeout", "rate_limit", "quota")
+# MEMES motifs que les lecteurs de latest_scores (defauts « * ») : on juge le fichier qui a donne le score.
+_SOURCES = {
+    "humaneval": "humaneval/humaneval_*_*.json",
+    "bfcl": "bfcl/bfcl_*_*_*.json",
+    "swebench": "eval_*_*.json",
+    "cognitif": "cognitive/cognitive_*.json",
+}
+
+
+def validite_mesure(banc: str, now: float | None = None) -> dict:
+    """{valide, raison, age_j, fichier} : un score n'est une MESURE que s'il est FRAIS et pas DOMINE par des pannes.
+
+    ABSENT / ILLISIBLE / PERIME / NON_MESURE -> valide False, raison dite ; jamais un score tenu pour vrai par defaut."""
+    import time as _time
+
+    motif = _SOURCES.get(banc)
+    if motif is None:
+        return {"valide": False, "raison": "INCONNU : banc %r sans source declaree" % banc}
+    base = swebench_dir() if banc == "swebench" else RAG
+    try:
+        files = list(base.glob(motif))
+    except Exception as e:  # noqa: BLE001 - dossier illisible
+        return {"valide": False, "raison": "ILLISIBLE : %s" % type(e).__name__}
+    if not files:
+        return {"valide": False, "raison": "ABSENT : aucun resultat %s" % motif}
+    f = max(files, key=lambda p: p.stat().st_mtime)
+    age_j = round(((now or _time.time()) - f.stat().st_mtime) / 86400, 1)
+    out = {"fichier": f.name, "age_j": age_j}
+    try:
+        doc = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        return {**out, "valide": False, "raison": "ILLISIBLE : %s (%s)" % (f.name, type(e).__name__)}
+    if age_j > AGE_MAX_JOURS:
+        return {**out, "valide": False, "raison": "PERIME : %s j > %s j (%s)" % (age_j, AGE_MAX_JOURS, f.name)}
+    res = doc.get("results") if isinstance(doc.get("results"), list) else []
+    n = int(doc.get("n_total") or len(res) or 0)
+    raisons = doc.get("fail_reasons") or {}
+    pannes = sum(int(v or 0) for k, v in raisons.items() if any(p in str(k).lower() for p in _PANNES))
+    pannes = max(pannes, sum(1 for r in res if any(p in str((r or {}).get("reason", "")).lower() for p in _PANNES)))
+    if n and pannes / n >= SEUIL_PANNE:
+        return {**out, "valide": False,
+                "raison": "NON_MESURE : %d/%d cas perdus par panne de fournisseur (%s)" % (pannes, n, f.name)}
+    return {**out, "valide": True, "raison": "mesure fraiche (%s j)" % age_j}
+
+
 def _latest(glob: str, key: str, base: Path | None = None):
     try:
         files = list((base or RAG).glob(glob))

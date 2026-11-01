@@ -54,7 +54,7 @@ MUTATING_TOOLS = frozenset({
     "run", "write", "edit", "governed_edit", "apply_patch", "nokido_ensure_service",
     "manage_forge_lifecycle", "forge_spawn_swarm", "plan", "execute", "bundle",
     "trigger_autonomous_evolution", "dyn_orchestrate", "orchestrate", "loop_orchestrate",
-    "forge_call_dynamic", "task", "agy_run", "agy_config", "docker_action",
+    "forge_call_dynamic", "task", "agy_run", "agy_config", "acp", "docker_action",
 })
 
 # Seuils RSP-ASL : tool -> niveau de clairance MINIMUM requis. ASL courant >= requis.

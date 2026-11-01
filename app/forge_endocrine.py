@@ -159,6 +159,9 @@ DEFAULT_HALF_LIVES = {
     "DOPAMINE_SUCCESS": 1800,  # 30 min
     "CORTISOL_FRUSTRATION": 3600,  # 1h — échecs dialogue (forge_motivation.punish)
     "DIALOGUE_SATISFACTION": 1800,  # 30 min — réussite dialogue (AXE 8)
+    # Palier de pression RAM publie par Hamilton (owner 24/10, bareme a 4 paliers) ; re-emis toutes les 60 s,
+    # le recepteur tient un signal de plus de 300 s pour PERIME (INCONNU, jamais CALME).
+    "NORADRENALINE_PRESSION_RAM": 600,  # 10 min
 }
 
 # ── RÉCEPTEURS : qui CONSOMME chaque hormone ─────────────────────────────────
@@ -199,6 +202,7 @@ RECEPTORS: dict[str, tuple[str, ...]] = {
     "CORTISOL_FRUSTRATION": ("app/forge_novelty_search.py", "app/forge_persona_engine.py"),
     "ADRENALINE_HUB_PRESSURE": (),
     "DIALOGUE_SATISFACTION": (),
+    "NORADRENALINE_PRESSION_RAM": ("tools/forge_task_executor.py",),
 }
 
 # Une absence de récepteur ASSUMÉE doit être motivée, sinon on ne distingue pas

@@ -1,3 +1,8 @@
+# Mise a jour 2026-10-30 : adaptation suite au commit 305711086 (2026-10-28) qui ajoute
+# pour l'action stop une lecture prealable de l'etat (port_avant = _etat_service(...),
+# effectuant GET /supervisor/status) puis une verification d'effet (_verifier_effet).
+# Le faux _call simule desormais un /supervisor/status avec NokidoNR arrete et port libre,
+# et les attentes d'appels directs incluent le GET prealable pour stop.
 """NR -- 2b-5 : forge_supervisor_ctl hors SYSTEM passe par le hub (decision owner 2026-09-28).
 
 Mesure (journal de recensement) : `forge_supervisor_ctl`, lance sous un compte bac a
@@ -51,7 +56,17 @@ def ctl(monkeypatch):
     _FauxHub.appels = []
     _FauxHub.reponse = '{"success": true}'
     directs = []
-    monkeypatch.setattr(mod, "_call", lambda path, method="GET": (directs.append((method, path)) or (200, "ok")))
+
+    def _faux_call(path, method="GET"):
+        directs.append((method, path))
+        if path.startswith("/supervisor/status"):
+            # Etat plausible tel que _etat_service et _verifier_effet le lisent :
+            # service NokidoNR arrete, port declare (9999) libre.
+            return 200, '{"services": {"NokidoNR": {"status": "stopped", "port": 9999}}}'
+        return 200, "ok"
+
+    monkeypatch.setattr(mod, "_call", _faux_call)
+    monkeypatch.setattr(mod, "_port_ouvert", lambda port: False)
     mod._directs_nr = directs
     return mod
 
@@ -76,7 +91,9 @@ def test_hors_system_une_mutation_passe_par_le_hub(ctl, monkeypatch, action, eta
     monkeypatch.setattr("sys.argv", ["forge_supervisor_ctl.py", action, "NokidoNR"])
     assert ctl.main() == 0
     assert _FauxHub.appels == [("nokido_ensure_service", {"service": "NokidoNR", "desired_state": etat})]
-    assert not ctl._directs_nr, "appel direct au superviseur alors que le hub a repondu"
+    # stop lit prealablement l'etat (305711086) via GET /supervisor/status sans muter en direct
+    directs_attendus = [("GET", "/supervisor/status")] if action == "stop" else []
+    assert ctl._directs_nr == directs_attendus, "appel direct au superviseur alors que le hub a repondu"
 
 
 def test_hub_injoignable_transition_directe_dite(ctl, monkeypatch, capsys):
@@ -84,7 +101,9 @@ def test_hub_injoignable_transition_directe_dite(ctl, monkeypatch, capsys):
     _FauxHub.reponse = None
     monkeypatch.setattr("sys.argv", ["forge_supervisor_ctl.py", "stop", "NokidoNR"])
     assert ctl.main() == 0
-    assert ctl._directs_nr == [("POST", "/supervisor/service/stop/NokidoNR")]
+    # stop lit prealablement l'etat (305711086) avant la tentative hub puis le repli direct
+    assert ctl._directs_nr == [("GET", "/supervisor/status"),
+                               ("POST", "/supervisor/service/stop/NokidoNR")]
     assert "TRANSITION" in capsys.readouterr().out
 
 
@@ -111,6 +130,8 @@ def test_sous_system_et_status_restent_directs(ctl, monkeypatch):
     monkeypatch.setattr(ctl, "_sous_system", lambda: False)
     monkeypatch.setattr("sys.argv", ["forge_supervisor_ctl.py", "status"])
     ctl.main()
-    assert ctl._directs_nr == [("POST", "/supervisor/service/stop/NokidoNR"),
+    # stop lit prealablement l'etat (305711086) puis mute en direct ; status lit l'etat
+    assert ctl._directs_nr == [("GET", "/supervisor/status"),
+                               ("POST", "/supervisor/service/stop/NokidoNR"),
                                ("GET", "/supervisor/status")]
     assert not _FauxHub.appels

@@ -28,6 +28,7 @@ __FORGE_COLOR__ = "infra/config : pose les composants natifs epingles (llama.cpp
 
 import argparse
 import hashlib
+import importlib.util
 import os
 import platform
 import shutil
@@ -43,7 +44,8 @@ ROOT = Path(__file__).resolve().parent.parent
 WIN = os.name == "nt"
 EXE = ".exe" if WIN else ""
 DL = ROOT / "runtime" / "dl"
-COMPOSANTS = ("deno", "llama", "qdrant", "caddy", "ollama", "dispatcher", "modeles", "connaissances", "jetons")
+COMPOSANTS = ("deno", "llama", "qdrant", "caddy", "ollama", "dispatcher", "modeles", "connaissances", "jetons",
+              "reglage_gpu")
 
 _PREREQUIS = None
 
@@ -78,9 +80,43 @@ def refus_chiffrement() -> dict | None:
     return prerequis().refus_chiffrement()
 
 
+def refus_perime() -> dict | None:
+    """Refus consigne mais perime (30 jours) : la garde redemande."""
+    return prerequis().refus_perime()
+
+
 def consigner_refus_chiffrement(motif: str):
     """Ecrit la fiche du refus explicite — appele UNIQUEMENT derriere `--sans-chiffrement`."""
     return prerequis().consigner_refus_chiffrement(motif)
+
+
+EXECUTEUR = subprocess.run  # substituable par les tests : aucune installation reelle sous NR
+
+
+def systeme_nom() -> str:
+    return platform.system()
+
+
+def installer_chiffrement() -> tuple[bool, str]:
+    """Provisionnement OPT-IN (drapeau --installer-chiffrement) : reutilise provisionner_chiffrement, qui n'agit
+    qu'en CI ; ici le drapeau explicite fournit l'environnement CI. La commande est AFFICHEE avant d'etre jouee,
+    puis chiffrement_present() est resonde."""
+    spec = importlib.util.spec_from_file_location("forge_install_acceptance_prov",
+                                                  ROOT / "tools" / "forge_install_acceptance.py")
+    acc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(acc)
+
+    def annonce(cmd, **kw):
+        print("commande de provisionnement du chiffrement : %s" % " ".join(cmd))
+        return EXECUTEUR(cmd, **kw)
+    res = acc.provisionner_chiffrement(systeme_nom(), executer=annonce, env={"CI": "true"})
+    if not res.get("tente"):
+        return False, "aucune commande (%s)" % res.get("raison")
+    if res.get("rc") != 0:
+        return False, "commande en echec rc=%s %s" % (res.get("rc"), res.get("raison"))
+    if not chiffrement_present():
+        return False, "commande jouee (rc=0) mais chiffrement toujours ABSENT a la resonde"
+    return True, "chiffrement pose"
 
 
 def plateforme() -> str:
@@ -301,9 +337,164 @@ def poser_jetons(dl: Path = DL) -> tuple:
     return rc == 0 and rc2 == 0, "semis rc %s ; jeton %s %s ; %s" % (rc, AGENT_LOCAL, etat, out[-240:])
 
 
+# ── Reglage GPU automatique (29/10, GO owner) : proposer() promu, applique a la distribution ─────────────────────
+# Retour arriere : retirer la cle OLLAMA_IGPU_ENABLE (et les autres cles posees) du bloc NokidoOllama du services.toml
+# INSTALLE, puis recreer chaque fiche depuis runtime/reglage_gpu/fiche_avant_<modele>.json (POST /api/create avec les
+# parametres sauvegardes). Le services.toml du DEPOT de developpement n'est jamais ecrit.
+def _parametres_fiche(texte: str) -> dict:
+    """/api/show `parameters` (« cle   valeur » par ligne) -> dict ; `stop` repete -> liste."""
+    import json as _j
+    out: dict = {}
+    for ligne in (texte or "").splitlines():
+        p = ligne.strip().split(None, 1)
+        if len(p) != 2:
+            continue
+        k, v = p
+        if v.startswith('"'):
+            v = _j.loads(v)
+        else:
+            try:
+                v = int(v)
+            except ValueError:
+                try:
+                    v = float(v)
+                except ValueError:  # muet-ok : valeur non numerique conservee telle quelle (texte)
+                    pass
+        if k in out:
+            out[k] = (out[k] if isinstance(out[k], list) else [out[k]]) + [v]
+        else:
+            out[k] = v
+    return out
+
+
+def _bloc_ollama(lignes: list) -> tuple:
+    """(debut_nom, fin_exclu, index_ligne_env|None) du bloc [[service]] NokidoOllama."""
+    deb = next((i for i, l in enumerate(lignes) if l.strip().replace(" ", "") == 'name="NokidoOllama"'), None)
+    if deb is None:
+        raise ValueError("bloc NokidoOllama absent du services.toml")
+    fin = next((i for i in range(deb + 1, len(lignes)) if lignes[i].startswith("[[")), len(lignes))
+    env = next((i for i in range(deb, fin) if lignes[i].lstrip().startswith("env") and "{" in lignes[i]), None)
+    return deb, fin, env
+
+
+def _env_ollama(services: Path) -> dict:
+    lignes = services.read_text(encoding="utf-8").splitlines()
+    _, _, ie = _bloc_ollama(lignes)
+    return tomllib.loads(lignes[ie].strip())["env"] if ie is not None else {}
+
+
+def _refuser_depot_de_dev(services: Path) -> None:
+    if services.resolve() == (ROOT / "proxy_deno" / "core" / "services.toml").resolve() and (ROOT / ".git").exists():
+        raise ValueError("services.toml du depot de developpement : jamais ecrit par l'installation")
+
+
+def _http_ollama(chemin: str, charge: dict) -> dict:
+    import json as _j
+    hote = os.environ.get("OLLAMA_HOST") or "127.0.0.1:11434"
+    base = hote if hote.startswith("http") else "http://" + hote
+    req = urllib.request.Request(base.rstrip("/") + chemin, data=_j.dumps(charge).encode(),
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=600) as r:
+        return _j.loads(r.read() or b"{}")
+
+
+def appliquer_reglage_gpu(proposition: dict, services: Path, http=None, journal: Path | None = None) -> dict:
+    """Applique {env, num_gpu_par_modele, motifs} : env -> services.toml INSTALLE, num_gpu -> fiches (/api/create,
+    parametres existants CONSERVES, fiche d'avant sauvegardee). Idempotent. Rien a regler -> rien d'ecrit, motif dit."""
+    import json as _j
+    services = Path(services)
+    _refuser_depot_de_dev(services)
+    http = http or _http_ollama
+    journal = Path(journal) if journal else ROOT / "runtime" / "reglage_gpu"
+    motifs = list(proposition.get("motifs") or [])
+    res = {"env_ecrit": [], "fiches": [], "motifs": motifs, "inchange": True}
+    env = proposition.get("env") or {}
+    if env:
+        lignes = services.read_text(encoding="utf-8").splitlines()
+        _, fin, ie = _bloc_ollama(lignes)
+        actuel = tomllib.loads(lignes[ie].strip())["env"] if ie is not None else {}
+        nouveau = {k: str(v) for k, v in env.items() if actuel.get(k) != str(v)}
+        if nouveau:
+            fusion = {**actuel, **nouveau}
+            ligne = "env = { %s }" % ", ".join("%s = %s" % (k, _j.dumps(v)) for k, v in fusion.items())
+            if ie is None:
+                lignes.insert(fin, ligne)
+            else:
+                lignes[ie] = ligne
+            services.write_text("\n".join(lignes) + "\n", encoding="utf-8")
+            res["env_ecrit"] = sorted(nouveau)
+            res["inchange"] = False
+            motifs.append("services.toml installe : cles posees %s" % sorted(nouveau))
+    for modele, ng in (proposition.get("num_gpu_par_modele") or {}).items():
+        try:
+            params = _parametres_fiche(http("/api/show", {"model": modele}).get("parameters", ""))
+        except Exception as e:  # noqa: BLE001 -- fiche illisible : on ne touche pas, motif dit
+            motifs.append("fiche de %s illisible (%s) : num_gpu non applique" % (modele, type(e).__name__))
+            continue
+        if params.get("num_gpu") == ng:
+            continue
+        journal.mkdir(parents=True, exist_ok=True)
+        (journal / ("fiche_avant_%s.json" % modele.replace(":", "_").replace("/", "_"))).write_text(
+            _j.dumps({"model": modele, "parameters": params}, ensure_ascii=False, indent=1), encoding="utf-8")
+        http("/api/create", {"model": modele, "from": modele, "parameters": {**params, "num_gpu": ng}, "stream": False})
+        res["fiches"].append(modele)
+        res["inchange"] = False
+        motifs.append("fiche %s : num_gpu %s (parametres conserves)" % (modele, ng))
+    if not env and not proposition.get("num_gpu_par_modele"):
+        motifs.append("aucun reglage a appliquer")
+    return res
+
+
+def verifier_reglage_gpu(proposition: dict, services: Path, http=None, journal_ollama: str | None = None) -> dict:
+    """Recette du livrable : (a) services.toml installe contient la proposition ; (b) fiches portent num_gpu attendu ;
+    (c) library=Vulkan vu au journal d'Ollama quand l'iGPU est active. Ecart = FAIL."""
+    http = http or _http_ollama
+    ecarts = []
+    try:
+        actuel = _env_ollama(Path(services))
+    except Exception as e:  # noqa: BLE001
+        actuel = {}
+        ecarts.append("services.toml illisible (%s)" % type(e).__name__)
+    for k, v in (proposition.get("env") or {}).items():
+        if actuel.get(k) != str(v):
+            ecarts.append("(a) %s attendu %s, installe %s" % (k, v, actuel.get(k)))
+    for modele, ng in (proposition.get("num_gpu_par_modele") or {}).items():
+        try:
+            vu = _parametres_fiche(http("/api/show", {"model": modele}).get("parameters", "")).get("num_gpu")
+        except Exception as e:  # noqa: BLE001
+            vu = "illisible (%s)" % type(e).__name__
+        if vu != ng:
+            ecarts.append("(b) %s num_gpu attendu %s, vu %s" % (modele, ng, vu))
+    if (proposition.get("env") or {}).get("OLLAMA_IGPU_ENABLE") == "1":
+        if journal_ollama is None or "library=Vulkan" not in journal_ollama:
+            ecarts.append("(c) library=Vulkan absent du journal d'Ollama")
+    return {"etat": "FAIL" if ecarts else "PASS", "ecarts": ecarts,
+            "detail": "; ".join(ecarts) or "proposition presente, fiches conformes"}
+
+
+def poser_reglage_gpu(dl: Path = DL) -> tuple:
+    """Poseur : proposer() sur la machine cible -> services.toml installe + fiches. GPU inconnu / modeles illisibles :
+    aucun reglage, motif dit."""
+    try:
+        from nokido_agent.app.forge_host_capabilities import proposer
+    except ImportError:
+        spec = importlib.util.spec_from_file_location("forge_host_capabilities", ROOT / "app" / "forge_host_capabilities.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        proposer = mod.proposer
+    prop = proposer()["proposition"]
+    res = appliquer_reglage_gpu(prop, ROOT / "proxy_deno" / "core" / "services.toml")
+    journal = ROOT / "runtime" / "reglage_gpu"
+    journal.mkdir(parents=True, exist_ok=True)
+    import json as _j
+    (journal / "proposition.json").write_text(_j.dumps({"proposition": prop, "resultat": res}, ensure_ascii=False,
+                                                         indent=1), encoding="utf-8")
+    return True, {"env_ecrit": res["env_ecrit"], "fiches": res["fiches"], "motifs": res["motifs"][-6:]}
+
+
 POSEURS = {"llama": poser_llama, "qdrant": poser_qdrant, "caddy": poser_caddy, "ollama": poser_ollama,
            "dispatcher": construire_dispatcher, "modeles": poser_modeles, "connaissances": poser_connaissances,
-           "deno": poser_deno, "jetons": poser_jetons}
+           "deno": poser_deno, "jetons": poser_jetons, "reglage_gpu": poser_reglage_gpu}
 
 
 def desinstaller(purger: bool = False) -> int:
@@ -336,6 +527,9 @@ def main(argv=None) -> int:
     ap.add_argument("--sans-chiffrement", action="store_true",
                     help="refus EXPLICITE du chiffrement at-rest : la decision est consignee (date, compte, motif) "
                          "puis l'installation continue")
+    ap.add_argument("--installer-chiffrement", action="store_true",
+                    help="provisionne VeraCrypt (windows/macos) ou cryptsetup (linux) AVANT la garde : la commande est "
+                         "affichee puis jouee, jamais d'installation sans ce drapeau")
     ap.add_argument("--motif-refus", default="",
                     help="motif du refus, ecrit avec --sans-chiffrement : un refus sans raison ecrite n'est pas une "
                          "decision")
@@ -351,10 +545,23 @@ def main(argv=None) -> int:
     # Garde chiffrement at-rest (decision owner 20/10) : TOUJOURS avant le premier poseur — un composant pose en
     # clair apres un autre n'est deja plus corrigeable proprement. La desinstallation n'est jamais soumise a la garde.
     fiche_refus = refus_chiffrement()
+    if a.installer_chiffrement and not chiffrement_present():
+        ok_inst, detail_inst = installer_chiffrement()
+        if not ok_inst:
+            print("--installer-chiffrement ECHEC : %s ; installation ARRETEE avant tout poseur." % detail_inst,
+                  file=sys.stderr)
+            return 2
     if not chiffrement_present() and not fiche_refus:
         if not a.sans_chiffrement:
+            vieux = refus_perime()
+            if vieux:
+                print("refus du chiffrement at-rest PERIME : prononce le %s, echeance le %s (duree %s jours). "
+                      "Chiffrez, ou renouvelez avec --sans-chiffrement et un motif." % (
+                          vieux.get("date"), vieux.get("echeance"), prerequis().DUREE_REFUS_JOURS),
+                      file=sys.stderr)
             print("chiffrement at-rest ABSENT (VeraCrypt ou cryptsetup) et aucun refus consigne : installation "
-                  "ARRETEE avant tout poseur. Installez VeraCrypt (windows/macos) ou cryptsetup (linux), ou "
+                  "ARRETEE avant tout poseur. Installez VeraCrypt (windows/macos) ou cryptsetup (linux), "
+                  "demandez le provisionnement avec --installer-chiffrement, ou "
                   "prononcez un refus explicite avec --sans-chiffrement (il sera consigne : date, compte, motif).",
                   file=sys.stderr)
             return 2

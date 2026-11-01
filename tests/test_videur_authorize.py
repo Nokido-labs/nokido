@@ -19,7 +19,12 @@ def _iso(monkeypatch):
 
 
 def _auth(tool):
-    return vid.authorize("CLAUDE", token="x", local=True, tool=tool, agent_tokens={}, hub_token="")
+    # MISE A JOUR DU CONTRAT (2026-10-22) : rouge car token="x" sans agent_tokens => via=header,
+    # plafonne a _HEADER_FLOOR_RING=4 (8291bf257 « fix(videur): fail-closed identity +
+    # anti-spoof header », 2026-06-15). Durcissement voulu, pas regression : on presente
+    # un jeton valide pour CLAUDE (via=token). Aucun ring n'est monte.
+    return vid.authorize("CLAUDE", token="x", local=True, tool=tool,
+                         agent_tokens={"CLAUDE": "x"}, hub_token="")
 
 
 def test_allow_when_ring_le_needed(monkeypatch):

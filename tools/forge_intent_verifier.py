@@ -25,6 +25,15 @@ hors vocabulaire ubiquitaire du projet (`nokido`, `forge`, `hub`...) : ces mots-
 matchent partout et feraient passer n'importe quoi pour livre. La lecon des 99
 faux positifs de la journee est ecrite ici : ne jamais conclure sur un terme
 generique.
+
+MODE MEMOIRE (owner 21/10) : `--memoire --dist <clone du dist public>`
+--------------------------------------------------------------------
+Les regles de la MEMOIRE de session (feedback, decisions, gotchas) ne sont ni
+suivies dans alpha ni livrees dans le dist : elles ne vivent que dans le RAG
+local (sources `memory:<fiche>`). Ce mode leslit (RAG en LECTURE SEULE, plan
+verifie) et les confronte au CORPS DISTRIBUE — pas au depot de travail : la
+question est « la regle est-elle LIVREE ? ». Meme moteur de verdict que le
+reste du module, jamais un second.
 """
 import json
 import re
@@ -95,22 +104,41 @@ def _fichiers():
             yield f, rel
 
 
-def _index():
-    """terme -> set(chemins). Une seule passe sur le depot."""
+def _indexe(paires) -> tuple:
+    """terme -> set(chemins), UNE seule passe. Moteur PARTAGE : `_index()` (le depot)
+    et `index_de()` (une liste donnee) ne peuvent pas diverger — deux indexeurs
+    finiraient par donner deux verdicts au meme enonce, et personne ne saurait
+    lequel croire."""
     idx: dict = {}
     n = 0
-    for f, rel in _fichiers():
-        try:
-            txt = f.read_text(encoding="utf-8", errors="replace").lower()
-        except OSError:
-            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_intent_verifier.py', 105, exc_info=True)
-            continue
+    for rel, txt in paires:
         n += 1
-        for t in set(_RE_TOK.findall(txt)):
+        for t in set(_RE_TOK.findall(str(txt or "").lower())):
             if t in _BANNIS:
                 continue
             idx.setdefault(t, set()).add(rel)
     return idx, n
+
+
+def _index():
+    """terme -> set(chemins). Une seule passe sur le depot."""
+    paires = []
+    for f, rel in _fichiers():
+        try:
+            txt = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_intent_verifier.py', 105, exc_info=True)
+            continue
+        paires.append((rel, txt))
+    return _indexe(paires)
+
+
+def index_de(fichiers: dict) -> tuple:
+    """Le MEME index que `_index()`, mais sur une liste DONNEE : {chemin: texte}.
+
+    C'est ce qui permet de juger une regle contre le CORPS DISTRIBUE (un clone
+    public) sans reecrire la mecanique d'indexation."""
+    return _indexe((str(c), str(t or "")) for c, t in (fichiers or {}).items())
 
 
 # PONTS DE VOCABULAIRE. L'owner demande en francais courant, le code s'ecrit en
@@ -307,12 +335,15 @@ def _enonces() -> list:
 
 
 def _capture_db():
-    """Base des tours captures EN DIRECT par les clients (cli_capture_lib.DB), ou None si illisible."""
+    """Base qui porte `agent_messages` (tours captures EN DIRECT par les clients), ou None si illisible.
+
+    22/10 : la table vit dans la base M2M (interrupteur global sandbox/m2m.switch) -- on la resout par
+    `forge_db_path.m2m_path()`, jamais par un chemin propre a un module (cliquet test_m2m_hors_embeddings_nr)."""
     try:
-        from nokido_agent.tools import cli_capture_lib
-        return cli_capture_lib.DB
+        from nokido_agent.app.forge_db_path import m2m_path
+        return m2m_path()
     except Exception as e:
-        print("[registre] base de capture introuvable (%s %s)" % (type(e).__name__, e), flush=True)
+        print("[registre] base M2M introuvable (%s %s)" % (type(e).__name__, e), flush=True)
         return None
 
 
@@ -534,6 +565,8 @@ def main() -> int:
     # signature reste accessible via --signatures, mais il ne repond pas a la
     # question posee. (Accessoirement, `run_job` ne transmet pas script_args :
     # un mode utile qui depend d'un drapeau ne serait jamais joue en detache.)
+    if "--memoire" in sys.argv:
+        return _main_memoire()
     if "--registre" in sys.argv:
         return _main_registre()
     if "--signatures" not in sys.argv:
@@ -639,7 +672,12 @@ def _verdicts(ens: list, idx: dict, nfic: int) -> tuple:
             rares.append(t)
             for c in f:
                 porteurs[c] = porteurs.get(c, 0) + 1
-        ancrage = sorted([c for c, n in porteurs.items() if n >= 2])
+        # 30/10 : « 2 termes rares dans un meme fichier » ancrait TOUT (750/750 regles memoire sur 6 452 fichiers :
+        # CHANGELOG.md, app/Nokido.py portent deux termes rares de n'importe quelle fiche). Un fichier n'ancre qu'en
+        # portant une PART du vocabulaire de l'enonce (30 %, au moins 2) -- un terme ABSENT du corps compte contre
+        # l'ancrage, il n'est pas ignore ; les enonces courts (<= 6 termes) gardent le seuil 2.
+        seuil = max(2, -(-len(termes) * 3 // 10))
+        ancrage = sorted([c for c, n in porteurs.items() if n >= seuil])
         ident = [t for t in rares if _RE_IDENT.match(t)]
         v = ("ANCRE" if (ancrage and ident) else "PRESENT" if ancrage
              else "PARTIEL" if rares else "ABSENT")
@@ -652,6 +690,236 @@ def _verdicts(ens: list, idx: dict, nfic: int) -> tuple:
             r["surfaces"] = list(e["surfaces"])
         res.append(r)
     return res, compte
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# ANCRAGE DES REGLES DE LA MEMOIRE DANS LE CORPS DISTRIBUE (owner 21/10)
+# Mesure du 21/10 : la memoire de session (feedback, decisions, gotchas, references) n'est NI suivie dans alpha
+# NI livree dans le dist ; elle n'est versee qu'au RAG LOCAL (783 sources `memory:<fiche>`, domaine
+# episodic_memory). Exemple paye : la route du tray (commande_faite) n'etait connue que d'elle (corrige 0d72726c1).
+# Owner : « plein de regles de fonctionnement vont echapper a un CLI agnostique ? il faut combler absolument ce
+# manque ». Question posee ici : cette regle est-elle LAISSEE dans le corps distribue ?
+#
+# Meme moteur que le reste du module (verdicts ANCRE/PRESENT/PARTIEL/ABSENT de `_verdicts`) : un second moteur
+# divergerait, et la divergence des 99 faux positifs du 12/08 a deja ete payee.
+# ---------------------------------------------------------------------------------------------------------------
+
+# Ce qui n'est PAS une regle : l'index lui-meme (MEMORY et son archive MEMORY_*), les index thematiques
+# (index_*) et les journaux de reprise (reprise_*). Ecarter sans DIRE faussifierait la couverture : le nombre
+# de sources ecartees est rendu. Sur les 1 199 fiches du corpus reel : 3 index, 36 index_*, 57 reprise_*.
+_MEMOIRE_ECARTEE = ("MEMORY", "index_", "reprise_")
+
+# La fiche qui porte la regle ne peut PAS etre sa propre preuve : on retire du corpus de preuve tout fichier
+# sous un dossier `memory/`, sinon une regle se prouverait en existant (le piege du _SKIP, encore).
+_DOSSIER_MEMOIRE = "memory"
+
+
+def _nom_fiche(source: str) -> str:
+    s = str(source or "")
+    return s[len("memory:"):] if s.startswith("memory:") else s
+
+
+def _est_ecartee(source: str) -> bool:
+    nom = _nom_fiche(source)
+    return any(nom == pref or nom.startswith(pref) for pref in _MEMOIRE_ECARTEE)
+
+
+def regles_de_la_memoire(lignes: list) -> tuple:
+    """Les REGLES de la memoire : UNE par fiche `memory:<nom>`, textes concatenes dans l'ordre.
+
+    `lignes` : [(source, texte)] — les chunks RAG des fiches.
+    Rend (regles, ecartees) : regles = [{source, texte}], ecartees = nombre de SOURCES ecartees
+    (l'index MEMORY, les index_*, les reprise_* : ce sont des sommaires et des journaux, pas des regles)."""
+    vues: dict = {}
+    for source, texte in lignes or []:
+        s = str(source or "")
+        if not s.startswith("memory:") or _est_ecartee(s):
+            continue
+        vues.setdefault(s, []).append(str(texte or ""))
+    regles = [{"source": s, "texte": "\n".join(t for t in textes if t)}
+              for s, textes in vues.items()]
+    ecartees = len({str(s) for s, _ in (lignes or []) if s and _est_ecartee(s)})
+    return regles, ecartees
+
+
+def _est_fiche_memoire(chemin: str) -> bool:
+    """Le chemin est-il SOUS un dossier `memory/` ? Une fiche n'est jamais sa propre preuve."""
+    parts = str(chemin or "").replace("\\", "/").split("/")
+    return _DOSSIER_MEMOIRE in parts[:-1]
+
+
+def ancrage_memoire(regles: list, fichiers_distribues: dict) -> dict:
+    """Chaque regle de la memoire, confrontée au CORPS DISTRIBUE (pas au depot de travail).
+
+    Les fichiers sous `memory/` sont retires DU PREMIER COUP : une fiche memoire prouverait qu'elle existe,
+    pas qu'elle est respectee. Le verdict est celui de `_verdicts` — un seul moteur.
+
+    Rend {"verdicts": [{source, verdict, termes_rares, fichiers_ancrage}], "compte": {...}, "ecartees"} ;
+    `ecartees` = nombre de fichiers retires parce qu'ils sont sous `memory/`."""
+    retenus: dict = {}
+    ecartees = 0
+    for chemin, texte in (fichiers_distribues or {}).items():
+        if _est_fiche_memoire(chemin):
+            ecartees += 1
+            continue
+        retenus[str(chemin)] = str(texte or "")
+    idx, nfic = index_de(retenus)
+    ens = [{"texte": r.get("texte") or "", "occurrences": 1} for r in (regles or [])]
+    res, compte = _verdicts(ens, idx, nfic)
+    verdicts = [{"source": r.get("source"), "verdict": v["verdict"],
+                 "termes_rares": v["termes_rares"], "fichiers_ancrage": v["fichiers_ancrage"]}
+                for r, v in zip(regles or [], res)]
+    return {"verdicts": verdicts, "compte": compte, "ecartees": ecartees}
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# CLI : --memoire --dist <chemin du clone du dist public>
+# ---------------------------------------------------------------------------------------------------------------
+_SQL_MEMOIRE = ("SELECT source, text FROM rag_chunks "
+                "WHERE source >= 'memory:' AND source < 'memory;'")
+ANCRAGE_OUT = ROOT / "sandbox" / "workspace" / "ancrage_memoire.json"
+
+
+def _arg(nom: str) -> str:
+    """Valeur d'un drapeau : `--nom valeur` ou `--nom=valeur`."""
+    argv = sys.argv
+    for i, a in enumerate(argv):
+        if a == nom and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith(nom + "="):
+            return a.split("=", 1)[1]
+    return ""
+
+
+def _uri_ro(chemin: str) -> str:
+    """URI SQLite de LECTURE SEULE, percée pour un chemin qui contient des espaces."""
+    p = Path(str(chemin))
+    try:
+        return p.as_uri() + "?mode=ro"
+    except ValueError:
+        return "file:%s?mode=ro" % p.as_posix().replace(" ", "%20")
+
+
+def _lignes_memoire() -> tuple:
+    """(lignes, refus) — les chunks `memory:` du RAG, en LECTURE SEULE.
+
+    Le PLAN est verifie AVANT l'execution : la lecture doit passer par l'index sur
+    `source` (SEARCH ... USING INDEX idx_rag_source). Un plan qui balayerait la
+    table serait refuse et DIT — pas execute en silence sur 50 Go.
+
+    La base est celle du CORPS (`forge_db_path.db_path()`), jamais la copie du
+    depot de travail : un worktree sans redirection porte un stub de 64 Ko, et
+    mesurer dessus rendrait « aucune regle » la. Un stub est donc REFUSE et
+    nomme (pointeur : LAFORGE_DB)."""
+    import sqlite3
+    try:
+        from nokido_agent.app.forge_db_path import db_path
+    except Exception as exc:
+        return None, "forge_db_path indisponible (%s)" % type(exc).__name__
+    chemin = db_path()
+    try:
+        con = sqlite3.connect(_uri_ro(chemin), uri=True, timeout=30)
+    except Exception as exc:
+        return None, "base RAG ILLISIBLE (%s : %s) — %s" % (type(exc).__name__, exc, chemin)
+    try:
+        plan = " | ".join(r[3] for r in con.execute("EXPLAIN QUERY PLAN " + _SQL_MEMOIRE))
+        if "USING INDEX" not in plan or "SCAN rag_chunks" in plan:
+            return None, "plan non indexe sur source (%s) — lecture refusee sur %s" % (plan, chemin)
+        if con.execute("SELECT 1 FROM rag_chunks LIMIT 1").fetchone() is None:
+            return None, "base RAG SANS CHUNK (%s) — stub de worktree ? pointez LAFORGE_DB" % chemin
+        lignes = con.execute(_SQL_MEMOIRE).fetchall()
+    except Exception as exc:
+        return None, "lecture RAG impossible sur %s (%s : %s)" % (chemin, type(exc).__name__, exc)
+    finally:
+        con.close()
+    return [(str(s), str(t or "")) for s, t in lignes], None
+
+
+def _fichiers_distribues(dist: str) -> dict:
+    """Les fichiers du CORPS DISTRIBUE (clone public), lus depuis HEAD.
+
+    Le corpus de preuve est ce que le public TELECHARGE, pas le depot de travail :
+    c'est precisement la question posee — « la regle est-elle livree ? »."""
+    import subprocess
+
+    def _git(args):
+        try:
+            p = subprocess.run(["git", "-c", "safe.directory=*", "-C", dist] + args,
+                               capture_output=True, timeout=120)
+        except Exception as exc:
+            return 1, "", "%s: %s" % (type(exc).__name__, exc)
+        return p.returncode, p.stdout.decode("utf-8", "replace"), p.stderr.decode("utf-8", "replace")
+
+    rc, out, err = _git(["ls-tree", "-r", "--name-only", "HEAD"])
+    if rc != 0:
+        print("[memoire] ls-tree ECHEC (rc=%s) : %s" % (rc, (err or "").strip()[:160]), flush=True)
+        return None
+    fichiers: dict = {}
+    for ligne in out.splitlines():
+        chemin = ligne.strip()
+        if not chemin or Path(chemin).suffix.lower() not in _EXT:
+            continue
+        rc2, txt, _ = _git(["show", "HEAD:%s" % chemin])
+        if rc2 != 0:
+            continue
+        fichiers[chemin] = txt
+        if len(fichiers) % 500 == 0:
+            print("[memoire] %d fichier(s) distribue(s) lus..." % len(fichiers), flush=True)
+    return fichiers
+
+
+def _main_memoire() -> int:
+    """Les regles de la memoire, confrontées au corps distribue (mode --memoire)."""
+    import time
+    dist = _arg("--dist")
+    if not dist:
+        print("[memoire] REFUS : --dist <chemin du clone du dist public> est obligatoire", flush=True)
+        return 2
+    lignes, refus = _lignes_memoire()
+    if lignes is None:
+        print("[memoire] REFUS : %s — aucune mesure rendue" % refus, flush=True)
+        return 3
+    regles, ecartees = regles_de_la_memoire(lignes)
+    print("[memoire] %d ligne(s) RAG, %d regle(s), %d source(s) ecartee(s)"
+          % (len(lignes), len(regles), ecartees), flush=True)
+    print("[memoire] lecture du corps distribue : %s" % dist, flush=True)
+    fichiers = _fichiers_distribues(dist)
+    if fichiers is None:
+        print("[memoire] REFUS : clone distribue illisible (%s) — aucune mesure rendue" % dist, flush=True)
+        return 3
+    print("[memoire] %d fichier(s) distribue(s) lus" % len(fichiers), flush=True)
+    r = ancrage_memoire(regles, fichiers)
+
+    textes = {x["source"]: x["texte"] for x in regles}
+    print("\n" + "=" * 70)
+    print("  REGLES DE LA MEMOIRE CONFRONTEES AU CORPS DISTRIBUE")
+    print("=" * 70)
+    for k in ("ANCRE", "PRESENT", "PARTIEL", "ABSENT"):
+        print("  %-8s %5d" % (k, r["compte"].get(k, 0)))
+    print("  %-8s %5d  (fichiers sous memory/ retires : une fiche n'est jamais sa propre preuve)"
+          % ("ecartees", r["ecartees"]))
+    print("  %-8s %5d  (sources memoire ecartees : index et journaux)" % ("hors.regles", ecartees))
+    cibles = [v for v in r["verdicts"] if v["verdict"] in ("ABSENT", "PARTIEL")]
+    cibles.sort(key=lambda v: -len(textes.get(v["source"], "")))
+    print("\n--- ABSENT / PARTIEL : les 30 regles les plus longues ---")
+    for v in cibles[:30]:
+        print("  %-7s %-46s %s" % (v["verdict"], v["source"][:46],
+                                   (textes.get(v["source"], "")[:70] or "").replace("\n", " ")))
+
+    # L'ecriture vient EN DERNIER : une mesure non persistee se dit, elle ne se
+    # cache pas derriere un rapport affiche comme ecrit.
+    try:
+        ANCRAGE_OUT.parent.mkdir(parents=True, exist_ok=True)
+        ANCRAGE_OUT.write_text(json.dumps(
+            {"compte": r["compte"], "ecartees": r["ecartees"], "sources_ecartees": ecartees,
+             "dist": dist, "fichiers_distribues": len(fichiers), "regles": len(regles),
+             "genere_le": time.strftime("%Y-%m-%d %H:%M"),
+             "verdicts": r["verdicts"]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        print("\n  ECRITURE IMPOSSIBLE (%s : %s) — %s" % (type(exc).__name__, exc, ANCRAGE_OUT))
+        return 1
+    print("\n  ecrit : %s" % ANCRAGE_OUT)
+    return 0
 
 
 # ---------------------------------------------------------------------------------------------------------------

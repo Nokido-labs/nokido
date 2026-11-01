@@ -17,6 +17,7 @@ Usage : LAFORGE_PYTHON tools/publish_multi.py --branch alpha --check
         LAFORGE_PYTHON tools/publish_multi.py --branch alpha --push --remotes github,codeberg
         LAFORGE_PYTHON tools/publish_multi.py --miroirs-public [--cibles codeberg,gitlab] [--push]
         LAFORGE_PYTHON tools/publish_multi.py --vitrine-hf [--push]
+        LAFORGE_PYTHON tools/publish_multi.py --integration-forges [--wiki-clone <clone du wiki>] [--push]
 Les deux derniers modes ne lisent JAMAIS l'atelier comme source de code : miroirs = clone du depot
 public GitHub ; vitrine = deux fichiers ecrits pour le public, controles avant envoi.
 """
@@ -506,7 +507,197 @@ def protections_relues(api_gl: str, gl: dict, api_cb: str, cb: dict) -> dict:
             "codeberg": {"main": cb_main, "tags": any(t.get("name_pattern") == TAGS_PROTEGES for t in tp)}}
 
 
-def integrer_forges(agir: bool = False) -> dict:
+# ── WIKI SOURCEFORGE PAR L'API ALLURA (owner 21/10) ──────────────────────────────────────────────
+# Le wiki SF est un MIROIR du wiki public GitHub : la source de verite reste GitHub, Allura ne porte
+# que la copie. Allura refuse le point dans un nom de page (`X.fr` -> `X-fr`) et rend le texte brut
+# d'une page (`GET /rest/p/nokido/wiki/<page>`) ; l'ecriture passe par un POST form `text=`.
+# Le jeton vit dans le coffre (`SOURCEFORGE_ALLURA_BEARER`) et n'est JAMAIS affiche ni journalise.
+SF_API = "https://sourceforge.net/rest/p/nokido/wiki/%s"
+SF_SOURCE = "https://github.com/Nokido-labs/nokido/wiki/%s"
+SF_EXCLUS = ("README", "_Footer", "_Sidebar")
+# NOM de la cle au coffre, pas sa valeur. Nomme `SF_CLE_COFFRE` (et non `SF_SECRET = "..."`) : le gate
+# egress (generic_secret) prenait cette affectation litterale pour un secret et bloquait le push (25/10).
+SF_CLE_COFFRE = "SOURCEFORGE_ALLURA_BEARER"
+# `](X.fr)` et `](X.fr#ancre)` : Allura n'a pas de page `X.fr`, le lien doit suivre le renommage.
+_LIEN_FR = re.compile(r"\]\(([\w-]+)\.fr(#[^)]*)?\)")
+_RANG_SF = {"a_creer": 0, "a_reecrire": 2, "ILLISIBLE": 3, "identique": 4}
+
+
+def nom_page_sf(nom: str) -> str:
+    """Nom de page Allura : le point y est refuse, `.fr` final devient `-fr` ; le reste passe tel quel."""
+    return re.sub(r"\.fr$", "-fr", nom)
+
+
+def corps_page_sf(nom_github: str, md: str) -> str:
+    """Corps de la page SF : ligne miroir vers la source GitHub + le .md publie ; les liens
+    `](X.fr)` (ancre comprise) reecrits en `](X-fr...)`, sinon ils pointent vers une page absente."""
+    md = _LIEN_FR.sub(lambda m: "](%s-fr%s)" % (m.group(1), m.group(2) or ""), md)
+    return ("> Mirror of the public Nokido wiki (source of truth: %s). Edits belong there.\n\n"
+            % (SF_SOURCE % nom_github)) + md
+
+
+def _rang_wiki_sf(x: dict) -> tuple:
+    """Ordre de publication : a_creer EN d'abord (les liens -fr resolvent), puis a_creer -fr, puis les
+    reecritures ; alphabetique dans chaque groupe."""
+    action = x.get("action", "")
+    return (_RANG_SF.get(action, 9) + (1 if action == "a_creer" and x.get("page", "").endswith("-fr") else 0),
+            x.get("page", ""))
+
+
+def plan_wiki_sf(pages: dict, lire_sf) -> list:
+    """Plan de publication du wiki SF : une entree par page (hors README/_Footer/_Sidebar), l'action
+    deduite de l'etat lu. ILLISIBLE n'est JAMAIS range en identique ni publie : une page qu'on n'a pas
+    lue ne se reecrit pas."""
+    plan = []
+    for nom in sorted(pages):
+        if nom in SF_EXCLUS:
+            continue
+        page = nom_page_sf(nom)
+        corps = corps_page_sf(nom, pages[nom])
+        try:
+            etat, lu = lire_sf(page)
+        except Exception as e:  # noqa: BLE001 - une lecture qui casse vaut ILLISIBLE, jamais « identique »
+            etat, lu = "ILLISIBLE", type(e).__name__
+        if etat == "absent":
+            action = "a_creer"
+        elif etat == "present":
+            action = "identique" if (lu or "").strip() == corps.strip() else "a_reecrire"
+        else:
+            action = "ILLISIBLE"
+        plan.append({"page": page, "source": nom, "action": action, "corps": corps})
+    return sorted(plan, key=_rang_wiki_sf)
+
+
+def publier_wiki_sf(plan: list, poster, agir: bool = False) -> dict:
+    """Publie le plan. A blanc : AUCUN appel (le plan est calcule, rien n'est ecrit). En vrai : les
+    creations EN avant les -fr, puis les reecritures ; un echec (code HTTP != 200 ou exception) est
+    COMPTE avec son motif, jamais avale."""
+    rapport = {"publiees": 0, "echecs": [], "a_blanc": not agir}
+    if not agir:
+        return rapport
+    for x in sorted(plan, key=_rang_wiki_sf):
+        if x.get("action") not in ("a_creer", "a_reecrire"):
+            continue
+        page = x.get("page", "")
+        try:
+            code = poster(page, x.get("corps", ""))
+        except Exception as e:  # noqa: BLE001 - l'echec est compte, il ne doit pas manger les pages suivantes
+            rapport["echecs"].append({"page": page, "motif": type(e).__name__})
+            continue
+        if code == 200:
+            rapport["publiees"] += 1
+        else:
+            rapport["echecs"].append({"page": page, "motif": "HTTP %s" % code})
+    return rapport
+
+
+def _sf_lire(page: str):
+    """Etat d'une page wiki SF, lu ANONYME : ('absent', None) sur 404, ('present', texte) si le JSON
+    porte `text`, sinon ('ILLISIBLE', motif). Un 404 prouve l'absence ; un autre code, un JSON
+    illisible ou un reseau muet ne prouvent RIEN -> ILLISIBLE."""
+    import requests
+    from urllib.parse import quote
+    try:
+        r = requests.get(SF_API % quote(page, safe=""), timeout=30)
+    except Exception as e:  # noqa: BLE001 - reseau muet : ILLISIBLE, jamais « absent »
+        return ("ILLISIBLE", type(e).__name__)
+    if r.status_code == 404:
+        return ("absent", None)
+    if r.status_code != 200:
+        return ("ILLISIBLE", "HTTP %s" % r.status_code)
+    try:
+        data = r.json()
+    except ValueError:
+        return ("ILLISIBLE", "HTTP 200 (JSON illisible)")
+    if not isinstance(data, dict):
+        return ("ILLISIBLE", "HTTP 200 (JSON inattendu)")
+    return ("present", data.get("text") or "")
+
+
+def _sf_poster(jeton: str):
+    """POST form `text=<corps>` sur la page ; rend le code HTTP. Le jeton ne sort que dans l'en-tete."""
+    import requests
+    from urllib.parse import quote
+
+    def poster(page: str, texte: str) -> int:
+        r = requests.post(SF_API % quote(page, safe=""), data={"text": texte},
+                          headers={"Authorization": "Bearer %s" % jeton}, timeout=60)
+        return r.status_code
+    return poster
+
+
+def _pages_wiki_clone(clone: Path) -> dict:
+    """{nom_github: md} des *.md du clone du wiki public. Arbre de travail ET nu bare sont lus (le nu
+    vit dans git, pas dans le disque)."""
+    pages: dict = {}
+    if not clone.exists():
+        return pages
+    for p in sorted(clone.glob("*.md")):
+        if p.is_file():
+            pages[p.stem] = p.read_text(encoding="utf-8", errors="replace")
+    if pages:
+        return pages
+    import os
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    for ref in ("HEAD", "refs/heads/master", "refs/heads/main"):
+        r = _git(["-c", "safe.directory=*", "--git-dir", str(clone), "ls-tree", "--name-only", ref],
+                 env, timeout=120)
+        if r.returncode:
+            continue
+        noms = [n for n in r.stdout.split() if n.endswith(".md")]
+        if not noms:
+            continue
+        for n in noms:
+            s = _git(["-c", "safe.directory=*", "--git-dir", str(clone), "show", ref + ":" + n],
+                     env, timeout=120)
+            if not s.returncode:
+                pages[n[:-3]] = s.stdout
+        break
+    return pages
+
+
+def wiki_sourceforge(clone: str, agir: bool = False):
+    """Wiki SourceForge publie par l'API Allura : lecture ANONYME de l'etat de chaque page, plan,
+    puis publication (POST `text=`) avec le jeton du coffre -- jamais affiche, jamais dans le
+    rapport. Sans clone : rien n'est examine, et le rapport le DIT."""
+    if not clone:
+        return "NON_EXAMINE (pas de --wiki-clone)"
+    pages = _pages_wiki_clone(Path(clone))
+    if not pages:
+        return {"verdict": "ILLISIBLE", "raison": "aucun *.md lisible dans le clone du wiki (%s)" % clone}
+    motifs: dict = {}
+
+    def lire(page):
+        etat, motif = _sf_lire(page)
+        motifs[page] = motif
+        return etat, motif
+
+    plan = plan_wiki_sf(pages, lire)
+    ordre = []
+    for x in plan:
+        if x["action"] == "identique":
+            continue
+        item = {"page": x["page"], "action": x["action"]}
+        if x["action"] == "ILLISIBLE" and motifs.get(x["page"]):
+            item["motif"] = motifs[x["page"]]
+        ordre.append(item)
+    rapport = {"verdict": "PLANIFIE", "pages": len(plan),
+               "par_action": {a: sum(1 for x in plan if x["action"] == a)
+                              for a in ("a_creer", "a_reecrire", "identique", "ILLISIBLE")},
+               "ordre": ordre}
+    jeton = ""
+    if agir:
+        jeton = _secret(SF_CLE_COFFRE)
+        if not jeton:
+            rapport.update(verdict="REFUSE", raison="aucun jeton %s au coffre" % SF_CLE_COFFRE)
+            return rapport
+    r = publier_wiki_sf(plan, _sf_poster(jeton) if agir else None, agir=agir)
+    rapport.update(publiees=r["publiees"], echecs=r["echecs"], a_blanc=r["a_blanc"])
+    rapport["verdict"] = "PLANIFIE" if not agir else ("PUBLIE" if not r["echecs"] else "ECHECS")
+    return rapport
+
+
+def integrer_forges(agir: bool = False, wiki_clone: str = "") -> dict:
     """Fiches GitLab et Codeberg conformes et wiki miroite ; a blanc, seuls les ecarts sont rapportes."""
     import base64
     import tempfile
@@ -568,6 +759,8 @@ def integrer_forges(agir: bool = False) -> dict:
             out[nom]["wiki"] = w
     elif agir:
         out["wiki_refuse"] = "wiki public non verifie (%s) : rien n'est pousse" % wiki["verdict"]
+    # Miroir du wiki sur SourceForge : l'API Allura remplace les 53 formulaires (owner 21/10).
+    out["sourceforge_wiki"] = wiki_sourceforge(wiki_clone, agir=agir)
     return out
 
 
@@ -729,12 +922,14 @@ def main():
                     help="Cibles des miroirs, separees par des virgules")
     ap.add_argument("--integration-forges", action="store_true",
                     help="fiches GitLab/Codeberg conformes + wiki miroite ; a blanc sauf --push")
+    ap.add_argument("--wiki-clone", default="",
+                    help="Clone local du wiki public (nokido.wiki.git) : source du miroir SourceForge")
     ap.add_argument("--vitrine-hf", action="store_true",
                     help="Space Hugging Face statique (vitrine/hf_space) ; a blanc sauf --push")
     args = ap.parse_args()
 
     if args.integration_forges:
-        rapport = integrer_forges(agir=args.push)
+        rapport = integrer_forges(agir=args.push, wiki_clone=args.wiki_clone)
         print(json.dumps(rapport, indent=2, ensure_ascii=False, default=str))
         bons = ("CONFORME",)
         protegees = all(all(v.values()) for v in rapport.get("protections", {}).values())

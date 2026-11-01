@@ -19,7 +19,6 @@
       "mcp__laforge-sovereign-hub__write",
       "Bash(curl -s http://127.0.0.1:8766/*)",
       "Bash(curl -s -m * http://127.0.0.1:8766/*)",
-      "Bash(curl -s -m * http://127.0.0.1:*)",
       "Bash(netstat -ano *)",
       "Bash(powershell -Command \"Get-Process *\")",
       "Bash(wsl --list *)",

@@ -56,6 +56,28 @@ def test_le_repli_saute_un_executeur_suspendu_meme_s_il_bat(tmp_path, monkeypatc
     assert T._reaffecter(row, "quota Codex du jour atteint (test)") == "WORKER_CODE"
 
 
+def test_le_repli_saute_un_opencode_dont_le_modele_est_epuise(tmp_path, monkeypatch):
+    # 30/10 : job_e1c7935d passee a OPENCODE_GPTOSS (groq gpt-oss consigne epuise TPD) -> echec 20 s, ping-pong.
+    row = _une_tache(tmp_path, monkeypatch, "OPENCODE_NEMOTRON")
+    monkeypatch.setattr(T, "_lire_registre", lambda: {"agents": {}})
+    monkeypatch.setattr(T, "_ORDRE_REPLI", ("OPENCODE_GPTOSS", "OPENCODE_GLM"))
+    monkeypatch.setattr(T, "_executeur_bat", lambda a, *k: True)
+    monkeypatch.setattr(T, "_instances_opencode", lambda: {
+        "OPENCODE_GPTOSS": {"modele": "groq/openai/gpt-oss-120b"},
+        "OPENCODE_GLM": {"modele": "zai/glm-4.6"}})
+    monkeypatch.setattr(T, "_modele_hors_quota", lambda f, m, *a, **k: "TPD epuise" if f == "groq" else None)
+    assert "TPD" in (T._opencode_hors_quota("OPENCODE_GPTOSS") or "")
+    assert T._opencode_hors_quota("OPENCODE_GLM") is None
+    assert T._reaffecter(row, "NON LIVRE (test)") == "OPENCODE_GLM"
+
+
+def test_un_repli_disponible_garde_l_instance_eligible(monkeypatch):
+    monkeypatch.setattr(T, "_instances_opencode", lambda: {
+        "OPENCODE_GPTOSS": {"modele": "groq/openai/gpt-oss-120b", "repli_modele": "mistral/codestral-latest"}})
+    monkeypatch.setattr(T, "_modele_hors_quota", lambda f, m, *a, **k: "TPD epuise" if f == "groq" else None)
+    assert T._opencode_hors_quota("OPENCODE_GPTOSS") is None
+
+
 def test_le_registre_reel_garde_l_historique_de_la_suspension_de_vibe():
     # 17/10 : MISTRAL suspendu (0 livraison sur 5). 20/10, decision owner : reactive pour un essai mesurable. La
     # suspension n'agit plus, mais son historique reste au registre (geler, jamais effacer) -- s'il ne livre pas, elle

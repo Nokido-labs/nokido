@@ -129,7 +129,7 @@ def _run_nokido(args: list, timeout: int = 15, env_extra: dict | None = None):
         env.update(env_extra)
     return subprocess.run(
         [sys.executable, "tools/nokido.py", *args],
-        cwd=str(ROOT), capture_output=True, text=True, timeout=timeout,
+        cwd=str(ROOT), capture_output=True, text=True, errors="replace", timeout=timeout,
         env=env,
     )
 

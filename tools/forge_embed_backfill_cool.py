@@ -135,7 +135,42 @@ def qdrant_upsert_best_effort(items):
         return 0
 
 
+# ETAT ENTRE REDEMARRAGES (owner 24/10). Reboot de 17:16 : le 1er lot a lu 8,4 Go en 3,5 min
+# pour un travail utile nul -- le curseur ne vivait qu'en memoire, vide apres un reboot, et le
+# lot retraversait les millions de SKIP_TIER restes dans `idx_embedding_null`. En fin d'index,
+# un tour complet repartait du debut. Desormais : curseur persiste ; passage `id` UNE fois, puis
+# mode `rowid` (seules les lignes inserees apres la borne). Repasser = supprimer le fichier.
+# Interrupteur : la presence de INTERRUPTEUR coupe le rattrapage, lu a chaque appel.
+# NR : tests/nr/test_backfill_curseur_persistant_nr.py
+_RACINE = Path(__file__).resolve().parents[1]
+CURSEUR_FICHIER = _RACINE / "sandbox" / "embed_backfill_curseur.json"
+INTERRUPTEUR = _RACINE / "sandbox" / "embed_backfill.off"
+
+
+def _etat_lire() -> dict:
+    import json as _json
+    try:
+        etat = _json.loads(CURSEUR_FICHIER.read_text(encoding="utf-8"))
+        return etat if isinstance(etat, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.warning(f"[curseur] etat illisible ({type(e).__name__}) : repart sans etat")
+        return {}
+
+
+def _etat_ecrire(etat: dict) -> None:
+    import json as _json
+    try:
+        CURSEUR_FICHIER.write_text(_json.dumps(etat), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[curseur] etat NON persiste ({type(e).__name__}: {e}) : le prochain reboot repartira")
+
+
 def backfill(limit, batch_size, sleep_between, cpu_max, ram_max, exclude_domains=None):
+    if INTERRUPTEUR.exists():
+        logger.info(f"[interrupteur] {INTERRUPTEUR.name} present : rattrapage coupe, aucune requete")
+        return {"processed": 0, "success": 0, "skipped": 0, "stopped": "interrupteur"}
     set_idle_priority()
     conn = sqlite3.connect(str(DB), timeout=60)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -164,8 +199,19 @@ def backfill(limit, batch_size, sleep_between, cpu_max, ram_max, exclude_domains
     # CURSEUR `id > dernier` : un chunk n'est lu qu'UNE fois. Sans lui, les SKIP_TIER (embedding
     # toujours NULL) etaient relus a chaque lot, et un lot que l'embedder ne vectorise pas etait
     # RE-SELECTIONNE en boucle jusqu'a `limit`. Garde d'un appel a l'autre dans le processus.
-    curseur = getattr(backfill, "_curseur", "")
-    reparti = False
+    # Index de TRAVAIL (tools/forge_index_travail_embed.py, cree de nuit) : sans les SKIP_*,
+    # prefere des qu'il existe ; sinon l'index historique.
+    _idx = ("idx_embed_a_faire" if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' AND name='idx_embed_a_faire'").fetchone()
+        else "idx_embedding_null")
+    etat = _etat_lire()
+    curseur = getattr(backfill, "_curseur", "") or etat.get("curseur", "")
+    mode = etat.get("mode", "id")
+    borne = etat.get("borne_rowid")
+    if mode == "id" and not curseur and borne is None:
+        # debut d'un passage : tout ce qui sera insere apres sera pris par rowid
+        borne = conn.execute("SELECT MAX(rowid) FROM rag_chunks").fetchone()[0] or 0
+        _etat_ecrire({"curseur": "", "mode": "id", "borne_rowid": borne})
 
     processed = 0
     success = 0
@@ -191,22 +237,38 @@ def backfill(limit, batch_size, sleep_between, cpu_max, ram_max, exclude_domains
         # NULL (645k) à CHAQUE boucle = batch 1.5s -> 4s+, et menaçait le drain pluripotent
         # borné sous timeout tick 90s. L'ordre d'embedding est indifférent (tout le backlog
         # est traité) -> scan-order = rapide.
-        rows = conn.execute(
-            "SELECT id, text FROM rag_chunks INDEXED BY idx_embedding_null WHERE embedding IS NULL "
-            "AND id > ? AND embedding_model IS NULL AND text IS NOT NULL AND length(text) > 50"
-            + _excl_sql + " ORDER BY id LIMIT ?",
-            (curseur, *_excl_args, batch_size),
-        ).fetchall()
+        if mode == "id":
+            rows = conn.execute(
+                "SELECT id, text FROM rag_chunks INDEXED BY " + _idx + " WHERE embedding IS NULL "
+                "AND id > ? AND embedding_model IS NULL AND text IS NOT NULL AND length(text) > 50"
+                + _excl_sql + " ORDER BY id LIMIT ?",
+                (curseur, *_excl_args, batch_size),
+            ).fetchall()
+        else:
+            _r = conn.execute(
+                "SELECT id, text, rowid FROM rag_chunks WHERE rowid > ? AND embedding IS NULL "
+                "AND embedding_model IS NULL AND text IS NOT NULL AND length(text) > 50"
+                + _excl_sql + " ORDER BY rowid LIMIT ?",
+                (borne, *_excl_args, batch_size),
+            ).fetchall()
+            if _r:
+                borne = _r[-1][2]
+            rows = [(r[0], r[1]) for r in _r]
         if not rows:
-            if curseur and not reparti:
-                # fin de l'index atteinte : UN seul tour depuis le debut (lignes inserees derriere)
-                curseur, reparti = "", True
+            if mode == "id":
+                # fin de l'index : JAMAIS de tour depuis le debut ; la suite = lignes apres la borne
+                mode = "rowid"
+                if borne is None:
+                    borne = conn.execute("SELECT MAX(rowid) FROM rag_chunks").fetchone()[0] or 0
+                _etat_ecrire({"curseur": curseur, "mode": mode, "borne_rowid": borne})
                 continue
-            backfill._curseur = ""
+            _etat_ecrire({"curseur": curseur, "mode": mode, "borne_rowid": borne})
             logger.info("done")
             break
-        curseur = rows[-1][0]
-        backfill._curseur = curseur
+        if mode == "id":
+            curseur = rows[-1][0]
+            backfill._curseur = curseur
+        _etat_ecrire({"curseur": curseur, "mode": mode, "borne_rowid": borne})
 
         # Throttle gate
         while True:

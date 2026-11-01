@@ -60,6 +60,13 @@ export interface ServiceDef {
    */
   heartbeat_tier?: "fast" | "normal" | "slow";
   /**
+   * Seuil de relance sur pouls perime DECLARE par le service (s). Jusqu'au 27/10 cette cle
+   * etait ecrite dans services.toml et lue par PERSONNE : seul le tier comptait (harness worker
+   * declare 90 s, relance a 3600 s). Le superviseur l'OBSERVE (journal des ecarts) ; il ne
+   * l'applique que si HEARTBEAT_MAX_S_ENFORCE=1 (gate neuf = non bloquant le temps du bruit).
+   */
+  heartbeat_max_s?: number;
+  /**
    * CONTRAT DE SANTE APPLICATIVE (2026-09-11). Chemin HTTP a interroger sur
    * `port` pour savoir si l'APPLICATION repond -- pas seulement si le socket
    * accepte. Sans ce champ, le service est HEALTH_UNKNOWN : un etat DIT, qui
@@ -235,6 +242,17 @@ export function loadServices(
         svc.env = {};
         for (const [k, v] of Object.entries(s.env)) svc.env[k] = rv(v);
       }
+      // Site utilisateur masque (P1_site_utilisateur_masque_env_certifie_20261021, decision owner 22/10 « par etapes,
+      // mesure ») : UNIQUEMENT l'interprete de BASE miniforge (${PYTHON} ; mesure : ONLY_USER = pipx, userpath, aucune
+      // version differente -> sans risque). ${PY314} / ${PY312_RYZEN} INCHANGES tant que les paquets ONLY_USER ne
+      // sont pas installes dans l'env (cf. rapport etape 2). Choix explicite du TOML (env deja pose / -s) respecte.
+      if (
+        (String(s.cmd ?? "").trim() === "${PYTHON}" || /(^|[\\/])miniforge3[\\/]python(\.exe)?$/i.test(svc.cmd)) &&
+        !svc.args.slice(0, 3).includes("-s")
+      ) {
+        svc.env = svc.env ?? {};
+        if (svc.env.PYTHONNOUSERSITE === undefined) svc.env.PYTHONNOUSERSITE = "1";
+      }
       if (Array.isArray(s.deps)) svc.deps = s.deps.map(Number);
       if (s.port != null) svc.port = Number(s.port);
       if (s.disabled) svc.disabled = true;
@@ -276,6 +294,9 @@ export function loadServices(
         s.heartbeat_tier === "slow"
       ) {
         svc.heartbeat_tier = s.heartbeat_tier;
+      }
+      if (typeof s.heartbeat_max_s === "number" && Number.isFinite(s.heartbeat_max_s) && s.heartbeat_max_s > 0) {
+        svc.heartbeat_max_s = s.heartbeat_max_s;
       }
 
       if (!svc.name || !Number.isFinite(svc.wave)) {

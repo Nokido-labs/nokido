@@ -697,17 +697,54 @@ def consigner_refus_chiffrement(motif: str) -> Path:
     return cible
 
 
-def refus_chiffrement() -> dict | None:
-    """La fiche de refus consigne, ou None.
+DUREE_REFUS_JOURS = 30  # decision owner 22/10 : un refus `--sans-chiffrement` expire, l'installation redemande
 
-    None = rien n'a ete consigne, fiche illisible, ou refus SANS MOTIF (un aveu
-    sans raison n'est pas une decision et ne leve rien).
-    """
+
+def _maintenant():
+    import datetime
+
+    return datetime.datetime.now()
+
+
+def _lire_refus() -> dict | None:
     try:
         fiche = json.loads(FICHIER_REFUS_CHIFFREMENT.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
     return fiche if isinstance(fiche, dict) and fiche.get("motif") else None
+
+
+def _echeance(fiche: dict):
+    """Echeance du refus, ou None si la date est illisible (=> perime, jamais valable par defaut)."""
+    import datetime
+
+    try:
+        return datetime.datetime.fromisoformat(fiche["date"]) + datetime.timedelta(days=DUREE_REFUS_JOURS)
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def refus_perime() -> dict | None:
+    """Fiche d'un refus consigne mais PERIME (> 30 j ou date illisible), avec `echeance`; sinon None."""
+    fiche = _lire_refus()
+    if fiche is None:
+        return None
+    ech = _echeance(fiche)
+    if ech is not None and _maintenant() <= ech:
+        return None
+    return dict(fiche, echeance=ech.isoformat(timespec="seconds") if ech else "illisible")
+
+
+def refus_chiffrement() -> dict | None:
+    """La fiche de refus consigne et ENCORE VALABLE, ou None.
+
+    None = rien n'a ete consigne, fiche illisible, refus SANS MOTIF (un aveu
+    sans raison n'est pas une decision), ou refus PERIME (30 jours, date illisible).
+    """
+    fiche = _lire_refus()
+    if fiche is None or refus_perime() is not None:
+        return None
+    return fiche
 
 
 def _cle_os() -> str:

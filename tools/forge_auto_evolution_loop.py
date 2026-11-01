@@ -10,7 +10,8 @@ import os
 import sys
 import time
 import urllib.request as _urllib_req
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 # --- amorce namespace (point d'entree) : la RACINE avant tout import nokido_agent,
 # sinon ModuleNotFoundError quand ce fichier est lance par son chemin.
@@ -19,7 +20,6 @@ from pathlib import Path as _Path_amorce
 _RACINE_AMORCE = str(_Path_amorce(__file__).resolve().parent.parent)
 if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
-from nokido_agent.app.forge_secrets import get_secret
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -93,8 +93,8 @@ except ImportError:
     tqdm = lambda x, **kw: x
 
 LAFORGE_ROOT = Path(__file__).resolve().parent.parent
-HUB_URL = "http://127.0.0.1:8766/mcp"
-HUB_TOKEN = get_secret("FORGE_MCP_TOKEN") or get_secret("LAFORGE_HUB_TOKEN") or ""
+# 25/10 : HUB_URL / HUB_TOKEN retires avec _hub_restart (seul usage) -- ne plus lire le jeton MAITRE
+# du coffre a l'import d'un daemon qui n'appelle plus le hub (moindre privilege).
 HEARTBEAT_GLOB = str(LAFORGE_ROOT / "sandbox" / "*.heartbeat")
 LESSONS_FILE = LAFORGE_ROOT / "logs" / "lessons_learned.md"
 STATE_FILE = LAFORGE_ROOT / "sandbox" / "auto_evolution.json"
@@ -105,10 +105,7 @@ LESSONS_INTERVAL = 1800  # 30 min lessons scan
 ERROR_WINDOW = 3600  # 1h error pattern window
 ERROR_THRESHOLD = 3
 
-# Gate anti-régression
-if str(LAFORGE_ROOT / "app") not in sys.path:
-    sys.path.insert(0, str(LAFORGE_ROOT))
-from nokido_agent.app.forge_guarded_change import guarded_change, hub_alive
+HEARTBEAT_STALE_S = 300  # 5 min : seuil d'observation (aucune action)
 
 
 def _load_state() -> dict:
@@ -130,52 +127,64 @@ def _save_state(state: dict):
     STATE_FILE.write_text(json.dumps(state, indent=2))
 
 
-def _hub_restart(service: str):
-    payload = json.dumps(
-        {
-            "method": "tools/call",
-            "params": {
-                "name": "run",
-                "arguments": {"action": "shell", "commands": [f"nssm restart {service}"]},
-            },
-        }
-    ).encode()
-    headers = {"Content-Type": "application/json", "X-Agent-Name": "AUTO_EVOLUTION"}
-    if HUB_TOKEN:
-        headers["Authorization"] = f"Bearer {HUB_TOKEN}"
-    # Gate : un restart de service peut tuer le hub -> post_check hub_alive,
-    # une régression détectée est ancrée (anchor_error) au lieu d'être muette.
-    with guarded_change(f"auto_evolution: restart {service}", post_check=hub_alive):
+def _to_epoch(value):
+    """ISO 8601 ou epoch -> epoch (float) ; None si illisible."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
         try:
-            req = _urllib_req.Request(HUB_URL, data=payload, headers=headers)
-            with _urllib_req.urlopen(req, timeout=10) as r:
-                print(f"  [restart] {service} → {r.status}")
-        except Exception as e:
-            print(f"  [ERR] restart {service}: {e}")
+            return float(s)
+        except ValueError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_evolution_loop.py', 140, exc_info=True)
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
 
 
 def check_heartbeats(state: dict):
+    """OBSERVATION seule : journalise les battements perimes, n'agit jamais."""
     now = time.time()
-    stale_threshold = now - 300  # 5 min
     files = glob.glob(HEARTBEAT_GLOB)
-    degraded = []
+    stale, unknown = [], []
 
     for fp in tqdm(files, desc="heartbeats", unit="file", leave=False):
+        name = Path(fp).stem
         try:
             data = json.loads(Path(fp).read_text())
-            ts = data.get("timestamp", 0)
-            err_rate = data.get("session_errors", 0) / max(data.get("session_embedded", 1), 1)
-            if ts < stale_threshold or err_rate > 0.10:
-                degraded.append(Path(fp).stem)
+            raw = data.get("ts", data.get("timestamp")) if isinstance(data, dict) else None
         except Exception:
-            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_auto_evolution_loop.py', 170, exc_info=True)
-
-    for svc in degraded:
-        print(f"  [stale/degraded] {svc} — triggering restart")
-        _hub_restart(svc)
+            raw = None
+        ts = _to_epoch(raw)
+        if ts is None:
+            unknown.append(name)
+            logger.info("[heartbeat] %s : INCONNU (cle ts/timestamp absente ou illisible)", name)
+        elif now - ts > HEARTBEAT_STALE_S:
+            stale.append(name)
+            logger.info("[heartbeat] %s : perime (%.0fs) — observation, aucune action", name, now - ts)
 
     state["last_heartbeat_check"] = now
-    print(f"Heartbeat check: {len(files)} files, {len(degraded)} degraded")
+    logger.info(
+        "Heartbeat check: %d files, %d stale, %d unknown", len(files), len(stale), len(unknown)
+    )
+
+
+_TITLE_RE = re.compile(r"^### \[([^\]]+)\]\s*(.*)$")
+
+
+def _entry_epoch(date_s: str, now: float):
+    """Date de l'entree -> epoch. Date seule = fin de journee, plafonnee a now."""
+    try:
+        if len(date_s) <= 10:
+            d = datetime.strptime(date_s, "%Y-%m-%d") + timedelta(days=1, seconds=-1)
+            return min(d.timestamp(), now)
+        return datetime.fromisoformat(date_s).timestamp()
+    except ValueError:
+        return None
 
 
 def scan_lessons(state: dict):
@@ -184,29 +193,40 @@ def scan_lessons(state: dict):
         return
 
     now = time.time()
-    last = state.get("last_lessons_scan", 0)
     lines = LESSONS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
 
+    seen = set(state.get("seen_errors", []))
     patterns = state.setdefault("error_patterns", {})
-    new_solutions = 0
+    new_errors = 0
+    in_window = {}  # cle -> epoch de l'entree
 
     for line in lines:
-        if line.startswith("### [") and "SOLUTION" in line:
-            # Extract short key from title
-            key = line[6:60].strip()
-            entry = patterns.setdefault(key, {"count": 0, "first_seen": now, "last_seen": now})
-            entry["count"] += 1
-            entry["last_seen"] = now
-            new_solutions += 1
+        m = _TITLE_RE.match(line)
+        if not m:
+            continue
+        date_s, title = m.group(1).strip(), m.group(2).strip()
+        up = title.upper()
+        if "SOLUTION" in up or not ("ERREUR" in up or "ERROR" in up):
+            continue
+        key = f"{date_s}|{title}"
+        ep = _entry_epoch(date_s, now)
+        if ep is None:
+            continue
+        if key not in seen:
+            seen.add(key)
+            new_errors += 1
+            patterns[key] = {"date": date_s, "epoch": ep}
+        if 0 <= now - ep < ERROR_WINDOW:
+            in_window[key] = ep
 
-    # Check for patterns with 3+ occurrences in last hour
-    hot = [
-        k
-        for k, v in patterns.items()
-        if v["count"] >= ERROR_THRESHOLD and (now - v["first_seen"]) < ERROR_WINDOW
-    ]
+    state["seen_errors"] = sorted(seen)
+    # ne propose qu'une fois par ensemble d'erreurs distinctes
+    proposed = set(state.get("proposed_errors", []))
+    fresh = [k for k in in_window if k not in proposed]
+    hot = list(in_window) if len(in_window) >= ERROR_THRESHOLD and fresh else []
 
     if hot:
+        state["proposed_errors"] = sorted(proposed | set(hot))
         ts = int(now)
         proposal = PROPOSALS_DIR / f"evolution_proposal_{ts}.md"
         lines_out = [
@@ -214,8 +234,7 @@ def scan_lessons(state: dict):
             f"\n## Detected {len(hot)} recurring error patterns\n",
         ]
         for k in hot:
-            v = patterns[k]
-            lines_out.append(f"- **{k}** — seen {v['count']}× in last hour")
+            lines_out.append(f"- **{k}** — distinct error in window")
         lines_out += [
             "\n## Suggested Actions",
             "- Review `logs/lessons_learned.md` for root causes",
@@ -227,7 +246,7 @@ def scan_lessons(state: dict):
         print(f"  [proposal] written: {proposal.name}")
 
     state["last_lessons_scan"] = now
-    print(f"Lessons scan: {new_solutions} entries, {len(hot)} hot patterns")
+    print(f"Lessons scan: {new_errors} new errors, {len(hot)} hot patterns")
 
 
 STALE_INTERVAL = 3600  # 1h stale file scan

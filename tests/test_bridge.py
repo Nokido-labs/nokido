@@ -2,7 +2,10 @@
 import sys, asyncio
 sys.path.insert(0, __import__("os").path.expanduser(r'~\Script python IA\LaForge'))
 
-from forge_exegol_bridge import get_bridge
+import pytest
+# 28/10 (owner : skip motive) : script de l'ancien projet LaForge, module disparu de Nokido ; sans ce garde
+# l'ImportError cassait la collecte de tout tests/.
+get_bridge = pytest.importorskip("forge_exegol_bridge", reason="module LaForge disparu : forge_exegol_bridge").get_bridge
 
 async def run():
     b = get_bridge()

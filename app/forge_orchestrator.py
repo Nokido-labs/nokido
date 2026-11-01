@@ -613,7 +613,9 @@ class ForgeOrchestrator:
                     if loop.is_running():
                         import concurrent.futures as _cf
 
-                        with _cf.ThreadPoolExecutor(max_workers=len(silo_views)) as ex:
+                        # C2.1 (29/10) : sans `with`, le delai libere l'appelant (shutdown sans attente)
+                        ex = _cf.ThreadPoolExecutor(max_workers=len(silo_views))
+                        try:
                             futures = {n: ex.submit(self._call_silo, n, v) for n, v in silo_views.items()}
                             for name, fut in futures.items():
                                 try:
@@ -629,6 +631,8 @@ class ForgeOrchestrator:
                                             error="timeout",
                                         )
                                     )
+                        finally:
+                            ex.shutdown(wait=False, cancel_futures=True)
                     else:
                         store = loop.run_until_complete(_run_all())
                         for name, result in store.items():

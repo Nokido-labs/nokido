@@ -40,13 +40,17 @@ FICHIERS_GLOBAUX = (
     "requirements-organisme.txt",
     "tools/ci_local.py",
     "tools/forge_ci_selection.py",
+    "app/forge_heartbeat.py",
+    "services.toml",
+    "proxy_deno/core/services.toml",
 )
 
 TOUT = "TOUT"
 
 
 def _est_global(chemin: str) -> bool:
-    p = chemin.replace("\\", "/")
+    import posixpath
+    p = posixpath.normpath(chemin.strip().replace("\\", "/")) if chemin.strip() else ""
     return any(p == g or p.endswith("/" + g) for g in FICHIERS_GLOBAUX)
 
 

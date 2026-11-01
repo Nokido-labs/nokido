@@ -556,7 +556,45 @@ def _relire_par_l_importeur_du_dist(pack: Path, depot: Path) -> int:
     return n
 
 
-def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
+# Snapshot de REPETITION ou le pack candidat a ete construit (dist_promotion.ESSAI) : le commit du candidat s'y resout.
+DEPOTS_CANDIDATS = (Path(r"C:/tmp/nokido-dist-essai"),)
+# Ou --pack-seul pose le candidat (out_dir par defaut de main) ; la promotion ecrit AILLEURS (--out de forge_dist_publish).
+DOSSIERS_PACK_CANDIDAT = (("C:/tmp" if sys.platform == "win32" else "/tmp") + "/laforge-release/v{version}",)
+
+
+def _arbre(depot, ref: str) -> str:
+    r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(depot), "rev-parse", "--verify", "-q",
+                        "%s^{tree}" % ref], capture_output=True, text=True, errors="replace")
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def pack_reutilisable(pack, depot, version: str, depots_connus=()) -> tuple:
+    """(True, "") si le pack existe, porte `version`, et que son `dist_commit` -- resolu dans `depot` ou un des
+    `depots_connus` -- a le MEME ARBRE git que HEAD de `depot` ; sinon (False, raison DITE). La cle est l'arbre : la
+    promotion cree un commit de snapshot neuf au contenu identique (21/10, 7042a7e4 des deux cotes).
+    NR test_release_pack_candidat_repris_nr."""
+    import numpy as np
+
+    pack = Path(pack)
+    if not pack.is_file():
+        return False, "pack absent : %s" % pack
+    try:
+        with np.load(pack) as z:
+            manifest = json.loads(z["meta"].tobytes().decode("utf-8")).get("manifest") or {}
+    except Exception as e:  # noqa: BLE001 -- un manifeste illisible n'est jamais repris
+        return False, "manifeste illisible (%s)" % type(e).__name__
+    if manifest.get("version") != version:
+        return False, "version du pack %r != %r" % (manifest.get("version"), version)
+    cible, commit = _arbre(depot, "HEAD"), str(manifest.get("dist_commit") or "")
+    for d in [depot, *depots_connus]:
+        arbre = _arbre(d, commit) if commit else ""
+        if arbre:
+            return (True, "") if arbre == cible else (
+                False, "arbre du pack %s != arbre publie %s" % (arbre[:12], cible[:12]))
+    return False, "dist_commit %r introuvable dans %d depot(s)" % (commit[:12], 1 + len(depots_connus))
+
+
+def build_rag_pack(out_dir: Path, version: str, depot=None, depots_connus=DEPOTS_CANDIDATS, cache_pack=None) -> Path:
     """Knowledge Pack ESSENTIEL : fragments PROUVES publics, prouves contre le clone du dist.
 
     Historique (2026-10-07) : ce constructeur appelait `forge_knowledge_pack.export_pack`, qui exporte TOUS les
@@ -576,9 +614,24 @@ def build_rag_pack(out_dir: Path, version: str, depot=None) -> Path:
     from nokido_agent.tools import forge_knowledge_pack_export as kpe
 
     dest = out_dir / BUILDERS["rag_pack"].format(version=version)
+    for gabarit in ([] if dest.is_file() else DOSSIERS_PACK_CANDIDAT):  # 21/10 : le candidat vit dans le dossier --pack-seul
+        cand = Path(gabarit.format(version=version)) / dest.name
+        if cand.is_file() and cand.resolve() != dest.resolve() and pack_reutilisable(cand, depot, version, depots_connus)[0]:
+            import shutil
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cand, dest)
+            print(f"[rag] pack candidat copie depuis {cand.parent}")
+            break
+    ok, raison = pack_reutilisable(dest, depot, version, depots_connus)
+    if ok:  # 21/10 : ne pas revectoriser 42 k fragments d'un contenu identique, deja relu et essaye
+        print(f"[rag] pack candidat REPRIS : {dest.name} (arbre identique au dist publie, aucune revectorisation)")
+        _relire_par_l_importeur_du_dist(dest, Path(depot))
+        return dest
+    print(f"[rag] pack reconstruit ({raison})")
     print(f"[rag] pack natif -> {dest.name} (arbre publie de {Path(depot).name}, bge-m3 local)")
-    stats = kpe.export_pack_natif(dist=Path(depot), output=dest, version=version)
-    print(f"[rag] {stats['retenus']} fragments, {dest.stat().st_size / 1e6:.1f} MB, sha256 {stats['sha256'][:12]}")
+    stats = kpe.export_pack_natif(dist=Path(depot), output=dest, version=version, cache_pack=cache_pack)
+    print(f"[rag] {stats['retenus']} fragments ({stats.get('depuis_cache', 0)} repris du cache), "
+          f"{dest.stat().st_size / 1e6:.1f} MB, sha256 {stats['sha256'][:12]}")
     _relire_par_l_importeur_du_dist(dest, Path(depot))
     return dest
 
@@ -715,6 +768,9 @@ def main() -> int:
     ap.add_argument("--pack-seul", action="store_true",
                     help="REPETITION : construire le SEUL Knowledge Pack du snapshot (--repo = son clone) pour la "
                          "release BROUILLON que l'essai importera sur les 3 OS (decision owner 16/10)")
+    ap.add_argument("--cache-pack", default=None,
+                    help="pack PRECEDENT du meme espace (bge-m3, meme decoupage) : ses vecteurs sont repris, seuls "
+                         "les fragments neufs passent par l'embedder (21/10)")
     args = ap.parse_args()
 
     if args.vendor_lock_only:
@@ -745,7 +801,8 @@ def main() -> int:
             print("[pack-seul] --repo (clone du snapshot de repetition) requis", file=sys.stderr)
             return 1
         import hashlib as _h
-        pack = build_rag_pack(out_dir, args.version, args.repo)
+        pack = build_rag_pack(out_dir, args.version, args.repo,
+                              **({"cache_pack": args.cache_pack} if args.cache_pack else {}))
         sha = _h.sha256(pack.read_bytes()).hexdigest()
         print(json.dumps({"pack": str(pack), "sha256": sha, "version": args.version}, ensure_ascii=False))
         print("[pack-seul] depot sur la release BROUILLON (session owner) :\n"

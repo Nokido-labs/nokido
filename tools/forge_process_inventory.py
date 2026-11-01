@@ -40,7 +40,9 @@ from __future__ import annotations
 __FORGE_COLOR__ = "proprioception/identite-process"
 
 import argparse
+import getpass
 import json
+import os
 import re
 import sys
 import time
@@ -90,6 +92,88 @@ SYSTEM_NOMS = frozenset(
         "ditto.exe",
     }
 )
+
+
+# ── Contexte d'execution : SOUS QUEL COMPTE une mesure a ete prise ────────────────────────────────────────────────
+# Constat 24/10 : une meme sonde rend des resultats differents selon le compte qui l'execute (LaForgeSbxOffline n'a
+# pas de reseau, LaForgeSbxOnline ne lit ni les FORGE_TOKEN_* ni les sessions OAuth du profil owner, sous SYSTEM
+# Path.home() vaut systemprofile). Deux mesures incomparables ne doivent plus etre melangees sans le dire.
+HOTE_TEMOIN_RESEAU = ("api.groq.com", 443)
+SECRET_TEMOIN_COFFRE = "FORGE_MCP_TOKEN"
+DRAPEAUX_RESEAU = ("LAFORGE_JOB_ONLINE", "LAFORGE_SANDBOX_ONLINE", "LAFORGE_ONLINE")
+_VRAIS = frozenset({"1", "true", "oui", "yes", "on", "online"})
+_FAUX = frozenset({"0", "false", "non", "no", "off", "offline"})
+
+
+def _drapeau_reseau() -> bool | None:
+    """Drapeau du job s'il est pose, sinon None (on sonde). Un drapeau illisible est ignore, jamais devine."""
+    for nom in DRAPEAUX_RESEAU:
+        valeur = os.environ.get(nom)
+        if valeur is None or not valeur.strip():
+            continue
+        v = valeur.strip().lower()
+        if v in _VRAIS:
+            return True
+        if v in _FAUX:
+            return False
+    return None
+
+
+def _sonde_reseau(hote=HOTE_TEMOIN_RESEAU, timeout: float = 0.4) -> bool | str:
+    """Connexion TCP courte vers un hote connu. True joignable, False refuse/timeout, INCONNU si la sonde elle-meme
+    echoue pour une raison qui ne dit rien du reseau (import casse, erreur inattendue)."""
+    import socket
+
+    try:
+        with socket.create_connection(hote, timeout=timeout):
+            return True
+    except OSError:
+        return False
+    except Exception:  # noqa: BLE001 - la sonde ne peut pas conclure : UNKNOWN, jamais un faux False
+        return "INCONNU"
+
+
+def _coffre_lisible() -> bool | str:
+    """Le coffre rend-il un nom temoin non vide ? On ne lit JAMAIS la valeur : True/False, ou INCONNU si la lecture
+    leve. Une exception n'est pas « coffre vide » (UNKNOWN != NO)."""
+    try:
+        try:
+            from nokido_agent.app.forge_secrets import get_secret
+        except ImportError:  # repli checkout
+            from forge_secrets import get_secret
+    except Exception:  # noqa: BLE001 - coffre non importable : on ne peut pas conclure
+        return "INCONNU"
+    try:
+        return bool(get_secret(SECRET_TEMOIN_COFFRE))
+    except Exception:  # noqa: BLE001 - coffre muet/refuse : INCONNU, surtout pas False
+        return "INCONNU"
+
+
+def _est_service(compte: str) -> bool:
+    """SYSTEM ou un compte de service LaForge* (le domaine eventuel est retire)."""
+    nom = str(compte or "").split("\\")[-1].strip().upper()
+    return nom == "SYSTEM" or nom.startswith("LAFORGE")
+
+
+def _profil_reel() -> str:
+    """Profil PROPRIETAIRE, pas le home du compte courant (sous SYSTEM : config\\systemprofile)."""
+    return os.environ.get("LAFORGE_OWNER_HOME") or str(Path.home())
+
+
+def contexte_execution() -> dict:
+    """Sous quel contexte cette mesure tourne : compte, profil reel, reseau, coffre, service.
+
+    `reseau` vaut True/False/INCONNU ; `coffre_lisible` vaut True/False/INCONNU et ne transporte jamais la valeur.
+    """
+    compte = getpass.getuser()
+    drapeau = _drapeau_reseau()
+    return {
+        "compte": compte,
+        "profil_reel": _profil_reel(),
+        "reseau": _sonde_reseau() if drapeau is None else drapeau,
+        "coffre_lisible": _coffre_lisible(),
+        "est_service": _est_service(compte),
+    }
 
 
 def _declares(timeout: float = 10.0) -> dict:
@@ -282,7 +366,62 @@ _PARENTS_NOMMES = {"nssm.exe": "superviseur LaForge-Master (lance par NSSM)",
                    "bash.exe": "client (shell du poste, hors corps)", "claude.exe": "client Claude Code (hors corps)",
                    "pwsh.exe": "client (console du poste, hors corps)",
                    "powershell.exe": "client (console du poste, hors corps)"}
+# PROTHESES (owner 30/10 « rien ne doit t'echapper, Nokido ou ses protheses ») : un outil EXTERNE que le corps pilote
+# (ensure_service, reclaimer) porte ses enfants hors du superviseur. Mesure 30/10 : node.exe 5,36 Go, enfant de
+# llmster.exe (demon LM Studio), range non-soi -> RAM 99 % sans rien a evincer. Preuve `prothese` = SOI evincable.
+_PARENTS_PROTHESES = {"llmster.exe": "prothese lmstudio (demon llmster, worker de modele)",
+                      "lm studio.exe": "prothese lmstudio (interface)",
+                      "ollama.exe": "prothese ollama (serveur llm)",
+                      "com.docker.backend.exe": "prothese docker (interface)",
+                      "qdrant.exe": "prothese qdrant (serveur vecteur)",
+                      "agy.exe": "prothese agy (executeur CLI)",
+                      "opencode.exe": "prothese opencode (executeur CLI)"}
 _BATTEMENT_FRAIS_S = 900.0
+
+
+def ancetre_identifie(pid, vivants, pid_service, identites, profondeur=8):
+    """Identite heritee du plus proche ANCETRE identifie (pid du superviseur, ou identite deja prouvee), quel que soit
+    le NOM du processus et a toute profondeur. 28/10 : docker-mcp.exe (port 8811) sortait « non revendique » alors
+    qu'il descend de NokidoDockerMcpGateway (lanceur runas -> gardien -> docker.exe -> docker-mcp.exe) ; l'heritage ne
+    remontait qu'un parent. None = aucun ancetre identifie (jamais devine par le nom)."""
+    vus, anc, niveau = set(), (vivants.get(pid) or {}).get("ppid"), 1
+    while anc is not None and anc not in vus and niveau <= profondeur:
+        vus.add(anc)
+        if anc in pid_service:
+            return {"identite": "descendant de %s" % pid_service[anc], "preuve": "parente", "profondeur": niveau}
+        connue = (identites or {}).get(str(anc))
+        if connue and connue.get("identite"):
+            return {"identite": "descendant de %s" % connue["identite"], "preuve": "parente", "profondeur": niveau}
+        anc, niveau = (vivants.get(anc) or {}).get("ppid"), niveau + 1
+    return None
+
+
+def service_porteur(declares=None, chaine=None, timeout=5.0):
+    """(service, profondeur, motif) : le service du superviseur dont CE process descend -- la propriete se DEMANDE a
+    l'organe qui lance, jamais au nom du process ni a sa cmdline.
+
+    `runAs interactive` : le superviseur note le pid du LANCEUR et son ENFANT execute (RULES_SHARED, 5 questions, 4) --
+    d'ou la remontee de parente, jamais l'egalite de pid. Superviseur muet, parente illisible, aucun ancetre declare :
+    (None, None, motif), et le motif le dit (UNKNOWN n'est pas OUI). Primitive UNIQUE (30/10) : l'identite d'un
+    executeur au claim (forge_task_executor) et le principal exempte du coffre cloisonne (forge_secrets, COF-1).
+    `declares` et `chaine` sont injectables pour les NR."""
+    if declares is None:
+        declares = _declares(timeout=timeout)
+    if "__erreur__" in (declares or {}):
+        return None, None, str(declares["__erreur__"].get("status") or "superviseur injoignable")[:120]
+    if chaine is None:
+        try:
+            import psutil
+
+            moi = psutil.Process(os.getpid())
+            chaine = [moi.pid] + [p.pid for p in moi.parents()]
+        except Exception as e:  # noqa: BLE001
+            return None, None, "parente ILLISIBLE (%s)" % type(e).__name__
+    pid_service = {d.get("pid"): nom for nom, d in (declares or {}).items() if isinstance(d, dict) and d.get("pid")}
+    for i, pid in enumerate(chaine or []):
+        if pid in pid_service:
+            return pid_service[pid], i, "descendant (profondeur %d) du pid declare de %s" % (i, pid_service[pid])
+    return None, None, "aucun ancetre de ce process n'est un pid declare par le superviseur"
 
 
 def identifier_processus(vivants, pid_service, jobs, battements, maintenant=None, profondeur=8):
@@ -318,6 +457,8 @@ def identifier_processus(vivants, pid_service, jobs, battements, maintenant=None
                 ident = {"identite": "descendant de %s" % d["identite"], "preuve": "parente"}
             anc = (vivants.get(anc) or {}).get("ppid")
         parent_nom = ((vivants.get(proc.get("ppid")) or {}).get("nom") or "").lower()
+        if not ident and parent_nom in _PARENTS_PROTHESES:
+            ident = {"identite": _PARENTS_PROTHESES[parent_nom], "preuve": "prothese"}
         if not ident and parent_nom in _PARENTS_NOMMES:
             ident = {"identite": _PARENTS_NOMMES[parent_nom], "preuve": "parent"}
         if ident:
@@ -417,6 +558,8 @@ def collect() -> dict:
     for port, pid in sorted(ports.items()):
         if pid in pid_service or pid in herite or str(pid) in identification["identites"]:
             continue  # un port n'est inconnu que si son processus n'a AUCUNE identite prouvee (19/10)
+        if ancetre_identifie(pid, vivants, pid_service, identification["identites"]):
+            continue  # descendant d'un service, a toute profondeur (28/10 : docker-mcp.exe du gateway)
         proc = vivants.get(pid)
         if not proc or (proc.get("nom") or "").lower() in SYSTEM_NOMS:
             continue

@@ -57,7 +57,7 @@ def check_embed_backlog(armed: bool) -> dict:
     """Dette d'embeddings lue comme un TAUX, chez son producteur -- jamais par inventaire.
 
     20/10 (owner : « usures disques abusives », « criteres ajustes au reel de la base RAG ») : ce controle faisait
-    `SELECT count(*) FROM rag_chunks WHERE embedding IS NULL AND <CASE a LIKE>` sur 46,6 Go (~260 s, ~85 Mo/s), a chaque
+    un comptage de la table RAG filtre sur embedding NULL + <CASE a LIKE>, sur 46,6 Go (~260 s, ~85 Mo/s), a chaque
     cycle de soin de NokidoCoagulation. La base reelle (snapshot) : 77 en attente QUALIFIEE, 6,9 M REFUSES par politique
     -- ces derniers ne sont pas une dette (DISABLED_BY_POLICY != RESOURCE_UNAVAILABLE). Comme la coagulation du corps lit
     un taux sanguin mesure ailleurs : forge_memory_availability.snapshot() ne calcule jamais ; perime = INCONNU, sans
@@ -350,13 +350,43 @@ CHECKS = [check_embed_backlog, check_db_contention, check_orphans, check_phantom
           check_cffi, check_oauth, check_balance_402, check_stale, check_port_zombie]
 
 
-def run_remediation_cycle(armed: bool = False) -> dict:
-    """Exécute les 9 contrôles → détecte + signale (+ auto-fix orphans / relance d'un
-    port zombie si armed, ce dernier sous cooldown anti-pompage)."""
+# Soin CIBLE : type de lesion (fragment du `kind` du signal) -> son remede. Un signal connu ne declenche
+# que son controle, pas les 9 a chaque passe.
+LESION_REMEDE = {
+    "embed": "check_embed_backlog", "backlog": "check_embed_backlog",
+    "contention": "check_db_contention", "lock": "check_db_contention", "db_": "check_db_contention",
+    "orphan": "check_orphans", "phantom": "check_phantom_slots", "cffi": "check_cffi",
+    "oauth": "check_oauth", "balance": "check_balance_402", "402": "check_balance_402",
+    "quota": "check_balance_402", "stale": "check_stale", "sarcopenia": "check_stale",
+    "zombie": "check_port_zombie",
+}
+
+
+def controles_pour(lesions):
+    """Lesions (kinds) -> ensemble des controles a lancer ; None = inconnu -> tous (jamais moins que le reel)."""
+    if not lesions:
+        return None
+    voulus: set = set()
+    for kind in lesions:
+        k = str(kind).lower()
+        trouves = {chk for frag, chk in LESION_REMEDE.items() if frag in k}
+        if not trouves:
+            return None  # une lesion non classee : balayage complet, on ne parie pas
+        voulus |= trouves
+    return voulus
+
+
+def run_remediation_cycle(armed: bool = False, lesions=None) -> dict:
+    """Exécute les contrôles → détecte + signale (+ auto-fix orphans / relance d'un
+    port zombie si armed, ce dernier sous cooldown anti-pompage). `lesions` (kinds des
+    signaux) restreint aux remèdes ciblés ; absent/inconnu = les 9."""
     t0 = time.monotonic()
     debts: dict[str, Any] = {}
     signaled = 0
+    cibles = controles_pour(lesions)
     for chk in CHECKS:
+        if cibles is not None and chk.__name__ not in cibles:
+            continue
         try:
             r = chk(armed)
         except Exception as e:  # noqa: BLE001

@@ -299,14 +299,17 @@ def test_get_tool_list_consulte_le_scope_derive():
     )
 
 
-def test_le_drapeau_est_lu_et_desarme_par_defaut():
+def test_le_drapeau_est_actif_par_defaut_et_desarmable():
+    """Decision owner 2026-10-24 : scope de role actif par defaut ; seul un
+    desarmement explicite (0/off/false/no) le coupe."""
     src = _source_get_tool_list()
-    assert "LAFORGE_TOOLS_LIST_ROLESCOPE" in src
-    # desarme : la valeur par defaut du getenv doit etre vide, jamais "1"
-    assert 'os.environ.get("LAFORGE_TOOLS_LIST_ROLESCOPE", "")' in src, (
-        "le drapeau doit defaulter a vide -- l'armer par defaut changerait ce que "
-        "voient tous les clients MCP sans decision owner"
-    )
+    assert "rolescope_enabled()" in src
+    tsrc = Path(ts.__file__).read_text(encoding="utf-8")
+    assert 'os.environ.get("LAFORGE_TOOLS_LIST_ROLESCOPE", "")' in tsrc
+    # Valeur du drapeau couverte par test_scope_role_defaut_nr (True/False/True) ;
+    # ici, NR de la regle de repli : un mot faible isole s'abstient, un profil fort route.
+    assert ts._route_lexicale("A/B-testing,modeles-niche,exploration,DeepSeek-R1,Qwen3") is None
+    assert ts._route_lexicale("architecture,securite,ADR,orchestration,long-context") == "code_recon"
 
 
 def test_le_chemin_d_erreur_du_scope_n_est_plus_muet():
@@ -318,7 +321,7 @@ def test_le_chemin_d_erreur_du_scope_n_est_plus_muet():
 
 
 def test_desarme_le_comportement_reste_le_declare():
-    """Drapeau absent -> `active_tools_for`, exactement l'ancien comportement."""
+    """Drapeau desarme (0) -> `active_tools_for`, exactement l'ancien comportement."""
     src = _source_get_tool_list()
     assert "_ts.active_tools_for(agent)" in src
 

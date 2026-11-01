@@ -46,6 +46,26 @@ def test_une_plage_n_est_jamais_ecrite_deux_fois():
     assert C.derniere_fin(t3) == "0123abc"
 
 
+def test_une_section_non_poussee_de_meme_base_est_remplacee_pas_doublee():
+    """Mesure 25/10 : --ecrire relance avant le push posait 12a05561c..47f90dc97 AU-DESSUS de
+    12a05561c..d40d088a2 (meme base, jamais poussee) -> 309 commits listes deux fois."""
+    vieux = C.rendre_section([("abc1234", "feat(x): un")], "baaa000", "abc1234", "alpha", "2026-10-24")
+    t1, _ = C.inserer("", vieux)
+    neuf = C.rendre_section([("abc1234", "feat(x): un"), ("def5678", "fix: deux")],
+                            "baaa000", "def5678", "alpha", "2026-10-25")
+    t2, ecrit = C.inserer(t1, neuf)
+    assert ecrit and t2.count(C.MARQUEUR) == 1 and t2.count("abc1234") == 1  # une seule puce, plus de doublon
+    assert "baaa000..def5678" in t2 and "baaa000..abc1234" not in t2
+    # L'etat deja double (deux sections de meme base) se nettoie a la relance, sans rien reposer de neuf.
+    double = t1.replace(C.MARQUEUR, neuf + "\n" + C.MARQUEUR, 1)
+    t3, ecrit3 = C.inserer(double, neuf)
+    assert ecrit3 and t3.count(C.MARQUEUR) == 1 and "baaa000..abc1234" not in t3
+    # Une section de meme base qui N'EST PAS incluse dans la nouvelle (autre historique) reste.
+    autre = C.rendre_section([("9999999", "fix: ailleurs")], "baaa000", "9999999", "alpha", "2026-10-24")
+    t4, _ = C.inserer(C.inserer("", autre)[0], neuf)
+    assert "baaa000..9999999" in t4 and t4.count(C.MARQUEUR) == 2
+
+
 def _git(d, *a):
     return subprocess.run(["git", "-c", "safe.directory=*", "-C", str(d), *a], check=True,
                           capture_output=True, text=True, errors="replace").stdout.strip()

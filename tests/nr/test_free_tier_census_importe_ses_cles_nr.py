@@ -33,7 +33,7 @@ def test_le_recenseur_resout_nokido_agent_dans_un_processus_neuf(tmp_path):
         "print('OK')\n" % SCRIPT
     )
     r = subprocess.run([sys.executable, "-c", code], cwd=str(tmp_path),
-                       capture_output=True, text=True, timeout=60)
+                       capture_output=True, text=True, errors="replace", timeout=60)
     assert r.returncode == 0 and "OK" in r.stdout, (
         "le recenseur ne resout pas nokido_agent hors du depot : %s"
         % (r.stderr.strip().splitlines() or ["?"])[-1]

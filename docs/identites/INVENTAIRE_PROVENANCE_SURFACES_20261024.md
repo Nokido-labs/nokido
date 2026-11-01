@@ -1,0 +1,42 @@
+# Inventaire de provenance des identités par surface — Phase 1 (mesure), 24/10/2026
+
+Aucun code ni config modifié. Sources : `config/agent_identities.json` (lu en JSON), `app/forge_videur.py::_resolve_identity_core` (l.432-680), `tools/forge_connect_clients.py`, `tools/mcp_stdio_bridge.py`, `tools/forge_task_executor.py`, journal `%NOKIDO_ROOT%/logs/mcp_audit.log` (498 999 lignes, comptage sur les 150 000 dernières).
+
+## Réserves de méthode (à lire d'abord)
+- **Recalage non fait** : l'exécuteur n'autorise que `git status/diff/pytest`. Je n'ai pu ni rebaser sur c2e13ea30 ni vérifier mon HEAD. Les lectures ont été faites sur l'arbre principal `%NOKIDO_ROOT%/`, pas sur ce worktree.
+- **Prémisse de l'ordre démentie** : le registre CONTIENT `CLAUDE_CLI` (ring 1, channel STDIO_CLAUDE, transport cli, kind surface) et `CLAUDE_DESKTOP` (ring 1, HTTP_DIRECT, transport gateway), ainsi que `CLAUDE_HEADLESS`, `CLAUDE_DAEMON` (HTTP_DIRECT/http/daemon), `CLAUDE_HOOK`. En revanche `app/forge_videur.py:41` `_SEED_RING` donne `CLAUDE_CLI: 2` alors que le registre dit 1 (écart de ring à noter).
+- Les champs `principal`/`principal_annonce`/`declared` ne figurent que dans les lignes récentes du journal ; les lignes anciennes n'ont que `agent`+`ring`. `transport_signale` vaut `INCONNU` sur les lignes lues (CLAUDE_DESKTOP, CODEX). `machine` est constant `local` dans le registre : aucune surface n'est distinguée par machine.
+- Non mesuré faute d'accès (shell restreint) : les `.claude.json`, `~/.codex/config.toml`, etc. des clients ; les lignes `file:ligne` ci-dessous sont celles que j'ai lues.
+
+## Ce que le hub enregistre (commun)
+`_resolve_identity_core` rend `agent`, `ring`, `via`, `channel`, `transport` (lus dans le registre par `agent`, défaut `HTTP_DIRECT`/`http`, l.655-658), `principal` (preuve par jeton, l.661), `principal_annonce` (en-tête divergent, l.662), `declared` (l.663). Conséquence structurelle : **channel et transport viennent du NOM résolu, pas de la connexion réelle**. Deux clients qui présentent le même nom ont donc la même provenance enregistrée ; `transport_signale` (mesuré par le hub) reste `INCONNU`.
+
+## Tableau par surface
+
+| Surface | 1. Nom envoyé / où posé | 2. Jeton (nom) | 3. Enregistré (journal) | 4. Verdict |
+|---|---|---|---|---|
+| Claude Code CLI | Nom `CLAUDE` (mcp_audit l.499002 : `agent=CLAUDE`, channel `STDIO_CLAUDE`). Aucune ligne `CLAUDE_CLI` dans tout le journal. | Jeton de l'agent CLAUDE (`FORGE_TOKEN_CLAUDE`) via bridge stdio, `mcp_stdio_bridge.py:219-257` | principal=CLAUDE, declared=CLAUDE, ring 1, channel STDIO_CLAUDE | **CONFONDU** avec Claude Desktop-stdio historique et tout client utilisant `LAFORGE_AGENT=CLAUDE` (bridge l.109-120). `CLAUDE_CLI` existe au registre mais n'est jamais émis. |
+| Claude Desktop (stdio) | `LAFORGE_AGENT=CLAUDE_DESKTOP` posé par `forge_connect_clients.py:197` ; bridge l.120/361 envoie `X-Agent-Name` | `FORGE_TOKEN_CLAUDE_DESKTOP` (l.197) ; repli maître en transition (bridge l.253) | journal l.464033 : agent=CLAUDE_DESKTOP, ring 1, channel **HTTP_DIRECT** (pas STDIO), transport_signale INCONNU ; bridge.log l.4549 `agent=CLAUDE_DESKTOP` | **DISTINGUABLE par le nom** (72 lignes récentes), mais son canal enregistré est HTTP_DIRECT, donc le fait « stdio » est perdu au hub. |
+| Claude headless, exécuteur | `CLAUDE_HEADLESS_AGENT` (`forge_task_executor.py:2796`) ; en-têtes émis par `--emit-headers CLAUDE_HEADLESS --provenance` (l.2883) | `FORGE_TOKEN_CLAUDE_HEADLESS` (l.2875) | journal l.499005 : agent=principal=declared=CLAUDE_HEADLESS, HTTP_DIRECT | **DISTINGUABLE** de l'interactif. |
+| Claude headless, autres lanceurs de `claude -p` | Rien d'autre mesuré ; tout lanceur qui réutilise le nom `CLAUDE_HEADLESS` ou la config MCP du worktree est indiscernable | idem | idem | **CONFONDU** entre lanceurs (exécuteur, lancements manuels dans un worktree) : pas de champ de provenance du lanceur côté hub. |
+| Claude API (`claude_api`) | UNKNOWN : le registre a `ANTHROPIC_API` (provider, ring 3), pas `claude_api`. `forge_cli_route.py:56` route `claude` vers `ANTHROPIC_BASE_URL=:7776` avec `ANTHROPIC_AUTH_TOKEN=laforge-local` (jeton factice, aucune identité) | aucun jeton d'identité | non observé dans le journal | **UNKNOWN** (aucune ligne ni appelant mesuré) ; l'usage API du headless (clé API, l.2787) est vu comme CLAUDE_HEADLESS. |
+| Claude cloud | aucune source trouvée | — | aucune ligne | **UNKNOWN** (pas d'entrée registre, pas de ligne). |
+| AGY CLI | Registre : `AGY`, `AGY_CLI` (HTTP_DIRECT), alias `GEMINI`. Journal : l'acteur apparaît surtout sous `GEMINI` (14 374 lignes) et `ANTIGRAVITY` (1 535) ; `AGY` seul est absent | jeton GEMINI / ANTIGRAVITY | channel GEMINI_OAUTH ou HTTP_DIRECT selon le nom | **CONFONDU** avec Antigravity IDE : même `actor=ANTIGRAVITY`, noms vivants multiples. |
+| Antigravity desktop/IDE | `ANTIGRAVITY` (journal l.498563, `notifications/roots/list_changed`, channel HTTP_DIRECT, ring 1) | FORGE_TOKEN_ANTIGRAVITY | principal=declared=ANTIGRAVITY | **CONFONDU** avec AGY CLI (même nom journalisé, pas de variante `_DESKTOP`/`_IDE` au registre). |
+| Codex CLI | `LaForge-Agent-Name = "CODEX"` dans le TOML posé par `forge_connect_clients.py:220` ; registre : `CODEX_CLI` existe, non émis | `FORGE_TOKEN_CODEX` | journal : `CODEX` (849 lignes), HUB/HTTP_DIRECT, transport_signale INCONNU ; 401 les 15/10 | **CONFONDU** avec Codex desktop. |
+| Codex desktop | même config que le CLI ; aucune source distincte | idem | idem | **CONFONDU** avec Codex CLI (UNKNOWN pour sa propre config). |
+| Vibe CLI interactif | `VIBE_CLI` (9 lignes récentes, channel HTTP_DIRECT, ring 1) ; clé `FORGE_TOKEN_VIBE` (`forge_cli_route.py:103`) | `FORGE_TOKEN_VIBE` (nom de variable) vs jeton propre `VIBE_CLI` : à vérifier | agent=VIBE_CLI | **DISTINGUABLE** par le nom (volume faible). |
+| Exécuteur Vibe headless | `VIBE_HEADLESS`, `FORGE_TOKEN_VIBE_HEADLESS` (`forge_task_executor.py:2622`) | idem | 1 128 lignes | **DISTINGUABLE**. |
+| Exécuteur MISTRAL | registre `MISTRAL` (ring 3, kind backend/provider, HTTP_DIRECT) ; suspension levée 20/10 | aucun jeton propre mesuré | aucune ligne récente dans le journal | **UNKNOWN** (c'est un backend, il passe par Vibe : lignes VIBE_*). |
+| OpenCode | `OPENCODE_GPTOSS` (3 002), `OPENCODE_GLM` (1 299), `OPENCODE_NEMOTRON` (30, suspendu), `OPENCODE_DEFAUT2..5` ; `FORGE_TOKEN_OPENCODE_<X>` (note registre) ; channel OPENCODE_MCP au registre mais **HTTP_DIRECT au journal** | `FORGE_TOKEN_OPENCODE_<X>` | principal=nom d'instance, ring 1 | **DISTINGUABLE** par instance ; **CONFONDU** pour le modèle au sein d'une instance DEFAUT. |
+| Cline | `CLINE` (channel CLINE_MCP, 401 le 18/10), `CLINE_PLAN`/`CLINE_ACT` au registre ; aucune ligne OK récente | FORGE_TOKEN_CLINE | non observé en OK | **UNKNOWN** (aucune session récente). |
+| Copilot CLI | registre `COPILOT`, `COPILOT_CLI`, ring 3 | non mesuré | aucune ligne | **UNKNOWN**. |
+
+## Confusions et correctif minimal (extension de l'existant, sans nouveau module)
+1. **CLAUDE_CLI jamais émis** (CLI = `CLAUDE`). Cause : la config du CLI ne pose pas `LAFORGE_AGENT=CLAUDE_CLI`. Correctif : poser le nom et le jeton `FORGE_TOKEN_CLAUDE_CLI` dans `forge_connect_clients.py` (déjà le gabarit CLAUDE_DESKTOP, l.197), et aligner `_SEED_RING` (videur l.41, 2 contre 1 au registre).
+2. **Channel/transport dérivés du nom, pas de la connexion** (Desktop stdio enregistré HTTP_DIRECT, `transport_signale=INCONNU`). Cause : videur l.655-658 lit le registre. Correctif : le bridge pose déjà un en-tête ; lui ajouter `X-Transport: stdio` et le consigner dans `_agent_meta`/`transport_signale`.
+3. **AGY CLI / Antigravity IDE / GEMINI** partagent l'acteur et les noms. Correctif : émettre `AGY_CLI` et `ANTIGRAVITY` (IDE) distincts depuis `forge_connect_clients.py`, variantes déjà au registre.
+4. **Codex CLI / desktop** même nom `CODEX`. Correctif : `CODEX_CLI` (au registre) pour le CLI dans `forge_connect_clients.py:220`, `CODEX` réservé au desktop, avec jeton propre.
+5. **Lanceurs multiples de `claude -p`** sous un seul nom. Correctif : le `--provenance` existant (l.2883) doit alimenter `declared`/`principal_annonce` avec le lanceur ; à vérifier qu'il est consigné.
+6. **OpenCode DEFAUT2-5** : modèle identique, instance seule différenciée ; correctif : consigner le modèle dans `declared` (config/opencode_instances.json).
+7. **UNKNOWN** (Claude API, Claude cloud, Cline, Copilot, Mistral) : phase 2 = instrumenter avant de conclure ; ne rien déduire de l'absence de lignes.

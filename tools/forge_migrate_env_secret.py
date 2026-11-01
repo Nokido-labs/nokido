@@ -24,6 +24,21 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+def _cle_valeur(corps: str) -> tuple:
+    """(nom, valeur) d'une ligne `CLE=VALEUR` ou `Libelle: valeur` ; (None, None) sinon.
+
+    `=` prime tant que ce qui le precede ne contient pas de `:` ; sinon le PREMIER `:` separe le libelle (21/10 : bloc
+    colle depuis la page OAuth SourceForge, `Bearer Token: ...`, `Redirect URL: https://...?a=b`)."""
+    avant_egal = corps.partition("=")[0]
+    if "=" in corps and ":" not in avant_egal:
+        nom, _, v = corps.partition("=")
+    elif ":" in corps:
+        nom, _, v = corps.partition(":")
+    else:
+        return None, None
+    return nom.strip(), v.strip()
+
+
 def lire_source(env: Path, src: str, commentee_ok: bool = False) -> tuple:
     """(valeur, provenance) de la ligne `src=...` ; (None, "") si absente.
 
@@ -37,11 +52,9 @@ def lire_source(env: Path, src: str, commentee_ok: bool = False) -> tuple:
             if not commentee_ok:
                 continue
             s = s.lstrip("#").strip()
-        if "=" not in s:
-            continue
-        name, _, v = s.partition("=")
-        if name.strip() == src and v.strip():
-            return v.strip(), f"ligne {num}" + (" (COMMENTEE -- lue sur demande explicite)"
+        name, v = _cle_valeur(s)
+        if name == src and v:
+            return v, f"ligne {num}" + (" (COMMENTEE -- lue sur demande explicite)"
                                                 if est_commentee else "")
     return None, ""
 
@@ -64,7 +77,7 @@ def retirer_du_clair(env: Path, src: str, val: str, tgt: str, commentee_ok: bool
         if s.startswith("#") and not commentee_ok:
             continue
         corps = s.lstrip("#").strip()
-        if "=" in corps and corps.partition("=")[0].strip() == src and corps.partition("=")[2].strip() == val:
+        if _cle_valeur(corps) == (src, val):
             fin = "\r\n" if line.endswith("\r\n") else ("\n" if line.endswith("\n") else "")
             lignes[i] = ("# %s -> migre au coffre %s le %s (valeur retiree du clair)%s" % (
                 src, tgt, time.strftime("%Y-%m-%d"), fin)).encode("utf-8")

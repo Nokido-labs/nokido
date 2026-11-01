@@ -9,6 +9,16 @@ Invariants testés :
   - agent DISTANT                       -> jamais élevé (dev = surface owner locale)
   - agent HORS allowlist               -> jamais élevé
   - agent déjà >= DEV                   -> jamais downgrade (pas de remontée du n°)
+
+MISE A JOUR DU CONTRAT (2026-10-22) : ces tests étaient rouges car ils présentaient
+`token="x"` SANS agent_tokens, donc via=header (identité NON prouvée). Le code a été
+durci volontairement, il n'a pas régressé :
+  - 8291bf257 (2026-06-15) « fix(videur): fail-closed identity + anti-spoof header » :
+    via=header est plafonné à _HEADER_FLOOR_RING (4) ;
+  - _maybe_elevate exige une identité prouvée (_identite_prouvee(via)), correction du
+    2026-09-12 (figée par tests/test_antispoof_survit_a_l_elevation.py).
+Les tests fournissent donc un VRAI jeton d'agent (agent_tokens) : l'invariant d'origine
+reste testé sur le chemin authentifié. Aucun ring n'est monté pour faire passer un test.
 """
 import importlib
 
@@ -24,8 +34,9 @@ def _isolate(monkeypatch):
 
 
 def _ring(agent="CLAUDE", local=True):
+    # jeton valide pour CET agent -> via=token (identite prouvee, hors plancher header)
     return vid.resolve_identity(agent, token="x", local=local,
-                                agent_tokens={}, hub_token="")["ring"]
+                                agent_tokens={agent.upper(): "x"}, hub_token="")["ring"]
 
 
 def _armed(monkeypatch, on: bool):

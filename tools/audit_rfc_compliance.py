@@ -22,6 +22,7 @@ CRITICAL_RFCS = {
         "RFC 8259",  # JSON Data Interchange Format (base de MCP)
         "RFC 8895",  # ALTO / Server-Sent Events (transport MCP)
         "RFC 3986",  # URI Generic Syntax (cite par ARCHITECTURE_IDENTITE)
+        "RFC 6454",  # Web Origin Concept (origine EXACTE des vues ACP : app/web_hub/acp_views.py)
         "RFC 5234",  # ABNF (grammaires des protocoles)
         "RFC 8785",  # JSON Canonicalization Scheme (signature de payloads)
     ],

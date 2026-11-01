@@ -28,17 +28,39 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def _racine_donnees():
+    """DONNEES par forge_db_path.racine_donnees() (cliquet racine_donnees) ; repli : racine du code, comme avant."""
+    try:
+        from nokido_agent.app.forge_db_path import racine_donnees
+    except ImportError:
+        try:
+            from forge_db_path import racine_donnees
+        except ImportError:
+            return ROOT
+    return racine_donnees()
+
+
+_RACINE_DONNEES = _racine_donnees()
 PY = sys.executable
 DIST = r"C:/tmp/nokido-dist"
 ESSAI = r"C:/tmp/nokido-dist-essai"
 LOT = r"C:/tmp/nokido-release"
-PREUVES = ROOT / "sandbox/workspace/tmp/nokido_proof"
+PREUVES = _RACINE_DONNEES / "sandbox/workspace/tmp/nokido_proof"
 REGLES = ROOT / ".git-publish-rules.json"
 RE_PREUVE = re.compile(r"\[preuve\] sha=(\w+) .*echecs=(\d+) .*erreurs=(\d+) .*etat=(\w+)")
 MARQUEURS = re.compile(r"desktop-(?=[a-z0-9]{0,6}\d)[a-z0-9]{7}\b|C:[\\/]+Users[\\/]+user|\bNaarob\b", re.I)
+MANIFESTES_LIVRES = (
+    "requirements.txt",
+    "requirements-organisme.txt",
+    "requirements-ci.lock",
+    "requirements.nokido_py314.lock",
+)
 
 
 def git(*a, depot=DIST):
@@ -102,6 +124,189 @@ def _forcer(fonction, chemin, _exc):
     fonction(chemin)
 
 
+def certifications_pour(sha: str, herite_de=None, racine: Path = PREUVES, depot: Path = ROOT) -> tuple:
+    """(certs, raison, sha_preuve). Sans `herite_de` : la preuve du sha EXACT. Avec : celle de l'ancetre certifie,
+    si l'ecart ne touche que version / CHANGELOG / workflows (forge_dist_publish.heritage_de_preuve, decision owner
+    21/10) ; sinon aucune, raison DITE. NR test_certification_heritee_diff_restreint_nr."""
+    if not herite_de:
+        return certifications(sha, racine), "", sha
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("forge_dist_publish_herit", ROOT / "tools" / "forge_dist_publish.py")
+    fdp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fdp)
+    ok, raison, _fichiers = fdp.heritage_de_preuve(depot, herite_de, sha)
+    return (certifications(herite_de, racine), "", herite_de) if ok else ([], raison, herite_de)
+
+
+def verdict_audit(rapports: dict) -> dict:
+    """Verdict de conformite des manifestes livres selon la regle du tag (release.yml)."""
+    bloquants, avertis, illisibles = [], [], []
+    r = rapports if isinstance(rapports, dict) else {}
+    for f in MANIFESTES_LIVRES:
+        if f not in r or r[f] is None or not isinstance(r[f], dict):
+            illisibles.append(f)
+            continue
+        rapport = r[f]
+        for dep in (rapport.get("dependencies") or []):
+            if not isinstance(dep, dict):
+                continue
+            nom = dep.get("name")
+            version = dep.get("version")
+            for v in (dep.get("vulns") or []):
+                if not isinstance(v, dict):
+                    continue
+                vid = v.get("id")
+                ligne = "%s %s %s (%s)" % (nom, version, vid, f)
+                if v.get("fix_versions"):
+                    bloquants.append(ligne)
+                else:
+                    avertis.append(ligne)
+    return {
+        "ok": not bloquants and not illisibles,
+        "bloquants": bloquants,
+        "avertis": avertis,
+        "illisibles": illisibles,
+    }
+
+
+def auditer_snapshot(snapshot, executer=subprocess.run, rapports_sortie=None) -> dict:
+    """Lance pip-audit sur chaque manifeste livre present dans le snapshot."""
+    racine = Path(snapshot)
+    rapports = {} if rapports_sortie is None else rapports_sortie
+    with tempfile.TemporaryDirectory() as td:
+        for f in MANIFESTES_LIVRES:
+            chemin = racine / f
+            if not chemin.is_file():
+                rapports[f] = None
+                continue
+            sortie_json = Path(td) / ("%s.json" % f)
+            # 25/10 : le compte des jobs a pour HOME le profil Default -- pip-audit y creait son cache et mourait en
+            # PermissionError (WinError 5), les 4 manifestes sortaient ILLISIBLES sans dire pourquoi.
+            cmd = [
+                sys.executable,
+                "-m",
+                "pip_audit",
+                "--no-deps",
+                "--disable-pip",
+                "--cache-dir",
+                str(Path(td) / "cache"),
+                "--progress-spinner",
+                "off",
+                "-r",
+                str(chemin),
+                "-f",
+                "json",
+                "-o",
+                str(sortie_json),
+            ]
+            try:
+                res = executer(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=600,
+                )
+            except Exception as e:  # noqa: BLE001 -- dit : un audit qui n'a pas tourne n'est pas un audit vide
+                print("audit %s : pip-audit NON lance (%s: %s)" % (f, type(e).__name__, str(e)[:200]), flush=True)
+                rapports[f] = None
+                continue
+            if not sortie_json.is_file():
+                # Une source qui se tait ne prouve rien : rc et fin de stderr, pour qu'ILLISIBLE dise POURQUOI.
+                _err = (getattr(res, "stderr", "") or "").strip().splitlines()
+                print("audit %s : aucun rapport, pip-audit rc=%s : %s"
+                      % (f, getattr(res, "returncode", "?"), " | ".join(_err[-3:])[:500]), flush=True)
+            if sortie_json.is_file():
+                try:
+                    with open(sortie_json, encoding="utf-8") as h:
+                        rapports[f] = json.load(h)
+                except (OSError, ValueError):
+                    rapports[f] = None
+            else:
+                rapports[f] = None
+    v = verdict_audit(rapports)
+    for b in v["bloquants"]:
+        print("audit BLOQUANT (faille corrigeable) : %s" % b, flush=True)
+    for a in v["avertis"]:
+        print("audit AVERTISSEMENT (faille sans correctif) : %s" % a, flush=True)
+    for i in v["illisibles"]:
+        print("audit ILLISIBLE ou absent : %s" % i, flush=True)
+    return v
+
+
+# Audit des manifestes livres AVANT la CI de reference (pre-controle : la porte du tag refuserait sinon apres ~3 h de CI).
+# Fenetre = _AUDIT_FRAICHEUR_J de tools/ci_local.py (« les avis OSV bougent tous les jours »), date lue dans le NOM
+# du fichier (un checkout rajeunit le mtime) ; un NR verrouille l'egalite des deux constantes.
+AUDITS = _RACINE_DONNEES / "sandbox" / "audit_manifestes_history"
+FRAICHEUR_J = 7
+
+
+def _contenu_au_sha(sha: str, f: str):
+    rc, out = git("show", "%s:%s" % (sha, f), depot=ROOT)
+    return out if rc == 0 else None
+
+
+def _empreinte(texte) -> str:
+    import hashlib
+    return hashlib.sha256((texte or "").replace("\r\n", "\n").encode("utf-8")).hexdigest()
+
+
+def commande_audit(sha: str) -> str:
+    return "run_job online=true script=tools/dist_promotion.py script_args=\"--sha %s --audit-manifestes\"" % sha
+
+
+def ecrire_audit_manifestes(sha: str, dossier: Path = AUDITS, executer=subprocess.run, jour=None) -> int:
+    """Audite EN LIGNE les manifestes tels qu'ils sont AU sha et ecrit audit_manifestes_<jour>.json (rc 3 si rouge)."""
+    import datetime
+    jour = jour or datetime.date.today().isoformat()
+    textes = dict((f, _contenu_au_sha(sha, f)) for f in MANIFESTES_LIVRES)
+    rapports = {}
+    with tempfile.TemporaryDirectory() as td:
+        for f, t in textes.items():
+            if t is not None:
+                (Path(td) / f).write_text(t, encoding="utf-8", newline="\n")
+        v = auditer_snapshot(td, executer, rapports)
+    dossier.mkdir(parents=True, exist_ok=True)
+    empreintes = dict((f, _empreinte(t) if t is not None else None) for f, t in textes.items())
+    (dossier / ("audit_manifestes_%s.json" % jour)).write_text(
+        json.dumps({"sha": sha, "jour": jour, "empreintes": empreintes, "rapports": rapports}), encoding="utf-8")
+    return 0 if v["ok"] else 3
+
+
+def audit_manifestes_frais(sha: str, dossier: Path = AUDITS, maintenant=None, contenu=None) -> tuple:
+    """(ok, motif) : le dernier audit des manifestes livres est-il frais, lisible, du MEME contenu qu'au sha, et vert ?
+    Illisible = refus motive, jamais ok."""
+    import datetime
+    contenu = contenu or _contenu_au_sha
+    cmd = commande_audit(sha)
+    fichiers = sorted(Path(dossier).glob("audit_manifestes_*.json")) if Path(dossier).is_dir() else []
+    if not fichiers:
+        return False, "aucun audit des manifestes livres dans %s -- lancer : %s" % (dossier, cmd)
+    f = fichiers[-1]
+    try:
+        d = datetime.date.fromisoformat(re.search(r"(\d{4}-\d{2}-\d{2})", f.name).group(1))
+        mes = json.loads(f.read_text(encoding="utf-8"))
+        if not (isinstance(mes, dict) and isinstance(mes.get("rapports"), dict)
+                and isinstance(mes.get("empreintes"), dict)):
+            raise ValueError("forme")
+    except Exception as e:  # noqa: BLE001
+        return False, "audit %s ILLISIBLE (%s) -- relancer : %s" % (f.name, type(e).__name__, cmd)
+    age = ((maintenant or datetime.date.today()) - d).days
+    if age > FRAICHEUR_J:
+        return False, "audit %s PERIME (%d j > %d j) -- relancer : %s" % (f.name, age, FRAICHEUR_J, cmd)
+    for fm in MANIFESTES_LIVRES:
+        t = contenu(sha, fm)
+        if t is None or mes["empreintes"].get(fm) != _empreinte(t):
+            return False, "audit %s ne porte pas les manifestes de %s (%s change ou illisible) -- relancer : %s" % (
+                f.name, sha, fm, cmd)
+    v = verdict_audit(mes["rapports"])
+    if not v["ok"]:
+        return False, "audit %s ROUGE (regle du tag) : %d bloquant(s), %d illisible(s) %s" % (
+            f.name, len(v["bloquants"]), len(v["illisibles"]), (v["bloquants"] + v["illisibles"])[:3])
+    return True, "audit %s frais (%d j), regle du tag respectee" % (f.name, age)
+
+
 def repetition(version: str, source: str, essai: str = ESSAI) -> int:
     """Snapshot du depot public dans un clone d'essai NEUF (un main local en avance ferait refuser le ff-only)."""
     if os.path.exists(essai):
@@ -124,16 +329,28 @@ def repetition(version: str, source: str, essai: str = ESSAI) -> int:
     for f in (".github/workflows/installation-complete.yml", "tools/forge_install_acceptance.py",
               "tools/forge_knowledge_pack_import.py", "distribution/packs/local-llm.toml"):
         print("present dans le snapshot : %-50s %s" % (f, os.path.exists(os.path.join(essai, f))), flush=True)
+    if r.returncode == 0:
+        a = auditer_snapshot(essai)
+        if not a["ok"]:
+            print("GARDE : audit des manifestes livres ROUGE (regle du tag) : %d bloquant(s), %d sans correctif, %d illisible(s)"
+                  % (len(a["bloquants"]), len(a["avertis"]), len(a["illisibles"])), flush=True)
+            return 3
     return r.returncode
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--version", required=True)
+    ap.add_argument("--version", default="")
+    ap.add_argument("--audit-manifestes", action="store_true",
+                    help="audit EN LIGNE des manifestes livres au --sha, ecrit sandbox/audit_manifestes_history (avant la CI)")
     ap.add_argument("--sha", required=True, help="sha court certifie")
     ap.add_argument("--job", help="job_id de la CI de reference (promotion)")
     ap.add_argument("--repetition", action="store_true", help="snapshot d'essai seulement, rien pousse")
+    ap.add_argument("--herite-de", default=None,
+                    help="sha CERTIFIE dont --sha herite de la preuve (ecart : version, CHANGELOG, workflows seulement)")
     a = ap.parse_args(argv)
+    if a.audit_manifestes:
+        return ecrire_audit_manifestes(git("rev-parse", a.sha, depot=ROOT)[1] or a.sha)
     if not re.fullmatch(r"\d+\.\d+\.\d+", a.version):
         print("GARDE : version non SemVer :", a.version, flush=True)
         return 3
@@ -143,10 +360,16 @@ def main(argv=None) -> int:
         print("GARDE : --job requis pour une promotion", flush=True)
         return 3
 
-    journal = (ROOT / "sandbox" / "jobs" / ("%s.log" % a.job)).read_text(encoding="utf-8", errors="replace")
+    journal = (_RACINE_DONNEES / "sandbox" / "jobs" / ("%s.log" % a.job)).read_text(encoding="utf-8", errors="replace")
     _, sha = git("rev-parse", a.sha, depot=ROOT)
-    certs = certifications(sha)
-    if len(certs) != 1 or not preuve_verte(journal, a.sha):
+    herite = git("rev-parse", a.herite_de, depot=ROOT)[1] if a.herite_de else None
+    certs, raison_h, sha_preuve = certifications_pour(sha, herite)
+    if raison_h:
+        print("GARDE : heritage de preuve REFUSE :", raison_h, flush=True)
+        return 3
+    if herite:
+        print("heritage de preuve : %s -> %s (diff restreint)" % (herite[:12], sha[:12]), flush=True)
+    if len(certs) != 1 or not preuve_verte(journal, sha_preuve[:len(a.herite_de or a.sha)] if herite else a.sha):
         print("GARDE : certification introuvable, ambigue ou non verte :", [c.parent.name for c in certs],
               bool(RE_PREUVE.search(journal)), flush=True)
         return 3
@@ -165,7 +388,7 @@ def main(argv=None) -> int:
         return 3
 
     cmd = [PY, "-u", "tools/forge_dist_publish.py", "--version", a.version, "--branch", sha,
-           "--certification", str(cert), "--with-assets"]
+           "--certification", str(cert), "--with-assets"] + (["--certification-heritee-de", herite] if herite else [])
     print("CMD", " ".join(cmd[2:]), flush=True)
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                          encoding="utf-8", errors="replace")

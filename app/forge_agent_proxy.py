@@ -48,6 +48,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("Nokido.AgentProxy")
 
+# Regle d'or owner (observation seule, jamais de refus) : ask() est un chemin TEXTE, `tools` n'atteint pas le fournisseur.
+REGLE_D_OR_TOOLS_NON_TRANSMIS = 0
+
+
+def _observer_tools_non_transmis(tools: Any, provider_name: str, messages: list) -> None:
+    """Journalise + compte un appel portant `tools` dont le payload reel part sans outils. Ne refuse jamais."""
+    global REGLE_D_OR_TOOLS_NON_TRANSMIS
+    if not tools:
+        return
+    try:
+        from app.core.payload_validator import PayloadValidator
+
+        ok, err = PayloadValidator().validate_payload({"messages": messages}, agentique=True)
+        if not ok:
+            REGLE_D_OR_TOOLS_NON_TRANSMIS += 1
+            logger.warning(
+                "[regle_d_or] %d outil(s) demandes mais PAS transmis au fournisseur %s (chemin texte) : %s",
+                len(tools), provider_name, err)
+    except Exception:
+        logger.debug("observation regle d'or muette", exc_info=True)
+
 ROOT = Path(__file__).resolve().parent.parent
 _API_KEYS: Dict[str, str] = {}
 _THREADS: Dict[str, List[Dict[str, str]]] = {}
@@ -528,8 +549,11 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
             from nokido_agent.app.forge_trace_context import get_actor
             _actor_dict = get_actor()
             _actual_agent = _actor_dict.get("agent") or os.environ.get("AGENT_NAME") or "forge_agent_proxy"
+            _principal_agent = _actor_dict.get("principal") or _actual_agent
+            _declared_agent = _actor_dict.get("declared") or "UNKNOWN"
         except Exception:
             _actual_agent = "forge_agent_proxy"
+            _principal_agent, _declared_agent = _actual_agent, "UNKNOWN"
 
         # La nature de la mesure est DITE : sans elle, `log_call` rangeait toute
         # valeur chiffree en REPORTED -- mesure 24/09, ~730 appels fournisseurs sur
@@ -538,6 +562,8 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
         # d'appel (audit pair E). Absents hors routeur -> None (NULL), jamais 0.
         log_call(
             agent_id=_actual_agent,
+            principal=_principal_agent,
+            declared=_declared_agent,
             provider=provider.name,
             model=provider.model,
             prompt_tokens=prompt_tok,
@@ -545,6 +571,7 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
             latency_ms=latency_ms,
             source="agent_proxy",
             cache_read_tokens=_cache,
+            cache_write_tokens=(usage or {}).get("cache_write") if _kind == "REPORTED" else None,
             measurement_kind=_kind,
             measurement_source=_src,
             served_model=(usage or {}).get("served_model"),
@@ -559,6 +586,9 @@ def _record_provider_call(provider, prompt: str, response: str, system_prompt: s
                      prompt_tok, comp_tok, latency_ms)
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 518, exc_info=True)
+
+        # Passeport d'appel sortant (P1_passeport_appel_3_axes_20261024)
+        _ecrire_passeport(provider, usage=usage)
     except Exception as e:
         logger.debug(f"_record_provider_call({provider.name}) failed: {e}")
 
@@ -603,6 +633,104 @@ def _firewall_post(response, fw_map):
         except Exception:  # noqa: BLE001
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 561, exc_info=True)
     return response
+
+
+# Journal passeport d'appels (P1_passeport_appel_3_axes_20261024)
+_PASSEPORT_JOURNAL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "passeport_appels.jsonl"
+)
+
+
+_PASSEPORT_MAX_OCTETS = 5 * 1024 * 1024
+
+
+def _ecrire_passeport_fichier(ligne: dict) -> None:
+    """Ecrit de facon atomique/append la ligne JSON dans logs/passeport_appels.jsonl.
+
+    Borne (30/10) : une ligne par appel provider, sans rotation le journal grossissait sans fin. Au-dela de
+    _PASSEPORT_MAX_OCTETS, il passe en `.1` (une generation gardee, l'ancienne `.1` est remplacee)."""
+    journal_path = _PASSEPORT_JOURNAL_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(journal_path)), exist_ok=True)
+    try:
+        if os.path.getsize(journal_path) > _PASSEPORT_MAX_OCTETS:
+            os.replace(journal_path, journal_path + ".1")
+    except OSError:
+        pass  # muet-ok : journal absent (premiere ligne) ou rotation impossible -> on continue d'ajouter
+    with open(journal_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+
+
+def _extraire_endpoint(provider) -> str:
+    """Extrait l'endpoint sans cle ni query param."""
+    cand = (
+        getattr(provider, "base_url", None)
+        or getattr(provider, "endpoint", None)
+        or getattr(getattr(provider, "_client", None), "_base_url", None)
+        or getattr(getattr(provider, "client", None), "_base_url", None)
+    )
+    if cand:
+        cand_str = str(cand).strip()
+        import urllib.parse as _up
+        try:
+            parsed = _up.urlparse(cand_str)
+            if parsed.scheme and parsed.netloc:
+                return _up.urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+        except Exception:  # muet-ok : URL non analysable -> repli juste dessous (coupe ? et #, jamais la cle)
+            pass
+        return cand_str.split("?")[0].split("#")[0]
+
+    # Jamais deviner (consigne du passeport) : une table d'URL ecrite a la main se perime et mentait deja
+    # (« claude » -> openrouter). Sans base_url lisible sur le provider, l'endpoint est INCONNU.
+    return "INCONNU"
+
+
+def _ecrire_passeport(provider, usage: Optional[dict] = None) -> None:
+    """Enregistre le passeport d'appel (3 axes : identite, routage/use_case, endpoint servi).
+
+    - Identite : {agent, ring} si connus, sinon 'INCONNU' (jamais deviner).
+    - use_case : axe routage si present, sinon 'direct'.
+    - endpoint : base_url sans cle ni query param.
+    - Jamais de secret dans la ligne.
+    - Echec = WARNING journalise, jamais d'exception.
+    """
+    try:
+        try:
+            from nokido_agent.app.forge_trace_context import get_actor
+            act = get_actor()
+        except Exception:
+            act = {}
+
+        if act and act.get("agent"):
+            identite: Any = {"agent": act["agent"], "ring": act.get("ring")}
+        else:
+            identite = "INCONNU"
+
+        u = usage or {}
+        modele = u.get("served_model") or getattr(provider, "model", None) or "INCONNU"
+        try:
+            from nokido_agent.app.forge_trace_context import get_use_case as _guc
+            _uc_ctx = _guc()
+        except Exception:  # noqa: BLE001  # muet-ok : contexte illisible -> « direct », jamais un cas devine
+            _uc_ctx = ""
+        use_case = u.get("use_case") or _uc_ctx or "direct"
+        endpoint = _extraire_endpoint(provider)
+
+        ligne = {
+            "ts": time.time(),
+            "identite": identite,
+            "use_case": use_case,
+            "provider": getattr(provider, "name", "INCONNU"),
+            "modele": modele,
+            "endpoint": endpoint,
+        }
+        _ecrire_passeport_fichier(ligne)
+        try:  # tranche 3 : le routeur saura que cette ligne existe deja (pas de doublon)
+            from nokido_agent.app.forge_trace_context import marquer_passeport_ecrit as _mpe
+            _mpe()
+        except Exception:  # noqa: BLE001  # muet-ok : sans marque, le routeur ecrira au pire un doublon, jamais un trou
+            pass
+    except Exception as e:
+        logger.warning(f"Echec ecriture passeport d'appel provider: {e}")
 
 
 def _ensure_persona(system_prompt):
@@ -936,8 +1064,18 @@ class ClaudeOpenRouter(Provider):
             timeout=timeout,
         )
         if hasattr(resp, "usage"):
-            track_cache_usage(resp.usage, "openrouter_claude")
+            _st = track_cache_usage(resp.usage, "openrouter_claude")
+        else:
+            _st = {}
         _noter_usage_rapporte(resp)
+        # Cache rendu par l'API (champs Anthropic) -> tiroir d'appel -> UN SEUL log_call
+        # (celui de `_record_provider_call`). Inconnu reste None.
+        _tiroir_c = _USAGE_RAPPORTE.get()
+        if _tiroir_c is not None:
+            if _st.get("cache_hit") is not None:
+                _tiroir_c["cache_read"] = _st["cache_hit"]
+            if _st.get("cache_write") is not None:
+                _tiroir_c["cache_write"] = _st["cache_write"]
         raw = resp.choices[0].message.content
         if _membrane:
             try:
@@ -2171,10 +2309,12 @@ class NvidiaNIM(Provider):
     Signup: build.nvidia.com — needs NVIDIA_API_KEY in Nokido.env."""
 
     name = "nvidia_nim"
-    model = "nvidia/nemotron-3-super-120b-a12b"  # id valide (doc NVIDIA)
+    # 30/10 : nemotron-3-super-120b-a12b RETIRE chez NVIDIA (404 « Function ... Not Found ») ; remplacant JOIGNABLE au
+    # census du 30/10, meme taille. Aligne sur l'entree nvidia_nemotron_super du routeur (sinon l'alias est refuse).
+    model = "nvidia/nemotron-3.5-super-vl-120b-a12b"
     api_key_env = "NVIDIA_API_KEY"  # fix 2026-06-09 : aligne admin/rubrique (etait NVIDIA_NIM_API_KEY)
     cost_tier = 0
-    display_name = "Nemotron-3-Super-120B (NVIDIA NIM FREE 40RPM)"
+    display_name = "Nemotron-3.5-Super-VL-120B (NVIDIA NIM FREE 40RPM)"
 
     async def ask(self, message, thread_messages, system_prompt, max_tokens, timeout):
         from openai import AsyncOpenAI
@@ -3700,11 +3840,23 @@ async def ask(
         # conversation threadee stateful. Gate sur thread_id EXPLICITE (continuite voulue).
         if system_prompt and thread_id and os.getenv("LAFORGE_PROXY_MEMORY") == "1":
             system_prompt = _inject_thread_memory(system_prompt, tid, message)
-        # v2.1 : network logger (forge_network_logger)
+        # v2.1 : network logger (forge_network_logger). Les evenements cloud portent
+        # l'ACTEUR resolu par le hub (ActorContext), plus l'etiquette fixe « HUB ».
+        _cloud_agent = "HUB"
+        _cloud_principal, _cloud_declared = "", "UNKNOWN"
+        try:
+            from nokido_agent.app.forge_trace_context import get_actor as _get_actor
+            _cloud_actor = _get_actor()
+            _cloud_agent = _cloud_actor.get("agent") or "HUB"
+            _cloud_principal = _cloud_actor.get("principal") or _cloud_agent
+            _cloud_declared = _cloud_actor.get("declared") or "UNKNOWN"
+        except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s)", 'app/forge_agent_proxy.py:_cloud_agent', exc_info=True)
         try:
             from nokido_agent.app.forge_network_logger import log_cloud_out, log_cloud_in
 
-            log_cloud_out(provider_name, provider.model, "HUB", message, session_id=tid)
+            log_cloud_out(provider_name, provider.model, _cloud_agent, message, session_id=tid,
+                          principal=_cloud_principal, declared=_cloud_declared)
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3661, exc_info=True)
         _appel_emis = True
@@ -3713,6 +3865,7 @@ async def ask(
         # tracking usage s'appliquent aussi à ce chemin.
         _msgs, _budget = _borner_contexte(
             list(messages), system_prompt, message, provider_name)
+        _observer_tools_non_transmis(tools, provider_name, _msgs or [{"role": "user", "content": message}])
         text = await provider.ask_tracked(
             message=message,
             thread_messages=_msgs,
@@ -3724,6 +3877,18 @@ async def ask(
             import logging
             logging.getLogger(__name__).warning(f"Provider {provider_name} a renvoye None, repli sur chaine vide (fix Cerebras).")
             text = ""
+        if not str(text).strip():
+            # Une reponse VIDE n'est pas un succes (temoin CODEX 23/10 : Groq rendait
+            # ok:true, text:"") : echec explicite et nomme, l'appelant peut basculer.
+            return {
+                "ok": False,
+                "thread_id": tid,
+                "text": "",
+                "latency_ms": round((time.monotonic() - t0) * 1000, 1),
+                "provider": provider_name,
+                "model": provider.model,
+                "error": "Provider returned empty response",
+            }
         _citer_reponse(text, provider_name)
 
         if len(text) > MAX_RESPONSE_CHARS:  # CCR réversible (plus de troncature silencieuse)
@@ -3757,7 +3922,8 @@ async def ask(
         try:
             from nokido_agent.app.forge_network_logger import log_cloud_in
 
-            log_cloud_in(provider_name, provider.model, "HUB", text, latency, session_id=tid)
+            log_cloud_in(provider_name, provider.model, _cloud_agent, text, latency, session_id=tid,
+                         principal=_cloud_principal, declared=_cloud_declared)
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3714, exc_info=True)
         _emit(

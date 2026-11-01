@@ -17,9 +17,14 @@ import {
 } from "./service_loader.ts";
 import { memUsagePct, totalRamKo } from "./platform.ts";
 import { doitTirer } from "./circadian_fenetre.ts";
+import { chargerCodesSortie, classerSortie } from "./supervisor_exit.ts";
+import { arreterVraiment } from "./supervisor_arret.ts";
 
 const ROOT = resolve(Deno.cwd());
 const LOG_DIR = join(ROOT, "logs", "supervisor");
+const CODES_SORTIE = chargerCodesSortie(
+  join(ROOT, "config", "codes_sortie_organes.json"),
+);
 
 // Phase 28+ (2026-05-25) — load Nokido.env au boot. Sans ca, FORGE_MCP_TOKEN/
 // LAFORGE_JWT_SECRET dans la session PS user ne se propagent PAS au service
@@ -297,6 +302,11 @@ const HEARTBEAT_TIERS: Record<"fast" | "normal" | "slow", HeartbeatTier> = {
 function tierFor(def: ServiceDef): HeartbeatTier {
   return HEARTBEAT_TIERS[def.heartbeat_tier ?? "normal"];
 }
+// heartbeat_max_s (27/10) : seuil de relance DECLARE par 15 services, lu par PERSONNE jusqu'ici (audit :
+// 13 ecarts actifs -- relance plus tardive que declaree = mort non vue, plus tot = cycle long tue). OBSERVE
+// par defaut ; applique seulement avec HEARTBEAT_MAX_S_ENFORCE=1, apres mesure du bruit des observations.
+const _HB_MAX_ENFORCE = Deno.env.get("HEARTBEAT_MAX_S_ENFORCE") === "1";
+const _hbMaxVus = new Set<string>();
 // Circuit breaker rapide (Phase 6 reflexe spinal). Si un service exit
 // QUICK_FAIL_COUNT fois consecutivement en moins de QUICK_FAIL_THRESHOLD_S
 // chacune, on declenche une quarantine immediate de QUICK_QUARANTINE_MS
@@ -1149,6 +1159,23 @@ async function _portHolderPid(port: number): Promise<number | null> {
   return null;
 }
 
+// Delestage d'un EXECUTEUR DE TACHES (30/10, 20:25:03) : proc.kill ne tue que le parent, et sous Windows ses sessions
+// d'agent (AGY, Vibe, OpenCode -- la vraie charge, souvent deja GELEES par l'executeur) lui survivaient orphelines et
+// suspendues : rien n'etait rendu, le travail etait perdu. On emporte l'ARBRE ; la tache orpheline repart dans son
+// worktree. Hors de la boucle de ressources (NR : aucune sonde de processus DANS la boucle).
+// SYNCHRONE (31/10, CI de reference cb00939f2) : appele dans resourceLoop, un `.output()` asynchrone peut ne jamais
+// se resoudre quand le pool bloquant est sature (meme cause que livingPids le 24/09) -- et figer vitalite ET
+// regulation RAM. Ni stdout ni stderr a lire : outputSync rend la main en quelques ms.
+function _tuerArbre(pid: number): boolean {
+  try {
+    const r = new Deno.Command("taskkill", { args: ["/F", "/T", "/PID", String(pid)], stdout: "null", stderr: "null" })
+      .outputSync();
+    return r.success;
+  } catch {
+    return false;
+  }
+}
+
 async function _killPid(pid: number): Promise<boolean> {
   try {
     await new Deno.Command("taskkill", { args: ["/F", "/PID", String(pid)], stdout: "null", stderr: "null" }).output();
@@ -1570,15 +1597,28 @@ async function startService(state: ServiceState) {
         log(`${def.name}: exit d'une generation remplacee — ignore (no reschedule)`);
         return;
       }
+      state.logFile = null;
+      state.proc = null;
+      state.pid = null;
+
+      const classification = classerSortie(
+        s.code,
+        elapsedMs,
+        CODES_SORTIE,
+        QUICK_FAIL_THRESHOLD_MS,
+      );
+      if (classification === "instance_deja_vivante") {
+        log(
+          `${def.name}: instance deja vivante (code 75) -- pas un crash, pas de relance`,
+        );
+        return;
+      }
       // Phase 6 reflexe spinal : track exits rapides consecutifs.
-      if (elapsedMs < QUICK_FAIL_THRESHOLD_MS) {
+      if (classification === "echec_rapide") {
         state.quickFailCount++;
       } else {
         state.quickFailCount = 0;
       }
-      state.logFile = null;
-      state.proc = null;
-      state.pid = null;
       if (state.status !== "sleeping" && state.status !== "stopped") {
         scheduleRestart(state);
       }
@@ -1906,6 +1946,13 @@ async function resourceLoop() {
 
     const memPct = await getMemUsagePct();
     const totalKo = totalRamKo();
+    // 30/10 : entre RAM_WAKE_PCT et RAM_SLEEP_PCT la boucle ne disait RIEN (ni delestage ni reveil) ; trois executeurs
+    // sont restes endormis 40 min sans que la RAM lue par le superviseur soit connue. Un passage sur dix, on la dit.
+    if (_passagesVitalite % 10 === 0) {
+      const nDormeurs = [...states.values()].filter((s) => s.status === "sleeping").length;
+      log(`RAM lue ${memPct.toFixed(1)}% : ${nDormeurs} dormeur(s), reveil sous ${RAM_WAKE_PCT}%, ` +
+        `delestage au-dela de ${RAM_SLEEP_PCT}%`);
+    }
     if (memPct > RAM_SLEEP_PCT) {
       log(
         `RAM ${
@@ -1947,7 +1994,13 @@ async function resourceLoop() {
             `rss ${ko === null ? "ILLISIBLE" : Math.round(ko / 1024) + " Mo"})`,
         );
         if (ko !== null) _rssKoAuSommeil.set(state.def.name, ko);
-        state.proc?.kill("SIGTERM");
+        if (state.def.name.startsWith("NokidoTaskExecutor") && state.pid) {
+          const arbre = _tuerArbre(state.pid);
+          if (!arbre) state.proc?.kill("SIGTERM");
+          log(`${state.def.name} endormi avec son arbre (${arbre ? "taskkill /T" : "repli SIGTERM parent seul"})`);
+        } else {
+          state.proc?.kill("SIGTERM");
+        }
         state.status = "sleeping";
         endormis++;
         if (totalKo && ko) pct -= (ko / totalKo) * 100;
@@ -2746,10 +2799,16 @@ async function handleCtrl(req: Request): Promise<Response> {
       });
     }
     const held = !!state.proc;
-    if (state.proc) {
-      try { state.proc.kill("SIGTERM"); } catch (_) {}
-    }
+    const estLanceur = state.def.runAs === "interactive";
+    // L'intention d'arret se pose AVANT de tuer : pendant l'await, le gestionnaire de sortie lisait encore
+    // « running » et relancait le service qu'on arretait (30/10 : NokidoLlamaEmbed, 25 redemarrages).
     state.status = "stopped";
+    const arretRes = await arreterVraiment(state.proc, state.pid, 5000, estLanceur);
+    if (arretRes === "SURVIT") {
+      log(`${name}: arret REFUSE, pid ${state.pid} survit a l'arret`);
+      state.status = "running";
+      return jsonResp({ ok: false, action: "stop", survit: state.pid });
+    }
     return jsonResp({ ok: true, stopped: name, held_process: held });
   }
 
@@ -2847,8 +2906,12 @@ async function handleCtrl(req: Request): Promise<Response> {
       return jsonResp({ ok: true, action: "restart", name, def_refreshed: defRefreshed });
     }
     if (action === "sleep") {
-      if (state.proc) {
-        try { state.proc.kill("SIGTERM"); } catch (_) {}
+      const estLanceur = state.def.runAs === "interactive";
+      const arretRes = await arreterVraiment(state.proc, state.pid, 5000, estLanceur);
+      if (arretRes === "SURVIT") {
+        log(`${name}: sommeil REFUSE, pid ${state.pid} survit a l'arret`);
+        state.status = "running";
+        return jsonResp({ ok: false, action: "sleep", survit: state.pid });
       }
       state.status = "sleeping";
       // SOMMEIL VOULU (17/10) : le reveil RAM ne le leve pas avant l'echeance (`?ttl_s=`, 60 s a 6 h, defaut 1 h).
@@ -3141,8 +3204,26 @@ async function heartbeatLoopForTier(tierName: "fast" | "normal" | "slow") {
         }
         if (snap) {
           state.heartbeat = snap;
+          const _maxDecl = state.def.heartbeat_max_s;
+          const _seuil = _maxDecl && _HB_MAX_ENFORCE ? _maxDecl : tier.stale_restart_s;
+          if (_maxDecl && !_HB_MAX_ENFORCE && state.status === "running") {
+            const _plusTot = snap.stale_s >= _maxDecl && snap.stale_s < tier.stale_restart_s;
+            const _plusTard = snap.stale_s >= tier.stale_restart_s && snap.stale_s < _maxDecl;
+            const _cle = state.def.name + (_plusTot ? ":tot" : ":tard");
+            if ((_plusTot || _plusTard) && !_hbMaxVus.has(_cle)) {
+              _hbMaxVus.add(_cle);
+              log(
+                _plusTot
+                  ? `${state.def.name}: [observation heartbeat_max_s] pouls perime ${snap.stale_s}s >= declare ${_maxDecl}s -- SERAIT relance (tier=${tierName} attend ${tier.stale_restart_s}s)`
+                  : `${state.def.name}: [observation heartbeat_max_s] relance par le tier a ${tier.stale_restart_s}s ALORS QUE le service declare ${_maxDecl}s -- cycle long tue ?`,
+              );
+            } else if (snap.stale_s < Math.min(_maxDecl, tier.stale_restart_s)) {
+              _hbMaxVus.delete(state.def.name + ":tot");
+              _hbMaxVus.delete(state.def.name + ":tard");
+            }
+          }
           if (
-            snap.stale_s >= tier.stale_restart_s &&
+            snap.stale_s >= _seuil &&
             state.status === "running" && state.proc &&
             // Garde de generation HEARTBEAT (RCA tueur #2, 2026-07-03) : ne
             // tuer que si le beat STALE a ete ecrit APRES le spawn de CE
@@ -3186,7 +3267,7 @@ async function heartbeatLoopForTier(tierName: "fast" | "normal" | "slow") {
             // demanderait de toucher ServiceDef ET le loader TOML, pour un reglage
             // dont aucun organe n'a encore montre le besoin. Le jour ou un travail
             // legitime le depasse, le journal le nommera avant qu'on l'ajoute.
-            const _plafond = 4 * tier.stale_restart_s;
+            const _plafond = 4 * _seuil;
             if (_enTravail && _depuis < _plafond) {
               if (!_travailDeclareVus.has(state.def.name)) {
                 _travailDeclareVus.add(state.def.name);
@@ -3202,7 +3283,7 @@ async function heartbeatLoopForTier(tierName: "fast" | "normal" | "slow") {
                 );
               }
               log(
-                `${state.def.name}: heartbeat stale ${snap.stale_s}s >= ${tier.stale_restart_s}s (tier=${tierName}) — process frozen, restarting`,
+                `${state.def.name}: heartbeat stale ${snap.stale_s}s >= ${_seuil}s (tier=${tierName}${_maxDecl && _HB_MAX_ENFORCE ? ", heartbeat_max_s" : ""}) — process frozen, restarting`,
               );
               try {
                 state.proc.kill("SIGTERM");

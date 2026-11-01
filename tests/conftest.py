@@ -70,7 +70,12 @@ def _setitem_avec_attribut(self, dic, name, value):
     if dic is sys.modules and isinstance(name, str) and "." in name:
         parent, _, enfant = name.rpartition(".")
         if sys.modules.get(parent) is not None:
-            self.setattr(sys.modules[parent], enfant, value, raising=False)
+            # None = « module indisponible » : l'attribut doit DISPARAITRE, sinon `from paquet import X` rend None
+            # sans ImportError (sys.modules[nom] = None, lui, leve bien ImportError). NR test_double_none_leve_importerror_nr.
+            if value is None:
+                self.delattr(sys.modules[parent], enfant, raising=False)
+            else:
+                self.setattr(sys.modules[parent], enfant, value, raising=False)
 
 
 pytest.MonkeyPatch.setitem = _setitem_avec_attribut
@@ -138,6 +143,7 @@ def pytest_configure(config):
     global _LISTE_CI, _DOSSIERS_CI, _ORDRE_CI, _CHEMIN_CI
     # trylast : APRES le faulthandler natif de pytest, qui reecrirait sinon la cible vers le stderr du worker.
     _armer_faulthandler(config)
+    _armer_coffre_factice()
     chemin = (os.environ.pop("NOKIDO_CI_LISTE", None)
               or (getattr(config, "workerinput", None) or {}).get(_CLE_XDIST))
     if not chemin:
@@ -346,6 +352,85 @@ def _isolate_reveils_et_registres(_bac_des_organes, _numero_de_test, monkeypatch
             return _m["e"]
 
         monkeypatch.setattr(tc, "get_timecode_engine", _moteur_isole, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_identite_de_job(monkeypatch):
+    """AUCUN test n'herite de l'IDENTITE DE JOB de son lanceur.
+
+    Mesure le 2026-10-30 : depuis que le run_job du hub pose un jeton de job (NOKIDO_JOB_SUBJECT_TOKEN, NOKIDO_JOB_ID,
+    option B RFC 8693), pytest lance en job portait ce VRAI jeton, et HubClient prenait la voie d'echange dans des
+    tests qui supposaient le coffre (7 rouges : lecteurs_jeton_propre_dabord, supervisor_ctl_via_hub_2b5). Un test qui
+    veut un jeton de job le pose lui-meme (monkeypatch.setenv), comme test_hub_client_echange_dpop_nr.
+    """
+    for nom in ("NOKIDO_JOB_SUBJECT_TOKEN", "NOKIDO_JOB_ID"):
+        monkeypatch.delenv(nom, raising=False)
+
+
+def _identites_a_simuler() -> list:
+    """Memes noms que nokido_hub._agents_a_charger (tuple fige _AGENT_LIST lu par AST, sans importer le hub, + registre
+    config/agent_identities.json, hors `jeton_direct: false`)."""
+    import ast
+    import json
+
+    racine = Path(__file__).resolve().parent.parent
+    noms = []
+    try:
+        for n in ast.parse((racine / "tools" / "nokido_hub.py").read_text(encoding="utf-8")).body:
+            if isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_AGENT_LIST" for t in n.targets):
+                noms = [e.value for e in getattr(n.value, "elts", []) if isinstance(e, ast.Constant)]
+    except (OSError, SyntaxError):  # noqa: BLE001 -- le registre suffit alors
+        pass
+    try:
+        declarees = (json.loads((racine / "config" / "agent_identities.json").read_text(encoding="utf-8"))
+                     or {}).get("agents") or {}
+    except (OSError, ValueError):
+        declarees = {}
+    sans_jeton = {a for a, m in declarees.items() if isinstance(m, dict) and m.get("jeton_direct") is False}
+    return sorted((set(noms) | set(declarees)) - sans_jeton)
+
+
+_COFFRE_FACTICE = {}
+
+
+def _armer_coffre_factice() -> None:
+    """Coffre de test pose AVANT la collecte (pytest_configure) : nokido_hub charge toutes les identites A L'IMPORT
+    (`_AGENT_TOKENS = _load_agent_tokens()`), donc pendant la collecte, quand aucune fixture n'agit encore et que
+    PYTEST_CURRENT_TEST n'existe pas -- mesure 30/10 : 165 identites lues au vrai coffre par UN pytest malgre la
+    fixture. PYTEST_CURRENT_TEST est pose pour la seule collecte (pytest le gere ensuite test par test) ; le coffre
+    vit sous le dossier temporaire du systeme, seul lieu que forge_secrets._coffre_test accepte."""
+    import json
+    import secrets
+    import tempfile
+
+    if _COFFRE_FACTICE or os.environ.get("NOKIDO_COFFRE_TEST_DIR"):
+        return
+    d = Path(tempfile.mkdtemp(prefix="pytest_coffre_factice_"))
+    (d / "coffre_test.json").write_text(
+        json.dumps({"FORGE_TOKEN_%s" % a: "factice-" + secrets.token_urlsafe(24) for a in _identites_a_simuler()}),
+        encoding="utf-8")
+    _COFFRE_FACTICE["dossier"] = d
+    os.environ["NOKIDO_COFFRE_TEST_DIR"] = str(d)
+    os.environ.setdefault("PYTEST_CURRENT_TEST", "collecte (coffre factice)")
+
+
+@pytest.fixture(scope="session")
+def _dossier_coffre_factice():
+    """Coffre de test de la session : un jeton ALEATOIRE par identite, jamais ecrit dans le depot."""
+    _armer_coffre_factice()
+    return _COFFRE_FACTICE.get("dossier") or Path(os.environ["NOKIDO_COFFRE_TEST_DIR"])
+
+
+@pytest.fixture(autouse=True)
+def _coffre_factice_identites(_dossier_coffre_factice, monkeypatch):
+    """AUCUN test ne lit une VRAIE identite FORGE_TOKEN_* (COF-1, choix owner 30/10).
+
+    Mesure du 30/10 : 82 % des 1 406 lectures d'identite depuis le bac venaient de pytest (le hub construit en test
+    charge toutes les identites). On sert le coffre de test que forge_secrets._coffre_test lit DEJA (sous pytest
+    seulement, dossier temporaire seulement) ; un test qui pose son propre NOKIDO_COFFRE_TEST_DIR le garde.
+    """
+    if not os.environ.get("NOKIDO_COFFRE_TEST_DIR"):
+        monkeypatch.setenv("NOKIDO_COFFRE_TEST_DIR", str(_dossier_coffre_factice))
 
 
 @pytest.fixture(autouse=True)

@@ -158,6 +158,12 @@ def wait_for_port(port: int, max_s: int = 15, host: str = "127.0.0.1") -> bool:
     return False
 
 
+def _est_python_de_base(exe: str) -> bool:
+    """Vrai pour l'interprete de BASE miniforge (site Python312). Mesure owner 22/10 : ONLY_USER = pipx, userpath
+    -> masque sans risque. Les envs (laforge_py314, ryzen-ai-final...) restent INCHANGES (etape suivante)."""
+    return exe.replace("\\", "/").rstrip("/").lower().endswith("/miniforge3/python.exe")
+
+
 def spawn_detached(cmd: list[str], cwd: Path, log_file: Path, env: dict | None = None) -> int:
     """Spawn un process detache, log redirige. Retourne PID."""
     extra_env = {
@@ -166,6 +172,10 @@ def spawn_detached(cmd: list[str], cwd: Path, log_file: Path, env: dict | None =
         "FORGE_TOKEN_SERVICES": SERVICES_TOKEN,
         "X_AGENT_NAME": "SERVICES",
     }
+    # Site utilisateur masque UNIQUEMENT si l'interprete reellement lance est la base miniforge ; valeur deja
+    # posee (env explicite ou os.environ) respectee. Les envs restent inchanges (decision owner 22/10).
+    if cmd and _est_python_de_base(str(cmd[0])):
+        extra_env.setdefault("PYTHONNOUSERSITE", "1")
     proc = subprocess.Popen(
         cmd,
         cwd=str(cwd),

@@ -19,7 +19,10 @@ def check(name, condition, detail=""):
 
 # ── 1. extract_pure_python ──────────────────────────────────────────────────
 print("\n1. extract_pure_python")
-from LocalMutationManager import extract_pure_python
+import pytest
+# 28/10 (owner : skip motive) : module disparu de Nokido ; sans ce garde l'ImportError cassait la collecte de tests/.
+extract_pure_python = pytest.importorskip(
+    "LocalMutationManager", reason="module disparu : LocalMutationManager").extract_pure_python
 import ast as _ast
 
 cases = [

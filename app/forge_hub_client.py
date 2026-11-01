@@ -146,7 +146,67 @@ def entetes_organe(agent: str) -> dict:
     return h
 
 
-_TOKEN, _TOKEN_SRC = _resoudre_jeton(_AGENT)
+def _echange_arme() -> bool:
+    """INTERRUPTEUR GLOBAL de la voie d'echange cote client (30/10) : `sandbox/echange_jeton_job.switch` present.
+    Le hub n'accepte le jeton echange en DPoP qu'apres SON redemarrage ; armer le client avant ferait echouer des
+    appels qui marchaient (l'ancien hub ne connait que Bearer). Pose par l'agent APRES le redemarrage du hub."""
+    try:
+        return (Path(__file__).resolve().parents[1] / "sandbox" / "echange_jeton_job.switch").exists()
+    except Exception:  # noqa: BLE001 -- muet-ok : illisible = desarme, comportement d'avant
+        return False
+
+
+# 30/10 (mesure reelle, journal du coffre) : resolu au CHARGEMENT, ce jeton faisait lire FORGE_TOKEN_SERVICES a tout job
+# qui importe ce client ; aucun consommateur ne lit _TOKEN hors de ce module. En voie d'echange : pas de lecture.
+def _identite_injectee(env=None) -> str:
+    """Identite pour laquelle le LANCEUR a injecte un jeton court ('' sinon). NOKIDO_IDENTITE reste dans l'environnement ;
+    NOKIDO_JETON_COURT en est retire a la premiere lecture par forge_agent_credential (qui le garde en memoire)."""
+    env = os.environ if env is None else env
+    ident = str(env.get("NOKIDO_IDENTITE") or "").strip().upper()
+    if not ident:
+        return ""
+    if env.get("NOKIDO_JETON_COURT"):
+        return ident
+    try:
+        from nokido_agent.app import forge_agent_credential as _ac
+        return ident if ident in getattr(_ac, "_INJECTES", {}) else ""
+    except Exception:  # noqa: BLE001 - muet-ok : module illisible = pas d'injection prouvee, chemin d'avant
+        return ""
+
+
+def _resolution_au_chargement(env=None) -> tuple:
+    """Jeton du module au CHARGEMENT. 31/10 (COF-1, NokidoRSSWatcher) : un service a qui le lanceur a injecte un jeton
+    court ne lit plus le coffre a l'import (aucun consommateur ne lit _TOKEN hors de ce module)."""
+    env = os.environ if env is None else env
+    if env.get("NOKIDO_JOB_SUBJECT_TOKEN") and env.get("NOKIDO_JOB_ID") and _echange_arme():
+        return "", "echange_job"
+    if _identite_injectee(env):
+        return "", "injecte_lanceur"
+    _ident = str(env.get("NOKIDO_IDENTITE") or "").strip().upper()
+    if _ident:
+        # 31/10 08:56:32 (NokidoRSSWatcher) : repli sur le coffre ALORS QU'une identite injectee est declaree -- cause
+        # ILLISIBLE ce jour-la. On ecrit les raisons, NOMS seulement (jamais une valeur), pour la prochaine occurrence.
+        try:
+            import sys as _sys
+            _copies = sorted(n for n in _sys.modules if n.endswith("forge_agent_credential"))
+            _inj = sorted({k for n in _copies for k in getattr(_sys.modules[n], "_INJECTES", {}) or {}})
+        except Exception:  # noqa: BLE001 - muet-ok : le diagnostic ne casse jamais le chargement
+            _copies, _inj = ["?"], ["?"]
+        _log.warning("[hub_client] repli coffre malgre NOKIDO_IDENTITE=%s : jeton_env=%s injectes=%s copies=%s",
+                     _ident, bool(env.get("NOKIDO_JETON_COURT")), _inj, _copies)
+    return _resoudre_jeton(_AGENT)
+
+
+_TOKEN, _TOKEN_SRC = _resolution_au_chargement()
+
+
+def _jeton_sujet() -> str:
+    """Jeton de sujet du job par l'accesseur UNIQUE (forge_agent_credential.jeton_sujet_du_job, classe INJECTE 31/10)."""
+    try:
+        from nokido_agent.app.forge_agent_credential import jeton_sujet_du_job
+    except ImportError:  # repli checkout
+        from forge_agent_credential import jeton_sujet_du_job
+    return jeton_sujet_du_job()
 
 
 class HubClient:
@@ -172,20 +232,74 @@ class HubClient:
         self.timeout = timeout
         self.agent = (agent or "SERVICES").strip().upper()
         self._token_explicite = token is not None
-        if token is None:
+        # 30/10 (owner, option B) : porteur d'un jeton de job -> AUCUNE lecture du coffre a la construction ; chaque
+        # appel d'outil echange (RFC 8693) pour sa portee exacte et part en DPoP (RFC 9449). Repli tardif DIT.
+        # NR tests/nr/test_hub_client_echange_dpop_nr.py.
+        self._echange_job = (token is None and bool(_jeton_sujet())
+                             and bool(os.environ.get("NOKIDO_JOB_ID")) and _echange_arme())
+        self._acces_par_portee: dict = {}
+        self._replis_dits: set = set()
+        if token is None and self._echange_job:
+            self.token, self.token_src = "", "echange_job"
+        elif token is None and _identite_injectee() == self.agent:
+            # 31/10 (COF-1) : le lanceur a injecte le jeton court de CETTE identite -- `_jeton_courant` le sert par
+            # jeton_pour ; aucune lecture du coffre. Injection au nom d'une AUTRE identite : chemin d'avant.
+            self.token, self.token_src = "", "injecte_lanceur"
+        elif token is None:
             self.token, self.token_src = _resoudre_jeton(self.agent)
         else:
             self.token, self.token_src = token, "explicite"
         self._src_courante = ""  # derniere provenance DITE (anti-bavardage)
         self._alive = None  # cache ping
         self._derniere_panne = ""
-        if not self.token:
+        if not self.token and not self._echange_job:
             _log.warning(
                 "[hub_client] agent=%s SANS JETON (cherche FORGE_TOKEN_%s, "
                 "FORGE_TOKEN_SERVICES, FORGE_MCP_TOKEN au coffre puis Nokido.env) | "
                 "consequence: chaque appel sera rejete no_auth par le hub et comptera "
                 "dans le trafic anonyme | remede: provisionner la clef "
                 "(tools/forge_provision_clients.py)", self.agent, self.agent)
+        elif not self._token_explicite and self.token_src.endswith(":FORGE_MCP_TOKEN"):
+            # Repli maitre DIT, jamais silencieux (la valeur n'est jamais journalisee).
+            _log.warning(
+                "repli maitre : FORGE_TOKEN_%s absent (agent=%s presente le jeton maitre "
+                "SANS nom d'agent) | remede: provisionner la clef "
+                "(tools/forge_provision_clients.py)", self.agent, self.agent)
+
+    def entetes(self, extra: Optional[dict] = None) -> dict:
+        """En-tetes hub pour un appelant qui fait ses propres requetes (requests/urllib).
+
+        Meme resolution que `_req` : jeton a bail par defaut (`_jeton_courant`), propre
+        d'abord ; en repli maitre, PAS de LaForge-Agent-Name (on ne se fait pas passer
+        pour <AGENT> avec le maitre)."""
+        h = {"Content-Type": "application/json"}
+        if extra:
+            h.update(extra)
+        tok, src = self._jeton_courant()
+        self._dire_provenance(src)
+        if "FORGE_MCP_TOKEN" not in src:
+            h["LaForge-Agent-Name"] = self.agent
+        if tok:
+            h["Authorization"] = "Bearer " + tok
+        return h
+
+    def entetes_repli_env(self, extra: Optional[dict] = None) -> dict:
+        """`entetes()` puis, SI AUCUN jeton n'est trouve (provenance AUCUN), repli sur
+        LAFORGE_HUB_TOKEN de l'environnement (lancement online : compte sans acces au
+        coffre reserve, le lanceur pose le maitre dans l'env). Dit au journal, sans la
+        valeur ; sans LaForge-Agent-Name (jeton maitre : on ne se fait pas passer pour
+        <AGENT>). Rien si l'env est vide."""
+        h = self.entetes(extra)
+        if "Authorization" in h:
+            return h
+        tok = os.environ.get("LAFORGE_HUB_TOKEN", "")
+        if tok:
+            h["Authorization"] = "Bearer " + tok
+            h.pop("LaForge-Agent-Name", None)
+            _log.warning("[hub_client] agent=%s : aucun jeton au coffre, repli sur "
+                         "LAFORGE_HUB_TOKEN de l'environnement (valeur non journalisee)",
+                         self.agent)
+        return h
 
     def _jeton_courant(self) -> tuple[str, str]:
         """Jeton a presenter MAINTENANT, et sa provenance.
@@ -206,6 +320,9 @@ class HubClient:
         """
         if self._token_explicite:
             return self.token, "explicite"
+        if getattr(self, "_echange_job", False) and not self.token:
+            # repli TARDIF (portee non accordee par l'echange) : le coffre n'est lu qu'ici, et c'est dit plus haut
+            self.token, self.token_src = _resoudre_jeton(self.agent)
         if os.environ.get("LAFORGE_HUB_CLIENT_JETON_COURT", "1") == "0":
             return self.token, self.token_src + "+desarme"
         try:
@@ -241,6 +358,70 @@ class HubClient:
             _log.info("[hub_client] agent=%s credential %s -> %s",
                       self.agent, ancienne, src)
 
+    def _echanger_portee(self, portee: str):
+        """(acces, cle, expires_in) par POST /oauth/token -- echange RFC 8693 du jeton de job, preuve DPoP d'une cle
+        EPHEMERE (RFC 9449) -- ou None (portee refusee, route muette). Aucune valeur n'est journalisee."""
+        import urllib.parse
+        try:
+            from nokido_agent.app import forge_dpop as _dp
+            from nokido_agent.app import forge_token_exchange as _tx
+            from nokido_agent.app.forge_coffre_cloisonne import cle_ephemere
+        except ImportError:
+            from app import forge_dpop as _dp
+            from app import forge_token_exchange as _tx
+            from app.forge_coffre_cloisonne import cle_ephemere
+        sujet, job = _jeton_sujet(), os.environ.get("NOKIDO_JOB_ID")
+        if not sujet or not job:
+            return None
+        url, cle = self.base_url + "/oauth/token", cle_ephemere()
+        corps = urllib.parse.urlencode({"grant_type": _tx.GRANT_TYPE, "subject_token": sujet,
+                                        "subject_token_type": _tx.TYPE_JOB, "job_id": job,
+                                        "audience": "hub", "scope": portee}).encode()
+        req = urllib.request.Request(url, data=corps, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        req.add_header("DPoP", _dp.creer_preuve("POST", url, cle=cle))
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                rep = json.loads(r.read().decode())
+        except Exception as e:  # noqa: BLE001 -- refus (400 invalid_scope) ou route muette : repli DIT par l'appelant
+            _log.info("[hub_client] agent=%s echange RFC 8693 refuse pour %s (%s)", self.agent, portee,
+                      type(e).__name__)
+            return None
+        acces = rep.get("access_token") if isinstance(rep, dict) else None
+        return (acces, cle, rep.get("expires_in", 0)) if acces else None
+
+    def _entetes_echange(self, url: str, body: Optional[dict]):
+        """En-tetes DPoP d'un APPEL D'OUTIL, pour sa portee exacte (jeton en cache jusqu'a 30 s de son expiration),
+        ou None -> repli sur le chemin actuel, DIT une fois par portee (observer avant d'enforcer)."""
+        import time as _t
+        try:
+            from nokido_agent.app import forge_dpop as _dp
+            from nokido_agent.app.forge_token_exchange import portee_requise
+        except ImportError:
+            from app import forge_dpop as _dp
+            from app.forge_token_exchange import portee_requise
+        p = body.get("params") if isinstance(body, dict) and body.get("method") == "tools/call" else None
+        portee = portee_requise(p.get("name", ""), p.get("arguments") or {}) if isinstance(p, dict) else "hors_outil"
+        if not hasattr(self, "_acces_par_portee"):  # instance construite sans __init__ (tests, sous-classes)
+            self._acces_par_portee, self._replis_dits = {}, set()
+        acces, cle, fin = self._acces_par_portee.get(portee, (None, None, 0.0))
+        if (not acces or fin - _t.time() < 30) and portee != "hors_outil":
+            obtenu = self._echanger_portee(portee)
+            if obtenu:
+                acces, cle, ttl = obtenu
+                fin = _t.time() + float(ttl or 0)
+                self._acces_par_portee[portee] = (acces, cle, fin)
+            else:
+                acces = None
+        if not acces:
+            if portee not in self._replis_dits:
+                self._replis_dits.add(portee)
+                _log.warning("[hub_client] agent=%s portee %s NON accordee par echange RFC 8693 : repli sur le "
+                             "chemin actuel (coffre) | remede: mesurer l'appelant, puis ajouter la portee a la "
+                             "politique de son identite ou sortir l'appel du bac", self.agent, portee)
+            return None
+        return {"Authorization": "DPoP " + acces, "DPoP": _dp.creer_preuve("POST", url, jeton_acces=acces, cle=cle)}
+
     def _req(self, method: str, path: str, body: Optional[dict] = None) -> Optional[Any]:
         """Requete HTTP vers le hub. Rend None en cas d'echec — mais JAMAIS en
         silence : la premiere occurrence d'une panne est journalisee avec sa cause,
@@ -250,11 +431,17 @@ class HubClient:
         data = json.dumps(body).encode() if body else None
         req = urllib.request.Request(url, data=data, method=method)
         req.add_header("Content-Type", "application/json")
-        req.add_header("LaForge-Agent-Name", self.agent)  # canonique (RFC 6648)
-        _tok, _src = self._jeton_courant()
-        self._dire_provenance(_src)
-        if _tok:
-            req.add_header("Authorization", "Bearer " + _tok)
+        _h_ech = self._entetes_echange(url, body) if getattr(self, "_echange_job", False) else None
+        if _h_ech:
+            for _k, _v in _h_ech.items():
+                req.add_header(_k, _v)
+        else:
+            _tok, _src = self._jeton_courant()
+            self._dire_provenance(_src)
+            if "FORGE_MCP_TOKEN" not in _src:  # repli maitre : pas de nom usurpe
+                req.add_header("LaForge-Agent-Name", self.agent)  # canonique (RFC 6648)
+            if _tok:
+                req.add_header("Authorization", "Bearer " + _tok)
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as r:
                 out = json.loads(r.read().decode())
@@ -301,6 +488,19 @@ class HubClient:
         """Retourne la version du Hub ou 'unavailable'."""
         r = self._req("GET", "/health")
         return r.get("version", "unavailable") if r else "unavailable"
+
+    def appel_outil(self, name: str, args: dict, timeout: Optional[float] = None) -> Optional[dict]:
+        """Reponse JSON-RPC BRUTE d'un appel d'outil, par `_req` -- donc par l'echange RFC 8693 quand il est arme --,
+        ou None (echec deja journalise par `_req`). Pour les appelants qui lisaient le dict eux-memes : 30/10,
+        forge_self_patcher._hub_call construisait ses propres en-tetes Bearer et relisait le coffre."""
+        avant = self.timeout
+        if timeout:
+            self.timeout = float(timeout)
+        try:
+            return self._req("POST", "/mcp", {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                              "params": {"name": name, "arguments": args}})
+        finally:
+            self.timeout = avant
 
     def tool(self, name: str, args: dict) -> Optional[str]:
         """

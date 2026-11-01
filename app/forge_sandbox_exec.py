@@ -128,6 +128,33 @@ def purge_creds_cache() -> None:
     _creds_cache_ts = 0.0
 
 
+# Pilote WASM S19 (owner 29/10) : CPython WASI 3.14.7 sous wasmtime CLI, prouve par 7 sondes (fichiers hors montage
+# invisibles, pas de reseau, memoire et duree plafonnees). Un second mode d'isolation, a cote des comptes du bac.
+WASMTIME = os.environ.get("NOKIDO_WASMTIME", r"C:\Program Files\Wasmtime\bin\wasmtime.EXE")
+WASM_CPYTHON = Path(__file__).resolve().parent.parent / "sandbox" / "wasm" / "cpython-3.14.7"
+
+
+def wasm_pret() -> bool:
+    """wasmtime ET python.wasm ET sa bibliotheque presents (sinon : WASM indisponible, jamais suppose)."""
+    return (Path(WASMTIME).is_file() and (WASM_CPYTHON / "python.wasm").is_file()
+            and (WASM_CPYTHON / "lib").is_dir())
+
+
+def executer_wasm(dossier, code: str, delai_s: int = 20, memoire_octets: int = 256 * 2 ** 20):
+    """Execute `code` dans CPython WASI : seuls la bibliotheque (/lib) et `dossier` (/outil) sont montes, aucun reseau,
+    memoire et duree plafonnees. Rend (rc, stdout, stderr). Leve SandboxError si WASM est indisponible."""
+    import subprocess
+    if not wasm_pret():
+        raise SandboxError("WASM indisponible : wasmtime ou python.wasm absent")
+    argv = [WASMTIME, "run", "-C", "cache=n", "-W", "max-memory-size=%d" % int(memoire_octets),
+            "-W", "timeout=%ds" % int(delai_s), "--dir", "%s::/lib" % (WASM_CPYTHON / "lib"),
+            "--dir", "%s::/outil" % dossier, "--env", "PYTHONHOME=/", "--env", "PYTHONPATH=/lib/python3.14",
+            str(WASM_CPYTHON / "python.wasm"), "-c", code]
+    p = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                       timeout=int(delai_s) + 15)
+    return p.returncode, p.stdout, p.stderr
+
+
 def sandbox_ready() -> tuple[bool, str]:
     """Cheap preflight: creds present and decryptable."""
     try:
@@ -427,13 +454,10 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
                 # aveugle. Mesure 2026-07-16 : 6 tours perdus a diagnostiquer
                 # searxng alors qu'un job python tenait 4.5 GB. Le snapshot est
                 # deja en cache (sampler), donc ce diagnostic est gratuit.
-                from nokido_agent.app.forge_resource_manager import get_snapshot
+                from nokido_agent.app.forge_resource_manager import get_snapshot, top_procs_avec_service
 
                 snap = get_snapshot()
-                top = ", ".join(
-                    f"{p.get('name')}({p.get('ram_gb')}GB,pid={p.get('pid')})"
-                    for p in (snap.get("top_procs") or [])[:3]
-                )
+                top = top_procs_avec_service((snap.get("top_procs") or [])[:3])
 
                 # P1 INTENT-AWARE (owner 2026-07-24) : avant de refuser, tenter de
                 # FAIRE DE LA PLACE. Un refus sec sur un pic transitoire coute un
@@ -461,7 +485,16 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
                         _total = float(snap.get("ram_total_gb") or 0.0)
                         _target = round(_total * 0.18, 2) if _total else 4.0
                         _intents = get_active_intents()
-                        if _intents.get("chains_active") or _intents.get("docker_wanted"):
+                        _seul_docker = (bool(_intents.get("docker_wanted"))
+                                        and not _intents.get("chains_active"))
+                        if _seul_docker:
+                            # Reveil Docker pose SANS chaine vivante : Docker/WSL restent proteges,
+                            # les AUTRES residents peuvent etre endormis (echelle + vetos).
+                            _evict = dict(request_resources(
+                                _target, allow_evict=True, proteger_docker=True) or {})
+                            _why_no_evict = (
+                                f" | Docker protege (docker_wanted) ; evince: {_evict.get('action')}")
+                        elif _intents.get("chains_active") or _intents.get("docker_wanted"):
                             # Le garde cognitif protege les ORGANES, pas les caches :
                             # endormir un service casse ses lecteurs, rendre un cache
                             # reconstructible ne casse rien. Mesure 2026-07-30 : ce
@@ -498,7 +531,8 @@ def spawn_as_sandbox(command: str, online: bool = False, timeout: int = 120, use
                     )
                 else:
                     if _evict and not _evict.get("ok"):
-                        _why_no_evict = (
+                        _pre = " | Docker protege" if "Docker protege" in _why_no_evict else ""
+                        _why_no_evict = _pre + (
                             f" | eviction tentee sans succes ({_evict.get('action')}, "
                             f"manque {_evict.get('missing_gb')} GB)"
                         )
@@ -738,7 +772,8 @@ def trusted_ready() -> tuple[bool, str]:
     return True, "ok"
 
 
-def spawn_as_sandbox_detached(command: str, out_file: str, err_file: str, online: bool = False) -> dict:
+def spawn_as_sandbox_detached(command: str, out_file: str, err_file: str, online: bool = False,
+                              env_extra: dict | None = None) -> dict:
     """Launch `command` as the sandbox user DETACHED. Returns immediately with
     {ok, pid, sandbox_user}. The child outlives this process (no job-object
     kill on Windows) — for long jobs. stdout/stderr -> out_file/err_file."""
@@ -807,6 +842,9 @@ def spawn_as_sandbox_detached(command: str, out_file: str, err_file: str, online
         # On les force ici = fix definitif, plus besoin de sys.stdout.reconfigure.
         env["PYTHONUTF8"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
+        # Valeurs destinees a l'ENFANT seul (jeton de job) : jamais sur disque, jamais journalisees.
+        for _k, _v in (env_extra or {}).items():
+            env[str(_k)] = str(_v)
 
         sa = win32security.SECURITY_ATTRIBUTES()
         sa.bInheritHandle = True

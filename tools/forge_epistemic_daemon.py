@@ -616,8 +616,15 @@ _RAPPORT_DELAI_S = 24 * 3600
 _VERDICTS = ("RESOLU", "NON_RESOLU", "INDECIDABLE")
 
 
+def _drapeau_actif(nom: str) -> bool:
+    """Interrupteur d'environnement, par la primitive du corps (app/forge_drapeau_env.actif) : defaut
+    INACTIF (observation) ; une valeur non reconnue rend le defaut, jamais un « off » silencieux."""
+    from nokido_agent.app.forge_drapeau_env import actif
+    return actif(nom, False)
+
+
 def _effecteur_arme() -> bool:
-    return os.environ.get("LAFORGE_EFFECTEUR_ENQUETE", "").strip().lower() in ("1", "true", "yes", "on")
+    return _drapeau_actif("LAFORGE_EFFECTEUR_ENQUETE")
 
 
 def _lire_effecteur():
@@ -683,13 +690,94 @@ def description_enquete(item: dict, rapport_rel: str) -> str:
            rapport_rel, rapport_rel))
 
 
-def _deposer_enquete(description: str) -> dict:
+# ── SOIF INTERNE -> ENQUETE DE CODE (owner 25/10, P1_soif_et_auto_amelioration_productives) ──────
+# Une lacune d'INTENTION interne n'a pas de remede web : on depose UNE tache d'enquete de code a un
+# executeur GRATUIT (OPENCODE_GLM), par la meme primitive que l'effecteur (_deposer_enquete).
+# OBSERVER AVANT D'ENFORCER : sans LAFORGE_EPISTEMIC_ENQUETE_CODE=1, on journalise « SERAIT deposee ».
+MAX_ENQUETES_CYCLE = 1
+MAX_ENQUETES_JOUR = 3
+_ENQUETE_CODE_ETAT = ROOT / "sandbox" / "enquetes" / "enquete_code_etat.json"
+
+
+def _enquete_code_active() -> bool:
+    return _drapeau_actif("LAFORGE_EPISTEMIC_ENQUETE_CODE")
+
+
+def description_enquete_code(cle: str, q: str, internes) -> str:
+    return (
+        "Enquete de CODE (soif interne du daemon epistemique, LECTURE SEULE). Question : « %s ».\n"
+        "Preuves du manque interne : %s.\n"
+        "Utilise `introspect` puis `forge_deep_explore` ; n'interroge pas %NOKIDO_DATA%\embeddings.db.\n"
+        # « SEUL fichier », jamais « ne modifie aucun code » : cette tournure exemptait le juge RIEN_PRODUIT
+        # (2 faux OK_DONE le 24/10, gotcha_consigne_lecture_seule_exempte_juge).
+        "SEUL fichier a creer et committer : docs/enquetes/%s.md (rapport citant file:line).\n"
+        'Ligne finale exigee : {"intent":"OK_DONE","pointer_ref":"docs/enquetes/%s.md"}'
+        % (q, ", ".join(str(i) for i in (internes or [])[:6]), cle, cle))
+
+
+def _enquete_code_interne(cle, q, internes, deja_cycle, maintenant=None) -> dict:
+    """Depose (ou refuse, ou observe) l'enquete de code d'une lacune interne. Jamais de silence."""
+    maintenant = time.time() if maintenant is None else maintenant
+    jour = time.strftime("%Y-%m-%d", time.localtime(maintenant))
+    etat = {"cles": {}, "jours": {}}
+    try:
+        d = json.loads(_ENQUETE_CODE_ETAT.read_text(encoding="utf-8"))
+        if isinstance(d, dict) and isinstance(d.get("cles"), dict) and isinstance(d.get("jours"), dict):
+            etat = d
+    except FileNotFoundError:  # muet-ok : pas d'etat = aucune enquete de code deposee jusqu'ici, etat vide voulu
+        pass
+    except (OSError, ValueError):
+        _journal("enquete de code NON deposee (etat_illisible) : %s" % cle)
+        return {"statut": "REFUSEE", "motif": "etat_illisible"}
+
+    def _refus(motif):
+        _journal("enquete de code NON deposee (%s) : cle=%s" % (motif, cle))
+        return {"statut": "REFUSEE", "motif": motif.split(":")[0]}
+
+    if not cle:
+        return _refus("cle_absente")
+    if cle in etat["cles"]:
+        return _refus("doublon")
+    if deja_cycle >= MAX_ENQUETES_CYCLE:
+        return _refus("budget_cycle")
+    if int(etat["jours"].get(jour, 0)) >= MAX_ENQUETES_JOUR:
+        return _refus("budget_jour")
+    desc = description_enquete_code(cle, q, internes)
+    if not _enquete_code_active():
+        _journal("enquete de code SERAIT deposee (observation, LAFORGE_EPISTEMIC_ENQUETE_CODE=1 pour "
+                 "deposer) : cle=%s | %s" % (cle, q[:120]))
+        return {"statut": "A_BLANC", "description": desc}
+    res = _deposer_enquete_code(desc)
+    if not isinstance(res, dict) or res.get("error") or not res.get("task_id"):
+        return _refus("depot_refuse: %s" % ((res or {}).get("error") if isinstance(res, dict) else res))
+    etat["cles"][cle] = {"task_id": res["task_id"], "ts": maintenant}
+    etat["jours"][jour] = int(etat["jours"].get(jour, 0)) + 1
+    try:
+        _ENQUETE_CODE_ETAT.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _ENQUETE_CODE_ETAT.with_suffix(".tmp")
+        tmp.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, _ENQUETE_CODE_ETAT)
+    except OSError as e:
+        _journal("enquete de code deposee mais etat NON ecrit (%s) : doublon possible" % type(e).__name__)
+    try:
+        ev.debuter_enquete(cle, "enquete_code")
+    except Exception as e:  # noqa: BLE001
+        _journal("debuter_enquete KO: %s: %s" % (type(e).__name__, e))
+    _journal("enquete de code deposee : tache %s (OPENCODE_GLM) cle=%s" % (res["task_id"], cle))
+    return {"statut": "DEPOSEE", "task_id": res["task_id"]}
+
+
+def _deposer_enquete_code(description: str) -> dict:
+    return _deposer_enquete(description, agent="OPENCODE_GLM")
+
+
+def _deposer_enquete(description: str, agent: str = "ANTIGRAVITY") -> dict:
     """Depose la tache ANTIGRAVITY par le hub (meme voie que le repondeur GEMINI). {"task_id"} | {"error"}."""
     try:
         from nokido_agent.app.forge_hub_client import HubClient
 
         txt = HubClient(agent="EPISTEMIC", timeout=30.0).tool("task", {
-            "action": "assign", "agent": "ANTIGRAVITY", "intent": "HANDOFF_NEXT", "description": description})
+            "action": "assign", "agent": agent, "intent": "HANDOFF_NEXT", "description": description})
     except Exception as e:  # noqa: BLE001 - rendu a l'effecteur, qui le classe BLOQUE_PAR_DEPENDANCE
         return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
     try:
@@ -794,6 +882,36 @@ def effecteur_enquete(soin: list, maintenant: float | None = None, arme: bool | 
     return res
 
 
+# VETO DE SOMMEIL DE L'EXAMEN (owner 26/10, « veto borne ») : Hamilton reveillait la soif puis la
+# rendormait ~50 s plus tard, avant la fin de l'examen (ordres du superviseur 17:44Z->17:45Z, 17:54Z
+# ->17:55Z, 18:13Z->18:14Z). Le veto ne couvre que l'acte : pose juste avant le reveil des piliers,
+# leve par `run` a la fin du cycle quoi qu'il arrive, expire seul sinon (borne du regulateur).
+SERVICE_SOIF = "NokidoEpistemicSoif"
+VETO_EXAMEN_S = 900.0
+
+
+def _reveiller_piliers_sous_veto(motif: str):
+    try:
+        from nokido_agent.app import forge_resource_manager as _rm  # nom du demon (lance depuis tools/)
+
+        r = _rm.poser_veto_sommeil(SERVICE_SOIF, "examen de la soif (%s)" % motif, VETO_EXAMEN_S)
+        if not (r or {}).get("ok"):
+            _journal("veto de sommeil NON pose : %s" % (r or {}).get("erreur"))
+    except Exception as e:  # noqa: BLE001 - sans veto l'examen tente quand meme, et le dit
+        _journal("veto de sommeil NON pose (%s: %s)" % (type(e).__name__, e))
+    return _reveiller_piliers()
+
+
+def _lever_veto_examen() -> None:
+    try:
+        from nokido_agent.app import forge_resource_manager as _rm
+
+        if not _rm.lever_veto_sommeil(SERVICE_SOIF):
+            _journal("veto de sommeil non leve : il expirera seul")
+    except Exception as e:  # noqa: BLE001
+        _journal("veto de sommeil non leve (%s) : il expirera seul" % type(e).__name__)
+
+
 def run_once(conn: sqlite3.Connection) -> dict:
     conn.executescript(_SCHEMA)
     seen = {r[0] for r in conn.execute("SELECT query_hash FROM epistemic_seen")}
@@ -833,12 +951,12 @@ def run_once(conn: sqlite3.Connection) -> dict:
     if motif is None:
         return dict(_sans_examen, examen=f"EN_ATTENTE : {besoin}/{SEUIL_EXAMEN} question(s) "
                                           f"en attente, ni demande ni echeance")
-    prets, detail = _reveiller_piliers()
+    prets, detail = _reveiller_piliers_sous_veto(motif)
     if not prets:
         return dict(_sans_examen, examen=f"DIFFERE_PAR_REGULATION ({motif}) : {detail}")
     examen = f"FAIT ({motif})"
 
-    examinees = gaps = veilles = hors_variete = 0
+    examinees = gaps = veilles = hors_variete = enquetes_code = 0
     # Abstentions PAR DEPENDANCE (2026-09-25) : un cycle qui n'examine rien parce qu'un
     # pilier est muet doit pouvoir le DIRE -- sinon il se confond avec un cycle sans
     # question, et l'organe passe pour mort (lecture fausse du 25/09 au matin).
@@ -946,6 +1064,14 @@ def run_once(conn: sqlite3.Connection) -> dict:
                     _journal("veille NON lancee : manque INTERNE (preuves : %s) -- le web "
                              "ne documente pas le code de Nokido ; traitement = enquete de code "
                              "(introspect / forge_deep_explore), pas une veille" % ", ".join(_internes[:6]))
+                    try:
+                        _enq = _enquete_code_interne((_lac or {}).get("cle"), q, _internes, enquetes_code)
+                    except Exception as _e:  # noqa: BLE001
+                        _enq = {"statut": "REFUSEE", "motif": "erreur %s" % type(_e).__name__}
+                        _journal("enquete de code NON deposee (erreur %s: %s)" % (type(_e).__name__, _e))
+                    if _enq.get("statut") == "DEPOSEE":
+                        enquetes_code += 1
+                    intention_gap["enquete_code"] = _enq.get("statut")
                 elif AUTO_VEILLE and veilles < MAX_VEILLES_CYCLE:
                     try:
                         _spec = ev.veille_on_gap(q, domain="reference", run_now=True, max_rounds=2)
@@ -1056,7 +1182,8 @@ def _remesurer_lacunes(maintenant: float | None = None) -> dict:
             break
         if t - _dernier(lac) < REMESURE_DELAI_S:
             continue
-        r = ev.remesurer_lacune(cle, ev.coverage_dense(lac.get("question", "")))
+        # instrument DE LA LACUNE (27/10) : coverage_dense pour tout ce qui n'est pas enregistre ailleurs
+        r = ev.remesurer_lacune(cle, ev.mesurer_selon_instrument(lac))
         out["remesurees"] += 1
         if r.get("etat") == ev.FERMEE_PAR_REMESURE:
             out["fermees"] += 1
@@ -1170,7 +1297,10 @@ def run(interval: int, once: bool) -> int:
         # regulation du corps pouvait donc tuer sa propre soif d'apprendre.
         # Un cycle rate est un incident, pas une raison de mourir.
         try:
-            r = run_once(conn)
+            try:
+                r = run_once(conn)
+            finally:
+                _lever_veto_examen()
             if echecs:
                 _journal(f"retabli apres {echecs} cycle(s) en echec")
             echecs = 0

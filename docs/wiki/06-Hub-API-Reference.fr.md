@@ -9,15 +9,15 @@ empreinte: INCONNUE
 
 # 06 — Référence API hub
 
-<!-- revu-le: 2026-09-29 -->
-> Mise à jour : 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Mise à jour : 2026-10-30
 
 > 🌐 [English](06-Hub-API-Reference.md) · **Français**
 
 > **Version condensée.** La page anglaise, plus complète (codes d'erreur JSON-RPC, routes
 > REST détaillées), fait référence : en cas d'écart, c'est elle qui compte.
 
-Le hub expose ses **tools MCP** (49 pour le ring 1 au dernier relevé de la page anglaise ; la liste vue dépend du ring de l'agent, `tools/list` la donne) + endpoints REST sur `:8766`.
+Le hub expose ses **tools MCP** (56 outils dans le registre principal `_raw_tool_catalog` de `app/forge_mcp_registry.py:1936-2957` ; la liste vue dépend du ring de l'agent, `tools/list` la donne) + endpoints REST sur `:8766`.
 
 ## 🛠️ Tools MCP (JSON-RPC 2.0 via `/mcp`)
 
@@ -40,8 +40,9 @@ Chaque appel suit :
 | Tool | Action | Description |
 |---|---|---|
 | `run` | `github\|python\|shell\|trusted_script\|atlas_build\|...` | Git, Python, shell, trusted_script. `sandbox`: local/docker/ps_clm/windows/wasm. |
-| `read` | `file\|tail_logs` | Lecture fichier ou tail logs. |
-| `read_function_body` | — | Extrait function/class précise via AST. |
+| `read` | `file\|tail_logs` | Lecture fichier ou tail logs. Supporte la lecture conditionnelle (`si_etag`, RFC 9110). |
+| `read_function_body` | — | Extrait function/class précise via AST. Supporte la lecture conditionnelle (`si_etag`). |
+| `get_file_skeleton` | — | Squelette AST (signatures sans corps). Supporte la lecture conditionnelle (`si_etag`). |
 | `query` | — | SQL sur RAG/embeddings.db (ring 0 uniquement). SELECT capé à `FORGE_QUERY_MAX_ROWS` (200) via `fetchmany` (préserve subqueries / `UNION` / agrégats) + note de troncature. |
 
 ### Connaissance
@@ -67,7 +68,7 @@ Chaque appel suit :
 | Tool | Description |
 |---|---|
 | `hub` (action: get_mode/set_mode/poll/notify/whoami/quota_*) | État & utilitaires hub. |
-| `task` (action: assign/claim/result/status) | Cycle de vie tâche. |
+| `task` (action: assign/claim/result/status) | Cycle de vie tâche. `status` sans `task_id` = vue des délégations actives (commit 25a07462d, voir [25-Whats-New](25-Whats-New.fr.md)). |
 | `event` (action: publish/history) | EventBus. |
 | `bundle` | Batch plusieurs tool calls primitifs en un round-trip. |
 | `plan` | Planificateur GOAP — décompose goal en étapes JSON-RPC. |

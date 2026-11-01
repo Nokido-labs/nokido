@@ -384,6 +384,7 @@ async def tool_form(tool: str):
     """Form UI FIDELE d'un tool, genere depuis son inputSchema via forge_ui_moulinette (0 token)."""
     import re as _re
     import sys as _sys
+    from html import escape as _echap  # CS-2b : alias -- `html` est une variable locale plus bas
     from pathlib import Path as _P
     from fastapi.responses import HTMLResponse
 
@@ -395,13 +396,13 @@ async def tool_form(tool: str):
         tools = (data.get("result") or {}).get("tools") or []
         spec = next((t for t in tools if t.get("name") == tool), None)
         if not spec:
-            return HTMLResponse(f'<p class="text-red-400 text-xs">tool inconnu: {tool}</p>', status_code=404)
+            return HTMLResponse(f'<p class="text-red-400 text-xs">tool inconnu: {_echap(tool)}</p>', status_code=404)
         from nokido_agent.tools.forge_ui_moulinette import render_form_html
 
         html = render_form_html(_re.sub(r"\W", "_", tool), spec.get("inputSchema") or {}, action="#")
         return HTMLResponse(html)
     except Exception as e:
-        return HTMLResponse(f'<p class="text-red-400 text-xs">form err: {e}</p>', status_code=500)
+        return HTMLResponse(f'<p class="text-red-400 text-xs">form err: {_echap(str(e))}</p>', status_code=500)
 
 
 @router.post("/api/invoke", response_model=InvokeResponse)

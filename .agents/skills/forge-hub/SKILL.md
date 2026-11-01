@@ -27,6 +27,18 @@ gardes s'appliquent (videur, firewall, exec_tier) et que l'appel est journalisé
 Le reste est porté par des outils MCP distincts : `ask`, `run`, `query`, `rag`, `read`,
 `task`, `governed_edit`, `blackboard_*`, `introspect`, etc.
 
+## Commandes à faire lancer par l'owner : le tray
+
+Une commande que seul l'owner peut lancer (console admin, geste sur son compte) passe par le tray :
+
+1. `hub action=demander_ordre ordre=commande-deposer texte=<commande>` : dépôt, rend `cmd-…` ; une commande qui
+   porte un secret est refusée (scanner fail-closed), jamais dans le presse-papier ;
+2. l'owner la lance et colle son retour dans la session ;
+3. `hub action=demander_ordre ordre=commande-faite cible=<cmd-…> texte=<extrait du retour>` : elle quitte le tray
+   (`{"etat": "FAITE"}`). Sans ce geste, le tray accumule des commandes déjà faites.
+
+`ordre=commandes-en-attente` liste ce qui reste. Il n'y a pas d'ordre `commande-retirer`.
+
 ## « Action inconnue » ou action absente du schéma
 
 1. **Schéma en cache.** La plupart des CLI chargent le schéma MCP au démarrage : une

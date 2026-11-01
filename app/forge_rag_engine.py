@@ -157,6 +157,20 @@ class _SettingsProxy:
 settings = _SettingsProxy()
 
 
+def requete_fts(question: str) -> str:
+    """Question -> expression FTS5 du canal lexical (`_scores_lexicaux`).
+
+    FTS5 : 'a b c' est un AND implicite -> 0 hit sur un contenu FR+EN ; on joint donc les mots de plus de 3
+    caracteres par OR, 15 au plus. Fonction PURE et AUTONOME (import local, aucun nom du module) : le banc
+    `rappel_lexical` (tools/bancs/banc_rappel_lexical.py) l'extrait seule de la copie d'un candidat pour la juger
+    sur un mini-index fige ; NR tests/nr/test_rag_requete_fts_nr.py.
+    """
+    import re
+
+    # 30/10 : candidat AMELIORE du banc rappel_lexical (0,609 -> 0,630), integre tel que prouve apres jugement.
+    return " OR ".join([w for w in re.split(r"\W+", question or "") if len(w) > 3 and w not in ["pour", "dans", "quel", "with"]][:15])
+
+
 def _get_rag_engine() -> object:
     """Récupère l'instance RAGEngine depuis __main__ (injection depuis Nokido.py)."""
     m = _sys_f.modules.get("__main__")
@@ -1821,7 +1835,7 @@ class RAGEngine:
         corpus = [t.lower().split() for t in texts]
         global HAS_BM25
         try:
-            from forge_bm25 import BM25  # Rust extension (10-50x faster)
+            from forge_bm25 import BM25  # Rust : requetes x5,3, construction x1,1-1,5 (banc 30/10, pas 10-50x)
 
             self.bm25_index = BM25(corpus)
             HAS_BM25 = True
@@ -1852,12 +1866,10 @@ class RAGEngine:
         _hits: dict[str, float] = {}
         try:
             import sqlite3 as _sq
-            import re as _re
 
             _conn = _sq.connect(str(_EMBEDDINGS_DB))
-            # FTS5: 'a b c' → 'a OR b OR c' (AND implicite → 0 hit sur contenu FR+EN)
-            _tokens = [w for w in _re.split(r"\W+", query) if len(w) > 3][:15]
-            _q_fts = " OR ".join(_tokens)
+            # FTS5: 'a b c' → 'a OR b OR c' (AND implicite → 0 hit sur contenu FR+EN) ; voir requete_fts
+            _q_fts = requete_fts(query)
             if _q_fts:
                 # On resout l'ID du chunk cote SQL : le rowid ne suffit pas (cf. plus bas).
                 _rows = _conn.execute(

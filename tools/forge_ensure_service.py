@@ -270,7 +270,7 @@ def declencher_tache(nom: str) -> str | None:
         # prouve rien sur le parent — un droit accorde au mauvais compte se
         # solde par un refus identique, donc par une enquete pour rien.
         qui = os.environ.get("USERNAME") or "?"
-        return (f"[tache {nom}] EXISTE mais INVISIBLE depuis ce compte (ACL). "
+        return (f"[tache {nom}] {_MARQUE_TACHE_INVISIBLE} (ACL). "
                 f"Compte MESURE ici : '{qui}'. Accorder a CE compte la lecture "
                 f"+ execution sur la tache (son descripteur vit dans le "
                 f"registre TaskCache, pas dans le fichier XML).")
@@ -302,6 +302,10 @@ def _attendre_port(vise: bool, secondes: float = 30.0) -> bool:
     return _sonde_lmstudio(timeout=2.0) is vise
 
 
+# Marque du canal de demarrage REFUSE (tache planifiee invisible depuis ce compte) : une seule source, lue par _lmstudio.
+_MARQUE_TACHE_INVISIBLE = "EXISTE mais INVISIBLE depuis ce compte"
+
+
 def _lmstudio(desire: str) -> dict:
     """running | stopped | restarted, par le CLI. `stopped` LIBERE 5,7 Go."""
     binaire = _lms_bin()
@@ -331,6 +335,19 @@ def _lmstudio(desire: str) -> dict:
                 "detail": "NON MESURE : ni CLI local ni pont session owner "
                           "(forge_owner_bridge). Poser LAFORGE_LMS_BIN, ou lancer "
                           "depuis un contexte detenant SeTcbPrivilege"}
+    if _MARQUE_TACHE_INVISIBLE in trace:
+        # 30/10 : vu du bac, la tache Nokido-LMStudio-Start est refusee -- RIEN n'a ete lance. Attendre 30 s un port
+        # qui ne s'ouvrira pas puis rendre « port muet apres start » sans `refus` laissait l'appelant mourir en
+        # URLError 10061 (« injoignable ») : le canal refuse est un REFUS nomme, pas un demarrage lent.
+        return {"service": "lmstudio", "desired": desire, "success": False, "refus": "canal_invisible",
+                "detail": trace[-300:]}
+    import re as _re
+    _rc = _re.search(r"\[tache [^\]]*? rc=(-?\d+)\]", trace)
+    if _rc and _rc.group(1) != "0":
+        # 30/10 04 h 02, vu du hub : tache DESACTIVEE -> schtasks /run rend rc=1, rien n'est lance. Le rc, pas le
+        # texte (accents abimes par la console) : un rc non nul de /run est un canal en echec, pas un serveur lent.
+        return {"service": "lmstudio", "desired": desire, "success": False, "refus": "canal_echec",
+                "detail": trace[-300:]}
 
     if desire == "stopped":
         # Un arret se prouve par le port QUI SE TAIT, jamais par le rc du CLI.
@@ -842,6 +859,46 @@ def _stop_docker_gouverne(delai_s: float = 20.0, pas_s: float = 2.0) -> dict:
     return {"service": "docker", "desired": "stopped", "success": ok, "detail": detail}
 
 
+def _statut_mesure(name: str):
+    """Statut MESURE d'un service : {pid, restarts, status} ou None si illisible.
+
+    Passe par `forge_supervisor_ctl.py status <svc>` : sortie JSON complete, non
+    tronquee. Superviseur illisible (rc 2) ou service absent (rc 1) -> None : c'est
+    « non mesurable », jamais « arrete »."""
+    import json
+    env = dict(os.environ)
+    env["NOKIDO_CTL_DIRECT"] = "1"
+    ctl = str(ROOT / "tools" / "forge_supervisor_ctl.py")
+    try:
+        r = subprocess.run([LAFORGE_PYTHON, ctl, "status", name], capture_output=True,
+                           text=True, errors="replace", timeout=30, env=env)
+        if r.returncode != 0:
+            return None
+        corps = r.stdout[r.stdout.find("{"):]
+        d = json.loads(corps)[name]
+        return {"pid": d.get("pid"), "restarts": d.get("restarts"), "status": d.get("status")}
+    except Exception as e:  # noqa: BLE001 — trace, puis « illisible » : jamais un faux « arrete »
+        print(f"[ensure] statut {name} illisible ({type(e).__name__})", flush=True)
+        return None
+
+
+def _etat_restart(avant: dict | None, apres: dict | None) -> str:
+    """Verdict d'un restart, sur deux mesures de _statut_mesure.
+
+    ILLISIBLE si l'une des mesures manque ou si pid/restarts valent None : jamais de
+    verdict sur une non-mesure. RESTARTED si le pid a change ou si restarts a augmente.
+    Sinon ECHEC_REDEMARRAGE : le geste a ete accepte, mais rien n'a redemarre.
+    """
+    if not avant or not apres:
+        return "ILLISIBLE"
+    champs = ("pid", "restarts")
+    if any(avant.get(c) is None or apres.get(c) is None for c in champs):
+        return "ILLISIBLE"
+    if apres["pid"] != avant["pid"] or apres["restarts"] > avant["restarts"]:
+        return "RESTARTED"
+    return "ECHEC_REDEMARRAGE"
+
+
 def ensure(service: str, state: str) -> dict:
     s = service.lower().strip()
     st = state.lower().strip()
@@ -963,8 +1020,10 @@ def ensure(service: str, state: str) -> dict:
     # que le service est desormais MOINS vivant qu'avant son geste. Un arret se
     # prouve par le port QUI SE TAIT, jamais par le rc de l'ordre : le motif etait
     # deja applique a LM Studio et manquait au chemin generique.
+    avant = _statut_mesure(name) if act == "restart" else None
+    brut: dict = {}
     if act == "restart":
-        _supervisor("stop", name)
+        brut["stop"] = _supervisor("stop", name)
         _fin = time.time() + 25
         while time.time() < _fin:
             if _serving(s) is not True:   # None (pas de sonde) ou False -> on peut y aller
@@ -973,19 +1032,43 @@ def ensure(service: str, state: str) -> dict:
         else:
             print(f"[ensure] {name}: port toujours servi apres 25 s — start quand meme")
         r = _supervisor("start", name)
+        brut["start"] = r
     else:
         r = _supervisor(act, name)
+        brut["start"] = r
     ok = r["rc"] == 0
+    # STOP sur un service DEJA sorti (mesure 30/10, NokidoEmbedTrigger) : ctl rend rc=4 (pas de port
+    # declare -> effet non verifiable), success=False, et le keeper (_drain_on_demand) re-emettait stop
+    # toutes les 30 s faute de poser _DRAIN_ARRET_TS. L'etat VOULU se mesure : arrete prouve (liste
+    # blanche, pid absent) -> succes ; statut illisible -> echec (UNKNOWN != NO).
+    deja_arrete = False
+    if act == "stop" and not ok:
+        _st = _statut_mesure(name)
+        if _st is not None and _st.get("status") in ("stopped", "sleeping") and not _st.get("pid"):
+            ok = deja_arrete = True
     # Verifie l'ISSUE REELLE : sonde jusqu'a ce que le service SERVE. Si un restart a
     # laisse le service DOWN (vu cette session sur embed), escalade UN start on-demand
     # (jamais de kill = ca reste le job du supervisor).
     if act in ("ensure", "restart"):
         served = _wait_serving(s)
         if served is False and act == "restart":
-            _supervisor("start", name)
+            brut["start_escalade"] = _supervisor("start", name)
             served = _wait_serving(s)
         if served is not None:
             ok = bool(served)
+    if act == "restart":
+        # Le verdict se MESURE apres le geste, jamais sur le rc de l'ordre : un start
+        # « already_running » a rc 0 et ne prouve pas qu'un redemarrage a eu lieu.
+        # Et un redemarrage qui ne SERT pas n'est pas un succes (TRANSPORT != APPLICATIF,
+        # revue d'integration 28/10) ; sonde absente (None) = dite, pas reputee servir.
+        apres = _statut_mesure(name)
+        etat = _etat_restart(avant, apres)
+        return {"service": service, "mapped": name, "desired": st,
+                "success": etat == "RESTARTED" and served is not False, "sert": served,
+                "avant": avant, "apres": apres, "etat": etat, "superviseur_brut": brut}
+    if deja_arrete:
+        return {"service": service, "mapped": name, "desired": st, "success": True,
+                "deja_arrete": True, "detail": r}
     return {"service": service, "mapped": name, "desired": st, "success": ok, "detail": r}
 
 

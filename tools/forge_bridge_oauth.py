@@ -62,6 +62,14 @@ JOURNAL_CONSENTEMENT = pathlib.Path(os.environ.get("NOKIDO_PAIR_JOURNAL_CONSENTE
 ETAT_DEMANDES = pathlib.Path(os.environ.get("NOKIDO_PAIR_ETAT_DEMANDES")
                              or _RACINE_DEPOT / "sandbox" / "pair_consentement_en_attente.json")
 
+# Limiteur de POST /consentement (Funnel = Internet). N=3 echecs par demande : un operateur humain se trompe
+# 1-2 fois en recopiant le code ; au 3e echec la demande est INVALIDEE (reemission = nouveau flot, donc un
+# tiers ne peut pas iterer sur une meme demande). Plafond global : echecs toutes demandes confondues par
+# fenetre, contre l'attaquant qui reemet des demandes (l'enregistrement dynamique est ouvert).
+MAX_ECHECS_PAR_DEMANDE = 3
+PLAFOND_ECHECS_GLOBAL = 10
+FENETRE_ECHECS_S = 600
+
 _DEFAUT_PONT = pathlib.Path(__file__).resolve().parent / "forge_github_bridge.py"
 
 
@@ -432,6 +440,27 @@ class AutoriteLocale:
         except OSError as e:
             _LOG.warning("[oauth] journal du consentement non ecrit (%s) : %s", type(e).__name__, evenement)
 
+    def plafond_atteint(self) -> bool:
+        """Echecs de consentement de la fenetre (toutes demandes) >= plafond global."""
+        limite = time.time() - FENETRE_ECHECS_S
+        self._echecs_globaux = [t for t in getattr(self, "_echecs_globaux", []) if t > limite]
+        return len(self._echecs_globaux) >= PLAFOND_ECHECS_GLOBAL
+
+    def noter_echec(self, identifiant: str) -> None:
+        """Un code faux de plus : compte global, compte de la demande ; au N-ieme la demande est INVALIDEE."""
+        self._echecs_globaux = getattr(self, "_echecs_globaux", []) + [time.time()]
+        par = getattr(self, "_echecs_demande", None)
+        if par is None:
+            par = self._echecs_demande = {}
+        par[identifiant] = par.get(identifiant, 0) + 1
+        if par[identifiant] >= MAX_ECHECS_PAR_DEMANDE:
+            par.pop(identifiant, None)
+            d = self._demandes.pop(identifiant, None)
+            self.journaliser_consentement("demande_invalidee", client_id=(d or {}).get("client_id"),
+                                          demande=identifiant,
+                                          motif="%d codes faux" % MAX_ECHECS_PAR_DEMANDE)
+            self._ecrire_etat_demandes()
+
     def etat_demandes(self) -> list:
         """Demandes de consentement EN ATTENTE (non expirees), sans identifiant complet."""
         maintenant = time.time()
@@ -755,12 +784,18 @@ def poser_consentement(serveur, autorite: AutoriteLocale) -> None:
         identifiant = str(formulaire.get("demande", ""))
         propose = str(formulaire.get("code", ""))
         attendu = code_d_appariement()
+        if autorite.plafond_atteint():
+            autorite.journaliser_consentement("plafond_global", demande=identifiant, motif="429")
+            return HTMLResponse("<h1>Trop d'essais, reessayer plus tard</h1>", status_code=429,
+                                headers={"Retry-After": str(FENETRE_ECHECS_S)})
         if not autorite.demande(identifiant):
             return HTMLResponse("<h1>Demande inconnue ou expiree</h1>", status_code=404)
-        if not attendu or not _h.compare_digest(propose, attendu):
+        if not attendu or not _h.compare_digest(propose.encode("utf-8"), attendu.encode("utf-8")):
             _LOG.warning("[oauth] consentement refuse : code d'appariement errone")
-            autorite.journaliser_consentement("code_errone", demande=identifiant,
+            d = autorite.demande(identifiant) or {}
+            autorite.journaliser_consentement("code_errone", client_id=d.get("client_id"), demande=identifiant,
                                               motif="aucun code d'appariement configure" if not attendu else None)
+            autorite.noter_echec(identifiant)
             return HTMLResponse("<h1>Code errone</h1>", status_code=403)
         retour = autorite.accorder(identifiant)
         if not retour:

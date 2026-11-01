@@ -63,9 +63,11 @@ else:
         print(f"[session_anchor] resync gemini skip: {e}", file=sys.stderr)
 
 # 3. vérifier daemons critiques — relancer si morts (heartbeat > 5 min)
+# gemini_poll_daemon RETIRE le 27/10 (decision owner 26/10) : ce hook, qui tourne a chaque fin de tour, etait le
+# lanceur « non identifie » du demon desactive (le watchdog d'homeostasie, retire en 7af7ca566, etait l'autre).
+# NR test_session_anchor_ne_relance_pas_gemini_nr.
 DAEMONS = [
     ("multi_llm_daemon", ROOT / "tools" / "multi_llm_daemon.py"),
-    ("gemini_poll_daemon", ROOT / "tools" / "gemini_poll_daemon.py"),
 ]
 for name, script in DAEMONS:
     hb = ROOT / "sandbox" / f"{name}.heartbeat"

@@ -34,8 +34,12 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "app"
-if str(APP) not in sys.path:
-    sys.path.insert(0, str(APP))
+# La RACINE aussi : c'est elle qui porte le paquet `nokido_agent`. Lance par chemin (`python tools/...`, le
+# superviseur), sys.path ne contient que tools/ -> ModuleNotFoundError avale -> ni HubClient ni coffre -> jeton
+# maitre sans nom -> le hub voyait ce demon UNKNOWN ring 4 (mesure 26/10 12:52, ligne « identite : »).
+for _p in (str(ROOT), str(APP)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 HUB_URL = "http://127.0.0.1:8766/mcp"
 
@@ -46,17 +50,45 @@ def _resolve_hub_token() -> str:
     Un job détaché n'hérite pas de l'env du hub → 401 sur `ask` (mesuré 22/08).
     get_secret lit le coffre DPAPI, comme forge_auto_evolution_loop.
     """
+    # Provenance RETENUE (jamais la valeur) puis dite par main() : cette fonction tourne a l'IMPORT, avant
+    # logging.basicConfig -- un message emis ici part dans le vide (26/10 : demon vu UNKNOWN, journal muet).
+    global _PROVENANCE_JETON
+    try:
+        from nokido_agent.app.forge_hub_client import HubClient
+        global _HUB_CLIENT
+        _HUB_CLIENT = HubClient(agent="SELF_PATCHER")  # propre ou bail ; repli maitre dit
+        try:
+            # 30/10 (journal du coffre, job_fce6a9f71bd4) : _jeton_courant() declenchait le repli tardif et LISAIT le
+            # coffre pour une simple etiquette ; en voie d'echange, la provenance est dite sans rien lire.
+            if getattr(_HUB_CLIENT, "_echange_job", False):
+                _PROVENANCE_JETON = "HubClient SELF_PATCHER, echange_job (RFC 8693, aucun secret lu)"
+            else:
+                _PROVENANCE_JETON = "HubClient SELF_PATCHER, " + _HUB_CLIENT._jeton_courant()[1]
+        except Exception as e:  # noqa: BLE001 - la provenance illisible est dite, elle aussi
+            _PROVENANCE_JETON = "HubClient SELF_PATCHER, provenance ILLISIBLE (%s)" % type(e).__name__
+        return _HUB_CLIENT.token
+    except Exception as e:  # noqa: BLE001
+        _PROVENANCE_JETON = "forge_hub_client indisponible (%s)" % type(e).__name__
     try:
         from nokido_agent.app.forge_secrets import get_secret
-        tok = get_secret("FORGE_MCP_TOKEN") or get_secret("LAFORGE_HUB_TOKEN")
+        tok = get_secret("FORGE_MCP_TOKEN")
         if tok:
+            _PROVENANCE_JETON += " -> repli coffre:FORGE_MCP_TOKEN (sans nom d'agent)"
             return tok
     except Exception as e:  # noqa: BLE001
-        logging.getLogger("Nokido.SelfPatcher").debug(
-            f"[patcher] coffre indisponible ({e}) — repli env")
-    return os.getenv("FORGE_MCP_TOKEN", "")
+        _PROVENANCE_JETON += " -> coffre indisponible (%s)" % type(e).__name__
+    tok_env = os.getenv("FORGE_MCP_TOKEN", "")  # UNE lecture hors guichet (repli historique, cliquet 26/10)
+    _PROVENANCE_JETON += " -> repli env FORGE_MCP_TOKEN" + ("" if tok_env else " (VIDE : aucun jeton)")
+    return tok_env
 
 
+def _dire_identite() -> None:
+    """Dit au journal avec quel jeton le patcher se presente au hub (appele par main, journal configure)."""
+    logger.info(f"[patcher] identite : {_PROVENANCE_JETON}")
+
+
+_HUB_CLIENT = None
+_PROVENANCE_JETON = "non resolue"
 HUB_TOKEN = _resolve_hub_token()
 LAFORGE_PY = __import__("os").path.expanduser(r"~/miniforge3/python.exe")
 
@@ -186,8 +218,12 @@ DETERMINISTIC_RULES: dict[str, callable] = {
 def _hub_call(tool: str, args: dict, timeout: int = 90) -> dict:
     import urllib.request as _r
 
+    # `id` OBLIGATOIRE : sans lui c'est une NOTIFICATION JSON-RPC, acceptee par le serveur MCP avec un corps
+    # VIDE -- le patcher n'a jamais recu de reponse du modele par cette voie (mesure 25/10 15:40).
     payload = json.dumps(
         {
+            "jsonrpc": "2.0",
+            "id": 1,
             "method": "tools/call",
             "params": {
                 "name": tool,
@@ -195,13 +231,31 @@ def _hub_call(tool: str, args: dict, timeout: int = 90) -> dict:
             },
         }
     ).encode()
+    # 30/10 (option B owner, mesure reelle du journal du coffre) : voie d'echange armee -> l'appel passe par HubClient
+    # (echange RFC 8693 pour la portee exacte, DPoP), plus par des en-tetes Bearer construits ici (relecture du coffre).
+    # Le client est cree au CHARGEMENT du module : l'environnement est relu a l'appel (un import fait sous un jeton de
+    # job ne doit pas armer l'echange d'un appel qui n'en a plus).
+    try:
+        from nokido_agent.app.forge_agent_credential import jeton_sujet_du_job as _jsj
+    except ImportError:  # repli checkout
+        from forge_agent_credential import jeton_sujet_du_job as _jsj
+    if (_HUB_CLIENT is not None and getattr(_HUB_CLIENT, "_echange_job", False)
+            and _jsj() and os.environ.get("NOKIDO_JOB_ID")):
+        r = _HUB_CLIENT.appel_outil(tool, args, timeout=timeout)
+        return r if r is not None else {"error": "reponse vide ou illisible du hub, ou appel refuse "
+                                                 "(voir le journal hub_client)"}
     headers = {"Content-Type": "application/json"}
-    if HUB_TOKEN:
+    if _HUB_CLIENT is not None:
+        headers = _HUB_CLIENT.entetes_repli_env()
+    elif HUB_TOKEN:
         headers["Authorization"] = f"Bearer {HUB_TOKEN}"
     try:
         req = _r.Request(HUB_URL, data=payload, headers=headers)
         with _r.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
+            corps = r.read()
+        if not corps.strip():
+            return {"error": "reponse vide du hub (notification JSON-RPC ou corps absent)"}
+        return json.loads(corps)
     except Exception as e:
         return {"error": str(e)}
 
@@ -240,28 +294,122 @@ Output format (JSON only, no explanation):
 Or if no safe fix exists: {{"target_file":null,"reason":"why"}}"""
 
 
-def _llm_generate_patch(patterns: list[str], rag_ctx: str) -> dict | None:
+_RE_REFUS_HUB = re.compile(r"^\s*(ERR\b|ERREUR\b|\[Hub\] Erreur)|GATE DENY|ring\s*\d+\s*<=\s*requis", re.I)
+
+
+def _extraire_rel(text: str) -> dict | None:
+    """Bloc REL (```json``` portant error_id) d'une proposition, ou None si elle n'en porte pas."""
+    for m in re.finditer(r"```json\s*(.*?)```", text, re.DOTALL):
+        try:
+            d = json.loads(m.group(1))
+        except ValueError:  # muet-ok : un bloc json illisible n'est pas un REL, le suivant est examine
+            continue
+        if isinstance(d, dict) and "error_id" in d and "pointer_ref" in d:
+            return d
+    return None
+
+
+def _corps_fonction(rel_file: str, function: str) -> str | None:
+    """Source de la fonction pointee, lue par ast dans pointer_ref.file ; None si introuvable."""
+    try:
+        src = (ROOT / rel_file).read_text(encoding="utf-8", errors="replace")
+        for node in ast.walk(ast.parse(src)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function:
+                return "\n".join(src.splitlines()[node.lineno - 1 : node.end_lineno])
+    except (OSError, SyntaxError):  # muet-ok : None est DIT par _contexte_rel (« corps introuvable »)
+        pass
+    return None
+
+
+def _contexte_rel(rel: dict) -> str:
+    ptr = rel["pointer_ref"]
+    corps = _corps_fonction(ptr["file"], ptr.get("function") or "")
+    ev = rel.get("evidence", {})
+    return (
+        "\nREL (rapport d'erreur localise) :\n%s\n"
+        "Fonction pointee (%s:%s) :\n%s\n"
+        "Le correctif DOIT viser target_file = %s.\n"
+        % (json.dumps({"error_id": rel["error_id"], "pointer_ref": ptr, "message": ev.get("message", ""),
+                       "trace": ev.get("trace", [])}, ensure_ascii=False)[:3000],
+           ptr["file"], ptr.get("line"), corps if corps else "(corps introuvable)", ptr["file"])
+    )
+
+
+# CONTRAT FAIL-TO-PASS (26/10, roadmap_p1_self_patcher_f2p_et_raffinement_20261026) : le test ROUGE du REL est
+# rejoue AVANT la generation (deja vert = rien a reparer ; illisible = en attente, UNKNOWN != NO), puis passe au
+# thymus avec les tests du module : un correctif qui ne le fait pas passer MEURT.
+# Verdicts qui laissent le candidat dans l'arbre en attente du commit owner. Le juge a gain (juger_module_avec_gain,
+# raccorde le 08/09) ne rend JAMAIS « SURVIT » en verdict final : tester ce seul mot rendait la branche succes MORTE.
+VERDICTS_RETENUS = ("SURVIT", "AMELIORE")
+
+
+def _test_du_rel(rel: dict) -> str | None:
+    """nodeid pytest du test rouge d'un REL (`error_id` junit « tests.nr.test_x.TestA::test_y ») ; None si introuvable."""
+    classname, sep, nom = str(rel.get("error_id") or "").partition("::")
+    parts = [p for p in classname.split(".") if p]
+    if not sep or not nom or not parts:
+        return None
+    for k in range(len(parts), 0, -1):
+        chemin = "/".join(parts[:k]) + ".py"
+        if (ROOT / chemin).is_file():
+            return "::".join([chemin, *parts[k:], nom])
+    return None
+
+
+def _rel_deja_vert(nodeid: str) -> bool | None:
+    """Le test du REL passe-t-il DEJA ? True vert, False rouge, None illisible (collecte, delai, interruption)."""
+    try:
+        r = subprocess.run([LAFORGE_PY, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=no", nodeid],
+                           cwd=ROOT, capture_output=True, text=True, timeout=300, errors="replace",
+                           env={**os.environ, "PYTHONNOUSERSITE": "1"})
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"[patcher] test du REL {nodeid} non rejoue ({type(e).__name__}) : illisible")
+        return None
+    return {0: True, 1: False}.get(r.returncode)
+
+
+# GENERATION du correctif (owner 26/10 : « si laforge-qwen est trop bete, un modele fort ») : cascade de fournisseurs,
+# le fort GRATUIT d'abord (groq = gpt-oss-120b, ~200 000 jetons/jour), le local en repli. Le JUGE, lui, reste le
+# thymus deterministe (tests, import reel, gain) : aucun modele ne vote sur la survie d'un correctif.
+_PATCHER_PROVIDERS_DEFAUT = "groq,ollama"
+
+
+def _ask_cascade(prompt: str) -> tuple:
+    """(texte, None) du premier fournisseur qui repond vraiment, sinon (None, dernier echec)."""
+    echec = "aucun fournisseur"
+    for prov in [p.strip() for p in os.environ.get("LAFORGE_PATCHER_PROVIDERS", _PATCHER_PROVIDERS_DEFAUT).split(",")
+                 if p.strip()]:
+        args = {"provider": prov, "message": prompt, "max_tokens": 1500 if prov != "ollama" else 400}
+        resp = _hub_call("ask", args)
+        if resp.get("error"):
+            echec = "%s: %s" % (prov, str(resp["error"])[:160])
+            logger.warning(f"[patcher] hub ask en échec ({echec}) -- fournisseur suivant")
+            continue
+        text = (resp.get("result", {}).get("content", [{}]) or [{}])[0].get("text", "")
+        if not text:
+            echec = "%s: reponse vide ou inattendue" % prov
+            logger.warning(f"[patcher] hub ask réponse vide/inattendue ({prov}): {str(resp)[:160]}")
+            continue
+        if _RE_REFUS_HUB.search(text[:200]):
+            # Un REFUS du hub (ring, videur, gate) arrive comme texte : ce n'est pas une reponse du modele
+            # (mesure 26/10 : « GATE DENY tool=ask agent=UNKNOWN », 36 caracteres en 60 ms, 3 propositions perdues).
+            echec = "%s: refus du hub : %s" % (prov, text[:120])
+            logger.warning(f"[patcher] hub ask REFUSE ({prov}): {text[:160]}")
+            continue
+        logger.info(f"[patcher] correctif genere par {prov} ({len(text)} c)")
+        return text, None
+    return None, echec
+
+
+def _llm_generate_patch(patterns: list[str], rag_ctx: str, rel_ctx: str = "") -> dict | None:
     errors = "\n".join(f"- {p}" for p in patterns[:4])
     ctx = f"\nExisting solution:\n{rag_ctx[:400]}" if rag_ctx else ""
-    prompt = _LLM_PROMPT.format(errors=errors, rag_ctx=ctx)
+    prompt = _LLM_PROMPT.format(errors=errors, rag_ctx=ctx) + rel_ctx
 
-    resp = _hub_call(
-        "ask",
-        {
-            "provider": "ollama",
-            "message": prompt,
-            "model": "laforge-qwen",
-            "max_tokens": 400,
-        },
-    )
-    if resp.get("error"):
-        logger.warning(f"[patcher] hub ask en échec: {str(resp['error'])[:200]}")
-        return None
+    text, echec = _ask_cascade(prompt)
+    if text is None:
+        return {"echec_amont": echec[:200]}
     try:
-        text = resp.get("result", {}).get("content", [{}])[0].get("text", "")
-        if not text:
-            logger.warning(f"[patcher] hub ask réponse vide/inattendue: {str(resp)[:200]}")
-            return None
         m = re.search(r'\{[^{}]*"target_file"[^{}]*\}', text, re.DOTALL)
         if m:
             return json.loads(m.group())
@@ -382,7 +530,7 @@ def _git_commit(files: list[str], description: str) -> bool:
 # ── Deterministic batch scan ───────────────────────────────────────────────
 
 
-def _submit_to_judge(ref: str, rel: str, new_text: str, desc: str) -> dict:
+def _submit_to_judge(ref: str, rel: str, new_text: str, desc: str, test_f2p: str | None = None) -> dict:
     """Soumet le candidat au thymus (mutation_judge via forge_autonomous_loops).
 
     Le judge porte verrou, périmètre immuable, patron sain, récidive, import réel,
@@ -392,7 +540,16 @@ def _submit_to_judge(ref: str, rel: str, new_text: str, desc: str) -> dict:
     """
     import sys as _sys
 
-    tests = []
+    tests = [test_f2p] if test_f2p else []  # le test rouge du REL d'abord : le faire passer EST le correctif
+    if test_f2p:
+        # Des tests EXPLICITES font sauter `perimetre_mesure` cote juge : on le joint ici, sinon le seul test F2P
+        # perdrait la non-regression (P2P) des autres tests du module.
+        try:
+            from nokido_agent.app.forge_mutation_judge import perimetre_mesure
+
+            tests += [t for t in perimetre_mesure(rel) if t not in tests]
+        except Exception as e:  # noqa: BLE001 - perimetre illisible : F2P seul, et on le DIT
+            logger.warning(f"[patcher] perimetre de {rel} illisible ({type(e).__name__}) : juge sur le seul test F2P")
     stem = Path(rel).stem
     cand_test = ROOT / "tests" / f"test_{stem}.py"
     if cand_test.exists():
@@ -427,13 +584,88 @@ def _batch_deterministic(rule_fn, rule_name: str, dry_run: bool) -> list[str]:
         # Thymus : le judge porte AST, gates, tests et restauration — plus
         # d'écriture directe depuis le patcher.
         out = _submit_to_judge(f"rule:{rule_name}", rel, new_text, rule_name)
-        if out.get("verdict") == "SURVIT":
+        if out.get("verdict") in VERDICTS_RETENUS:
             logger.info(f"[patcher] SURVIT {rel} ({rule_name}) — promotion = commit owner")
             patched.append(rel)
     return patched
 
 
 # ── Main cycle ─────────────────────────────────────────────────────────────
+
+
+def _pertinence() -> dict:
+    """Taux de pertinence du self-patcher (candidats tranches par l'owner) ; ILLISIBLE n'arrete rien."""
+    try:
+        from nokido_agent.app.forge_motivation import taux_pertinence
+
+        return taux_pertinence("SELF_PATCHER")
+    except Exception as e:  # noqa: BLE001 - mesure illisible : on ne coupe pas sur une non-mesure
+        return {"statut": "ILLISIBLE", "raison": type(e).__name__}
+
+
+# RAFFINEMENT (26/10, roadmap_p1_self_patcher_f2p_et_raffinement_20261026) : sur une proposition REL, un rejet du
+# juge (MEURT, SURVIT_SANS_GAIN) est rendu au generateur pour UNE seconde passe. Au-dela : cout sans gain mesure.
+# HALTED, REJETE_HELD_OUT, GAIN_INDECIDABLE ne relancent pas : une autre generation n'y changerait rien.
+PASSES_MAX = 2
+_REJETS_RAFFINABLES = ("MEURT", "SURVIT_SANS_GAIN")
+
+
+def _essayer_patch(patch_spec, prop, rel, test_f2p, dry_run, stats, applied_files, unmatched) -> dict | None:
+    """UNE tentative : gardes, SEARCH/REPLACE, jugement. Rend le verdict du juge, ou None si rien n'a ete juge."""
+    if not (patch_spec and patch_spec.get("target_file")):
+        if patch_spec:
+            logger.info(f"[patcher] LLM: no safe fix — {patch_spec.get('reason', '?')}")
+        else:
+            logger.warning("[patcher] LLM: aucun spec rendu (échec hub/parse en amont — voir warnings)")
+        return None
+    target = patch_spec["target_file"]
+    search = patch_spec.get("patch_search", "")
+    replace_str = patch_spec.get("patch_replace", "")
+    desc = patch_spec.get("description", "LLM auto-patch")
+    err = _safe_check(target)
+    if (not err and rel is not None
+            and target.replace("\\", "/").lstrip("/") != rel["pointer_ref"]["file"]):
+        err = f"target_file {target} != pointer_ref.file {rel['pointer_ref']['file']}"
+    if err:
+        logger.warning(f"[patcher] LLM patch blocked: {err}")
+        stats["patches_failed"] += 1
+        return None
+    if not (search and replace_str):
+        return None
+    fp = ROOT / target
+    if dry_run:
+        logger.info(f"[patcher] DRY-RUN LLM: {target} — {desc}")
+        return None
+    if not fp.exists():
+        return None
+    if len(replace_str.splitlines()) > MAX_PATCH_LINES:
+        logger.warning(f"[patcher] LLM patch trop large — refusé ({target})")
+        stats["patches_failed"] += 1
+        return None
+    src_txt = fp.read_text(encoding="utf-8", errors="replace")
+    if search not in src_txt:
+        logger.warning(f"[patcher] LLM patch: search absent de {target}")
+        stats["patches_failed"] += 1
+        return None
+    candidate = src_txt.replace(search, replace_str, 1)
+    out = _submit_to_judge(f"proposal:{prop.stem}", target, candidate, desc, test_f2p)
+    if out.get("verdict") in VERDICTS_RETENUS:
+        applied_files.append(target)
+        stats["patches_applied"] += 1
+        try:
+            from nokido_agent.app.forge_self_correction import anchor_solution
+
+            anchor_solution(
+                problem="; ".join(unmatched[:2]),
+                solution=f"Self-patcher: candidat SURVIT au thymus: {desc} -> {target} (promotion = commit owner)",
+                example=f"patch_search={search[:80]}",
+                domain="systeme",
+            )
+        except Exception as e:
+            logger.debug(f"[patcher] anchor_solution non persisté ({e})")
+    else:
+        stats["patches_failed"] += 1
+    return out
 
 
 def run_once(dry_run: bool = False) -> dict:
@@ -446,15 +678,55 @@ def run_once(dry_run: bool = False) -> dict:
     pending = [p for p in proposals if p.name not in applied]
 
     logger.info(f"[patcher] {len(pending)} proposals pending")
+    # Owner 26/10 : « de la matiere pertinente, pas du bruit a reprendre ». Sous le seuil de pertinence mesure
+    # (candidats que l'owner a gardes tels quels / tranches), le patcher passe en SIMULATION : rien n'est ecrit.
+    pert = _pertinence()
+    mode = "SIMULATION" if dry_run else "REEL"
+    if pert.get("statut") == "OBSERVATION":
+        dry_run, mode = True, "OBSERVATION"
+        logger.warning(f"[patcher] OBSERVATION : pertinence {pert.get('taux')} sur {pert.get('n')} candidats "
+                       f"tranches -- aucun candidat ecrit tant que le taux reste sous le seuil")
     stats = {
         "proposals": len(pending),
         "patches_applied": 0,
         "patches_failed": 0,
         "commits": 0,
+        "mode": mode,
+        "pertinence": pert,
     }
 
     for prop in tqdm(pending, desc="proposals", unit="prop"):
         text = prop.read_text(encoding="utf-8", errors="replace")
+        rel = _extraire_rel(text)
+        test_f2p = _test_du_rel(rel) if rel is not None else None
+        if rel is not None and not (isinstance(rel.get("pointer_ref"), dict) and rel["pointer_ref"].get("file")):
+            # REL sans localisation : rien a viser, le modele ne peut que deviner -> NON consommee. SAUF si son
+            # test est deja VERT : il n'y a plus rien a reparer, et l'ecarter ici le faisait relire a chaque
+            # cycle sans fin (5 REL du 26/10 jamais consommes). NR test_self_patcher_f2p_nr.
+            if test_f2p and _rel_deja_vert(test_f2p) is True:
+                logger.info(f"[patcher] {prop.name} : REL sans localisation, test {test_f2p} deja VERT -- consomme")
+                if not dry_run:
+                    try:
+                        (APPLIED_DIR / prop.name).write_text("skipped: REL sans localisation, test deja vert (%s)"
+                                                             % test_f2p)
+                    except OSError as e:
+                        logger.warning(f"[patcher] marquage impossible ({e}) -- {prop.name} sera revu")
+                continue
+            logger.warning(f"[patcher] {prop.name} NON consommee (REL pointer_ref null : aucune frame app/tools)")
+            continue
+        if test_f2p:
+            vert = _rel_deja_vert(test_f2p)
+            if vert is None:
+                logger.warning(f"[patcher] {prop.name} NON consommee (test du REL {test_f2p} illisible)")
+                continue
+            if vert:
+                logger.info(f"[patcher] {prop.name} : test du REL {test_f2p} deja VERT -- rien a reparer")
+                if not dry_run:
+                    try:
+                        (APPLIED_DIR / prop.name).write_text("skipped: test du REL deja vert (%s)" % test_f2p)
+                    except OSError as e:
+                        logger.warning(f"[patcher] marquage impossible ({e}) -- {prop.name} sera revu")
+                continue
         patterns = []
         for line in text.splitlines():
             if line.startswith("- **"):
@@ -463,6 +735,10 @@ def run_once(dry_run: bool = False) -> dict:
                     patterns.append(key)
 
         if not patterns:
+            if dry_run:
+                # Une simulation ne CONSOMME rien : marquer ici retirerait la proposition
+                # du cycle reel suivant (piege mesure 26/10 avant le reveil owner).
+                continue
             try:
                 (APPLIED_DIR / prop.name).write_text("skipped: no actionable patterns")
             except PermissionError as e:
@@ -477,7 +753,8 @@ def run_once(dry_run: bool = False) -> dict:
         for pat in patterns:
             for key, fn in DETERMINISTIC_RULES.items():
                 if key in pat.lower():
-                    matched_rules.add((key, fn))
+                    if rel is None:
+                        matched_rules.add((key, fn))
 
         for rule_key, rule_fn in matched_rules:
             patched = _batch_deterministic(rule_fn, rule_key, dry_run)
@@ -485,65 +762,38 @@ def run_once(dry_run: bool = False) -> dict:
             stats["patches_applied"] += len(patched)
 
         # 2. LLM fallback for unmatched patterns
-        unmatched = [p for p in patterns if not any(k in p.lower() for k in DETERMINISTIC_RULES)]
+        unmatched = [p for p in patterns if rel is not None or not any(k in p.lower() for k in DETERMINISTIC_RULES)]
 
         if unmatched and not applied_files:
             rag_ctx = _rag_lookup(" ".join(unmatched[:2]))
-            patch_spec = _llm_generate_patch(unmatched, rag_ctx)
-
-            if patch_spec and patch_spec.get("target_file"):
-                target = patch_spec["target_file"]
-                search = patch_spec.get("patch_search", "")
-                replace_str = patch_spec.get("patch_replace", "")
-                desc = patch_spec.get("description", "LLM auto-patch")
-
-                err = _safe_check(target)
-                if err:
-                    logger.warning(f"[patcher] LLM patch blocked: {err}")
-                    stats["patches_failed"] += 1
-                elif search and replace_str:
-                    fp = ROOT / target
-                    if dry_run:
-                        logger.info(f"[patcher] DRY-RUN LLM: {target} — {desc}")
-                    elif fp.exists():
-                        if len(replace_str.splitlines()) > MAX_PATCH_LINES:
-                            logger.warning(f"[patcher] LLM patch trop large — refusé ({target})")
-                            stats["patches_failed"] += 1
-                        else:
-                            src_txt = fp.read_text(encoding="utf-8", errors="replace")
-                            if search not in src_txt:
-                                logger.warning(f"[patcher] LLM patch: search absent de {target}")
-                                stats["patches_failed"] += 1
-                            else:
-                                candidate = src_txt.replace(search, replace_str, 1)
-                                out = _submit_to_judge(f"proposal:{prop.stem}", target, candidate, desc)
-                                if out.get("verdict") == "SURVIT":
-                                    applied_files.append(target)
-                                    stats["patches_applied"] += 1
-                                    try:
-                                        from nokido_agent.app.forge_self_correction import anchor_solution
-
-                                        anchor_solution(
-                                            problem="; ".join(unmatched[:2]),
-                                            solution=f"Self-patcher: candidat SURVIT au thymus: {desc} -> {target} (promotion = commit owner)",
-                                            example=f"patch_search={search[:80]}",
-                                            domain="systeme",
-                                        )
-                                    except Exception as e:
-                                        logger.debug(f"[patcher] anchor_solution non persisté ({e})")
-                                else:
-                                    stats["patches_failed"] += 1
-            elif patch_spec:
-                logger.info(f"[patcher] LLM: no safe fix — {patch_spec.get('reason', '?')}")
-            else:
-                logger.warning("[patcher] LLM: aucun spec rendu (échec hub/parse en amont — voir warnings)")
+            retour_juge, amont = "", None
+            for passe in range(PASSES_MAX if rel is not None else 1):
+                patch_spec = _llm_generate_patch(unmatched, rag_ctx,
+                                                 (_contexte_rel(rel) + retour_juge) if rel is not None else "")
+                if patch_spec and patch_spec.get("echec_amont"):
+                    amont = patch_spec["echec_amont"]
+                    break
+                out = _essayer_patch(patch_spec, prop, rel, test_f2p, dry_run, stats, applied_files, unmatched)
+                if not out or out.get("verdict") not in _REJETS_RAFFINABLES:
+                    break
+                retour_juge = ("\nTENTATIVE %d REJETEE par le juge deterministe (%s) : %s\n"
+                               "Propose un correctif qui tient compte de ce retour.\n"
+                               % (passe + 1, out.get("verdict"), str(out.get("pourquoi") or out.get("note") or "")[:1200]))
+            if amont:
+                # Panne en amont (hub, modele) : rien n'a ete JUGE, la proposition reste en attente pour le
+                # prochain cycle -- la marquer traitee confondait « pas pu demander » et « rien a faire ».
+                logger.warning(f"[patcher] {prop.name} NON consommee (echec amont : {amont})")
+                stats["patches_failed"] += 1
+                continue
 
         # 3. Plus de commit auto : inhibition corticale — SURVIT laisse le
         # working tree modifié, la promotion est le commit OWNER.
         if applied_files and not dry_run:
             logger.info(f"[patcher] {len(applied_files)} candidat(s) SURVIT — en attente de commit owner: {applied_files}")
 
-        # Mark proposal processed
+        # Mark proposal processed -- jamais en simulation : elle doit rester rejouable en reel
+        if dry_run:
+            continue
         try:
             (APPLIED_DIR / prop.name).write_text(
                 json.dumps(
@@ -592,6 +842,7 @@ def main():
     parser.add_argument("--daemon", action="store_true", help="Run as daemon (1h cycle)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate without writing")
     args = parser.parse_args()
+    _dire_identite()
 
     if args.daemon:
         cycle = 0

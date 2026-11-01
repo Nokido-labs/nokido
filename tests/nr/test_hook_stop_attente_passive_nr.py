@@ -58,11 +58,25 @@ def _transcript(tmp_path, owner, agent):
     return p
 
 
+def _env_isole(tmp_path, monitors=None, rc=()):
+    """Etat du garde anti-polling ISOLE : jamais le gate_state.json vivant (un Monitor arme ailleurs rendrait muet)."""
+    import os
+    etat = tmp_path / "gate_state.json"
+    jobs = tmp_path / "jobs"
+    jobs.mkdir(exist_ok=True)
+    if monitors is not None:
+        etat.write_text(json.dumps({"monitors": monitors}), encoding="utf-8")
+    for jid in rc:
+        (jobs / ("%s.rc" % jid)).write_text("0", encoding="utf-8")
+    return dict(os.environ, NOKIDO_GATE_ETAT=str(etat), NOKIDO_GATE_JOBS=str(jobs))
+
+
 def test_point_d_entree_reel_bloque_et_journalise(tmp_path, monkeypatch):
     t = _transcript(tmp_path, "ok fait, vérifie", FAUTIFS[0])
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "hook_stop_attente_passive.py")],
                        input=json.dumps({"transcript_path": str(t), "stop_hook_active": False}),
-                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+                       env=_env_isole(tmp_path))
     assert r.returncode == 0
     assert json.loads(r.stdout)["decision"] == "block"
 
@@ -73,7 +87,7 @@ def test_la_raison_arrive_intacte_quel_que_soit_l_encodage_du_tube(tmp_path):
     t = _transcript(tmp_path, "ok fait, vérifie", FAUTIFS[0])
     r = subprocess.run([sys.executable, str(ROOT / "tools" / "hook_stop_attente_passive.py")],
                        input=json.dumps({"transcript_path": str(t), "stop_hook_active": False}).encode("utf-8"),
-                       capture_output=True, timeout=30)
+                       capture_output=True, timeout=30, env=_env_isole(tmp_path))
     assert r.returncode == 0
     brut = r.stdout.decode("ascii")             # UnicodeDecodeError = un octet non ASCII est parti dans le tube
     assert "«" in json.loads(brut)["reason"]
@@ -89,3 +103,34 @@ def test_l_ancien_tour_ne_contamine_pas_le_dernier(tmp_path):
     p = tmp_path / "t.jsonl"
     p.write_text("\n".join(json.dumps(x) for x in lignes), encoding="utf-8")
     assert H.decider(H.dernier_message(p), deja_relance=False) is None
+
+
+# Owner 1/11 (quota : 20 % consommes, chaque relance re-facture tout le contexte) : un Monitor ARME reveillera le
+# tour au verdict -- forcer un tour de plus pendant qu'il veille ne fait que payer l'historique une fois de plus.
+def _lancer(tmp_path, env):
+    t = _transcript(tmp_path, "go", FAUTIFS[0])
+    return subprocess.run([sys.executable, str(ROOT / "tools" / "hook_stop_attente_passive.py")],
+                          input=json.dumps({"transcript_path": str(t), "stop_hook_active": False}),
+                          capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, env=env)
+
+
+def test_muet_quand_un_monitor_est_arme_sur_un_job_en_vol(tmp_path):
+    import time
+    r = _lancer(tmp_path, _env_isole(tmp_path, monitors={"job_en_vol": time.time() + 600}))
+    assert r.returncode == 0
+    assert r.stdout.strip() == "", r.stdout
+
+
+def test_relance_si_le_monitor_a_expire_ou_si_le_job_est_fini(tmp_path):
+    import time
+    expire = _lancer(tmp_path, _env_isole(tmp_path, monitors={"job_vieux": time.time() - 5}))
+    assert json.loads(expire.stdout)["decision"] == "block"
+    fini = _lancer(tmp_path, _env_isole(tmp_path, monitors={"job_fini": time.time() + 600}, rc=["job_fini"]))
+    assert json.loads(fini.stdout)["decision"] == "block"
+
+
+def test_etat_illisible_ne_rend_pas_muet(tmp_path):
+    """UNKNOWN n'est pas OUI : un gate_state corrompu ne prouve aucun Monitor arme -> le rappel reste."""
+    env = _env_isole(tmp_path)
+    (tmp_path / "gate_state.json").write_text("{pas du json", encoding="utf-8")
+    assert json.loads(_lancer(tmp_path, env).stdout)["decision"] == "block"

@@ -143,7 +143,10 @@ _MONITOR_OK = re.compile(
     # lance ») : le rendu d'un pair cloud doit reveiller la boucle comme un job ou une tache. Le
     # client est un identifiant qui COMMENCE par un alphanumerique -- il ne peut donc pas avaler une
     # option (`--max-s`) ni porter un chemin ; meme script, toujours en lecture seule.
-    r"(?:--(?:job|task)\s+[A-Za-z0-9_]+|--pair(?:\s+[A-Za-z0-9][A-Za-z0-9-]*)?)"
+    # `--delegations [--de AGENT]` ajoute le 2026-10-22 (owner, choix multiple) : suivre TOUTES les delegations par un
+    # seul Monitor ; l'agent est un identifiant, jamais un chemin ; meme script, lecture seule (tasks.db en mode=ro).
+    r"(?:--(?:job|task)\s+[A-Za-z0-9_]+|--pair(?:\s+[A-Za-z0-9][A-Za-z0-9-]*)?"
+    r"|--delegations(?:\s+--de\s+[A-Za-z0-9_]+)?)"
     r"(?:\s+--[a-z-]+\s+\d+)*\s*$"
 )
 
@@ -154,7 +157,8 @@ if (data.get("tool_name") or "").strip() == "Monitor":
             "  Monitor execute du shell natif : une seule forme est sanctionnee,\n"
             "  le CLI de surveillance git-tracke (lecture seule).\n"
             '  Forme : "<LAFORGE_PYTHON>" "<repo>/tools/forge_job_watch_cli.py" '
-            "--job <job_id> | --task <task_id> | --pair [client] [--gel-s N] [--max-s N] [--intervalle N]\n"
+            "--job <job_id> | --task <task_id> | --pair [client] | --delegations [--de AGENT] "
+            "[--gel-s N] [--max-s N] [--intervalle N]\n"
             f"  Cmd : {command[:200]}",
             file=sys.stderr,
         )

@@ -12,6 +12,12 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
+# Borne pytest (cliquet test_sous_processus_borne_sous_la_suite_nr, CI 50221f9ca) : le point d'entree reel est lance
+# en sous-processus avec timeout=60 > 30 s de la suite ; sans borne propre, pytest-timeout abattrait toute la session.
+pytestmark = pytest.mark.timeout(120)
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 

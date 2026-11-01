@@ -125,7 +125,9 @@ def _code(question: str, non_consulte: list, jit=None) -> list:
             continue
         if not defs:
             continue          # le mot n'est pas un symbole : on ne l'invente pas
-        amb = ambiguite(mot)
+        # Mesure 28/10 (cProfile) : `ambiguite(mot)` seul relancait un git grep `def <mot>` deja fait par
+        # le prefiltre. On lui passe les fichiers connus (par APPEL, aucun cache persistant).
+        amb = ambiguite(mot) if pre is None else ambiguite(mot, fichiers_def=pre.get(mot, []))
         try:
             n_app = len(callers(mot))
         except Exception:  # noqa: BLE001

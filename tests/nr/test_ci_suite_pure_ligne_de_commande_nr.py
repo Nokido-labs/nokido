@@ -159,6 +159,27 @@ def test_ci_local_cable_et_relit_les_traces_de_plantage(tmp_path, capsys):
     assert "PLANTAGE NATIF" in capsys.readouterr().out
 
 
+def test_le_thread_fautif_d_une_longue_trace_est_montre(tmp_path, capsys):
+    # 1/11 (run GitHub 41277423064) : 113 lignes, « Current thread » A LA FIN ; les 14 premieres lignes ne montraient
+    # que des threads endormis, le coupable etait coupe.
+    endormis = ["Thread 0x%04x [t%d] (most recent call first):" % (i, i) if i % 3 == 0 else
+                '  File "threading.py", line %d in wait' % i for i in range(40)]
+    fautif = ["Current thread 0xbeef (most recent call first):", '  File "pyarrow/lib.py", line 7 in crash']
+    (tmp_path / "faulthandler_gw1_3.log").write_text(
+        "\n".join(["Windows fatal exception: access violation"] + endormis + fautif) + "\n", encoding="utf-8")
+    ci_local._rapporter_faulthandler(tmp_path)
+    sortie = capsys.readouterr().out
+    assert "Current thread 0xbeef" in sortie and "pyarrow/lib.py" in sortie
+    assert "ligne(s) de threads non fautifs omises" in sortie
+
+
+def test_une_trace_sans_thread_fautif_le_dit(tmp_path, capsys):
+    (tmp_path / "faulthandler_gw2_4.log").write_text("Windows fatal exception: access violation\n" * 3,
+                                                      encoding="utf-8")
+    ci_local._rapporter_faulthandler(tmp_path)
+    assert "thread fautif ABSENT" in capsys.readouterr().out
+
+
 def test_le_basetemp_turbo_compense_le_segment_xdist():
     # Mesure 2026-10-14 (reference ce23f35a8) : `popen-gwN\` ajoute par xdist a fait franchir la limite de chemin
     # a 7 tests git (« '$GIT_DIR' too big »). Le basetemp turbo doit raccourcir AU MOINS d'autant.

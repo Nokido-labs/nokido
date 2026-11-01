@@ -229,7 +229,7 @@ def call_lmstudio(prompt: str, timeout: int = 120) -> str:
     token = _read_env("LMSTUDIO_TOKEN", "")
     model = _read_env("LMSTUDIO_MODEL", "")
     hub = _read_env("LAFORGE_HUB_URL", "http://127.0.0.1:8766/mcp")
-    hub_token = _read_env("FORGE_MCP_TOKEN", "")
+    hub_token = _hub_token() or _read_env("FORGE_MCP_TOKEN", "")
 
     if not token:
         return "[ERR lmstudio] LMSTUDIO_TOKEN manquant — ajouter dans nokido.env"
@@ -642,12 +642,23 @@ _HUB_URL = "http://127.0.0.1:8766"
 def _hub_token() -> str:
     """Jeton du hub lu au coffre a chaque appel (get_secret replie lui-meme sur l'env) -- 16/10."""
     try:
-        from nokido_agent.app.forge_secrets import get_secret
-
-        return get_secret("FORGE_MCP_TOKEN") or ""
+        return _hub_client().token  # propre d'abord, repli maitre dit (forge_hub_client)
     except Exception as _e:
         logger.warning("coffre illisible pour le jeton du hub (%s) -> appel sans jeton", type(_e).__name__)
         return ""
+
+
+_HUB_CLIENT = None
+
+
+def _hub_client():
+    """HubClient MULTI_LLM (cache) : jeton propre ou a bail ; repli maitre dit, sans nom."""
+    global _HUB_CLIENT
+    if _HUB_CLIENT is None:
+        from nokido_agent.app.forge_hub_client import HubClient
+
+        _HUB_CLIENT = HubClient(agent="MULTI_LLM")
+    return _HUB_CLIENT
 
 
 def _hub_shell(cmd: str, workdir: str = "", timeout: int = 120) -> str:
@@ -662,9 +673,10 @@ def _hub_shell(cmd: str, workdir: str = "", timeout: int = 120) -> str:
         },
     }
     hdrs: dict = {"Content-Type": "application/json"}
-    _jeton = _hub_token()
-    if _jeton:
-        hdrs["Authorization"] = f"Bearer {_jeton}"
+    try:
+        hdrs = _hub_client().entetes()  # bail ; repli maitre sans nom
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("forge_hub_client illisible (%s) -> appel sans jeton", type(_e).__name__)
     try:
         req = urllib.request.Request(
             f"{_HUB_URL}/mcp",

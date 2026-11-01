@@ -440,6 +440,8 @@ def log_call(
     cost_source: str = None,
     served_model: str = None,
     attempts: int = None,
+    principal: str = None,
+    declared: str = None,
 ) -> float:
     """Enregistre un appel LLM dans token_usage. RECORDER CANONIQUE.
 
@@ -461,7 +463,11 @@ def log_call(
     """
     import uuid
 
-    mesure = prompt_tokens is not None and completion_tokens is not None
+    if principal is not None or declared is not None:
+        meta = dict(meta or {})
+        meta["principal"] = principal or agent_id or "UNKNOWN"
+        meta["declared"] = declared or "UNKNOWN"
+    mesure =prompt_tokens is not None and completion_tokens is not None
     total = (prompt_tokens + completion_tokens) if mesure else None
 
     # COUT a trois etats. Le defaut est UNKNOWN_PRICING : ne jamais retomber
@@ -473,6 +479,11 @@ def log_call(
     elif (provider or "").lower() in PROVIDERS_GRATUITS:
         cost, cost_kind = 0.0, "FREE"
         cost_source = cost_source or "local_provider"
+    elif (provider or "").lower().endswith("_free"):
+        # 24/10 : mistral_free, openrouter_free -- le suffixe EST la preuve de gratuite (palier gratuit configure) ;
+        # groq, cerebras... restent UNKNOWN_PRICING tant qu'aucune mesure ne dit le contraire
+        cost, cost_kind = 0.0, "FREE"
+        cost_source = cost_source or "palier_free"
     else:
         tarife = _price(model, prompt_tokens, completion_tokens) if mesure else None
         if tarife is None:

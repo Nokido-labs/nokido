@@ -705,12 +705,15 @@ async def arene_ssot(objectif: str, parts: list, rounds: int) -> dict:
                     "  TENSION: <ce qui te parait fragile dans l'objectif lui-meme>\n"
                     "  ACQUIS: <fait etabli, avec sa source ou sa mesure>"
                 )
-                dossier_vu.add(nom)
                 envoyes += len(prompt)
                 texte, ok = await _turn(provider, prompt, _tokens(nom))
                 etat["tour"] = etat.get("tour", 0) + 1
                 _pub, _fmt_ok, _motif = _publie(nom, texte)
                 ok = ok and _fmt_ok
+                # VU = LU (27/10) : un dossier dont le tour a echoue n'a pas ete transmis. Le marquer vu
+                # avant le succes privait le participant du dossier pour tout le debat (groq, hors sujet).
+                if ok:
+                    dossier_vu.add(nom)
                 deltas = _applique_delta(etat, nom, _pub) if ok else 0
                 if not _fmt_ok:
                     print(f"[arene] tour REJETE — {nom}: {_motif}", flush=True)
@@ -724,12 +727,12 @@ async def arene_ssot(objectif: str, parts: list, rounds: int) -> dict:
                 except Exception:  # noqa: BLE001
                     __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_m2m_debate_antiregression.py', 723, exc_info=True)
                 continue
+            _avec_dossier = nom not in dossier_vu
             if nom in dossier_vu:                     # tours suivants : contexte MINIMAL
                 entete = (f"Tu es {nom}, meme role qu'au tour precedent (dossier deja transmis).\n\n"
                           f"## ETAT PARTAGE DU DEBAT (SSoT — seule memoire commune)\n"
                           f"{_ssot_compact(etat)}\n\n")
             else:                                     # premiere prise de parole : dossier complet
-                dossier_vu.add(nom)
                 entete = (f"{role}\n\n## OBJECTIF\n{objectif}\n\n## CONTRAINTE\n{CONTRAINTE}\n\n"
                           f"## ETAT PARTAGE DU DEBAT (SSoT — seule memoire commune)\n"
                           f"{_ssot_compact(etat)}\n\n")
@@ -749,6 +752,8 @@ async def arene_ssot(objectif: str, parts: list, rounds: int) -> dict:
             etat["tour"] = etat.get("tour", 0) + 1
             _pub, _fmt_ok, _motif = _publie(nom, texte)
             ok = ok and _fmt_ok
+            if ok and _avec_dossier:
+                dossier_vu.add(nom)
             deltas = _applique_delta(etat, nom, _pub) if ok else 0
             if not _fmt_ok:
                 print(f"[arene] tour REJETE — {nom}: {_motif}", flush=True)

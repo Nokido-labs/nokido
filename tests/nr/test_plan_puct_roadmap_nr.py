@@ -98,7 +98,9 @@ def test_le_drapeau_plan_traverse_le_chemin_reel(tmp_path):
     (tmp_path / "r.jsonl").write_text("\n".join(json.dumps(r) for r in RES) + "\n", encoding="utf-8")
     env = {**os.environ, "NOKIDO_PLAN_ARBRE": str(tmp_path / "arbre.json"),
            "NOKIDO_MOTIVATION_RESULTATS": str(tmp_path / "r.jsonl"),
-           "NOKIDO_PLAN_JOURNAL": str(tmp_path / "plan.jsonl"), "PYTHONNOUSERSITE": "1"}
+           "NOKIDO_PLAN_JOURNAL": str(tmp_path / "plan.jsonl"), "PYTHONNOUSERSITE": "1",
+           # occupation isolee : sans elle, un executeur en vol a l'instant est retire (rouge du 24/10)
+           "NOKIDO_PLAN_TASKS_DB": str(tmp_path / "tasks_absente.db")}
     r = subprocess.run([sys.executable, str(RACINE / "tools" / "forge_roadmap_keeper.py"), "--plan",
                         "--libres", "ANTIGRAVITY,OPENCODE_NEMOTRON"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                        text=True, errors="replace", env=env, timeout=60, cwd=str(RACINE))

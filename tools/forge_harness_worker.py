@@ -41,6 +41,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 JOBS = ROOT / "sandbox" / "harness_jobs"
 HEARTBEAT = ROOT / "sandbox" / "harness_worker.heartbeat"
+# 27/10 : un job Vibe dure jusqu'a ~28 min ; sans battement PENDANT le job, le pouls gelait alors que le worker
+# travaillait (relance 09 h 14, job pris 09 h 17, pouls fige a 03 h 04) et l'executeur le lisait mort.
+# Le battement reste borne par le watchdog de process_job (kill_tree a l'echeance) : il atteste un travail en cours.
+_POULS_PENDANT_JOB_S = 30.0
+# 27/10 : instance figee 73 min (vivante, MUETTE) -- `--watch` n'ecrivait rien, ses exceptions partaient en
+# logging.debug sans handler, faulthandler (logboot) ne couvre que le crash natif. Le chien de garde vide les
+# piles de TOUS les fils dans stderr (= journal logboot) si un tour ou un job depasse son delai sans rearmer.
+_CHIEN_REPOS_S = 180.0
+_CHIEN_MARGE_JOB_S = 300.0
 
 
 def _bootstrap():
@@ -49,7 +58,7 @@ def _bootstrap():
         sys.path.append(app)
 
 
-def _heartbeat():
+def _heartbeat(**extra):
     # CHEMIN CANONIQUE UNIQUE (`forge_heartbeat.beat_daemon`). Ce pouls n'etait pas
     # du JSON mais une date ISO NUE : l'audit le comptait ILLISIBLE (mesure du
     # 2026-08-25) et il ne portait aucun pid.
@@ -61,7 +70,7 @@ def _heartbeat():
     _bootstrap()
     from nokido_agent.app.forge_heartbeat import beat_daemon
 
-    beat_daemon("harness_worker")
+    beat_daemon("harness_worker", **extra)
 
 
 def process_job(job):
@@ -144,12 +153,34 @@ def _run_pending():
         marker = jf.with_suffix(".done")
         if marker.exists():
             continue
+        fin = threading.Event()
+        batteur = threading.Thread(target=_battre_tant_que, args=(fin, jf.stem), name="pouls-pendant-job",
+                                   daemon=True)
         try:
             jf.with_suffix(".started").write_text("1", encoding="utf-8")
             job = json.loads(jf.read_text(encoding="utf-8"))
+            try:
+                _poser_veto(jf.stem, float(job.get("timeout") or 600) + _CHIEN_MARGE_JOB_S)
+            except Exception:  # noqa: BLE001
+                _log().warning("veto de sommeil non pose pour %s", jf.stem, exc_info=True)
+            batteur.start()
+            _armer_chien(float(job.get("timeout") or 600) + _CHIEN_MARGE_JOB_S)
+            t0 = time.time()
+            _log().info("job %s demarre (agent=%s, timeout=%s)", jf.stem, job.get("agent"), job.get("timeout"))
             res = process_job(job)
+            _log().info("job %s fini en %.0f s (agent=%s, ok=%s)", jf.stem, time.time() - t0, job.get("agent"),
+                        res.get("ok"))
         except Exception as e:  # noqa: BLE001
             res = {"ok": False, "error": repr(e)[:400]}
+            _log().warning("job %s en echec : %s", jf.stem, repr(e)[:300], exc_info=True)
+        finally:
+            fin.set()
+            if batteur.is_alive():
+                batteur.join(timeout=5)
+            try:
+                _lever_veto()
+            except Exception:  # noqa: BLE001
+                _log().warning("veto de sommeil non leve (il expirera seul)", exc_info=True)
         jf.with_suffix(".result.json").write_text(json.dumps(_caviarder_resultat(res), ensure_ascii=False),
                                                   encoding="utf-8")
         marker.write_text("1", encoding="utf-8")
@@ -157,12 +188,86 @@ def _run_pending():
     return done
 
 
+def _log():
+    """Journal du worker sur stderr -- sous logboot, stderr EST le journal du service."""
+    import logging
+    lg = logging.getLogger("harness_worker")
+    if not lg.handlers:
+        h = logging.StreamHandler(sys.stderr)
+        h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s harness_worker %(message)s"))
+        lg.addHandler(h)
+        lg.setLevel(logging.INFO)
+        lg.propagate = False
+    return lg
+
+
+_SERVICE = "NokidoHarnessWorker"
+_VETO_RENOUVEAU_S = 600.0
+
+
+def _poser_veto(nom, duree_s):
+    """Veto de sommeil (forge_resource_manager) : un job en vol ne se fait pas endormir. 28/10 : worker
+    `sleeping` pendant un job claude_api (RAM ~86 %), 34 min de delegations closes « non lance »."""
+    _bootstrap()
+    from nokido_agent.app.forge_resource_manager import poser_veto_sommeil
+    poser_veto_sommeil(_SERVICE, "job harness en vol : %s" % nom, duree_s)
+
+
+def _lever_veto():
+    _bootstrap()
+    from nokido_agent.app.forge_resource_manager import lever_veto_sommeil
+    lever_veto_sommeil(_SERVICE)
+
+
+def _battre_tant_que(fin, nom):
+    """Pouls PENDANT un job, toutes les _POULS_PENDANT_JOB_S, et renouvellement du veto de sommeil (borne a
+    30 min cote resource manager : un job plus long le perdrait). Une erreur est journalisee et le fil
+    CONTINUE : mort en silence, il laissait perimer le pouls d'un job sain."""
+    while not fin.wait(_POULS_PENDANT_JOB_S):
+        try:
+            _heartbeat(job_en_cours=nom)
+        except Exception:  # noqa: BLE001
+            _log().warning("pouls pendant job %s en echec (le fil continue)", nom, exc_info=True)
+        try:
+            _poser_veto(nom, _VETO_RENOUVEAU_S)
+        except Exception:  # noqa: BLE001
+            _log().warning("veto de sommeil non renouvele pour %s", nom, exc_info=True)
+
+
+# Le service tourne en « journal sans pipe » : sys.stderr ne va nulle part. Les piles du chien de garde
+# et d'un plantage fatal vont donc dans un FICHIER (28/10 : deux silences sans trace, 27/10 et 28/10).
+_CHEMIN_CHIEN = Path(__file__).resolve().parents[1] / "logs" / "harness_worker_faulthandler.log"
+_FICHIER_CHIEN = None
+
+
+def _fichier_chien():
+    global _FICHIER_CHIEN
+    if _FICHIER_CHIEN is None or _FICHIER_CHIEN.closed:
+        _CHEMIN_CHIEN.parent.mkdir(parents=True, exist_ok=True)
+        _FICHIER_CHIEN = open(_CHEMIN_CHIEN, "a", encoding="utf-8")  # noqa: SIM115 (vit avec le processus)
+    return _FICHIER_CHIEN
+
+
+def _armer_chien(delai_s):
+    """(Re)arme le vidage des piles de tous les fils si personne ne rearme avant `delai_s`."""
+    import faulthandler
+    faulthandler.cancel_dump_traceback_later()
+    faulthandler.dump_traceback_later(delai_s, repeat=False, file=_fichier_chien())
+
+
 def _watch(interval=3.0):
+    _log().info("demarre pid=%d, tour=%.1f s, jobs=%s", os.getpid(), interval, JOBS)
+    try:
+        import faulthandler
+        faulthandler.enable(file=_fichier_chien(), all_threads=True)  # plantage fatal : la pile reste lisible
+    except Exception:  # noqa: BLE001
+        _log().warning("faulthandler non arme sur fichier", exc_info=True)
     while True:
+        _armer_chien(_CHIEN_REPOS_S)
         try:
             _run_pending()
         except Exception:  # noqa: BLE001
-            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_harness_worker.py', 164, exc_info=True)
+            _log().warning("tour de surveillance en echec", exc_info=True)
         _heartbeat()
         time.sleep(interval)
 

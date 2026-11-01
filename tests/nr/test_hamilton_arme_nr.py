@@ -57,7 +57,12 @@ def test_sous_le_seuil_rien_de_neuf_et_reprise_apres_calme():
     pause = _regler(_plan(), 85.0)["etat"]
     r = _regler(_plan(), 70.0, etat=pause, t=1010.0)
     assert r["gestes"].get("Gros") == "MAINTENIR_PAUSE"
-    r = _regler(_plan(), 70.0, etat=r["etat"], t=1010.0 + rm._HAMILTON_CALME_MIN_S + 1)
+    # 31/10 (reprise utile dans le budget) : a 70 %, reprendre Gros (3 Go = 12,5 pts de 24 Go) menerait a 82,5 % --
+    # au-dessus du seuil de sommeil, l'oscillation mesuree ce jour-la. Il attend, calme garde ; a 50 % il repart.
+    t_calme = 1010.0 + rm._HAMILTON_CALME_MIN_S + 1
+    r = _regler(_plan(), 70.0, etat=r["etat"], t=t_calme)
+    assert r["gestes"].get("Gros") == "MAINTENIR_PAUSE" and "Gros" in r["etat"]
+    r = _regler(_plan(), 50.0, etat=r["etat"], t=t_calme + 60)
     assert r["gestes"].get("Gros") == "REPRENDRE"
 
 

@@ -1,6 +1,9 @@
 # test_version.py
 import asyncio
-from version_manager import VersionManager, ChangeType
+import pytest
+# 28/10 (owner : skip motive) : module disparu de Nokido ; sans ce garde l'ImportError cassait la collecte de tests/.
+_vm = pytest.importorskip("version_manager", reason="module disparu : version_manager")
+VersionManager, ChangeType = _vm.VersionManager, _vm.ChangeType
 
 async def main():
 

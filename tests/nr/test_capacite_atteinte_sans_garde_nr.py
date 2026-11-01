@@ -87,6 +87,11 @@ _GARDES = audit.GARDES
 #: test : soit une route est nee, soit une garde a disparu.
 SANS_GARDE_CONNUS = {
     "watch_jobs_api": "chaine d'agents, ecrit RAG -- cf test_ecriture_rag_chemins_connus_nr",
+    # 2026-10-30 (CLAUDE, rouge preexistant releve par le lot HubClient) : verifies dans le code.
+    "acp_jwks": "PUBLIC par nature : JWK Set (RFC 7517/8037) de la cle PUBLIQUE Ed25519 des jobs ACP "
+                "(forge_acp_hub.jwks : composante x seule, jamais d) -- pas une garde absente",
+    "acp_sign": "garde DELEGUEE invisible au detecteur : forge_acp_hub.traiter_signature exige un Bearer (401) "
+                "puis signer_decision verifie jeton et portee (403) -- meme cas que /oauth/token",
     # watch_create_api RETIRE le 2026-09-24 : garde `_garde_ui` posee a l'enregistrement
     # (session UI du portail + origine locale, ou jeton admin) ; attribution prouvee.
     # Verrouille par tests/nr/test_garde_ui_mutation_nr.py.

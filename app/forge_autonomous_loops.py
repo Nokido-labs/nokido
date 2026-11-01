@@ -170,6 +170,35 @@ def _in_preferred_window(window: tuple[int, int] | None) -> bool:
 
 EVAL_SANDBOX = Path(__file__).resolve().parent.parent / "sandbox"   # baseline eval_fitness (constante : NR)
 _EVAL_PEREMPTION_S = 14 * 86400
+_CIBLE_DEDUP_JOURS = 7   # pas de nouvelle proposition « sous_cible » pour un banc avant N jours
+# CIBLES par banc (meme echelle que latest_scores). None = INCONNU : aucune cible justifiee
+# n'est documentee dans le depot -> on NE propose PAS. L'owner renseigne une valeur + sa justification.
+# Decision owner 25/10 (choix multiple, « prudentes, juste au-dessus ») : chaque banc sous sa cible declenche
+# une enquete, sans viser l'impossible ; a relever apres une mesure FRAICHE des bancs.
+CIBLES_EVAL: dict = {
+    "humaneval": 15.0,  # releve fige 7.3 (harnais ou modele : l'enquete le dira)
+    "bfcl": 95.0,       # releve 94.0
+    "cognitif": 78.0,   # releve 74.07
+}
+
+
+@register_pattern(
+    "cognitive_emit", interval_sec=86400,
+    description="Emet le releve cognitif du jour (RAG/cognitive) ; rien sans mesure.",
+    preferred_window=None,
+)
+def pat_cognitive_emit() -> dict:
+    """26/10 : le releve etait fige du 14/08 au 26/10 -- forge_cognitive_fitness n'ecrit qu'avec --emit et personne
+    ne le lancait ainsi ; eval_fitness lisait un 74,07 de 73 jours (mesure du jour : 54). `emettre` n'ecrit rien sans
+    mesure reelle (etat != MESURE) : on rend son etat tel quel, jamais un faux releve."""
+    try:
+        from nokido_agent.tools.forge_cognitive_fitness import emettre
+    except Exception as e:  # noqa: BLE001 - module absent : dit, pas de releve
+        return {"etat": "ILLISIBLE", "raison": "forge_cognitive_fitness indisponible (%s)" % type(e).__name__}
+    m = emettre(24.0)
+    if m.get("etat") == "MESURE":
+        log.info(f"[cognitive_emit] releve {m.get('pass_rate')} -> {m.get('_fichier')}")
+    return m
 
 
 @register_pattern(
@@ -191,16 +220,32 @@ def pat_eval_fitness() -> dict:
     cur = latest_scores()
     if not cur:
         return {"scores": {}, "note": "aucun JSON benchmark"}
+    # 26/10 : la validite de chaque banc est jugee UNE fois. Seules les MESURES entrent dans la regression et la
+    # baseline (13:18 : bfcl 94 -> 0 sur 50 erreurs LiteLLM a ouvert une fausse regression et devenait la reference).
+    validite: dict = {}
+    for _b in cur:
+        try:
+            from nokido_agent.app.forge_benchmark_adapter import validite_mesure
+
+            validite[_b] = validite_mesure(_b)
+        except Exception as e:  # noqa: BLE001 - validite illisible = pas une mesure, dit
+            validite[_b] = {"valide": False, "raison": "validite ILLISIBLE (%s)" % type(e).__name__}
+    cur_valides = {b: s for b, s in cur.items() if validite[b].get("valide")}
+    non_mesures = ["%s : %s" % (b, validite[b].get("raison")) for b in sorted(set(cur) - set(cur_valides))]
     # 19/10 (audit pair, affirmation 5) : baseline QUALIFIEE. Absente ou illisible -> regressions None (INCONNU),
     # jamais [] ; une illisible est GELEE (renommee), jamais ecrasee par des scores peut-etre degrades.
     sbx = _P(EVAL_SANDBOX)
     sf = sbx / "eval_fitness_state.json"
     prev, baseline, perimee = {}, "ABSENTE", False
+    ts_mesure = _t.time()
     if sf.exists():
         try:
             etat = _j.loads(sf.read_text(encoding="utf-8"))
             prev, baseline = etat.get("scores", {}) or {}, "LUE"
             perimee = (_t.time() - float(etat.get("ts") or 0)) > _EVAL_PEREMPTION_S
+            # date de la MESURE : ne bouge que si les MESURES changent (ts est reecrit a chaque tour)
+            if all(prev.get(b) == s for b, s in cur_valides.items()):
+                ts_mesure = float(etat.get("ts_mesure") or etat.get("ts") or ts_mesure)
         except Exception as e:
             baseline = "ILLISIBLE"
             log.warning(f"[eval_fitness] baseline illisible ({e}) — GELEE, régression INCONNUE ce tour")
@@ -208,7 +253,8 @@ def pat_eval_fitness() -> dict:
                 sf.rename(sbx / ("eval_fitness_state.illisible-%d.json" % int(_t.time())))
             except OSError as e2:
                 log.warning(f"[eval_fitness] baseline illisible non gelee ({e2})")
-    regr = detect_regression(prev, cur) if baseline == "LUE" else None
+    regr = (detect_regression({b: prev[b] for b in cur_valides if b in prev}, cur_valides)
+            if baseline == "LUE" else None)
     disparus = sorted(set(prev) - set(cur))
     if regr:
         ts = int(_t.time())
@@ -234,13 +280,52 @@ def pat_eval_fitness() -> dict:
             log.warning(f"[eval_fitness] expérience d'évolution ouverte: {exp}")
         except Exception as e:
             log.warning(f"[eval_fitness] ledger évolution non écrit ({e})")
+    # Objectif : score sous cible -> proposition (dedup), sauf score perime (pas une mesure).
+    scores_perimes = (_t.time() - ts_mesure) > _EVAL_PEREMPTION_S
+    bancs_a_relancer, propositions_cible, notes = [], [], []
+    if non_mesures:
+        notes.append("hors regression (pas des mesures) : " + " ; ".join(non_mesures))
+    if scores_perimes:
+        bancs_a_relancer = sorted(b for b in cur if (CIBLES_EVAL.get(b) is not None))
+        notes.append("score PERIME, pas une mesure : relancer les bancs (hors lot)")
+    else:
+        now = _t.time()
+        for banc, score in sorted(cur.items()):
+            cible = CIBLES_EVAL.get(banc)
+            if cible is None or not isinstance(score, (int, float)) or score >= cible:
+                continue
+            # 26/10 : une proposition exige une MESURE (fraiche, pas dominee par des pannes de fournisseur).
+            v = validite.get(banc) or {"valide": False, "raison": "validite absente"}
+            if not v.get("valide"):
+                notes.append("%s : %s -> pas de proposition, banc a relancer" % (banc, v.get("raison")))
+                bancs_a_relancer.append(banc)
+                continue
+            try:
+                recent = any(now - f.stat().st_mtime < _CIBLE_DEDUP_JOURS * 86400
+                             for f in sbx.glob(f"evolution_proposal_cible_{banc}_*.md"))
+                if recent:
+                    continue
+                sbx.mkdir(parents=True, exist_ok=True)
+                fp = sbx / f"evolution_proposal_cible_{banc}_{int(now)}.md"
+                fp.write_text(
+                    "# Eval fitness — sous_cible\n\n"
+                    f"- **{banc}** : score {score} < cible {cible} (écart {round(cible - score, 2)})\n"
+                    "\n## Actions suggérées\n"
+                    f"- inspecter le banc `{banc}` (échecs, harnais, données) avant tout patch\n",
+                    encoding="utf-8")
+                propositions_cible.append(fp.name)
+            except Exception as e:
+                log.warning(f"[eval_fitness] proposal sous_cible {banc} échouée ({e})")
     try:
         sbx.mkdir(parents=True, exist_ok=True)
-        sf.write_text(_j.dumps({"scores": cur, "ts": _t.time()}, ensure_ascii=False), encoding="utf-8")
+        # la baseline ne retient que des MESURES : une non-mesure ne remplace jamais la reference d'un banc
+        sf.write_text(_j.dumps({"scores": {**prev, **cur_valides}, "ts": _t.time(), "ts_mesure": ts_mesure},
+                               ensure_ascii=False), encoding="utf-8")
     except Exception as e:
         log.warning(f"[eval_fitness] baseline non écrite ({e}) — prochaine détection de régression faussée")
     return {"scores": cur, "regressions": regr, "baseline": baseline, "baseline_perimee": perimee,
-            "disparus": disparus}
+            "disparus": disparus, "scores_perimes": scores_perimes, "bancs_a_relancer": bancs_a_relancer,
+            "propositions_cible": propositions_cible, "notes": notes}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1551,6 +1636,7 @@ def pat_tool_effectiveness() -> dict:
         conn = sqlite3.connect(m2m_path())
         rows = conn.execute(
             "SELECT method, COUNT(*) FROM agent_messages "
+            "INDEXED BY idx_agent_messages_created_at "
             "WHERE created_at > datetime(?, 'unixepoch') "
             "GROUP BY method ORDER BY COUNT(*) DESC",
             (cutoff,),
@@ -3012,6 +3098,9 @@ def _sujet_antiregression(m: dict) -> bool:
                            r"debat_ssot_antiregression|\bACK-|\baxes?\b|\bax\d+", corps))
 
 
+FRAMES_FENETRE_N = 5000
+
+
 def _frames_du_pair(wm: str) -> list:
     """Frames brutes du pair (table agent_messages), au-dela du watermark.
 
@@ -3019,11 +3108,22 @@ def _frames_du_pair(wm: str) -> list:
     transport que le postal ne connait pas. Tout le reste du flux passe ensuite
     par le facteur et le secretaire.
     """
+    # Fenetre bornee : seules les FRAMES_FENETRE_N dernieres lignes (rowid) sont
+    # examinees ; le reste est ecarte et DIT (log) pour ne pas scanner toute la table.
     base = ("SELECT id, payload, created_at FROM agent_messages WHERE "
-            "upper(from_agent) LIKE '%ANTIGRAV%' AND lower(to_agent) IN "
-            "('agt_claude','claude') ")
+            "rowid > (SELECT MAX(rowid) FROM agent_messages) - %d AND "
+            "upper(from_agent) LIKE '%%ANTIGRAV%%' AND lower(to_agent) IN "
+            "('agt_claude','claude') " % FRAMES_FENETRE_N)
     try:
         c = sqlite3.connect(m2m_path(), timeout=5)
+        try:
+            ecarte = c.execute("SELECT MAX(rowid) - ? FROM agent_messages",
+                               (FRAMES_FENETRE_N,)).fetchone()[0]
+            if ecarte and ecarte > 0:
+                log.info(f"[m2m_frames] fenetre {FRAMES_FENETRE_N} dernieres lignes ; "
+                         f"~{ecarte} rowid plus anciens ecartes")
+        except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_autonomous_loops.py', 3125, exc_info=True)  # inconnu : on ne pretend pas 0
         if wm:
             r = c.execute(base + "AND datetime(created_at) > datetime(?) "
                                  "ORDER BY datetime(created_at)", (wm,)).fetchall()

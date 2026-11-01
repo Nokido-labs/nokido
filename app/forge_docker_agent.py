@@ -260,8 +260,9 @@ def _audit(rec: dict) -> None:
         AUDIT.parent.mkdir(parents=True, exist_ok=True)
         with open(AUDIT, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-    except Exception:  # muet-ok audit file write failure
-        pass
+    except Exception as exc:  # noqa: BLE001
+        # 318f0aa29 (31/07) tracait cet echec ; le revert 4187e084a (02/08) l'avait defait collateralement.
+        print(f"[docker_agent] audit write failed: {exc}", file=sys.stderr, flush=True)
 
 
 def run_docker(argv: list, timeout: int = 120) -> dict:
@@ -288,16 +289,29 @@ def run_docker(argv: list, timeout: int = 120) -> dict:
                 "stdout": f"EXC {type(e).__name__}: {e}"}
 
 
-def ensure_daemon() -> dict:
+def ensure_daemon(motif: str = "") -> dict:
     """Demande le demarrage de Docker au keeper SOUVERAIN (NokidoDockerKeeper,
     service LocalSystem) : pose/rafraichit sandbox/docker.wanted -> le keeper lance
     Docker Desktop EN SESSION USER au prochain tick (il a SeTcbPrivilege/WTS ; nous
     non). On-demand, gouverne, anti-gaspillage RAM. Retour immediat (daemon up ~60-90s).
-    Si deja up -> no-op cote keeper."""
+    Si deja up -> no-op cote keeper.
+
+    29/10 (point 3 de l'homeostasie, inhibition reciproque) : la demande passe par l'ARBITRE
+    (forge_pillar_arbiter.reclamer), comme forge_embed_router.declare_wanted -- un seul point de decision
+    pour toutes les demandes de piliers. Arbitre indisponible = pas de blocage (meme regle)."""
     import time as _t
 
     if daemon_up():
         return {"ok": True, "action": "already_up"}
+    try:
+        from nokido_agent.app.forge_pillar_arbiter import reclamer
+
+        verdict = reclamer("docker.wanted", motif)
+        if not verdict.get("accorde", True):
+            return {"ok": False, "action": "refuse_par_arbitre", "motif": verdict.get("motif") or "",
+                    "substitut": verdict.get("substitut")}
+    except Exception:  # noqa: BLE001 -- muet-ok : arbitre indisponible, la reclamation passe non filtree
+        pass
     try:
         WANT_FLAG.parent.mkdir(parents=True, exist_ok=True)
         WANT_FLAG.write_text(str(_t.time()), encoding="utf-8")
@@ -351,6 +365,16 @@ def declarer_usage(par: str = "inconnu") -> bool:
     # un LANCEMENT en croyant prolonger un bail — deux actes que tout ce module
     # s'attache a distinguer.
     if not daemon_up():
+        return False
+    # Point 3 de l'homeostasie (29/10 soir) : DEUXIEME ecrivain du meme levier. Il prolongeait le bail sans l'arbitre :
+    # un Docker refuse par la politique mais leve par un autre restait maintenu a chaque usage. Meme point de decision
+    # que ensure_daemon ; arbitre indisponible = pas de blocage.
+    try:
+        from nokido_agent.app.forge_pillar_arbiter import reclamer
+        verdict = reclamer("docker.wanted", "usage:%s" % par) or {}
+    except Exception:  # noqa: BLE001 - muet-ok : arbitre indisponible, le bail suit comme avant
+        verdict = {}
+    if verdict.get("accorde") is False:
         return False
     try:
         WANT_FLAG.parent.mkdir(parents=True, exist_ok=True)

@@ -492,43 +492,16 @@ _ETAT_HOOK = Path(__file__).resolve().parent.parent / "sandbox" / "claude_hook_s
 
 
 def _sans_repetition(texte, session: str, maintenant: float | None = None, etat_dir=None):
-    """Retire de `texte` les sections [memoire...] deja montrees a l'identique a
-    cette session. -> texte restant, ou None s'il ne reste rien."""
-    if not texte or not session:
-        return texte or None
-    import hashlib
-    maintenant = time.time() if maintenant is None else maintenant
-    base = Path(etat_dir) if etat_dir else _ETAT_HOOK
-    fichier = base / ("memoire_%s.json" % "".join(c for c in session if c.isalnum() or c in "-_")[:80])
-    sections, courante = [], None
-    for ligne in texte.splitlines():
-        if ligne.startswith("[memoire") or courante is None:
-            courante = [ligne]
-            sections.append(courante)
-        else:
-            courante.append(ligne)
-    try:
-        vu = json.loads(fichier.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — premier tour de la session, ou etat illisible : on montre tout
-        vu = {}
-    garde = []
-    for sec in sections:
-        titre = sec[0][:80]
-        empreinte = hashlib.sha1("\n".join(sec).encode("utf-8", "replace")).hexdigest()[:16]
-        ancien = vu.get(titre) or ["", 0.0]
-        if ancien[0] == empreinte and maintenant - float(ancien[1]) < _RAPPEL_MEMOIRE_S:
-            continue
-        vu[titre] = [empreinte, maintenant]
-        garde.append("\n".join(sec))
-    try:
-        base.mkdir(parents=True, exist_ok=True)
-        fichier.write_text(json.dumps(vu), encoding="utf-8")
-        for vieux in base.glob("memoire_*.json"):
-            if maintenant - vieux.stat().st_mtime > 7 * 86400:
-                vieux.unlink()
-    except Exception as e:  # noqa: BLE001 — l'etat ne s'ecrit pas : au pire on re-montre, on le DIT
-        print(f"[claude-hook] etat memoire non ecrit ({type(e).__name__}) : repetition possible", file=sys.stderr)
-    return "\n".join(garde) or None
+    """Retire de `texte` les sections ([balise] ...) deja montrees a l'identique a
+    cette session. -> texte restant, ou None s'il ne reste rien.
+
+    P1a (GO owner 22/10) : delegue a tools/forge_hook_rappel, commun a TOUS les hooks
+    (UserPromptSubmit et PreToolUse) ; la logique etait ici et ne couvrait que [memoire...]."""
+    dossier = str(Path(__file__).resolve().parent)
+    if dossier not in sys.path:
+        sys.path.insert(0, dossier)
+    import forge_hook_rappel
+    return forge_hook_rappel.filtrer(texte, session, maintenant, etat_dir or _ETAT_HOOK, _RAPPEL_MEMOIRE_S)
 
 
 def _intention() -> str:
@@ -611,7 +584,7 @@ def main() -> None:
     intention = _intention()
     # 1. SENSE d'abord (proprioception hub) — toujours, même sans inbox.
     try:
-        s = _sense()
+        s = _sans_repetition(_sense(), _SESSION_ID)
         if s:
             out.append(s)
     except Exception as e:
@@ -631,7 +604,9 @@ def main() -> None:
     # 3bis. SKILLS : celle qui s'applique a CETTE demande, au moment ou elle arrive
     #       (tools/forge_skill_hint.py, table config/skill_triggers.json).
     try:
-        out += _skills_du_tour()
+        sk = _sans_repetition("\n".join(_skills_du_tour()), _SESSION_ID)
+        if sk:
+            out.append(sk)
     except Exception as e:  # noqa: BLE001
         print(f"[claude-hook] skills error: {e}", file=sys.stderr)
     # 4. MÉMOIRE DE TRAVAIL — en dernier : les messages d'un pair attendent une
@@ -643,7 +618,11 @@ def main() -> None:
             out.append(m)
     except Exception as e:  # noqa: BLE001
         print(f"[claude-hook] memoire error: {e}", file=sys.stderr)
-    out.append(LANGUE)
+    # [langue] dedoublonne comme les autres rappels (decision owner 22/10) : il revient apres la
+    # fenetre de rappel et apres chaque compaction ou /clear (claude_session_start).
+    langue = _sans_repetition(LANGUE, _SESSION_ID)
+    if langue:
+        out.append(langue)
     print("\n".join(out))
 
 

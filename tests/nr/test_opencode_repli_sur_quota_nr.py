@@ -67,7 +67,7 @@ def _deleguer(tmp_path, monkeypatch, repli=True, erreur=QUOTA):
     monkeypatch.setattr(T, "ACPClient", Doublure)
     monkeypatch.setattr(T, "_etat_git", lambda wt_: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
-    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt_, avant, autorises=None: (ok, "commits produits : 1", None))
+    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt_, avant, autorises=None, desc=None: (ok, "commits produits : 1", None))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda i: "jeton_coffre")
     monkeypatch.setattr(T, "_lire_cle_fournisseur", lambda nom: "cle_fabriquee")
     monkeypatch.setattr(T, "_battement_delegation", lambda agent, tid: __import__("contextlib").nullcontext())

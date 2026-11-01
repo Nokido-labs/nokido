@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # Wiki Nokido
 
-<!-- revu-le: 2026-10-07 -->
-> Mise à jour : 2026-10-07
+<!-- revu-le: 2026-10-30 -->
+> Mise à jour : 2026-10-30 · **Nouveau :** [25 — Nouveautés (22–30 oct.)](25-Whats-New.fr.md)
 
 > 🌐 [English](Home.md) · **Français**
 
@@ -37,7 +37,7 @@ lire [docs/ARCHITECTURE.md](../ARCHITECTURE.md).
 - [03 — Aperçu architecture](03-Architecture.fr.md) · Anatomie du hub
 
 ### Connecter les clients
-- [04 — Configuration clients MCP](04-MCP-Clients-Setup.fr.md) · Claude Desktop, Claude Code, Gemini CLI, Codex CLI, Cline
+- [04 — Configuration clients MCP](04-MCP-Clients-Setup.fr.md) · Claude Code, Antigravity (agy), Codex CLI, OpenCode, Mistral Vibe, Cline, Claude Desktop
 - [24 — Pairs cloud](24-Cloud-Peers.fr.md) · claude.ai et ChatGPT en HTTPS, quarantaine owner
 - [05 — Providers LLM](05-LLM-Providers.fr.md) · 29 providers, UI admin web
 
@@ -58,6 +58,9 @@ lire [docs/ARCHITECTURE.md](../ARCHITECTURE.md).
 - [23 — Orchestration & workflows](23-Orchestration-and-Workflows.fr.md) · GOAP, boucle d'événements, exécution durable (Temporal / Mistral)
 - [21 — SSoT Cross-CLI](21-SSoT-Cross-CLI.fr.md) · source unique de vérité, « point sur X » uniforme entre les CLI, 5 domaines
 - [22 — Gouvernance, cognition & auto-sûreté](22-Governance-Cognition-Safety.fr.md) · intégrité de livraison, soif de connaissance, garde held-out, RAG pondéré par l'autorité, sync Qdrant continue
+
+### Ce qui a changé
+- [25 — Nouveautés](25-Whats-New.fr.md) · 22–30 oct. 2026 : worktrees de tâche et délégation parallèle, recensement des offres gratuites, enquêtes en lecture seule, lecture conditionnelle, ACP par le hub, identités de job RFC 8693
 
 ### Aide
 - [14 — Troubleshooting](14-Troubleshooting.fr.md)

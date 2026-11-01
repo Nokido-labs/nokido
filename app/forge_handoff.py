@@ -50,6 +50,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import os
 import random
 import re
 import threading
@@ -343,6 +344,218 @@ def _call_router_provider(
     }
 
 
+def _sonde():
+    """Module de la sonde d'outils : SOURCE UNIQUE des bases/cles (SURFACES) et du transport avec outils."""
+    import sys as _s
+    from pathlib import Path as _P
+
+    _tools = str(_P(__file__).resolve().parent.parent / "tools")
+    if _tools not in _s.path:
+        _s.path.insert(0, _tools)
+    import forge_tool_call_probe
+
+    return forge_tool_call_probe
+
+
+def _cloud_slot_info(provider: str) -> tuple[str, str, list]:
+    """(base_url, cle, modeles) du slot cloud. La cle ne vient que de get_secret."""
+    _ensure_app_on_path()
+    from nokido_agent.app.forge_llm_router import PROVIDERS
+    from nokido_agent.app.forge_secrets import get_secret
+
+    cfg = PROVIDERS.get(provider)
+    if cfg is None:
+        raise RuntimeError(f"unknown router provider: {provider}")
+    env_key = cfg.get("env_key", "")
+    base = {k: b for _n, k, b in _sonde().SURFACES if k}.get(env_key) or cfg.get("base_url")
+    if not base:
+        raise RuntimeError(f"no OpenAI-compatible base for {provider}")
+    cle = get_secret(env_key) if env_key else ""
+    if env_key and not cle:
+        raise RuntimeError(f"provider {provider} not configured (env_key missing)")
+    return base.rstrip("/"), cle or "", list(cfg.get("models") or [])
+
+
+def _modele_nu(modele: str, base: str | None = None) -> str:
+    """Retire le prefixe de routage litellm (`groq/`, `mistral/`, `openai/`).
+
+    `openai/` se retire selon la SURFACE : sur Ollama Cloud toujours (28/10 : `openai/nemotron-3-ultra` sans `:` -> 404) ;
+    ailleurs seulement pour l'ecriture `x:tag` (`openai/gpt-oss-20b` est un VRAI identifiant Groq)."""
+    if modele.startswith(("groq/", "mistral/")):
+        return modele.split("/", 1)[1]
+    if modele.startswith("openai/") and (":" in modele or "ollama.com" in (base or "")):
+        return modele.split("/", 1)[1]
+    return modele
+
+
+def _structurer_messages(full: list[dict]) -> list[dict]:
+    """Messages OpenAI conformes : assistant+tool_calls (ids gardes) puis `tool` apparies par tool_call_id."""
+    out = []
+    for m in full:
+        role, content = m.get("role"), str(m.get("content", "") or "")
+        if role == "tool" and m.get("tool_call_id"):
+            out.append({"role": "tool", "tool_call_id": m["tool_call_id"], "content": content})
+        elif role == "tool":
+            out.append({"role": "user", "content": f"[resultat outil {m.get('name', '')}] {content}"})
+        elif role == "assistant" and m.get("tool_calls"):
+            out.append({"role": "assistant", "content": content, "tool_calls": [
+                {"id": tc["id"], "type": "function",
+                 "function": {"name": tc["function"]["name"], "arguments": tc["function"]["arguments"]}}
+                for tc in m["tool_calls"]]})
+        elif role in ("system", "user", "assistant"):
+            out.append({"role": role, "content": content})
+        else:
+            out.append({"role": "user", "content": content})
+    return out
+
+
+TIMEOUT_CLOUD_S = 60  # delai pour max_tokens=1000
+TIMEOUT_CLOUD_DOUBLE_S = 120  # delai quand max_tokens x2 est actif
+TIMEOUT_CLOUD_MAX_S = 180  # borne
+POST_FLIGHT_OBSERVES = 0  # reponses cloud vues par post_flight
+POST_FLIGHT_ALERTES = 0  # reponses non ok (observation, jamais de blocage)
+
+
+def _timeout_cloud() -> int:
+    """Delai proportionnel a max_tokens effectif (x2 actif -> 120 s), borne 180 s."""
+    try:
+        double = _sonde().max_tokens_double_actif()
+    except Exception:  # noqa: BLE001
+        double = False
+    return min(TIMEOUT_CLOUD_MAX_S, TIMEOUT_CLOUD_DOUBLE_S if double else TIMEOUT_CLOUD_S)
+
+
+def _observer_post_flight(provider: str, contenu: str, messages: list) -> dict:
+    """post_flight en OBSERVATION seule (LAFORGE_POST_FLIGHT_MODE=observer, defaut ; 'bloquer' non implemente :
+    decision owner apres mesure). Ne bloque ni ne modifie la reponse ; ne journalise que des codes."""
+    global POST_FLIGHT_OBSERVES, POST_FLIGHT_ALERTES
+    try:
+        from nokido_agent.app.forge_semantic_firewall import get_firewall
+
+        task = next((m.get("content") or "" for m in reversed(messages) if m.get("role") == "user"), "")[:500]
+        res = get_firewall().post_flight(contenu, task=task, expected_fmt="text")
+        POST_FLIGHT_OBSERVES += 1
+        if res.ok:
+            return {"ok": True, "motifs": []}
+        POST_FLIGHT_ALERTES += 1
+        motifs = [str(getattr(res, "tag", "") or "INCONNU")]
+        logger.warning("[post_flight][observation] provider=%s motifs=%s", provider, motifs)
+        return {"ok": False, "motifs": motifs}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[post_flight][observation] provider=%s illisible (%s)", provider, type(exc).__name__)
+        return {"ok": None, "motifs": ["ILLISIBLE"]}
+
+
+def _call_cloud_with_tools(agent: Any, provider: str, full: list[dict], tools_schema: list) -> dict:
+    """Tour cloud AVEC `tools` : messages structures, enveloppe identique a la branche locale."""
+    base, cle, modeles = _cloud_slot_info(provider)
+    wanted = getattr(agent, "model", "") or ""
+    bruts = [_modele_nu(m, base) for m in modeles]
+    if wanted and (wanted in modeles or wanted in bruts or _modele_nu(wanted, base) in bruts):
+        modele = _modele_nu(wanted, base)
+        note = "agent.model"
+    else:
+        modele = bruts[0] if bruts else _modele_nu(wanted, base)
+        note = "slot default"
+
+    def _echec(motif: str, http: int | None = None) -> dict:
+        # Pas de repli aplati : une reponse sans lecture serait non fondee. Vide + motif dans _router_meta.
+        meta = {"ok": False, "provider": provider, "model": modele, "tools": True,
+                "error": f"{provider}: {motif}"[:160]}
+        if http is not None:
+            meta["http"] = http
+        return {"message": {"role": "assistant", "content": ""}, "tool_calls": [], "_router_meta": meta}
+
+    messages = _structurer_messages(full)
+    try:
+        from nokido_agent.app.forge_semantic_firewall import get_firewall
+
+        pf = get_firewall().pre_flight("\n".join(m["content"] for m in messages), context="", ring=3, provider=provider)
+        if not pf.ok or pf.dlp_triggered:
+            return _echec("firewall pre_flight refused outgoing content")
+    except ImportError as exc:
+        # Ferme sur echec (regle d'or 4) : sans pre_flight, rien ne part au cloud.
+        logger.warning("[SWARM] firewall introuvable (%s) : envoi cloud %s refuse", exc, provider)
+        return _echec("firewall indisponible, envoi refuse")
+    try:
+        corps = _sonde().appeler_avec_outils(base, cle, modele, messages, tools_schema,
+                                             timeout=_timeout_cloud(), max_tokens=1000, temperature=0.2,
+                                             tool_choice=(getattr(agent, "tool_choice", "auto")
+                                                          if tools_schema else None))
+    except urllib.error.HTTPError as exc:
+        rep = _echec(f"HTTP {exc.code}", exc.code)
+        if exc.code == 429:
+            rep["_router_meta"]["retry_after"] = _sonde()._retry_after(exc)
+        return rep
+    except Exception as exc:  # noqa: BLE001
+        return _echec(type(exc).__name__)
+    msg = ((corps.get("choices") or [{}])[0].get("message") or {})
+    appels = []
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        fn = tc.get("function") or {}
+        args = fn.get("arguments") or "{}"
+        appels.append({"id": tc.get("id") or f"call_{i}", "function": {
+            "name": fn.get("name"), "arguments": args if isinstance(args, str) else json.dumps(args)}})
+    contenu = msg.get("content") or ""
+    return {
+        "message": {"role": "assistant", "content": contenu},
+        "tool_calls": appels,
+        "_router_meta": {"ok": True, "provider": provider, "model": modele, "model_source": note, "tools": True,
+                         "finish_reason": corps.get("_finish_reason"),
+                         "raisonnement_car": corps.get("_raisonnement_car"),
+                         "post_flight": _observer_post_flight(provider, contenu, messages)},
+    }
+
+
+def _message_assistant(content: str, tool_calls: list) -> dict:
+    """Message assistant ; tool_calls apparies par id (format OpenAI) seulement si tous ont un id."""
+    asst = {"role": "assistant", "content": content}
+    if tool_calls and all(tc.get("id") for tc in tool_calls):
+        asst["tool_calls"] = [{"id": tc["id"], "function": {
+            "name": (tc.get("function") or {}).get("name"),
+            "arguments": (tc.get("function") or {}).get("arguments") or "{}"}} for tc in tool_calls]
+    return asst
+
+
+def _executer_appel(tc: dict, tools: list) -> tuple:
+    """Execute un appel d'outil : (nom, resultat brut ou 'ERR: ...', ids)."""
+    fn_name = tc.get("function", {}).get("name") or tc.get("name")
+    fn_args_raw = tc.get("function", {}).get("arguments") or tc.get("arguments") or {}
+    if isinstance(fn_args_raw, str):
+        try:
+            fn_args = json.loads(fn_args_raw)
+        except Exception:
+            fn_args = {}
+    else:
+        fn_args = fn_args_raw
+    ids = {"tool_call_id": tc["id"]} if tc.get("id") else {}
+    tool_fn = next((t for t in tools if t.__name__ == fn_name), None)
+    if tool_fn is None:
+        return fn_name, "ERR: tool not found", ids
+    try:
+        return fn_name, tool_fn(**fn_args), ids
+    except Exception as e:
+        return fn_name, f"ERR: {type(e).__name__}: {e}", ids
+
+
+REGLE_D_OR_INERTES = 0
+
+
+def _observer_payload_sans_tools(agent: Any, full: list) -> None:
+    """Journalise + compte (jamais de refus) : le tour part sans `tools` alors que l'agent en porte."""
+    global REGLE_D_OR_INERTES
+    try:
+        from app.core.payload_validator import PayloadValidator
+
+        ok, err = PayloadValidator().validate_payload({"messages": full}, agentique=True)
+        if not ok:
+            REGLE_D_OR_INERTES += 1
+            logger.warning("[regle_d_or] agent inerte : payload sans tools (provider=%s, %d outil(s) declares) : %s",
+                           getattr(agent, "provider", None), len(agent.tools), err)
+    except Exception:
+        logger.debug("observation regle d'or muette", exc_info=True)
+
+
 def _llm_round(agent: Agent, messages: list[dict[str, Any]], with_tools: bool) -> dict:
     """One LLM call honoring agent.model + agent.provider dispatch rule.
 
@@ -365,6 +578,10 @@ def _llm_round(agent: Agent, messages: list[dict[str, Any]], with_tools: bool) -
 
     provider = getattr(agent, "provider", None)
 
+    # Regle d'or (observation seule) : agent porteur d'outils dont le payload part sans `tools`.
+    if with_tools and agent.tools and not provider and not _looks_like_ollama_model(agent.model):
+        _observer_payload_sans_tools(agent, full)
+
     # Branch A : explicit local provider — dispatch direct via /api/chat.
     if provider in _LOCAL_PROVIDERS:
         tools_schema = [_build_tool_schema(t) for t in agent.tools] if (with_tools and agent.tools) else None
@@ -373,6 +590,17 @@ def _llm_round(agent: Agent, messages: list[dict[str, Any]], with_tools: bool) -
     # Branch B : explicit cloud provider — force single-slot dispatch.
     if provider:
         flat = "\n\n".join(f"[{m['role']}] {m['content']}" for m in full)
+        if with_tools and (agent.tools or getattr(agent, "voie_outils_vide", False)):
+            # Mode outils : AUCUN repli aplati (il fabriquerait une reponse non fondee) ; l'echec remonte.
+            try:
+                return _call_cloud_with_tools(agent, provider, full, [_build_tool_schema(t) for t in agent.tools])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[SWARM] cloud tools transport %s failed (%s) — no flat fallback", provider, exc)
+                return {"message": {"role": "assistant", "content": ""}, "tool_calls": [],
+                        "_router_meta": {"ok": False, "provider": provider, "tools": True,
+                                         "error": f"{provider}: {str(exc)[:120]}"}}
+        if agent.tools:  # le payload part REELLEMENT sans outils alors que l'agent en porte
+            _observer_payload_sans_tools(agent, full)
         try:
             return _call_router_provider(flat, provider=provider)
         except Exception as exc:
@@ -440,6 +668,64 @@ def _parse_text_handoff(content: str, available_agents: dict[str, Agent]) -> Opt
     if target is None:
         return None
     return Transfer(next_agent=target, context_update=f"Routed by triage to {target.name}")
+
+
+def _compacter_pour_transfert(messages: list[dict[str, Any]], cible: Any) -> list[dict[str, Any]]:
+    """Compacter l'historique lors d'un transfert inter-agent si depassement du seuil.
+
+    Seuil configurable via LAFORGE_HANDOFF_COMPACT_CHARS (defaut: 24000 caracteres).
+    Preserve le message system initial s'il existe + un message system portant le resume compact
+    format_compressed_for_prompt(...) + les 2 derniers tours intacts.
+    Utilise _fallback_truncate par defaut, ou compress_for_handoff si LAFORGE_HANDOFF_COMPACT_LLM=1.
+    Toute exception conserve l'historique intact avec log.warning (pas de perte silencieuse).
+    """
+    try:
+        try:
+            seuil = int(os.environ.get("LAFORGE_HANDOFF_COMPACT_CHARS", "24000"))
+        except (ValueError, TypeError):
+            seuil = 24000
+
+        total_chars = sum(len(str(m.get("content", ""))) for m in messages if isinstance(m, dict))
+        if total_chars <= seuil:
+            return messages
+
+        target_agent = getattr(cible, "name", str(cible))
+        target_persona = getattr(cible, "instructions", "") or ""
+
+        use_llm = os.environ.get("LAFORGE_HANDOFF_COMPACT_LLM", "").strip() in ("1", "true", "True")
+
+        _ensure_app_on_path()
+        import forge_handoff_compress as fhc
+
+        if use_llm:
+            compressed = fhc.compress_for_handoff(
+                messages,
+                target_agent=target_agent,
+                target_persona=target_persona,
+                keep_last_turns=2,
+            )
+        else:
+            compressed = fhc._fallback_truncate(messages, target_agent=target_agent)
+
+        prompt_block = fhc.format_compressed_for_prompt(compressed, target_agent=target_agent)
+
+        result: list[dict[str, Any]] = []
+        if messages and isinstance(messages[0], dict) and messages[0].get("role") == "system":
+            result.append(messages[0])
+
+        result.append({"role": "system", "content": prompt_block})
+
+        last_turns = messages[-2:] if len(messages) >= 2 else messages[:]
+        result.extend(last_turns)
+
+        # Une passation qui n'ALLEGE pas n'en est pas une (NR : 756 car. compactes pour 463 d'origine) : on garde
+        # l'original plutot que de payer un resume plus long que ce qu'il resume.
+        if sum(len(str(m.get("content", ""))) for m in result if isinstance(m, dict)) >= total_chars:
+            return messages
+        return result
+    except Exception as exc:
+        logger.warning(f"[_compacter_pour_transfert] echec compression handoff, conservation intacte: {exc}")
+        return messages
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -585,41 +871,37 @@ def run_swarm(
         msg = response.get("message", {})
         tool_calls = response.get("tool_calls") or msg.get("tool_calls") or []
         content = msg.get("content", "") or ""
-        messages.append({"role": "assistant", "content": content})
+        meta = response.get("_router_meta") or {}
+        if meta.get("tools") and meta.get("ok") is False:
+            # Transport avec outils en echec : motif explicite, pas de nouveau tour ni de reponse inventee.
+            motif = f"[provider {meta.get('provider')} unavailable: {meta.get('error', 'echec transport')}]"
+            messages.append({"role": "assistant", "content": motif})
+            _swarm_emit("final", {"agent": current.name, "rounds": round_idx + 1, "error": motif[:200]})
+            return SwarmResult(final_agent=current.name, messages=messages,
+                               n_rounds=round_idx + 1, transfers=transfers)
+        messages.append(_message_assistant(content, tool_calls))  # cloud OpenAI : ids apparies
         _swarm_emit("agent_reply", {"agent": current.name, "provider": getattr(current, "provider", ""), "chars": len(content), "tool_calls": len(tool_calls), "text": content[:600]})
 
         # 1. Tool-call handoff (function-calling models)
         transferred = False
         for tc in tool_calls:
-            fn_name = tc.get("function", {}).get("name") or tc.get("name")
-            fn_args_raw = tc.get("function", {}).get("arguments") or tc.get("arguments") or {}
-            if isinstance(fn_args_raw, str):
-                try:
-                    fn_args = json.loads(fn_args_raw)
-                except Exception:
-                    fn_args = {}
-            else:
-                fn_args = fn_args_raw
-
-            tool_fn = next((t for t in active.tools if t.__name__ == fn_name), None)
-            if tool_fn is None:
-                messages.append({"role": "tool", "name": fn_name or "unknown", "content": "ERR: tool not found"})
-                continue
-            try:
-                result = tool_fn(**fn_args)
-            except Exception as e:
-                messages.append({"role": "tool", "name": fn_name, "content": f"ERR: {type(e).__name__}: {e}"})
+            fn_name, result, ids = _executer_appel(tc, active.tools)
+            if isinstance(result, str) and result == "ERR: tool not found":
+                messages.append({"role": "tool", "name": fn_name or "unknown", "content": result, **ids})
                 continue
 
             if isinstance(result, Transfer):
+                if ids:
+                    messages.append({"role": "tool", "name": fn_name, "content": f"transfer -> {result.next_agent.name}", **ids})
                 _swarm_emit("transfer", {"from": current.name, "to": result.next_agent.name, "kind": "tool"})
                 transfers.append((current.name, result.next_agent.name))
                 current = result.next_agent
+                messages = _compacter_pour_transfert(messages, current)
                 if result.context_update:
                     messages.append({"role": "system", "content": result.context_update})
                 transferred = True
                 break
-            messages.append({"role": "tool", "name": fn_name, "content": str(result)})
+            messages.append({"role": "tool", "name": fn_name, "content": str(result), **ids})
 
         if transferred:
             continue
@@ -631,6 +913,7 @@ def run_swarm(
                 _swarm_emit("transfer", {"from": current.name, "to": transfer.next_agent.name, "kind": "text"})
                 transfers.append((current.name, transfer.next_agent.name))
                 current = transfer.next_agent
+                messages = _compacter_pour_transfert(messages, current)
                 if transfer.context_update:
                     messages.append({"role": "system", "content": transfer.context_update})
                 continue

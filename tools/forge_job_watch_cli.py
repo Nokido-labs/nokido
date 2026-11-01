@@ -26,6 +26,9 @@ de PID MSYS, pas Windows, et a deja declare morte une CI bien vivante.
 
 API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbole) :
 - `lire_bilan` — Etat GRADUE d'un job fini : ECHEC · ARRET_GARDE · VIDE · DECLARE · TERMINE_NON_VERIFIE · INCONNU. Jamais VERIFIED.
+- `delegations_en_vol` / `transitions` / `ligne_evenement` / `alertes_gel` — suivi des delegations (owner 22/10) : la vue des taches en vol lue dans `tasks.db`, les transitions DEDUITES de deux lectures (statut ou agent change), les gels signales UNE fois chacun. `--delegations [--une-fois]` rend la vue a TOUT CLI, par le `run` du hub.
+
+  LAFORGE_PYTHON tools/forge_job_watch_cli.py --delegations --une-fois --de <AGENT>
 """
 
 from __future__ import annotations
@@ -221,6 +224,44 @@ _BILANS = (_re.compile(r"TOTAL\s+(\d+)\s+chunks"),
 _DEFAILLANCES_CI = ("echecs", "erreurs", "timeouts")
 _ANSI = _re.compile(r"\x1b\[[0-9;]*m")
 
+# Le bruit TECHNIQUE de l'exportateur OTLP et de la fermeture des clients HTTP n'est pas un
+# verdict. Mesure 2026-10-24 (job_b039a2b4f7ca, rc=0, mesure valide) : le .err ne portait que
+# « Failed to export spans batch ... WinError 10061 » et des Traceback « Event loop is closed »
+# de httpx -> le bilan disait ECHEC. Ces lignes sont ecartees de la recherche du motif ; un rc
+# non nul reste un echec, et un vrai Traceback applicatif reste lisible.
+# Seul le bruit qui NOMME l'exportateur est ecarte (relecture 24/10) : « Max retries exceeded », « ConnectionRefusedError »
+# ou « WinError 10061 » seuls peuvent venir d'une vraie panne (hub :8766 eteint) dont le motif doit rester lisible.
+# Un Traceback de l'exportateur reste ecarte en bloc : ses frames nomment `opentelemetry`.
+_BRUIT_OTLP = _re.compile(
+    r"(Failed to export spans|opentelemetry|OTLP|/v1/traces|:4318\b|port=4318\b)",
+    _re.IGNORECASE)
+_BRUIT_FERMETURE = _re.compile(
+    r"^(Task exception was never retrieved|future: <Task finished|"
+    r"RuntimeError: Event loop is closed)")
+
+
+def _sans_bruit_technique(lignes: list) -> list:
+    """Lignes SANS le bruit de l'exportateur OTLP ni des fermetures httpx/asyncio.
+
+    Un bloc `Traceback` est ecarte ENTIEREMENT s'il porte une marque de ce bruit (frame
+    opentelemetry, connexion refusee, « Event loop is closed »). Un vrai Traceback applicatif
+    n'en porte aucune : son motif reste lisible, et un rc non nul reste un ECHEC.
+    """
+    bruit = {i for i, l in enumerate(lignes)
+             if _BRUIT_OTLP.search(l) or _BRUIT_FERMETURE.search(l)}
+    i, n = 0, len(lignes)
+    while i < n:
+        if lignes[i].strip().startswith("Traceback"):
+            j = i + 1
+            while j < n and lignes[j].strip():
+                j += 1
+            if any(k in bruit for k in range(i, j)):
+                bruit.update(range(i, j))
+            i = j
+            continue
+        i += 1
+    return [l for k, l in enumerate(lignes) if k not in bruit]
+
 
 def _depots_pair(depuis_iso: str, client: str | None, m2m=None) -> list | None:
     """[(id, from_agent, method, intent, created_at)] des depots de pairs recus APRES `depuis_iso`
@@ -332,7 +373,7 @@ def lire_bilan(texte: str, rc: str) -> dict:
     rc = (rc or "").strip()
     if not rc.lstrip("-").isdigit():
         return {"etat": "INCONNU", "motif": "rc illisible : %s" % rc[:80]}
-    lignes = (texte or "").splitlines()
+    lignes = _sans_bruit_technique((texte or "").splitlines())
     dernier_bilan, n_chunks = -1, None
     for i, l in enumerate(lignes):
         for motif in _BILANS:
@@ -531,11 +572,22 @@ def main(argv=None) -> int:
     cible.add_argument("--task", help="task_id d'une tache M2M (tasks.db)")
     cible.add_argument("--pair", nargs="?", const="", metavar="CLIENT",
                        help="quarantaine des pairs cloud (claude.ai...) : premier depot neuf ; CLIENT optionnel")
-    ap.add_argument("--gel-s", type=int, default=900,
-                    help="silence du journal au-dela duquel on declare un GEL")
-    ap.add_argument("--max-s", type=int, default=4800, help="borne dure")
+    cible.add_argument("--delegations", action="store_true",
+                       help="suit les delegations du demandeur (tasks.db) : transitions et gels")
+    ap.add_argument("--gel-s", "--gel", type=int, default=900,
+                    help="silence (journal, ou progression d'une delegation) au-dela duquel on declare un GEL")
+    ap.add_argument("--max-s", "--max", type=int, default=4800, help="borne dure")
     ap.add_argument("--intervalle", type=int, default=20)
+    ap.add_argument("--de", default=None,
+                    help="demandeur : filtre sur from_agent (insensible a la casse)")
+    ap.add_argument("--une-fois", action="store_true",
+                    help="une seule lecture : on imprime la vue et on rend la main")
+    ap.add_argument("--db", default=None,
+                    help="base des delegations (defaut sandbox/tasks.db)")
     a = ap.parse_args(argv)
+    if a.delegations:
+        return suivre_delegations(db=a.db, de=a.de, gel_s=a.gel_s, max_s=a.max_s,
+                                  intervalle=a.intervalle, une_fois=a.une_fois)
     if a.pair is not None:
         if any(c in a.pair for c in "/\\%_") or ".." in a.pair:
             print("REFUS : --pair attend un identifiant de client, pas un motif")
@@ -546,8 +598,386 @@ def main(argv=None) -> int:
         print("REFUS : --job/--task est un identifiant, pas un chemin")
         return 2
     if a.task:
-        return surveiller_tache(a.task, a.gel_s, a.max_s, a.intervalle)
+        return surveiller_tache(a.task, a.gel_s, a.max_s, a.intervalle, db=a.db)
     return surveiller(a.job, a.gel_s, a.max_s, a.intervalle)
+
+
+# ── SUIVI DES DELEGATIONS (owner 22/10) ──────────────────────────────────────
+# Une delegation confiee a un autre agent vit dans `sandbox/tasks.db` : c'est la
+# source UNIQUE (agent, statut, progression, reaffectations). Ce module la LIT --
+# il n'invente ni table ni emetteur : une transition se DEDUIT de deux lectures
+# (le statut ou l'agent a change).
+#
+# LECTURE SEULE (`mode=ro`) : un suiveur n'ecrit jamais dans l'etat qu'il observe.
+
+_EN_VOL = ("pending", "running", "claimed", "assigned")
+_LIMITE_DEFAUT = 200
+
+
+def _ts_epoch(brut, fuseau=None):
+    """Instant (epoch UTC, float) d'un horodatage `tasks`, ou None si illisible.
+
+    Deux formes coexistent : l'ISO TEXT ecrit par le producteur
+    (`2026-10-21T22:35:35.211392`) et l'epoch REAL (les tests). Une date SANS
+    fuseau est lue en UTC (le contrat du suivi) ; le producteur ecrit en heure
+    LOCALE, d'ou le repli de `_age_s`.
+    """
+    import datetime as _dt
+    if brut is None or isinstance(brut, bool):
+        return None
+    if isinstance(brut, (int, float)):
+        return float(brut)
+    texte = str(brut).strip()
+    if not texte:
+        return None
+    try:
+        return float(texte)
+    except ValueError:  # muet-ok : essai suivant (formats iso/strptime)
+        pass
+    moment = None
+    try:
+        moment = _dt.datetime.fromisoformat(texte.replace("Z", "+00:00"))
+    except ValueError:  # muet-ok : essai suivant (formats strptime)
+        for forme in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                moment = _dt.datetime.strptime(texte, forme)
+                break
+            except ValueError:  # muet-ok : format non correspondant
+                continue
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=fuseau or _dt.timezone.utc)
+    return moment.timestamp()
+
+
+def _age_s(maintenant, brut):
+    """Age en secondes (int) d'un horodatage, ou None s'il est illisible ou futur.
+
+    Lecture UTC d'abord -- c'est le contrat. Si elle donne un FUTUR, on relit en
+    heure locale : le producteur ecrit l'heure locale (forge_mcp_registry), et un
+    age negatif ne veut rien dire (une lecture qui ment non plus). Un horodatage
+    encore futur apres les deux lectures vaut INCONNU (None), pas un age negatif.
+    """
+    import datetime as _dt
+    epoch = _ts_epoch(brut)
+    if epoch is None or maintenant is None:
+        return None
+    age = int(maintenant - epoch)
+    if age >= 0:
+        return age
+    local = _ts_epoch(brut, _dt.datetime.now().astimezone().tzinfo)
+    if local is not None and maintenant - local >= 0:
+        return int(maintenant - local)
+    return None
+
+
+def _nb_reaffectations(brut):
+    """Nombre de reaffectations tracees, ou None si la trace est illisible.
+
+    `reaffectations` porte une LISTE JSON ([{de, vers, motif, quand}]) : ce qu'on
+    lit, c'est le nombre. Une trace illisible vaut None (INCONNU) -- jamais 0,
+    qui dirait « aucune reaffectation » alors qu'on n'a rien lu.
+    """
+    if brut is None:
+        return None
+    if isinstance(brut, (list, tuple)):
+        return len(brut)
+    texte = str(brut).strip()
+    if not texte:
+        return None
+    import json as _json
+    try:
+        trace = _json.loads(texte)
+    except (ValueError, TypeError):
+        return None
+    return len(trace) if isinstance(trace, list) else None
+
+
+def _lire_taches(db=None, maintenant=None, de=None, statuts=None, limite=_LIMITE_DEFAUT):
+    """(taches, motif) -- les taches lues dans `tasks.db`, ou le motif de l'echec.
+
+    LECTURE SEULE (`mode=ro`), comme `_etat_tache`. Une base absente ou
+    illisible ne rend JAMAIS « aucune tache » : elle rend un MOTIF, que l'appelant
+    DIT (ILLISIBLE != PAS_LA). Les colonnes absentes d'un schema ancien sont
+    ignorees, pas fatales ; seule l'absence de `id` ou de `from_agent` (quand on
+    filtre dessus) est signalee.
+    """
+    import sqlite3
+    chemin = Path(db) if db else TACHES
+    if not chemin.exists():
+        return [], "base absente (%s)" % chemin
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % chemin.as_posix(), uri=True, timeout=3)
+    except Exception as e:  # noqa: BLE001 -- muet-ok : le motif est rendu au caller
+        return [], "base ILLISIBLE (%s: %s)" % (type(e).__name__, e)
+    try:
+        try:
+            colonnes = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
+        except Exception as e:  # noqa: BLE001
+            return [], "schema ILLISIBLE (%s: %s)" % (type(e).__name__, e)
+        if not colonnes:
+            return [], "table `tasks` absente (%s)" % chemin
+        if "id" not in colonnes:
+            return [], "table `tasks` sans `id` (%s)" % chemin
+        if de and "from_agent" not in colonnes:
+            return [], "colonne `from_agent` absente : filtre `de` inapplicable (%s)" % chemin
+        vues = ("id", "agent", "status", "from_agent", "created_at", "progress_at", "reaffectations", "result")
+        dispo = [c for c in vues if c in colonnes]
+        requete = "SELECT %s FROM tasks" % ", ".join(dispo)
+        params = []
+        clauses = []
+        if statuts:
+            clauses.append("status IN (%s)" % ",".join("?" * len(statuts)))
+            params.extend(statuts)
+        if de:
+            # `from_agent` porte le delegant : `agt_claude` doit matcher `claude`.
+            clauses.append("(LOWER(from_agent) = LOWER(?) OR LOWER(from_agent) LIKE ?)")
+            params.extend([de, "%_" + str(de).lower()])
+        if clauses:
+            requete += " WHERE " + " AND ".join(clauses)
+        if "created_at" in colonnes:
+            requete += " ORDER BY created_at DESC"
+        if limite:
+            requete += " LIMIT %d" % int(limite)
+        try:
+            lignes = con.execute(requete, params).fetchall()
+        except Exception as e:  # noqa: BLE001
+            return [], "lecture ILLISIBLE (%s: %s)" % (type(e).__name__, e)
+    finally:
+        con.close()
+    taches = []
+    for ligne in lignes:
+        d = dict(zip(dispo, ligne))
+        taches.append({
+            "task_id": d.get("id"),
+            "agent": d.get("agent"),
+            "statut": d.get("status"),
+            "de": d.get("from_agent"),
+            "age_s": _age_s(maintenant, d.get("created_at")),
+            "depuis_progres_s": _age_s(maintenant, d.get("progress_at")),
+            "reaffectations": _nb_reaffectations(d.get("reaffectations")),
+            "result": d.get("result"),
+        })
+    return taches, None
+
+
+def delegations_en_vol(db=None, maintenant=None, de=None):
+    """Les delegations EN VOL (pending, running, claimed, assigned) vues depuis `tasks.db`.
+
+    [{task_id, agent, statut, de, age_s (int ou None), depuis_progres_s (int ou
+    None), reaffectations (int ou None)}] -- `age_s` = maintenant - created_at
+    (UTC) ; `depuis_progres_s` = maintenant - progress_at, None si absent (un
+    progres ILLISIBLE n'est pas un gel) ; `reaffectations` = nombre de
+    reaffectations tracees, None si la trace est illisible. `de` filtre le
+    demandeur (`from_agent`), insensible a la casse.
+    """
+    if maintenant is None:
+        maintenant = time.time()
+    taches, _motif = _lire_taches(db=db, maintenant=maintenant, de=de, statuts=_EN_VOL, limite=None)
+    return taches
+
+
+def transitions(avant, apres):
+    """Evenements DEDUITS de deux lectures : NOUVELLE · STATUT · REAFFECTEE.
+
+    Un changement d'AGENT est une REAFFECTEE (la tache passe a un autre
+    executeur) ; un changement de STATUT est un STATUT ; une tache vue pour la
+    premiere fois est NOUVELLE. Aucun changement -> aucun evenement : le
+    silence est l'absence de changement, pas une panne.
+    """
+    ev = []
+    avant = avant or {}
+    for tid, etat_apres in (apres or {}).items():
+        etat_avant = avant.get(tid) or {}
+        agent_avant = etat_avant.get("agent")
+        agent_apres = etat_apres.get("agent")
+        statut_avant = etat_avant.get("statut")
+        statut_apres = etat_apres.get("statut")
+        if not etat_avant:
+            ev.append({"task_id": tid, "genre": "NOUVELLE", "de": None,
+                       "vers": statut_apres, "agent": agent_apres})
+            continue
+        if agent_avant is not None and agent_apres is not None and agent_avant != agent_apres:
+            ev.append({"task_id": tid, "genre": "REAFFECTEE", "de": agent_avant,
+                       "vers": agent_apres, "statut": statut_apres})
+        if statut_avant != statut_apres:
+            e = {"task_id": tid, "genre": "STATUT", "de": statut_avant, "vers": statut_apres, "agent": agent_apres}
+            if statut_apres in ("done", "failed"):
+                e["livraison"] = _livraison(etat_apres.get("result"), statut_apres)
+            ev.append(e)
+    return ev
+
+
+def _livraison(result, statut) -> str:
+    """Livraison d'une tache close, par la fonction CANONIQUE de l'executeur (`_statut_livraison`) -- jamais un
+    classement reinvente (30/10 : « done » cachait un commit REFUSE, « failed » cachait 2 fichiers ecrits).
+    Resultat absent ou fonction illisible -> ILLISIBLE, jamais rien."""
+    if not result:
+        return "ILLISIBLE"
+    # Un status_code EXPLICITE dans le resultat (cloture manuelle : CANCELLED, ...) prime sur la deduction.
+    m = _re.search(r'"status_code"\s*:\s*"([A-Z_]+)"', str(result))
+    if m:
+        return m.group(1)
+    try:
+        try:
+            from nokido_agent.tools.forge_task_executor import _statut_livraison
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from forge_task_executor import _statut_livraison
+        return _statut_livraison(statut == "done", str(result)) or "ILLISIBLE"
+    except Exception:  # noqa: BLE001 - muet-ok : rendu ILLISIBLE sur la ligne de l'owner, donc dit
+        return "ILLISIBLE"
+
+
+def ligne_evenement(e):
+    """Ligne courte d'un evenement : « [12:04:05] job_a REAFFECTEE A -> B ».
+
+    Vide si l'evenement est inconnu : une ligne vide ne se lit pas comme un
+    succes, elle ne se lit pas du tout.
+    """
+    import datetime as _dt
+    if not e:
+        return ""
+    genre = e.get("genre")
+    tid = e.get("task_id")
+    if not genre or not tid:
+        return ""
+    horodatage = "[%s]" % _dt.datetime.now().strftime("%H:%M:%S")
+    if genre == "REAFFECTEE":
+        return "%s %s REAFFECTEE %s -> %s" % (horodatage, tid, e.get("de"), e.get("vers"))
+    if genre == "STATUT":
+        livraison = (" [%s]" % e["livraison"]) if e.get("livraison") else ""
+        return "%s %s STATUT %s -> %s%s" % (horodatage, tid, e.get("de"), e.get("vers"), livraison)
+    if genre == "NOUVELLE":
+        return "%s %s NOUVELLE %s statut=%s" % (horodatage, tid, e.get("agent") or "?", e.get("vers"))
+    return ""
+
+
+def alertes_gel(vue, gel_s, deja):
+    """Alertes de GEL : les taches `running` sans progression depuis plus de `gel_s`.
+
+    Chacune UNE SEULE fois (`deja` est memoise sur place). Une progression
+    ILLISIBLE (None) n'est JAMAIS un gel : INCONNU n'est pas NO.
+    """
+    alertes = []
+    for t in vue or []:
+        if (t.get("statut") or "") != "running":
+            continue
+        depuis = t.get("depuis_progres_s")
+        if depuis is None:
+            continue
+        tid = t.get("task_id")
+        if depuis > gel_s and tid not in deja:
+            deja.add(tid)
+            alertes.append({"task_id": tid, "agent": t.get("agent"), "statut": t.get("statut"),
+                            "age_s": t.get("age_s"), "depuis_progres_s": depuis})
+    return alertes
+
+
+def _ecrire_ligne(ligne):
+    """Ecrit UNE ligne sur stdout et la FLUSH immediatement : un Monitor qui reveille
+    sa boucle sur chaque ligne ne peut pas attendre un tampon plein."""
+    print(ligne, flush=True)
+
+
+def _id_court(task_id):
+    """Identifiant court : les deux premiers segments (`job_15787c78_...` -> `job_15787c78`).
+
+    Le demandeur et l'horodatage du suffixe sont du bruit pour une vue ; les
+    evenements, eux, gardent l'identifiant COMPLET (c'est lui qu'on relit).
+    """
+    if not task_id:
+        return "?"
+    morceaux = str(task_id).split("_")
+    return "_".join(morceaux[:2]) if len(morceaux) > 1 else str(task_id)
+
+
+def _ligne_vue(t):
+    """Ligne de vue d'une delegation : id court, agent, statut, age, progres, reaff."""
+    age = t.get("age_s")
+    prog = t.get("depuis_progres_s")
+    reaff = t.get("reaffectations")
+    return "%s %s %s age=%s progres=%s reaff=%s" % (
+        _id_court(t.get("task_id")),
+        t.get("agent") or "?",
+        t.get("statut") or "?",
+        ("%ds" % age) if age is not None else "INCONNU",
+        ("%ds" % prog) if prog is not None else "INCONNU",
+        str(reaff) if reaff is not None else "INCONNU")
+
+
+def _ligne_gel(a):
+    """Ligne d'alerte de GEL : une delegation sans battement depuis trop longtemps."""
+    import datetime as _dt
+    return "[%s] %s GEL %ds sans progres (statut %s) -- une delegation muette n'est pas " \
+           "finie : la relancer ou la relire" % (
+               _dt.datetime.now().strftime("%H:%M:%S"), a.get("task_id"),
+               a.get("depuis_progres_s") or 0, a.get("statut") or "?")
+
+
+def suivre_delegations(db=None, de=None, gel_s=900, max_s=4800, intervalle=20,
+                        une_fois=False, ecrire=None, horloge=time.time, dormir=time.sleep):
+    """Suit les delegations du DEMANDEUR : n'emet que ce qui CHANGE ou ce qui GEL.
+
+    A chaque lecture on prend TOUTES les taches du demandeur -- terminees
+    comprises, sinon un `done`/`failed` ne serait JAMAIS vu. Les transitions se
+    DEDUISENT de deux lectures (statut ou agent change) ; un gel est une tache
+    `running` sans progression depuis plus de `gel_s`, signalee UNE fois chacune.
+
+    `une_fois` : une lecture, la vue imprimee (une ligne par tache), rc 0.
+    Sinon : boucle, une ligne par evenement, vidage immediatement (consommable
+    par un Monitor), fin sur `max_s`.
+
+    Le silence n'est pas un succes : une base ILLISIBLE est DITE, jamais lue
+    comme « aucune delegation ».
+    """
+    if ecrire is None:
+        ecrire = _ecrire_ligne
+    chemin = Path(db) if db else TACHES
+    if une_fois:
+        vue, motif = _lire_taches(db=db, maintenant=time.time(), de=de, statuts=_EN_VOL, limite=None)
+        if motif:
+            ecrire("DELEGATIONS : %s" % motif)
+            return 0
+        if not vue:
+            ecrire("DELEGATIONS : aucune tache en vol (%s)" % chemin)
+            return 0
+        for t in vue:
+            ecrire(_ligne_vue(t))
+        return 0
+
+    debut = horloge()
+    etat = {}
+    reference = False
+    deja = set()
+    illisible = 0
+    while True:
+        maintenant = horloge()
+        vue, motif = _lire_taches(db=db, maintenant=maintenant, de=de, statuts=None,
+                                   limite=_LIMITE_DEFAUT)
+        if motif:
+            illisible += 1
+            if illisible in (1, 10):
+                ecrire("DELEGATIONS : %s -- une delegation pourrait etre en vol sans etre vue" % motif)
+        else:
+            illisible = 0
+            apres = {t["task_id"]: {"agent": t.get("agent"), "statut": t.get("statut"), "result": t.get("result")}
+                     for t in vue}
+            if reference:
+                for e in transitions(etat, apres):
+                    ligne = ligne_evenement(e)
+                    if ligne:
+                        ecrire(ligne)
+            else:
+                # La premiere lecture POSE la reference : sans elle, tout serait NOUVELLE.
+                reference = True
+            etat = apres
+            for a in alertes_gel(vue, gel_s, deja):
+                ecrire(_ligne_gel(a))
+        if maintenant - debut > max_s:
+            ecrire("DELEGATIONS : fin de veille apres %d s -- a re-armer" % int(maintenant - debut))
+            return 0
+        dormir(intervalle)
 
 
 if __name__ == "__main__":

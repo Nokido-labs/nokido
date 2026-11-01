@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # 02 — Quick Start
 
-<!-- revu-le: 2026-09-29 -->
-> Updated: 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Updated: 2026-10-30
 
 After [installation](01-Installation.md), this page walks through the first
 30 minutes of using Nokido.
@@ -89,13 +89,14 @@ Nokido speaks **MCP** (Model Context Protocol). Pick your favorite client :
 
 - [Claude Desktop](04-MCP-Clients-Setup.md#claude-desktop)
 - [Claude Code](04-MCP-Clients-Setup.md#claude-code)
-- [Gemini CLI](04-MCP-Clients-Setup.md#gemini-cli)
+- [Antigravity (agy)](04-MCP-Clients-Setup.md#antigravity-agy-cli--agi-ide)
 - [Codex CLI](04-MCP-Clients-Setup.md#codex-cli)
 - [Cline (VS Code)](04-MCP-Clients-Setup.md#cline)
+- [OpenCode & Mistral Vibe](04-MCP-Clients-Setup.md#opencode--mistral-vibe)
 
 Or write a custom client : the [Hub API reference](06-Hub-API-Reference.md)
 documents the tools (read, run, query, rag, ask, orchestrate, etc.) — the exact list
-depends on your agent's ring (`tools/list`).
+depends on your agent's ring (`tools/list`). See also [25 — What's New](25-Whats-New.md) for conditional reads (`si_etag`) and task status inspection.
 
 ## 🧠 Use the local stack first
 
@@ -128,7 +129,7 @@ python tools/nokido_tui.py
 
 (`nokido-cli` is the plain terminal client, not the TUI.)
 
-One pane per agent (Claude, Gemini, Codex, Cline, Master) plus toggleable views
+One pane per agent (Claude, Antigravity, Codex, Cline, Master) plus toggleable views
 (RAG, services, tasks, health, events...). Keybindings :
 
 - `Tab` — next pane
@@ -211,4 +212,5 @@ the chain-of-thought in context.
 - Tune cascade priorities in `app/forge_provider_specs.py`.
 - Add custom tools via `tools/forge_*.py` (see [CONTRIBUTING](../../CONTRIBUTING.md)).
 - Read the [Manifesto](../i18n/MANIFESTO.en.md) for the *why* behind Nokido.
-- Configure a second client to see multi-agent orchestration (Claude + Gemini).
+- Configure a second client to see multi-agent orchestration (Claude + Antigravity).
+- Check [25 — What's New](25-Whats-New.md) for the latest platform updates.

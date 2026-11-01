@@ -171,7 +171,7 @@ Use the GitHub issue templates :
 Nokido ships under a **dual-licensing model** :
 
 - [**AGPLv3-or-later**](LICENSE) — the default, free / open-source.
-- [**Commercial License**](COMMERCIAL.md) — for proprietary / closed-
+- [**Commercial License**](docs/archive/COMMERCIAL.md) — for proprietary / closed-
   source / SaaS use cases where AGPLv3 doesn't fit.
 
 For the maintainer to be able to offer commercial licenses to companies

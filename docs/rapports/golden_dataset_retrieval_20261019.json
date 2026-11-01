@@ -4,6 +4,7 @@
     "description": "Golden dataset de la couche 3 (retrieval / rappel@10) pour roadmap_p1_methode_dev_par_couches_20261016 et protocole docs/PROTOCOLE_MESURE_METHODES_DEV.md",
     "target_metric": "rappel@10 (+5 points vise)",
     "total_questions_valides": 54,
+    "remap_20261030": "9 ids attendus disparus (fragments RULES_SHARED.md reingeres, id = sha(source|texte), anciens textes conserves dans rag_snapshots) remappes par CLAUDE sur delegation owner (« juge du travail fourni ») : 4 par similarite de texte (2 identiques, 2 a 0,85-0,87), 5 par les FAITS de la reponse attendue (fragment actif contenant tous les termes-faits). Anciens ids gardes dans sources_attendues_avant_remap_20261030. Preuves : sandbox/workspace/bancs/golden_remap_proposition.json, golden_remap_faits.json.",
     "candidates_ecartees_count": 8,
     "candidates_ecartees_raisons": [
       {
@@ -56,9 +57,9 @@
       "question": "Quel est le chemin de l'interpreteur Python canonique (LAFORGE_PYTHON) et quel est le port HTTP du hub souverain selon le socle commun ?",
       "reponse_attendue": "LAFORGE_PYTHON = ~/miniforge3/python.exe et port HTTP 8766.",
       "sources_attendues": [
-        "d4ccdc005d0bbbc1",
-        "19c286426a064b96"
+        "dbba63298418bdd3"
       ],
+      "sources_attendues_avant_remap_20261030": ["d4ccdc005d0bbbc1", "19c286426a064b96"],
       "domaine": "doctrine RULES_SHARED",
       "difficulte": "facile",
       "piege": "Confusion possible avec le binaire python brut du systeme ou d'autres ports (7500, 8767)."
@@ -90,8 +91,9 @@
       "question": "Quelle regle methodologique s'applique aux instruments de mesure concernant la lecture de leur propre vocabulaire ?",
       "reponse_attendue": "Un instrument ne lit jamais son propre vocabulaire (sa source, ses commentaires, la doctrine qui le documente).",
       "sources_attendues": [
-        "9894dda2912b35f7"
+        "fcd289990da5ed1d"
       ],
+      "sources_attendues_avant_remap_20261030": ["9894dda2912b35f7"],
       "domaine": "doctrine RULES_SHARED",
       "difficulte": "moyen",
       "piege": "Biais d'auto-confirmation ou un test ou audit valide sa propre hypothese en lisant son propre code."
@@ -101,8 +103,9 @@
       "question": "Comment la doctrine qualifie-t-elle un capteur neuf avant qu'il ne soit recoupe avec le journal de l'organe ou une seconde sonde ?",
       "reponse_attendue": "Un capteur neuf est un « suspect », pas un temoin.",
       "sources_attendues": [
-        "e1805949678d7c82"
+        "5464f899b41490bf"
       ],
+      "sources_attendues_avant_remap_20261030": ["e1805949678d7c82"],
       "domaine": "doctrine RULES_SHARED",
       "difficulte": "moyen",
       "piege": "Fausse confiance accordee a une nouvelle telemetrie non correlee."
@@ -158,8 +161,9 @@
       "question": "Quel role et quel port sont attribues au composant GitHub sidecar dans l'architecture Nokido ?",
       "reponse_attendue": "Port 9200, dedie aux depots RAM (repos RAM).",
       "sources_attendues": [
-        "19c286426a064b96"
+        "dbba63298418bdd3"
       ],
+      "sources_attendues_avant_remap_20261030": ["19c286426a064b96"],
       "domaine": "services/ports",
       "difficulte": "moyen",
       "piege": "Le port 9200 est conventionnellement celui d'Elasticsearch ; ici c'est le sidecar GitHub."
@@ -329,8 +333,9 @@
       "question": "Que prescrit la consigne owner dans RULES_SHARED concernant les modifications lourdes de la base %NOKIDO_DATA%\\embeddings.db ?",
       "reponse_attendue": "Elles sortent de la chaine critique : chantier d'infrastructure dedie, mesures avant/apres, post-mortem possible.",
       "sources_attendues": [
-        "1547c111be529b40"
+        "041856f6f09c393f"
       ],
+      "sources_attendues_avant_remap_20261030": ["1547c111be529b40"],
       "domaine": "memoire owner",
       "difficulte": "facile",
       "piege": "Tenter d'optimiser ou migrer la grosse base a chaud lors d'une tache de dev ordinaire."
@@ -340,8 +345,9 @@
       "question": "Quelle est la regle de rigueur imposee par l'owner lorsqu'un agent obtient un resultat de mesure qui l'arrange ?",
       "reponse_attendue": "La mesure se verifie AVANT d'etre rapportee en cherchant le biais qui l'a produite et non sa confirmation.",
       "sources_attendues": [
-        "4f0de00349a92141"
+        "352b22b562a2b51a"
       ],
+      "sources_attendues_avant_remap_20261030": ["4f0de00349a92141"],
       "domaine": "memoire owner",
       "difficulte": "facile",
       "piege": "Biais de complaisance rapportant un chiffre flatteur sans contre-verification."
@@ -362,8 +368,9 @@
       "question": "Selon RULES_SHARED.md, quelle regle epistemologique stricte s'applique a la formulation d'une impossibilite ?",
       "reponse_attendue": "Une impossibilite s'enonce apres mesure et jamais avant (ne pas affirmer qu'une action est impossible sans test reel).",
       "sources_attendues": [
-        "4f0de00349a92141"
+        "900fdf44b3e945b6"
       ],
+      "sources_attendues_avant_remap_20261030": ["4f0de00349a92141"],
       "domaine": "memoire owner",
       "difficulte": "facile",
       "piege": "Tendance des agents a abandonner en declarant une tache impossible sur la foi d'hypotheses."
@@ -495,8 +502,9 @@
       "question": "Quel outil CLI de diagnostic dans tools/ la doctrine impose-t-elle de lancer avec un mot-cle avant d'affirmer qu'une capacite manque ?",
       "reponse_attendue": "tools/forge_retrieval_sweep.py <terme> (apres avoir appele introspect).",
       "sources_attendues": [
-        "2fba495e0ad15593"
+        "172a9a626962d65f"
       ],
+      "sources_attendues_avant_remap_20261030": ["2fba495e0ad15593"],
       "domaine": "tools/",
       "difficulte": "facile",
       "piege": "Tenter un grep brut sur tout le depot ou declarer la capacite absente."

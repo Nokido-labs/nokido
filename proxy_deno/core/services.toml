@@ -253,7 +253,12 @@ essential = true
 # Or `SemanticFirewall.pre_flight` classe le fournisseur « ollama » comme LOCAL et ne lui
 # applique pas la DLP : un modele cloud tire par Ollama sortirait sans pare-feu. On coupe a
 # la SOURCE (FAQ officielle : variable OLLAMA_NO_CLOUD=1, effet au redemarrage du service).
-env = { OLLAMA_MODELS = "${OLLAMA_MODELS}", OLLAMA_KEEP_ALIVE = "30s", OLLAMA_MAX_LOADED_MODELS = "1", OLLAMA_HOST = "127.0.0.1:11434", OLLAMA_GPU_OVERHEAD = "1073741824", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NO_CLOUD = "1" }
+env = { OLLAMA_MODELS = "${OLLAMA_MODELS}", OLLAMA_KEEP_ALIVE = "30s", OLLAMA_MAX_LOADED_MODELS = "1", OLLAMA_HOST = "127.0.0.1:11434", OLLAMA_GPU_OVERHEAD = "1073741824", OLLAMA_FLASH_ATTENTION = "1", OLLAMA_NO_CLOUD = "1", OLLAMA_IGPU_ENABLE = "1" }
+# OLLAMA_IGPU_ENABLE = "1" (2026-10-29, accord owner, bancs banc_ollama_vulkan*_20261029) : Ollama 0.40.9 ECARTAIT
+# l'iGPU 780M (« dropping integrated GPU »), alors que 8 Go lui sont reserves par le BIOS. Mesure : deepseek-coder:6.7b
+# 18,8-19,6 tok/s sur Vulkan vs 15,2 CPU, RAM systeme prise 0,69 Go vs 5,56 Go. Les 1.5B (qwen2.5-coder:1.5b,
+# laforge-qwen) restent CPU par `num_gpu 0` dans leur fiche de modele (prompt 3x plus lent en Vulkan). Garde-fous
+# conserves : OLLAMA_GPU_OVERHEAD 1 Go, MAX_LOADED_MODELS 1 (cohabitation non prouvee). Retour arriere : retirer la cle.
 
 [[service]]
 name = "NokidoNetcfgProxy"
@@ -975,7 +980,10 @@ heartbeat_max_s = 2700
 # Le garde-fou n'est PAS ce drapeau, c'est le cap : MAX_VEILLES_CYCLE (=1) borne a une
 # veille par cycle, et coverage_dense s'abstient (gap=None) sur toute zone grise ou
 # hors-variete — jamais de veille sur un doute. Desarmer = remettre "0".
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_EPISTEMIC_AUTO_VEILLE = "1" }
+# ENQUETE_CODE ARMEE le 2026-10-26 (owner, apres observation 0d2bfe182) : une lacune INTERNE
+# devient une tache « enquete de code » pour un executeur gratuit ; caps MAX 1/cycle,
+# 3/jour dans forge_epistemic_daemon. Desarmer = remettre "0".
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_EPISTEMIC_AUTO_VEILLE = "1", LAFORGE_EPISTEMIC_ENQUETE_CODE = "1" }
 
 [[service]]
 # Sync CONTINUE SQLite -> Qdrant (outbox trigger). Draine qdrant_sync_pending vers
@@ -1615,7 +1623,9 @@ runAs = "sandbox-online"   # test runAs — RSS = input non-fiable internet
 # Jeton court injecte par le lanceur (2026-09-28) : identite MESUREE au journal authz
 # (SERVICES, via /api/login) ; le lanceur runAs obtient son jeton court (TPM d'abord) et le
 # service le renouvelle par echange RFC 8693 -- plus de secret statique lu par ce compte.
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NOKIDO_IDENTITE = "SERVICES" }
+# 31/10 (COF-1, journal du coffre) : le service demande RSS_WATCHER (forge_rss_watcher._IDENTITE_HUB, jeton_pour) ; un
+# jeton injecte au nom de SERVICES ne lui etait jamais prete -> repli sur FORGE_TOKEN_RSS_WATCHER au coffre.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", NOKIDO_IDENTITE = "RSS_WATCHER" }
 
 [[service]]
 name = "NokidoCapture"
@@ -1790,6 +1800,27 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTEC
 heartbeat = "sandbox/task_executor_mistral.heartbeat"
 heartbeat_tier = "slow"
 
+[[service]]
+# Executeur CLAUDE_HEADLESS (owner 22/10 « branche l'executeur claude -p ») : `claude -p` lance par le harness avec la
+# cle API du coffre (ANTHROPIC_API_KEY_ORG), facture sur les CREDITS API et jamais sur le quota Max ; sans cle, refus
+# (politique owner reversible, config/claude_headless.json). Plafond 3 $/jour pendant les essais, 6 $ puis SUPPRIME le
+# 22/10 (owner : « fais sauter la limite de depenses ») : compteur conserve, la Console fait foi sur le credit.
+# ARME le 2026-10-22 sur GO owner (choix multiple « Armer + relancer »), apres creation du worktree
+# nokido_worktrees/claude_headless (branche agent/claude_headless) ; NokidoHarnessWorker relance pour charger claude_api.
+name = "NokidoTaskExecutorClaude"
+logboot = true
+disabled = false
+wave = 5
+cmd = "${PYTHON}"
+args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "CLAUDE_HEADLESS"]
+cwd = "${NOKIDO_DEPOT}"
+runAs = "interactive"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+heartbeat = "sandbox/task_executor_claude_headless.heartbeat"
+heartbeat_tier = "slow"
+
 # OPENCODE AUTONOME MULTI-MODELES (owner 17/10 : « double ou triple des opencode autonomes sur differents modeles en
 # ring 1 sur le MCP » ; GO owner jetons + hub). Une instance par service, pilotee par ACP (tools/forge_task_executor.py
 # _delegate_to_opencode ; config/opencode_instances.json) ; worktrees nokido_worktrees/opencode_<x> (branche
@@ -1934,6 +1965,27 @@ heartbeat_tier = "slow"   # cycle 12h — pas besoin polling agressif
 # declarait « fige » a 647 min (19/10).
 cycle_s = 43200
 heartbeat_max_s = 129600   # derivee : forge_temps_mort.seuil_mort = max(90, 3 x cycle_s)
+
+[[service]]
+# Decision owner 30/10 (« oui on le declare actif avec lecons vers brouillons de skills ») : sans lanceur depuis la
+# migration NSSM -> superviseur (seule trace : la consigne nssm de son docstring), alors que forge_health_diagnostic
+# l'attendait (« organe silencieux CENSE TOURNER », provenance INCONNUE). Boucle lecons + topics -> brouillons de
+# skills (proposals, pas d'auto-review) ; pouls a chaque tick par forge_heartbeat.Cadence (NR
+# test_skill_enricher_bat_pendant_le_sommeil_nr).
+name = "NokidoSkillEnricher"
+disabled = false
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_skill_enricher.py", "--daemon"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/skill_enricher.heartbeat"
+heartbeat_tier = "slow"
+# cycle_s PROUVE : DEFAULT_INTERVAL_S = 3600 dans app/forge_skill_enricher.py (LAFORGE_SKILL_ENRICHER_INTERVAL_S).
+cycle_s = 3600
+heartbeat_max_s = 10800   # derivee : forge_temps_mort.seuil_mort = max(90, 3 x cycle_s)
 
 [[service]]
 name = "NokidoOfflineTrainer"
@@ -2091,9 +2143,27 @@ args = ["tools/forge_self_patcher.py", "--daemon"]
 cwd = "${ROOT}"
 deps = [8766]
 essential = false
+# 26/10 : le demon part SANS jeton -> agent=UNKNOWN ring 4, `ask` refuse (journal hub 12:17 « GATE DENY »). Essai
+# runAs="sandbox-offline" + NOKIDO_IDENTITE="SELF_PATCHER" (patron SERVICES) : SANS EFFET apres reload + restart du
+# service (compte inchange, toujours UNKNOWN 12:32) -> retire. A reprendre : le changement de compte exige-t-il un
+# restart du superviseur ? (item P1 identite self-patcher).
 env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 heartbeat = "sandbox/self_patcher.heartbeat"
 heartbeat_tier = "slow"   # cycle 1h
+
+[[service]]
+# 25/10 (owner, P1_soif_et_auto_amelioration_productives) : producteur de propositions pour le self-patcher,
+# REFORME (5cb804db0) -- observation des battements SANS aucune action, erreurs reelles dedoublonnees.
+# A la demande comme le self-patcher : wake via tools/forge_supervisor_ctl.py ensure NokidoAutoEvolution
+name = "NokidoAutoEvolution"
+disabled = true
+wave = 4
+cmd = "${PYTHON}"
+args = ["tools/forge_auto_evolution_loop.py"]
+cwd = "${ROOT}"
+deps = []
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 
 [[service]]
 name = "NokidoGraphExplorer"
@@ -2321,7 +2391,50 @@ heartbeat = "sandbox/harness_worker.heartbeat"
 # Cycle tres court : le seuil retombe au PLANCHER, il ne descend pas en dessous.
 cycle_s = 3
 heartbeat_max_s = 90
-heartbeat_tier = "slow"
+# fast (27/10) : le superviseur n'applique QUE le tier (heartbeat_max_s n'est lu nulle part dans core/*.ts).
+# slow = relance a 3600 s alors que l'executeur declare le worker mort a 300 s (_HARNESS_POULS_MAX_S) :
+# 73 min de delegations closes « non lance ». Sur : pouls 3 s au repos, 30 s PENDANT un job (pouls-pendant-job).
+heartbeat_tier = "fast"
+
+# Worker ACP sous la SESSION OWNER (28/10, accord owner « toute la chaine ») : le hub ouvre/pilote des sessions
+# ACP (claude, codex, opencode, agy) que seul le profil owner voit. Boucle sur sandbox/acp_jobs/ : chaque job est
+# un JWS EdDSA signe par le hub (RFC 7515/8037), verifie par la cle PUBLIQUE epinglee au coffre personnel de
+# l'owner (tools/forge_acp_epingler.py) ; sans epingle, TOUT est refuse (fail-closed). Un thread par job, un
+# ACPRouter vivant entre jobs, worktree acp_<cli> impose, permissions via /acp. Rapport docs/enquetes/acp_worker_20261028.md.
+[[service]]
+name = "NokidoAcpWorker"
+logboot = true
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_acp_worker.py", "--watch", "3"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/acp_worker.heartbeat"
+# cycle_s PROUVE : main() de tools/forge_acp_worker.py, intervalle = argv[2] (3 s).
+cycle_s = 3
+heartbeat_max_s = 90
+heartbeat_tier = "fast"
+
+[[service]]
+# Gateway Docker MCP sous la SESSION OWNER (28/10, accord owner). Lance par le hub, il mourait au demarrage
+# (`unable to open database file (14)` : base ~/.docker/mcp/mcp-toolkit.db dans le profil owner). Le gardien
+# tools/forge_docker_mcp_gateway.py le sert en HTTP streaming sur 127.0.0.1:8811, Bearer MCP_GATEWAY_AUTH_TOKEN
+# (coffre). ON-DEMAND : le hub le reveille apres avoir pose docker.wanted ; le gardien attend Docker SANS le
+# reveiller et ne sort pas quand Docker dort. Pas de `port` declare : port ferme quand Docker dort = etat voulu.
+name = "NokidoDockerMcpGateway"
+disabled = true  # on-demand : reveil par le hub (forge_docker_supervisor) ou ctl ensure NokidoDockerMcpGateway
+logboot = true
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_docker_mcp_gateway.py"]
+cwd = "${ROOT}"
+runAs = "interactive"
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/docker_mcp_gateway.heartbeat"
+heartbeat_tier = "normal"
 
 [[service]]
 # Runner GitHub Actions self-hosted — mis sous supervision le 2026-07-25 (go owner).

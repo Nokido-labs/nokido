@@ -208,6 +208,49 @@ def _attendre(service: str, atteint, delai_s: float, pas_s: float = 0.5):
         time.sleep(pas_s)
 
 
+def _maintenant() -> float:
+    import time
+    return time.monotonic()
+
+
+def _dormir(s: float) -> None:
+    import time
+    time.sleep(s)
+
+
+DELAI_EFFET_S = 20
+
+
+def _verifier_effet(service: str, port, st: int, body: str) -> int:
+    """Apres sleep/stop ACCEPTES : mesure l'EFFET (port ferme), l'imprime en JSON, rend le code.
+
+    0 ATTEINT, 3 NON_ATTEINT, 4 ILLISIBLE. Aucune action corrective (CONTROL != OWNERSHIP).
+    """
+    import json
+    try:
+        demande = json.loads(body)
+    except Exception:  # noqa: BLE001 - corps non JSON : rapporte tel quel
+        demande = {"http": st, "corps": body[:600]}
+    if not port:
+        effet, rc = "ILLISIBLE", 4
+        preuve = "le service ne declare pas de port : effet non verifiable (demande acceptee seulement)"
+    else:
+        fin = _maintenant() + DELAI_EFFET_S
+        while _port_ouvert(port):
+            if _maintenant() >= fin:
+                break
+            _dormir(1.0)
+        if _port_ouvert(port):
+            effet, rc = "NON_ATTEINT", 3
+            preuve = ("port %s encore en ecoute apres %d s ; `wake %s` remet le registre en "
+                      "accord (auto-guerison du superviseur)" % (port, DELAI_EFFET_S, service))
+        else:
+            effet, rc = "ATTEINT", 0
+            preuve = "port %s ferme" % port
+    print(json.dumps({"demande": demande, "effet": effet, "preuve": preuve}, ensure_ascii=False))
+    return rc
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -215,22 +258,43 @@ def main() -> int:
         return 1
     action = args[0]
     try:
+        port_avant = _etat_service(args[1]) if action in ("sleep", "stop") and len(args) >= 2 \
+            else None
         if action in _MUTATIONS_HUB and len(args) >= 2 and not _sous_system() \
                 and os.environ.get(ENV_APPELE_PAR_LE_HUB) != "1":
             r = _via_hub(action, args[1])
             if r is not None:
                 st, body = r
                 print(f"HTTP {st} (via hub, nokido_ensure_service)")
+                if action == "stop" and 200 <= st < 300:
+                    print(body[:3000])
+                    return _verifier_effet(args[1], (port_avant or {}).get("port"), st, body)
                 print(body[:3000])
                 return 0 if 200 <= st < 300 else 1
             print("[ctl] hub injoignable ou refus explicite : appel DIRECT au superviseur "
                   "en TRANSITION (2b-5, fermeture = 2b-6)")
+        if action == "status" and len(args) >= 2:
+            # status <service> : CE service, pas tout le superviseur coupe a 3000 caracteres (28/10 : l'etat
+            # demande n'y figurait pas). None = superviseur illisible, {} = service absent : deux etats distincts.
+            import json
+            e = _etat_service(args[1])
+            if e is None:
+                print("[ctl] superviseur ILLISIBLE")
+                return 2
+            if not e:
+                print("[ctl] service %s absent du superviseur" % args[1])
+                return 1
+            print(json.dumps({args[1]: e}, ensure_ascii=False, indent=1)[:6000])
+            return 0
         if action == "status":
             st, body = _call("/supervisor/status")
         elif action == "reload":
             # Hot-reload services.toml (additif) : spawn les services nouvellement
             # déclarés sans reboot. Pas de <name>.
-            st, body = _call("/supervisor/reload", method="POST")
+            # `reload --running` (29/10) : rafraichit AUSSI la definition des services en marche (?force=running,
+            # sans les interrompre) -- sans lui, un `restart` relance avec l'ancienne env (OLLAMA_IGPU_ENABLE vide).
+            chemin = "/supervisor/reload?force=running" if "--running" in args[1:] else "/supervisor/reload"
+            st, body = _call(chemin, method="POST")
         elif action == "restart" and len(args) >= 2:
             # RESTART = stop PUIS start, cote CLIENT (mesure 2026-07-25, 3 fois :
             # ollama, searxng, docker keeper). /supervisor/restart depasse le timeout
@@ -275,6 +339,8 @@ def main() -> int:
             return 1
         elif action == "sleep" and len(args) >= 2:
             st, body = _call(f"/supervisor/sleep/{args[1]}", method="POST")
+            if 200 <= st < 300:
+                return _verifier_effet(args[1], (port_avant or {}).get("port"), st, body)
         elif action == "wake" and len(args) >= 2:
             # 2026-10-18 (integre cafdbae37, NEMOTRON) : la route /supervisor/wake n'existe pas cote superviseur (404
             # mesure). Le bon point d'entree est POST /supervisor/service/start/<nom>, qui cree l'etat d'un service
@@ -288,6 +354,8 @@ def main() -> int:
             st, body = _call(f"/supervisor/service/start/{args[1]}", method="POST")
         elif action == "stop" and len(args) >= 2:
             st, body = _call(f"/supervisor/service/stop/{args[1]}", method="POST")
+            if 200 <= st < 300:
+                return _verifier_effet(args[1], (port_avant or {}).get("port"), st, body)
         else:
             print("usage: status | reload | sleep <svc> | wake <svc> | "
                   "restart <svc> | start <svc> | ensure <svc> | stop <svc>")

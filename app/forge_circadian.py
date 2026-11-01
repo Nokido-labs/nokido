@@ -34,6 +34,7 @@ au scheduler est dans tools/forge_circadian_runner.py (a venir).
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import time
@@ -185,8 +186,8 @@ def _verifier_conformite_normative() -> dict:
     if _os.environ.get("PYTEST_CURRENT_TEST"):
         return {"npsc": "sous pytest",
                 "pourquoi": "tache de production non declenchee depuis un test"}
-    if current_phase() is not Phase.NREM1:
-        return {"npsc": "hors phase", "phase": current_phase().value,
+    if _phase_effective() is not Phase.NREM1:
+        return {"npsc": "hors phase", "phase": _phase_effective().value,
                 "attendu": Phase.NREM1.value}
 
     _racine = _P(__file__).resolve().parent.parent
@@ -270,8 +271,11 @@ def _mesurer_dependances_vulnerables(hist=None, lanceur=None) -> dict:
     if _os.environ.get("PYTEST_CURRENT_TEST"):
         return {"pip_audit": "sous pytest",
                 "pourquoi": "tache de production non declenchee depuis un test"}
-    if current_phase() is not Phase.NREM1:
-        return {"pip_audit": "hors phase", "phase": current_phase().value,
+    # PHASE TIREE, PAS L'HORLOGE (31/10) : le runner tire NREM1 sur dette + inactivite a toute heure ; ce garde
+    # lisait l'horloge, rendait « hors phase » a 19 h 21 et la phase se soldait quand meme -- aucune mesure du
+    # 20/10 au 31/10, gate critique perime, CI de reference rouge. Appele hors fire_phase, l'horloge decide encore.
+    if _phase_effective() is not Phase.NREM1:
+        return {"pip_audit": "hors phase", "phase": _phase_effective().value,
                 "attendu": Phase.NREM1.value}
 
     _racine = _P(__file__).resolve().parent.parent
@@ -374,6 +378,9 @@ def _reconstruire_index_fts() -> dict:
     if _os.environ.get("PYTEST_CURRENT_TEST"):
         return {"fts": "sous pytest", "pourquoi": "tache de production non "
                 "declenchee depuis un test"}
+    # L'HORLOGE RESTE JUGE ICI, et c'est voulu (choix owner 31/10) : la reconstruction a tenu le verrou RAG 30 min
+    # de jour, et l'inactivite mesuree ne voit pas l'owner au clavier. Tiree hors fenetre, l'action est DIFFEREE
+    # (fire_phase la note dans l'etat) et rattrapee dans sa fenetre 2 h - 4 h par phase_a_tirer -- jamais muette.
     if current_phase() is not Phase.NREM3:
         return {"fts": "hors phase", "phase": current_phase().value,
                 "attendu": Phase.NREM3.value}
@@ -471,6 +478,51 @@ def _reconstruire_index_fts() -> dict:
         logger.error("[circadian] reconstruction FTS impossible : %s: %s",
                      type(e).__name__, str(e)[:140])
         return {"fts": "ECHEC", "pourquoi": f"{type(e).__name__}: {str(e)[:90]}"}
+
+
+def _proposer_specs(racine, extracteur) -> dict:
+    """Rend les specs generees, les compare a docs/specs et DEPOSE les perimees ou absentes dans
+    sandbox/workspace/specs_proposees/ (+ verdict.json). N'ecrit JAMAIS docs/specs : le commit reste un geste relu
+    (choix owner 31/10 « gate qui signale + nuit »). `extracteur` = module forge_spec_extractor (injectable)."""
+    from pathlib import Path as _P
+
+    racine = _P(racine)
+    rendus = extracteur.rendre_tout()
+    verdict = extracteur.verifier(rendus, racine / "docs" / "specs")
+    dest = racine / "sandbox" / "workspace" / "specs_proposees"
+    dest.mkdir(parents=True, exist_ok=True)
+    proposees = []
+    for nom, e in verdict.items():
+        if e.get("etat") in ("PERIME", "ABSENT") and nom in rendus:
+            (dest / nom).write_text(rendus[nom], encoding="utf-8")
+            proposees.append(nom)
+    (dest / "verdict.json").write_text(json.dumps(verdict, ensure_ascii=False, indent=1), encoding="utf-8")
+    return {"specs": "proposees" if proposees else "a jour", "proposees": sorted(proposees), "dans": str(dest)}
+
+
+def _regenerer_specs() -> dict:
+    """Action REM : specs perimees PROPOSEES (jamais ecrites). Jamais depuis pytest, jamais hors de la phase REM
+    (meme garde que la reconstruction FTS : etre appele n'est pas etre en situation)."""
+    import os as _os
+    import sys as _sy
+    from pathlib import Path as _P
+
+    if _os.environ.get("PYTEST_CURRENT_TEST"):
+        return {"specs": "sous pytest", "pourquoi": "tache de production non declenchee depuis un test"}
+    if _phase_effective() is not Phase.REM:
+        return {"specs": "hors phase", "phase": _phase_effective().value, "attendu": Phase.REM.value}
+    racine = _P(__file__).resolve().parent.parent
+    try:
+        try:
+            from nokido_agent.tools import forge_spec_extractor as _ext
+        except ImportError:
+            _sy.path.insert(0, str(racine / "tools"))
+            import forge_spec_extractor as _ext
+        return _proposer_specs(racine, _ext)
+    except Exception as e:  # noqa: BLE001 - dit, jamais tu
+        logger.warning("[circadian] specs non comparees : %s: %s", type(e).__name__, str(e)[:140])
+        # `error` : fire_phase ne solde pas une phase dont une action a echoue (dette de sommeil gardee)
+        return {"specs": "ECHEC", "error": "%s: %s" % (type(e).__name__, str(e)[:90])}
 
 
 def _rafraichir_snapshot_memoire() -> dict:
@@ -616,6 +668,20 @@ PHASE_PROGRAM: dict[Phase, list[PhaseAction]] = {
         ),
     ],
     Phase.NREM3: [
+        # 31/10 (point 3, feu vert owner) : curation et plasticite hebbienne tournaient sur une Cadence fixe de 6 h HORS
+        # du sommeil ; le sommeil etant tire sur inactivite mesuree (965926f41), elles consolident au repos du corps.
+        PhaseAction(
+            "skill_curation",
+            "NokidoSkillCurator",
+            organ="neocortex",
+            why="extraire, noter, elaguer et consolider les skills depuis les trajectoires reussies",
+        ),
+        PhaseAction(
+            "hebbian_plasticity",
+            "NokidoHebbian",
+            organ="synapses",
+            why="renforcer les liens co-actives, affaiblir les liens inutilises (decay)",
+        ),
         PhaseAction(
             "offline_replay",
             "NokidoOfflineTrainer",
@@ -634,6 +700,14 @@ PHASE_PROGRAM: dict[Phase, list[PhaseAction]] = {
         ),
     ],
     Phase.REM: [
+        # 31/10 (choix owner « gate qui signale + nuit ») : specs produit perimees PROPOSEES, jamais ecrites.
+        PhaseAction(
+            "specs_produit",
+            None,
+            handler=_regenerer_specs,
+            organ="neocortex",
+            why="comparer docs/specs au code et deposer les specs perimees en proposition (sandbox)",
+        ),
         PhaseAction(
             "glymphatic_clearance",
             "NokidoSelfPatcher",
@@ -673,6 +747,103 @@ def current_phase(now: datetime | None = None) -> Phase:
     return Phase.JOUR  # fallback (ne devrait pas arriver)
 
 
+# Phase que fire_phase est en train de tirer (31/10). Les handlers lisaient l'HORLOGE alors que le runner tire les
+# phases de sommeil sur dette + inactivite, a toute heure : tires hors fenetre ils rendaient « hors phase », sans
+# rien faire, et la phase se soldait. Hors fire_phase (appel direct, sonde, test) : None -> l'horloge decide.
+_PHASE_TIREE: contextvars.ContextVar = contextvars.ContextVar("phase_tiree", default=None)
+
+
+def _phase_effective() -> "Phase":
+    """La phase tiree par fire_phase si un tir est en cours, sinon celle de l'horloge."""
+    tiree = _PHASE_TIREE.get()
+    return tiree if tiree is not None else current_phase()
+
+
+def _est_hors_phase(resultat: dict) -> bool:
+    return any(v == "hors phase" for v in resultat.values())
+
+
+# 31/10 (owner : « orchestrer ce cycle dans un worker asynchrone pilote par l'inactivite CPU/RAM ») : la phase ne suivait
+# que l'HEURE (etude AGY 8c421e6a8). Seuils de calme : TOUTES les sources doivent etre PROUVEES calmes, sinon on s'abstient.
+INACTIF_MINUTES = 30
+INACTIF_RAM_MAX = 80.0
+INACTIF_CPU_MAX = 30.0
+HOMEO_AGE_MAX_S = 900
+PHASES_SOMMEIL = (Phase.NREM3, Phase.NREM1, Phase.REM)
+
+
+def inactivite_mesuree(tasks_db=None, ram=None, cpu=None, homeo=None, now=None) -> tuple:
+    """(True, motif) seulement si : aucune tache running/pending/claimed ni activite dans tasks.db depuis INACTIF_MINUTES,
+    RAM et CPU sous seuil, homeostat recent et non urgent. Source illisible ou perimee -> (False, motif) : UNKNOWN n'est
+    pas calme (constitution)."""
+    import json as _json
+    import sqlite3 as _sq
+    from pathlib import Path as _P
+    racine = _P(__file__).resolve().parents[1]
+    db = _P(tasks_db) if tasks_db else racine / "sandbox" / "tasks.db"
+    hp = _P(homeo) if homeo else racine / "sandbox" / "homeostasis_state.json"
+    t = now or time.time()
+    if not db.exists():
+        return False, "tasks.db illisible (absente) : on s'abstient"
+    try:
+        c = _sq.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            seuil = datetime.fromtimestamp(t - INACTIF_MINUTES * 60).isoformat(timespec="seconds")
+            n_vol = c.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('running','pending','claimed')").fetchone()[0]
+            n_rec = c.execute("SELECT COUNT(*) FROM tasks WHERE COALESCE(updated_at, created_at) >= ?",
+                              (seuil,)).fetchone()[0]
+        finally:
+            c.close()
+    except Exception as e:  # noqa: BLE001
+        return False, "tasks.db illisible (%s) : on s'abstient" % type(e).__name__
+    if n_vol:
+        return False, "%d tache(s) en vol" % n_vol
+    if n_rec:
+        return False, "%d tache(s) actives dans les %d dernieres minutes" % (n_rec, INACTIF_MINUTES)
+    try:
+        import psutil as _ps
+        ram = _ps.virtual_memory().percent if ram is None else ram
+        cpu = _ps.cpu_percent(interval=1.0) if cpu is None else cpu
+    except Exception as e:  # noqa: BLE001
+        return False, "charge illisible (%s) : on s'abstient" % type(e).__name__
+    if ram > INACTIF_RAM_MAX or cpu > INACTIF_CPU_MAX:
+        return False, "charge : RAM %.0f %% / CPU %.0f %%" % (ram, cpu)
+    try:
+        h = _json.loads(hp.read_text(encoding="utf-8"))
+        age = t - float(h.get("last_tick_ts") or 0)
+    except Exception as e:  # noqa: BLE001
+        return False, "homeostat illisible (%s) : on s'abstient" % type(e).__name__
+    if age > HOMEO_AGE_MAX_S:
+        return False, "homeostat perime (%.0f s) : on s'abstient" % age
+    if h.get("health_urgent"):
+        return False, "homeostat : sante urgente"
+    return True, "inactif : 0 tache en %d min, RAM %.0f %%, CPU %.0f %%, homeostat a jour" % (INACTIF_MINUTES, ram, cpu)
+
+
+def phase_a_tirer(now, state, inactif: bool) -> tuple:
+    """(Phase ou None, raison). Inactif -> la phase de sommeil en dette (>= 20 h) est tiree HORS creneau ; creneau de
+    sommeil sous charge -> differe, sauf dette > 48 h (jamais de famine) ; creneau ordinaire : regle d'avant (20 h)."""
+    horloge = current_phase(now)
+    # RATTRAPAGE (31/10) : une action liee a sa fenetre (FTS), differee parce que la phase a ete tiree hors
+    # creneau, se rattrape ICI, une fois -- fire_phase efface la note des qu'elle a tourne. Sans charge seulement.
+    differees = (getattr(state, "differees", None) or {}).get(horloge)
+    if differees and inactif:
+        return horloge, "creneau %s : rattrapage de %s (differee(s) hors fenetre)" % (horloge.value,
+                                                                                     ", ".join(differees))
+    if inactif:
+        for p in PHASES_SOMMEIL:
+            if state.debt_hours(p) >= 20:
+                return p, "inactivite mesuree : %s en dette (%.0f h)" % (p.value, state.debt_hours(p))
+    dette = state.debt_hours(horloge)
+    if horloge in PHASES_SOMMEIL and not inactif:
+        if dette > 48:
+            return horloge, "creneau %s, dette > 48 h : tire malgre la charge" % horloge.value
+        return None, "creneau %s mais charge : differe jusqu'a l'inactivite" % horloge.value
+    if dette >= 20:
+        return horloge, "creneau horaire %s" % horloge.value
+    return None, "%s deja faite il y a moins de 20 h" % horloge.value
+
+
 # === Dette physiologique ======================================================
 
 
@@ -681,6 +852,8 @@ class PhysiologicalState:
     """Etat homeostatique. Chaque phase qui n a pas tourne = dette."""
 
     last_completed: dict[Phase, float] = field(default_factory=dict)
+    # Actions liees a une fenetre horaire, tirees hors de celle-ci : phase -> noms (rattrapees par phase_a_tirer).
+    differees: dict[Phase, list] = field(default_factory=dict)
 
     def mark_completed(self, phase: Phase) -> None:
         self.last_completed[phase] = time.time()
@@ -702,8 +875,29 @@ class PhysiologicalState:
 SUPERVISOR_URL = "http://127.0.0.1:8765"
 
 
+_IDENTITE_CIRCADIEN = "CIRCADIAN"
+
+
+def _refus_restart(name: str, motif: str) -> dict:
+    """Un restart qui n'aboutit pas se DIT (31/10 : quatre 401 par NREM3, aucune ligne cote circadien)."""
+    logging.warning("[circadien] restart de %s NON fait (identite %s) : %s", name, _IDENTITE_CIRCADIEN, motif)
+    return {"ok": False, "name": name, "error": motif}
+
+
+def services_du_programme() -> list:
+    """Services que le programme circadien fait relancer (toutes phases) : le regulateur du hub n'honore les demandes
+    CIRCADIAN que pour eux (forge_resource_manager._honorer_demandes_circadiennes)."""
+    return sorted({a.service for acts in PHASE_PROGRAM.values() for a in acts if a.service})
+
+
 def _restart_service(name: str) -> dict:
-    """Restart via supervisor :8765/supervisor/restart/<name>. Non-bloquant."""
+    """DEMANDE la relance de `name` (bail forge_organ_demand, emetteur CIRCADIAN) ; le regulateur du hub l'honore.
+
+    31/10 : POST superviseur SANS jeton -> 401 a chaque NREM3 (11:21:49, 11:51:49) ; puis par le hub sous l'identite
+    CIRCADIAN (0d5ade792) -> [RBAC] DENY manage_forge_lifecycle (ring 3 < 1) a 12:51:49. Choix owner : « demande au
+    regulateur », aucun privilege elargi -- RESOURCE_MANAGER, qui detient l'acces superviseur, relance une fois par
+    bail dans le budget RAM. Rend REQUESTED (jamais ACHIEVED : c'est le regulateur qui journalise ce qu'il a fait).
+    NR tests/nr/test_circadien_demande_au_regulateur_nr.py."""
     # Corrigibility (A#2): self-heal autonome respecte le verrou humain.
     #
     # ⚠️ CE `except` ETAIT MUET *ET* FAIL-OPEN (corrige le 2026-09-17). Si
@@ -730,11 +924,15 @@ def _restart_service(name: str) -> dict:
                 "skipped": "verrou_humain_illisible",
                 "erreur": "%s: %s" % (type(exc).__name__, exc)}
     try:
-        req = urllib.request.Request(f"{SUPERVISOR_URL}/supervisor/restart/{name}", method="POST")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return {"ok": True, "status": r.status, "name": name, "body": r.read().decode("utf-8", "replace")[:200]}
+        try:
+            from nokido_agent.app.forge_organ_demand import acquerir
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from forge_organ_demand import acquerir
+        ident = acquerir(name, _IDENTITE_CIRCADIEN, "consolidation circadienne : relancer %s pour un cycle" % name,
+                         duree_s=1800.0, priority=60, ref="circadien")
     except Exception as e:  # noqa: BLE001
-        return {"ok": False, "name": name, "error": str(e)}
+        return _refus_restart(name, "demande non posee (%s: %s)" % (type(e).__name__, str(e)[:120]))
+    return {"ok": True, "name": name, "voie": "demande:forge_organ_demand", "demande": ident, "etat": "REQUESTED"}
 
 
 def fire_phase(phase: Phase, state: PhysiologicalState | None = None, dry_run: bool = False) -> dict:
@@ -743,6 +941,15 @@ def fire_phase(phase: Phase, state: PhysiologicalState | None = None, dry_run: b
     state = state or PhysiologicalState()
     actions = PHASE_PROGRAM.get(phase, [])
     results: list[dict] = []
+    _jeton_phase = _PHASE_TIREE.set(phase)
+    try:
+        return _tirer_phase(phase, state, dry_run, actions, results)
+    finally:
+        _PHASE_TIREE.reset(_jeton_phase)
+
+
+def _tirer_phase(phase, state, dry_run, actions, results) -> dict:
+    """Corps de fire_phase, execute pendant que _PHASE_TIREE porte la phase tiree."""
     logger.info(
         "[circadian] phase=%s actions=%d organes=%s",
         phase.value,
@@ -788,6 +995,18 @@ def fire_phase(phase: Phase, state: PhysiologicalState | None = None, dry_run: b
         complete = True
         motif = "toutes les actions ont abouti"
         state.mark_completed(phase)
+    # Une action « hors phase » ne retient pas la phase en dette (NREM3 serait re-tiree toutes les 30 min avec ses
+    # restarts) : elle est NOTEE differee, et rattrapee dans sa fenetre ; la note tombe des qu'elle a tourne.
+    differees = [r.get("action") for r in results if _est_hors_phase(r)]
+    if not dry_run:
+        if not hasattr(state, "differees"):
+            state.differees = {}
+        if differees:
+            state.differees[phase] = differees
+            logger.warning("[circadian] phase=%s : %s differee(s) hors fenetre, rattrapage dans le creneau",
+                           phase.value, differees)
+        else:
+            state.differees.pop(phase, None)
     if not complete:
         logger.warning("[circadian] phase=%s NON soldee — %s (la dette est CONSERVEE)",
                        phase.value, motif)
@@ -798,6 +1017,7 @@ def fire_phase(phase: Phase, state: PhysiologicalState | None = None, dry_run: b
         "completed": complete,
         "motif": motif,
         "echecs": echecs,
+        "differees": differees,
         "sleep_debt": state.has_sleep_debt(),
     }
 
@@ -830,6 +1050,11 @@ def load_state() -> PhysiologicalState:
                 # entier — sinon un seul nom perime rendrait tout l'etat illisible.
                 logger.debug("[circadian] phase inconnue dans l'etat : %r", k)
         st.last_completed = lu
+        for k, v in (data.get("differees") or {}).items():
+            try:
+                st.differees[Phase(k)] = [str(x) for x in v]
+            except (ValueError, TypeError):
+                logger.debug("[circadian] differee illisible dans l'etat : %r", k)
         return st
     except Exception:  # noqa: BLE001
         return PhysiologicalState()
@@ -842,6 +1067,7 @@ def save_state(state: PhysiologicalState) -> None:
             json.dumps(
                 {
                     "last_completed": {p.value: ts for p, ts in state.last_completed.items()},
+                    "differees": {p.value: v for p, v in (getattr(state, "differees", None) or {}).items()},
                     "saved_at": time.time(),
                 },
                 indent=2,

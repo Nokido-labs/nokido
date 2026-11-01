@@ -68,6 +68,7 @@ ACP_FLAG_LEGACY = "--experimental-acp"
 DEFAULT_CMD = ["gemini", ACP_FLAG]
 PROTOCOL_VERSION = 1          # ACP/Zed : ENTIER (pas "1.0")
 DEFAULT_TIMEOUT = 180.0
+PERMISSION_POLICY_TIMEOUT = 30.0   # borne d'une decision de permission injectee ; au-dela -> cancelled
 
 ACP_AGENTS = {
     "gemini": ["gemini", ACP_FLAG],
@@ -180,7 +181,11 @@ class ACPClient:
     Classe les messages : reponses (id+result/error), notifications (method, pas
     d'id), requetes agent->client (id+method : permission, fs/*)."""
 
-    def __init__(self, cmd=None, cwd=None, on_log=None, agent="gemini", env=None):
+    def __init__(self, cmd=None, cwd=None, on_log=None, agent="gemini", env=None,
+                 on_event=None, permission_policy=None, permission_timeout=None):
+        self._permission_timeout = permission_timeout   # None = PERMISSION_POLICY_TIMEOUT lu a l'usage
+        self.on_event = on_event                    # crochet : chaque session/update (dict de params)
+        self.permission_policy = permission_policy  # crochet : params -> outcome ; None = cancelled
         self.cmd = cmd or _resolve_cmd(agent)
         self.agent = agent
         self.cwd = cwd or os.getcwd()
@@ -211,6 +216,13 @@ class ACPClient:
             proc_env = dict(os.environ)
             proc_env.update(self.env)
             popen_kwargs["env"] = proc_env
+        if self.agent == "claude":
+            # 28/10 (recette reelle) : CLAUDECODE, pose par Claude Code et herite jusqu'au worker, fait croire au claude
+            # lance par l'agent ACP qu'il est IMBRIQUE dans une autre session -> rc=1 muet 4 s apres session/new.
+            proc_env = dict(popen_kwargs.get("env") or os.environ)
+            proc_env.pop("CLAUDECODE", None)
+            popen_kwargs["env"] = proc_env
+        self._stderr_fin = __import__("collections").deque(maxlen=20)  # dernieres lignes, dites a la mort de l'agent
         self.proc = subprocess.Popen(run_cmd, **popen_kwargs)
         threading.Thread(target=self._read_loop, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
@@ -219,6 +231,7 @@ class ACPClient:
         try:
             for line in self.proc.stderr:
                 if line.strip():
+                    self._stderr_fin.append(line.rstrip()[:300])
                     self.on_log("[stderr] " + line.rstrip())
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_acp_client.py', 223, exc_info=True)
@@ -237,18 +250,68 @@ class ACPClient:
             self.on_log(f"[read_loop] {exc}")
         finally:
             self._alive = False
+            # 28/10 (recette reelle) : la mort de l'agent n'etait lisible nulle part ; l'heure et le code se DISENT.
+            try:
+                rc = self.proc.wait(timeout=2)
+            except Exception:  # noqa: BLE001 -- encore vivant (stdout ferme seul) : rc inconnu, dit tel quel
+                rc = self.proc.poll()
+            self.on_log(f"[fin] flux stdout de l'agent ferme, rc={rc}")
             self._inbox.put(None)  # sentinelle EOF
 
+    def _mort(self, cause=""):
+        """Message d'un agent mort ou injoignable : code de sortie + dernieres lignes de stderr."""
+        fin = " | ".join(list(self._stderr_fin)[-5:])
+        return f"agent ACP mort ou injoignable (rc={self.proc.poll()}){cause} ; stderr : {fin or '(vide)'}"
+
     def _send(self, obj):
-        self.proc.stdin.write(json.dumps(obj, ensure_ascii=False) + "\n")
-        self.proc.stdin.flush()
+        if self.proc.poll() is not None:
+            raise RuntimeError(self._mort())
+        try:
+            self.proc.stdin.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            self.proc.stdin.flush()
+        except OSError as e:  # tube casse : Windows rend EINVAL (22) a l'ecriture vers un agent mort
+            raise RuntimeError(self._mort(f", ecriture : {e}")) from e
 
     def _next_id(self):
         with self._lock:
             self._rpc_id += 1
             return self._rpc_id
 
+    @property
+    def permission_timeout(self):
+        """Borne d'une decision injectee : celle donnee au constructeur, sinon PERMISSION_POLICY_TIMEOUT (30 s)."""
+        return PERMISSION_POLICY_TIMEOUT if self._permission_timeout is None else self._permission_timeout
+
     # ---- requetes agent -> client ----
+    def _decider_permission(self, params):
+        """Outcome de permission. Defaut et TOUT echec (levee, expiration, forme illisible) = cancelled (fail-closed)."""
+        annule = {"outcome": "cancelled"}
+        pol = self.permission_policy
+        if pol is None:
+            return annule
+        boite = {}
+
+        def _appel():
+            try:
+                boite["r"] = pol(params)
+            except Exception as exc:  # noqa: BLE001
+                boite["e"] = exc
+
+        th = threading.Thread(target=_appel, daemon=True)
+        th.start()
+        th.join(self.permission_timeout)
+        if th.is_alive():
+            self.on_log(f"[permission_policy] expiree apres {self.permission_timeout} s -> cancelled")
+            return annule
+        if "e" in boite:
+            self.on_log(f"[permission_policy] exception {boite['e']!r} -> cancelled")
+            return annule
+        res = boite.get("r")
+        if not isinstance(res, dict) or not isinstance(res.get("outcome"), str):
+            self.on_log(f"[permission_policy] resultat illisible {type(res).__name__} -> cancelled")
+            return annule
+        return res
+
     def _handle_agent_request(self, obj):
         """L'agent re-questionne le client. Politique SOUVERAINE par defaut :
         permission -> refuse ; fs/read -> lit borne ; fs/write -> refuse."""
@@ -257,7 +320,7 @@ class ACPClient:
         params = obj.get("params") or {}
         if method in ("session/request_permission", "request_permission"):
             self._send({"jsonrpc": "2.0", "id": rid,
-                        "result": {"outcome": {"outcome": "cancelled"}}})
+                        "result": {"outcome": self._decider_permission(params)}})
         elif method in ("fs/read_text_file", "readTextFile"):
             try:
                 with open(params.get("path", ""), "r", encoding="utf-8") as f:
@@ -278,6 +341,11 @@ class ACPClient:
         if obj.get("method") != "session/update":
             return
         params = obj.get("params") or {}
+        if self.on_event is not None:
+            try:
+                self.on_event(params)
+            except Exception as exc:  # noqa: BLE001
+                self.on_log(f"[on_event] exception {exc!r} (ignoree)")
         upd = params.get("update") or params.get("sessionUpdate") or {}
         if not isinstance(upd, dict):
             return
@@ -344,6 +412,9 @@ class ACPClient:
             raise RuntimeError(f"session/new sans sessionId: {res}")
         return sid
 
+    def set_mode(self, sid, mode_id):
+        return self.request("session/set_mode", {"sessionId": sid, "modeId": mode_id}, timeout=30)
+
     def is_session_busy(self, sid: str) -> bool:
         with self._lock:
             return sid in self._busy_sessions
@@ -361,8 +432,10 @@ class ACPClient:
                 "sessionId": sid,
                 "prompt": [{"type": "text", "text": text}],
             }, timeout=timeout)
-            return {"text": "".join(self._chunks).strip(),
-                    "stopReason": res.get("stopReason")}
+            rep = {"text": "".join(self._chunks).strip(), "stopReason": res.get("stopReason")}
+            if isinstance(res.get("usage"), dict):
+                rep["usage"] = res["usage"]  # lecture/ecriture du cache : seule mesure d'economie ; absent = inconnu
+            return rep
         finally:
             with self._lock:
                 self._busy_sessions.discard(sid)
@@ -459,11 +532,12 @@ def _probe(agent: str = "gemini") -> int:
     return 0
 
 
-def _raw() -> int:
+def _raw(agent: str = "gemini", cwd=None, duree: float = 20, prompt=None, options=None) -> int:
     """Diagnostic : spawn l'agent, envoie un initialize minimal, et DUMP tout le
     trafic brut (JSON recu + lignes non-JSON + stderr) pendant 20s. Revele le
-    format reel de l'agent (gemini) sans rien interpreter."""
-    cli = ACPClient(on_log=lambda m: print("LOG ", m, file=sys.stderr, flush=True))
+    format reel de l'agent sans rien interpreter. 28/10 : l'agent et le cwd demandes sont respectes
+    (avant : gemini par defaut quel que soit --agent)."""
+    cli = ACPClient(on_log=lambda m: print("LOG ", m, file=sys.stderr, flush=True), agent=agent, cwd=cwd)
     print("cmd:", cli.cmd, file=sys.stderr, flush=True)
     try:
         cli.start()
@@ -476,7 +550,8 @@ def _raw() -> int:
         "clientInfo": {"name": "Nokido", "version": "raw"}}})
     print("SENT initialize", file=sys.stderr, flush=True)
     sent_new = False
-    deadline = time.monotonic() + 20
+    t0 = time.monotonic()
+    deadline = t0 + float(duree)
     while time.monotonic() < deadline:
         try:
             obj = cli._inbox.get(timeout=1.0)
@@ -493,9 +568,21 @@ def _raw() -> int:
         # des reception de l'initialize -> tenter session/new (voir si deja loggé)
         if obj.get("id") == 1 and not sent_new:
             sent_new = True
-            cli._send({"jsonrpc": "2.0", "id": 2, "method": "session/new",
-                       "params": {"cwd": cli.cwd, "mcpServers": []}})
-            print("SENT session/new", file=sys.stderr, flush=True)
+            params_new = {"cwd": cli.cwd, "mcpServers": []}
+            if options:  # 28/10 : options du SDK Agent transmises par claude-agent-acp (_meta.claudeCode.options)
+                params_new["_meta"] = {"claudeCode": {"options": options}}
+            cli._send({"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": params_new})
+            print("SENT session/new" + (" options=%s" % json.dumps(options) if options else ""),
+                  file=sys.stderr, flush=True)
+        # 28/10 : --prompt envoye DES la reponse a session/new (test : l'agent meurt-il d'inactivite ?)
+        if prompt and obj.get("id") == 2 and isinstance(obj.get("result"), dict):
+            sid = obj["result"].get("sessionId")
+            cli._send({"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+                       "params": {"sessionId": sid, "prompt": [{"type": "text", "text": prompt}]}})
+            print("SENT session/prompt a %.1f s" % (time.monotonic() - t0), file=sys.stderr, flush=True)
+    print("FIN de la sonde a %.1f s, agent %s" % (time.monotonic() - t0,
+          "VIVANT" if cli.proc and cli.proc.poll() is None else "sorti rc=%s" % (cli.proc.poll() if cli.proc else "?")),
+          file=sys.stderr, flush=True)
     cli.close()
     return 0
 
@@ -516,7 +603,11 @@ def main() -> int:
     if "--probe" in argv:
         return _probe(agent)
     if "--raw" in argv:
-        return _raw()
+        cwd = argv[argv.index("--cwd") + 1] if "--cwd" in argv and argv.index("--cwd") + 1 < len(argv) else None
+        duree = float(argv[argv.index("--duree") + 1]) if "--duree" in argv and argv.index("--duree") + 1 < len(argv) else 20
+        prompt = argv[argv.index("--prompt") + 1] if "--prompt" in argv and argv.index("--prompt") + 1 < len(argv) else None
+        oj = argv[argv.index("--options-json") + 1] if "--options-json" in argv and argv.index("--options-json") + 1 < len(argv) else None
+        return _raw(agent, cwd, duree, prompt, json.loads(oj) if oj else None)
     if "--ask" in argv:
         i = argv.index("--ask")
         text = " ".join(argv[i + 1:]).strip()

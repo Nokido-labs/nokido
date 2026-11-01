@@ -274,7 +274,8 @@ def alerte_prs_dependabot(executer=None):
 def acquitter_audit(chemin_etat, argv):
     """`--audit-fait [--modele M] [--version V]` : l'audit couvre ce qui a ete VU (ou ce qui est donne)."""
     def _opt(nom):
-        return argv[argv.index(nom) + 1] if nom in argv and argv.index(nom) + 1 < len(argv) else None
+        from nokido_agent.app.forge_utils import valeur_option   # source unique (cliquet clones 31/10)
+        return valeur_option(argv, nom)
 
     etat = _lire_etat_audit(chemin_etat)
     vu = etat.get("vu") or {}
@@ -621,6 +622,27 @@ def roadmap_summary() -> str:
     return "\n".join(lignes)
 
 
+def _oublier_rappels_si_compaction(entree_hook, etat_dir=None) -> bool:
+    """P1a (GO owner 22/10) : apres une compaction ou un /clear, le contexte repart de zero -- chaque rappel de
+    hook dedoublonne (tools/forge_hook_rappel) doit revenir une fois. Demarrage et reprise gardent l'etat :
+    l'historique repris contient deja les rappels montres."""
+    try:
+        ev = json.loads(entree_hook or "{}")
+    except ValueError:
+        return False
+    if not isinstance(ev, dict) or ev.get("source") not in ("compact", "clear"):
+        return False
+    try:
+        dossier = str(Path(__file__).resolve().parent)
+        if dossier not in sys.path:
+            sys.path.insert(0, dossier)
+        import forge_hook_rappel
+        return forge_hook_rappel.oublier(ev.get("session_id") or "", etat_dir)
+    except Exception as e:  # noqa: BLE001
+        print("[hook-rappel] oubli a la compaction impossible (%s) : un rappel peut manquer" % type(e).__name__)
+        return False
+
+
 def main() -> int:
     # Fix encodage Windows cp1252 → utf-8
     if hasattr(sys.stdout, "reconfigure"):
@@ -639,6 +661,7 @@ def main() -> int:
     print(REGLES)
 
     entree_hook = _entree_hook()
+    _oublier_rappels_si_compaction(entree_hook)
     for bloc in (section_audit(entree_hook, ETAT_AUDIT), alerte_cout_reprise(entree_hook)):
         if bloc:
             print("\n" + bloc)

@@ -163,6 +163,7 @@ def coagulate(limit: int = 200, armed: bool = False, max_rounds: int = 30) -> di
         return {"ok": False, "error": f"critical_events indispo: {e}"}
     tally = {"consumed": 0, "escalate": 0, "heal": 0, "ack": 0, "rounds": 0}
     heal_needed = False
+    lesions: list = []
     for _ in range(max_rounds):
         batch = unprocessed(limit)
         if not batch:
@@ -175,6 +176,7 @@ def coagulate(limit: int = 200, armed: bool = False, max_rounds: int = 30) -> di
                 _escalate(ev, reason)
             elif voie == "heal":
                 heal_needed = True
+                lesions.append(str(ev.get("kind", "")))
             ids.append(ev.get("id"))
         tally["consumed"] += mark_processed([i for i in ids if i is not None])
         tally["rounds"] += 1
@@ -203,7 +205,7 @@ def coagulate(limit: int = 200, armed: bool = False, max_rounds: int = 30) -> di
                 tally["remediation"] = {"ok": False, "skipped": "human_locked"}
             else:
                 from nokido_agent.app.forge_remediation import run_remediation_cycle
-                tally["remediation"] = run_remediation_cycle(armed=armed)
+                tally["remediation"] = run_remediation_cycle(armed=armed, lesions=lesions)
         except Exception as e:  # noqa: BLE001
             tally["remediation"] = {"ok": False, "error": str(e)}
     try:

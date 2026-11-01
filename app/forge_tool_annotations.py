@@ -85,6 +85,7 @@ _TABLE: Dict[str, _T] = {
     "web_search": (True, None, None, True, "recherche web via SearXNG"),
 
     # ---- ecrit, non destructeur, rejouable ---------------------------------
+    "acp": (False, False, False, True, "depose un job ACP asynchrone : effet externe, non idempotent"),
     "agy_add_dir": (False, False, True, False, "ajoute un repertoire autorise a agy ; re-ajout sans effet"),
     "agy_config": (False, False, True, False, "lit ou pose une config agy ; meme valeur = meme etat"),
     "auto_test": (False, False, True, False, "execute la suite et ecrit un rapport, sans muter le code"),
@@ -102,7 +103,7 @@ _TABLE: Dict[str, _T] = {
     "plan": (False, False, False, False, "produit un plan et le journalise"),
     "rag": (False, False, False, False, "search lit, mais les actions d'ingestion ecrivent"),
     "research_agent": (False, False, False, True, "recherche externe puis restitution ecrite"),
-    "route_dt": (False, False, False, False, "route une tache : trace la decision"),
+    # route_dt : absorbe par route_task mode=dt le 31/10 (plus liste, plus d'annotation)
     "route_task": (False, False, False, False, "route une tache : trace la decision"),
     "task": (False, False, False, False, "assigne, reclame ou solde une tache"),
     "ask": (False, False, False, True, "interroge un fournisseur tiers : consomme du quota, sort du perimetre"),
@@ -122,7 +123,7 @@ _TABLE: Dict[str, _T] = {
     "oracle_python_repl": (False, True, False, False, "execute du Python arbitraire"),
     "orchestrate": (False, True, False, False, "enchaine des actions arbitraires"),
     "query": (False, True, False, False, "SQL arbitraire : un DELETE y passe comme un SELECT"),
-    "react_orchestrate": (False, True, False, False, "boucle ReAct : execute des actions arbitraires"),
+    # react_orchestrate : absorbe par orchestrate engine=react le 31/10 (plus liste, plus d'annotation)
     "run": (False, True, False, True, "shell, python ou job detache : effet non borne"),
     "secret": (False, True, False, False, "manipule le coffre : ecrasement d'un secret possible"),
     "skill": (False, True, False, False, "execute une competence, dont l'effet n'est pas borne a l'avance"),

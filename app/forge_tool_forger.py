@@ -27,12 +27,16 @@ sys.path.insert(0, str(ROOT))
 logger = logging.getLogger("Nokido.ToolForger")
 
 DYNAMIC_DIR = ROOT / "app" / "forge_tools_dynamic"
-DYNAMIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# Init package
-_init = DYNAMIC_DIR / "__init__.py"
-if not _init.exists():
-    _init.write_text("# forge_tools_dynamic — outils generes dynamiquement\n")
+
+def _assurer_paquet() -> None:
+    """Cree le paquet des outils forges au PREMIER besoin d'ecrire. 28/10 : il etait cree a l'import du module
+    (importe par le registre du hub et sept autres) -- un import qui ecrit touche l'etat vivant
+    (tests/nr/test_import_sans_ecriture_nr)."""
+    DYNAMIC_DIR.mkdir(parents=True, exist_ok=True)
+    init = DYNAMIC_DIR / "__init__.py"
+    if not init.exists():
+        init.write_text("# forge_tools_dynamic — outils generes dynamiquement\n")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -147,6 +151,7 @@ def _validate_safe(code: str) -> Optional[str]:
 
 def _tool_path(name: str) -> Path:
     safe = re.sub(r"[^a-z0-9_]", "_", name.lower())
+    _assurer_paquet()  # le chemin sert a ecrire l'outil : le paquet doit exister
     return DYNAMIC_DIR / f"tool_{safe}.py"
 
 
@@ -210,6 +215,7 @@ def _registry_load() -> dict:
 
 
 def _registry_save(registry: dict) -> None:
+    _assurer_paquet()
     _REGISTRY_PATH.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
@@ -413,6 +419,66 @@ def _call_sandboxed(name: str, kwargs: dict):
     return None
 
 
+# Pilote WASM S19 (owner 29/10) : interrupteur GLOBAL. Present = l'outil dynamique s'execute en WASM, et un echec WASM
+# est un REFUS : plus aucun repli dans le processus du hub (le repli ouvert « jamais bloquer » ci-dessous).
+_FICHIER_WASM_DYNAMIQUE = Path(__file__).resolve().parent.parent / "sandbox" / "dynamic_wasm.switch"
+_RUNNER_WASM = r'''
+import importlib.util, json, re
+spec = importlib.util.spec_from_file_location("outil", "/outil/outil.py")
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+nom = __NOM__
+safe = re.sub(r"[^a-z0-9_]", "_", nom.lower())
+f = getattr(m, nom, None) or getattr(m, safe, None)
+if f is None:
+    fs = [v for k, v in vars(m).items() if callable(v) and not k.startswith("_")]
+    f = fs[0] if fs else None
+kw = json.load(open("/outil/entree.json", encoding="utf-8"))
+try:
+    out = {"result": f(**kw)} if f else {"error": "aucune fonction appelable"}
+except Exception as e:
+    out = {"error": "%s: %s" % (type(e).__name__, e)}
+print("NOKIDO_RESULTAT " + json.dumps(out, default=str))
+'''
+
+
+def _wasm_arme() -> bool:
+    try:
+        return Path(_FICHIER_WASM_DYNAMIQUE).exists()
+    except OSError:
+        return False
+
+
+def _call_wasm(name: str, kwargs: dict) -> dict:
+    """Outil dynamique en WASM (dossier copie seul monte). Tout echec = REFUS motive, jamais de repli in-process."""
+    import json as _json
+    import shutil
+    import tempfile
+    from nokido_agent.app import forge_sandbox_exec as _sx
+    src = _tool_path(name)
+    if not src.exists():
+        return {"error": f"tool '{name}' not found", "tool": name}
+    if not _sx.wasm_pret():
+        return {"error": "WASM indisponible (wasmtime ou python.wasm absent) : refus, aucun repli in-process "
+                         "(pilote S19)", "tool": name}
+    d = Path(tempfile.mkdtemp(prefix="wasm_outil_"))
+    try:
+        shutil.copy(src, d / "outil.py")
+        (d / "entree.json").write_text(_json.dumps(kwargs, default=str), encoding="utf-8")
+        rc, out, err = _sx.executer_wasm(d, _RUNNER_WASM.replace("__NOM__", _json.dumps(name)))
+        ligne = next((l for l in (out or "").splitlines() if l.startswith("NOKIDO_RESULTAT ")), None)
+        if ligne is None:
+            return {"error": "WASM : aucun resultat (rc %s) %s" % (rc, (err or out or "")[-200:]), "tool": name,
+                    "isolation": "wasm"}
+        r = _json.loads(ligne[len("NOKIDO_RESULTAT "):])
+        r.update(tool=name, isolation="wasm")
+        return r
+    except Exception as e:  # noqa: BLE001 -- echec WASM = refus DIT, jamais un repli
+        return {"error": "WASM : %s: %s" % (type(e).__name__, e), "tool": name}
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
 def forge_call_dynamic(name: str, *, sandboxed: bool = True, **kwargs) -> dict:
     """MCP-callable. Appelle un outil forge dynamiquement.
 
@@ -435,6 +501,9 @@ def forge_call_dynamic(name: str, *, sandboxed: bool = True, **kwargs) -> dict:
                 return {"error": f"SecretGuard: {_viol}", "tool": name}
     except ImportError:
         __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_tool_forger.py', 436, exc_info=True)
+
+    if _wasm_arme():
+        return _call_wasm(name, kwargs)  # pilote S19 : WASM ou refus, jamais in-process
 
     # SANDBOX-FORCED-DEFAULT (idée Ironsmith) : un outil GÉNÉRÉ s'exécute ISOLÉ par défaut.
     # Opt-out explicite (sandboxed=False). Fallback in-process si sandbox indispo -> jamais bloquer.

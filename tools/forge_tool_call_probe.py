@@ -31,6 +31,8 @@ __FORGE_COLOR__ = "metabolisme/provider : quels endpoints savent vraiment appele
 
 import json
 import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -53,6 +55,8 @@ SURFACES = [
     ("mistral", "MISTRAL_API_KEY", "https://api.mistral.ai/v1"),
     ("lmstudio", "LMSTUDIO_TOKEN", "http://127.0.0.1:1234/v1"),
     ("ollama", "", "http://127.0.0.1:11434/v1"),
+    # Ollama Cloud (free tier, OpenAI-compat) : meme base et meme cle que forge_llm_router (ollama_cloud_*)
+    ("ollama_cloud", "OLLAMA_API_KEY", "https://ollama.com/v1"),
 ]
 
 # La liste des modeles ecartes vit dans forge_endpoint_commun (socle partage).
@@ -80,19 +84,83 @@ DEMANDE = "Ou en est la commande CMD-4711 ? Utilise l'outil disponible."
 # etaient identiques dans quatre sondes, et le cliquet de clones l'a vu.
 
 
+def appeler_avec_outils(base: str, cle: str, modele: str, messages: list, tools: list,
+                        timeout: int = TIMEOUT, max_tokens: int = 160,
+                        temperature: float | None = None, tool_choice: str = "auto") -> dict:
+    """Une requete chat/completions AVEC outils (voie unique : sonde ET forge_handoff).
+
+    Rend le corps JSON ; leve urllib.error.HTTPError / OSError a l'appelant (jamais de repli ici).
+    User-Agent et en-tete d'auth viennent de `requete` (sans UA, Groq repond 403).
+    """
+    if max_tokens_double_actif():
+        max_tokens = min(4096, max_tokens * 2)
+    # tool_choice="none" : outils DECLARES (l'historique en contient) mais appel interdit -- tour final du swarm
+    corps = {"model": modele, "messages": messages, "tools": tools,
+             "tool_choice": tool_choice, "max_tokens": max_tokens}
+    if tool_choice is None:
+        # reprise finale sans outils (29/10) : plusieurs API refusent `tools: []` -> aucune des deux cles
+        corps.pop("tool_choice")
+        if not tools:
+            corps.pop("tools")
+    if temperature is not None:
+        corps["temperature"] = temperature
+    charge = json.dumps(corps).encode("utf-8")
+    for essai in (0, 1):
+        try:
+            with urllib.request.urlopen(requete(f"{base}/chat/completions", cle, charge),
+                                        timeout=timeout) as r:
+                corps_rep = json.loads(r.read().decode("utf-8", errors="replace"))
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429:
+                raise
+            attente = _retry_after(exc)
+            if essai == 1 or attente is None or attente > RETRY_AFTER_MAX_S:
+                raise
+            time.sleep(attente)
+    choix = (corps_rep.get("choices") or [{}])[0]
+    msg = choix.get("message") or {}
+    raison = msg.get("reasoning") or msg.get("reasoning_content") or ""
+    corps_rep["_finish_reason"] = choix.get("finish_reason")
+    corps_rep["_raisonnement_car"] = len(raison) if isinstance(raison, str) else 0
+    return corps_rep
+
+
+RETRY_AFTER_MAX_S = 20.0
+_ETAT = threading.local()  # retry_after du dernier 429 ; x2 max_tokens (tour final repris)
+
+
+def _retry_after(exc) -> float | None:
+    """Retry-After en secondes (entier/decimal) ou None s'il manque / est illisible."""
+    try:
+        return float((exc.headers or {}).get("Retry-After"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def max_tokens_double_actif() -> bool:
+    """Vrai dans un `with max_tokens_double()` de ce thread."""
+    return bool(getattr(_ETAT, "double", False))
+
+
+class max_tokens_double:
+    """Contexte : les appels du thread partent avec max_tokens x2 (borne 4096)."""
+
+    def __enter__(self):
+        self._avant = max_tokens_double_actif()
+        _ETAT.double = True
+        return self
+
+    def __exit__(self, *a):
+        _ETAT.double = self._avant
+        return False
+
+
 def interroger(base: str, cle: str, modele: str) -> dict:
     """APPELLE / IGNORE / REFUSE / NON_MESURE, avec la preuve lue dans la reponse."""
-    charge = json.dumps({
-        "model": modele,
-        "messages": [{"role": "user", "content": DEMANDE}],
-        "tools": [OUTIL],
-        "tool_choice": "auto",
-        "max_tokens": 160,
-    }).encode("utf-8")
     try:
-        with urllib.request.urlopen(requete(f"{base}/chat/completions", cle, charge),
-                                    timeout=TIMEOUT) as r:
-            corps = json.loads(r.read().decode("utf-8", errors="replace"))
+        corps = appeler_avec_outils(base, cle, modele,
+                                    [{"role": "user", "content": DEMANDE}], [OUTIL])
     except urllib.error.HTTPError as exc:
         detail = ""
         try:

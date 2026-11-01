@@ -99,6 +99,44 @@ git config --global gpg.ssh.allowedSignersFile ~/.ssh/allowed_signers
 
 ---
 
+## Trust boundary — hub calls vs. a client's native tools
+
+Nokido's guards apply to what goes **through the hub** (MCP on `:8766`), and
+only to that. Be precise about where the line is:
+
+- **Through the hub** — every MCP tool call. The caller's identity is resolved
+  from its per-agent token (`app/forge_videur.py`), and an optional
+  `LaForge-Provenance` header is validated, never trusted raw
+  (`tools/nokido_hub.py::_provenance_http`). Execution runs in a tiered
+  sandbox: `run` defaults to an offline account with loopback only, and
+  egress needs an explicit `network=true`. Repository writes go through
+  `governed_edit` (syntax check, secret scan, edit locks, re-read of the disk).
+  Text bound for a cloud model passes the semantic firewall. Calls are
+  journaled.
+- **Native to the client** — a client's own file, shell or editor tools (for
+  example Claude Code's Read/Write/Bash, an IDE editor, a CLI's shell). They
+  run in the client's process with **your** user rights. The hub does not see
+  them and cannot stop them.
+
+What narrows that gap, and what it is **not**:
+
+- In Claude Code, local `PreToolUse` hooks (`tools/forge_tool_gate.py`,
+  `tools/bash_guard.py`) route native calls on the repository to the hub, or
+  deny them (`LAFORGE_THIN_CLIENT_ENFORCE`). Hooks live in a settings file that
+  you control. They are defense in depth, not a boundary.
+- Clients without hooks are held to the same rules by discipline only
+  ([`docs/RULES_CLIENTS_SANS_HOOKS.md`](docs/RULES_CLIENTS_SANS_HOOKS.md)).
+- Autonomous executors write natively in **their own git worktree**.
+  `governed_edit` refuses them on the shared tree. Their work reaches the main
+  branch only as a commit that is reviewed and integrated.
+- Every commit, on any surface, runs the pre-commit gate
+  (`tools/forge_git_gate.py`). A secret blocks the commit; other checks, such
+  as a firewall redaction token like `[SECRET_n]` copied into a file, warn.
+
+In practice: treat any client that has native tools enabled as holding your
+full user rights. The hub is a policy enforcement point for traffic that
+passes through it. It is not a sandbox around the client.
+
 ## Known limitations
 
 - Nokido is **alpha software**. APIs, schemas, and security primitives can

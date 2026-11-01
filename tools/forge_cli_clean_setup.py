@@ -61,29 +61,36 @@ def clean_copy(src: Path, dst: Path):
 
 import json  # noqa: E402
 
-cs = HOME / ".claude"
-print("claude:", clean_copy(cs, Path(r"C:/tmp/claude_clean")) if cs.exists() else "ABSENT")
-gs = HOME / ".gemini"
-print("gemini:", clean_copy(gs, Path(r"C:/tmp/gemini_home/.gemini")) if gs.exists() else "ABSENT")
 
-# Gemini : settings.json a été exclu (il portait les mcpServers = bruit), MAIS il portait
-# AUSSI selectedAuthType (= comment s'authentifier). On reconstruit un settings.json
-# MINIMAL : auth method seule, ZÉRO mcpServers/context -> OAuth propre.
-gsrc = HOME / ".gemini" / "settings.json"
-if gsrc.exists():
-    try:
-        orig = json.loads(gsrc.read_text(encoding="utf-8", errors="replace"))
-        auth = orig.get("selectedAuthType") or orig.get("security", {}).get("auth", {}).get("selectedType")
-        clean = {}
-        if auth:
-            clean["selectedAuthType"] = auth
-            clean["security"] = {"auth": {"selectedType": auth}}
-        if "theme" in orig:
-            clean["theme"] = orig["theme"]
-        dst = Path(r"C:/tmp/gemini_home/.gemini/settings.json")
-        dst.write_text(json.dumps(clean, indent=2), encoding="utf-8")
-        print("gemini settings.json minimal:", clean)
-    except Exception as e:
-        print("gemini settings minimal ERR:", type(e).__name__, e)
-else:
-    print("gemini settings.json source ABSENT")
+def main():
+    # 28/10 : copies et reecriture de settings.json etaient au chargement du module ; elles sont sous main().
+    cs = HOME / ".claude"
+    print("claude:", clean_copy(cs, Path(r"C:/tmp/claude_clean")) if cs.exists() else "ABSENT")
+    gs = HOME / ".gemini"
+    print("gemini:", clean_copy(gs, Path(r"C:/tmp/gemini_home/.gemini")) if gs.exists() else "ABSENT")
+
+    # Gemini : settings.json a été exclu (il portait les mcpServers = bruit), MAIS il portait
+    # AUSSI selectedAuthType (= comment s'authentifier). On reconstruit un settings.json
+    # MINIMAL : auth method seule, ZÉRO mcpServers/context -> OAuth propre.
+    gsrc = HOME / ".gemini" / "settings.json"
+    if gsrc.exists():
+        try:
+            orig = json.loads(gsrc.read_text(encoding="utf-8", errors="replace"))
+            auth = orig.get("selectedAuthType") or orig.get("security", {}).get("auth", {}).get("selectedType")
+            clean = {}
+            if auth:
+                clean["selectedAuthType"] = auth
+                clean["security"] = {"auth": {"selectedType": auth}}
+            if "theme" in orig:
+                clean["theme"] = orig["theme"]
+            dst = Path(r"C:/tmp/gemini_home/.gemini/settings.json")
+            dst.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+            print("gemini settings.json minimal:", clean)
+        except Exception as e:
+            print("gemini settings minimal ERR:", type(e).__name__, e)
+    else:
+        print("gemini settings.json source ABSENT")
+
+
+if __name__ == "__main__":
+    main()

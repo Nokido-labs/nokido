@@ -1,0 +1,272 @@
+{
+  "date": "2026-10-28T14:24:46",
+  "agents": [
+    {
+      "agent": "gemini",
+      "statut": "ILLISIBLE",
+      "motif": "RuntimeError: session/new -> {'code': -32000, 'message': 'This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products: https://antigravity.google'}",
+      "cmd": [
+        "%USERPROFILE%\\AppData\\Roaming\\npm\\gemini.CMD",
+        "--acp"
+      ],
+      "compte": "user"
+    },
+    {
+      "agent": "claude",
+      "statut": "OK",
+      "motif": null,
+      "cmd": [
+        "%USERPROFILE%\\AppData\\Roaming\\npm\\claude-agent-acp.CMD"
+      ],
+      "compte": "user",
+      "protocolVersion": 1,
+      "loadSession": true,
+      "promptCapabilities": {
+        "image": true,
+        "embeddedContext": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "authMethods": [],
+      "sessionId": "a3dfa763-2b0c-4845-a1c8-446885d3d738",
+      "modes": {
+        "currentModeId": "auto",
+        "availableModes": [
+          {
+            "id": "auto",
+            "name": "Auto",
+            "description": "Use a model classifier to approve/deny permission prompts"
+          },
+          {
+            "id": "default",
+            "name": "Default",
+            "description": "Standard behavior, prompts for dangerous operations"
+          },
+          {
+            "id": "acceptEdits",
+            "name": "Accept Edits",
+            "description": "Auto-accept file edit operations"
+          },
+          {
+            "id": "plan",
+            "name": "Plan Mode",
+            "description": "Planning mode, no actual tool execution"
+          },
+          {
+            "id": "dontAsk",
+            "name": "Don't Ask",
+            "description": "Don't prompt for permissions, deny if not pre-approved"
+          },
+          {
+            "id": "bypassPermissions",
+            "name": "Bypass Permissions",
+            "description": "Bypass all permission checks"
+          }
+        ]
+      },
+      "models": null
+    },
+    {
+      "agent": "codex",
+      "statut": "OK",
+      "motif": null,
+      "cmd": [
+        "%USERPROFILE%\\AppData\\Roaming\\npm\\codex-acp.CMD"
+      ],
+      "compte": "user",
+      "protocolVersion": 1,
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "mcpCapabilities": {
+        "acp": false,
+        "http": true,
+        "sse": false
+      },
+      "authMethods": [
+        {
+          "id": "api-key",
+          "name": "API Key",
+          "description": "Use an API key to authenticate",
+          "_meta": {
+            "api-key": {
+              "provider": "openai"
+            }
+          }
+        },
+        {
+          "id": "chat-gpt",
+          "name": "ChatGPT",
+          "description": "Use ChatGPT to authenticate"
+        }
+      ],
+      "sessionId": "01a182af-2350-7093-b759-d2cad72e6b0c",
+      "modes": {
+        "availableModes": [
+          {
+            "id": "read-only",
+            "name": "Read-only",
+            "description": "Requires approval to edit files and run commands."
+          },
+          {
+            "id": "agent",
+            "name": "Agent",
+            "description": "Read and edit files, and run commands."
+          },
+          {
+            "id": "agent-full-access",
+            "name": "Agent (full access)",
+            "description": "Codex can edit files outside this workspace and run commands with network access. Exercise caution when using."
+          }
+        ],
+        "currentModeId": "agent"
+      },
+      "models": {
+        "availableModels": [
+          {
+            "modelId": "gpt-5.5[low]",
+            "name": "GPT-5.5 (low)",
+            "description": "Frontier model for complex coding, research, and real-world work. Fast responses with lighter reasoning"
+          },
+          {
+            "modelId": "gpt-5.5[medium]",
+            "name": "GPT-5.5 (medium)",
+            "description": "Frontier model for complex coding, research, and real-world work. Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "modelId": "gpt-5.5[high]",
+            "name": "GPT-5.5 (high)",
+            "description": "Frontier model for complex coding, research, and real-world work. Greater reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.5[xhigh]",
+            "name": "GPT-5.5 (xhigh)",
+            "description": "Frontier model for complex coding, research, and real-world work. Extra high reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.4[low]",
+            "name": "GPT-5.4 (low)",
+            "description": "Strong model for everyday coding. Fast responses with lighter reasoning"
+          },
+          {
+            "modelId": "gpt-5.4[medium]",
+            "name": "GPT-5.4 (medium)",
+            "description": "Strong model for everyday coding. Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "modelId": "gpt-5.4[high]",
+            "name": "GPT-5.4 (high)",
+            "description": "Strong model for everyday coding. Greater reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.4[xhigh]",
+            "name": "GPT-5.4 (xhigh)",
+            "description": "Strong model for everyday coding. Extra high reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.4-mini[low]",
+            "name": "GPT-5.4-Mini (low)",
+            "description": "Small, fast, and cost-efficient model for simpler coding tasks. Fast responses with lighter reasoning"
+          },
+          {
+            "modelId": "gpt-5.4-mini[medium]",
+            "name": "GPT-5.4-Mini (medium)",
+            "description": "Small, fast, and cost-efficient model for simpler coding tasks. Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "modelId": "gpt-5.4-mini[high]",
+            "name": "GPT-5.4-Mini (high)",
+            "description": "Small, fast, and cost-efficient model for simpler coding tasks. Greater reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.4-mini[xhigh]",
+            "name": "GPT-5.4-Mini (xhigh)",
+            "description": "Small, fast, and cost-efficient model for simpler coding tasks. Extra high reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.3-codex[low]",
+            "name": "GPT-5.3-Codex (low)",
+            "description": "Coding-optimized model. Fast responses with lighter reasoning"
+          },
+          {
+            "modelId": "gpt-5.3-codex[medium]",
+            "name": "GPT-5.3-Codex (medium)",
+            "description": "Coding-optimized model. Balances speed and reasoning depth for everyday tasks"
+          },
+          {
+            "modelId": "gpt-5.3-codex[high]",
+            "name": "GPT-5.3-Codex (high)",
+            "description": "Coding-optimized model. Greater reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.3-codex[xhigh]",
+            "name": "GPT-5.3-Codex (xhigh)",
+            "description": "Coding-optimized model. Extra high reasoning depth for complex problems"
+          },
+          {
+            "modelId": "gpt-5.2[low]",
+            "name": "GPT-5.2 (low)",
+            "description": "Optimized for professional work and long-running agents. Balances speed with some reasoning; useful for straightforward queries and short explanations"
+          },
+          {
+            "modelId": "gpt-5.2[medium]",
+            "name": "GPT-5.2 (medium)",
+            "description": "Optimized for professional work and long-running agents. Provides a solid balance of reasoning depth and latency for general-purpose tasks"
+          },
+          {
+            "modelId": "gpt-5.2[high]",
+            "name": "GPT-5.2 (high)",
+            "description": "Optimized for professional work and long-running agents. Maximizes reasoning depth for complex or ambiguous problems"
+          },
+          {
+            "modelId": "gpt-5.2[xhigh]",
+            "name": "GPT-5.2 (xhigh)",
+            "description": "Optimized for professional work and long-running agents. Extra high reasoning for complex problems"
+          }
+        ],
+        "currentModelId": "gpt-5.5[medium]"
+      }
+    },
+    {
+      "agent": "opencode",
+      "statut": "OK",
+      "motif": null,
+      "cmd": [
+        "%USERPROFILE%\\AppData\\Roaming\\npm\\opencode.CMD",
+        "acp"
+      ],
+      "compte": "user",
+      "protocolVersion": 1,
+      "loadSession": true,
+      "promptCapabilities": {
+        "embeddedContext": true,
+        "image": true
+      },
+      "mcpCapabilities": {
+        "http": true,
+        "sse": true
+      },
+      "authMethods": [
+        {
+          "description": "Run `opencode auth login` in the terminal",
+          "name": "Login with opencode",
+          "id": "opencode-login"
+        }
+      ],
+      "sessionId": "ses_e7d50bc5dffesehlIOZeYxEhZG",
+      "modes": null,
+      "models": null
+    },
+    {
+      "agent": "agy",
+      "statut": "HORS_ACP",
+      "motif": "AGY ne parle pas ACP : hors ACP (harness), non tente",
+      "cmd": null,
+      "compte": "user"
+    }
+  ]
+}

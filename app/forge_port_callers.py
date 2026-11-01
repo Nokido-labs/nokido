@@ -165,6 +165,110 @@ def echantillon() -> dict:
     return {"ports_vus": len(vus), "registre": len(reg)}
 
 
+# ── Journal des NOUVELLES connexions vers Ollama (28/10) ────────────────────────────────────────
+# deepseek-coder:6.7b charge a 13:19 sans appelant prouve : l'etat cumule ci-dessus compte, il ne
+# date ni ne nomme chaque connexion. Brique reutilisee : le sampler du resource manager l'appelle a
+# chaque tour (pas de demon de plus), l'attribution passe par forge_process_inventory.ancetre_identifie
+# (carte pid du superviseur), la rotation par forge_resource_manager._ecrire_jsonl. Jamais par le nom.
+PORT_OLLAMA = 11434
+OLLAMA_JOURNAL = _ROOT / "logs" / "ollama_appelants.jsonl"
+OLLAMA_CADENCE_S = 5.0
+OLLAMA_MAX_BYTES = 512 * 1024
+_ETAT_OLLAMA: dict = {"vus": set(), "dernier": 0.0}
+
+
+def _inventaire():
+    try:
+        from nokido_agent.tools import forge_process_inventory as inv
+        if hasattr(inv, "ancetre_identifie"):
+            return inv
+    except ImportError as e:
+        __import__("logging").getLogger(__name__).debug("inventaire hors paquet (%s) : repli par chemin", e)
+    # repli checkout : charge LE fichier tools/ par chemin (un homonyme plus haut dans sys.path ne l'usurpe pas)
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_forge_process_inventory_tools",
+                                                  str(_ROOT / "tools" / "forge_process_inventory.py"))
+    inv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(inv)
+    return inv
+
+
+def releve_appelants(conns, vivants: dict, pid_service: dict, identites: dict, vus: set, now: float,
+                     port: int = PORT_OLLAMA):
+    """(lignes_nouvelles, vus_courants). Une ligne par connexion ESTABLISHED vers `port` absente de `vus`.
+    `vus` est remplace par l'instantane : l'ensemble reste borne au nombre de connexions vivantes."""
+    inv = _inventaire()
+    courants, lignes = set(), []
+    for c in conns:
+        if c.status != "ESTABLISHED" or not c.raddr or c.raddr.port != port or not c.pid:
+            continue
+        cle = (c.pid, c.laddr.port if c.laddr else None)
+        courants.add(cle)
+        if cle in vus:
+            continue
+        if c.pid in pid_service:
+            service = pid_service[c.pid]
+        else:
+            anc = inv.ancetre_identifie(c.pid, vivants, pid_service, identites)
+            service = anc["identite"] if anc else "ILLISIBLE"
+        lignes.append({"ts": now, "pid": c.pid, "nom": (vivants.get(c.pid) or {}).get("nom"),
+                       "service": service})
+    return lignes, courants
+
+
+def _vivants_des_chaines(conns, port: int = PORT_OLLAMA) -> dict:
+    """{pid: {nom, ppid}} limite aux clients d'Ollama et a leurs ancetres (pas de process_iter global)."""
+    import psutil
+
+    out: dict = {}
+    for c in conns:
+        if c.status != "ESTABLISHED" or not c.raddr or c.raddr.port != port or not c.pid:
+            continue
+        pid = c.pid
+        for _ in range(9):
+            if pid is None or pid in out:
+                break
+            try:
+                p = psutil.Process(pid)
+                out[pid] = {"nom": p.name(), "ppid": p.ppid(), "cree": p.create_time()}
+                pid = out[pid]["ppid"]
+            except Exception:  # noqa: BLE001 - processus parti/refuse : la chaine s'arrete, service = ILLISIBLE
+                break
+    return out
+
+
+def tick_appelants_ollama(etat: dict | None = None, chemin=None, now: float | None = None, conns=None,
+                          vivants=None, pid_service=None, max_bytes: int = OLLAMA_MAX_BYTES) -> int:
+    """Un releve borne (>= 5 s entre deux, une seule lecture des sockets). Ne leve JAMAIS. Rend le nb de lignes."""
+    etat = _ETAT_OLLAMA if etat is None else etat
+    now = time.time() if now is None else now
+    if now - etat.get("dernier", 0.0) < OLLAMA_CADENCE_S:
+        return 0
+    etat["dernier"] = now
+    try:
+        if conns is None:
+            import psutil
+
+            conns = psutil.net_connections(kind="tcp")
+        if vivants is None:
+            vivants = _vivants_des_chaines(conns)
+        if pid_service is None:
+            pid_service = _registre()
+        lignes, etat["vus"] = releve_appelants(conns, vivants, pid_service, {}, etat.get("vus", set()), now)
+        if lignes:
+            try:
+                from nokido_agent.app.forge_resource_manager import _ecrire_jsonl
+            except ImportError:
+                from forge_resource_manager import _ecrire_jsonl
+            for r in lignes:
+                _ecrire_jsonl(chemin or OLLAMA_JOURNAL, r, max_bytes)
+        return len(lignes)
+    except Exception:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).debug("releve ollama ignore", exc_info=True)
+        return 0
+
+
 def _charger() -> dict:
     try:
         return json.loads(ETAT.read_text(encoding="utf-8")) or {}

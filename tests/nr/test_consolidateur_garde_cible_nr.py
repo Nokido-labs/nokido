@@ -144,9 +144,13 @@ def test_le_daemon_reveille_attend_au_lieu_de_relancer(monkeypatch, tmp_path):
         raise _Arret()
 
     monkeypatch.setattr(m.time, "sleep", dormir)
+    # 30/10 : le daemon bat a chaque tick (forge_heartbeat.Cadence) ; jamais de vrai pouls ecrit depuis un test.
+    from nokido_agent.app import forge_heartbeat as _hb
+    monkeypatch.setattr(_hb, "beat_daemon", lambda nom, **k: True)
     monkeypatch.setattr(sys, "argv", ["forge_memory_consolidator.py", "--daemon"])
     monkeypatch.setattr(sys, "stdout", io.StringIO())   # main() reemballe stdout.buffer : pas sous la capture pytest
     with pytest.raises(_Arret):
         m.main()
     assert cycles == [], "aucun cycle avant la fin de l'intervalle"
-    assert sommeils and sommeils[0] == pytest.approx(m.INTERVAL_S - 100), sommeils
+    # Plus de sommeil de 12 h d'un bloc : un tick court porte le pouls (avant : sleep(INTERVAL_S - 100) muet).
+    assert sommeils and sommeils[0] < m.INTERVAL_S - 100, sommeils

@@ -88,7 +88,7 @@ def _git_distant(sub, *a: str, timeout: int = 120):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def git(*a: str, timeout: int = 120, arbre: bool = False):
+def git(*a: str, timeout: int = 120, arbre: bool = False, index: str | None = None):
     """Invoque git sur le superrepo par --git-dir / --work-tree, PAS par -C.
 
     Mesure 2026-09-03 : `-C <racine>` change le repertoire COURANT, ce que
@@ -112,6 +112,9 @@ def git(*a: str, timeout: int = 120, arbre: bool = False):
     celle-ci. Meme sortie vide, meme conclusion fausse, autre origine.
     """
     cred, env = _auth()
+    if index:  # index temporaire (bump des seuls pointeurs) : l'index de l'owner n'est jamais touche
+        import os as _os
+        env = dict(env or _os.environ, GIT_INDEX_FILE=str(index))
     arbre_args = ["--work-tree", str(SUPERREPO)] if arbre else []
     return subprocess.run(
         ["git", "-c", "safe.directory=*",
@@ -182,6 +185,74 @@ def _phase_publication(branche: str) -> int:
     say("NON PUBLIE (ou non verifiable) : %s"
         % r.get("etat", "le distant ne porte pas le commit local"))
     return 1
+
+
+def _pointeurs_inchanges(paths) -> bool:
+    """Rien d'indexe sur les SEULS pointeurs (le reste de l'index superrepo appartient a l'owner).
+
+    Compare les VALEURS (`rev-parse :p` = entree de l'index, `rev-parse HEAD:p`), pas un `diff --cached --quiet` :
+    mesure 26/10 22 h, sous LaForgeTrusted, « index : Nokido -> f330cb06 » puis « rien de stage » alors que le
+    pointeur ETAIT indexe (commite a la main, 0e1b376). Un diff respecte diff.ignoreSubmodules / submodule.*.ignore et
+    resout un pathspec ; une revision non. Lecture impossible = « change » (UNKNOWN != NO) : au pire git refuse un
+    commit vide et le DIT, au lieu d'un pointeur bumpe laisse en plan.
+    """
+    for p in paths:
+        index, tete = git("rev-parse", ":%s" % p), git("rev-parse", "HEAD:%s" % p)
+        if index.returncode != 0 or tete.returncode != 0:
+            return False
+        if index.stdout.strip() != tete.stdout.strip():
+            return False
+    return True
+
+
+def _committer_pointeurs(paths, sujet: str, corps: str = ""):
+    """Commit des SEULS gitlinks, par un INDEX TEMPORAIRE : HEAD + les pointeurs, rien d'autre, sans pathspec.
+
+    Mesure 26/10 : sans garde, un CLAUDE.md que l'owner avait indexe est parti dans « chore(sm): bump gitlink
+    Nokido » (a497850, defait avant push). Le remede d'alors (`commit -- <gitlink>`) re-lit l'ARBRE du submodule :
+    sous LaForgeTrusted (dossier illisible) il rendait `pathspec 'Nokido' did not match` (31/10, 1/11), et avec un
+    dossier ABSENT il commitait la SUPPRESSION du gitlink (`delete mode 160000`, NR du 1/11). L'index temporaire
+    (`GIT_INDEX_FILE`) = `read-tree HEAD` + les entrees des pointeurs lues dans le VRAI index : `git commit`
+    (hooks compris) ne voit que lui, ne relit aucun arbre, et l'index de l'owner reste intact."""
+    import os as _os
+    import tempfile as _tf
+
+    voulus = {str(p).replace("\\", "/") for p in paths}
+    # LECTURE de l'index : JAMAIS `arbre=True`. Mesure 1/11 sous LaForgeTrusted : avec --work-tree et un CWD hors de
+    # l'arbre, git applique un pathspec implicite tire du CWD -> sortie VIDE, rc=0 (meme piege que ls-tree, 04/09,
+    # cf. git()). Le garde ci-dessous a refuse (« pointeur absent ») au lieu de commiter a l'aveugle.
+    etage = git("ls-files", "--stage")   # sans pathspec : on filtre ici
+    if etage.returncode != 0:
+        return subprocess.CompletedProcess(["git", "ls-files"], 2, "", "index ILLISIBLE (%s) : commit refuse"
+                                           % (etage.stderr or "").strip()[:200])
+    entrees = {}
+    for ligne in etage.stdout.splitlines():
+        meta, _, chemin = ligne.partition("\t")
+        if chemin in voulus and len(meta.split()) == 3:
+            mode, sha, _stage = meta.split()
+            entrees[chemin] = (mode, sha)
+    manquants = sorted(voulus - set(entrees))
+    if manquants:
+        return subprocess.CompletedProcess(["git", "ls-files"], 2, "", "pointeur(s) absent(s) de l'index (%s) : "
+                                           "commit refuse" % ", ".join(manquants))
+    fd, idx = _tf.mkstemp(prefix="bump_index_")
+    _os.close(fd)
+    _os.unlink(idx)                                  # git cree lui-meme le fichier d'index
+    try:
+        r = git("read-tree", "HEAD", index=idx)
+        for chemin, (mode, sha) in sorted(entrees.items()):
+            if r.returncode != 0:
+                break
+            r = git("update-index", "--add", "--cacheinfo", "%s,%s,%s" % (mode, sha, chemin), index=idx)
+        if r.returncode != 0:
+            return r
+        return git(*(["commit", "-m", sujet] + (["-m", corps] if corps else [])), arbre=True, index=idx)
+    finally:
+        for f in (idx, idx + ".lock"):
+            try:
+                _os.unlink(f)
+            except OSError:  # muet-ok : index temporaire deja absent
+                pass
 
 
 def main() -> int:
@@ -359,7 +430,7 @@ def main() -> int:
         say("  index : %s -> %s" % (cible, sha[:8]))
 
     # Ne rien committer si le staging est vide (pointeur deja a jour entre-temps).
-    if git("diff", "--cached", "--quiet", arbre=True).returncode == 0:
+    if _pointeurs_inchanges(paths):
         say("rien de stage — pointeur deja a jour, pas de commit vide")
         return _phase_publication(args.branche) if args.push else 0
 
@@ -379,7 +450,7 @@ def main() -> int:
         corps += ("\n\nUn clone frais ne recupere PAS le travail commite dans un "
                   "submodule tant que le superrepo pointe l'ancien sha. Ecart "
                   "detecte par forge_delivery_integrity._scan_submodule_drift.")
-    r = git(*(["commit", "-m", sujet] + (["-m", corps] if corps else [])), arbre=True)
+    r = _committer_pointeurs(paths, sujet, corps)
     say(f"commit rc={r.returncode}")
     for line in ((r.stdout or "") + (r.stderr or "")).strip().splitlines()[-10:]:
         say("  | " + line[:150])

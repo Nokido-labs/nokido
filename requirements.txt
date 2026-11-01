@@ -47,7 +47,10 @@ py7zr==1.1.4
 # 2026-09-07. La 1.96.0 publie litellm-1.96.0-cp314-cp314-win_amd64.whl : installation
 # binaire, aucune toolchain requise. Toute la serie 1.84-1.92 reste hors de portee
 # (requires_python <3.14), la 1.96 declare <3.15,>=3.10.
-litellm==1.96.2
+# 1.100.4 le 2026-11-01 : GHSA-7hp6-4w63-5g45 / CVE-2026-114612 (internal_user -> proxy_admin + RCE sur le PROXY),
+# signale par Dependabot sur ce fichier. Wheel cp310-abi3 win_amd64 : installation binaire. Montee faite et
+# mesuree dans laforge_py314, la base et nokido_services (500 NR verts, CI de reference a831004c0 certifiante).
+litellm==1.100.4
 # 2.32.5 -> 2.33.1 le 2026-09-10 : ferme 2 alertes (GHSA-gc5v-m9x4-r6x2, medium).
 # 2.33.1 et non 2.33.0 (la version que l'avis nomme) parce que c'est celle qui
 # tourne deja dans laforge_py314 : on aligne le fichier sur le reel plutot que
@@ -57,7 +60,7 @@ python-dotenv==1.2.2
 
 # Messaging / IPC
 pyzmq==27.1.0
-msgpack==1.2.1
+msgpack==1.2.3
 
 # Graph
 networkx==3.4.2
@@ -65,7 +68,7 @@ networkx==3.4.2
 # Web scraping / ingest
 markdownify==1.2.2
 beautifulsoup4==4.14.3
-pypdf==6.19.0
+pypdf==6.21.4
 
 # System / security
 psutil==7.2.2
@@ -102,7 +105,7 @@ netmiko==4.8.0  # netcfg parc info — SSH multi-vendor (Huawei/Aruba/Cisco), ti
 # Dev / UX
 rich==14.3.2
 tqdm==4.67.3
-GitPython==3.2.0
+GitPython==3.2.1
 
 # AMI cognitive stack — Liquid NN (forge_lnn_monitor) + DSPy router (forge_dspy_router)
 ncps==1.0.1

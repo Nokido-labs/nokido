@@ -87,7 +87,7 @@ def test_la_sonde_passe_par_ask_et_classe_en_liste_blanche():
 def test_seuls_les_ok_sont_membres_et_le_swarm_les_lit(tmp_path):
     chemin = tmp_path / "swarm_membres_vivants.json"
     ft.ecrire_membres_vivants({"a:c": {"etat": "OK", "ms": 10}, "d:f": {"etat": "VIDE", "ms": 9}},
-                              chemin, maintenant=1000.0)
+                              chemin, maintenant=1000.0, forces={"a:c": {"force": 1.0, "source": "matrice"}})
     doc = json.loads(chemin.read_text(encoding="utf-8"))
     assert doc["membres_ok"] == ["a:c"]
     membres, raison = cs.membres_par_defaut(chemin, maintenant=1000.0 + 60)

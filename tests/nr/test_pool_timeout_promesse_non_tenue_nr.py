@@ -59,7 +59,12 @@ if str(ROOT) not in sys.path:
 # Cliquet MESURÉ le 2026-09-22 : 36 sites `with ThreadPoolExecutor(...)` dans app/ et
 # tools/, dont 8 portent un `.result(timeout=...)`. Les 28 autres n'promettent rien :
 # leur attente est assumée, ce n'est pas un défaut.
-PLAFOND_PROMESSES_NON_TENUES = 8
+# Requalifie le 2026-10-29 : forge_embed_router (_appel_borne, c572ae5b5) et forge_goap (drain_queue) CORRIGES,
+# CONSTATE par ce detecteur (6 restants : mermaid_gen, orchestrator, mcp_nr, evolutionary_engine x2,
+# source_discovery). Le cliquet descend a la mesure du jour.
+# 29/10 soir : les 6 restants CORRIGES (mcp_nr par OPENCODE_DEFAUT4 05357ea6b ; mermaid_gen, orchestrator,
+# evolutionary_engine x2, source_discovery a la main, meme patron) -> ZERO. Plus aucune promesse non tenue toleree.
+PLAFOND_PROMESSES_NON_TENUES = 0
 
 _OUVERTURE = re.compile(r"with\s+[\w.]*ThreadPoolExecutor\s*\(")
 _PROMESSE = re.compile(r"\.result\s*\(\s*timeout\s*=")
@@ -138,13 +143,13 @@ def test_le_nombre_de_promesses_non_tenues_ne_croit_pas():
     )
 
 
-def test_les_organes_chauds_restent_nommes():
-    """Si `forge_embed_router` ou `forge_goap` sortent de la liste, c'est une BONNE
-    nouvelle — mais elle doit être CONSTATÉE et le registre requalifié, pas subie."""
+def test_les_organes_chauds_restent_corriges():
+    """Requalifie le 2026-10-29 (la sentinelle « restent nommes » a mordu comme prevu : correction CONSTATEE, registre
+    requalifie). Desormais un cliquet de NON-RETOUR : les deux organes chauds ne portent plus le motif, et le
+    registre dit leur correction."""
     promesses, _ = recenser()
     fichiers = {p.rsplit(":", 1)[0] for p in promesses}
-    chauds = {"app/forge_embed_router.py", "app/forge_goap.py"} & fichiers
-    assert chauds, (
-        "ni forge_embed_router ni forge_goap ne portent plus le motif : le défaut C2.1 "
-        "a peut-être été corrigé. Relire le registre et requalifier la ligne."
-    )
+    revenus = {"app/forge_embed_router.py", "app/forge_goap.py"} & fichiers
+    assert not revenus, "le motif C2.1 est REVENU dans un organe chaud : %s" % sorted(revenus)
+    registre = (ROOT / "docs" / "AUDIT_SECURITE_REGISTRE.md").read_text(encoding="utf-8")
+    assert "_appel_borne" in registre and "GOAP_DELAI_S" in registre

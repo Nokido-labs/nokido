@@ -39,6 +39,7 @@ def test_la_delegation_ecrit_le_prompt_et_n_envoie_rien_sur_stdin(tmp_path, monk
     monkeypatch.setattr(E, "_attendre_harness", _attendre)
     monkeypatch.setattr(E, "_juger_livraison", lambda ok, detail, wt, avant, *a, **k: (ok, "effet", None))
     monkeypatch.setattr(E, "_clore_delegation", lambda *a, **k: None)
+    monkeypatch.setattr(E, "_cle_mistral_au_coffre", lambda: True)
     E._delegate_to_vibe({"id": "t-vibe", "description": "zorglub repeint les quokkas"}, "jeton-de-test")
     job = vus["job"]
     assert not job.get("send"), "le prompt ne part plus sur stdin (Vibe ouvrait sa TUI)"

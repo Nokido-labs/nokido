@@ -1,0 +1,2690 @@
+{
+  "genere_le": "2026-10-31T12:02:32+00:00",
+  "total": 280,
+  "par_etat": {
+    "CLOS": 189,
+    "PARTIEL": 61,
+    "OUVERT": 18,
+    "DECISION_OWNER": 0,
+    "OWNER_PLANIFIE": 6,
+    "GELE": 1,
+    "SANS_MARQUEUR": 5
+  },
+  "items": [
+    {
+      "cle": "P1_conseiller_souverain_executeur_escalade_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_doc_surfaces_ingeree_et_comprise_20261024",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "APPLIQUER les reglages prouves par CLI avec sonde de cout, fiche « quoi / quand / transposition Nokido » branchee a introspect et aux skills, dedoublonnage advisor-tool (388 morceaux)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_batch_et_advisor_phases_2_et_3_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "DECISION OWNER (advisor = API Claude PAYANTE, a l'arrivee du quota API) puis 3-5 taches S tirees du doc, deployer phases 2 et 3 de l'advisor SQL et du batch processing d'appels",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_reparer_modele_nvidia_nemotron_super_20261030",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "remplacer au routeur (app/forge_llm_router.py, entree nvidia_nemotron_super, models nvidia/nemotron-3-super-120b-a12b) l'identifiant retire chez NVIDIA (404 « Function ... Not Found ») par un modele L",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_census_evite_appels_voues_echec_20261030",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_regulation_et_hygiene_travail_en_vol_20261030",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_enquete_sans_boucle_agent_20261030",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "modele gratuit FORT disponible (nvidia_nemotron_super 404 a reparer au catalogue, quotas groq/openrouter), puis brancher un mode `enquete` dans l'executeur (taches lecture seule -> cette voie au lieu ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_cout_tokens_agents_delegues_20261030",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "reduire le NOMBRE DE TOURS (corps de fonctions precharges dans la consigne), appliquer les reglages documentes par CLI (Gemini CLI model.maxSessionTurns / includeTools a verifier sur agy par sonde), a",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_executeur_reveil_et_parallele_20261030",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_cache_lecture_partage_etag_20261030",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_tous_cli_execution_supervisee_hub_20261024",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "transposer worktree-de-tache + modele/effort par taille a OpenCode/Codex/Vibe/Claude headless (verifier ACP session/new cwd), tester never en reel sur Vibe, statuer sur Codex/Copilot/Cline et usurpati",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_defi_anthropic_performance_takehome_20261027",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "changement de STRUCTURE (plateau ~1041 ; CP-SAT par fenetres : 0 gain, glouton localement optimal ; suite = CP-SAT choisissant l'unite des ops flexibles, gain plafonne ~35 cycles), axes B/C/D en cours",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_preparation_takehome_anthropic_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_defi_anthropic_performance_takehome_20261027"
+      ]
+    },
+    {
+      "cle": "P1_essai_mesure_sous_agents_claude_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_methode_D_nettoyer_worktrees_perimes_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "essaim_local_mesure_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P2_ecarts_doc_code_a_construire_20261018"
+      ]
+    },
+    {
+      "cle": "P0_security_md_frontiere_outils_natifs_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_gate_jetons_de_caviardage_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_commercial_md_archive_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_modulation_effort_modele_par_palier_20261023__C_rejete",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "rien : decision de rejet prise et consignee le 24/10, la mesure C a ete reconfiee a CLAUDE_HEADLESS (suivie dans l'item parent P1_modulation_effort_modele_par_palier_20261023)",
+      "decision": false,
+      "cite": [
+        "P1_modulation_effort_modele_par_palier_20261023"
+      ]
+    },
+    {
+      "cle": "P1_tous_cli_execution_supervisee_hub_20261024__mesures",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "rien dans CET enregistrement : journal de mesures termine, les suites (Vibe interactif sans restriction, Codex/Cline, usurpation d'attribution) vivent dans l'item parent P1_tous_cli_execution_supervis",
+      "decision": false,
+      "cite": [
+        "P1_tous_cli_execution_supervisee_hub_20261024"
+      ]
+    },
+    {
+      "cle": "P1_rel_depuis_tests_rouges_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "rien ; suites suivies ailleurs : sources de REL hors CI (roadmap_p2_sources_de_rel_hors_ci_20261026), REL sans pointer_ref dont le test est vert (correctif self-patcher job_70401de9)",
+      "decision": false,
+      "cite": [
+        "roadmap_p2_sources_de_rel_hors_ci_20261026"
+      ]
+    },
+    {
+      "cle": "bug_hamilton_oscillation_sleep_wake_20261019",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "(1) prouver que les vecteurs AVANCENT : compter le corpus physiologie vectorise (0/4577 au 20/10) PAR INDEX seulement, EXPLAIN d'abord, a deux instants separes d'au moins un cycle --watch 3600 ; (2) N",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_benchmark_nokido_vs_claude_md_statique_20261026",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "protocole puis mesure : memes taches cross-CLI avec (A) Nokido hub + SSoT et (B) un simple CLAUDE.md / AGENTS.md statique ; metriques tokens, erreurs, rappels de regles, temps ; jeu tenu a part",
+      "decision": false,
+      "cite": [
+        "P2_taux_autonomie_locale_instrument_20261021"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_quatre_correctifs_prets_apres_ci_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "brancher la regle d'or validate_payload(agentique=True) (app/core/payload_validator.py:58, aucun appelant agentique=True) en OBSERVER sur les VRAIS emetteurs agentiques -- forge_handoff (_llm_round), ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_jetons_clients_coffre_seul_rfc_20261024",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P0",
+      "reste": "MESURER en sandbox ce que Codex desktop sait lire (bearer_token_env_var seul ? commande/helper ?) AVANT de toucher HKCU, puis retirer FORGE_TOKEN_CODEX de HKCU seulement quand les 2 voies sont prouvee",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_ponts_web_chatgpt_gemini_20261018",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "essai Gemini Chrome des que l'owner a reconnecte l'extension ; pont MCP Gemini web -> vivant (meme contrat que ChatGPT web)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_compaction_contexte_api_seulement_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "rien ; DECISION OWNER 2026-10-22, livraison CONSTATEE le 26/10",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_feuilles_de_route_gemini_evaluees_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "rien ; VALIDE par l'owner le 26/10",
+      "decision": false,
+      "cite": [
+        "P2_taux_autonomie_locale_instrument_20261021"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_self_patcher_f2p_et_raffinement_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "rien ; a observer : 1re proposition REL reelle jugee",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_canary_runner_bancs_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "rien",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_sources_de_rel_hors_ci_20261026",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "mesurer d'abord le debit des REL de la CI baseline (d810283fd) avant d'ajouter des sources",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_soif_et_auto_amelioration_productives_20261025",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "1re PRODUCTION EXPLOITABLE : 0 depuis le 25/10 15 h (0 tache de la soif, 0 SURVIT, 0 REL) -- examen de la soif demande 26/10 ~18 h 30 (--examiner), observe ; puis taux de pertinence (3b0138227) sur le",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_pilote_routage_appris_sur_issue_reelle_20261026",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "(3) baseline scores_hedonistes_mesure evaluee sur holdout TEMPOREL 15 % ; (4) contexte plus fin que taille x mode seulement si (3) le justifie ; exploiter les REAFFECTATIONS (seules paires contrefactu",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_identite_self_patcher_ring_20261026",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_homeostat_freine_au_lieu_de_liberer_20261022",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "OBSERVER apres le prochain redemarrage du hub (spawn_as_sandbox est charge par le hub) : sous pression avec docker_wanted pose, le message du gate doit dire « Docker protege (docker_wanted) ; evince: ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_eviction_mesuree_seuils_fonctionnels_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_searxng_deblocage_moteurs_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_hamilton_tue_executeurs_en_vol_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_readme_traductions_alignees_sur_l_anglais_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_profils_cli_codex_copilot_cline_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "identifier les leviers d'isolation shell.",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_disque_coagulation_vital_30mos_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_epistemic_recompute_incremental_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_chasse_lectures_massives_suite_sante_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_capture_sessions_agy_absente_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_etude_managed_agents_relancee_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_ring_enforcement_agy_message_security_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_voie_api_claude_frugale_reinstallation_sdk_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_chasse_lectures_massives_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_epistemic_recompute_incremental_20261024"
+      ]
+    },
+    {
+      "cle": "P1_census_free_tier_echantillon_biaise_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_mammouth_absence_budget_gestion_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_planificateur_alphago_roadmap_arene_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_preparation_takehome_anthropic_20261018",
+        "P1_utilitarisme_hedoniste_recompense_par_resultat_20261018"
+      ]
+    },
+    {
+      "cle": "bug_tdd_red_non_observe_executeur_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_juge_rien_produit_exempte_livrable_obligatoire_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_claude_headless_sans_hub_ni_pytest_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_methode_B_precontrole_profil_reference_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_veille_candidats_cles_non_ingeres_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_moelle_usage_optimal_llm_orchestration_20261024",
+      "etat": "SANS_MARQUEUR",
+      "etat_affiche": "SANS_MARQUEUR",
+      "priorite": "P1",
+      "reste": "phases B (synthese PAR PAGE) et C (profils consommes)",
+      "decision": false,
+      "cite": [
+        "P1_conseiller_souverain_executeur_escalade_20261024",
+        "P1_doc_surfaces_ingeree_et_comprise_20261024"
+      ]
+    },
+    {
+      "cle": "P1_etaler_veilles_paralleles_anti_saturation_ram_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_executeur_tache_orpheline_running_apres_relance_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_ci_local_basetemp_partage_entre_runs_concurrents_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_reaffectation_ignore_la_charge_des_files_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_skill_curator_pidfile_pid_recycle_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_matrice_voies_modeles_groq_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_scope_role_masque_outils_utilises_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_fast_test_runner_interpreteur_profil_sbx_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_essaim_free_tier_noms_census_vs_ask_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_corpus_physiologie_ingere_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_db_backup_controle_fts_muet_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_dspy_cache_disque_mitigation_prouvee_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_ollama_llama_server_absent_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_ollama_cloud_absence_cle_gestion_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_juge_ok_done_sans_effet_mistral_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_surcharge_fournisseur_non_reaffectee_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_reaffectation_absente_sur_echec_auth_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_capteur_oauth_cli_faux_negatif_gh_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_mcp_actifs_prochaine_relance_hub_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_defauts_banc_mesure_remedes_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_llama_server_liste_blanche_lanceurs_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_coupe_circuit_opencode_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_scanner_secrets_central_pairs_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_docker_arret_signal_fin_verifie_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_readme_affirmations_verifiees_ci_20261019",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_regression_desc_19_nr_rouges_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_depot_long_securise_des_pairs_20261024",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "verser et securiser le depot long du rapport des pairs (16 Ko) sur alpha",
+      "decision": false,
+      "cite": [
+        "avis_externes_echecs_mesure_convergence_20261024"
+      ]
+    },
+    {
+      "cle": "P1_identites_distinctes_surfaces_claude_20261022",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "identite propre par surface Claude Code, boites distinctes, migration lecteurs maitre-seul, RFC 9068",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_installeur_home_et_vibe_home_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_transport_signale_et_registre_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_agent_identite_prouvee_lot4_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_conformite_mcp_20260728_lot2_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_supersession_rag_dette_60j_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "purger ou archiver les chunks perimes de plus de 60 jours",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "avis_externes_echecs_mesure_convergence_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "appliquer les remedes convergents aux 16 echecs de mesure (statuts explicites, temoins +/-, OK_DONE != DELIVERED)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_migration_phase_b_primitive_mesure_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "migrer census, catalogue, juge et essaim vers la primitive Mesure",
+      "decision": false,
+      "cite": [
+        "P0_primitive_mesure_phase_a2_20261024"
+      ]
+    },
+    {
+      "cle": "P1_garde_memoire_deux_observateurs_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_otlp_sans_collecteur_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_essaim_par_force_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_en_tete_contexte_execution_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_nettoyage_caracteres_invisibles_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_juge_phases_1_2_mutants_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "bug_juge_rien_produit_exempte_livrable_obligatoire_20261024"
+      ]
+    },
+    {
+      "cle": "P0_primitive_mesure_phase_a2_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mesure_bancs_proxy_gratuits_20261024",
+      "etat": "SANS_MARQUEUR",
+      "etat_affiche": "SANS_MARQUEUR",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_installeur_cli_gouvernance_propagee_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_conformite_mcp_20260728_identite_standard_20261024",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "constat_demon_gemini_client_mort_actif_20261024",
+      "etat": "SANS_MARQUEUR",
+      "etat_affiche": "SANS_MARQUEUR",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mesure_bancs_gratuits_force_specialite_20261024",
+      "etat": "SANS_MARQUEUR",
+      "etat_affiche": "SANS_MARQUEUR",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_modulation_effort_modele_par_palier_20261023__decisions",
+      "etat": "SANS_MARQUEUR",
+      "etat_affiche": "SANS_MARQUEUR",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_modulation_effort_modele_par_palier_20261023",
+        "bug_ring_enforcement_agy_message_security_20261024"
+      ]
+    },
+    {
+      "cle": "enquete_plafond_claude_headless_20261024",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_modulation_effort_modele_par_palier_20261023",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_routage_executeur_par_difficulte_20261017"
+      ]
+    },
+    {
+      "cle": "P1_utilitarisme_hedoniste_recompense_par_resultat_20261018",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "tracer le rejet en relecture dans tasks.db ; reevaluer apres 2 semaines (~5/11)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_veracrypt_obligatoire_par_defaut_20261020",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P0",
+      "reste": "volume chiffre monte portant data/ ; docs / installateur public ; le bilan (refus_consignes) ne dit pas encore « refus perime » ; effet a la prochaine installation. Rapport : sandbox/workspace/rapport",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_worktree_par_provenance_et_reconciliation_20261018",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "relance du hub (effet), hub transmet LaForge-Provenance a args._provenance (nokido_hub, derogation), parametre racine de governed_write (aujourd'hui libelle <agent>@worktree), constater sur une vraie ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_suivi_delegations_tout_cli_20261022",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "task action=status sans id -> meme vue (allow_critical owner) ; job_5e85fccc agent OPENCODE pending ~26 h sans executeur de ce nom (a reaffecter) ; reaff=INCONNU a distinguer de « aucune » ; constat d",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_veille_outils_economie_contexte_20261022",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P0",
+      "reste": "AUCUN GAIN MESURE : rejouer tools/forge_contexte_par_source.py avant/apres P1a (et un filtre de sortie rtk-like) sur une transcription ; non clos. Rapports : sandbox/workspace/rapport_P0_veille_outils",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "reprise_session_22_10_matin_pilotage",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "bug_homeostat_freine_au_lieu_de_liberer_20261022"
+      ]
+    },
+    {
+      "cle": "bug_double_none_rend_none_au_lieu_d_importerror_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "rappel_alpha_distant_deux_commits_wif_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_federation_github_claude_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_juge_failure_avec_livraison_20261022",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_doubles_sys_modules_dependants_ordre_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "bug_double_none_rend_none_au_lieu_d_importerror_20261022"
+      ]
+    },
+    {
+      "cle": "P2_claude_headless_plafond_mesure_20261022",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_sauvegardes_en_clair_hors_volume_chiffre_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_demandes_admin_par_le_cli_pilote_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "RED tests/nr/test_ordres_bureau_cli_pilote_nr.py puis GREEN demander_ordre(demandeur_prouve) + transmission de la preuve depuis nokido_hub.py et forge_mcp_registry (2 fichiers CRITIQUES = derogation o",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_bail_non_journalise_au_hub_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "constater des lignes [bail",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_juge_ok_done_sans_effet_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "relancer les services executeurs (ils tournent l'ANCIEN code) -- relance deleguee autorisee, ANNONCEE, jamais pendant une tache en cours ; constater ensuite sur une vraie delegation sans effet. Symetr",
+      "decision": false,
+      "cite": [
+        "bug_juge_failure_avec_livraison_20261022"
+      ]
+    },
+    {
+      "cle": "P0_chasse_lectures_massives_portee_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P0_chasse_lectures_massives_20261021",
+        "P0_chasse_lectures_massives_suite_sante_20261021",
+        "P1_atlas_des_donnees_20261021"
+      ]
+    },
+    {
+      "cle": "P2_taux_autonomie_locale_instrument_20261021",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_contexte_p0_mesure_p1a_diete_hooks_20261020",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_audit_dist_publique_mesure_20261020",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P0",
+      "reste": "(a) Windows/macOS chiffrement NON_TESTE -> provisionnement CI e7888a61c a publier ; (b) Docker conteneurs VIVANTS + liaison WSL sous Windows ; (c) etape « RAG livre » (couverture par domaine) ; (d) le",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_distribution_winget_npm_20261021",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_file_accepte_executeur_suspendu_20261020",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_snn_aer_candidature_neuromorphique_a_mesurer_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P2_snn_mesures_20261021"
+      ]
+    },
+    {
+      "cle": "P1_atlas_des_donnees_20261021",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_racine_donnees_hors_paquet_2026-10-13",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "constater l'etape d'acceptation paquet_desinstallation verte sur les livrables (lie a roadmap_installation_complete_noob)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_installation_complete_noob",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "Installation complète en une commande prouvée sur 3 OS par les livrables publiés (doctor tout vert, UI 7400 servie, feedback livrer 3 OS).",
+      "decision": false,
+      "cite": [
+        "p1_racine_donnees_hors_paquet_2026-10-13"
+      ]
+    },
+    {
+      "cle": "P0_pack_connaissances_par_source_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "publication avec 0.20.13 puis recette sur le LIVRABLE (telecharger un pack par source de la release et l'importer sur une base vierge), sans laquelle rien n'est confirme (decision owner « pas une vers",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_snn_mesures_20261021",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "banc forge_snn_router vs regle simple sur les routages REELS avec jeu tenu a part ; unification surrogate ; attribution du docstring (Neftci 2019 / SpikingJelly) a sourcer.",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_roadmap_chronologie_20261021",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "RED 2 08a41dce5 (heritage priorite/echeance = backward pass CPM, aval sans double compte, empreinte fichiers anti-collision, fusions par fichier, Tarjan) -> AGY job_f4359b8c. Tri des propositions Gemi",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_pack_natif_revectorise_tout_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_skill_curator_quarantaine_faux_crash_20261020",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_site_utilisateur_masque_env_certifie_20261021",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_rag_fts_optimize_mesure_20261021",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_controle_fts_rag_nuit_20261021",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_sauvegardes_en_clair_hors_volume_chiffre_20261021",
+        "P2_db_backup_controle_fts_muet_20261021"
+      ]
+    },
+    {
+      "cle": "P2_docker_macos_runner_mesure_20261020",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_docker_stop_moteur_non_atteint_20261020",
+      "etat": "OUVERT",
+      "etat_affiche": "OUVERT",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P0_dist_macos_absent_du_manifeste_20261020",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "mesure publique de l'installation complete macOS sur la release 0.20.13 (essai 3 OS).",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P3_analogie_inverse_code_vers_corps_20261020",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_bail_priorite_403_depuis_un_job_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "confirmer sur le JOURNAL du hub qu'un bail CI_REFERENCE est accorde (200, pas 403) a la prochaine CI de reference ; si jeton absent : semis owner puis relance du hub (jeton seme apres le boot = inconn",
+      "decision": false,
+      "cite": [
+        "P2_bail_non_journalise_au_hub_20261020"
+      ]
+    },
+    {
+      "cle": "P1_audit_analogie_corps_apres_ci_20261020",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_methode_C_cliquets_hygiene_tests_20261020",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_contexte_p1c_instructions_residentes_20261020",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_contexte_p1b_hygiene_session_20261020",
+      "etat": "OWNER_PLANIFIE",
+      "etat_affiche": "OWNER_PLANIFIE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_construire_event_mesh_accelerator_voice_20261019",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_capacite_fournisseur_observee_0925",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "RED puis GREEN : une capacite FRAICHE epuisee (remaining 0 avant reset) ecarte le slot, INCONNU / PERIMEE ne l'ecarte jamais ; puis TTFT a ProviderSlot.record_call",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_registre_demandes_owner_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "ranger chaque [A FAIRE",
+      "decision": false,
+      "cite": [
+        "roadmap_p1_arbre_evolution_ui_web_20261017"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_methode_dev_par_couches_20261016",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "GREEN, branchement sur le retriever REEL (nomme), mesure temoin, 3 mesures espacees de 24 h, NR des instruments couche 2",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_audit_pair_efficience_A_G_20261019",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "C (autres cas), D (relecture owner), G, 04, 06, 07",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "bug_tests_git_remontent_au_depot_principal_20261019",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mistral_suspendu_0_livraison_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "relance des executeurs puis rejouer l'essai S en lecture sur codestral",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_turbo_worker_mort_sans_trace_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "temoin positif d'armement (ligne de session ecrite a l'armement) puis attendre une mort de worker reelle -- silence != resolu",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_hamilton_arene_vibe_capture_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "(2) arene : constater un vrai merge journalise dans sandbox/arene_promotion_observe.jsonl ; (3) Vibe : constater NokidoTaskExecutorMistral qui DRAINE (tache job_a34c8407 pending 30 min, executeur rela",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_executeurs_preservation_et_arbre_partage_20261019",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "G2 scorecard consultatif a verifier (b6e8712c7), puis CONSTATER une session en echec preservee ET un refus arbre_partage au journal",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "executif_a_priorites_hamilton_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "serie hamilton_observe puis decision d'armer",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_ecarts_doc_code_a_construire_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "event_mesh, accelerator_router, voice_normalize",
+      "decision": false,
+      "cite": [
+        "P2_construire_event_mesh_accelerator_voice_20261019"
+      ]
+    },
+    {
+      "cle": "p1_skills_declenchement_au_moment_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "derogation outil memory (forge_mcp_registry), --apply des 8 autres jetons, client_configs, sort de forge-core, silos specialises, push + CI (GO owner 19/10 en cours)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_orchestration_executeurs_defauts_mesures_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_executeurs_preservation_et_arbre_partage_20261019",
+        "P1_worktree_par_provenance_et_reconciliation_20261018"
+      ]
+    },
+    {
+      "cle": "roadmap_p2_crawl4ai_restart_always_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "constater un demarrage a la demande au journal, PUIS proposition owner restart:no + mem_limit + image epinglee",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_swarm_en_direct_graphique_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "constater task_running au miroir apres relance des executeurs",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_next_20261015",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "verifier les blocs du registre MCP (fichier critique, derogation owner) et le banc de l'intelligence cumulative",
+      "decision": true,
+      "cite": []
+    },
+    {
+      "cle": "p1_raffinage_toute_la_base_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "phase 0 sur E: (archive verifiee) puis politique par domaine en observation avec held-out ; purge = decision owner",
+      "decision": true,
+      "cite": [
+        "p1_digestion_conversations_avancement_2026-10-14"
+      ]
+    },
+    {
+      "cle": "p1_raffinage_inventaire_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "phase 0 sur E: (archive verifiee) puis politique par domaine en observation avec held-out ; purge = decision owner",
+      "decision": true,
+      "cite": [
+        "p1_raffinage_toute_la_base_2026-10-14"
+      ]
+    },
+    {
+      "cle": "roadmap_p2_benchmarks_harness_lift_20261016",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "identifier le sous-ensemble SCB v2, faisabilite GPU de 2 taches TB, lancer la campagne gratuite",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_convergence_census_matrice_20261015",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "re-mesurer matrice ET profiling (reseau, leger, hors CI), puis faire consommer le DEBIT (tok/s, seul apport propre du profiling)",
+      "decision": false,
+      "cite": [
+        "roadmap_p2_convergence_sondes_plan_20261015"
+      ]
+    },
+    {
+      "cle": "lora_signal_usage_cause_2026-10-02",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "palier 2 (noter() dans _rag_bm25_search + [chunk:id",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_archive_chiffree_flux_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "decision owner : declarer py7zr (LGPL-2.1, pip-audit, lock py314)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_arbre_evolution_ui_web_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "validation owner apres rechargement",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "chantier_surfaces_free_tier_unifiees_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "basculer les lecteurs (chaine_active, executeur) du census vers le registre unifie, ou acter que le census reste la source (decision owner sur le versionnement de data/)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_parite_capacites_tous_cli_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "sous-agents Vibe INCONNU, mesures --help sur les versions INSTALLEES (profil owner, hors compte du hub) et sondes vivantes par AGY",
+      "decision": false,
+      "cite": [
+        "p1_skills_declenchement_au_moment_2026-10-14"
+      ]
+    },
+    {
+      "cle": "P2_veille_pypi_resume_trop_court_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "enrichir le texte PyPI (description longue de l'API JSON, liens de release) ou etiqueter « release courte » sans contourner la borne de l'ingestion ; NR puis rejeu des 4.",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_voie_longue_embedding_20261008",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "etape 2 (revectorisation 2048 a la demande quand la RAM le permet)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_l9_rsi_etat_2026-10-15",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "remesurer le bruit de embed.max_workers (provisoire)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_surface_regulable_reponse_graduee_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "brancher les autres neverSleep lourds (inventaire a faire) ; effet au prochain redemarrage de NokidoCoagulation",
+      "decision": false,
+      "cite": [
+        "p1_toute_la_surface_regulable_2026-10-14"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_ci_github_apres_0212_20261015",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "la partie fiabilite de l'ancien reste (menage-preuves sparse, relance de stack)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "circadien_tire_dans_le_vide",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P0",
+      "reste": "relance du superviseur (geste owner au tray, hors CI GitHub) pour charger firePhase, puis constater un reveil a la demande au passage de phase",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_routage_executeur_par_difficulte_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "constater une reaffectation reelle",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_auto_amelioration_boucle_non_fermee",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "construire ces modules (ou dater les docs) pour que les dossiers passent RESOLU, porte armee + PARAMS_L1 (owner) pour une 1re experience PROMUE",
+      "decision": false,
+      "cite": [
+        "P2_ecarts_doc_code_a_construire_20261018",
+        "p1_l9_rsi_etat_2026-10-15"
+      ]
+    },
+    {
+      "cle": "p1_coeur_suit_effort_llm_20261013",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "relance du hub groupee avec la prochaine (decision owner), puis refaire le temoin ask router -> token_events",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_purgeurs_web_hub_tests_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "test_hub_l (Option L faite 9679f9505 : retirer d'ISOLES_EN_REPARATION apres verification) et test_hub_n (jeton de test : coffre de test isole, decide)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "veille_watch_alerts_gate_denied_2026-09-24",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "4 PyPI (uvicorn 0.53.0, anthropic 1.7.0, sentence-transformers 6.1.0, langchain 1.4.2) REJETEES par l'ingestion (« texte trop court » : resume PyPI d'une ligne -- touche aussi la veille normale) ; uvi",
+      "decision": false,
+      "cite": [
+        "P2_veille_pypi_resume_trop_court_20261018"
+      ]
+    },
+    {
+      "cle": "executeurs_cli_supplementaires_vibe_opencode_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "Recharger le superviseur avec les services d'exécuteurs configurés et exécuter une première tâche réelle courte pour mesurer le cycle complet.",
+      "decision": false,
+      "cite": [
+        "mistral_suspendu_0_livraison_20261017"
+      ]
+    },
+    {
+      "cle": "dette_executeurs_vibe_harness_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "la relance, annoncee, hors tache active",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_ctl_wake_404_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "RED (wake appelle service/start) puis GREEN ; mettre a jour le commentaire `wake via ... ensure` de services.toml (ensure n'existe pas non plus dans l'usage du ctl : status|sleep|wake|restart).",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_guet_exports_historiques_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "constater le 1er passage reel (journal du guet / fragments inseres), une tache creee n'est pas une tache qui a tourne",
+      "decision": false,
+      "cite": [
+        "constat_agy_autonome_historique_2026-10-14"
+      ]
+    },
+    {
+      "cle": "P0_audit_gemini_auto_amelioration_20261018",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "levee du frein par l'owner quand il le juge ; proposition d'elargissement de l'auto-amelioration recursive (demande owner) ; effet au redemarrage des boucles autonomes",
+      "decision": false,
+      "cite": [
+        "P2_rsi_elargissement3_candidats_l1_20261018",
+        "p1_l9_rsi_etat_2026-10-15"
+      ]
+    },
+    {
+      "cle": "P2_rsi_elargissement3_candidats_l1_20261018",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "construire un instrument par reglage avant toute declaration L1",
+      "decision": false,
+      "cite": [
+        "p1_l9_rsi_etat_2026-10-15"
+      ]
+    },
+    {
+      "cle": "decision_owner_debat_anatomie_A_D_20261015",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "GREEN 931881aea (reaffectation automatique sur NON LIVRE) puis remesure ; relier les refus d'admission et du routeur (id de correlation) avant de les compter",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_a_prendre_rejugement_epistemique_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "",
+      "reste": "rejouer le rejugement qualifie sur des paires de sources DISTINCTES pour une vraie mesure de corroboration",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_priorite_hamilton_deux_boucles",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "poser la couche reflexe Hamilton sur le ByteRouter (pas sur EventStream), flood sur ce canal, puis taus sur mesure ; decision d'architecture a soumettre a l'owner avant tout code",
+      "decision": false,
+      "cite": [
+        "executif_a_priorites_hamilton_20261016"
+      ]
+    },
+    {
+      "cle": "p2_veille_clone_garde_disque_timeout_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "Borner forge_resource_manager._run_capture en deçà du timeout de 30 s de pytest ou injecter un mock de sonde dans test_veille_clone_garde_disque_nr::test_espace_illisible_ARRETE_aussi pour éviter le b",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "audit_base_env_470_2026-09-20",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p0_deport_ch88_fait_2026_09_15",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_blocker_historique_public",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_rescue_auto_notification_par_tour_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p0_paquet_linux_macos_trousseau_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "epistemic_soif_victime_verrou_rag_2026-09-20",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "p0_soif_epistemique_morte_depuis_0830"
+      ]
+    },
+    {
+      "cle": "p0_soif_epistemique_morte_depuis_0830",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "soif_lot_b_2026-10-02"
+      ]
+    },
+    {
+      "cle": "ci_github_pytest_pur_cause_reelle_2026-09-20",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_attestations_agy_anterieures_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_alias_flash_lite_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_noeud_running_orphelin_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "le job de veille wj_fc7e31285b ancien non reecrit (decision owner).",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "secu_secrets_cloud_lus_dans_env_37_fichiers_geles_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_current_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "current_2026-10-14_nuit",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_current_publication_0209",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_seuils_methodes_20261016",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "Courir et consigner les lots 2 a 10 de la fenetre (faits bb:discovered_facts/kpi_methode_lot_*), puis trancher avec l'owner : a ce jour 53 % FPY et 15 % RED cites, largement sous les seuils 70 %/90 %.",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_juge_qualifie_et_partage_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "la tache AGY job_b3ba3b90_1792156552_claude_handoff_next est en RED de Claude pour implementer le juge qualifie",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_hamilton_suite_mesuree_20261013",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "Implémenter la porte temporelle composable (fiche V9) pour l'admission réutilisant le second observateur RAM, formaliser les tables de reprise par phases (fiche V8), valider le repli LLM sur un cycle ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_runner_environnement_divergent_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "P2 : le hook pre-push pourrait poser PYTHONNOUSERSITE pour ne plus produire de faux DIVERGENT.",
+      "decision": false,
+      "cite": [
+        "p1_ci_privee_fiabiliser_accelerer",
+        "p1_ci_privee_fiabiliser_accelerer_2026-10-14"
+      ]
+    },
+    {
+      "cle": "p2_commwatch_spawn_interactif_session0_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "?",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_agy_autonome_repond_par_groq_et_relais_hors_sujet_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "Filtrer le sujet dans pat_m2m_debate_relay et éliminer le double consommateur concurrent sur la boîte ANTIGRAVITY (session interactive acquittant sans claim) ; régler l'invite UAC (--sandbox) selon dé",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "current_2026-10-14_soir",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_current_20261013",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_current_publication_0208",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_paliers_internes_cli_veille_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "Implémenter d'abord le routage par difficulté entre exécuteurs distincts (P1_routage_executeur_par_difficulte_20261017) avant d'instancier des sous-paliers propres à chaque CLI.",
+      "decision": false,
+      "cite": [
+        "P1_essai_mesure_sous_agents_claude_20261017",
+        "P1_routage_executeur_par_difficulte_20261017"
+      ]
+    },
+    {
+      "cle": "roadmap_next_20261013",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "Retrouver les chemins des exports statiques Claude Desktop et Gemini Web (déplacés/supprimés), miner les consignes owner (forge_intent_miner + forge_intent_verifier) et clore le SSoT sur le corpus com",
+      "decision": false,
+      "cite": [
+        "roadmap_p1_ingestion_surfaces_20261013"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_retenu_du_collage_hassabis_lean_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "REPL Lean persistant (lean4-repl absent), garde d'émission sur les payloads d'agent (orchestrate, exécuteurs, A2A) en mode observer, seuil de signification fixé avant dans forge_darwinian_arena.evalua",
+      "decision": false,
+      "cite": [
+        "roadmap_p1_quatre_correctifs_prets_apres_ci_20261017"
+      ]
+    },
+    {
+      "cle": "p1_miroirs_publics_systematiques_ci_dist_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "Constater un 1er run réussi synchronisant les 4 miroirs publics (Codeberg, GitLab, SourceForge, Hugging Face Spaces) lors de la prochaine publication de version.",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_convergence_sondes_plan_20261015",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "Faire converger forge_provider_catalogue, forge_tool_call_probe et forge_free_tier_census vers forge_endpoint_commun (lire/catalogue), poser le cliquet interdisant l'appel direct à urllib.request.urlo",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_partage_travail_agents_20261016",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "Finir les roadmaps partielles restantes et organiser le partage du travail inter-agents (tâches AGY autonome, paires claude.ai, créneaux courts Codex) selon les enseignements de la veille méthodes de ",
+      "decision": false,
+      "cite": [
+        "p2_agy_autonome_repond_par_groq_et_relais_hors_sujet_2026-10-14",
+        "roadmap_p1_methode_dev_par_couches_20261016"
+      ]
+    },
+    {
+      "cle": "roadmap_current_push_9d11208bd_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "roadmap_current_release_0212_20261016"
+      ]
+    },
+    {
+      "cle": "roadmap_current_release_0212_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "wiki SourceForge (quota, p1_wiki_sourceforge_quota), suppression essai/installation-complete (confirmation owner).",
+      "decision": false,
+      "cite": [
+        "p1_wiki_sourceforge_quota"
+      ]
+    },
+    {
+      "cle": "current_2026-10-14_midi",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "wiki SourceForge (formulaires Allura, accord owner), suppression branche essai/installation-complete (public + miroirs, accord owner demande), push des 8 commits post-release locaux au prochain cycle ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_current_20261008",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "current_jalon_2026-10-02",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "methodes_adoptees_apres_veille_20261016",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "cabler les 3 Amigos/ATDD (critere d'acceptation executable avant le code) et la theorie des contraintes (goulot CI ~27 min + hub lent)",
+      "decision": false,
+      "cite": [
+        "decision_owner_seuils_methodes_20261016"
+      ]
+    },
+    {
+      "cle": "p1_toute_la_surface_regulable_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "reponse graduee des neverSleep (encore exclus des candidats, forge_resource_manager.py:4034), canal d'acquisition pour run_job, et politique d'armement pilotee par le corps",
+      "decision": false,
+      "cite": [
+        "executif_a_priorites_hamilton_20261016",
+        "p2_bail_priorite_403_depuis_un_job_2026-10-14"
+      ]
+    },
+    {
+      "cle": "p1_digestion_conversations_avancement_2026-10-14",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "lancer le gel retroactif sur les sessions encore sur disque (requete par PLAGE de source, tours epures ensuite) et lire la mesure par motif de la tache 03:00 (conv_indexer_dernier.json)",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_wiki_sourceforge_quota",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "a partir du ~20/10 (quota Allura de 50 operations epuise) : creations 22-24-fr, 20 reecritures EN (liens (X.fr)->(X-fr)) et les 4 pages modifiees par 0.20.12 (06-Hub-API-Reference, 20-Modules-Referenc",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_lora_retrieval_2026-09-27",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P2",
+      "reste": "accumuler le signal ( effet au redemarrage du hub), cabler la verite terrain (citations), puis reranker, embedder cote requete et routeur dans l'ordre recommande",
+      "decision": false,
+      "cite": [
+        "lora_signal_usage_cause_2026-10-02"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_orchestration_par_nokido_20261017",
+      "etat": "PARTIEL",
+      "etat_affiche": "PARTIEL",
+      "priorite": "P1",
+      "reste": "consignes avec lignes exactes, decoupage en taches < 25 min (2 GREEN et 1 lot ont echoue sur la borne) et routage par fiabilite mesuree (bb:discovered_facts/mesure_fiabilite_executeurs_verif_roadmaps_",
+      "decision": false,
+      "cite": [
+        "P1_orchestration_executeurs_defauts_mesures_20261018"
+      ]
+    },
+    {
+      "cle": "p1_guet_exports_brouillons_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "p1_guet_exports_historiques_2026-10-14"
+      ]
+    },
+    {
+      "cle": "p2_precontrole_temoin_pip_audit_non_versionne_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P2_guetteur_lit_progres_et_pouls_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_digestion_incrementale_cycle_court_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "p1_digestion_conversations_avancement_2026-10-14"
+      ]
+    },
+    {
+      "cle": "p1_ci_privee_fiabiliser_accelerer_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "revue_t2_opencode_refusee_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_dist_sans_ip_ni_hote_owner_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_ci_privee_fiabiliser_accelerer",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_suite_pure_runners_github_publics_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_veille_jobs_jamais_clos_2026-10-13",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p2_tests_organisme_vivant_et_subprocess_sans_timeout_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "P1_connecteur_pairs_lecture_du_vivant_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_dettes_tests_hors_ci_20261013",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "a_reveiller_deportembed_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_ui_trois_routes_degradees_20261013",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "constat_agy_autonome_historique_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mesure_repartition_executeurs_par_classe_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mesure_essai_sous_agents_A1_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "P1_essai_mesure_sous_agents_claude_20261017"
+      ]
+    },
+    {
+      "cle": "mesure_bruit_conv_claude_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "mesure_ab_local_opencode_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_wiki_sourceforge_quota_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "p1_wiki_sourceforge_quota"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_ingestion_surfaces_20261013",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "(a) Claude Desktop et Gemini Web = exports statiques INTROUVABLES aux chemins attendus (data-Claude-Desktop-03052026/conversations.json, SessionGeminiWeb/) -- deplaces ou supprimes : UNKNOWN, a demand",
+      "decision": false,
+      "cite": [
+        "roadmap_next_20261013"
+      ]
+    },
+    {
+      "cle": "p2_macos_jeton_court_lanceur_intermittent_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_llm_dashboard_403_persiste_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "roadmap_p1_ui_trois_routes_degradees_20261013"
+      ]
+    },
+    {
+      "cle": "roadmap_p1_garde_tdd_rouge_dabord_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "(3) banc de preuve RED retroactive verse dans tools/ (git ls-files : aucun, le banc vit encore hors depot C:/tmp/drafts/rsi/) ; passage en bloquant = decision owner apres mesure du bruit. Candidat du ",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "la_fitness_recompense_l_ajout",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "soif_lot_b_2026-10-02",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "delegate_agy_sans_garde_accuse_2026-09-20",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "dette_D_sans_capteur_2026-09-20",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "moisson_veille_relance_accord_owner_2026-09-24",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_codex_autonome_apres_0212_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "veille_homeostasie_biomimetisme_en_attente_20261017",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_digestion_conversations_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p1_dependabot_chaine_de_traitement_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "rfc_darwinian_arena",
+      "etat": "GELE",
+      "etat_affiche": "GELE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "decision_owner_commandes_tray_et_garde_tdd_20261016",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "roadmap_p1_garde_tdd_rouge_dabord_20261016"
+      ]
+    },
+    {
+      "cle": "p1_knowledge_pack_natif_du_dist_2026-10-14",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "p0_lancement_paquet_pypi_2026-10-13",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P0",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p2_gemini_model_deux_verites_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS",
+      "priorite": "P2",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    },
+    {
+      "cle": "roadmap_p1_pack_public_troue_20261015",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "P1",
+      "reste": "",
+      "decision": false,
+      "cite": [
+        "roadmap_current_release_0212_20261016"
+      ]
+    },
+    {
+      "cle": "a_reveiller_deportembed",
+      "etat": "CLOS",
+      "etat_affiche": "CLOS_SANS_PREUVE",
+      "priorite": "",
+      "reste": "",
+      "decision": false,
+      "cite": []
+    }
+  ],
+  "etats_globaux_exclus": [
+    "CURRENT_objectif_clotures_65pct",
+    "CURRENT_resolution_parallele_20261021",
+    "CURRENT_release_0214_20261021",
+    "CURRENT_roadmap_20261021_nuit",
+    "CURRENT_roadmap_20261020_soir",
+    "CURRENT_reprise_20261019_nuit",
+    "CURRENT_reprise_20261017_nuit",
+    "NEXT_audit_securite_cloudflare_anthropic_apres_roadmaps_20261017"
+  ],
+  "carte": "lue",
+  "carte_ecartees": 3,
+  "carte_conflits": [
+    {
+      "item": "P1_worktree_par_provenance_et_reconciliation_20261018",
+      "cite": "P1_orchestration_executeurs_defauts_mesures_20261018",
+      "carte": "P1_worktree_par_provenance_et_reconciliation_20261018->P1_orchestration_executeurs_defauts_mesures_20261018"
+    },
+    {
+      "item": "p1_racine_donnees_hors_paquet_2026-10-13",
+      "cite": "roadmap_installation_complete_noob",
+      "carte": "p1_racine_donnees_hors_paquet_2026-10-13->roadmap_installation_complete_noob"
+    }
+  ]
+}

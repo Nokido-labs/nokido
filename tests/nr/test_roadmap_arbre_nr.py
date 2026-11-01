@@ -97,13 +97,13 @@ def test_arbre_ecrit_le_json_attendu(tmp_path, monkeypatch):
 
     datetime.fromisoformat(doc["genere_le"])  # ISO parseable, sinon ValueError ici
     assert doc["total"] == 3
-    for etat in ("CLOS", "PARTIEL", "DECISION_OWNER", "OWNER_PLANIFIE",
+    for etat in ("CLOS", "PARTIEL", "OUVERT", "DECISION_OWNER", "OWNER_PLANIFIE",
                  "GELE", "SANS_MARQUEUR"):
         assert etat in doc["par_etat"], (
-            f"compteur {etat} absent — les six états sont publiés même à zéro "
+            f"compteur {etat} absent — les sept états sont publiés même à zéro "
             "(un comptage absent ne se distingue pas d'un comptage nul)"
         )
-    assert doc["par_etat"] == {"CLOS": 0, "PARTIEL": 1, "DECISION_OWNER": 1,
+    assert doc["par_etat"] == {"CLOS": 0, "PARTIEL": 1, "OUVERT": 0, "DECISION_OWNER": 1,
                                "OWNER_PLANIFIE": 0, "GELE": 0, "SANS_MARQUEUR": 1}, doc["par_etat"]
 
     par_cle = {i["cle"]: i for i in doc["items"]}
@@ -156,7 +156,6 @@ def test_etat_arbre_sans_marqueur_n_est_jamais_clos():
     for txt in [
         "P0: le verrou RAG n est pas une contention",
         "P2: un texte sans aucun marqueur en tete",
-        "[OUVERT le 2026-09-22] marqueur ouvert",
         "[MESURE le 2026-09-17 sur l arbre COURANT] re-mesure des gates",
         "[DIRECTIVE OWNER REPETEE, consignee le 2026-09-18] le webhub 7400",
         "[ETAPE B MESUREE le 2026-09-15] la campagne docs/launch",
@@ -168,6 +167,9 @@ def test_etat_arbre_sans_marqueur_n_est_jamais_clos():
         assert e(txt) == "SANS_MARQUEUR", (
             f"{str(txt)[:60]!r} a été rangé à tort : {e(txt)}"
         )
+    # 22/10 : [OUVERT] QUALIFIE un item jouable -- toujours pas CLOS (la garantie de ce test) ; _JOUABLES contenait
+    # "OUVERT" sans qu'aucun chemin ne le produise, et chaque item neuf sortait du plan.
+    assert e("[OUVERT le 2026-09-22] marqueur ouvert") == "OUVERT"
 
 
 def test_priorite_arbre_cle_puis_texte():
@@ -204,7 +206,7 @@ def test_arbre_source_muette_compte_zero(tmp_path, monkeypatch):
     assert doc["total"] == 0 and doc["items"] == []
     assert all(v == 0 for v in doc["par_etat"].values()), doc["par_etat"]
     assert set(doc["par_etat"]) == {
-        "CLOS", "PARTIEL", "DECISION_OWNER", "OWNER_PLANIFIE", "GELE", "SANS_MARQUEUR"
+        "CLOS", "PARTIEL", "OUVERT", "DECISION_OWNER", "OWNER_PLANIFIE", "GELE", "SANS_MARQUEUR"
     }
 
 

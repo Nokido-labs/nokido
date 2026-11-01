@@ -78,7 +78,8 @@ def test_sans_demande_le_gardien_n_arme_jamais_tracemalloc(monkeypatch, tmp_path
 def test_le_niveau_est_dit_a_la_transition_pas_a_chaque_tick(monkeypatch, caplog):
     mw = _module()
     monkeypatch.delenv("LAFORGE_MEM_TRACE", raising=False)
-    _rss_fixe(monkeypatch, mw, 600)
+    # 28/10 : base illisible -> detresse seulement au plafond absolu (600 Mo n'en est plus une) ; meme garantie.
+    _rss_fixe(monkeypatch, mw, mw.PLAFOND_MB + 100)
     w = mw.MemWatchdog(warn_mb=300, dump_mb=500, poll_interval=30)
     with caplog.at_level("INFO", logger="Nokido.MemWatchdog"):
         for _ in range(4):
@@ -94,7 +95,9 @@ def test_sur_demande_le_dump_est_borne_dans_le_temps(monkeypatch, tmp_path):
     monkeypatch.setattr(mw, "_LOGS_DIR", tmp_path)
     appels = []
     monkeypatch.setattr(mw.gc, "collect", lambda *a: appels.append(1) or 0)
-    _rss_fixe(monkeypatch, mw, 600)
+    # 28/10 : base illisible -> seule la detresse PROUVEE (plafond absolu) declenche le diagnostic ; 600 Mo ne
+    # suffit plus (le hub vit autour de 500 Mo). Meme garantie : un dump et un GC au plus par fenetre.
+    _rss_fixe(monkeypatch, mw, mw.PLAFOND_MB + 100)
     w = mw.MemWatchdog(warn_mb=300, dump_mb=500, poll_interval=30)
     try:
         for _ in range(3):

@@ -154,6 +154,10 @@ def environnement(valeurs: dict, base=None, registre=REGISTRE_PAR_DEFAUT) -> dic
             env[nom] = str(val)
     if not (env.get("NOKIDO_BRIDGE_OAUTH_CLIENTS") or "").strip():
         env["NOKIDO_BRIDGE_OAUTH_CLIENTS"] = str(racine().joinpath(*registre))
+    # Site utilisateur masque UNIQUEMENT pour l'interprete de base miniforge (sys.executable) ; valeur deja posee
+    # respectee. Les envs (laforge_py314...) restent inchanges (decision owner 22/10).
+    if sys.executable.replace("\\", "/").rstrip("/").lower().endswith("/miniforge3/python.exe"):
+        env.setdefault("PYTHONNOUSERSITE", "1")
     return env
 
 

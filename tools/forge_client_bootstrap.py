@@ -21,12 +21,13 @@ HOME = __import__("os").path.expanduser(r"~")
 LF   = str(__import__("pathlib").Path(__file__).resolve().parent.parent)
 PROJ = os.path.dirname(LF)
 OUT  = r"C:\tmp\harmonize"
-os.makedirs(OUT, exist_ok=True)
 for p in (LF, os.path.join(LF, "app"), os.path.join(LF, "tools")):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-_log = open(os.path.join(OUT, "bootstrap.log"), "w", encoding="utf-8")
+# 28/10 : le journal bootstrap.log etait ouvert (en ecriture) au chargement du module. Il est ouvert dans le bloc
+# __main__ ci-dessous ; _log reste None a l'import (L() n'est appelee que par main()).
+_log = None
 def L(*a):
     s = " ".join(str(x) for x in a); print(s); _log.write(s + "\n"); _log.flush()
 
@@ -273,6 +274,8 @@ def main():
     L(f"\n=== DONE: {n_clean}/{len(res)} deja harmonisees — plan ecrit C:/tmp/harmonize/bootstrap_plan.json — {round(time.time()-t0,1)}s ===")
 
 if __name__ == "__main__":
+    os.makedirs(OUT, exist_ok=True)
+    _log = open(os.path.join(OUT, "bootstrap.log"), "w", encoding="utf-8")
     try:
         main()
     except Exception:

@@ -26,6 +26,7 @@ __FORGE_COLOR__ = "qualite/git : isolation physique par agent via git worktree" 
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -342,6 +343,111 @@ def status() -> dict:
         st = _git(["status", "--short"], cwd=p)
         detail[p.name] = {"branch": w.get("branch", "?"), "dirty_lines": len(st.stdout.splitlines())}
     return {"canonical": str(ROOT), "worktrees": wts, "dirty": detail}
+
+
+# Etape 2 de P1_worktree_par_provenance_et_reconciliation_20261018 (decision owner 22/10) : la provenance EXECUTEUR
+# (identite ou en-tete LaForge-Provenance TASK_EXECUTOR) ecrit dans SON worktree, jamais dans l'arbre partage.
+_EXECUTEURS_WT_EXACTS = frozenset({"CLAUDE_HEADLESS", "ANTIGRAVITY", "MISTRAL"})
+_EXECUTEURS_WT_PREFIXES = ("OPENCODE_",)
+_PROVENANCE_EXECUTEUR = "TASK_EXECUTOR"
+# 31/10 (choix owner « alias + refus ») : le 27/10 02:24 VIBE_HEADLESS a ecrase app/forge_byte_router.py (« ... »)
+# DANS L'ARBRE PARTAGE -- son nom n'etait pas ci-dessus. Alias identite headless -> DOSSIER du worktree de
+# l'executeur qu'elle sert ; toute AUTRE identite *_HEADLESS est refusee a l'ecriture tant que son worktree n'est pas
+# declare (creation = geste owner). NR tests/nr/test_worktree_alias_headless_nr.py.
+_ALIAS_WT_HEADLESS = {"VIBE_HEADLESS": "mistral", "CODEX_HEADLESS": "codex",
+                      "AGY_HEADLESS": "antigravity", "ANTIGRAVITY_HEADLESS": "antigravity"}
+_SUFFIXE_HEADLESS = "_HEADLESS"
+
+
+def court_tache(task_id) -> str:
+    """Identifiant court UNIQUE d'une tache (nom de son worktree et de sa branche `tache/<agent>/<court>`).
+    SOURCE UNIQUE depuis le 31/10 (l'executeur `_wt_court` y delegue) : la portee du hub et le worktree de l'executeur
+    doivent nommer le MEME dossier. 29/10 : tete + empreinte, jamais les 12 derniers caracteres (collisions)."""
+    import hashlib
+    s = re.sub(r"[^A-Za-z0-9]", "", str(task_id).replace("job_", "", 1))
+    if len(s) <= 12:
+        return s or "tache"
+    return s[:8] + hashlib.sha1(str(task_id).encode("utf-8")).hexdigest()[:4]
+
+
+def taches_en_cours(agent, tasks_db=None) -> list:
+    """Ids des taches `running` de cet agent (tasks.db, lecture seule). Illisible -> [] (portee la plus etroite)."""
+    import sqlite3
+    db = Path(tasks_db) if tasks_db else ROOT / "sandbox" / "tasks.db"
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            return [r[0] for r in c.execute("SELECT id FROM tasks WHERE status='running' AND upper(agent)=?",
+                                            (str(agent or "").upper(),))]
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001 - base illisible : aucune tache, donc aucun worktree de tache lisible
+        return []
+
+
+def portee_lecture(agent, taches, wt_root=None, depot=None):
+    """Portee de LECTURE d'un executeur, calculee a chaque appel depuis ses taches en cours (owner 31/10 : « le scope
+    sur task.db doit etre bien defini dynamiquement ; des taches distinctes, il faut bien les scinder »).
+
+    Rend None pour l'owner / une identite non executeur (portee inchangee). Pour un executeur : le depot (lecture du
+    tronc commun), son worktree habituel, et le worktree de CHACUNE de ses taches en cours -- jamais celui d'une autre
+    tache. Les entrees d'un travail (travaux amont) sont FUSIONNEES dans son propre worktree a l'ouverture : aucune
+    lecture croisee n'est necessaire pour qu'un travail 3 se nourrisse des travaux 1 et 2."""
+    nom = str(agent or "").strip().upper()
+    if not (nom in _EXECUTEURS_WT_EXACTS or nom.startswith(_EXECUTEURS_WT_PREFIXES)):
+        return None
+    racine = Path(wt_root) if wt_root is not None else WT_ROOT
+    ag = re.sub(r"[^a-z0-9_]", "_", nom.lower())
+    racines = [Path(depot) if depot is not None else ROOT, racine / nom.lower()]
+    racines += [racine / "taches" / ("%s_%s" % (ag, court_tache(t))) for t in (taches or [])]
+    return {"agent": nom, "racines": racines}
+
+
+def dans_portee(chemin, portee) -> bool:
+    """Le chemin est-il sous une racine de la portee ? Portee None (owner) : oui, comportement inchange."""
+    if portee is None:
+        return True
+    try:
+        p = Path(chemin).resolve()
+    except OSError:
+        return False
+    for r in portee["racines"]:
+        try:
+            p.relative_to(Path(r).resolve())
+            return True
+        except (ValueError, OSError):
+            continue  # muet-ok : pas sous cette racine (cas NORMAL) -> racine suivante ; aucune -> False en fin
+    return False
+
+
+def cible_ecriture(agent, provenance="", wt_root=None) -> dict:
+    """Ou un appel `governed_edit` doit ecrire. Rend {cible, racine, raison}.
+
+    cible = "PARTAGE" (owner / inconnu : comportement inchange), "WORKTREE" (racine = nokido_worktrees/<agent>)
+    ou "REFUS" (executeur dont le worktree n'existe pas, ou dont le nom ne se deduit pas : JAMAIS de repli
+    silencieux sur l'arbre partage). Un worktree = un dossier portant un marqueur `.git`.
+    """
+    nom = str(agent or "").strip().upper()
+    entete = str(provenance or "").strip().upper()
+    alias = _ALIAS_WT_HEADLESS.get(nom)
+    est_executeur = alias is not None or nom in _EXECUTEURS_WT_EXACTS or nom.startswith(_EXECUTEURS_WT_PREFIXES)
+    if not est_executeur and nom.endswith(_SUFFIXE_HEADLESS):
+        return {"cible": "REFUS", "racine": None,
+                "raison": "identite %s (surface headless) sans worktree d'executeur declare : refus, jamais d'arbre "
+                          "partage (choix owner 31/10) -- creer son worktree puis l'ajouter a _ALIAS_WT_HEADLESS"
+                          % nom}
+    if not est_executeur and entete != _PROVENANCE_EXECUTEUR:
+        return {"cible": "PARTAGE", "racine": None, "raison": ""}
+    if not est_executeur:
+        return {"cible": "REFUS", "racine": None,
+                "raison": "en-tete LaForge-Provenance TASK_EXECUTOR mais l'identite %r ne nomme aucun worktree "
+                          "d'executeur : refus (on ne devine pas le worktree, jamais d'arbre partage)" % (agent,)}
+    wt = (Path(wt_root) if wt_root is not None else WT_ROOT) / (alias or nom.lower())
+    if not (wt.is_dir() and (wt / ".git").exists()):
+        return {"cible": "REFUS", "racine": None,
+                "raison": "worktree de l'executeur %s introuvable (%s) : refus, jamais de repli sur l'arbre partage"
+                          % (nom, wt)}
+    return {"cible": "WORKTREE", "racine": wt, "raison": ""}
 
 
 def route(agent: str) -> str:

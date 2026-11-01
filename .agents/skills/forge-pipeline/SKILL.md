@@ -53,6 +53,49 @@ query "SELECT title, url, status FROM biblio_raw ORDER BY created_at DESC LIMIT 
 propose la reprise. Piège payé : la boucle `start_loop` draine un lot puis s'arrête ; une chaîne
 neuve peut rester `pending` — reprendre par `execute_pending` en job.
 
+## Suivre ses délégations (tout CLI)
+
+Les délégations confiées à d'autres agents vivent dans `sandbox/tasks.db` : Nokido en est la
+source unique (agent, statut, progression, réaffectations). Un point de vue, depuis n'importe
+quel CLI :
+
+```
+run action=shell code="LAFORGE_PYTHON tools/forge_job_watch_cli.py --delegations --une-fois --de <AGENT>"
+```
+
+`--une-fois` imprime une ligne par délégation (identifiant court, agent, statut, âge, progression,
+réaffectations) et rend la main. `--de <AGENT>` filtre sur le demandeur, insensible à la casse
+(`claude` retrouve `agt_claude`) ; sans lui, toutes les délégations sont listées.
+(`LAFORGE_PYTHON` = `~/miniforge3/python.exe`, jamais `python` brut.)
+
+Pour suivre en continu (boucle ou `Monitor`), on retire `--une-fois` : le script n'émet alors
+QUE les transitions (nouvelle délégation, changement de statut, réaffectation) et les alertes de
+gel — une ligne à la fois, vidée immédiatement, donc consommable par un `Monitor` :
+
+```
+LAFORGE_PYTHON tools/forge_job_watch_cli.py --delegations --de <AGENT> --intervalle 20 --gel 900 --max 3600
+```
+
+Options : `--db` (base, défaut `sandbox/tasks.db`) · `--de` (demandeur) · `--une-fois` ·
+`--intervalle` (s entre deux lectures) · `--gel` (s sans progression → gel) · `--max` (borne de la
+veille, s). Une progression ILLISIBLE n'est jamais un gel — `INCONNU` n'est pas `NO` — et un gel
+n'est signalé qu'UNE fois par tâche.
+
+⚠️ Le shell **natif** de `Monitor` reste borné par `bash_guard` (`--job` / `--task` / `--pair`) :
+la veille continue des délégations passe par le `run` du hub (en `run_job` si elle doit survivre
+à un redémarrage).
+
+## Ordonner une roadmap : causalité, puis chronologie
+
+`tools/forge_roadmap_keeper.py --plan` (observation) rend `chronologie` : des **vagues** d'items, `prets`,
+`attente` (avec motif), `heritage` (un prérequis hérite de la priorité et de l'échéance de l'item le plus urgent
+qu'il débloque), `fusions` (items prêts sur un même fichier : un seul lot, un seul agent) et `cycles`.
+
+Étiquettes dans le texte d'un item : `apres: a, b` · `pas_avant: GO_owner | AAAA-MM-JJ` · `exclusif: poste_ci` ·
+`palier: S|M|L` · `echeance: AAAA-MM-JJ` · `remplace: x, y`. Ordre déduit sans étiquette : doc/README/CHANGELOG et
+vérification avant publication, publication avant miroirs. Deux items qui touchent le même fichier ne partent jamais
+ensemble ; un item déjà en cours n'est jamais réattribué. Replanifier à chaque fin de job, pas à chaque fin de vague.
+
 ## Communication entre maillons
 
 Un message entre agents passe par une enveloppe M2M (`intent` + `pointer_ref`, voir

@@ -339,6 +339,15 @@ class ReverseProxy:
         if msg["type"] != "websocket.connect":
             return
 
+        # === SECURITE : origine AVANT l'authentification (audit CS-3, 29/10) ===
+        from app.web_hub.ws_origine import origine_ws_admise
+
+        if not origine_ws_admise(scope):
+            # 4403 = convention "forbidden" proche de HTTP 403
+            log.warning("WS origine refusee (path=%s)", scope.get("path"))
+            await send({"type": "websocket.close", "code": 4403})
+            return
+
         # === SECURITE : validation d auth AVANT d ouvrir la co upstream ===
         if self.auth_cfg is not None:
             from app.web_hub.auth import authorize_ws

@@ -14,9 +14,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 HUB = ROOT / "tools" / "nokido_hub.py"
-content = HUB.read_text(encoding="utf-8", errors="ignore")
-
-changed = 0
 
 # ── Patch 1 : _event_worker → forge_db ───────────────────────────────────────
 OLD1 = """        try:
@@ -47,12 +44,7 @@ NEW1 = """        try:
         except Exception:
             pass"""
 
-if OLD1 in content:
-    content = content.replace(OLD1, NEW1, 1)
-    changed += 1
-    print("OK patch1 _event_worker forge_db")
-else:
-    print("SKIP patch1 (deja applique ou introuvable)")
+# (application du patch 1 : dans main(), plus a l'import)
 
 # ── Patch 2 : /health → bridge.seq() ────────────────────────────────────────
 OLD2 = '    async def health(request: Request):\n        return JSONResponse({"status": "ok", "hub": "Nokido v17"})'
@@ -71,44 +63,50 @@ NEW2 = """    async def health(request: Request):
             "agents": {a: d.get("status") for a, d in hb_agents.items()},
         })"""
 
-if OLD2 in content:
-    content = content.replace(OLD2, NEW2, 1)
-    changed += 1
-    print("OK patch2 /health bridge.seq")
-else:
-    # Chercher variante
-    idx = content.find("async def health(request")
-    if idx >= 0:
-        snippet = content[idx : idx + 120]
-        print(f"SKIP patch2 — health trouvé mais forme différente: {repr(snippet[:80])}")
+def main() -> int:
+    """28/10 : sous garde __main__. A l'IMPORT (test d'appui) ce script reecrivait TOUJOURS tools/nokido_hub.py
+    (le chargement de hub_swarm_patch comptait pour un patch), apres une lecture errors="ignore"."""
+    content = HUB.read_text(encoding="utf-8", errors="ignore")
+    changed = 0
+    if OLD1 in content:
+        content = content.replace(OLD1, NEW1, 1)
+        changed += 1
+        print("OK patch1 _event_worker forge_db")
     else:
-        print("SKIP patch2 — health non trouvé")
+        print("SKIP patch1 (deja applique ou introuvable)")
+    if OLD2 in content:
+        content = content.replace(OLD2, NEW2, 1)
+        changed += 1
+        print("OK patch2 /health bridge.seq")
+    else:
+        idx = content.find("async def health(request")
+        if idx >= 0:
+            print(f"SKIP patch2 — health trouvé mais forme différente: {repr(content[idx:idx + 80])}")
+        else:
+            print("SKIP patch2 — health non trouvé")
+    # Patch hub_swarm_patch : routes /swarm + /team (son chargement n'est PAS un patch du hub)
+    try:
+        import importlib.util
 
-# ── Ecrire ───────────────────────────────────────────────────────────────────
-if changed > 0:
-    pass
+        spec = importlib.util.spec_from_file_location(
+            "hub_swarm_patch", str(ROOT / "tools" / "hub_swarm_patch.py")
+        )
+        _swarm_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_swarm_mod)
+        sys.modules["hub_swarm_patch"] = _swarm_mod
+        print("hub_swarm_patch: loaded")
+    except Exception as e:
+        print("hub_swarm_patch SKIP:", e)
+    if changed > 0:
+        HUB.write_text(content, encoding="utf-8")
+        import py_compile as _pc
 
-# ── Patch hub_swarm_patch : routes /swarm + /team ────────────────────────────
-try:
-    import importlib.util
-    import sys
+        _pc.compile(str(HUB), doraise=True)
+        print("DONE " + str(changed) + " patchs appliques — Hub compile OK")
+    else:
+        print("DONE 0 patchs — rien a faire")
+    return 0
 
-    spec = importlib.util.spec_from_file_location(
-        "hub_swarm_patch", str(ROOT / "tools" / "hub_swarm_patch.py")
-    )
-    _swarm_mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(_swarm_mod)
-    sys.modules["hub_swarm_patch"] = _swarm_mod
-    print("hub_swarm_patch: loaded")
-    changed += 1
-except Exception as e:
-    print("hub_swarm_patch SKIP:", e)
 
-if changed > 0:
-    HUB.write_text(content, encoding="utf-8")
-    import py_compile as _pc
-
-    _pc.compile(str(HUB), doraise=True)
-    print("DONE " + str(changed) + " patchs appliques — Hub compile OK")
-else:
-    print("DONE 0 patchs — rien a faire")
+if __name__ == "__main__":
+    sys.exit(main())

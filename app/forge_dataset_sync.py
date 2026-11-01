@@ -65,9 +65,13 @@ sys.path.insert(0, str(_APP))
 
 
 def _src_hash(*paths: Path) -> str:
-    """Hash SHA256[:12] de un ou plusieurs fichiers source."""
+    """Hash SHA256[:12] de un ou plusieurs fichiers source, ET de ce generateur.
+
+    Le generateur entre dans le hash (29/10) : sans lui, corriger un gen_* ne perimait jamais son golden.
+    Meme fonction cote generation et cote peremption (check_all) : les deux hash restent egaux.
+    """
     h = hashlib.sha256()
-    for p in paths:
+    for p in (*paths, Path(__file__)):
         if p.exists():
             h.update(p.read_bytes())
     return h.hexdigest()[:12]
@@ -368,8 +372,13 @@ def gen_behavior_gold() -> dict:
     m5 = IntegrityManager(_S)
     t_o = m5.create_manifest("bob", IntegrityRing.COLLAB, scopes={"rag": ["query"]}, duration_s=60)
     tk = CapabilityToken.decode(t_o, _S.encode())
-    t_n = m5.create_manifest("bob", IntegrityRing.COLLAB, scopes={"rag": ["query"]}, duration_s=60)
     m5.revoke("bob", tk.seq + 1)
+    # Revocation par INSTANT D'EMISSION depuis le 2026-09-02 (forge_integrity.verify) : tout jeton emis a la
+    # seconde de la revocation ou avant tombe. Le « nouveau » jeton s'emet donc APRES, a la seconde suivante ;
+    # emis avant `revoke`, il etait (a juste titre) refuse et le golden notait new_token_passes=False.
+    import time as _t
+    _t.sleep(1.1)
+    t_n = m5.create_manifest("bob", IntegrityRing.COLLAB, scopes={"rag": ["query"]}, duration_s=60)
     oo, _ = m5.verify("rag", "query", t_o)
     on, _ = m5.verify("rag", "query", t_n)
 
@@ -404,7 +413,7 @@ def gen_behavior_gold() -> dict:
         },
         "CMD-02_COVE_CONTRADICTION": {
             "name": "Cohérence logique CoVe",
-            "invariant": "trust plafonné en mono-mode, gold impossible",
+            "invariant": "contradiction CoVe : trust plafonné en mono-mode, promotion gold impossible",
             "observed_trust": r_cove.trust_score,
             "observed_state": state_mono.label(),
             "expected_behavior": {

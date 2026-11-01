@@ -76,6 +76,9 @@ def test_le_garde_d_admission_mord(monkeypatch):
 
     def exercer(sante):
         monkeypatch.setattr(m, "_get_system_health", lambda: sante)
+        # HERMETIQUE (26/10) : le sampler REEL (2e observateur) et sa remesure psutil faisaient refuser l'entree saine
+        # quand la machine elle-meme etait a 90 % (CI de reference job_660d1691645b) -- on juge le garde, pas la machine.
+        monkeypatch.setattr(m, "_lire_snapshot_ram", lambda: None)
         return m.check_ressources(heavy=True)
 
     prouver_que_le_garde_mord(

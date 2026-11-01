@@ -160,15 +160,8 @@ def _canonical() -> dict:
                 "NETCFG_MCP_TOKEN": _token_netcfg(),
             },
         },
-        "MCP_DOCKER": {
-            "command": "docker",
-            "args": ["mcp", "gateway", "run"],
-            "env": {
-                "LOCALAPPDATA": __import__("os").path.expanduser(r"~\AppData\Local"),
-                "ProgramData": r"C:\ProgramData",
-                "ProgramFiles": r"C:\Program Files",
-            },
-        },
+        # MCP_DOCKER retire (owner 28/10) : le gateway Docker MCP est joignable VIA Nokido (outils docker_* du hub,
+        # service NokidoDockerMcpGateway) ; le restaurer ici le reinjectait a chaque validate_config().
     }
 
 

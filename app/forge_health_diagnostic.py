@@ -91,6 +91,9 @@ _RAG_TTL_S = int(os.environ.get("LAFORGE_HEALTH_RAG_TTL_S", "1800"))  # 30 min
 # vers lequel les deplacer (le CLI appelle le meme `run_cycle`) : ces deux grandeurs deviennent
 # un ECHANTILLON DECLARE (les N dernieres lignes par rowid), sous des noms qui le disent.
 # NR : tests/nr/test_health_audit_rag_sans_scan_nr.py
+# 20 000 et non 200 000 (integration 24/10) : la fenetre relit des LIGNES de table (~5 Ko avec l'embedding) ;
+# 200 000 lignes ~ 1 Go par cycle, l'ordre de grandeur des parcours d'index qu'on retirait. 20 000 ~ 100 Mo.
+_RAG_FENETRE_NULL = int(os.environ.get("LAFORGE_HEALTH_RAG_FENETRE", "20000"))
 _RAG_ECHANTILLON_N = int(os.environ.get("LAFORGE_HEALTH_RAG_ECHANTILLON", "10000"))
 import threading as _threading  # noqa: E402 - verrou de mesure, voisin du cache qu'il protege
 
@@ -197,16 +200,24 @@ def _audit_rag_chunks_mesure(conn) -> dict:
     # sont deux instantanes, et `total - vec` melangeait alors deux moments —
     # c'est ce qui faisait varier le chiffre d'un rapport a l'autre sans qu'aucun
     # chunk n'ait change d'etat.
+    # P2 coagulation (3), 24/10 : plus de COUNT(*) ni de COUNT(embedding IS NULL) sur toute la table
+    # (SCAN d'index, ~7 M entrees refusees par politique). `total` = MAX(rowid) (ordre de grandeur,
+    # seek) ; vectorises / non vectorises = FENETRE des _RAG_FENETRE_NULL derniers rowid, par
+    # SEARCH sur la cle (rowid > ?). La dette reelle vient de la ventilation (snapshot producteur).
     conn.execute("BEGIN")
     try:
-        total = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
+        total = conn.execute("SELECT MAX(rowid) FROM rag_chunks").fetchone()[0] or 0
+        _deb_fen = max(0, total - _RAG_FENETRE_NULL)
         no_vec = conn.execute(
-            "SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NULL"
+            "SELECT COUNT(*) FROM rag_chunks WHERE rowid > ? AND embedding IS NULL", (_deb_fen,)
         ).fetchone()[0]
     finally:
         conn.execute("COMMIT")
-    vec = total - no_vec
-    pct_vec = round(vec * 100 / max(total, 1), 1)
+    _taille_fen = total - _deb_fen
+    vec = _taille_fen - no_vec
+    pct_vec = round(vec * 100 / max(_taille_fen, 1), 1)
+    _dette_statut = ("FENETRE_%d_DERNIERS_ROWID (rowid > %d) — NON exhaustif ; dette reelle = ventilation"
+                     % (_RAG_FENETRE_NULL, _deb_fen))
 
     # Dim moyenne (échantillon)
     sample = conn.execute(
@@ -230,9 +241,12 @@ def _audit_rag_chunks_mesure(conn) -> dict:
     ).fetchall()
 
     # Top domains
-    by_dom = conn.execute(
-        "SELECT COALESCE(domain,'(null)'), COUNT(*) FROM rag_chunks GROUP BY domain ORDER BY 2 DESC LIMIT 10"
-    ).fetchall()
+    # DANS LA FENETRE, compte en Python : pas de GROUP BY (TEMP B-TREE) ni de balayage d'index.
+    from collections import Counter as _Counter
+    _cnt = _Counter(
+        (r[0] if r[0] is not None else "(null)")
+        for r in conn.execute("SELECT domain FROM rag_chunks WHERE rowid > ?", (_deb_fen,)))
+    by_dom = _cnt.most_common(10)
 
     # Quality score moyen
     qsa = conn.execute(
@@ -247,6 +261,7 @@ def _audit_rag_chunks_mesure(conn) -> dict:
         "vectorized": vec,
         "non_vectorized": no_vec,
         "pct_vectorized": pct_vec,
+        "dette_statut": _dette_statut,
         "mesure_age_s": 0.0,
         "depuis_cache": False,
         "embedding_dim_f32": dim_f32,
@@ -284,6 +299,21 @@ def audit_biblio(conn) -> dict:
     }
 
 
+AM_FENETRE = 50000  # derniers rowid d'agent_messages comptes par la sante
+
+
+def _estimer_lignes(conn, table: str):
+    """ESTIMATION du nombre de lignes par MAX(rowid) : un seek d'index, pas un balayage (22/10, P0 chasse aux lectures
+    massives -- COUNT(*) relisait ~2,1 M entrees d'index par cycle de sante). Exact tant que rien n'est supprime ; c'est
+    un ORDRE DE GRANDEUR, nomme comme tel par l'appelant. None si la table est absente, illisible ou WITHOUT ROWID :
+    jamais un 0 invente."""
+    try:
+        r = conn.execute(f'SELECT MAX(rowid) FROM "{table}"').fetchone()
+    except Exception:  # muet-ok : table absente / WITHOUT ROWID -> INCONNU, rendu None
+        return None
+    return int(r[0]) if r and r[0] is not None else 0
+
+
 def audit_messages(conn) -> dict:
     """Mailbox + conversation_log : volume + freshness."""
     from datetime import timedelta
@@ -302,7 +332,13 @@ def audit_messages(conn) -> dict:
     import sqlite3 as _sq3
     from nokido_agent.app.forge_db_path import m2m_path as _m2m_path
     _m = _sq3.connect(_m2m_path(), timeout=5)
-    am_total = _m.execute("SELECT COUNT(*) FROM agent_messages WHERE 1=1" + _REAL).fetchone()[0]
+    # Fenetre bornee (plan mesure : SCAN table entiere sans borne) : les AM_FENETRE
+    # derniers rowid ; `am_ecartes` dit combien de lignes la borne laisse de cote.
+    _mx = _m.execute("SELECT MAX(rowid) FROM agent_messages").fetchone()[0]
+    am_ecartes = max(0, (_mx or 0) - AM_FENETRE)
+    am_total = _m.execute(
+        "SELECT COUNT(*) FROM agent_messages WHERE rowid > ?" + _REAL, (am_ecartes,)
+    ).fetchone()[0]
     am_today = _m.execute("SELECT COUNT(*) FROM agent_messages WHERE created_at >= ?" + _REAL, (today,)).fetchone()[0]
     # unread PERTINENT = vrais messages inter-agents NON LUS et RECENTS (<7j). Un message
     # non lu de plusieurs semaines = backlog historique a archiver (le status 'unread'
@@ -313,7 +349,8 @@ def audit_messages(conn) -> dict:
         (week_ago,),
     ).fetchone()[0]
     by_from = _m.execute(
-        "SELECT from_agent, COUNT(*) FROM agent_messages GROUP BY from_agent ORDER BY 2 DESC LIMIT 10"
+        "SELECT from_agent, COUNT(*) FROM (SELECT from_agent FROM agent_messages NOT INDEXED "
+        "WHERE rowid > ?) GROUP BY from_agent ORDER BY 2 DESC LIMIT 10", (am_ecartes,)
     ).fetchall()
     _m.close()
     # `conversation_log` est un JOURNAL qui suit `sandbox/journaux.switch` ;
@@ -333,22 +370,25 @@ def audit_messages(conn) -> dict:
         _c_cv = _sq3.connect("file:%s?mode=ro" % _base_cv.replace("\\", "/"),
                              uri=True, timeout=10)
         try:
-            cv_total = _c_cv.execute("SELECT COUNT(*) FROM conversation_log").fetchone()[0]
+            cv_total = _estimer_lignes(_c_cv, "conversation_log")
         finally:
             _c_cv.close()
     else:
-        cv_total = conn.execute("SELECT COUNT(*) FROM conversation_log").fetchone()[0]
-    nl_total = conn.execute("SELECT COUNT(*) FROM network_log").fetchone()[0]
-    spl_total = conn.execute("SELECT COUNT(*) FROM shared_prompt_log").fetchone()[0]
+        cv_total = _estimer_lignes(conn, "conversation_log")
+    nl_total = _estimer_lignes(conn, "network_log")
+    spl_total = _estimer_lignes(conn, "shared_prompt_log")
     return {
         "agent_messages_total": am_total,
         "agent_messages_today": am_today,
+        "agent_messages_ecartes": am_ecartes,
         "agent_messages_unread": am_unread,
         "agent_messages_pct_unread": round(am_unread * 100 / max(am_total, 1), 1),
         "agent_messages_by_from": [{"agent": a, "count": n} for a, n in by_from],
         "conversation_log_total": cv_total,
         "network_log_total": nl_total,
         "shared_prompt_log_total": spl_total,
+        # Les trois totaux de journaux ci-dessus sont des ESTIMATIONS (MAX(rowid)), None = illisible.
+        "totaux_logs_estimation": True,
     }
 
 
@@ -368,7 +408,9 @@ def audit_tables_empty(conn) -> dict:
     low = []
     for t in tbls:
         try:
-            n = conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
+            # 22/10 (P0 chasse aux lectures massives) : la valeur ne sert qu'a decider « vide » / « < 5 lignes ». Un
+            # COUNT(*) relisait jusqu'a 32,7 M lignes par cycle (~101 cycles/24 h) ; 5 lignes au plus suffisent, exact.
+            n = len(conn.execute(f'SELECT 1 FROM "{t}" LIMIT 5').fetchall())
         except Exception as e:  # noqa: BLE001 -- table illisible : absente du compte, et DITE (illisible != vide)
             import logging as _lg
             _lg.getLogger(__name__).debug("[diagnostic] table %s ILLISIBLE (%s) : hors du compte", t,
@@ -509,6 +551,11 @@ def _service_desactive(nom_fichier_hb: str):
     return _SERVICES_DESACTIVES.get(nom_fichier_hb)
 
 
+# 24/10 : `gemma_up` (llama_keeper) dit si le ROUTEUR du CLI Gemini (:9379) repond -- CLI
+# retire, donc toujours False -- et rien de l'organe llama : fausse alarme permanente.
+_CLES_UP_HORS_ORGANE = frozenset({"gemma_up"})
+
+
 def _verdict_fonctionnel(data) -> tuple:
     """L'organe que ce worker sert REPOND-il ? (True|False|None, motif).
 
@@ -526,6 +573,8 @@ def _verdict_fonctionnel(data) -> tuple:
     portees = [data] + [v for v in data.values() if isinstance(v, dict)]
     for src in portees:
         for cle, val in src.items():
+            if cle.lower() in _CLES_UP_HORS_ORGANE:
+                continue
             if isinstance(val, bool) and cle.lower().endswith("_up"):
                 if val:
                     return True, f"{cle}=true"

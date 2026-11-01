@@ -25,6 +25,7 @@ __FORGE_COLOR__ = "qualite/ci-de-reference : certifie un sha en un etage"
 
 import argparse
 import contextlib
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,8 +45,11 @@ def plan(sha: str, deux_etages: bool = False) -> list:
 
 
 def jouer(etage: str, args: list, delai: int, sha: str, dossier: Path, executer=subprocess.run) -> int:
+    # La CI de reference juge HEAD (baseline) : ses echecs nourrissent le self-patcher en REL, ecrits HORS du worktree
+    # de preuve, dans le bac a sable du depot principal (owner 26/10 ; un candidat juge ne pose jamais ce role).
+    env = dict(os.environ, LAFORGE_PREUVE_ROLE="baseline", LAFORGE_REL_OUTBOX=str(ROOT / "sandbox"))
     r = executer([sys.executable, "tools/ci_local.py", *args], cwd=ROOT,
-                 capture_output=True, text=True, errors="replace", timeout=delai)
+                 capture_output=True, text=True, errors="replace", timeout=delai, env=env)
     lignes = ((r.stdout or "") + "\n" + (r.stderr or "")).splitlines()
     dossier.mkdir(parents=True, exist_ok=True)
     (dossier / ("ci_%s_%s.txt" % (etage, sha))).write_text("\n".join(lignes), encoding="utf-8")
@@ -115,7 +119,18 @@ def _dire_bail(res) -> str:
     return "NON PRIS (%s) -- la CI continue sans priorite" % (res.get("error") or res.get("detail") or "?")
 
 
-def main(argv=None, executer=subprocess.run, bail=None) -> int:
+def _audit_manifestes(sha: str) -> tuple:
+    """Pre-controle : reutilise la lecture de fraicheur de dist_promotion (aucun second lecteur)."""
+    try:
+        if str(ROOT / "tools") not in sys.path:
+            sys.path.insert(0, str(ROOT / "tools"))
+        import dist_promotion
+        return dist_promotion.audit_manifestes_frais(sha)
+    except Exception as e:  # noqa: BLE001
+        return False, "lecture de l'audit des manifestes IMPOSSIBLE (%s) -- refus" % type(e).__name__
+
+
+def main(argv=None, executer=subprocess.run, bail=None, audit=None) -> int:
     ap = argparse.ArgumentParser(description="CI de reference d'un sha (un etage par defaut)")
     ap.add_argument("--sha", required=True, help="sha a certifier (celui qu'on poussera)")
     ap.add_argument("--deux-etages", action="store_true",
@@ -127,6 +142,16 @@ def main(argv=None, executer=subprocess.run, bail=None) -> int:
         print("REFUS : --sha vide -- une reference certifie un sha NOMME, jamais l'arbre courant", flush=True)
         return 2
     dossier = Path(a.dossier)
+    # Un test qui simule l'executeur ne lit pas l'audit reel du depot (comme le temoin et le bail).
+    if audit is None and executer is subprocess.run:
+        audit = _audit_manifestes
+    if audit is not None:
+        ok_audit, motif = audit(sha)
+        if not ok_audit:
+            print("REFUS : audit pip-audit des manifestes livres absent/perime -- CI de reference NON lancee "
+                  "(la porte du tag la refuserait apres ~3 h) : %s" % motif, flush=True)
+            return 3
+        print("audit manifestes : %s" % motif, flush=True)
     ch = executer([sys.executable, "tools/forge_changelog.py", "--check", "--jusqua", sha], cwd=ROOT,
                   capture_output=True, text=True, errors="replace", timeout=120)
     print("changelog --check rc=%s : %s" % (ch.returncode, ((ch.stdout or ch.stderr) or "").strip()[:200]),

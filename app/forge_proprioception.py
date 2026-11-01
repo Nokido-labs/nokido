@@ -309,17 +309,19 @@ def measure_storage(conn) -> dict:
     from nokido_agent.app.forge_db_path import m2m_path as _m2m_path
     try:
         _m = _sq3.connect(_m2m_path(), timeout=3)
-        am_total = _m.execute("SELECT COUNT(*) FROM agent_messages").fetchone()[0]
-        am_unread = _m.execute("SELECT COUNT(*) FROM agent_messages WHERE status='unread'").fetchone()[0] if am_total > 0 else 0
+        # ESTIMATION bornee : MAX(rowid) (instantane) au lieu de COUNT(*) sans WHERE.
+        am_total = _m.execute("SELECT MAX(rowid) FROM agent_messages").fetchone()[0]
+        am_unread = (_m.execute("SELECT COUNT(*) FROM agent_messages WHERE status='unread'").fetchone()[0]
+                     if am_total else None)
         _m.close()
     except Exception as _e:  # noqa: BLE001
-        print(f"[proprioception] agent_messages illisible ({type(_e).__name__}) : compte a 0, pas mesure", flush=True)
-        am_total, am_unread = 0, 0
+        print(f"[proprioception] agent_messages illisible ({type(_e).__name__}) : INCONNU (None), pas 0", flush=True)
+        am_total, am_unread = None, None
 
     # Score : équilibre richesse vs saturation
-    pct_unread = round(am_unread * 100 / max(am_total, 1), 1)
+    pct_unread = round(min(am_unread, am_total) * 100 / am_total, 1) if am_total else None
     score = 100
-    if pct_unread > 50:
+    if pct_unread is not None and pct_unread > 50:
         score -= 30
     if db_size_mb > 5000:
         score -= 10
@@ -334,6 +336,7 @@ def measure_storage(conn) -> dict:
         "db_total_rows": total_rows,
         "db_rows_note": "MAX(rowid) par table = borne superieure, pas COUNT(*) (balayage interdit)",
         "agent_messages_unread_pct": pct_unread,
+        "agent_messages_total_estimation": am_total or None,
         "biggest_tables": sorted([(t, n) for t, n in rows_per_tbl.items()], key=lambda x: -x[1])[:10],
     }
 

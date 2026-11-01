@@ -35,7 +35,7 @@ sublicense, and distribute your Contribution and such derivative works.
 This includes the right to **re-license** the Contribution **under any
 license**, including a commercial / proprietary license, **without
 seeking your additional permission**. This is the cornerstone of the
-dual-licensing model (see [COMMERCIAL.md](../COMMERCIAL.md)).
+dual-licensing model (see [COMMERCIAL.md](archive/COMMERCIAL.md)).
 
 You **retain** your underlying copyright. You are not selling or
 assigning ownership — you are granting a broad license.

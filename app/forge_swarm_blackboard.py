@@ -207,6 +207,63 @@ def _write_fact(zone: str, key: str, value: str, category: str,
         raise
 
 
+def _keeper():
+    try:
+        from nokido_agent.tools import forge_roadmap_keeper as _k
+    except ImportError:
+        from tools import forge_roadmap_keeper as _k
+    return _k
+
+
+def _garde_clos(zone: str, key: str, fact: str, category: str) -> Optional[str]:
+    """Quality gate CLOS sur l'ecriture d'un item `roadmap`. OBSERVATION par defaut : le refus est
+    journalise (roadmap_clos_refus.log) et l'ecriture a lieu. NOKIDO_CLOS_GATE=enforce -> motif de refus."""
+    if category != "roadmap":
+        return None
+    try:
+        c = _conn()
+        try:
+            row = c.execute("SELECT value FROM swarm_blackboard WHERE zone=? AND key=?", (zone, key)).fetchone()
+        finally:
+            c.close()
+        ok, motif = _keeper().exiger_preuve_cloture(row[0] if row else "", fact)
+    except Exception:  # noqa: BLE001 -- l'observation ne casse jamais l'ecriture
+        __import__("logging").getLogger(__name__).debug("garde CLOS illisible", exc_info=True)
+        return None
+    if not ok and os.environ.get("NOKIDO_CLOS_GATE", "").strip().lower() == "enforce":
+        return "CLOS refuse (NOKIDO_CLOS_GATE=enforce) : %s" % motif
+    return None
+
+
+def _valider_roadmap_item(fact: str, key: str) -> str:
+    """Canal M2M roadmap_item : un fait JSON ROADMAP_ITEM est valide. OBSERVATION par defaut
+    (journal, ecriture faite) ; NOKIDO_ROADMAP_SCHEMA=enforce -> motif de refus. Prose legacy : ignoree."""
+    s = fact.strip() if isinstance(fact, str) else ""
+    if not s.startswith("{"):
+        return ""
+    try:
+        data = __import__("json").loads(s)
+    except ValueError:
+        return ""
+    if not isinstance(data, dict) or data.get("intent") != "ROADMAP_ITEM":
+        return ""
+    try:
+        try:
+            from nokido_agent.app.forge_m2m_protocol import validate
+        except ImportError:
+            from app.forge_m2m_protocol import validate
+        v = validate("roadmap_item", data)
+    except Exception:  # noqa: BLE001 - la validation ne casse jamais l'ecriture
+        return ""
+    if v.get("code") == "M2M_OK":
+        return ""
+    msg = "roadmap_item invalide (%s) : %s" % (key, "; ".join(v.get("violations") or [v.get("code", "?")]))
+    if __import__("os").environ.get("NOKIDO_ROADMAP_SCHEMA", "").lower() == "enforce":
+        return msg
+    __import__("logging").getLogger(__name__).warning("OBSERVATION %s", msg)
+    return ""
+
+
 async def apply_fact(zone: str, fact: str, *, category: str = "", trust: float = 0.5,
                      key: Optional[str] = None, source: str = "unknown",
                      ring: int = 4) -> dict:
@@ -224,6 +281,13 @@ async def apply_fact(zone: str, fact: str, *, category: str = "", trust: float =
     if int(ring) > need:
         return {"error": f"ACL: zone '{zone}' exige ring<={need}, appelant ring={ring}"}
     k = key or _fact_key(fact, category or "")
+    if (category or "") == "roadmap":
+        refus_schema = _valider_roadmap_item(fact, k)
+        if refus_schema:
+            return {"error": refus_schema}
+    refus = await asyncio.to_thread(_garde_clos, zone, k, fact, category or "")
+    if refus:
+        return {"error": refus}
     async with _lock():  # un seul writer à la fois → pas de "database is locked"
         await asyncio.to_thread(_write_fact, zone, k, fact, category or "",
                                 float(trust), source or "unknown")
@@ -283,8 +347,14 @@ def _fin_tache_fond(tache: "asyncio.Task") -> None:
 
 
 def read_zone(zone: str, *, category: Optional[str] = None,
-              min_trust: Optional[float] = None, limit: int = 200) -> list[dict]:
-    """Lecture condensée d'UNE zone (anti lost-in-the-middle)."""
+              min_trust: Optional[float] = None, limit: int = 200,
+              key: Optional[str] = None, key_prefix: Optional[str] = None) -> list[dict]:
+    """Lecture condensée d'UNE zone (anti lost-in-the-middle).
+
+    `key` (exacte) ou `key_prefix` ciblent un fait : sans eux, une zone de plus de
+    `limit` faits ne rendait que les plus recents et un fait ancien paraissait
+    ABSENT (defaut mesure le 25/10 : constat homeostat illisible au tableau noir).
+    """
     zone = (zone or "").strip()
     if not zone:
         return []
@@ -297,6 +367,13 @@ def read_zone(zone: str, *, category: Optional[str] = None,
     if min_trust is not None:
         q += " AND trust>=?"
         args.append(float(min_trust))
+    if key:
+        q += " AND key=?"
+        args.append(str(key))
+    elif key_prefix:
+        # Bornes de plage plutot que LIKE : les jokers '%' '_' d'une cle restent litteraux.
+        q += " AND key>=? AND key<?"
+        args.extend([str(key_prefix), str(key_prefix) + "\U0010ffff"])
     q += " ORDER BY updated_at DESC LIMIT ?"
     args.append(int(limit))
     c = _conn()

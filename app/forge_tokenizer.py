@@ -204,8 +204,13 @@ def _count_mistral(text: str, model: Optional[str] = None, online: bool = False)
             try:
                 tok = MistralTokenizer.from_model(key)
             except Exception:
-                # fallback model name generique
-                tok = MistralTokenizer.from_model("mistral-large-latest")
+                try:
+                    # fallback model name generique
+                    tok = MistralTokenizer.from_model("mistral-large-latest")
+                except Exception:
+                    # 24/10 : mistral_common 1.12 -- from_model deprecie, echoue pour codestral-latest ET pour le
+                    # repli ; Tekken (v3) est le tokenizer des modeles Mistral recents (codestral, nemo, large 2)
+                    tok = MistralTokenizer.v3(is_tekken=True)
             _MISTRAL_CACHE[key] = tok
         # API recente : tokenizer.instruct_tokenizer.tokenizer.encode(text, bos, eos)
         inner = getattr(tok, "instruct_tokenizer", None)
@@ -349,7 +354,8 @@ def count_tokens(
         # substring. Sinon on perdait le tokenizer NATIF (fallback tiktoken faussait
         # le comptage Claude/Gemini de ~15-30%). Le bon tokenizer existe déjà.
         _base = prov
-        for _sfx in ("_cli", "_headless", "_native", "_local", "_api", "_oauth"):
+        # « _free » (24/10) : mistral_free, openrouter_free -- le palier gratuit garde le tokenizer de SA famille
+        for _sfx in ("_cli", "_headless", "_native", "_local", "_api", "_oauth", "_free"):
             if _base.endswith(_sfx):
                 _base = _base[: -len(_sfx)]
                 break

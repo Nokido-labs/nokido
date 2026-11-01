@@ -173,6 +173,54 @@ def _quality_warn(files: list[str]) -> None:
                   f"{str(e)[:200]} (fichier: {f})")
 
 
+# Jeton de caviardage du pare-feu ([IP_INTERNAL_n], [PATH_WIN_n], [SECRET_n]...) : JAMAIS une valeur.
+# Copie de app/forge_ordres_bureau.py::RE_JETON_CAVIARDAGE (pas d'import : le gate ne casse jamais sur un
+# module tiers) ; l'egalite des deux est verrouillee par tests/nr/test_gate_jetons_caviardage_nr.py.
+_RE_JETON = re.compile(r"\[[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d+\]")
+# Fichiers dont c'est le VOCABULAIRE : un instrument ne lit pas sa propre doctrine.
+_JETONS_EXCLUS = ("tools/forge_git_gate.py", "app/forge_ordres_bureau.py", "app/forge_semantic_firewall.py",
+                  "tests/nr/test_gate_jetons_caviardage_nr.py")
+
+
+def jetons_ajoutes(diff: str) -> dict:
+    """{fichier: [jetons]} AJOUTES par un diff unifie : un jeton aussi present dans une ligne retiree du meme
+    fichier (ligne deplacee ou reformulee) n'est pas compte."""
+    from collections import Counter
+
+    plus, moins, fichier = {}, {}, None
+    for ligne in diff.splitlines():
+        if ligne.startswith("+++ "):
+            fichier = ligne[4:].strip()
+            fichier = fichier[2:] if fichier.startswith("b/") else fichier
+            continue
+        if ligne.startswith("--- ") or fichier is None or fichier in _JETONS_EXCLUS:
+            continue
+        if ligne.startswith("+"):
+            plus.setdefault(fichier, Counter()).update(_RE_JETON.findall(ligne))
+        elif ligne.startswith("-"):
+            moins.setdefault(fichier, Counter()).update(_RE_JETON.findall(ligne))
+    out = {}
+    for f, c in plus.items():
+        net = c - moins.get(f, Counter())
+        if net:
+            out[f] = sorted(net.elements())
+    return out
+
+
+def _jetons_caviardage_warn(files: list[str]) -> None:
+    """P1_gate_jetons_de_caviardage_20261026 : un executeur avait recopie [IP_INTERNAL_1] dans SECURITY.md a la
+    place de l'adresse (2584d3d70). OBSERVATION, jamais bloquant : mesurer le bruit avant de promouvoir."""
+    try:
+        r = _git(["diff", "--cached", "-U0", "--"] + list(files))
+        trouves = jetons_ajoutes(r.stdout or "")
+        if trouves:
+            print("[gate][caviardage][warn] jeton(s) de caviardage AJOUTE(S) -- jamais une valeur, relire :")
+            for f, js in trouves.items():
+                print(f"  ! {f} : {', '.join(js[:5])}{' ...' if len(js) > 5 else ''}")
+    except Exception as e:  # noqa: BLE001 — le gate ne casse jamais sur son propre outil
+        print(f"[gate][caviardage] skip: {str(e)[:80]}")
+
+
 def _firehose_warn(files: list[str]) -> None:
     """Garde anti-régression (incident 47GB/OOM 2026-06-11) : subprocess sans errors=,
     readTextFile-whole en .ts, CREATE TABLE sans purge. WARN, jamais bloquant."""
@@ -673,6 +721,7 @@ def _precommit() -> int:
         _firehose_warn(files)
     except Exception as e:
         print(f"[gate] firehose skip: {str(e)[:80]}")
+    _jetons_caviardage_warn(files)
     try:
         _syntax_warn(files)
     except Exception as e:

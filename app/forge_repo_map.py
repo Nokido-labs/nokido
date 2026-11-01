@@ -314,12 +314,59 @@ def find_symbol(repo_map: dict, name: str) -> list[Symbol]:
     return [s for s in repo_map["symbols"] if s.name == name]
 
 
+def _plan_html(texte: str, maxi: int = 120) -> str:
+    """Plan d'une page HTML : titre, en-tetes h1-h3, ids, scripts et feuilles liees -- le « squelette » d'un .html.
+    31/10 (rendu AGY job_f74513a2) : get_file_skeleton rendait « skeleton vide » sur toutes les pages de web_hub."""
+    from html.parser import HTMLParser
+
+    lignes: list[str] = []
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.pile = None
+            self.tampon = ""
+
+        def handle_starttag(self, tag, attrs):
+            a = dict(attrs)
+            if tag in ("title", "h1", "h2", "h3"):
+                self.pile, self.tampon = tag, ""
+            if a.get("id"):
+                lignes.append("  #%s (%s)" % (a["id"], tag))
+            if tag == "script" and a.get("src"):
+                lignes.append("script: %s" % a["src"])
+            if tag == "link" and a.get("href") and "stylesheet" in str(a.get("rel", "")):
+                lignes.append("css: %s" % a["href"])
+
+        def handle_data(self, data):
+            if self.pile:
+                self.tampon += data
+
+        def handle_endtag(self, tag):
+            if tag == self.pile:
+                lignes.append("%s: %s" % (tag, " ".join(self.tampon.split())[:120]))
+                self.pile = None
+
+    try:
+        _P().feed(texte)
+    except Exception:  # noqa: BLE001 - HTML malforme : ce qui a ete lu reste rendu
+        lignes.append("(analyse interrompue : HTML malforme)")
+    reste = len(lignes) - maxi
+    return "\n".join(lignes[:maxi]) + ("\n... %d element(s) de plus" % reste if reste > 0 else "")
+
+
 def file_skeleton(path: str | Path, root: str | Path) -> str:
     """Retourne le SKELETON d un fichier : imports + signatures + docstrings,
-    corps des methodes remplaces par `...`. Compresse pour contexte LLM."""
+    corps des methodes remplaces par `...`. Compresse pour contexte LLM.
+    Un .html rend son PLAN (titre, en-tetes, ids, scripts) -- 31/10."""
     p = Path(path)
     if not p.is_absolute():
         p = Path(root) / p
+    if p.suffix.lower() in (".html", ".htm"):
+        try:
+            return _plan_html(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            return ""
     try:
         tree = ast.parse(p.read_text(encoding="utf-8", errors="replace"))
     except (SyntaxError, OSError):

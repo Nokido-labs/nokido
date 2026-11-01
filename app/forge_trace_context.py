@@ -109,10 +109,21 @@ def get_actor() -> dict:
     return dict(_actor.get() or {})
 
 
-def set_actor(agent: str = "", *, ring=None, channel: str = "", transport: str = "",
-              machine: str = "local") -> Token:
+def set_actor(agent: str = "", *, principal: str = "", declared: str = "UNKNOWN", ring=None,
+              channel: str = "", transport: str = "", machine: str = "local",
+              transport_signale: str = "", client_process: str = "") -> Token:
+    """`agent` = nom de surface (declare si present, sinon principal) ; `principal` = identite
+    authentifiee (defaut : agent) ; `declared` = en-tete declare (UNKNOWN si absent).
+    `transport` (= transport_declare_registre, lu du registre) et `transport_signale` (declare
+    par le client via X-Transport, jamais observe) sont deux champs distincts ; illisible -> INCONNU."""
+    _agent = (agent or "").upper() or "UNKNOWN"
     return _actor.set({
-        "agent": (agent or "").upper() or "UNKNOWN",
+        "transport_declare_registre": transport or "",
+        "transport_signale": transport_signale or "INCONNU",
+        "client_process": client_process or "INCONNU",
+        "agent": _agent,
+        "principal": (principal or "").upper() or _agent,
+        "declared": (declared or "UNKNOWN").upper(),
         "ring": ring,
         "channel": channel or "",
         "transport": transport or "",
@@ -124,11 +135,53 @@ def reset_actor(token: Token) -> None:
     appeler_sans_lever(_actor.reset, token, ou="forge_trace_context.reset_actor")
 
 
+# Cas d'usage de ROUTAGE de l'appel LLM courant (30/10, passeport d'appel tranche 2) : pose par router_call autour de
+# l'appel, lu par le passeport du proxy. "" = non pose (le passeport ecrit alors « direct »).
+_use_case: ContextVar[str] = ContextVar("forge_use_case", default="")
+
+
+def get_use_case() -> str:
+    return _use_case.get() or ""
+
+
+def set_use_case(use_case: str) -> Token:
+    return _use_case.set(str(use_case or ""))
+
+
+def reset_use_case(token: Token) -> None:
+    appeler_sans_lever(_use_case.reset, token, ou="forge_trace_context.reset_use_case")
+
+
+# Marque de passeport (30/10, tranche 3) : router_call l'ouvre, le proxy la COCHE en ecrivant sa ligne ; un dict
+# partage (et non une valeur) pour que la coche posee dans le fil du pont (copy_context) soit vue au retour.
+_passeport_marque: ContextVar[dict | None] = ContextVar("forge_passeport_marque", default=None)
+
+
+def ouvrir_marque_passeport() -> Token:
+    return _passeport_marque.set({"ecrit": False})
+
+
+def marquer_passeport_ecrit() -> None:
+    m = _passeport_marque.get()
+    if m is not None:
+        m["ecrit"] = True
+
+
+def passeport_deja_ecrit() -> bool:
+    m = _passeport_marque.get()
+    return bool(m and m.get("ecrit"))
+
+
+def fermer_marque_passeport(token: Token) -> None:
+    appeler_sans_lever(_passeport_marque.reset, token, ou="forge_trace_context.fermer_marque_passeport")
+
+
 @contextlib.contextmanager
-def bind_actor(agent: str = "", *, ring=None, channel: str = "", transport: str = "",
-               machine: str = "local"):
+def bind_actor(agent: str = "", *, principal: str = "", declared: str = "UNKNOWN", ring=None,
+               channel: str = "", transport: str = "", machine: str = "local"):
     """Scope acteur. Reset propre en sortie."""
-    token = set_actor(agent, ring=ring, channel=channel, transport=transport, machine=machine)
+    token = set_actor(agent, principal=principal, declared=declared, ring=ring,
+                      channel=channel, transport=transport, machine=machine)
     try:
         yield get_actor()
     finally:

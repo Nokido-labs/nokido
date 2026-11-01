@@ -14,10 +14,16 @@
       "postal": ["intent", "pointer_ref", "confidence"],
       "task_result": ["intent", "status_code", "pointer_ref"],
       "task_assign": ["intent", "pointer_ref"],
-      "transient": ["intent", "schema", "source", "provenance", "effect", "source_call_id", "content_fingerprint"]
+      "transient": ["intent", "schema", "source", "provenance", "effect", "source_call_id", "content_fingerprint"],
+      "roadmap_item": ["intent", "etat", "prio", "titre", "reste", "preuve"]
     }
   },
   "intents": {
+    "ROADMAP_ITEM": {
+      "category": "roadmap",
+      "description": "Item de roadmap structure (decision owner 24/10). `reste` est une LISTE ; ILLISIBLE = non parse, jamais devine. Le texte d'origine est conserve dans `texte`. Ne modifie aucun etat.",
+      "payload_schema": {"etat": "str", "prio": "str(P0|P1|P2)", "titre": "str", "reste": "list[str]", "preuve": "str", "texte": "str (optionnel, texte d'origine)"}
+    },
     "TRANSIENT_OBSERVED": {
       "category": "transient",
       "description": "Intention observee sur une surface existante et normalisee, SANS effet sur le chemin d'origine.",

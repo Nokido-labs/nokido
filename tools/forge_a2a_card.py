@@ -96,6 +96,10 @@ _CANDIDATES = [
     ("rfc.freshness", "Fraicheur des normes RFC",
      "Confronte les RFC ingerees a l'etat amont IETF (obsolete / mise a jour).",
      ["rfc", "veille"], lambda: True, "forge_rfc_freshness_gate"),
+    ("token_efficient_digests", "Lecture economique (etag, diff, digests)",
+     "lecture conditionnelle par etag (RFC 9110 If-None-Match), differentiel unifie, squelettes AST partages ; contextId A2A = identifiant de session de lecture",
+     ["lecture", "optimisation", "etag", "diff"],
+     lambda: (ROOT / "app" / "forge_token_cache.py").is_file(), "forge_token_cache"),
 ]
 
 

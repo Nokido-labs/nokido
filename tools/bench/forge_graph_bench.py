@@ -129,14 +129,14 @@ class FCGAnalyzer:
         try:
             callers = nx.ancestors(self.graph, node)
         except nx.NetworkXError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bench/forge_graph_bench.py', 131, exc_info=True)
 
         # Nœuds APPELÉS par le nœud vulnérable (callees)
         callees = set()
         try:
             callees = nx.descendants(self.graph, node)
         except nx.NetworkXError:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bench/forge_graph_bench.py', 138, exc_info=True)
 
         return {
             "node": node,
@@ -298,14 +298,14 @@ class AttackPathFinder:
                 path = nx.shortest_path(G, user, "Domain-Admins")
                 paths.append(path)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bench/forge_graph_bench.py', 300, exc_info=True)
 
             # Vers SRV-DC01 (qui a une session DA)
             try:
                 path = nx.shortest_path(G, user, "SRV-DC01")
                 paths.append(path)
             except (nx.NetworkXNoPath, nx.NodeNotFound):
-                pass
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bench/forge_graph_bench.py', 307, exc_info=True)
 
             if paths:
                 shortest = min(paths, key=len)

@@ -91,6 +91,14 @@ EXEMPTS = {
 PREFIXES_EXEMPTS = ("tests/", "tools/patch_", "tools/forge_patch_", "sandbox/",
                     "archive/", "app/_attic/")
 
+# QUATRIEME ETAT, INJECTE (choix owner 31/10). Un jeton qu'un lanceur INJECTE dans l'environnement d'un processus
+# (ephemere, propre a ce processus) ne peut pas vivre au coffre : le classer « hors coffre » faisait crier l'instrument
+# a faux (CI de reference 31/10 : 4 lectures de NOKIDO_JOB_SUBJECT_TOKEN). {nom: SEUL fichier admis a le lire} --
+# ailleurs, la meme lecture reste HORS COFFRE : les autres modules passent par l'accesseur.
+JETONS_INJECTES = {
+    "NOKIDO_JOB_SUBJECT_TOKEN": "app/forge_agent_credential.py",  # injecte par app/forge_job_runner.py (RFC 8693)
+}
+
 
 def _exempt(rel: str) -> bool:
     r = rel.replace("\\", "/")
@@ -128,6 +136,10 @@ def scanner(tout: bool = False, racine: Path | None = None,
                 for m in LECTURE.finditer(ligne):
                     cle = m.group(1) or m.group(2) or ""
                     if not NOM_SECRET.search(cle) or NON_SECRET.search(cle):
+                        continue
+                    if JETONS_INJECTES.get(cle) == rel:
+                        if tout:
+                            trouves.append((rel, i + 1, cle, "INJECTE"))
                         continue
                     fenetre = "\n".join(lignes[max(0, i - 12):i + 3])
                     etat = "REPLI" if ("get_secret" in fenetre or "resolve(" in fenetre) \

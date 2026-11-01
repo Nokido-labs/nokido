@@ -13,10 +13,10 @@ import requests
 
 HUB = "http://127.0.0.1:8766/mcp"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nokido_agent.app.forge_secrets import get_secret  # noqa: E402
+from nokido_agent.app.forge_hub_client import HubClient  # noqa: E402
 
-TOKEN = get_secret("FORGE_MCP_TOKEN") or ""
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+# Jeton propre ou a bail via forge_hub_client ; repli maitre dit et sans nom.
+_CLIENT = HubClient(agent="ORCHESTRATE")
 
 REACT_SYSTEM_PROMPT = """Tu es l'agent ReAct de Nokido (Ollama qwen3:8b).
 Résous la tâche étape par étape.
@@ -35,7 +35,7 @@ def _hub(tool, **args):
     try:
         r = requests.post(
             HUB,
-            headers=HEADERS,
+            headers=_CLIENT.entetes(),
             json={"method": "tools/call", "params": {"name": tool, "arguments": args}},
             timeout=60,
         )
@@ -52,7 +52,7 @@ def get_tools_schema(ring=2):
     try:
         r = requests.post(
             HUB,
-            headers=HEADERS,
+            headers=_CLIENT.entetes(),
             json={"method": "tools/list", "params": {"ring": ring}},
             timeout=10,
         )

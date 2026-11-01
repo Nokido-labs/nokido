@@ -93,6 +93,16 @@ log = Path(r'~/Script python IA/Nokido/sandbox/hub.log').expanduser()
 print(log.read_text(encoding='utf-8', errors='replace')[-2000:])
 ```
 
+## Dossier illisible : ACL et mode DEV
+
+Un dossier ILLISIBLE pour les comptes de service n'est pas absent, et ce n'est pas une impasse :
+- pendant une fenêtre DEV armée par l'owner (`tools/forge_dev_mode.py arm`, console ADMINISTRATEUR, 30 min),
+  `run sandbox=ps_clm` (SYSTÈME) le relit : le mode DEV sert à lire au-delà des ACL quand c'est nécessaire ;
+- hors fenêtre, une ACL de lecture posée par l'owner (`icacls <dossier> /grant "LaForgeTrusted:(OI)(CI)RX"`) suffit
+  pour les outils lancés par `trusted_script`.
+Une ACL est toujours ADDITIVE (`/grant`), jamais `/inheritance:r` ni `/remove` sur un dossier partagé : SYSTÈME,
+Administrateurs, owner et comptes des prothèses (Docker, Ollama, llama) gardent leurs droits ; le vérifier après coup.
+
 ## Règle générale
 Si FindFiles ou read_file échoue → run action=python avec chemin absolu, pour les fichiers du dépôt.
 run action=python tourne sous un compte de bac : il ne lit pas le profil owner (~/.claude, ~/.local → PermissionError).

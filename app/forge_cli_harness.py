@@ -27,6 +27,7 @@ import queue
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 try:
     import winpty as _winpty  # pywinpty (ConPTY)
@@ -247,13 +248,20 @@ class CliHarness:
         self._b.stop()
 
 
+# `claude_api` = `claude -p` headless : le MEME binaire que `claude` -- ce n'est pas un autre programme, c'est une
+# AUTRE IDENTITE (celle qui porte la cle API, voir _SECRETS_PAR_AGENT).
+_BIN_REEL = {"claude_api": "claude"}
+
+
 def agent_bin(name):
     """Resolve a known agent CLI binary by name (full path), mirroring how the
     forge providers locate them. Honors LAFORGE_<AGENT>_BIN overrides."""
     import glob
     import shutil
     name = (name or "").lower()
+    reel = _BIN_REEL.get(name, name)   # `claude_api` parle au MEME binaire que `claude`
     envk = {"codex": "LAFORGE_CODEX_BIN", "claude": "LAFORGE_CLAUDE_BIN",
+            "claude_api": "LAFORGE_CLAUDE_BIN",
             "gemini": "LAFORGE_GEMINI_BIN", "copilot": "LAFORGE_COPILOT_BIN",
             "vibe": "LAFORGE_VIBE_BIN"}.get(name)
     if envk and os.environ.get(envk):
@@ -269,7 +277,7 @@ def agent_bin(name):
         for pat in pats:
             for c in glob.glob(pat):
                 return c
-    return shutil.which(name) or name
+    return shutil.which(reel) or reel
 
 
 # Identite MCP par agent (owner 16/10 : « il faut que vibe soit authentifie au mcp »). TABLE FIGEE : un job JSON
@@ -282,13 +290,32 @@ def agent_bin(name):
 _SECRETS_PAR_AGENT = {
     "vibe": {"FORGE_TOKEN_VIBE_HEADLESS": "FORGE_TOKEN_VIBE_HEADLESS", "NOKIDO_MISTRAL_API_KEY": "MISTRAL_API_KEY"},
     "vibe_cli": {"FORGE_TOKEN_VIBE_CLI": "FORGE_TOKEN_VIBE_CLI"},
+    # `claude_api` = `claude -p` headless, facture sur les CREDITS API de l'owner (owner 22/10). `claude` (pilotage
+    # interactif, connexion Max) n'est PAS dans cette table : il ne recoit jamais de cle API.
+    "claude_api": {"ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY_ORG",
+                   "FORGE_TOKEN_CLAUDE_HEADLESS": "FORGE_TOKEN_CLAUDE_HEADLESS"},
 }
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# CLAUDE HEADLESS (`claude -p`) -- politique de facturation (owner 22/10)
+# ---------------------------------------------------------------------------------------------------------------
+# Sans cle API, `claude -p` retombe EN SILENCE sur la connexion Max de l'owner : un couloir de facturation non voulu.
+# Le harness REFUSE alors de demarrer -- un DISABLED_BY_POLICY nomme, pas une panne -- SAUF repli EXPLICITE de
+# l'owner (interrupteur versionne, reversible par un commit).
+class SecretObligatoireAbsent(RuntimeError):
+    """Un secret OBLIGATOIRE manque : le lancement est REFUSE, pas degrade."""
+
+
+# Interrupteur OWNER versionne (config/ -- jamais sandbox/, que l'executeur peut ecrire) : `repli_connexion_max`
+# autorise `claude -p` SANS cle, en repli sur la connexion Max. Absent, illisible ou faux = REFUS.
+_CONFIG_CLAUDE_HEADLESS = Path(__file__).resolve().parent.parent / "config" / "claude_headless.json"
 
 
 def jeton_mcp(agent) -> dict:
     """{variable: valeur} des secrets propres a `agent` (identite MCP, cle fournisseur), lus au coffre au moment de
     l'appel ; un secret absent n'est pas injecte -- jamais une valeur vide, jamais une valeur au journal."""
-    table = _SECRETS_PAR_AGENT.get(agent or "") or {}
+    table = _SECRETS_PAR_AGENT.get((agent or "").strip().lower()) or {}
     if not table:
         return {}
     try:
@@ -320,14 +347,70 @@ def _agent_env(agent=None):
     return env
 
 
-def harness_for(agent, args=None, interactive=False, cwd=None, stdin_devnull=False):
+def _interrupteur_headless(cle: str) -> bool:
+    """Vrai SEULEMENT si l'interrupteur versionne `cle` vaut vrai. Fichier absent, illisible ou faux -> faux :
+    UNKNOWN n'est pas OUI. Lecteur unique des deux interrupteurs (cliquet clones 31/10)."""
+    try:
+        cfg = json.loads(Path(_CONFIG_CLAUDE_HEADLESS).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return False
+    return isinstance(cfg, dict) and cfg.get(cle) is True
+
+
+def _repli_connexion_max_autorise() -> bool:
+    """Repli sur la connexion Max quand la cle API est ABSENTE (interrupteur `repli_connexion_max`)."""
+    return _interrupteur_headless("repli_connexion_max")
+
+
+def _connexion_max_forcee() -> bool:
+    """Owner 30/10 (« oui en attendant ») : credit de la cle API epuise (« Credit balance is too low », job_bc5c454e)
+    -> `claude -p` sur la connexion Max jusqu'au quota API du 01/11. Le repli `repli_connexion_max` ne joue que cle
+    ABSENTE ; ici elle est presente mais vide. Interrupteur versionne, defaut faux : fichier absent ou illisible -> faux
+    (UNKNOWN n'est pas OUI)."""
+    return _interrupteur_headless("forcer_connexion_max")
+
+
+def _verifier_cle_api_obligatoire(agent, env) -> None:
+    """`claude_api` SANS cle API ne demarre PAS : sans elle, `claude -p` retomberait sur la connexion Max de
+    l'owner (facturation non voulue). Le refus nomme la politique et son interrupteur : DISABLED_BY_POLICY,
+    pas une panne. Aucun autre agent n'est concerne (le `claude` interactif ne recoit jamais de cle)."""
+    if (agent or "").strip().lower() != "claude_api":
+        return
+    if (env or {}).get("ANTHROPIC_API_KEY"):
+        return
+    if _repli_connexion_max_autorise() or _connexion_max_forcee():
+        return
+    nom = Path(_CONFIG_CLAUDE_HEADLESS).name
+    raise SecretObligatoireAbsent(
+        "[harness] politique owner (DISABLED_BY_POLICY) : sans cle API, `claude -p` consommerait le quota Max de "
+        "l'owner ; pour l'autoriser, passer repli_connexion_max a true dans %s." % nom)
+
+
+def harness_for(agent, args=None, interactive=False, cwd=None, stdin_devnull=False,
+                binaire=None, env_extra=None):
     """A CliHarness wired to launch a known agent CLI as a managed worker.
     interactive=True -> spawn the agent's TUI on a real ConPTY (drive via
     send/read/screen) -- this MUST run in the owner's interactive session for
-    OAuth/console. Else spawn headless with `args` (caller drives)."""
-    cmd = [agent_bin(agent)] + list(args or [])
+    OAuth/console. Else spawn headless with `args` (caller drives).
+
+    `binaire` : chemin du programme, quand l'appelant l'a DEJA resolu -- l'executeur et la
+    facade headless KNOWENT le resoudre (`LAFORGE_AGY_BIN` n'est pas dans le PATH du compte de
+    service). Sans ce parametre, c'est `agent_bin(agent)` qui repond.
+    `env_extra` : variables EN PLUS de l'agent (config d'instance OpenCode, jeton propre a
+    l'instance). Elles vont au SEUL ENFANT -- jamais dans l'environnement du lanceur, jamais un
+    argument de ligne de commande."""
+    env = _agent_env(agent)
+    if (agent or "").strip().lower() == "claude_api" and _connexion_max_forcee():
+        # la cle est retiree du SEUL enfant claude_api : `claude -p` lit alors la connexion Max du profil owner
+        env.pop("ANTHROPIC_API_KEY", None)
+    _verifier_cle_api_obligatoire(agent, env)
+    for k, v in (env_extra or {}).items():
+        if v is None:
+            continue
+        env[str(k)] = str(v)
+    cmd = [binaire or agent_bin(agent)] + list(args or [])
     backend = "pty" if interactive else "auto"
-    return CliHarness(cmd, cwd=cwd or r"C:\tmp", env=_agent_env(agent), backend=backend,
+    return CliHarness(cmd, cwd=cwd or r"C:\tmp", env=env, backend=backend,
                       stdin_devnull=stdin_devnull)
 
 

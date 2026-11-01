@@ -92,3 +92,13 @@ def test_ram_saturee_refuse_fail_closed(lanes, monkeypatch):
                         lambda: {"cpu_pct": 10.0, "ram_pct": 95.0, "ram_dispo_gb": 0.5,
                                  "source": "test"})
     assert lanes.acquire("gpu", "job_a") is False           # embolie RAM -> refus
+
+
+@pytest.mark.parametrize("statut,libere", [("done", True), ("killed", True), ("dead", True),
+                                           ("running", False), ("inconnu", False)])
+def test_un_job_tue_hors_hub_libere_sa_lane(monkeypatch, statut, libere):
+    """Mesure 25/10 : CI tuee par taskkill (pid disparu, ni .rc ni .fin) -> read_job dit `dead`,
+    et la lane restait occupee jusqu'au TTL (run_job refuse « busy_by » la CI morte)."""
+    import nokido_agent.app.forge_job_runner as R
+    monkeypatch.setattr(R, "read_job", lambda job_id, tail=0: {"ok": True, "status": statut})
+    assert L._holder_termine("job_x") is libere

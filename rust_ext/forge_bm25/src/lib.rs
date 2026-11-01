@@ -8,7 +8,9 @@ struct BM25 {
     k1: f64,
     b: f64,
     avgdl: f64,
-    doc_freqs: Vec<HashMap<String, usize>>,  // term → count per doc
+    // Index inverse terme -> [(doc, tf)] (30/10) : get_scores ne visite que les documents qui portent le terme,
+    // au lieu de parcourir tout le corpus pour chaque terme de la requete.
+    postings: HashMap<String, Vec<(usize, f64)>>,
     idf: HashMap<String, f64>,
     doc_len: Vec<usize>,
     corpus_size: usize,
@@ -20,22 +22,20 @@ impl BM25 {
     #[pyo3(signature = (corpus, k1=1.5, b=0.75, epsilon=0.25))]
     fn new(corpus: Vec<Vec<String>>, k1: f64, b: f64, epsilon: f64) -> Self {
         let corpus_size = corpus.len();
-        let mut doc_freqs: Vec<HashMap<String, usize>> = Vec::with_capacity(corpus_size);
+        let mut postings: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
         let mut doc_len: Vec<usize> = Vec::with_capacity(corpus_size);
-        let mut nd: HashMap<String, usize> = HashMap::new(); // doc freq per term
 
         let mut total_len: usize = 0;
-        for doc in &corpus {
-            let mut freq: HashMap<String, usize> = HashMap::new();
+        for (i, doc) in corpus.iter().enumerate() {
+            let mut freq: HashMap<&String, usize> = HashMap::new();
             for token in doc {
-                *freq.entry(token.clone()).or_insert(0) += 1;
+                *freq.entry(token).or_insert(0) += 1;
             }
-            for term in freq.keys() {
-                *nd.entry(term.clone()).or_insert(0) += 1;
+            for (term, count) in freq {
+                postings.entry(term.clone()).or_insert_with(Vec::new).push((i, count as f64));
             }
             total_len += doc.len();
             doc_len.push(doc.len());
-            doc_freqs.push(freq);
         }
 
         let avgdl = if corpus_size > 0 {
@@ -45,12 +45,15 @@ impl BM25 {
         };
 
         // IDF with floor to avoid negative scores (rank_bm25 epsilon trick)
-        let mut idf_vals: Vec<f64> = Vec::with_capacity(nd.len());
-        let mut idf: HashMap<String, f64> = HashMap::with_capacity(nd.len());
-        for (term, df) in &nd {
+        let mut idf_vals: Vec<f64> = Vec::with_capacity(postings.len());
+        let mut idf: HashMap<String, f64> = HashMap::with_capacity(postings.len());
+        for (term, docs) in &postings {
             let n = corpus_size as f64;
-            let df = *df as f64;
-            let v = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+            let df = docs.len() as f64;
+            // rank_bm25.BM25Okapi : ln((N-df+0.5)/(df+0.5)), SANS +1 (variante Lucene) -- le +1 rendait l'IDF
+            // toujours positif, le plancher epsilon ne mordait jamais, et le classement differait du repli
+            // Python (banc du 30/10 : ecart max 3,09, top1 49/50 a 20 000 docs).
+            let v = ((n - df + 0.5) / (df + 0.5)).ln();
             idf_vals.push(v);
             idf.insert(term.clone(), v);
         }
@@ -66,7 +69,7 @@ impl BM25 {
             }
         }
 
-        BM25 { k1, b, avgdl, doc_freqs, idf, doc_len, corpus_size }
+        BM25 { k1, b, avgdl, postings, idf, doc_len, corpus_size }
     }
 
     /// get_scores(query: list[str]) -> list[float]  — same signature as rank_bm25
@@ -77,11 +80,11 @@ impl BM25 {
                 Some(&v) => v,
                 None => continue,
             };
-            for (i, freq_map) in self.doc_freqs.iter().enumerate() {
-                let tf = *freq_map.get(token).unwrap_or(&0) as f64;
-                if tf == 0.0 {
-                    continue;
-                }
+            let docs = match self.postings.get(token) {
+                Some(d) => d,
+                None => continue,
+            };
+            for &(i, tf) in docs {
                 let dl = self.doc_len[i] as f64;
                 let norm = self.k1 * (1.0 - self.b + self.b * dl / self.avgdl);
                 scores[i] += idf * tf * (self.k1 + 1.0) / (tf + norm);

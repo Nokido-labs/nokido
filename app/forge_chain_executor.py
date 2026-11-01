@@ -10,7 +10,7 @@ forge_crawl_tool et forge_embed_router (SearXNG, OpenAlex/arXiv, crawl web, LLM)
 avec reprise, budget de chaîne (statut stalled) et heartbeat toutes les 20 s dans
 sandbox/chain_executor.heartbeat.
 """
-import json, logging, sqlite3, time, os, asyncio
+import json, logging, re, sqlite3, time, os, asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Dict, List
@@ -54,6 +54,185 @@ DB = _db_path()
 # toujours » est indiscernable de « en cours » pour qui regarde la file.
 _BUDGET_CHAINE_S = float(os.environ.get("LAFORGE_WATCH_BUDGET_S", "1800"))
 _BUDGET_CRAWL_S = float(os.environ.get("LAFORGE_WATCH_CRAWL_BUDGET_S", "600"))
+
+
+class _Resultats(list):
+    """Liste de resultats de recherche portant le MOTIF d'un vide (sinon None)."""
+    motif = None
+
+
+MOTIF_SEARXNG_MUET = "SearXNG muet"
+MOTIF_MOTEURS_BLOQUES = "moteurs bloqués"
+
+
+def _crawl_complet(url: str, crawl, timeout: int = 15) -> dict:
+    """arXiv : /abs/ ne porte que le RESUME (1 chunk par source, mesure 27/10). On tente /html/ (texte complet)
+    d'abord, repli sur /abs/ si la page HTML est absente ou vide. Regle et seuil REPRIS de
+    forge_research_agent (_ARXIV_ABS, _ARXIV_HTML_MIN), pas redefinis."""
+    from nokido_agent.app.forge_research_agent import _ARXIV_ABS, _ARXIV_HTML_MIN
+    m = _ARXIV_ABS.match(url or "")
+    if m:
+        html = "https://arxiv.org/html/%s" % m.group(1)
+        try:
+            det = crawl(html, timeout)
+            if len((det or {}).get("text") or "") >= _ARXIV_HTML_MIN:
+                det = dict(det)
+                det["url_crawlee"] = html
+                det["text"], det["habillage_retire"] = _sans_habillage_arxiv(det["text"])
+                return det
+        except Exception:  # noqa: BLE001 -- HTML indisponible : repli sur le resume, et on le DIT
+            logging.getLogger(__name__).info("[crawl] arxiv html indisponible, repli /abs/ : %s", url)
+    return crawl(url, timeout)
+
+
+_ARXIV_PIED = "\nWe gratefully acknowledge support from our"
+
+
+def _sans_habillage_arxiv(texte: str):
+    """Page arxiv.org/html/ : ~6 600 car. de navigation et de table des matieres AVANT le titre (`# `), pied de
+    page apres la fin (mesure 27/10, ingere tel quel dans 358 morceaux). On garde du titre H1 au pied ; sans titre
+    reconnaissable, rien n'est coupe. Rend (texte, nb de caracteres retires) : la coupe dit COMBIEN."""
+    debut = re.search(r"(?m)^# \S", texte or "")
+    if not debut:
+        return texte, 0
+    fin = texte.rfind(_ARXIV_PIED)
+    utile = texte[debut.start():fin if fin > debut.start() else len(texte)]
+    retire = len(texte) - len(utile)
+    if retire:
+        logging.getLogger(__name__).info("[crawl] habillage arxiv retire : %d car. sur %d", retire, len(texte))
+    return utile, retire
+
+
+def _cle_url(url: str) -> str:
+    """Cle de DEDUP d'une URL : schema, www et / final ignores ; arXiv sans version ni forme (abs/pdf/html).
+    Mesure 27/10 : le meme article crawle deux fois sous http:// et https:// (Alive-Infer, SCIP 9.0) -> morceaux
+    ingeres en double, l'id d'un morceau dependant de l'URL source."""
+    u = re.sub(r"^www\.", "", re.sub(r"^https?://", "", (url or "").strip().lower())).rstrip("/")
+    m = re.match(r"(?:export\.)?arxiv\.org/(?:abs|pdf|html)/(\d{4}\.\d{4,5}|[a-z\-]+/\d{7})(?:v\d+)?", u)
+    return "arxiv:" + m.group(1) if m else u
+
+
+def _ancre_presente(ancre: str, hay: str) -> bool:
+    """Mot ENTIER, pas sous-chaine : « mba » trouve dans « Mamba » a fait ingerer de la reconstruction 3D (27/10)."""
+    return re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(ancre), hay) is not None
+
+
+def _plafond_ancrage(final: float, hay: str, anchors: list) -> float:
+    """Veto d'ancrage DETERMINISTE. Avant (27/10) : plafond a 5.0 pour un seuil d'ingestion a 4.0 -> le hors-sujet
+    passait quand meme (PME nigerianes, ancrees par le seul « stochastic »). Il faut au moins 2 ancres du theme
+    quand il en fournit plusieurs ; sinon le score passe SOUS le seuil (visible, jamais ingere)."""
+    if not anchors:
+        return final
+    besoin = 2 if len(anchors) >= 2 else 1
+    hay = (hay or "").lower()
+    if sum(1 for a in anchors if _ancre_presente(a, hay)) < besoin:
+        return min(final, 3.0)
+    return final
+
+
+_DERNIER_MOTIF_VEILLES: dict = {}
+
+# Owner 29/10 : chaines de veille a lancer EN PRIORITE ({"chains": ["wj_..."]}), relu a chaque passe.
+import pathlib as _pathlib  # noqa: E402
+
+_FICHIER_VEILLES_PRIORITAIRES = _pathlib.Path(__file__).resolve().parent.parent / "sandbox" / "veilles_prioritaires.json"
+
+
+def _veilles_prioritaires() -> set:
+    """Ensemble des chain_id prioritaires ; fichier absent ou illisible = ensemble vide (ordre d'arrivee seul), DIT."""
+    try:
+        if not _FICHIER_VEILLES_PRIORITAIRES.is_file():
+            return set()
+        d = json.loads(_FICHIER_VEILLES_PRIORITAIRES.read_text(encoding="utf-8"))
+        return {str(c) for c in (d.get("chains") or []) if str(c).startswith("wj_")}
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[chain] priorite des veilles illisible (%s) : ordre d'arrivee",
+                                            type(e).__name__)
+        return set()
+
+
+def _motif_veilles(log, motif: str) -> None:
+    """WARNING une fois par motif (le worker repasse toutes les 30 s : sans ce filtre, le journal deborde)."""
+    if _DERNIER_MOTIF_VEILLES.get("m") != motif:
+        _DERNIER_MOTIF_VEILLES["m"] = motif
+        log.warning("[chain] %s", motif)
+
+
+def _ram_en_satiete() -> bool:
+    """Predicat de satiete existant du corps (seuil _SUPERVISOR_SLEEP_RAM_THRESHOLD),
+    SANS eviction. Mesure illisible -> False (fail-open, journalise)."""
+    try:
+        import psutil
+        from nokido_agent.app.forge_resource_manager import _SUPERVISOR_SLEEP_RAM_THRESHOLD
+        return float(psutil.virtual_memory().percent) >= _SUPERVISOR_SLEEP_RAM_THRESHOLD
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("satiete RAM illisible", exc_info=True)
+        return False
+
+
+# Cout MARGINAL declare d'une veille quand sa dependance Docker est deja payee. L'ordre de grandeur (0,8 Go)
+# est le cout d'UNE veille supplementaire, hors runtime WSL/Docker deja charge (mesure owner 29/10 : vmmemWSL
+# 2,76 Go inclut le runtime, il ne doit pas etre impute a la veille). Constante nommee, volontairement simple :
+# c'est la seule valeur que l'admission marginale compare a la RAM disponible, jamais le seuil global.
+_COUT_MARGINAL_VEILLE_GO = 0.8
+
+_FICHIER_CLAIMS_DOCKER = _pathlib.Path(__file__).resolve().parent.parent / "sandbox" / "docker.claims.json"
+_FICHIER_HEARTBEAT_DOCKER = _pathlib.Path(__file__).resolve().parent.parent / "sandbox" / "docker_keeper.heartbeat"
+# 4 ticks du keeper (30 s) : au-dela, le pouls ne prouve plus l'etat du moment.
+_POULS_DOCKER_MAX_AGE_S = 120.0
+
+
+def _ram_disponible_go() -> Optional[float]:
+    """RAM reellement disponible en Go, meme unite que `ram_free_gb` du corps. Illisible -> None (jamais 0)."""
+    try:
+        import psutil
+        return float(psutil.virtual_memory().available) / 1024 ** 3
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("RAM disponible illisible", exc_info=True)
+        return None
+
+
+def _docker_daemon_up() -> bool:
+    """Docker est-il joignable MAINTENANT ? Priorite au pouls du keeper (il teste le socket via `docker ps` et
+    tourne avec le compte qui a le pipe) ; repli sur le CLI direct si le pouls est absent/perime. Un pouls
+    frais qui dit `daemon_up: False` est cru : on ne retombe pas sur une supposition plus optimiste."""
+    try:
+        d = json.loads(_FICHIER_HEARTBEAT_DOCKER.read_text(encoding="utf-8"))
+        age = time.time() - float(d.get("ts") or 0.0)
+        if 0.0 <= age <= _POULS_DOCKER_MAX_AGE_S:
+            return bool((d.get("stats") or {}).get("daemon_up"))
+    except Exception:  # noqa: BLE001 - pouls absent/illisible : repli CLI, dit en debug
+        logging.getLogger(__name__).debug("pouls Docker illisible, repli CLI", exc_info=True)
+    try:
+        from nokido_agent.app.forge_docker_agent import daemon_up
+        return bool(daemon_up())
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("daemon Docker illisible", exc_info=True)
+        return False
+
+
+def _docker_deja_leve_pour_veille() -> bool:
+    """True SSI le demon Docker est deja leve ET une chaine de veille le reclame (docker.claims.json).
+
+    Les DEUX conditions sont necessaires : un daemon leve sans reclamation de veille ne prouve pas que la
+    dependance est payee POUR elle ; une reclamation sans daemon leve signifie que la veille paiera le
+    demarrage. Tout illisible ou echec -> False : on n'abaisse jamais la garde sur une supposition."""
+    try:
+        claims = json.loads(_FICHIER_CLAIMS_DOCKER.read_text(encoding="utf-8"))
+        if not isinstance(claims, list) or not any(str(c).startswith("wj_") for c in claims):
+            return False
+    except Exception:  # noqa: BLE001 - absence/illisible = non prouve, jamais "deja paye"
+        return False
+    return _docker_daemon_up()
+
+
+def _admission_marginale_autorisee() -> bool:
+    """En satiete : admettre UNE veille si sa dependance Docker est deja payee et que la RAM disponible couvre
+    son cout marginal declare. Sans dependance levee, le seuil global reste seul juge (garde inchangee)."""
+    if not _docker_deja_leve_pour_veille():
+        return False
+    dispo = _ram_disponible_go()
+    return dispo is not None and dispo >= _COUT_MARGINAL_VEILLE_GO
 
 
 def _age_s(created_at) -> float | None:
@@ -129,6 +308,63 @@ class ChainExecutor:
         conn.commit()
         conn.close()
 
+    def _etaler_veilles(self, by_chain: dict) -> dict:
+        """Au plus LAFORGE_VEILLES_MAX chaines de veille (wj_) en cours (defaut 2 ; owner 27/10 : « la suite du
+        workflow d'ingestion ne doit pas empecher le restant d'avancer » -- une seule a la fois retardait tout).
+        Aucune ne part en satiete RAM. Les autres restent 'pending' (jamais echouees). Le MOTIF d'attente est
+        journalise en WARNING, une fois par motif : en INFO il etait invisible et le worker paraissait mort."""
+        veilles = [c for c in by_chain if str(c).startswith("wj_")]
+        if not veilles:
+            return by_chain
+        log = logging.getLogger(__name__)
+        attente = set(veilles)
+        try:
+            maxi = max(1, int(os.environ.get("LAFORGE_VEILLES_MAX", "2")))
+        except ValueError:
+            maxi = 2
+        try:
+            conn = self._get_conn()
+            try:
+                en_cours = conn.execute(
+                    "SELECT DISTINCT chain_id FROM agent_chain_nodes "
+                    "WHERE status='running' AND chain_id LIKE 'wj\\_%' ESCAPE '\\'"
+                ).fetchall()
+            finally:
+                conn.close()
+            places = maxi - len(en_cours)
+            # ORDRE D'ARRIVEE (27/10) : trier par identifiant faisait passer les veilles creees en dernier.
+            # PRIORITE (owner 29/10 : « en priorite les veilles sur l'auto-regulation ») : les chaines nommees dans
+            # _FICHIER_VEILLES_PRIORITAIRES passent devant, relu a chaque passe (aucun redemarrage) ; fichier absent
+            # ou illisible = ordre d'arrivee seul.
+            prio = _veilles_prioritaires()
+
+            def _arrivee(c):
+                noeuds = by_chain.get(c) or [{}]
+                return (0 if c in prio else 1, str((noeuds[0] or {}).get("created_at") or ""), str(c))
+
+            if _ram_en_satiete():
+                # COUT MARGINAL (owner 29/10) : en satiete, une veille dont la dependance Docker est deja levee
+                # et reclamee ne doit pas payer un demarrage deja paye. Une SEULE est admise par passe ; sans
+                # dependance levee, rien ne change (elle paierait le demarrage -> le seuil global seul juge).
+                if places > 0 and _admission_marginale_autorisee():
+                    attente.discard(sorted(veilles, key=_arrivee)[0])
+                    _motif_veilles(log, "admission marginale : dependance deja payee (RAM disponible >= %.1f Go) "
+                                        ": 1 veille admise" % _COUT_MARGINAL_VEILLE_GO)
+                else:
+                    _motif_veilles(log, "RAM en satiete : %d veille(s) attendent (seuil du superviseur)"
+                                   % len(veilles))
+            elif places <= 0:
+                _motif_veilles(log, "%d veille(s) deja en cours (max %d) : %d attendent"
+                               % (len(en_cours), maxi, len(veilles)))
+            else:
+                for c in sorted(veilles, key=_arrivee)[:places]:
+                    attente.discard(c)
+                _DERNIER_MOTIF_VEILLES.clear()
+        except Exception:  # noqa: BLE001
+            log.warning("[chain] etalement des veilles en echec : veilles laissees en attente",
+                        exc_info=True)
+        return {c: n for c, n in by_chain.items() if c not in attente}
+
     async def execute_pending(self, max_parallel: int = 6):
         """Process pending chains EN PARALLELE (jusqu'a max_parallel chains
         concurrentes). Steps DANS une chain restent sequentiels (deps).
@@ -151,6 +387,9 @@ class ChainExecutor:
             by_chain.setdefault(n["chain_id"], []).append(dict(n))
         if not by_chain:
             return
+        by_chain = self._etaler_veilles(by_chain)
+        if not by_chain:
+            return
         sem = asyncio.Semaphore(max_parallel)
 
         async def _process_chain(chain_nodes: list):
@@ -160,7 +399,7 @@ class ChainExecutor:
                 # travail est mauvais ». Sans lui, une chaine dont une dependance
                 # ne revient jamais reste `retry_pending` pour toujours et personne
                 # ne peut la distinguer d'une chaine qui avance.
-                age = _age_s(chain_nodes[0].get("created_at"))
+                age = self._age_chaine(chain_nodes)
                 if age is not None and age > _BUDGET_CHAINE_S:
                     self._marquer_stalled(chain_nodes, age)
                     return
@@ -179,6 +418,25 @@ class ChainExecutor:
                     await self.run_node(node)
 
         await asyncio.gather(*[_process_chain(c) for c in by_chain.values()])
+
+    def _age_chaine(self, chain_nodes: list):
+        """Age du budget de chaine, compte depuis le PREMIER DEPART d'une etape (MIN started_at), pas depuis la
+        creation. Mesure 27/10 : 4 veilles retenues 30 min par la satiete RAM (`_etaler_veilles`, attente VOULUE)
+        ont ete soldees `stalled` des leur sortie d'attente, 7 etapes sur 7 jamais jouees. Une chaine jamais
+        lancee n'a pas de budget qui court (None). Base illisible : repli sur la creation (ancien comportement)."""
+        cid = (chain_nodes[0] or {}).get("chain_id")
+        try:
+            conn = self._get_conn()
+            try:
+                row = conn.execute("SELECT MIN(started_at) FROM agent_chain_nodes WHERE chain_id=?",
+                                   (cid,)).fetchone()
+            finally:
+                conn.close()
+            return _age_s(row[0]) if row and row[0] else None
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning("[chain] depart de %s illisible : budget compte depuis la creation",
+                                                cid, exc_info=True)
+            return _age_s(chain_nodes[0].get("created_at"))
 
     def _marquer_stalled(self, chain_nodes: list, age_s: float) -> None:
         """Solde les nodes restants d'une chaine qui a epuise son budget.
@@ -320,6 +578,11 @@ class ChainExecutor:
             conn.commit()
             conn.close()
             print(f"[EXE] {node_id} done.")
+            if role == "SearchAgent" and isinstance(result, list) and not result:
+                self._arreter_chaine(chain_id, getattr(result, "motif", None) or MOTIF_SEARXNG_MUET)
+            elif role == "SearchAgent" and isinstance(result, list) and getattr(result, "motif", None):
+                # Liste NON vide mais degradee (repli academique seul) : la chaine continue, le job le DIT.
+                self._noter_degradation(chain_id, result.motif)
             self._clore_job_si_chaine_terminee(chain_id)
         except Exception as e:
             print(f"[EXE] Failed {node_id}: {e}")
@@ -339,7 +602,32 @@ class ChainExecutor:
                 conn.execute("UPDATE agent_chain_nodes SET status='failed', error=? WHERE id=?", (str(e), node_id))
             conn.commit()
             conn.close()
+            if rc >= maxr and role == "SearchAgent":
+                # Transport en panne : rien en aval ne doit fabriquer du contenu.
+                self._arreter_chaine(chain_id, MOTIF_SEARXNG_MUET + " : " + str(e)[:160])
             self._clore_job_si_chaine_terminee(chain_id)
+
+    def _noter_degradation(self, chain_id: str, motif: str) -> None:
+        """Recherche DEGRADEE (28/10) : des resultats existent, mais sans recherche web (SearXNG muet).
+        Le motif rejoint watch_jobs.error a la cloture : un `completed_empty` qui suit ne se lit plus
+        « le sujet n'existe pas » quand seule la recherche web n'a pas repondu."""
+        self._motifs_arret = getattr(self, "_motifs_arret", {})
+        self._motifs_arret[chain_id] = "recherche degradee : %s (repli sans recherche web)" % motif
+
+    def _arreter_chaine(self, chain_id: str, motif: str) -> None:
+        """ZERO RESULTAT = VIDE ASSUME : les etapes en aval de search (refine, crawl, ingest, store) ne sont
+        JAMAIS jouees -- `skipped`, motif nomme. Aucun chunk sans URL reellement recuperee."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "UPDATE agent_chain_nodes SET status='skipped', error=? "
+                "WHERE chain_id=? AND status IN ('pending','retry_pending','queued')",
+                ("non jouee : " + motif, chain_id))
+            conn.commit()
+            self._motifs_arret = getattr(self, "_motifs_arret", {})
+            self._motifs_arret[chain_id] = motif
+        finally:
+            conn.close()
 
     def _clore_job_si_chaine_terminee(self, chain_id: str) -> Optional[str]:
         """Recalcule le verdict METIER du job quand sa chaine n'a plus d'etape en attente ni en cours.
@@ -371,8 +659,15 @@ class ChainExecutor:
             else:
                 conn.execute("UPDATE watch_jobs SET step='done', status=?, updated_at=? WHERE id=?",
                              (verdict, datetime.now(tz=timezone.utc).isoformat(), chain_id))
+            motif = getattr(self, "_motifs_arret", {}).get(chain_id)
+            if motif:
+                conn.execute("UPDATE watch_jobs SET error=? WHERE id=?", (motif, chain_id))
             conn.commit()
             print("[EXE] chaine %s terminee -- verdict du job : %s" % (chain_id, verdict))
+            if verdict not in ("en_cours", "indetermine"):
+                # FIN = SIGNAL : verdict TERMINAL -> la chaine relache SA reclamation Docker.
+                from nokido_agent.app.forge_watch_agent import _relacher_docker  # noqa: PLC0415
+                _relacher_docker(chain_id)
             return verdict
         except Exception as exc:  # noqa: BLE001
             print("[EXE] cloture du job %s impossible (%s) : le noeud est ecrit, le verdict "
@@ -388,7 +683,7 @@ class ChainExecutor:
         if role == "VerifyAgent":
             return await self._call_llm_step(node, "verify_kw", context)
         if role == "SearchAgent":
-            return await self._call_search(context)
+            return await self._call_search(context, node["chain_id"])
         if role == "RefineAgent":
             return await self._call_llm_step(node, "refine", context)
         if role == "CrawlAgent":
@@ -719,7 +1014,8 @@ class ChainExecutor:
 
             # Combiner offline + LLM, keep top 5 si score >= seuil
             refined = []
-            for r, off in scored[:8]:
+            _qualifies: list = []
+            for r, off in scored:
                 idx = results.index(r)
                 # Veto DUR : une source connue predatrice ne se rattrape pas au score.
                 # `final = max(off_norm, llm)` ignore par construction le signal de
@@ -748,21 +1044,42 @@ class ChainExecutor:
                 # ingere) — et on trace, car un rejet muet est indiagnosticable.
                 if _anchors and final >= 4.0:
                     hay = ((r.get("title") or "") + " " + (r.get("content") or "")).lower()
-                    if not any(a in hay for a in _anchors):
+                    _avant = final
+                    final = _plafond_ancrage(final, hay, _anchors)
+                    if final < _avant:
                         logger.info(
-                            f"[refine] hors-sujet (aucune ancre {_anchors[:3]}) "
-                            f"off={off_norm:.1f} llm={llm} -> plafonne : "
+                            f"[refine] hors-sujet (ancres {_anchors[:3]} insuffisantes) "
+                            f"off={off_norm:.1f} llm={llm} -> plafonne sous le seuil : "
                             f"{(r.get('title') or '')[:70]}")
-                        final = min(final, 5.0)
 
                 if final >= 4.0:
                     r2 = dict(r)
                     r2["relevance"] = round(final)
                     r2["score_offline"] = round(off_norm, 1)
                     r2["score_llm"] = llm
-                    refined.append(r2)
-                if len(refined) >= 5:
-                    break
+                    _qualifies.append(r2)
+
+            # BORNE DITE (2026-10-24). Avant : seuls les 8 premiers par score OFFLINE etaient examines et on
+            # coupait a 5 dans cet ordre, en silence -- un candidat note 9 par le LLM mais classe 9e hors ligne
+            # n'etait jamais lu. On examine tout, on classe sur la note FINALE (tri stable : cibles donnees puis
+            # offline en cas d'egalite), on garde 5, le reste est journalise et expose (`refine_ecartes`).
+            # 24/10 (bug_veille_candidats_cles_non_ingeres) : la cle de tri etait la SEULE note -- elle ecrasait la
+            # priorite des cibles donnees (l.761) et des articles mieux cotes evincaient les fichiers NOMMES par le
+            # theme. Cibles d'abord, puis la note. NR test_veille_vue_reparee_nr (refine garde les cibles).
+            _qualifies.sort(key=lambda x: (x.get("engine") == "theme_url", x["relevance"]), reverse=True)
+            refined = _qualifies[:5]
+            _ecartes_borne = _qualifies[5:]
+            if _ecartes_borne:
+                logger.warning(
+                    "[refine] %d candidats >= seuil -> %d retenus ; %d NON ingeres (borne 5) : %s",
+                    len(_qualifies), len(refined), len(_ecartes_borne),
+                    [(e.get("url"), e["relevance"]) for e in _ecartes_borne][:20])
+                try:
+                    self.update_context(node["chain_id"], {"refine_ecartes": [
+                        {"url": e.get("url"), "title": (e.get("title") or "")[:120],
+                         "relevance": e["relevance"]} for e in _ecartes_borne]})
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning("[refine] ecartes non persistes (%s)", _e)
 
             # Si rien ne passe seuil 4 -> trust academic minimal
             if not refined:
@@ -774,7 +1091,7 @@ class ChainExecutor:
                         refined.append(r2)
             return refined
 
-    async def _call_search(self, context):
+    async def _call_search(self, context, chain_id=None):
         import asyncio
 
         from nokido_agent.app.forge_watch_agent import _academic_search, _ensure_searxng, _github_search, _searxng
@@ -784,7 +1101,7 @@ class ChainExecutor:
         # faute de conteneur up. Offloadé en thread (sleeps bloquants).
         searxng_ok = False
         try:
-            searxng_ok = bool(await asyncio.to_thread(_ensure_searxng))
+            searxng_ok = bool(await asyncio.to_thread(_ensure_searxng, None, chain_id))
         except Exception as e:
             print(f"[SEARCH] ensure searxng KO (continue): {e}")
         if not searxng_ok:
@@ -818,9 +1135,9 @@ class ChainExecutor:
 
         _theme = context.get("theme") or ""
         for _u in _re.findall(r"https?://[^\s\"'\)\]]+", _theme):
-            if _u in seen_urls:
+            if _cle_url(_u) in seen_urls:
                 continue
-            seen_urls.add(_u)
+            seen_urls.add(_cle_url(_u))
             all_res.append({"title": _u[:120], "url": _u,
                             "content": ("cible donnee dans le theme: " + _theme)[:400],
                             "keyword": "theme-url", "engine": "theme_url"})
@@ -858,9 +1175,9 @@ class ChainExecutor:
                     # Dedup absent jusqu'ici : deux mots-cles proches ramenaient la
                     # meme URL deux fois, et le doublon occupait un des 5 slots de
                     # `refine`.
-                    if not url or url in seen_urls:
+                    if not url or _cle_url(url) in seen_urls:  # 27/10 : http/https, versions arXiv
                         continue
-                    seen_urls.add(url)
+                    seen_urls.add(_cle_url(url))
                     all_res.append(
                         {
                             "title": r.get("title", ""),
@@ -904,7 +1221,14 @@ class ChainExecutor:
                 "recherche NON MESUREE : %d/%d interrogations de sources ont echoue, "
                 "aucune n'a repondu -- 0 resultat ne dit rien du sujet, seulement que "
                 "la veille n'a pas pu regarder" % (echecs, tentatives))
-        return all_res  # vide APRES reponse d'au moins une source = degraded assume
+        sortie = _Resultats(all_res)
+        if not all_res:
+            # VIDE ASSUME, jamais comble : motif nomme, la chaine s'arretera (run_node).
+            sortie.motif = MOTIF_MOTEURS_BLOQUES if searxng_ok else MOTIF_SEARXNG_MUET
+        elif not searxng_ok:
+            # Resultats academiques seuls, SearXNG muet : etat DEGRADE, lu par run_node (_noter_degradation).
+            sortie.motif = MOTIF_SEARXNG_MUET
+        return sortie  # vide APRES reponse d'au moins une source = vide assume
 
     async def _call_crawl(self, node, context):
         from nokido_agent.app.forge_crawl_tool import crawl_url_detail
@@ -940,7 +1264,7 @@ class ChainExecutor:
                 _solder(url, r)
                 continue
             try:
-                det = await loop.run_in_executor(None, crawl_url_detail, url, 15)
+                det = await loop.run_in_executor(None, _crawl_complet, url, crawl_url_detail, 15)
             except Exception as e:
                 logger.debug(f"[chain] crawl KO {url}: {e}")
                 r["crawl_backend"], r["crawl_quality"] = "aucun", "erreur"

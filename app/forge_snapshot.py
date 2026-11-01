@@ -755,6 +755,104 @@ def _audit_log(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PLAN PHASE 0 (raffinage, SIMULATION SEULE) — rien n'est copie, ecrit, ouvert en ecriture
+# ─────────────────────────────────────────────────────────────────────────────
+
+PHASE0_CIBLE_DEFAUT = r"E:\Nokido_backups"  # decision owner : etage tiede, F: plus requis
+PHASE0_DEBIT_MO_S = 100.0  # debit soutenu suppose (disque tiede) ; surchargeable
+PHASE0_MARGE = 1.10  # +10 % : pages ecrites pendant la copie d'une base en service
+
+
+def phase0_sources() -> dict:
+    """Bases a archiver : {nom: {chemin, alias}}, via forge_db_path (jamais recode).
+
+    Les accesseurs qui retombent sur la base RAG (bascule non posee) sont
+    dedoublonnes par realpath : une base n'est comptee qu'une fois.
+    """
+    from nokido_agent.app import forge_db_path as _dp
+
+    brut = [("rag", _dp.db_path()), ("m2m", _dp.m2m_path()), ("tasks", _dp.tasks_path()),
+            ("authority", _dp.authority_path())]
+    for nom in _dp.journaux_connus():
+        brut.append(("journal_" + nom, _dp.journal_path(nom)))
+    vus: dict = {}
+    sources: dict = {}
+    for nom, chemin in brut:
+        reel = os.path.realpath(str(chemin))
+        if reel in vus:
+            sources[vus[reel]]["alias"].append(nom)
+            continue
+        vus[reel] = nom
+        sources[nom] = {"chemin": reel, "alias": []}
+    return sources
+
+
+def _taille(chemin: str):
+    """Taille par os.stat SEUL ; None si absent/illisible (jamais 0 invente)."""
+    try:
+        return os.stat(chemin).st_size
+    except OSError:
+        return None
+
+
+def plan_phase0(sources: Optional[dict] = None, cible: str = PHASE0_CIBLE_DEFAUT,
+                debit_mo_s: float = PHASE0_DEBIT_MO_S, marge: float = PHASE0_MARGE) -> dict:
+    """Plan de l'archive externe verifiee, SANS RIEN ECRIRE NI OUVRIR UNE BASE.
+
+    Seuls os.stat / os.path.isdir / shutil.disk_usage sont appeles. Cible absente
+    ou illisible => NO-GO dit (jamais de mkdir). Rend le dict du plan + verdict.
+    """
+    src = sources if sources is not None else phase0_sources()
+    lignes, raisons = [], []
+    total = 0
+    for nom, info in src.items():
+        chemin = info["chemin"] if isinstance(info, dict) else str(info)
+        taille = _taille(chemin)
+        wal = _taille(chemin + "-wal")
+        if taille is None:
+            raisons.append(f"source absente ou illisible : {nom} ({chemin})")
+        else:
+            total += taille + (wal or 0)
+        alias = list(info.get("alias", [])) if isinstance(info, dict) else []
+        lignes.append({"nom": nom, "chemin": chemin, "octets": taille,
+                       "wal_octets": wal, "alias": alias})
+    requis = int(total * marge)
+
+    libre = None
+    try:
+        if os.path.isdir(cible):
+            libre = shutil.disk_usage(cible).free
+        else:
+            raisons.append(f"cible absente : {cible} (disque non monte ou dossier absent)")
+    except OSError as e:
+        raisons.append(f"espace libre illisible sur {cible} : {type(e).__name__}")
+    if libre is not None and libre < requis:
+        raisons.append(f"espace insuffisant sur {cible} : libre {libre} < requis {requis}")
+    if not any(ligne["octets"] for ligne in lignes):
+        raisons.append("aucune source mesurable")
+
+    mo = total / (1024 * 1024)
+    copie_s = mo / debit_mo_s if debit_mo_s > 0 else None
+    return {
+        "mode": "simulation", "ecrit": False, "cible": cible,
+        "sources": lignes, "total_octets": total, "requis_octets": requis,
+        "libre_octets": libre,
+        "methode": ("API sqlite3 backup (Connection.backup) depuis une source ouverte en "
+                    "mode=ro (URI), pages par lots ; alternative VACUUM INTO. Jamais de "
+                    "copie de fichier brut d'une base en service, aucun PRAGMA d'ecriture."),
+        "verification": ["empreinte SHA-256 de l'archive (relue une fois)",
+                         "ouverture de l'archive en mode=ro",
+                         "requete representative : SELECT count(*) FROM sqlite_master puis "
+                         "SELECT max(rowid) sur une table cle",
+                         "PAS d'integrity_check complet hors fenetre (50 Go)"],
+        "duree_estimee_s": None if copie_s is None else round(copie_s * 2, 1),  # copie + empreinte
+        "hypothese_debit_mo_s": debit_mo_s,
+        "verdict": "NO-GO" if raisons else "GO",
+        "raisons": raisons,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -771,7 +869,16 @@ if __name__ == "__main__":
     p.add_argument("--dry-run", action="store_true", help="Simulation sans modification")
     p.add_argument("--no-read-only", action="store_true", help="Ne pas marquer le backup en lecture seule")
 
+    p.add_argument("--plan-phase0", action="store_true",
+                   help="Plan de l'archive externe (simulation : rien n'est ecrit)")
+    p.add_argument("--cible", default=PHASE0_CIBLE_DEFAUT, help="Racine d'archive (--plan-phase0)")
+
     args = p.parse_args()
+
+    if args.plan_phase0:
+        plan = plan_phase0(cible=args.cible)
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        sys.exit(0 if plan["verdict"] == "GO" else 2)
 
     if args.action == "preflight":
         try:

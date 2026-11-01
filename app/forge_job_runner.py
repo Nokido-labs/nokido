@@ -19,7 +19,9 @@ ne perd rien). Découple durée-tâche de durée-connexion : le pattern « OS »
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -66,6 +68,51 @@ def params_depuis_corps(body: dict) -> dict:
     }
 
 
+# POIDS DECLARE (owner 29/10, point 1 de l'homeostasie). Physiologie : un parametre a un POINT DE CONSIGNE et une
+# PLAGE NORMALE ; une petite deviation dans la plage ne mobilise pas la retroaction (OpenStax A&P 2e, m45989). Un job
+# DECLARE leger reste dans la plage : il est admis si la RAM disponible couvre son plafond + une marge, sous un plafond
+# absolu ; sa declaration devient son plafond RSS REEL (le gardien du wrapper tue un menteur : PLAFOND_RSS). Sans
+# declaration, ou au-dessus de LEGER_MAX_MB : admission lourde INCHANGEE (reserve absolue de forge_lane_admission).
+log = logging.getLogger("Nokido.JobRunner")
+LEGER_MAX_MB = 1024
+LEGER_MARGE_GO = float(os.environ.get("LAFORGE_LEGER_MARGE_GO", "1.0"))
+LEGER_PLAFOND_PCT = float(os.environ.get("LAFORGE_LEGER_PLAFOND_PCT", "92"))
+_RE_POIDS = re.compile(r"^#\s*nokido-poids:\s*leger\s+(\d+)\s*$", re.I)
+
+
+def poids_declare(script) -> dict | None:
+    """`# nokido-poids: leger <Mo>` dans les 40 premieres lignes, <= LEGER_MAX_MB ; sinon None (job lourd)."""
+    try:
+        with open(script, encoding="utf-8", errors="replace") as f:
+            for _, ligne in zip(range(40), f):
+                m = _RE_POIDS.match(ligne.strip())
+                if m:
+                    mb = int(m.group(1))
+                    return {"classe": "leger", "rss_max_mb": mb} if 0 < mb <= LEGER_MAX_MB else None
+    except OSError:
+        return None
+    return None
+
+
+def plafond_effectif(script, rss_cap_mb) -> int | None:
+    """Plafond RSS du job : le plus strict entre l'explicite et la declaration legere (None = defaut du wrapper)."""
+    p = poids_declare(script)
+    if not p:
+        return rss_cap_mb
+    return min(int(rss_cap_mb), p["rss_max_mb"]) if rss_cap_mb else p["rss_max_mb"]
+
+
+def _la_module():
+    from nokido_agent.app import forge_lane_admission as _la
+    return _la
+
+
+def _ram_instant() -> tuple[float, float]:
+    import psutil
+    vm = psutil.virtual_memory()
+    return float(vm.percent), vm.available / 2 ** 30
+
+
 def admettre_lancement(script: str, online: bool = False, lane: str = "") -> dict:
     """Admission d'un job detache -- la MEME pour toutes les voies (MCP `run_job`, POST /admin/run_job).
 
@@ -91,15 +138,43 @@ def admettre_lancement(script: str, online: bool = False, lane: str = "") -> dic
         if online:
             lane += "@online"
     try:
-        from nokido_agent.app import forge_lane_admission as _la
+        _la = _la_module()
     except ImportError:
         return {"ok": True, "lane": lane}  # muet-ok: module du depot absent -> on ne bloque pas le hub
-    res = _la.check_ressources(heavy=True)
+    poids = poids_declare(script)
+    if poids:
+        try:
+            pct, dispo = _ram_instant()
+        except Exception as e:  # noqa: BLE001 -- RAM illisible : la plage normale ne se prouve pas -> voie lourde
+            pct, dispo = 100.0, 0.0
+            log.warning("[admission] RAM illisible (%s) : job leger renvoye a l'admission lourde", type(e).__name__)
+        besoin = poids["rss_max_mb"] / 1024 + LEGER_MARGE_GO
+        if pct < LEGER_PLAFOND_PCT and dispo >= besoin:
+            occupe = _la.current(lane)
+            if not occupe:
+                motif = "plage normale : %.2f Go dispo >= %.2f Go (plafond %d Mo + marge)" % (
+                    dispo, besoin, poids["rss_max_mb"])
+                # Point 4 (29/10 soir) : la voie legere nourrit aussi l'observation PI -- sinon elle ne voyait que
+                # les admissions lourdes (7 en 2 h). Observation seule, sans effet sur le verdict.
+                _obs = getattr(_la, "observer_decision", None)
+                if _obs:
+                    try:
+                        _obs({"ok": True, "reason": motif, "voie": "legere", "lane": lane})
+                    except Exception as e:  # noqa: BLE001 -- un observateur ne bloque jamais une admission
+                        log.debug("[admission] observation PI non ecrite (%s)", type(e).__name__)
+                return {"ok": True, "lane": lane, "poids": poids, "motif": motif}
+    try:  # 29/10 soir : la lane nourrit l'observation PI (jointure du juge de rejeu) ; ancienne signature toleree
+        res = _la.check_ressources(heavy=True, lane=lane)
+    except TypeError:
+        res = _la.check_ressources(heavy=True)
     if not res.get("ok"):
         return {"ok": False, "admit": False, "lane": lane, "reason": res.get("reason"),
                 "reserve": res.get("reserve"), "freed_gb": res.get("freed_gb"),
                 "alt_cloud": res.get("alt"),
-                "react": "machine saturee : alleger, attendre, ou router cloud :free"}
+                # Owner 26/10 : un refus contourne par un pytest « de 15 s » en appel direct. Le message le dit a TOUS.
+                "react": ("machine saturee : alleger, attendre, ou router cloud :free -- JAMAIS relancer le meme "
+                          "travail en appel direct (run shell/python) pour passer le garde : mesurer qui tient la RAM, "
+                          "attendre ou liberer, puis relancer en job")}
     occupe = _la.current(lane)
     if occupe:
         return {"ok": False, "admit": False, "lane": lane, "busy_by": occupe.get("holder"),
@@ -151,7 +226,8 @@ def veiller_liberation(job_id: str, lane: str):
 
 
 def launch_job(script: str, online: bool = False, lane: str = "",
-               rss_cap_mb: int | None = None, script_args: str = "") -> dict:
+               rss_cap_mb: int | None = None, script_args: str = "",
+               jeton_factory=None) -> dict:
     """Lance `script` (.py) détaché. Retourne {ok, job_id, pid} ou {ok:False,error}.
 
     `script` doit être un .py existant sous C:/tmp ou la racine Nokido.
@@ -202,6 +278,7 @@ def launch_job(script: str, online: bool = False, lane: str = "",
     # RIEN ne bornait la RAM. Un decoupeur en boucle a gonfle a 15 Go par URL, x12 ->
     # famine RAM, dwm.exe tue par l'iGPU (sa VRAM est prise dans la RAM), bureau fige,
     # redemarrage manuel de l'owner. Cap explicite > env LAFORGE_JOB_RSS_CAP_MB > 6000.
+    rss_cap_mb = plafond_effectif(sp, rss_cap_mb)  # un job DECLARE leger est borne a sa declaration
     _cap_mb = int(rss_cap_mb) if rss_cap_mb else int(
         os.environ.get("LAFORGE_JOB_RSS_CAP_MB", "6000")
     )
@@ -336,12 +413,32 @@ def launch_job(script: str, online: bool = False, lane: str = "",
         "    open(_rc, 'w').write(str(rc))\n",
         encoding="utf-8",
     )
+    # Jeton de job : par l'ENVIRONNEMENT de l'enfant uniquement (jamais un fichier : tous les jobs
+    # partagent le meme compte bac). Echec d'emission = job lance sans jeton, dit, jamais valeur.
+    _env_extra = None
+    if jeton_factory is not None:
+        try:
+            # 30/10 (owner, option B) : l'identite du job suit SON script (forge_oauth_route.IDENTITES_PAR_SCRIPT).
+            # Fabrique ancienne sans `script` : jeton d'identite JOB, et c'est dit.
+            try:
+                _sujet = jeton_factory(job_id, script=str(script))
+            except TypeError:
+                import logging as _lg
+                _lg.getLogger("Nokido.JobRunner").warning(
+                    "fabrique de jeton sans parametre script : identite JOB par defaut")
+                _sujet = jeton_factory(job_id)
+            _env_extra = {"NOKIDO_JOB_SUBJECT_TOKEN": _sujet, "NOKIDO_JOB_ID": job_id}
+        except Exception as _e:  # noqa: BLE001
+            import logging as _lg
+            _lg.getLogger("Nokido.JobRunner").warning(
+                "jeton de job NON emis (%s) : le job tourne sans", type(_e).__name__)
     try:
         sys.path.insert(0, str(root))
         from nokido_agent.app.forge_sandbox_exec import spawn_as_sandbox_detached
 
+        _kw = {"env_extra": _env_extra} if _env_extra else {}
         res = spawn_as_sandbox_detached(
-            f'"{py}" "{wrap_f}"', str(log_f), str(err_f), online=online
+            f'"{py}" "{wrap_f}"', str(log_f), str(err_f), online=online, **_kw
         )
     except Exception as e:
         return {"ok": False, "error": f"spawn failed: {str(e)[:200]}"}

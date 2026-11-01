@@ -156,6 +156,28 @@ def salience_dette(age_jours: float, trust: float = 0.9) -> float:
     return float(trust) * (1.0 + max(aigue, chronique))
 
 
+# 31/10 : la resolution d'une dette est souvent ecrite dans architecture_rules SOUS LA MEME CLE (ex.
+# bug_delivery_integrity_faux_attestation_pointeur_spec_20261022 : « [RESOLU 2026-10-28] » la-bas, REVIEW_FINDING
+# d'origine reste dans active_bugs) -- la dette ressortait a chaque tour et poussait les vraies hors du budget.
+ZONES_RESOLUTION = ("architecture_rules",)
+
+
+def _cles_closes_ailleurs(read_zone) -> set:
+    """Cles closes (marqueur de cloture dans la VALEUR) dans les zones de resolution. Zone illisible : ignoree, dit."""
+    closes = set()
+    for z in ZONES_RESOLUTION:
+        try:
+            faits = _faits(read_zone(z)) or []
+        except Exception as e:  # noqa: BLE001
+            print("[memoire_active] zone de resolution %s illisible (%s)" % (z, type(e).__name__), file=sys.stderr)
+            continue
+        for f in faits:
+            cle, val = str(f.get("key") or ""), str(f.get("value") or "")
+            if cle and _est_close(cle, val):
+                closes.add(cle)
+    return closes
+
+
 def dettes_ouvertes(limit: int = 3):
     """Les obligations que le corps n'a pas tenues. Rend (entrees, non_vu)."""
     try:
@@ -169,12 +191,13 @@ def dettes_ouvertes(limit: int = 3):
     faits = _faits(brut)
     if faits is None:
         return [], "forme inattendue de la zone (%s)" % type(brut).__name__
+    closes_ailleurs = _cles_closes_ailleurs(read_zone)
 
     ouvertes = []
     for f in faits:
         cle = str(f.get("key") or "")
         val = str(f.get("value") or "")
-        if _est_close(cle, val):
+        if _est_close(cle, val) or cle in closes_ailleurs:
             continue
         age_j = _age_reel(f)
         ouvertes.append({

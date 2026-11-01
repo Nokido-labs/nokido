@@ -53,8 +53,9 @@ def test_la_delegation_ecrit_un_job_harness_vibe_borne(monkeypatch, tmp_path):
     monkeypatch.setattr(T, "_attendre_harness", _attendre)
     monkeypatch.setattr(T, "_etat_git", lambda wt_: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: None)
-    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt_, avant: (ok, "commits produits : 1", None))
+    monkeypatch.setattr(T, "_juger_livraison", lambda ok, detail, wt_, avant, **_k: (ok, "commits produits : 1", None))
     monkeypatch.setattr(T, "_clore_delegation", lambda *a, **k: vus.setdefault("clos", (a, k)))
+    monkeypatch.setattr(T, "_cle_mistral_au_coffre", lambda: True)
     T._delegate_to_vibe({"id": "t1", "description": "fais X"}, "jeton-factice")
     job = vus["job"]
     assert job["agent"] == "vibe", job

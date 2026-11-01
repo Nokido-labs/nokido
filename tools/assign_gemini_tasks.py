@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assign 3 infra tasks to Gemini CLI via hub."""
+"""Assign 3 infra tasks to AGY via hub (identite GEMINI = alias vivant d'ANTIGRAVITY ; Gemini CLI est mort depuis le 2026-07-04)."""
 
 import json
 import sys

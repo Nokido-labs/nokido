@@ -970,6 +970,33 @@ def _purge_goap_plans(dry: bool) -> dict:
         con.close()
 
 
+def _purge_motivation(dry: bool) -> dict:
+    """motivation_failures + motivation_evolution_notes (RAG/embeddings.db, forge_motivation) : flag firehose au commit
+    ddfc3b316 (31/10). Notes d'evolution (append-only, ts REAL) > COLD_DAYS, par INDEX sur ts (jamais de parcours de
+    la grosse base sans index) ; compteurs d'echec inactifs > COLD_DAYS SAUF les impasses (dead_end=1 : un savoir)."""
+    DB = ROOT / "RAG" / "embeddings.db"
+    if not DB.exists():
+        return {"skipped": "no embeddings db"}
+    cut = time.time() - COLD_DAYS * 86400
+    con = sqlite3.connect(str(DB), timeout=30)
+    try:
+        con.execute("CREATE INDEX IF NOT EXISTS idx_evol_ts ON motivation_evolution_notes(ts)")
+        n_notes = con.execute("SELECT COUNT(*) FROM motivation_evolution_notes WHERE ts < ?", (cut,)).fetchone()[0]
+        n_fail = con.execute("SELECT COUNT(*) FROM motivation_failures WHERE dead_end = 0 AND last_failure_at < ?",
+                             (cut,)).fetchone()[0]
+        if not dry:
+            if n_notes:
+                con.execute("DELETE FROM motivation_evolution_notes WHERE ts < ?", (cut,))
+            if n_fail:
+                con.execute("DELETE FROM motivation_failures WHERE dead_end = 0 AND last_failure_at < ?", (cut,))
+            con.commit()
+        return {"motivation_evolution_notes_purged": n_notes, "motivation_failures_purged": n_fail, "dry_run": dry}
+    except sqlite3.OperationalError as e:
+        return {"skipped": str(e)[:80]}
+    finally:
+        con.close()
+
+
 def _purge_active_inference(dry: bool) -> dict:
     """Clairance du moteur Active Inference (RAG/embeddings.db).
 
@@ -1866,6 +1893,7 @@ def run_retention(dry: bool = False) -> dict:
         "veille_digest": _purge_veille_digest(dry),
         "safety_organs": _purge_safety_organs(dry),
         "goap_plans": _purge_goap_plans(dry),
+        "motivation": _purge_motivation(dry),
         "active_inference": _purge_active_inference(dry),
         "membrane_aliases": _purge_membrane_aliases(dry),
         "bridge_logs": _purge_bridge_logs(dry),

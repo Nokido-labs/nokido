@@ -95,6 +95,9 @@ def test_une_vraie_saturation_nomme_toujours_le_cpu(monkeypatch):
         lambda: {"cpu_pct": 97.5, "ram_pct": 40.0, "ram_dispo_gb": 12.0,
                  "degraded": False, "source": "psutil"},
     )
+    # HERMETIQUE (26/10) : sans cela le 2e observateur (sampler REEL) et sa remesure psutil entraient dans le verdict --
+    # CI de reference job_660d1691645b, machine a 90,9 % : la RAM reelle masquait le CPU injecte.
+    monkeypatch.setattr(m, "_lire_snapshot_ram", lambda: None)
     verdict = m.check_ressources(heavy=True)
     assert verdict.get("ok") is False
     motif = str(verdict.get("reason", ""))
@@ -111,6 +114,7 @@ def test_une_machine_saine_est_admise(monkeypatch):
         lambda: {"cpu_pct": 13.0, "ram_pct": 60.0, "ram_dispo_gb": 9.0,
                  "degraded": False, "source": "inspecteur"},
     )
+    monkeypatch.setattr(m, "_lire_snapshot_ram", lambda: None)  # hermetique : voir le test precedent
     assert m.check_ressources(heavy=True).get("ok") is True
 
 

@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # 02 — Démarrage rapide
 
-<!-- revu-le: 2026-09-29 -->
-> Mise à jour : 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Mise à jour : 2026-10-30
 
 > 🌐 [English](02-Quick-Start.md) · **Français**
 
@@ -87,11 +87,12 @@ Nokido parle **MCP** (Model Context Protocol). Choisis ton client préféré :
 
 - [Claude Desktop](04-MCP-Clients-Setup.fr.md#claude-desktop)
 - [Claude Code](04-MCP-Clients-Setup.fr.md#claude-code)
-- [Gemini CLI](04-MCP-Clients-Setup.fr.md#gemini-cli)
+- [Antigravity (agy)](04-MCP-Clients-Setup.fr.md#antigravity-agy-cli--agi-ide)
 - [Codex CLI](04-MCP-Clients-Setup.fr.md#codex-cli)
 - [Cline (VS Code)](04-MCP-Clients-Setup.fr.md#cline)
+- [OpenCode et Mistral Vibe](04-MCP-Clients-Setup.fr.md#opencode-et-mistral-vibe)
 
-Ou écris un client custom : la [Référence API hub](06-Hub-API-Reference.fr.md) documente les tools (read, run, query, rag, ask, orchestrate, etc.) — la liste exacte dépend du ring de l'agent (`tools/list`).
+Ou écris un client custom : la [Référence API hub](06-Hub-API-Reference.fr.md) documente les tools (read, run, query, rag, ask, orchestrate, etc.) — la liste exacte dépend du ring de l'agent (`tools/list`). Voir aussi [25 — Nouveautés](25-Whats-New.fr.md) pour les lectures conditionnelles (`si_etag`) et l'inspection de statut des tâches.
 
 ## 🧠 Utiliser le stack local d'abord
 
@@ -121,7 +122,7 @@ python tools/nokido_tui.py
 
 (`nokido-cli` est le client terminal simple, pas le TUI.)
 
-Un pane par agent (Claude, Gemini, Codex, Cline, Master) plus des vues à bascule (RAG, services, tâches, santé, événements...). Raccourcis :
+Un pane par agent (Claude, Antigravity, Codex, Cline, Master) plus des vues à bascule (RAG, services, tâches, santé, événements...). Raccourcis :
 
 - `Tab` — pane suivant
 - `Ctrl+B` — broadcast
@@ -199,4 +200,5 @@ Le hub orchestre la boucle LLM côté serveur. Ton client ne porte pas la chain-
 - Ajuster les priorités cascade dans `app/forge_provider_specs.py`.
 - Ajouter des tools custom via `tools/forge_*.py` (voir [CONTRIBUTING](../../CONTRIBUTING.md)).
 - Lire le [Manifeste](../../MANIFESTO.md) pour le *pourquoi* derrière Nokido.
-- Configurer un second client pour voir l'orchestration multi-agent (Claude + Gemini).
+- Configurer un second client pour voir l'orchestration multi-agent (Claude + Antigravity).
+- Consulter [25 — Nouveautés](25-Whats-New.fr.md) pour les dernières évolutions de la plateforme.

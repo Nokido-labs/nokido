@@ -1,6 +1,7 @@
 # Nokido — AGENTS.md (instructions agent, tool-agnostic)
 
 @RULES_SHARED.md
+@docs/RULES_CLIENTS_SANS_HOOKS.md
 
 > `@RULES_SHARED.md` ci-dessus est expansé par Claude Code / Gemini CLI.
 > **GitHub Copilot CLI** (et tout agent qui n'expanse pas `@import`) : **lis et applique

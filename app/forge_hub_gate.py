@@ -38,7 +38,7 @@ if str(ROOT / "app") not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 # Checks GOUVERNÉS = fail-closed (deny ou exception -> refus). firewall = best-effort.
-_GOVERNED = ("rbac", "ring", "switches", "author")
+_GOVERNED = ("rbac", "ring", "switches", "author", "portee")
 # Tools dont CHAQUE appel est trace nominativement : ecriture et execution.
 # Mesure du 2026-08-17 : le journal du videur n'enregistre que `_resolve_ring`,
 # c'est-a-dire l'identite qui se PRESENTE — jamais le tool DEMANDE. Impossible
@@ -46,7 +46,7 @@ _GOVERNED = ("rbac", "ring", "switches", "author")
 # ring sur donnees. On ne trace que ces quatre-la : les lectures (majoritaires)
 # ne gonflent pas le journal.
 _AUDITED_TOOLS = ("write", "run", "governed_edit", "set_mode")
-_ORDER = ("rbac", "ring", "switches", "firewall", "author")
+_ORDER = ("rbac", "ring", "switches", "firewall", "author", "portee")
 _MAX_ARG_CHARS = 4000  # borne la sérialisation des args pour le firewall
 
 
@@ -149,9 +149,26 @@ async def _check_author(name, args, agent, ring, token):
     return await asyncio.to_thread(_f)
 
 
+async def _check_portee(name: str, args: dict, agent: str, ring: int, token: str):
+    """30/10 (owner, option B, derogation) : un appel authentifie par un jeton ECHANGE (RFC 8693) n'a droit qu'aux
+    outils de sa portee (`outil:action`), lue dans le contextvar pose a l'authentification. Gouverne (fail-closed).
+    Autre credential : non applicable. NR tests/nr/test_jeton_echange_sur_mcp_nr.py."""
+    try:
+        from nokido_agent.app import forge_token_exchange as _tx
+    except ImportError:
+        from app import forge_token_exchange as _tx
+    portees = _tx.PORTEES_REQUETE.get()
+    if portees is None:
+        return True, "non applicable (pas un jeton echange)"
+    requise = _tx.portee_requise(name, args)
+    if requise in portees:
+        return True, "portee %s" % requise
+    return False, "insufficient_scope : %s hors de [%s]" % (requise, " ".join(portees))
+
+
 _DEFAULT_CHECKS = {"rbac": _check_rbac, "ring": _check_ring,
                    "switches": _check_switches, "firewall": _check_firewall,
-                   "author": _check_author}
+                   "author": _check_author, "portee": _check_portee}
 
 
 def _is_breakglass(token: str) -> bool:
@@ -190,7 +207,8 @@ async def resolve(name: str, args: dict, agent: str, ring: int, token: str = "",
     checks = checks or _DEFAULT_CHECKS
 
     # 1. Resolvers INDÉPENDANTS en PARALLÈLE. return_exceptions -> on capture les throws.
-    coros = [checks[k](name, args, agent, ring, token) for k in _ORDER]
+    # 30/10 : une injection PARTIELLE (tests) garde les controles par defaut pour les cles absentes (ex. `portee`)
+    coros = [(checks.get(k) or _DEFAULT_CHECKS[k])(name, args, agent, ring, token) for k in _ORDER]
     results = await asyncio.gather(*coros, return_exceptions=True)
 
     allow = True

@@ -97,6 +97,44 @@ def _ecrire(sessions: dict) -> None:
     os.replace(tmp, FICHIER_SESSIONS)
 
 
+# 31/10 (accord owner, etape 1 de l'elicitation dans le CLI) : ce que CHAQUE client declare, requete par requete. Le CLI
+# Claude Code n'apparaissait pas au registre des sessions (aucun `initialize`) et ne renvoyait pas Mcp-Session-Id :
+# en 2026-07-28, version et capacites voyagent dans `_meta` de chaque requete. NOMS seulement, jamais une valeur.
+JOURNAL_CLIENTS = Path(__file__).resolve().parents[1] / "sandbox" / "logs" / "mcp_clients.jsonl"
+_SIGNATURES_VUES: set = set()
+_NS_META = "io.modelcontextprotocol/"
+
+
+def observer_requete(agent, headers, body) -> None:
+    """Ecrit UNE ligne par signature (agent, client, protocole, methode, capacites) : ce que le client DECLARE.
+    Ne leve jamais ; un echec d'ecriture est compte dans le journal du module, jamais propage."""
+    try:
+        h = {str(k).lower(): v for k, v in dict(headers or {}).items()}
+        b = body if isinstance(body, dict) else {}
+        params = b.get("params") if isinstance(b.get("params"), dict) else {}
+        meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+        ci = meta.get(_NS_META + "clientInfo") if isinstance(meta.get(_NS_META + "clientInfo"), dict) else {}
+        caps = []
+        for k, v in meta.items():
+            if "apabilit" in str(k) and isinstance(v, dict):
+                caps.extend(sorted(str(x) for x in v))
+        rec = {"agent": str(agent or "?").upper(), "client": ci.get("name"), "version_client": ci.get("version"),
+               "protocole_meta": meta.get(_NS_META + "protocolVersion"),
+               "protocole_entete": h.get("mcp-protocol-version"), "session_id": bool(h.get("mcp-session-id")),
+               "methode": b.get("method"), "capacites": sorted(set(caps)),
+               "cles_meta": sorted(str(k).replace(_NS_META, "") for k in meta)}
+        sig = json.dumps({k: rec[k] for k in rec if k != "version_client"}, sort_keys=True)
+        if sig in _SIGNATURES_VUES:
+            return
+        _SIGNATURES_VUES.add(sig)
+        rec["ts"] = time.time()
+        JOURNAL_CLIENTS.parent.mkdir(parents=True, exist_ok=True)
+        with open(JOURNAL_CLIENTS, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as e:  # noqa: BLE001 - une mesure ne casse jamais une requete
+        print("[mcp/observer] ligne non ecrite (%s)" % type(e).__name__, file=sys.stderr)
+
+
 def enregistrer_session(session_id: str, client: str, revision: str, capacites) -> None:
     """Appele par le hub a `initialize`, avec l'id qu'il rend au client. Persiste : un
     redemarrage du hub ne rend pas muets les clients qui gardent leur session."""

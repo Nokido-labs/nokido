@@ -331,6 +331,16 @@ async def test_agy_add_dir_adds_trusted_workspace(registry, mock_home):
     assert path in data.get("trustedWorkspaces", [])
 
 
+def _assert_refus_rbac(res, tool, ring):
+    """Refus RBAC = error=forbidden + ring + outil + agent (pas un marqueur textuel)."""
+    assert isinstance(res, dict), res
+    assert res.get("error") == "forbidden", res
+    assert res.get("ring") == ring, res
+    assert res.get("agent") == "TEST_AGENT", res
+    assert tool in str(res.get("tool")), res
+    assert "insufficient ring" in res.get("reason", ""), res
+
+
 @pytest.mark.asyncio
 async def test_ring_enforcement_agy_run(registry):
     """Tier 1: Verifies that calling dispatch for agy_run with Ring > 2 gets rejected."""
@@ -343,7 +353,7 @@ async def test_ring_enforcement_agy_run(registry):
                 agent="TEST_AGENT",
                 ring=3,  # Ring 3 caller is NOT authorized (max authorized is 2)
             )
-            assert "SECURITY" in str(res)
+            _assert_refus_rbac(res, "agy_run", 3)
             mock_handler.assert_not_called()
 
 
@@ -358,7 +368,7 @@ async def test_ring_enforcement_agy_config_read(registry):
                 agent="TEST_AGENT",
                 ring=4,  # Ring 4 is restricted
             )
-            assert "SECURITY" in str(res)
+            _assert_refus_rbac(res, "agy_config", 4)
             mock_handler.assert_not_called()
 
 
@@ -373,7 +383,9 @@ async def test_ring_enforcement_agy_config_write(registry):
                 agent="TEST_AGENT",
                 ring=2,  # Ring 2 cannot write
             )
-            assert "SECURITY" in str(res)
+            # Chemin distinct (garde propre a agy_config write) : refus textuel
+            assert isinstance(res, str) and res.startswith("SECURITY: Acces refuse"), res
+            assert "ring 2 > max autorise 1" in res
             mock_handler.assert_not_called()
 
 
@@ -388,7 +400,7 @@ async def test_ring_enforcement_agy_add_dir(registry):
                 agent="TEST_AGENT",
                 ring=3,  # Ring 3 cannot authorize workspaces
             )
-            assert "SECURITY" in str(res)
+            _assert_refus_rbac(res, "agy_add_dir", 3)
             mock_handler.assert_not_called()
 
 

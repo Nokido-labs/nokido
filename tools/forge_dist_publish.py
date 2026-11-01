@@ -110,6 +110,8 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+([.\-+].+)?$")
 # le nom civil y reste. Partout ailleurs, sa presence REFUSE la publication.
 IDENTITE_AUTORISEE = frozenset({
     "NOTICE", "docs/CLA.md", "COMMERCIAL.md", "COMMERCIAL.fr.md", "docs/COMMERCIAL_LICENSE.md",
+    # Archives le 2026-10-26 (decision owner) : memes documents, nouveau chemin.
+    "docs/archive/COMMERCIAL.md", "docs/archive/COMMERCIAL.fr.md",
 })
 
 
@@ -719,7 +721,41 @@ def _revision_du_promoteur() -> str:
     return sha + ("+arbre_modifie" if (sale.stdout or "").strip() else "")
 
 
-def _lire_certification(dossier, source_sha: str) -> dict:
+# 21/10 (decision owner, 0.20.14) : un commit dont l'ecart avec un ancetre CERTIFIE ne touche que ces lignes et
+# fichiers HERITE de sa preuve -- jamais implicite (--certification-heritee-de), toujours DIT dans la certification.
+HERITAGE_LIGNES = {"pyproject.toml": re.compile(r'^version = "'),
+                   "nokido_agent/__init__.py": re.compile(r'^__version__ = "')}
+HERITAGE_LIBRES = ("CHANGELOG.md",)
+HERITAGE_PREFIXES = (".github/workflows/",)
+
+
+def heritage_de_preuve(depot, certifie: str, cible: str) -> tuple:
+    """(ok, raison, fichiers) : `certifie` est ANCETRE de `cible` et CHAQUE ligne changee est une ligne de version
+    (HERITAGE_LIGNES), ou dans CHANGELOG.md / .github/workflows/. Sinon la raison NOMME le fichier ou la ligne.
+    NR test_certification_heritee_diff_restreint_nr."""
+    def _g(*a):
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(depot), *a], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace")
+        return r.returncode, r.stdout
+
+    if _g("merge-base", "--is-ancestor", certifie, cible)[0] != 0:
+        return False, "%s n'est pas un ancetre de %s" % (certifie[:12], cible[:12]), []
+    fichiers = [f for f in _g("diff", "--name-only", certifie, cible)[1].splitlines() if f.strip()]
+    for f in fichiers:
+        if f in HERITAGE_LIBRES or f.startswith(HERITAGE_PREFIXES):
+            continue
+        motif = HERITAGE_LIGNES.get(f)
+        if motif is None:
+            return False, "fichier hors du diff restreint : %s" % f, fichiers
+        diff = _g("diff", "-U0", certifie, cible, "--", f)[1]
+        lignes = [x[1:] for x in diff.splitlines() if x[:1] in "+-" and not x.startswith(("+++", "---"))]
+        hors = [x for x in lignes if not motif.match(x)]
+        if hors:
+            return False, "%s : ligne hors version modifiee (%r)" % (f, hors[0][:80]), fichiers
+    return True, "", fichiers
+
+
+def _lire_certification(dossier, source_sha: str, herite_de=None, depot=None) -> dict:
     """Preuves de certification de S, PAR PORTEE — chacune dit ce qu'elle etablit.
 
     Mesure 2026-09-20 : le registre de generation annonce « toutes les suites
@@ -732,6 +768,14 @@ def _lire_certification(dossier, source_sha: str) -> dict:
     """
     import hashlib
     import json as _json
+    heritage = None
+    if herite_de:
+        ok, raison, fichiers = heritage_de_preuve(depot or ROOT, herite_de, source_sha)
+        if not ok:
+            raise SystemExit("[certification] heritage REFUSE depuis %s : %s" % (herite_de[:12], raison))
+        heritage = {"de": herite_de, "vers": source_sha, "fichiers": fichiers,
+                    "PORTEE": "preuve de l'ancetre certifie ; l'ecart ne touche que version, CHANGELOG et workflows"}
+        source_sha = herite_de  # les registres portent sur l'ancetre certifie
     if not dossier:
         return {"etat": "ABSENTE",
                 "motif": "aucun --certification fourni : cette promotion n'est "
@@ -815,7 +859,7 @@ def _lire_certification(dossier, source_sha: str) -> dict:
                  "illisibles": illisibles,
                  "PORTEE": "comptes de tests de CE run ; ne dit rien des gates "
                            "non-test"}
-    return {"etat": "LUE" if (gen or junit) else "ABSENTE",
+    return {"etat": "LUE" if (gen or junit) else "ABSENTE", "heritage": heritage,
             "dossier": str(d), "generation_proof": gen, "junit_proof": junit,
             "registres_lus": len(registres),
             "registres_illisibles": registres_illisibles,
@@ -1353,6 +1397,9 @@ def main() -> int:
                     help="dossier d'artefacts de la CI qui a certifie la source "
                          "(registres de generation + rapports JUnit). Son "
                          "absence est DITE dans le manifeste, jamais tue.")
+    ap.add_argument("--certification-heritee-de", default=None, metavar="SHA",
+                    help="sha CERTIFIE dont la source herite de la preuve (ecart limite a la version, au CHANGELOG et "
+                         "aux workflows ; refuse sinon, et inscrit au manifeste)")
     ap.add_argument("--source-repo", default=SOURCE_PUBLIEE,
                     help="libelle de la source promue dans le manifeste PUBLIC "
                          "(jamais le nom d'un depot prive)")
@@ -1392,7 +1439,9 @@ def main() -> int:
     # un `--certification` errone n'echouait qu'APRES `commit_version`, donc
     # apres avoir efface l'arbre du clone dist et pose un commit : on decouvrait
     # l'erreur d'entree une fois le mal fait.
-    certification = _lire_certification(args.certification, source_sha)
+    certification = _lire_certification(
+        args.certification, source_sha,
+        herite_de=_resoudre_sha(args.certification_heritee_de) if args.certification_heritee_de else None)
     print("[certification] %s" % certification.get("etat"))
     paquet = _nom_du_paquet(source_sha) or "nokido-agent"
     pypi_servie = _version_pypi_servie(paquet, args.pip_hors_ligne)

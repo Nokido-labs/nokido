@@ -31,7 +31,7 @@ CFG = Path(os.environ.get("APPDATA", "")) / "Claude" / "claude_desktop_config.js
 LAFORGE_ENTRY = {
     "command": PY,
     "args": [BRIDGE],
-    "env": {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+    "env": {"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1", "LAFORGE_AGENT": "CLAUDE_DESKTOP"},
 }
 
 # Clés dev-mode (REG_DWORD) — depuis l'ADMX officiel Anthropic.Policies.Claude.
@@ -52,7 +52,12 @@ def sync_mcp(dry: bool) -> dict:
             return {"error": f"config illisible: {e}", "path": str(CFG)}
     servers = cfg.setdefault("mcpServers", {})
     before = json.dumps(servers.get("Nokido"), sort_keys=True)
-    servers["Nokido"] = LAFORGE_ENTRY  # n'écrase QUE notre entrée, préserve les autres
+    entry = {**LAFORGE_ENTRY, "env": dict(LAFORGE_ENTRY["env"])}
+    prev = servers.get("Nokido")
+    prev_agent = ((prev or {}).get("env") or {}).get("LAFORGE_AGENT") if isinstance(prev, dict) else None
+    if prev_agent:  # identité déjà posée : on la CONSERVE (pas d'écrasement)
+        entry["env"]["LAFORGE_AGENT"] = prev_agent
+    servers["Nokido"] = entry  # n'écrase QUE notre entrée, préserve les autres
     changed = json.dumps(servers["Nokido"], sort_keys=True) != before
     if not dry and changed:
         CFG.parent.mkdir(parents=True, exist_ok=True)

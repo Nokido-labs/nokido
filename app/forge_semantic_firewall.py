@@ -191,7 +191,10 @@ _REDACT_PATTERNS = [
     # API keys / tokens (renforcé pour payload splitting)
     (
         re.compile(
-            r"(?i)(api[_-]?key|token|secret|password|passwd|pwd|bearer)\s*[=:]\s*\S+"
+            # 29/10 DLP-2 : guillemet optionnel apres le nom ("password": "...", JSON/YAML), pas seulement password=
+            r"(?i)(api[_-]?key|token|secret|password|passwd|pwd|bearer)[\"']?\s*[=:]\s*\S+"
+            # 29/10 DLP-1 : identifiants d'acces de forme AK|AS + IA + 16 car. (laisses en clair, banc redaction_dlp)
+            r"|\b(?:AK|AS)IA[A-Z0-9]{16}\b"
             r"|bearer\s+[A-Za-z0-9._~+/=-]{8,}"  # 'Authorization: Bearer eyJ...' (espace, pas =)
             r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"  # JWT brut (header.payload.sig)
             r"|sk-[a-zA-Z0-9]{20,}", re.IGNORECASE
@@ -362,28 +365,39 @@ def redact_text(text: str, session_id: str = "") -> Tuple[str, Dict[str, str]]:
     Remplace les données sensibles par des placeholders numérotés.
     Retourne (texte_rédacté, mapping {placeholder: valeur_originale}).
     """
-    text = text[:_MAX_REDACT_LEN]  # DoS bound : borne la taille redactee
+    # 29/10 DLP-4 : traite PAR TRANCHES de _MAX_REDACT_LEN (meme mapping), comme redact_tool_output -- la troncature
+    # `text[:_MAX_REDACT_LEN]` jetait tout le reste EN SILENCE. (Un motif a cheval sur deux tranches peut echapper, meme
+    # limite que redact_tool_output.)
     mapping: Dict[str, str] = {}
     counters: Dict[str, int] = {}
-    result = text
-    _n = 0
+    etat = {"n": 0}
+    morceaux = [_redact_tranche(text[i:i + _MAX_REDACT_LEN], mapping, counters, etat)
+                for i in range(0, len(text or ""), _MAX_REDACT_LEN)]
+    return "".join(morceaux), mapping
 
+
+def _redact_tranche(result: str, mapping: Dict[str, str], counters: Dict[str, int], etat: dict) -> str:
+    """Une tranche de redact_text. 29/10 DLP-3 : au-dela de _MAX_REDACTIONS, la boucle s'ARRETAIT et le reste partait en
+    clair (5 010 IP de remplissage puis un secret : mesure). Le quota borne toujours le remplacement unitaire O(n^2) ;
+    au-dela, le reste est caviarde EN MASSE par re.sub (lineaire), sans mapping -- jamais laisse en clair."""
     for pattern, label in _REDACT_PATTERNS:
-        for match in pattern.finditer(result):
-            if _n >= _MAX_REDACTIONS:  # DoS bound : stop replace O(n^2)
-                break
-            original = match.group(0)
-            if original in mapping.values():
-                # Déjà remplacé — trouve son placeholder
-                ph = next(k for k, v in mapping.items() if v == original)
-            else:
-                counters[label] = counters.get(label, 0) + 1
-                ph = f"[{label}_{counters[label]}]"
-                mapping[ph] = original
-            result = result.replace(original, ph, 1)
-            _n += 1
-
-    return result, mapping
+        if etat["n"] < _MAX_REDACTIONS:
+            for match in pattern.finditer(result):
+                if etat["n"] >= _MAX_REDACTIONS:  # DoS bound : stop replace O(n^2)
+                    break
+                original = match.group(0)
+                if original in mapping.values():
+                    # Déjà remplacé — trouve son placeholder
+                    ph = next(k for k, v in mapping.items() if v == original)
+                else:
+                    counters[label] = counters.get(label, 0) + 1
+                    ph = f"[{label}_{counters[label]}]"
+                    mapping[ph] = original
+                result = result.replace(original, ph, 1)
+                etat["n"] += 1
+        if etat["n"] >= _MAX_REDACTIONS:
+            result = pattern.sub("[%s_MASSE]" % label, result)
+    return result
 
 
 # Labels JAMAIS ré-injectés dans une sortie : un LLM injecté pourrait émettre le

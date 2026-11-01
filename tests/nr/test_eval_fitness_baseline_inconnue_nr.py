@@ -18,6 +18,9 @@ from nokido_agent.app import forge_benchmark_adapter as B
 def _prep(tmp_path, monkeypatch, cur):
     monkeypatch.setattr(L, "EVAL_SANDBOX", tmp_path)
     monkeypatch.setattr(B, "latest_scores", lambda: dict(cur))
+    # 26/10 : seules les MESURES valides entrent dans la baseline ; ces cas portent sur la baseline elle-meme,
+    # la validite a son NR (test_eval_fitness_mesure_valide_nr) -- les bancs factices sont declares valides.
+    monkeypatch.setattr(B, "validite_mesure", lambda banc, **k: {"valide": True, "raison": "doublure"})
     monkeypatch.setattr(L, "record_evolution_experience", lambda *a, **k: "exp", raising=False)
     return tmp_path / "eval_fitness_state.json"
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -115,13 +116,18 @@ def _jeton_propre(agent_name: str) -> str | None:
     return vault_get(f"FORGE_TOKEN_{agent_name.upper().strip()}") or None
 
 
-def entetes_agent(agent_name: str) -> dict | None:
-    """En-tetes d'authentification de `agent_name`, ou None si son jeton propre manque."""
+def entetes_agent(agent_name: str, provenance: str | None = None) -> dict | None:
+    """En-tetes d'authentification de `agent_name`, ou None si son jeton propre manque.
+
+    `LaForge-Provenance` (RFC 6648, sans X-) dit QUI a lance le sous-processus ; absente, elle est
+    dite INCONNUE, jamais inventee."""
     tok = _jeton_propre(agent_name)
     if not tok:
         return None
     nom = agent_name.upper().strip()
-    return {"Authorization": f"Bearer {tok}", "X-Agent-Name": nom, "LaForge-Agent-Name": nom}
+    prov = str(provenance or "").strip().upper() or "INCONNUE"
+    return {"Authorization": f"Bearer {tok}", "X-Agent-Name": nom, "LaForge-Agent-Name": nom,
+            "LaForge-Provenance": prov}
 
 
 def _patch_config(cfg: dict) -> tuple[dict, list[tuple[str, str]]]:
@@ -195,6 +201,27 @@ def _find_default_path() -> Path | None:
     return None
 
 
+def _journaliser_appel(agent: str, provenance: str) -> None:
+    """Mesure (phase 2 identites) : une ligne JSONL par appel du headersHelper.
+
+    Ne consigne que ts/agent/provenance/entrypoint/parent_pid : jamais le jeton ni une autre
+    variable d'environnement. Best-effort : un echec ne touche ni stdout ni le code retour.
+    """
+    try:
+        import time
+        from nokido_agent.app.forge_db_path import racine_donnees
+        rep = Path(racine_donnees()) / "sandbox" / "logs"
+        rep.mkdir(parents=True, exist_ok=True)
+        ligne = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "agent": str(agent),
+                 "provenance": str(provenance or "").strip().upper() or "INCONNUE",
+                 "entrypoint": os.environ.get("CLAUDE_CODE_ENTRYPOINT") or "ABSENT",
+                 "parent_pid": os.getppid()}
+        with open(rep / "headers_helper.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(ligne) + "\n")
+    except Exception as e:  # noqa: BLE001
+        print(f"[mcp_json_sync] journal headers_helper non ecrit ({type(e).__name__})", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--path", type=Path, default=None, help="explicit .mcp.json path")
@@ -204,6 +231,9 @@ def main() -> int:
     ap.add_argument("--emit-headers", metavar="AGENT", default=None,
                     help="mode headersHelper : ecrit sur stdout le JSON des en-tetes de AGENT "
                          "(jeton PROPRE seulement, jamais le maitre ; rien si absent)")
+    ap.add_argument("--provenance", metavar="P", default=os.environ.get("NOKIDO_PROVENANCE", ""),
+                    help="avec --emit-headers : QUI a lance ce sous-processus (en-tete LaForge-Provenance) ; "
+                         "absent -> INCONNUE")
     ap.add_argument("--verifier", action="store_true",
                     help="avec --emit-headers : n'emet PAS la valeur, dit seulement les cles "
                          "et la longueur du jeton (controle sans exposition)")
@@ -215,8 +245,9 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.emit_headers:
+        _journaliser_appel(args.emit_headers, args.provenance)
         try:
-            entetes = entetes_agent(args.emit_headers) if vault_available() else None
+            entetes = entetes_agent(args.emit_headers, args.provenance) if vault_available() else None
         except Exception as e:  # noqa: BLE001
             print(f"[mcp_json_sync] coffre ILLISIBLE ({type(e).__name__}) : aucun en-tete emis",
                   file=sys.stderr)

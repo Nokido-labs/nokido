@@ -1,0 +1,5 @@
+{
+  "_doc": "Contrat des codes de sortie qu'un organe RENVOIE pour dire une sortie VOLONTAIRE, lu par l'organe (Python) et par le superviseur (proxy_deno/core). Un code 0 ne suffit pas : il dit aussi 'rien a faire'. Enquete : docs/enquete_skill_curator_faux_crash.md (20/10, quarantaine apres 19 relances alors qu'une instance vivait).",
+  "INSTANCE_DEJA_VIVANTE": 75,
+  "_INSTANCE_DEJA_VIVANTE": "garde d'instance unique : une instance de cet organe vit deja (pidfile, pid vivant). Ce n'est PAS un crash : le superviseur ne compte pas cette sortie en echec rapide, ne relance pas et adopte l'instance vivante. 75 = EX_TEMPFAIL (sysexits.h)."
+}

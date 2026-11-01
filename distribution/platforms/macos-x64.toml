@@ -43,8 +43,8 @@ id = "dependances-python"
 description = "Dependances Python de base (specification pip ; les roues ne sont pas encore hachees)"
 source = "depot"
 chemin = "requirements.txt"
-sha256 = "246cd6e893fe48518bf17eb4f6af6017677f3618e0ab97e6003d3391eca33172"
-taille = 4757
+sha256 = "bf32f43caa24416dbdf86048f443d460513954780b6ffd50e357d70fc921cab3"
+taille = 5093
 licence = "AGPL-3.0-or-later"
 obligatoire = true
 

@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # Nokido Wiki
 
-<!-- revu-le: 2026-10-07 -->
-> Updated: 2026-10-07
+<!-- revu-le: 2026-10-30 -->
+> Updated: 2026-10-30 · **New:** [25 — What's new (Oct. 22–30)](25-Whats-New.md)
 
 > 🌐 **English** · [Français](Home.fr.md)
 
@@ -36,7 +36,7 @@ workflows, troubleshooting. For the *why* behind Nokido's design, read
 - [03 — Architecture overview](03-Architecture.md) · Anatomy of the hub
 
 ### Connecting clients
-- [04 — MCP clients setup](04-MCP-Clients-Setup.md) · Claude Desktop, Claude Code, Gemini CLI, Codex CLI, Cline
+- [04 — MCP clients setup](04-MCP-Clients-Setup.md) · Claude Code, Antigravity (agy), Codex CLI, OpenCode, Mistral Vibe, Cline, Claude Desktop
 - [24 — Cloud peers](24-Cloud-Peers.md) · claude.ai and ChatGPT over HTTPS, owner quarantine
 - [05 — LLM providers](05-LLM-Providers.md) · 29 providers, web admin UI
 
@@ -57,6 +57,9 @@ workflows, troubleshooting. For the *why* behind Nokido's design, read
 - [23 — Orchestration & Workflows](23-Orchestration-and-Workflows.md) · GOAP, event loop, durable-execution direction (Temporal / Mistral)
 - [21 — SSoT Cross-CLI](21-SSoT-Cross-CLI.md) · single source of truth, uniform "status of X" across CLIs, 5 domains
 - [22 — Governance, cognition & self-safety](22-Governance-Cognition-Safety.md) · delivery integrity, knowledge curiosity, held-out gate, authority-weighted RAG, continuous Qdrant sync
+
+### What changed
+- [25 — What's new](25-Whats-New.md) · Oct. 22–30, 2026: task worktrees and parallel delegation, free-tier census, read-only inquiries, conditional reads, ACP through the hub, RFC 8693 job identities
 
 ### Help
 - [14 — Troubleshooting](14-Troubleshooting.md)

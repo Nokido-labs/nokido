@@ -127,7 +127,11 @@ def test_chaque_chaine_finit_par_un_repli_local():
     """Le dernier maillon doit etre sans quota : sinon une journee de saturation
     cloud laisse Nokido sans aucune reponse."""
     locaux = {"ollama_local", "llamacpp_local", "lmstudio_native"}
-    for use_case in R.USE_CASE_CHAINS:
+    # SEULE exception (decision owner 24/10, conseiller souverain) : `conseil` escalade free -> Claude via
+    # repli_oauth, qui ne part que si la cascade est EPUISEE ; un local en bout de chaine repondrait toujours
+    # (avis faible) et Claude ne serait jamais atteint. Le conseiller n'est pas bloquant : sans avis, la
+    # delegation continue et c'est dit -- Nokido n'est jamais laisse sans reponse.
+    for use_case in (u for u in R.USE_CASE_CHAINS if u != "conseil"):
         chaine = R.chaine_active(use_case)
         assert set(chaine) & locaux, f"{use_case} n'a aucun repli local"
 

@@ -25,7 +25,8 @@ for sub in ("tools", "app"):
 
 # pythonw → sys.stdout/err = None → tout print() crasherait. Rediriger vers log.
 LOG = ROOT / "sandbox" / "owner_daemons.log"
-LOG.parent.mkdir(parents=True, exist_ok=True)
+
+
 class _StampedWriter:
     """Date chaque LIGNE écrite sur stdout/err redirigés vers le journal.
 
@@ -82,13 +83,6 @@ class _StampedWriter:
         return getattr(self._fh, name)
 
 
-if sys.stdout is None or sys.stderr is None:
-    _lf = open(LOG, "a", buffering=1, encoding="utf-8", errors="replace")
-    sys.stdout = sys.stderr = _StampedWriter(_lf)
-
-print(f"[owner_daemons] launcher up {time.time()}", flush=True)
-
-
 def _guarded(fn, name: str) -> None:
     while True:
         try:
@@ -99,6 +93,14 @@ def _guarded(fn, name: str) -> None:
 
 
 def main() -> int:
+    # Ecriture du journal : seulement a l'execution (pas au chargement du module).
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    # pythonw → sys.stdout/err = None → tout print() crasherait. Rediriger vers log.
+    if sys.stdout is None or sys.stderr is None:
+        _lf = open(LOG, "a", buffering=1, encoding="utf-8", errors="replace")
+        sys.stdout = sys.stderr = _StampedWriter(_lf)
+    print(f"[owner_daemons] launcher up {time.time()}", flush=True)
+
     from nokido_agent.tools import forge_privileged_bridge as pb
     from nokido_agent.tools import forge_wasm_bridge as wb
 

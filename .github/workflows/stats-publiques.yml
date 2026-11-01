@@ -39,10 +39,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 1/11 : la paire passe par AUTH -- meme URL apres expansion, mais la source ne porte plus le motif
+          # `://user:pass@` que l'audit du snapshot public refuse (url_avec_mdp).
+          AUTH="x-access-token:${GH_TOKEN}"
           git clone --quiet --depth 1 --branch stats \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" stats-branche \
+            "https://${AUTH}@github.com/${GITHUB_REPOSITORY}.git" stats-branche \
           || { mkdir stats-branche && cd stats-branche && git init --quiet && git checkout --orphan stats \
-               && git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"; }
+               && git remote add origin "https://${AUTH}@github.com/${GITHUB_REPOSITORY}.git"; }
       - name: Collecte, archive, carte
         env:
           STATS_TOKEN: ${{ secrets.STATS_TOKEN }}

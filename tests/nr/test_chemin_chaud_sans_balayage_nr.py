@@ -42,8 +42,7 @@ CHEMINS_CHAUDS = {
 
 # Balayages VOULUS, prouves hors chemin chaud ou bornes : (module, fonction, marqueur) -> preuve.
 EXCEPTIONS = {
-    ("tools/forge_post_commit.py", "update_readme_stats", "COUNT(*)"):
-        "appele seulement sur --readme-stats explicite depuis le P0 WAL (23/09)",
+    # 22/10 : exception RETIREE -- update_readme_stats ne fait plus de COUNT(*) (MAX(rowid) borne, c982b7537).
     ("app/forge_memory_availability.py", "compteurs", ""):
         "audit global DEPORTE : seul rafraichir() l'appelle, en NREM1 quotidien (snapshot passif)",
     ("app/forge_health_diagnostic.py", "_audit_rag_chunks_mesure", "LIMIT 50"):

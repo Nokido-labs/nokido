@@ -1167,17 +1167,15 @@ def embed(text: str, prefer: str | None = None) -> list[float] | None:
         timeout = _CB_TIMEOUT_PROVIDER.get(name, 20.0)
         # Wrap dans concurrent.futures timeout (anti-hang Rust mutex serialise)
         try:
-            from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
+            from concurrent.futures import TimeoutError as _TO
 
-            with ThreadPoolExecutor(max_workers=1) as exe:
-                future = exe.submit(fn, text)
-                try:
-                    vec = future.result(timeout=timeout)
-                except _TO:
-                    logger.debug(f"{name} timeout after {timeout}s")
-                    vec = None
-                    _cb_record(name, ok=False)
-                    continue
+            try:
+                vec = _appel_borne(fn, text, timeout)
+            except _TO:
+                logger.debug(f"{name} timeout after {timeout}s")
+                vec = None
+                _cb_record(name, ok=False)
+                continue
         except Exception as e:
             logger.debug(f"{name} exception: {e}")
             vec = None
@@ -1371,6 +1369,18 @@ def mesurer_capacite_batch(repetitions: int = 5, appel=None, max_workers: int = 
         total += len(corpus)
     return {"textes_par_seconde": round(statistics.median(debits), 3),
             "taux_succes": round(ok / total, 4) if total else 0.0}
+
+
+def _appel_borne(fn, arg, timeout: float):
+    """`fn(arg)` borne a `timeout` : l'appelant est LIBERE au delai (audit C2.1, 29/10). `with ThreadPoolExecutor`
+    attendait la tache en sortie de bloc (shutdown(wait=True)) : le delai ne liberait jamais la cascade d'embed.
+    Leve concurrent.futures.TimeoutError au delai ; la tache bloquee est abandonnee, jamais attendue."""
+    from concurrent.futures import ThreadPoolExecutor
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="embed_borne")
+    try:
+        return pool.submit(fn, arg).result(timeout=timeout)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def embed_batch_fast(texts: list[str], batch_size: int | None = None,

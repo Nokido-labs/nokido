@@ -22,7 +22,6 @@ WASM_URL = "https://github.com/LlamaEdge/LlamaEdge/releases/latest/download/llam
 MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf"
 MODEL_NAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 PORT = 8088
-report = {"out_dir": OUT, "port": PORT}
 
 
 def _dl(url, path):
@@ -41,45 +40,51 @@ def _wsl(cmd, timeout=60):
         return f"ERR {e}"
 
 
-os.makedirs(OUT, exist_ok=True)
-wasm_file = os.path.join(OUT, "llama-api-server.wasm")
-model_file = os.path.join(OUT, MODEL_NAME)
-for key, url, path in (("wasm", WASM_URL, wasm_file), ("model", MODEL_URL, model_file)):
-    try:
-        report[key] = _dl(url, path)
-    except Exception as e:  # noqa: BLE001
-        report[key] = f"ERR {e}"
+def main():
+    report = {"out_dir": OUT, "port": PORT}
+    os.makedirs(OUT, exist_ok=True)
+    wasm_file = os.path.join(OUT, "llama-api-server.wasm")
+    model_file = os.path.join(OUT, MODEL_NAME)
+    for key, url, path in (("wasm", WASM_URL, wasm_file), ("model", MODEL_URL, model_file)):
+        try:
+            report[key] = _dl(url, path)
+        except Exception as e:  # noqa: BLE001
+            report[key] = f"ERR {e}"
 
-report["wsl_wasmedge"] = _wsl("wasmedge --version 2>&1 | head -1", timeout=30)
+    report["wsl_wasmedge"] = _wsl("wasmedge --version 2>&1 | head -1", timeout=30)
 
-launch = (
-    "#!/bin/bash\n"
-    f"cd {WPATH}\n"
-    "wasmedge --dir .:. \\\n"
-    f"  --nn-preload default:GGML:AUTO:{MODEL_NAME} \\\n"
-    "  llama-api-server.wasm \\\n"
-    "  --model-name laforge-llamaedge \\\n"
-    "  --prompt-template chatml \\\n"
-    "  --ctx-size 4096 \\\n"
-    f"  --socket-addr 0.0.0.0:{PORT}\n"
-)
-sh_file = os.path.join(OUT, "start_llamaedge.sh")
-with open(sh_file, "w", newline="\n", encoding="utf-8") as f:
-    f.write(launch)
-report["launch_script"] = sh_file
+    launch = (
+        "#!/bin/bash\n"
+        f"cd {WPATH}\n"
+        "wasmedge --dir .:. \\\n"
+        f"  --nn-preload default:GGML:AUTO:{MODEL_NAME} \\\n"
+        "  llama-api-server.wasm \\\n"
+        "  --model-name laforge-llamaedge \\\n"
+        "  --prompt-template chatml \\\n"
+        "  --ctx-size 4096 \\\n"
+        f"  --socket-addr 0.0.0.0:{PORT}\n"
+    )
+    sh_file = os.path.join(OUT, "start_llamaedge.sh")
+    with open(sh_file, "w", newline="\n", encoding="utf-8") as f:
+        f.write(launch)
+    report["launch_script"] = sh_file
 
-if "ERR" not in report.get("wsl_wasmedge", "ERR"):
-    _wsl(f"nohup bash {WPATH}/start_llamaedge.sh > {WPATH}/server.log 2>&1 &", timeout=20)
-    time.sleep(20)
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/v1/models", timeout=5) as r:
-            data = json.loads(r.read())
-        report["server"] = f"UP — models={[m.get('id') for m in data.get('data', [])]}"
-    except Exception as e:  # noqa: BLE001
-        report["server"] = f"pas encore up ({e}) — voir {WPATH}/server.log"
-else:
-    report["server"] = "wasmedge introuvable dans WSL — installer wasmedge 0.14.1 + wasi_nn (Debian)"
+    if "ERR" not in report.get("wsl_wasmedge", "ERR"):
+        _wsl(f"nohup bash {WPATH}/start_llamaedge.sh > {WPATH}/server.log 2>&1 &", timeout=20)
+        time.sleep(20)
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/v1/models", timeout=5) as r:
+                data = json.loads(r.read())
+            report["server"] = f"UP — models={[m.get('id') for m in data.get('data', [])]}"
+        except Exception as e:  # noqa: BLE001
+            report["server"] = f"pas encore up ({e}) — voir {WPATH}/server.log"
+    else:
+        report["server"] = "wasmedge introuvable dans WSL — installer wasmedge 0.14.1 + wasi_nn (Debian)"
 
-report["next"] = f'setx LAFORGE_LLAMAEDGE_BASE http://127.0.0.1:{PORT}  (+ reload hub -> provider llamaedge actif)'
-report["manual_start"] = f"wsl -- bash {WPATH}/start_llamaedge.sh"
-print(json.dumps(report, ensure_ascii=False, indent=2))
+    report["next"] = f'setx LAFORGE_LLAMAEDGE_BASE http://127.0.0.1:{PORT}  (+ reload hub -> provider llamaedge actif)'
+    report["manual_start"] = f"wsl -- bash {WPATH}/start_llamaedge.sh"
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

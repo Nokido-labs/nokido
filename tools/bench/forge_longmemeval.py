@@ -158,7 +158,7 @@ class LongMemIndex:
                     else:
                         score *= 0.5  # pénalité "futur"
                 except Exception:
-                    pass
+                    __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/bench/forge_longmemeval.py', 160, exc_info=True)
             scored.append((score, chunk))
 
         scored.sort(key=lambda x: -x[0])

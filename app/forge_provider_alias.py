@@ -50,6 +50,10 @@ ALIAS: Dict[str, Optional[str]] = {
     # Groq
     "groq_fast": "groq",
     "groq_allam": "groq",
+    "groq_gpt_oss_120b": "groq",
+    # Ollama Cloud : routeur seul (call_cascade, OpenAI-compat) ; aucun fournisseur `ask` equivalent.
+    "ollama_cloud_ultra": None,
+    "ollama_cloud_gptoss": None,
     "groq_mixtral": "groq",
     # Mistral
     "mistral_small": "mistral",
@@ -268,7 +272,9 @@ def diagnostic() -> Dict[str, object]:
         return {"etat": "ILLISIBLE", "raison": str(e)[:100]}
 
     # Une entree marquee `perime` dans le registre du hub est DECLAREE morte : elle n'a pas a router.
-    non_mappes = sorted(n for n in hub if resoudre(n) is None and not (_HUB.get(n) or {}).get("perime"))
+    # `routeur_seul` : declare par le slot (pas d'equivalent `ask`, appele par call_cascade seulement).
+    non_mappes = sorted(n for n in hub if resoudre(n) is None
+                        and not (_HUB.get(n) or {}).get("perime") and not (_HUB.get(n) or {}).get("routeur_seul"))
     casses = sorted(n for n, cible in ALIAS.items()
                     if cible is not None and cible not in executables)
     orphelins = sorted(n for n in ALIAS if n not in hub)

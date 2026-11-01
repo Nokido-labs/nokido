@@ -38,6 +38,21 @@ def test_un_reste_jouable_n_attend_pas(reste):
     assert not K.attend_owner({"reste": reste})
 
 
+def test_decision_prise_et_reste_executable_n_attend_pas_l_owner():
+    assert not K.attend_owner({"decision": True, "reste": "mesurer puis coder; decision owner du 19/10"})
+    assert not K.attend_owner({"texte": "[DECISION 19/10 ~15 h] PARTIEL", "reste": "coder le GREEN"})
+
+
+def test_decision_prise_mais_geste_owner_explicite_attend():
+    assert K.attend_owner({"decision": True, "reste": "geste owner : l'owner relance le service"})
+    assert K.attend_owner({"decision": True, "reste": "derogation owner requise"})
+
+
+def test_sans_decision_le_comportement_est_inchange():
+    assert K.attend_owner({"reste": "decision owner"})
+    assert not K.attend_owner({"reste": ""})
+
+
 def test_le_plan_ecarte_l_item_qui_attend_l_owner_et_le_dit():
     items = [{"cle": "a", "etat": "PARTIEL", "priorite": "P0", "reste": "decision owner"},
              {"cle": "b", "etat": "PARTIEL", "priorite": "P1", "reste": "coder le GREEN"}]

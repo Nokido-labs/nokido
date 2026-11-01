@@ -80,7 +80,10 @@ def test_seuls_les_outils_autorises_du_connecteur_pair_sont_nommes(script_conten
 
     declares = set(re.findall(r'"([a-z_]+)"', match_lecture.group(1) + " " + match_pair.group(1)))
     # Tous les outils déclarés doivent appartenir à la surface figée de forge_pair_mcp
-    assert declares == outils_pair_mcp
+    # Decision owner 24/10 (tools/forge_pair_mcp.py l.60) : la surface pair gagne le depot LONG
+    # (deposer_fragment, lire_document). Le userscript navigateur ne les nomme pas (non cables
+    # cote client) : on exige donc declares == surface figee MOINS ces deux outils.
+    assert declares == outils_pair_mcp - {"deposer_fragment", "lire_document"}
     assert declares == {
         "etat_corps",
         "point_ssot",

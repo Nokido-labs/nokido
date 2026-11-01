@@ -38,7 +38,7 @@ class TestNokidoHeadless:
 
         r = subprocess.run(
             [sys.executable, str(APP_DIR / "Nokido.py"), "--test-boot"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, errors="replace",
             timeout=30,
             cwd=str(ROOT_P),
         )

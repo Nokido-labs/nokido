@@ -71,15 +71,23 @@ def exec_load_spans(trace_id: str, limit: int = MAX_SPANS) -> list[dict]:
     return [_exec_to_span(r) for r in rows]
 
 
-def exec_list_traces(limit: int = 20, by: str = "recent") -> list[dict]:
+def exec_list_traces(limit: int = 20, by: str = "recent"):
+    """Traces agregees sur la fenetre des _ECHANTILLON dernieres lignes (jamais toute la
+    table). Base illisible -> None (pas [] qui dirait "aucune trace")."""
     order = "n DESC, t1 DESC" if by == "count" else "t1 DESC"
-    with _exec_ro() as c:
-        rows = c.execute(
-            "SELECT trace_id, COUNT(*) n, MIN(ts) t0, MAX(ts) t1, "
-            "SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) errs "
-            "FROM traces GROUP BY trace_id ORDER BY " + order + " LIMIT ?",
-            (min(max(limit, 1), 200),),
-        ).fetchall()
+    try:
+        with _exec_ro() as c:
+            m, lo = _borne(c, "traces")
+            if m is None:
+                return None
+            rows = c.execute(
+                "SELECT trace_id, COUNT(*) n, MIN(ts) t0, MAX(ts) t1, "
+                "SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) errs "
+                "FROM traces WHERE rowid > ? GROUP BY trace_id ORDER BY " + order + " LIMIT ?",
+                (lo, min(max(limit, 1), 200)),
+            ).fetchall()
+    except Exception:  # noqa: BLE001 - illisible = INCONNU
+        return None
     return [
         {"trace_id": r[0], "spans": r[1], "t0": r[2], "t1": r[3],
          "wall_ms": int(((r[3] or 0) - (r[2] or 0)) * 1000), "dur_ms": 0,
@@ -88,23 +96,49 @@ def exec_list_traces(limit: int = 20, by: str = "recent") -> list[dict]:
     ]
 
 
+# Diagnostics BORNES (chasse aux lectures massives 2026-10-22) : jamais de COUNT(*) /
+# GROUP BY sur toute la table (audit_log ~1,9 M lignes). Total = MAX(rowid) (O(1),
+# estimation) ; le reste se mesure sur les _ECHANTILLON dernieres lignes. Illisible -> None.
+_ECHANTILLON = 20000
+
+
+def _borne(c, table: str):
+    """(max_rowid, borne_basse) ; (None, None) si la table est illisible / vide."""
+    try:
+        m = c.execute(f"SELECT MAX(rowid) FROM {table}").fetchone()[0]
+    except Exception:  # noqa: BLE001 - illisible = INCONNU, jamais 0
+        return None, None
+    if m is None:
+        return None, None
+    return m, max(0, m - _ECHANTILLON)
+
+
 def exec_diag() -> dict:
-    with _exec_ro() as c:
-        rows, traces = c.execute(
-            "SELECT COUNT(*), COUNT(DISTINCT trace_id) FROM traces"
-        ).fetchone()
-        multi = c.execute(
-            "SELECT COUNT(*) FROM (SELECT trace_id FROM traces "
-            "GROUP BY trace_id HAVING COUNT(*) > 1)"
-        ).fetchone()[0]
-        top_tt = c.execute(
-            "SELECT task_type, COUNT(*) n FROM traces GROUP BY task_type "
-            "ORDER BY n DESC LIMIT 8"
-        ).fetchall()
+    try:
+        with _exec_ro() as c:
+            m, lo = _borne(c, "traces")
+            if m is None:
+                raise LookupError("traces illisible ou vide")
+            traces = c.execute(
+                "SELECT COUNT(DISTINCT trace_id) FROM traces WHERE rowid > ?", (lo,)
+            ).fetchone()[0]
+            multi = c.execute(
+                "SELECT COUNT(*) FROM (SELECT trace_id FROM traces WHERE rowid > ? "
+                "GROUP BY trace_id HAVING COUNT(*) > 1)", (lo,)
+            ).fetchone()[0]
+            top_tt = c.execute(
+                "SELECT task_type, COUNT(*) n FROM traces WHERE rowid > ? "
+                "GROUP BY task_type ORDER BY n DESC LIMIT 8", (lo,)
+            ).fetchall()
+    except Exception:  # noqa: BLE001
+        return {"store": EXEC_DB, "rows": None, "distinct_traces": None,
+                "multi_span_traces": None, "top_task_types": None,
+                "estimation": True, "echantillon": _ECHANTILLON}
     return {
-        "store": EXEC_DB, "rows": rows, "distinct_traces": traces,
+        "store": EXEC_DB, "rows": m, "distinct_traces": traces,
         "multi_span_traces": multi, "top_task_types": [
             {"task_type": t, "n": n} for t, n in top_tt],
+        "estimation": True, "echantillon": _ECHANTILLON,
     }
 
 
@@ -116,21 +150,29 @@ def load_spans(trace_id: str, limit: int = MAX_SPANS) -> list[dict]:
     return spans
 
 
-def list_traces(limit: int = 20, by: str = "recent") -> list[dict]:
+def list_traces(limit: int = 20, by: str = "recent"):
     """Trace_ids agrégés. by='recent' (t1 DESC) ou 'count' (spans DESC).
 
-    query_recent ne groupe pas → SQL d'agrégat direct (réutilise _conn).
+    query_recent ne groupe pas → SQL d'agrégat direct (réutilise _conn). BORNE a la
+    fenetre des _ECHANTILLON dernieres lignes (jamais GROUP BY sur toute la table).
+    Base illisible -> None (pas [] qui dirait "aucune trace").
     """
-    init_db()
     order = "n DESC, t1 DESC" if by == "count" else "t1 DESC"
-    with _conn() as c:
-        rows = c.execute(
-            "SELECT trace_id, COUNT(*) n, MIN(ts) t0, MAX(ts) t1, "
-            "SUM(COALESCE(duration_ms,0)) dur, "
-            "SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END) errs "
-            "FROM audit_log GROUP BY trace_id ORDER BY " + order + " LIMIT ?",
-            (min(max(limit, 1), 200),),
-        ).fetchall()
+    try:
+        init_db()
+        with _conn() as c:
+            m, lo = _borne(c, "audit_log")
+            if m is None:
+                return None
+            rows = c.execute(
+                "SELECT trace_id, COUNT(*) n, MIN(ts) t0, MAX(ts) t1, "
+                "SUM(COALESCE(duration_ms,0)) dur, "
+                "SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END) errs "
+                "FROM audit_log WHERE rowid > ? GROUP BY trace_id ORDER BY " + order + " LIMIT ?",
+                (lo, min(max(limit, 1), 200)),
+            ).fetchall()
+    except Exception:  # noqa: BLE001 - illisible = INCONNU
+        return None
     return [
         {"trace_id": r[0], "spans": r[1], "t0": r[2], "t1": r[3],
          "wall_ms": int(((r[3] or 0) - (r[2] or 0)) * 1000),
@@ -145,34 +187,46 @@ def audit_diag() -> dict:
     Si multi_span_traces≈0 → trace_id régénéré par event (pas de flow à visualiser).
     parent_id_pct dit si le lien parent existe (fix=trace_id=root) ou non
     (fix=persister les child spans).
+    BORNE : rows = MAX(rowid) (estimation) ; le reste sur les _ECHANTILLON dernieres
+    lignes. Illisible -> None (jamais 0).
     """
-    init_db()
-    with _conn() as c:
-        rows, traces, with_parent = c.execute(
-            "SELECT COUNT(*), COUNT(DISTINCT trace_id), "
-            "SUM(CASE WHEN parent_id IS NOT NULL AND parent_id!='' THEN 1 ELSE 0 END) "
-            "FROM audit_log"
-        ).fetchone()
-        multi = c.execute(
-            "SELECT COUNT(*) FROM (SELECT trace_id FROM audit_log "
-            "GROUP BY trace_id HAVING COUNT(*) > 1)"
-        ).fetchone()[0]
-        # parent_id pointe-t-il vers un trace_id existant ? (linkage cross-trace)
-        linked = c.execute(
-            "SELECT COUNT(*) FROM audit_log a WHERE a.parent_id IS NOT NULL "
-            "AND a.parent_id!='' AND EXISTS "
-            "(SELECT 1 FROM audit_log b WHERE b.trace_id=a.parent_id)"
-        ).fetchone()[0]
-        top_act = c.execute(
-            "SELECT action, COUNT(*) n FROM audit_log GROUP BY action "
-            "ORDER BY n DESC LIMIT 8"
-        ).fetchall()
+    vide = {"rows": None, "distinct_traces": None, "multi_span_traces": None,
+            "parent_id_pct": None, "parent_links_to_existing_trace": None,
+            "top_actions": None, "estimation": True, "echantillon": _ECHANTILLON}
+    try:
+        init_db()
+        with _conn() as c:
+            m, lo = _borne(c, "audit_log")
+            if m is None:
+                return vide
+            traces, n, with_parent = c.execute(
+                "SELECT COUNT(DISTINCT trace_id), COUNT(*), "
+                "SUM(CASE WHEN parent_id IS NOT NULL AND parent_id!='' THEN 1 ELSE 0 END) "
+                "FROM audit_log WHERE rowid > ?", (lo,)
+            ).fetchone()
+            multi = c.execute(
+                "SELECT COUNT(*) FROM (SELECT trace_id FROM audit_log WHERE rowid > ? "
+                "GROUP BY trace_id HAVING COUNT(*) > 1)", (lo,)
+            ).fetchone()[0]
+            # parent_id pointe-t-il vers un trace_id existant ? (linkage cross-trace)
+            linked = c.execute(
+                "SELECT COUNT(*) FROM audit_log a WHERE a.rowid > ? AND a.parent_id IS NOT NULL "
+                "AND a.parent_id!='' AND EXISTS "
+                "(SELECT 1 FROM audit_log b WHERE b.trace_id=a.parent_id)", (lo,)
+            ).fetchone()[0]
+            top_act = c.execute(
+                "SELECT action, COUNT(*) n FROM audit_log WHERE rowid > ? GROUP BY action "
+                "ORDER BY n DESC LIMIT 8", (lo,)
+            ).fetchall()
+    except Exception:  # noqa: BLE001 - illisible = INCONNU, jamais 0
+        return vide
     return {
-        "rows": rows, "distinct_traces": traces,
+        "rows": m, "distinct_traces": traces,
         "multi_span_traces": multi,
-        "parent_id_pct": round(100 * (with_parent or 0) / rows, 1) if rows else 0,
+        "parent_id_pct": round(100 * (with_parent or 0) / n, 1) if n else None,
         "parent_links_to_existing_trace": linked,
-        "top_actions": [{"action": a, "n": n} for a, n in top_act],
+        "top_actions": [{"action": a, "n": k} for a, k in top_act],
+        "estimation": True, "echantillon": _ECHANTILLON,
     }
 
 
@@ -310,6 +364,9 @@ def main() -> int:
     if args.target in ("list", "top"):
         by = "count" if args.target == "top" else "recent"
         traces = _list(args.limit if args.limit != MAX_SPANS else 20, by=by)
+        if traces is None:
+            print("(store illisible : traces inconnues)")
+            return 1
         if not traces:
             print("(aucune trace dans audit.db)")
             return 0

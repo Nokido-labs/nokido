@@ -351,8 +351,88 @@ def _delegation_de(nom: str) -> dict:
         return {}
 
 
+def _chemin_auth_events() -> Path:
+    """Journal des evenements d'authentification (chemin via le module de chemins, jamais en dur)."""
+    try:
+        from nokido_agent.app.forge_db_path import racine_donnees
+    except ImportError:
+        from forge_db_path import racine_donnees  # type: ignore
+    return Path(racine_donnees()) / "sandbox" / "logs" / "auth_events.jsonl"
+
+
+AUTH_EVENTS_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _pivoter_auth_events(chemin: Path) -> None:
+    """Au-dela de AUTH_EVENTS_MAX_BYTES : renomme en <nom>.1 (une generation, ecrasee).
+    Un echec est journalise et n'empeche NI l'ecriture NI l'authentification.
+    (Les utilitaires existants, forge_log_rotation / glymphatic_gc, tronquent en place ou
+    passent par logging : aucun ne fait rename-une-generation sur un JSONL ecrit en open('a').)"""
+    try:
+        if chemin.exists() and chemin.stat().st_size > AUTH_EVENTS_MAX_BYTES:
+            _os.replace(chemin, chemin.with_name(chemin.name + ".1"))
+    except Exception:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).warning(
+            "auth_events: rotation impossible", exc_info=True)
+
+
+def _emettre_evenement_auth(agent_hdr: str, token: str, sortie: dict, provenance: str) -> None:
+    """Une ligne JSONL par decision. Best-effort : n'interrompt JAMAIS l'authentification,
+    un echec est journalise. Aucune valeur de jeton (empreinte sha8 seulement)."""
+    try:
+        via = str(sortie.get("via", ""))
+        if via == "shared_token":
+            via_ev, decision, motif = "shared_token", "accepte", "jeton partage ambigu, ring le moins privilegie"
+        elif via in ("token", "reverse_token") or via.startswith("delegated:"):
+            via_ev, decision, motif = "token", "accepte", "jeton verifie"
+        elif via == "master_token":
+            via_ev, decision, motif = "master_token", "accepte", "jeton maitre, sujet non prouve"
+        elif via == "delegation_refusee_hors_local":
+            via_ev, decision, motif = "bad_token", "refuse", "delegation refusee hors local"
+        elif via == "header" and token:
+            via_ev, decision, motif = "bad_token", "refuse", "jeton present mais non verifie, plancher applique"
+        elif via == "header" and (agent_hdr or "").strip():
+            via_ev, decision, motif = "header", "accepte", "en-tete seul, non authentifie, plancher applique"
+        else:
+            via_ev, decision, motif = "absent", "accepte", "aucune identite, ring non fiable"
+        ev = {"ts": time.time(), "agent_declare": (agent_hdr or "").upper().strip(),
+              "principal": sortie.get("principal", ""),
+              "principal_annonce": sortie.get("principal_annonce", ""),
+              "declared": sortie.get("declared", ""),
+              "agent_resolu": sortie.get("agent"), "via": via_ev, "ring": sortie.get("ring"),
+              # additif : `via` reste « token » (des audits le comptent) ; le delegateur vit ici.
+              "delegue_par": via.split(":", 1)[1] if via.startswith("delegated:") else "",
+              "canal": sortie.get("channel"), "provenance": (provenance or "").strip() or "INCONNUE",
+              "decision": decision, "motif": motif,
+              "token_sha8": hashlib.sha256(token.encode()).hexdigest()[:8] if token else ""}
+        chemin = _chemin_auth_events()
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        _pivoter_auth_events(chemin)
+        with open(chemin, "a", encoding="utf-8") as f:
+            f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).warning(
+            "auth_events: ecriture de l'evenement d'authentification impossible", exc_info=True)
+
+
 def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
-                     agent_tokens: dict | None = None, hub_token: str = "") -> dict:
+                     agent_tokens: dict | None = None, hub_token: str = "",
+                     provenance: str = "", principal_agent_hdr: str = "",
+                     declared_agent_hdr: str = "") -> dict:
+    """Resout l'identite depuis le credential ; conserve les deux assertions HTTP.
+    `provenance` = en-tete LaForge-Provenance (INCONNUE si absent)."""
+    sortie = _resolve_identity_core(
+        agent_hdr, token, local, agent_tokens, hub_token,
+        principal_agent_hdr=principal_agent_hdr,
+        declared_agent_hdr=declared_agent_hdr)
+    _emettre_evenement_auth(agent_hdr, token or "", sortie, provenance)
+    return sortie
+
+
+def _resolve_identity_core(agent_hdr: str, token: str = "", local: bool = True,
+                           agent_tokens: dict | None = None, hub_token: str = "",
+                           principal_agent_hdr: str = "",
+                           declared_agent_hdr: str = "") -> dict:
     """SOURCE UNIQUE identité×ring. Déterministe — TOUS les chemins doivent l'appeler
     (vs les résolutions divergentes actuelles). Renvoie {agent, ring, channel, via}.
 
@@ -362,14 +442,49 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
     """
     rings = _load_store()
     agent = (agent_hdr or "").upper().strip()
+    principal_header = (principal_agent_hdr or "").upper().strip()
+    declared_header = (declared_agent_hdr or "").upper().strip()
     via = "header"
     agent_tokens = agent_tokens or {}
     import hmac as _h
 
+    # Un bearer partagé ne désigne pas un agent unique. Résoudre ses propriétaires
+    # depuis le credential seul et retenir le ring le moins privilégié ; aucun
+    # header ne peut départager les propriétaires ni faire baisser ce ring.
+    token_owners = []
+    if token:
+        for _name, _tok in agent_tokens.items():
+            if not _tok:
+                continue
+            try:
+                if _h.compare_digest(token.encode(), str(_tok).encode()):
+                    token_owners.append(str(_name).upper())
+            except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s)", "app/forge_videur.py:token_owners", exc_info=True)
+                continue
+    token_principal = ""
+    if len(token_owners) > 1:
+        rings = _load_store()
+        token_principal = max(
+            token_owners,
+            key=lambda n: int(rings.get(n, _SEED_RING.get(n, _UNTRUSTED_RING))),
+        )
+        # L'ambiguïté du bearer est résolue au moindre privilège ; les headers
+        # restent des assertions et ne départagent pas les propriétaires.
+        agent = token_principal
+        via = "shared_token"
+    elif len(token_owners) == 1:
+        token_principal = token_owners[0]
+        # Un nom demandé différent reste une déclaration. Il doit passer par la
+        # règle de délégation plus bas ; il ne devient jamais principal par header.
+        if agent == token_principal or not agent:
+            agent = token_principal
+            via = "token"
+
     # 1. header présent + token correspondant à CET agent -> identité forte (token).
     #    (manquait : un agent légitime porteur de token gardait via=header donc se
     #    faisait plafonner par l'anti-spoof §5.)
-    if agent and token and agent_tokens:
+    if agent and token and agent_tokens and len(token_owners) <= 1:
         _tok = agent_tokens.get(agent)
         if _tok:
             try:
@@ -425,7 +540,7 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
     #     delegue indiscernable d'une authentification directe.
     delegue_par = ""
     refus_hors_local = False
-    if agent and token and agent_tokens:
+    if agent and token and agent_tokens and len(token_owners) <= 1:
         for _nom_del, _tok_del in agent_tokens.items():
             if not _tok_del or _nom_del.upper() == agent:
                 continue
@@ -463,8 +578,18 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
             via = "delegated:%s" % delegue_par
             break
 
+    # LOT 4 -- `agent` = identite PROUVEE. Un jeton a UN seul proprietaire A, sans droit
+    # de delegation, accompagne d'une annonce B != A : l'attribution (journaux, inbox,
+    # verrous d'arbre) va a A ; B reste trace dans `principal_annonce`/`declared`.
+    # Jeton partage (plusieurs proprietaires) : inchange, aucune identite inventee.
+    _annonce_ecrasee = ""
+    if len(token_owners) == 1 and via == "header" and agent != token_principal:
+        _annonce_ecrasee = agent
+        agent = token_principal
+        via = "token"
+
     default = _UNTRUSTED_RING
-    ring = rings.get(agent, _SEED_RING.get(agent, default)) if agent else default
+    ring = rings.get(agent,_SEED_RING.get(agent, default)) if agent else default
 
     # Plancher de delegation : meme en agissant POUR un agent privilegie, une
     # passerelle ne franchit pas cette borne. C'est ce qui distingue la
@@ -499,6 +624,15 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
 
     # Reco #1 : élévation dev-mode -> ring (owner local, fail-safe). cf _maybe_elevate.
     ring = _maybe_elevate(agent, int(ring), local, via)
+    # Même l'élévation locale ne peut pas transformer une assertion d'en-tête en
+    # credential : le plancher anti-spoof s'applique en dernier sur ce chemin.
+    if via == "header" and int(ring) < _HEADER_FLOOR_RING:
+        ring = _HEADER_FLOOR_RING
+    if via == "shared_token":
+        _shared_floor = max(int(rings.get(n, _SEED_RING.get(n, _UNTRUSTED_RING)))
+                            for n in token_owners)
+        if int(ring) < _shared_floor:
+            ring = _shared_floor
 
     # BORNE DE DELEGATION, RE-APPLIQUEE EN DERNIER (revue du 2026-09-02).
     # Elle etait posee avant l'anti-spoof et avant `_maybe_elevate` : toute
@@ -521,7 +655,12 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
     meta = _cache["meta"].get(agent, {})
     sortie = {"agent": agent or "UNKNOWN", "ring": int(ring), "via": via,
               "channel": meta.get("channel", "HTTP_DIRECT"),
-              "transport": meta.get("transport", "http"), "token_h": _token_hash(token)}
+              "transport": meta.get("transport", "http"), "token_h": _token_hash(token),
+              # `principal` = identite PROUVEE par le credential ; l'en-tete X-Agent-Name
+              # n'est qu'une assertion, journalisee a part dans `principal_annonce`.
+              "principal": token_principal or (agent if via in ("token", "shared_token", "reverse_token") else ""),
+              "principal_annonce": principal_header or _annonce_ecrasee,
+              "declared": declared_header or (agent_hdr or "").upper().strip()}
     # PREUVE DU SUJET, posee A LA SOURCE -- la ou `via` vient d'etre decide.
     # Elle etait CALCULEE ici puis PERDUE : seul le cas `master_token` la posait,
     # et `_resolve_ring` ne rend que `(ring, agent)`. Un appelant qui en a besoin
@@ -585,10 +724,24 @@ def resolve_identity(agent_hdr: str, token: str = "", local: bool = True,
         # (WEBHUB porte son jeton propre depuis). L'interrupteur est lu A CHAQUE APPEL
         # et vit dans l'environnement du service hub (services.toml) : hors de portee
         # de ce qu'il contraint. Absent ou != "1" : observation, comme avant.
-        if _os.environ.get("LAFORGE_MASTER_BORNE") == "1" and int(sortie["ring"]) < _HEADER_FLOOR_RING:
-            sortie["ring"] = _HEADER_FLOOR_RING
+        _r, _b = borne_porteur_maitre(sortie["ring"], agent)
+        if _b:
+            sortie["ring"] = _r
             sortie["borne_appliquee"] = True
     return sortie
+
+
+def borne_porteur_maitre(ring, agent) -> tuple:
+    """Regle PURE de la borne du jeton maitre -- SOURCE UNIQUE (videur ET repli du hub).
+
+    Porteur du maitre se declarant un autre nom que MASTER/MASTER_TOKEN, interrupteur
+    LAFORGE_MASTER_BORNE=1 (lu a chaque appel) -> ring >= _HEADER_FLOOR_RING.
+    Rend (ring, borne_appliquee)."""
+    if agent in ("MASTER", "MASTER_TOKEN"):
+        return int(ring), False
+    if _os.environ.get("LAFORGE_MASTER_BORNE") == "1" and int(ring) < _HEADER_FLOOR_RING:
+        return _HEADER_FLOOR_RING, True
+    return int(ring), False
 
 
 _TOOL_RING_OVERRIDE = None  # hook test/inject -> callable(tool)->int

@@ -230,7 +230,7 @@ class BinaryBridge:
                 if f.address == addr:
                     return f"function @ {hex(addr)} size={f.size}"
         except Exception:
-            pass
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/research/forge_native_bridge.py', 232, exc_info=True)
         return f"disas @ {hex(addr)}"
 
     def section_data(self, name: str) -> bytes:

@@ -138,7 +138,11 @@ def test_l_historique_et_le_flux_sse_ne_portent_pas_de_clef(journal, monkeypatch
     assert cle[:20] not in json.dumps(ev)
 
 
-def test_une_lecture_ne_charge_pas_le_journal(journal):
+def test_une_lecture_charge_le_journal_d_une_ligne_courte(journal):
+    # Decision owner 31/10 (« journaliser aussi les lectures ») : la carte d'attention restait vide sans elles.
+    # L'esprit de l'ancienne regle tient : une lecture n'apporte qu'UNE ligne courte, sens LECTURE, sans contenu.
     nl.net_log(nl.NetworkChannel.HTTP_DIRECT, nl.Direction.IN, tool="read", agent="OPENCODE", ring=3,
                payload_in=_appel("read", {"action": "file", "path": "README.md"}))
-    assert _lignes(journal) == []
+    [acte] = _lignes(journal)
+    assert acte["sens"] == "LECTURE" and "README.md" in acte["extrait"]
+    assert len(json.dumps(acte, ensure_ascii=False)) < 400

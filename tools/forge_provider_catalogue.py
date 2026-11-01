@@ -33,6 +33,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+try:
+    from nokido_agent.tools.forge_process_inventory import contexte_execution
+except ImportError:  # repli checkout
+    from forge_process_inventory import contexte_execution
+
 TIMEOUT = 20
 
 # Fournisseurs dont /models repond SANS cle (mesure 2026-10-15, requete anonyme) : un 200 y est
@@ -61,8 +66,36 @@ FOURNISSEURS = [
     ("cohere", "COHERE_API_KEY", "https://api.cohere.ai/v1/models"),
     ("voyage", "VOYAGE_API_KEY", "https://api.voyageai.com/v1/models"),
     ("jina", "JINA_API_KEY", "https://api.jina.ai/v1/models"),
+    # Ollama Cloud (OpenAI-compat) — doc ingérée au RAG ; cf tools/ollama_cloud_proxy_agent.py
+    ("ollama_cloud", "OLLAMA_API_KEY", "https://ollama.com/v1/models"),
     # -- locaux : pas de cle, mais un port qui repond ou pas --
     ("lmstudio", "LMSTUDIO_TOKEN", "http://127.0.0.1:1234/v1/models"),
+    # 30/10 (owner « joindre TOUS les free tiers ») -- rendu MISTRAL 5345fc8af, URL alignees sur la convention
+    # `.../models` des entrees ci-dessus. Cloudflare Workers AI ecarte : son URL exige l'identifiant de compte
+    # (CLOUDFLARE_ACCOUNT_ID) -- a cabler a part, jamais un `<id>` litteral.
+    ("gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta/openai/models"),
+    ("codestral", "CODESTRAL_API_KEY", "https://codestral.mistral.ai/v1/models"),
+    ("github_models", "GITHUB_MODELS_TOKEN", "https://models.github.ai/catalog/models"),
+    ("kimi", "KIMI_API_KEY", "https://api.moonshot.ai/v1/models"),
+    ("fireworks", "FIREWORKS_API_KEY", "https://api.fireworks.ai/inference/v1/models"),
+    ("chutes", "CHUTES_API_KEY", "https://llm.chutes.ai/v1/models"),
+    ("scaleway", "SCALEWAY_SECRET_KEY", "https://api.scaleway.ai/v1/models"),
+    ("nebius", "NEBIUS_API_KEY", "https://api.studio.nebius.com/v1/models"),
+    ("hyperbolic", "HYPERBOLIC_API_KEY", "https://api.hyperbolic.xyz/v1/models"),
+    ("novita", "NOVITA_API_KEY", "https://api.novita.ai/v3/openai/models"),
+    ("dashscope", "DASHSCOPE_API_KEY", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models"),
+    ("opencode_zen", "OPENCODE_API_KEY", "https://opencode.ai/zen/v1/models"),
+    ("llama_api", "LLAMA_API_KEY", "https://api.llama.com/compat/v1/models"),
+    ("kluster", "KLUSTER_API_KEY", "https://api.kluster.ai/v1/models"),
+    ("pollinations", "", "https://text.pollinations.ai/openai/models"),
+    ("stepfun", "STEPFUN_API_KEY", "https://api.stepfun.ai/v1/models"),
+    ("poolside", "POOLSIDE_API_KEY", "https://inference.poolside.ai/v1/models"),
+    ("regolo", "REGOLO_API_KEY", "https://api.regolo.ai/v1/models"),
+    ("writer", "WRITER_API_KEY", "https://api.writer.com/v1/models"),
+    ("clarifai", "CLARIFAI_PAT", "https://api.clarifai.com/v2/ext/openai/v1/models"),
+    ("inception", "INCEPTION_API_KEY", "https://api.inceptionlabs.ai/v1/models"),
+    ("reka", "REKA_API_KEY", "https://api.reka.ai/v1/models"),
+    ("nous", "NOUS_API_KEY", "https://inference-api.nousresearch.com/v1/models"),
     ("llamacpp", "FORGE_LLAMA_KEY", "http://127.0.0.1:8080/v1/models"),
     ("ollama", "", "http://127.0.0.1:11434/v1/models"),
     ("litellm", "LITELLM_API_KEY", "http://127.0.0.1:4000/v1/models"),
@@ -77,7 +110,8 @@ HORS_PERIMETRE = {
     "KAGGLE_API_TOKEN": "datasets",
     "CODEBERG_TOKEN": "forge git",
     "FREEBOX_APP_TOKEN": "domotique",
-    "CLOUDFLARE_AI_API_KEY": "Workers AI — URL dependante du compte",
+    "CLOUDFLARE_AI_API_KEY": "Workers AI — pas de point OpenAI-compat universel verifie ici ; sondage direct Workers AI requiert endpoint compte/projet/specifique (hors perimetre OpenAI-compat de ce catalogue)",
+    "LITELLM_API_KEY": "passerelle (agrégateur/relais), non un fournisseur unique : relaie groq/openrouter/cerebras/mistral/ollama/etc. La matrice mesure déjà ces fournisseurs en direct ; le sonder en double fausserait le recensement.",
     "PCVL_CLOUD_TOKEN": "calcul quantique",
     "QUANDELA_TOKEN": "calcul quantique",
     "GITHUB_MODELS_TOKEN": "backend retire le 2026-08-18 (410 Gone)",
@@ -158,6 +192,33 @@ MATRICE = ROOT / "sandbox" / "matrice_modele_fournisseur.json"
 FAMILLES_UTILES = ("glm-5", "glm-4.5", "glm-4.7", "mistral-large", "mistral-medium", "mistral-small",
                    "llama-3.3-70b", "llama-3.1-8b", "deepseek-v3", "deepseek-r1", "qwen3", "gpt-oss-120b",
                    "gpt-oss-20b", "kimi-k2", "nemotron")
+# SOURCE UNIQUE du palier gratuit Ollama Cloud (compte FREE, owner 24/10). Hors liste = HORS_PALIER.
+OLLAMA_CLOUD_FREE = ("beam", "gemma4:31b", "gpt-oss:120b", "gpt-oss:20b", "nemotron-3-nano:30b",
+                     "nemotron-3-super", "nemotron-3-ultra")
+
+
+def palier_ollama_cloud(model_id: str) -> str:
+    """'FREE' si le modele est dans OLLAMA_CLOUD_FREE (suffixe -cloud ignore), sinon 'HORS_PALIER'."""
+    m = str(model_id).strip().lower()
+    if m.endswith("-cloud"):
+        m = m[:-6]
+    return "FREE" if m in OLLAMA_CLOUD_FREE else "HORS_PALIER"
+
+
+_EQUIV_OLLAMA_CLOUD = (("gpt-oss-120b", "gpt-oss:120b"), ("gpt-oss-20b", "gpt-oss:20b"),
+                       ("nemotron-3-super", "nemotron-3-super"), ("nemotron-3-nano", "nemotron-3-nano:30b"),
+                       ("nemotron-3-ultra", "nemotron-3-ultra"))
+
+
+def equivalent_ollama_cloud(model_id: str) -> str | None:
+    """Modele ollama_cloud FREE equivalent a un modele d'un autre fournisseur ; None si aucun ou hors palier."""
+    n = str(model_id or "").lower()
+    for motif, cible in _EQUIV_OLLAMA_CLOUD:
+        if motif in n:
+            return cible if palier_ollama_cloud(cible) == "FREE" else None
+    return None
+
+
 # Hors dialecte OpenAI pour la generation (le /chat/completions n'y existe pas a cet endroit).
 SANS_GENERATION = frozenset({"cohere", "voyage", "jina"})
 
@@ -187,6 +248,8 @@ def classer_reponse(code: int, detail: str) -> str:
         return "SANS_SOLDE"
     if "1910" in d or "tier" in d or "subscription" in d or "not allowed" in d:
         return "HORS_PALIER"
+    if code == 429 and _quota_journalier(d):
+        return "QUOTA_EPUISE"              # quota du jour : revient a l'echeance (cf. echeance_quota)
     if code == 429:
         return "DEBIT"                     # limite de debit : PAS un refus, a re-sonder
     if code in (401, 403) or "api key" in d or "unauthorized" in d:
@@ -194,6 +257,27 @@ def classer_reponse(code: int, detail: str) -> str:
     if code == 404 or "not found" in d or "does not exist" in d:
         return "MODELE_ABSENT"
     return "INCONNU"
+
+
+def _quota_journalier(d: str) -> bool:
+    return any(m in d for m in ("per-day", "per day", "per_day", "tokens per day", "requests per day", "(tpd)", "(rpd)"))
+
+
+def echeance_quota(now=None) -> str:
+    """Prochain minuit UTC (ISO) : date a laquelle un quota journalier est re-sondable."""
+    from datetime import datetime, timedelta, timezone
+    n = now or datetime.now(timezone.utc)
+    return (n.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).isoformat()
+
+
+def geler_voie(voie: dict, code: int, detail: str, now=None) -> dict:
+    """Une voie refusee est GELEE (a re-sonder), jamais retiree ni notee « 0.0 » : score None."""
+    etat = classer_reponse(code, detail)
+    voie.update({"etat": etat, "gelee": True, "score": None})
+    voie.pop("retiree", None)
+    if etat == "QUOTA_EPUISE":
+        voie["echeance"] = echeance_quota(now)
+    return voie
 
 
 def sonder_generation(url_models: str, cle: str, model_id: str, timeout: int = 40) -> tuple[int, str, float]:
@@ -420,7 +504,7 @@ def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=
     interroger_fn = interroger_fn or interroger
     sonder_fn = sonder_fn or sonder_generation
     voulues = set(familles)
-    out = {"mesure_le": _t.strftime("%Y-%m-%dT%H:%M:%S"), "familles": {}, "fournisseurs": {}}
+    out = {"mesure_le": _t.strftime("%Y-%m-%dT%H:%M:%S"), "familles": {}, "fournisseurs": {}, "hors_palier": {}}
     for etiquette, env_key, url in FOURNISSEURS:
         if etiquette in SANS_GENERATION or "127.0.0.1" in url or "localhost" in url:
             continue
@@ -433,6 +517,11 @@ def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=
             out["fournisseurs"][etiquette] = "MODELS_%s" % code
             continue
         out["fournisseurs"][etiquette] = "MODELS_200 (%d)" % len(ids)
+        if etiquette == "ollama_cloud":
+            hors = [i for i in ids if palier_ollama_cloud(i) != "FREE"]
+            if hors:
+                out["hors_palier"][etiquette] = hors
+            ids = [i for i in ids if palier_ollama_cloud(i) == "FREE"]
         vus: dict = {}
         for mid in ids:
             f = famille_de(mid)
@@ -443,6 +532,10 @@ def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=
                 c, d, lat = sonder_fn(url, cle, mid)
                 voie = {"fournisseur": etiquette, "modele": mid, "etat": classer_reponse(c, d),
                         "code": c, "latence_ms": lat, "detail": d[:120]}
+                if not 200 <= c < 300:
+                    geler_voie(voie, c, d)
+                    if voie["etat"] in ("DEBIT", "INCONNU"):
+                        voie["a_resonder"] = True    # pas un refus : a re-sonder
                 if competence and voie["etat"] == "JOIGNABLE":
                     voie["competence"] = (competence_fn or sonder_competence)(url, cle, mid)
                     reclasser_par_competence(voie)
@@ -450,6 +543,11 @@ def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=
     for f in out["familles"]:
         out["familles"][f].sort(key=lambda v: (v["etat"] != "JOIGNABLE", v["latence_ms"]))
     return out
+
+
+def avec_contexte(doc: dict) -> dict:
+    """En-tete `contexte_execution` : la matrice ne vaut que pour le compte/profil/reseau qui l'a mesuree."""
+    return {**doc, "contexte_execution": contexte_execution()}
 
 
 def ecrire_matrice(m: dict) -> bool:
@@ -481,7 +579,8 @@ def voies_joignables(famille: str, age_max_j: float = 7.0) -> dict:
     except (ValueError, OverflowError):
         age_j = None
     voies = [(v["fournisseur"], v["modele"], v["latence_ms"]) for v in m.get("familles", {}).get(famille_de(famille), [])
-             if v.get("etat") == "JOIGNABLE"]
+             if v.get("etat") == "JOIGNABLE"
+             and not (v["fournisseur"] == "ollama_cloud" and palier_ollama_cloud(v["modele"]) != "FREE")]
     # 19/10 (convergence census -> matrice) : un couple que le registre free tier PROUVE mort depuis la mesure est
     # ecarte et NOMME -- meme contrat que le routeur. Census illisible : rien d'ecarte, et c'est dit.
     try:
@@ -521,7 +620,59 @@ def candidates_du_clair(etiquette: str, env_key: str) -> list[tuple[int, str]]:
     return out
 
 
+PAGE_DASHBOARD = Path(__file__).resolve().parent / "llm-dashboard.html"
+_ANCRE_TABLE = "Toutes les inscriptions par clé"
+
+
+def ligne_dashboard(etiquette: str, env_key: str, url: str) -> str:
+    """Une ligne de la table du tableau de bord, DERIVEE du catalogue (rien d'invente).
+
+    Le lien d'inscription est le domaine de l'endpoint sans son prefixe `api.` ;
+    un endpoint local n'a pas d'inscription. Aucune cle, seulement le NOM de la variable.
+    """
+    import html
+    from urllib.parse import urlsplit
+
+    hote = urlsplit(url).netloc
+    var = f"<code>{html.escape(env_key)}</code>" if env_key else "—"
+    if hote.startswith(("127.0.0.1", "localhost")):
+        inscription = "local — aucune inscription"
+    else:
+        site = hote[4:] if hote.startswith("api.") else hote
+        inscription = (f'<a href="https://{html.escape(site)}/" target="_blank" '
+                       f'rel="noopener">{html.escape(site)}</a>')
+    return (f"    <tr><td><b>{html.escape(etiquette)}</b></td><td>{var}</td>"
+            f"<td><code>{html.escape(hote)}</code></td><td>{inscription}</td></tr>")
+
+
+def synchroniser_dashboard(page: Path = PAGE_DASHBOARD, ecrire: bool = True) -> list:
+    """Ajoute a la table de `llm-dashboard.html` les fournisseurs du catalogue qu'elle ne cite pas.
+
+    La page portait sa propre liste a cote de la source (18/09 : 9 manquaient ; 31/10 : 21, ajoutes
+    au catalogue le 30/10 sans elle). AJOUT seulement : une ligne deja ecrite garde son lien
+    d'inscription soigne a la main. Rend les etiquettes ajoutees ; ancre introuvable -> ValueError
+    (une page dont on ne trouve pas la table n'est pas « complete »).
+    """
+    texte = page.read_text(encoding="utf-8")
+    debut = texte.find(_ANCRE_TABLE)
+    fin = texte.find("</tbody>", debut)
+    if debut < 0 or fin < 0:
+        raise ValueError(f"table du catalogue introuvable dans {page.name} (ancre {_ANCRE_TABLE!r})")
+    table = texte[debut:fin].lower()
+    manquants = [(e, k, u) for e, k, u in FOURNISSEURS
+                 if f">{e.lower()}<" not in table and f"<b>{e.lower()}</b>" not in table]
+    if manquants and ecrire:
+        lignes = "".join(ligne_dashboard(*f) + "\n" for f in manquants)
+        page.write_text(texte[:fin].rstrip(" ") + lignes + "  " + texte[fin:], encoding="utf-8")
+    return [e for e, _k, _u in manquants]
+
+
 def main() -> int:
+    if "--dashboard" in sys.argv:
+        ajoutes = synchroniser_dashboard(ecrire="--check" not in sys.argv)
+        print(f"[dashboard] {len(ajoutes)} fournisseur(s) {'a ajouter' if '--check' in sys.argv else 'ajoute(s)'}"
+              f"{' : ' + ', '.join(ajoutes) if ajoutes else ''}")
+        return 1 if (ajoutes and "--check" in sys.argv) else 0
     from nokido_agent.app.forge_secrets import get_secret
 
     if "--matrice" in sys.argv:
@@ -534,6 +685,7 @@ def main() -> int:
             for p, c in m["cli"].items():
                 print(f"cli {p:12} : {c['reussies']}/{c['mesurees']} mesurees (sur {c['total']}) {c['taches']} "
                       f"{('non mesurees : ' + str(c['raisons_non_mesurees'])[:200]) if c['raisons_non_mesurees'] else ''}")
+        m = avec_contexte(m)
         ok = ecrire_matrice(m)
         for f, voies in sorted(m["familles"].items()):
             j = [v for v in voies if v["etat"] == "JOIGNABLE"]

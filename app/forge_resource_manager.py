@@ -309,6 +309,12 @@ def _ecrire_jsonl(chemin, row: dict, max_bytes: int) -> None:
 # (`saut`) -- sans eux, `ticks_decision_observes` n'aurait pas de denominateur et
 # l'absence d'arbitrage serait indistinguable d'une absence d'occasion.
 _DECISIONS_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "decision_observations.jsonl"
+
+# Journal des ticks de régulation RAM
+_REGULATION_TICK_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "regulation_tick.jsonl"
+_REGULATION_TICK_PATH_DEFAUT = _REGULATION_TICK_PATH  # sous pytest, jamais le journal vivant (patron mem_watchdog)
+_regulation_tick_ko = [False]  # echec d'ecriture dit UNE fois, pas a chaque tick
+_REGULATION_TICK_MAX_BYTES = int(os.environ.get("LAFORGE_REGULATION_TICK_MAX_BYTES", str(16 * 1024 * 1024)))
 _DECISIONS_MAX_BYTES = int(os.environ.get("LAFORGE_DECISIONS_MAX_BYTES", str(16 * 1024 * 1024)))
 _POLICY_ID_CACHE: str = ""
 
@@ -659,7 +665,7 @@ def attribuer_pression(force: bool = False) -> dict:
             classe = "incertain"
         elif _du_corps(pid):
             classe = "soi"
-        elif (ids.get(pid) or {}).get("preuve") in ("job", "battement", "parente"):
+        elif (ids.get(pid) or {}).get("preuve") in ("job", "battement", "parente", "prothese"):
             classe = "soi"
             out["soi_par_identite"].append(pid)
         else:
@@ -1104,9 +1110,21 @@ _VETO_SOMMEIL_DIR = Path(_RACINE_AMORCE) / "sandbox" / "veto_sommeil"
 _VETO_SOMMEIL_MAX_S = 1800.0
 
 
+_VETO_SOMMEIL_DIR_DEFAUT = _VETO_SOMMEIL_DIR
+
+
+def _veto_dir() -> Path:
+    """Repertoire des vetos, LU A L'APPEL. Le plus specifique gagne : `_VETO_SOMMEIL_DIR` remplace explicitement (un
+    test), puis `LAFORGE_VETO_SOMMEIL_DIR` (conftest des NR -- mesure 26/10 : un pytest avait laisse un veto « (nr) »
+    dans le sandbox vivant), puis le defaut que lit Hamilton."""
+    if _VETO_SOMMEIL_DIR != _VETO_SOMMEIL_DIR_DEFAUT:
+        return Path(_VETO_SOMMEIL_DIR)
+    return Path(os.environ.get("LAFORGE_VETO_SOMMEIL_DIR") or _VETO_SOMMEIL_DIR)
+
+
 def _fichier_veto(service: str) -> Path:
     sur = "".join(c if (c.isalnum() or c in "-_") else "_" for c in str(service))[:80] or "_"
-    return _VETO_SOMMEIL_DIR / (sur + ".json")
+    return _veto_dir() / (sur + ".json")
 
 
 def poser_veto_sommeil(service: str, motif: str, duree_s: float = _VETO_SOMMEIL_MAX_S) -> dict:
@@ -1117,7 +1135,7 @@ def poser_veto_sommeil(service: str, motif: str, duree_s: float = _VETO_SOMMEIL_
     d = {"service": str(service), "motif": (motif or "?")[:200], "pid": os.getpid(),
          "pose_a": maintenant, "jusqu_a": maintenant + max(1.0, min(float(duree_s), _VETO_SOMMEIL_MAX_S))}
     try:
-        _VETO_SOMMEIL_DIR.mkdir(parents=True, exist_ok=True)
+        _veto_dir().mkdir(parents=True, exist_ok=True)
         f = _fichier_veto(service)
         tmp = f.with_suffix(".tmp")
         tmp.write_text(_json.dumps(d, ensure_ascii=False), encoding="utf-8")
@@ -1145,7 +1163,7 @@ def vetos_sommeil_actifs(maintenant: float | None = None) -> dict:
     t = time.time() if maintenant is None else maintenant
     actifs: dict = {}
     try:
-        fichiers = sorted(_VETO_SOMMEIL_DIR.glob("*.json"))
+        fichiers = sorted(_veto_dir().glob("*.json"))
     except OSError:
         return actifs
     for f in fichiers:
@@ -1346,6 +1364,78 @@ def run_reclaimers(needed_gb: float = 0.0) -> dict:
 _last_supervisor_sleep_ts: float = 0.0
 _last_supervisor_wake_ts: float = 0.0
 
+# 28/10 : « prouver l'origine SYSTEMATIQUEMENT » -- le refus nomme le SERVICE de chaque gros processus
+# (livraison CLAUDE_HEADLESS 8459412fd ; route corrigee a l'integration : _SUPERVISOR_URL porte deja /supervisor).
+_CARTE_SERVICES: dict = {"ts": 0.0, "carte": {}}
+_CARTE_SERVICES_TTL_S = 30.0
+_CARTE_SERVICES_TIMEOUT_S = 2.0
+
+
+def _http_get_superviseur(url: str, **kw):
+    import requests as _rq
+
+    return _rq.get(url, **kw)
+
+
+def carte_pid_service(now: float | None = None) -> dict:
+    """{pid: service} depuis GET <superviseur>/status, cache 30 s, timeout borne. {} si injoignable (et dit)."""
+    import time as _t
+
+    now = _t.time() if now is None else now
+    if _CARTE_SERVICES["carte"] and 0 <= now - _CARTE_SERVICES["ts"] < _CARTE_SERVICES_TTL_S:
+        return _CARTE_SERVICES["carte"]
+    carte: dict = {}
+    try:
+        r = _http_get_superviseur(f"{_SUPERVISOR_URL}/status",
+                                  headers=_supervisor_auth_headers(), timeout=_CARTE_SERVICES_TIMEOUT_S)
+        svcs = r.json().get("services") or []
+        if isinstance(svcs, dict):
+            svcs = [dict(v, name=v.get("name") or k) for k, v in svcs.items()]
+        for s in svcs:
+            nom, pid = s.get("name") or s.get("service"), s.get("pid")
+            if nom and isinstance(pid, int) and pid > 0:
+                carte[pid] = nom
+    except Exception as e:  # noqa: BLE001 - superviseur injoignable : carte vide, chaque gros processus ILLISIBLE
+        logging.getLogger(__name__).debug("[regulation] carte pid->service illisible (%s)", type(e).__name__)
+        carte = {}
+    _CARTE_SERVICES.update(ts=now, carte=carte)
+    return carte
+
+
+def formater_top_avec_service(procs, pid_service: dict, vivants: dict) -> str:
+    """« nom(GB,pid=N, service=X) » ; service prouve par la PARENTE (ancetre_identifie), sinon ILLISIBLE."""
+    try:
+        from nokido_agent.tools.forge_process_inventory import ancetre_identifie
+    except Exception:  # noqa: BLE001
+        try:
+            from tools.forge_process_inventory import ancetre_identifie
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).debug("[regulation] ancetre_identifie indisponible (%s)", type(e).__name__)
+            ancetre_identifie = None
+    out = []
+    for p in procs or []:
+        pid, svc = p.get("pid"), "ILLISIBLE"
+        if pid in pid_service:
+            svc = pid_service[pid]
+        elif ancetre_identifie is not None:
+            a = ancetre_identifie(pid, vivants, pid_service, {})
+            if a:
+                svc = a["identite"].replace("descendant de ", "", 1)
+        out.append(f"{p.get('name')}({p.get('ram_gb')}GB,pid={pid}, service={svc})")
+    return ", ".join(out)
+
+
+def top_procs_avec_service(procs) -> str:
+    """Variante runtime : carte superviseur (cache) + parentes psutil."""
+    vivants: dict = {}
+    try:
+        import psutil as _ps
+
+        vivants = {q.pid: {"ppid": q.ppid()} for q in _ps.process_iter(["ppid"])}
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).debug("[regulation] parentes illisibles (%s)", type(e).__name__)
+    return formater_top_avec_service(procs, carte_pid_service(), vivants)
+
 
 def _supervisor_auth_headers(nom: str = "RESOURCE_MANAGER") -> dict:
     """Phase 23A : supervisor Deno :8765 exige Bearer sur /supervisor/* mutations.
@@ -1413,7 +1503,7 @@ def _supervisor_wake_non_essential() -> None:
             if svc in _tenus:
                 continue
             try:
-                req = _ur.Request(f"{_SUPERVISOR_URL}/wake/{svc}", method="POST", headers=_h)
+                req = _ur.Request(_url_reveil(svc), method="POST", headers=_h)
                 with _ur.urlopen(req, timeout=3):
                     pass
             except Exception as e:  # noqa: BLE001 -- ordre NON delivre : REQUESTED != ACHIEVED, dit
@@ -1894,24 +1984,10 @@ def _backlog_embeddings() -> int:
     RAG/embeddings.db ; on garde `data/rag.db` en dernier ressort au cas ou le
     schema y migrerait un jour.
     """
-    import sqlite3
-
-    _root = Path(__file__).resolve().parent.parent
-    for _cand in (Path("%NOKIDO_DATA%\embeddings.db"), _root / "RAG" / "embeddings.db",
-                  _root / "data" / "rag.db"):
-        try:
-            if not _cand.exists():
-                continue
-            _c = sqlite3.connect("file:%s?mode=ro" % _cand.as_posix(), uri=True, timeout=2.0)
-            try:
-                _n = _c.execute(
-                    "SELECT COUNT(*) FROM rag_chunks WHERE embedding IS NULL").fetchone()[0]
-            finally:
-                _c.close()
-            return int(_n)
-        except Exception:  # noqa: BLE001 - muet-ok : base absente/vide/verrouillee : candidat suivant
-            continue
-    return -1
+    # P2 coagulation (3), 24/10 : plus AUCUNE requete sur la base (COUNT ... IS NULL = SCAN de
+    # l'index partiel sur ~7 M entrees refusees par politique). Lecture de TAUX chez le producteur
+    # (snapshot de forge_memory_availability) ; -1 = INCONNU, jamais un repli sur le brut.
+    return int(_backlog_pending_qualifie()[0])
 
 
 def _port_ecoute(port: int) -> bool:
@@ -2186,6 +2262,14 @@ def _sampler_loop() -> None:
                 logging.getLogger(__name__).debug(
                     "[rss_watch] tick ignore (%s)", type(_e).__name__)
 
+            # QUI appelle Ollama (28/10) : journal des nouvelles connexions :11434, auto-limite a 5 s.
+            try:
+                from nokido_agent.app.forge_port_callers import tick_appelants_ollama as _tick_ol
+
+                _tick_ol()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug("[ollama_appelants] tick ignore (%s)", type(_e).__name__)
+
             # LM Studio : allume seulement quand utile, coupe des que plus
             # necessaire (politique owner 2026-08-18). Branche ICI plutot que
             # dans un daemon de plus : le sampler passe deja. Cadence propre de
@@ -2217,6 +2301,18 @@ def _sampler_loop() -> None:
             except Exception as _e:  # noqa: BLE001
                 logging.getLogger(__name__).debug(
                     "[arbitrage] tick declenchement ignore (%s)", type(_e).__name__)
+
+            # llama-server NON JUSTIFIE (owner 24/10) : identifie ? enabled / wanted / servi ? sinon arret
+            # apres grace. Cadence 60 s, THREAD (psutil + HTTP superviseur) ; illisible = signale, jamais tue.
+            try:
+                global _LLAMA_REGULE_DERNIER
+                if time.time() - _LLAMA_REGULE_DERNIER >= _LLAMA_REGULE_CADENCE_S:
+                    _LLAMA_REGULE_DERNIER = time.time()
+                    threading.Thread(target=tick_llama_non_justifies, name="forge_llama_regule",
+                                     daemon=True).start()
+            except Exception as _e:  # noqa: BLE001
+                logging.getLogger(__name__).debug(
+                    "[llama-regule] declenchement ignore (%s)", type(_e).__name__)
 
             # BAUX DE PRIORITE : une tache prioritaire morte sans liberer ne garde pas le corps
             # endormi -- tout bail echu est libere. Cadence 60 s, en THREAD (le reveil attend le
@@ -2315,6 +2411,23 @@ def _sampler_loop() -> None:
                 threading.Thread(
                     target=_supervisor_wake_non_essential,
                     name="forge_supervisor_wake",
+                    daemon=True,
+                ).start()
+            # Rendre ce que l'EVICTION a endormi (Hamilton arme ou non, 28/10) : branche independante.
+            if (ram_pct < _SUPERVISOR_WAKE_RAM_THRESHOLD
+                    and (now - _REVEIL_EVINCES_TS["t"]) > 120.0):
+                _REVEIL_EVINCES_TS["t"] = now
+                threading.Thread(
+                    target=lambda: _reveiller_les_evinces(ram_pct),
+                    name="forge_reveil_evinces",
+                    daemon=True,
+                ).start()
+            # 31/10 (choix owner) : honorer les demandes de consolidation du circadien, une fois par bail, dans le budget.
+            if (now - _DEMANDES_CIRCA_TS["t"]) > 60.0:
+                _DEMANDES_CIRCA_TS["t"] = now
+                threading.Thread(
+                    target=lambda: _honorer_demandes_circadiennes(ram_pct),
+                    name="forge_demandes_circadiennes",
                     daemon=True,
                 ).start()
         except Exception as e:  # noqa: BLE001 -- jamais casser le sampler, mais le DIRE
@@ -3681,6 +3794,255 @@ def _evict_conditions_met() -> dict:
             % (libre_gb, libre_pct), **etat}
 
 
+# ── llama-server NON JUSTIFIE : auto-regulation (owner 24/10) ───────────────────
+# Cause des `evict_skipped` (lue dans le code, 24/10) : le sampler declenche l'eviction a
+# _AUTO_EVICT_RAM_PCT (78 %) mais `_evict_conditions_met` n'arme le palier que sous 2,5 Go / 15 %
+# libres (~85 %+) ET sans chaine active ni `*.wanted` : entre 78 et 85 % de RAM, chaque tick
+# s'abstient (« pas d'urgence ») -- et un runner qui FUIT n'est ni un service enabled ni un
+# candidat par port. Ce regulateur ne depend PAS de l'urgence : il juge la JUSTIFICATION.
+_LLAMA_GRACE_S = float(os.environ.get("LAFORGE_LLAMA_GRACE_S", "300"))
+_LLAMA_REGULE_CADENCE_S = 60.0
+_LLAMA_REGULE_DERNIER = 0.0
+_LLAMA_VUS: dict = {}  # (pid, cree) -> 1er instant ou il a ete constate injustifie
+
+
+_LANCEURS_NOKIDO = frozenset({"superviseur", "job", "battement", "parente"})
+_LANCEURS_ETRANGERS = ("lm studio", "lmstudio", "lm-studio", "explorer", "client", "terminal", "owner")
+
+
+def _lance_par_nokido(ident) -> bool:
+    """Liste BLANCHE : l'identite PROUVE un lanceur Nokido (superviseur, job, battement, descendance de
+    l'un d'eux). Parent nomme (shell, explorer, LM Studio...) ou inconnu -> faux (CONTROL != OWNERSHIP)."""
+    ident = ident or {}
+    if ident.get("preuve") not in _LANCEURS_NOKIDO:
+        return False
+    nom = str(ident.get("identite") or "").lower()
+    return not any(m in nom for m in _LANCEURS_ETRANGERS)
+
+
+def _est_runner_ollama(pid, vivants) -> bool:
+    nom = str((vivants.get(pid) or {}).get("nom") or "").lower()
+    if nom == "ollama_llama_server.exe":
+        return True
+    pnom = str((vivants.get((vivants.get(pid) or {}).get("ppid")) or {}).get("nom") or "").lower()
+    return nom == "ollama.exe" and pnom == "ollama.exe"  # `ollama runner` : enfant d'ollama.exe
+
+
+def reguler_llama_non_justifies(vivants, identites, non_identifies, toml, intents, conns, vus,
+                                now, grace_s=None, kill=None, ollama_modeles=None, decharger=None) -> dict:
+    """Arrete les llama-server IDENTIFIES mais sans justification, apres la grace.
+
+    Justifie = service `enabled` (pid du superviseur dont services.toml n'a pas `disabled`)
+    | `*.wanted` frais | connexion etablie (consommateur actif). ILLISIBLE (non identifie par
+    forge_process_inventory.identifier_processus, ou services.toml illisible) : SIGNALE, jamais
+    tue. `vus` : {pid | (pid, cree): 1er constat} mutable, purge des morts. `kill(pid)->bool`.
+    """
+    grace_s = _LLAMA_GRACE_S if grace_s is None else grace_s
+    out: dict = {"tues": [], "signales": [], "graces": [], "epargnes": []}
+    vivants = vivants or {}
+    llamas = {p: v for p, v in vivants.items()
+              if str(v.get("nom") or "").lower() in ("llama-server.exe", "llama-server")}
+    runners = {p: v for p, v in vivants.items() if _est_runner_ollama(p, vivants)}
+    for pid in [k for k in list(vus) if (k[0] if isinstance(k, tuple) else k) not in llamas
+                and (k[0] if isinstance(k, tuple) else k) not in runners]:
+        vus.pop(pid, None)  # processus disparu : plus de grace a suivre
+    illisibles = {int(n["pid"]): n for n in (non_identifies or [])}
+    veut = any((intents or {}).get(k) for k in ("llama_wanted", "embed_wanted", "rerank_wanted"))
+    for pid, proc in sorted(llamas.items()):
+        rss = proc.get("rss_mo")
+        if pid in illisibles or pid not in (identites or {}):
+            out["signales"].append({"pid": pid, "rss_mo": rss, "raison": "ILLISIBLE : non identifie, jamais tue"})
+            continue
+        if toml is None:
+            out["signales"].append({"pid": pid, "rss_mo": rss, "raison": "services.toml ILLISIBLE : abstention"})
+            continue
+        ident = identites[pid]
+        if not _lance_par_nokido(ident):
+            out["signales"].append({"pid": pid, "rss_mo": rss, "raison": "etranger : jamais arrete (lanceur %s, "
+                                    "preuve %s : Nokido ne l'a pas lance)" % (ident.get("identite"), ident.get("preuve"))})
+            vus.pop(pid, None)
+            continue
+        if ident.get("preuve") == "superviseur" and not (toml.get(ident.get("identite")) or {"disabled": True}).get("disabled"):
+            out["epargnes"].append({"pid": pid, "raison": "service enabled " + str(ident.get("identite"))})
+            vus.pop(pid, None)
+            continue
+        if veut:
+            out["epargnes"].append({"pid": pid, "raison": "*.wanted frais"})
+            vus.pop(pid, None)
+            continue
+        if int((conns or {}).get(pid) or 0) > 0:
+            out["epargnes"].append({"pid": pid, "raison": "%d connexion(s) etablie(s)" % conns[pid]})
+            vus.pop(pid, None)
+            continue
+        depuis = now - vus.setdefault(pid, now)
+        raison = "non justifie (%s, ni enabled, ni wanted, ni consommateur) depuis %ds" % (
+            ident.get("identite"), int(depuis))
+        if depuis < grace_s:
+            out["graces"].append({"pid": pid, "rss_mo": rss, "reste_s": int(grace_s - depuis)})
+            continue
+        ok = False
+        try:
+            ok = bool((kill or _tuer_llama_pid)(pid))
+        except Exception as e:  # noqa: BLE001 - echec dit, jamais fatal
+            raison += " ; arret en echec (%s)" % type(e).__name__
+        logging.getLogger(__name__).warning("[llama-regule] pid=%s rss_mo=%s %s ok=%s", pid, rss, raison, ok)
+        _audit_lifecycle("llama_non_justifie_arret", "service", raison, target="llama-server:%s" % pid,
+                         pid=pid, rss_mo=rss, ok=ok)
+        if ok:
+            vus.pop(pid, None)
+        out["tues"].append({"pid": pid, "rss_mo": rss, "raison": raison, "ok": ok})
+    _reguler_runners_ollama(runners, identites, conns, vus, now, grace_s, ollama_modeles, decharger, out, kill=kill)
+    for s in out["signales"]:
+        _audit_lifecycle("llama_illisible_signale", "service", s["raison"], target="llama-server:%s" % s["pid"],
+                         pid=s["pid"], rss_mo=s["rss_mo"])
+    return out
+
+
+_INTERRUPTEUR_RUNNER_ORPHELIN = Path(__file__).resolve().parent.parent / "sandbox" / "runner_orphelin_tuer.switch"
+
+
+def _runner_orphelin_tuer_arme() -> bool:
+    """Arret des runners ollama ORPHELINS : decision owner (armee le 30/10). Interrupteur GLOBAL lu a chaque appel
+    (sandbox/runner_orphelin_tuer.switch contenant « 1 ») ou variable LAFORGE_RUNNER_ORPHELIN_TUER=1 : un fichier se
+    bascule sans redemarrer le hub, une variable non."""
+    if os.environ.get("LAFORGE_RUNNER_ORPHELIN_TUER", "") == "1":
+        return True
+    try:
+        return _INTERRUPTEUR_RUNNER_ORPHELIN.read_text(encoding="utf-8").strip() == "1"
+    except OSError:
+        return False
+
+
+def _reguler_runners_ollama(runners, identites, conns, vus, now, grace_s, modeles, decharger, out,
+                            kill=None) -> None:
+    """Runners ollama : proprietaire = le service ollama de Nokido. Justifie = connexion etablie ou modele
+    charge dont la fenetre keep_alive court encore. Sinon : DECHARGEMENT (keep_alive=0). Runner ORPHELIN (/api/ps
+    lisible et VIDE, aucune connexion, grace ecoulee -- dette du 26/07, 5,59 Go) : arret seulement si l'owner
+    l'arme (LAFORGE_RUNNER_ORPHELIN_TUER=1), sinon SIGNALE et nomme."""
+    identites = identites or {}
+    for pid, proc in sorted(runners.items()):
+        rss = proc.get("rss_mo")
+        if not (_lance_par_nokido(identites.get(pid)) or _lance_par_nokido(identites.get(proc.get("ppid")))):
+            out["signales"].append({"pid": pid, "rss_mo": rss,
+                                    "raison": "etranger : runner ollama jamais decharge (service non Nokido)"})
+            vus.pop(pid, None)
+            continue
+        if modeles is None:
+            out["signales"].append({"pid": pid, "rss_mo": rss, "raison": "/api/ps ILLISIBLE : abstention"})
+            continue
+        if int((conns or {}).get(pid) or 0) > 0:
+            out["epargnes"].append({"pid": pid, "raison": "runner ollama : %d connexion(s)" % conns[pid]})
+            vus.pop(pid, None)
+            continue
+        if any(float(m.get("until_ts") or 0) > now for m in modeles):
+            out["epargnes"].append({"pid": pid, "raison": "runner ollama : modele dans la fenetre keep_alive"})
+            vus.pop(pid, None)
+            continue
+        depuis = now - vus.setdefault(pid, now)
+        if depuis < grace_s:
+            out["graces"].append({"pid": pid, "rss_mo": rss, "reste_s": int(grace_s - depuis)})
+            continue
+        if not modeles:
+            raison = ("runner ollama ORPHELIN (/api/ps vide, aucune connexion, inactif depuis %ds) : rien a "
+                      "decharger" % int(depuis))
+            if not _runner_orphelin_tuer_arme():
+                out["signales"].append({"pid": pid, "rss_mo": rss, "raison": raison +
+                                        " ; arret NON arme (LAFORGE_RUNNER_ORPHELIN_TUER=1, decision owner)"})
+                continue
+            ok = False
+            try:
+                ok = bool((kill or _tuer_llama_pid)(pid))
+            except Exception as e:  # noqa: BLE001 - echec dit, jamais fatal
+                raison += " ; arret en echec (%s)" % type(e).__name__
+            logging.getLogger(__name__).warning("[llama-regule] pid=%s rss_mo=%s %s ok=%s", pid, rss, raison, ok)
+            _audit_lifecycle("ollama_runner_orphelin_arret", "service", raison, target="ollama-runner:%s" % pid,
+                             pid=pid, rss_mo=rss, ok=ok)
+            if ok:
+                vus.pop(pid, None)
+            out["tues"].append({"pid": pid, "rss_mo": rss, "raison": raison, "ok": ok})
+            continue
+        faits = []
+        for m in modeles:
+            try:
+                ok = bool((decharger or ollama_unload)(m.get("name")))
+            except Exception:  # noqa: BLE001 - echec dit
+                ok = False
+            faits.append({"modele": m.get("name"), "ok": ok})
+        raison = "runner ollama inactif depuis %ds : decharge keep_alive=0 %s" % (int(depuis), faits)
+        _audit_lifecycle("ollama_runner_decharge", "service", raison, target="ollama-runner:%s" % pid,
+                         pid=pid, rss_mo=rss)
+        out.setdefault("decharges", []).append({"pid": pid, "rss_mo": rss, "modeles": faits})
+        if all(f["ok"] for f in faits):
+            vus.pop(pid, None)
+
+
+def _modeles_ollama_pour_regulation():
+    """None si /api/ps illisible. until_ts = epoch de fin de fenetre keep_alive (0 si inconnu)."""
+    from datetime import datetime
+
+    try:
+        brut = _http_get_json(f"http://{_OLLAMA_HOST}:{_OLLAMA_PORT}/api/ps", timeout=3.0)
+        if not isinstance(brut, dict):
+            return None
+        out = []
+        for m in brut.get("models") or []:
+            try:
+                u = str(m.get("expires_at") or "")
+                ts = datetime.fromisoformat(u[:19] + (u[-6:] if len(u) > 25 and u[-6] in "+-" else "+00:00")
+                                            ).timestamp()
+            except Exception:  # noqa: BLE001 - fenetre inconnue = 0 : pas de justification gratuite
+                ts = 0.0
+            out.append({"name": m.get("name") or m.get("model"), "until_ts": ts})
+        return out
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _tuer_llama_pid(pid: int) -> bool:
+    import psutil
+
+    p = psutil.Process(int(pid))
+    p.terminate()
+    p.wait(timeout=15)
+    return True
+
+
+def tick_llama_non_justifies() -> dict:
+    """Collecte REELLE (dans CE processus) puis regule. Best-effort, ne leve jamais."""
+    try:
+        import sys as _s
+
+        _t = str(Path(__file__).resolve().parent.parent / "tools")
+        if _t not in _s.path:
+            _s.path.insert(0, _t)
+        import forge_process_inventory as _pi
+        import psutil
+
+        now = time.time()
+        vivants, _ill = _pi._vivants()
+        if not any(str(v.get("nom") or "").lower().startswith("llama-server") or _est_runner_ollama(p, vivants)
+                   for p, v in vivants.items()):
+            return {"tues": [], "signales": [], "graces": [], "epargnes": []}
+        pid_service = {int(d["pid"]): n for n, d in _pi._declares().items()
+                       if not n.startswith("__") and d.get("status") == "running" and d.get("pid")}
+        ids, non = _pi.identifier_processus(vivants, pid_service, _pi._jobs_par_pid(),
+                                            _pi._battements_par_pid(), now)
+        conns = {}
+        for pid, v in vivants.items():
+            if str(v.get("nom") or "").lower().startswith("llama-server") or _est_runner_ollama(pid, vivants):
+                try:
+                    conns[pid] = sum(1 for c in psutil.Process(pid).net_connections(kind="inet")
+                                     if c.status == "ESTABLISHED")
+                except Exception:  # noqa: BLE001 - illisible = prudence : traite comme servi
+                    conns[pid] = 1
+        return reguler_llama_non_justifies(vivants, ids, non, _services_du_toml(), get_active_intents(),
+                                           conns, _LLAMA_VUS, now,
+                                           ollama_modeles=_modeles_ollama_pour_regulation())
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).debug("[llama-regule] tick en echec (%s)", type(e).__name__)
+        return {"erreur": type(e).__name__}
+
+
 def _publish_evict_trace(cand: dict, libre_avant: float, libre_apres: float, raison: str) -> None:
     """Trace OBLIGATOIRE d'une eviction dynamique (avis AGY 2026-07-26).
 
@@ -3933,6 +4295,85 @@ def _heavy_evictable_services(min_ram_gb: float = 1.0) -> list[dict]:
     return out
 
 
+# TRAVAIL EN VOL (owner 30/10 « ne perd pas le travail ») : a 16:40:52 la regulation a endormi les 13
+# NokidoTaskExecutor* d'un coup ; le census AGY en cours est mort avec son executeur (13 min refaites). CONTROL !=
+# OWNERSHIP : endormir un executeur OISIF est permis, pas un executeur dont l'agent a une tache en vol -- sauf
+# URGENCE VITALE (_EVICT_SEUIL_VITAL_GB). Lecture illisible = on ne sait pas -> comportement d'avant, et DIT.
+_SERVICES_TOML_REGUL = Path(_RACINE_AMORCE) / "proxy_deno" / "core" / "services.toml"
+_TASKS_DB_REGUL = Path(_RACINE_AMORCE) / "sandbox" / "tasks.db"
+
+
+def _ram_libre_gb():
+    try:
+        import psutil
+        return psutil.virtual_memory().available / (1024 ** 3)
+    except Exception:  # noqa: BLE001 -- muet-ok : illisible -> None, l'appelant ne conclut pas a l'urgence
+        return None
+
+
+def _agent_du_service(service: str):
+    """`--agent` (majuscules) que services.toml donne a `service`, None s'il n'en a pas. LEVE si le TOML est illisible :
+    l'appelant distingue « pas d'agent » de « je ne sais pas »."""
+    import re as _re
+    toml = Path(_SERVICES_TOML_REGUL).read_text(encoding="utf-8", errors="replace")
+    for bloc in _re.split(r"\n\[\[", toml):
+        if _re.search(r'name\s*=\s*"%s"' % _re.escape(service), bloc):
+            m = _re.search(r'"--agent",\s*"([^"]+)"', bloc)
+            return m.group(1).upper() if m else None
+    return None
+
+
+def _taches_de_l_agent(agent: str):
+    """Taches qui RECLAMENT cet agent (en attente ou en vol) ; None si tasks.db est illisible (jamais 0 par defaut)."""
+    try:
+        import sqlite3 as _sq
+        c = _sq.connect("file:%s?mode=ro" % Path(_TASKS_DB_REGUL).as_posix(), uri=True, timeout=2)
+        try:
+            return int(c.execute(
+                "SELECT count(*) FROM tasks WHERE status IN ('pending','assigned','claimed','running') "
+                "AND upper(agent)=?", (str(agent).upper(),)).fetchone()[0])
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001 - muet-ok : illisible rendu None, l'appelant ne conclut pas
+        return None
+
+
+def _demande_du_service(service: str):
+    """La demande PROUVEE qui rend `service` utile maintenant (owner 31/10 : « la cognition doit nourrir le reveil utile
+    des surfaces utiles »). True = demande prouvee (taches pour son agent) ; False = ABSENCE prouvee (executeur dedie,
+    tasks.db lisible, aucune tache) ; None = aucun signal ou illisible -- UNKNOWN n'est pas NO, et un None ne garde
+    jamais un service endormi : seul False le fait. Seuls les executeurs dedies ont aujourd'hui un emetteur de demande."""
+    if not str(service).startswith("NokidoTaskExecutor"):
+        return None
+    try:
+        agent = _agent_du_service(service)
+    except Exception:  # noqa: BLE001 - muet-ok : services.toml illisible = pas de preuve
+        return None
+    if not agent:
+        return None  # executeur generique : il sert toute la file, aucune preuve d'inutilite
+    n = _taches_de_l_agent(agent)
+    return None if n is None else n > 0
+
+
+def _travail_en_vol(service: str):
+    """Taches en vol de l'agent porte par `service` (--agent de services.toml). [] = oisif ; None = ILLISIBLE."""
+    if not str(service).startswith("NokidoTaskExecutor"):
+        return []
+    try:
+        import sqlite3 as _sq
+        agent = _agent_du_service(service)
+        if not agent:
+            return []  # executeur generique : taches courtes, reprises au bail
+        c = _sq.connect("file:%s?mode=ro" % Path(_TASKS_DB_REGUL).as_posix(), uri=True, timeout=2)
+        try:
+            return [r[0] for r in c.execute(
+                "SELECT id FROM tasks WHERE status IN ('running','claimed','assigned') AND upper(agent)=?", (agent,))]
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _sleep_service_verdict(service: str) -> tuple[bool, str]:
     """Endort UN service via le superviseur (son propriétaire), jamais par kill.
 
@@ -3943,11 +4384,24 @@ def _sleep_service_verdict(service: str) -> tuple[bool, str]:
     import urllib.error as _ue
     import urllib.request as _ur
 
+    _vol = _travail_en_vol(service)
+    if _vol:
+        _libre = _ram_libre_gb()
+        if _libre is None or _libre >= _EVICT_SEUIL_VITAL_GB:
+            _audit_lifecycle("evict_skipped", "service", "travail en vol : %s" % ", ".join(_vol[:3]), target=service)
+            return False, "TRAVAIL_EN_VOL(%s)" % ", ".join(_vol[:3])
+        _audit_lifecycle("evict_urgence_vitale", "service",
+                         "travail en vol %s MAIS %.2f Go libres" % (", ".join(_vol[:3]), _libre), target=service)
+    elif _vol is None:
+        _audit_lifecycle("evict_travail_illisible", "service", "taches en vol ILLISIBLES", target=service)
+
     headers = _supervisor_auth_headers()
     try:
         req = _ur.Request(f"{_SUPERVISOR_URL}/sleep/{service}", method="POST", headers=headers)
         with _ur.urlopen(req, timeout=4):
-            return True, "ACCEPTE"
+            pass
+        _retenir_evince(service)  # ce que la regulation endort, elle doit pouvoir le rendre (28/10)
+        return True, "ACCEPTE"
     except _ue.HTTPError as e:
         if e.code in (401, 403):
             return False, "REFUS_POLITIQUE(HTTP %d%s)" % (
@@ -3960,6 +4414,188 @@ def _sleep_service_verdict(service: str) -> tuple[bool, str]:
 def _sleep_service(service: str) -> bool:
     """Forme booleenne historique de `_sleep_service_verdict`."""
     return _sleep_service_verdict(service)[0]
+
+
+# REVEIL DE CE QUE LA REGULATION A ENDORMI (28/10). Mesure : 11:37 l'eviction a endormi une quinzaine de
+# services dont les 13 NokidoTaskExecutor* ; RAM a 52 % des 11:51 et une tache en attente, personne ne les a
+# rendus -- 47 min de surface a l'arret. Le reveil existant ne tournait que Hamilton DESARME, ne connaissait
+# qu'une liste figee, et appelait /wake/<svc>, route absente du superviseur (404 ; cf. 93f3c5fac).
+_EVINCES_PATH_DEFAUT = Path(_RACINE_AMORCE) / "sandbox" / "regulation_evinces.json"
+_EVINCES_PATH = _EVINCES_PATH_DEFAUT
+_REVEIL_EVINCES_TS = {"t": 0.0}
+
+
+def _evinces_path():
+    """Emplacement du registre, LU A L'APPEL : LAFORGE_REGULATION_EVINCES_PATH, puis `_EVINCES_PATH` remplace (un
+    test), sinon le defaut -- SAUF sous pytest, ou le defaut n'est jamais ecrit (None : aucune persistance).
+    Mesure 28/10 : apres 391 tests, le VRAI registre contenait {"Ok": ...} (meme classe que les vetos, b180bdb8e)."""
+    env = os.environ.get("LAFORGE_REGULATION_EVINCES_PATH")
+    if env:
+        return Path(env)
+    if Path(_EVINCES_PATH) != Path(_EVINCES_PATH_DEFAUT):
+        return Path(_EVINCES_PATH)
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return None
+    return Path(_EVINCES_PATH_DEFAUT)
+
+
+def _url_reveil(svc: str) -> str:
+    """Seule route de reveil du superviseur : /service/start/<nom> (cree l'etat d'un service endormi/disabled)."""
+    return f"{_SUPERVISOR_URL}/service/start/{svc}"
+
+
+def _evinces() -> dict:
+    """Services endormis par la regulation et pas encore rendus {nom: ts}. Illisible = vide (journalise)."""
+    import json as _json
+    p = _evinces_path()
+    if p is None:
+        return {}
+    try:
+        return dict(_json.loads(p.read_text(encoding="utf-8")) or {})
+    except FileNotFoundError:
+        return {}
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[regulation] registre des evinces illisible (%s)", type(e).__name__)
+        return {}
+
+
+def _ecrire_evinces(d: dict) -> None:
+    import json as _json
+    p = _evinces_path()
+    if p is None:
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(_json.dumps(d), encoding="utf-8")
+    os.replace(tmp, p)
+
+
+def _retenir_evince(svc: str) -> None:
+    try:
+        d = _evinces()
+        d[svc] = time.time()
+        _ecrire_evinces(d)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).warning("[regulation] eviction de %s non retenue (%s)", svc, type(e).__name__)
+
+
+_DEMANDES_CIRCA_TS = {"t": 0.0}
+
+
+def _honorer_demandes_circadiennes(ram_pct: float, services=None) -> list:
+    """Relance UNE fois par bail les services qu'une demande CIRCADIAN reclame (forge_organ_demand), dans le budget RAM.
+
+    31/10 (choix owner « demande au regulateur ») : le circadien ne pouvait pas relancer lui-meme (401 sans jeton,
+    puis RBAC ring 3 < 1 par le hub) ; il DEMANDE, RESOURCE_MANAGER -- qui detient deja l'acces superviseur -- honore.
+    Admission = celle des reprises (_admettre_reprises) : hors budget, le bail reste et attend le passage suivant.
+    Un restart qui EXPIRE est REQUESTED (le superviseur agit en expirant, mesure 26/09), le bail est libere ; un ordre
+    non delivre est dit et le bail reste. Rend les services relances."""
+    import urllib.request as _ur
+
+    try:
+        try:
+            from nokido_agent.app import forge_organ_demand as _od
+        except ImportError:
+            import forge_organ_demand as _od
+        if services is None:
+            try:
+                from nokido_agent.app.forge_circadian import services_du_programme
+            except ImportError:
+                from forge_circadian import services_du_programme
+            services = services_du_programme()
+    except Exception as e:  # noqa: BLE001 -- dit, jamais tu
+        logging.getLogger(__name__).warning("[regulation] demandes circadiennes ILLISIBLES (%s)", type(e).__name__)
+        return []
+    a_honorer: dict = {}
+    for svc in services or []:
+        try:
+            baux = [b for b in _od.demandes_actives(svc) if str(b.get("issuer", "")).upper() == "CIRCADIAN"]
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning("[regulation] demandes de %s illisibles (%s)", svc, type(e).__name__)
+            continue
+        if baux:
+            a_honorer[svc] = baux
+    candidats = sorted(a_honorer)
+    if candidats and _reprise_budgetee():
+        candidats = _admettre_reprises(candidats, {}, {
+            "ram_pct": ram_pct, "ram_total_gb": _ram_totale_gb(), "demandes": {s: True for s in candidats},
+            "plafond_pct": _SUPERVISOR_SLEEP_RAM_THRESHOLD - _HAMILTON_MARGE_REPRISE_PCT})
+    faits = []
+    for svc in candidats:
+        try:
+            req = _ur.Request(f"{_SUPERVISOR_URL}/restart/{svc}", method="POST",
+                              headers=_supervisor_auth_headers("RESOURCE_MANAGER"))
+            with _ur.urlopen(req, timeout=10):
+                pass
+        except TimeoutError:
+            logging.getLogger(__name__).info("[regulation] restart de %s expire en agissant : REQUESTED", svc)
+        except Exception as e:  # noqa: BLE001 -- non delivre : dit, le bail reste
+            logging.getLogger(__name__).warning("[regulation] demande circadienne %s NON honoree (%s)",
+                                                svc, type(e).__name__)
+            continue
+        for b in a_honorer[svc]:
+            try:
+                _od.liberer(b.get("id"))
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger(__name__).warning("[regulation] bail %s non libere (%s)", b.get("id"),
+                                                    type(e).__name__)
+        faits.append(svc)
+    if faits:
+        logging.getLogger(__name__).info("[regulation] demandes circadiennes honorees (%.0f %%) : %s", ram_pct, faits)
+        _audit_lifecycle("demande_circadienne_honoree", "service", ", ".join(faits))
+    return faits
+
+
+def _ram_totale_gb():
+    """RAM totale en Go ; None si illisible (l'admission des reprises s'abstient alors)."""
+    try:
+        import psutil
+        return psutil.virtual_memory().total / (1024 ** 3)
+    except Exception:  # noqa: BLE001 - muet-ok : illisible rendu None, l'appelant ne reveille rien
+        return None
+
+
+def _reveiller_les_evinces(ram_pct: float) -> list:
+    """Pression retombee (RAM < seuil de reveil) : rend les services que la regulation a endormis, Hamilton arme
+    ou non (hysteresis seuils de sommeil / reveil : pas d'oscillation). Un service tenu par un BAIL reste
+    endormi. Rend la liste des reveils DELIVRES ; un ordre non delivre reste au registre et se dit en warning."""
+    import urllib.request as _ur
+
+    if ram_pct >= _SUPERVISOR_WAKE_RAM_THRESHOLD:
+        return []
+    d = _evinces()
+    if not d:
+        return []
+    try:
+        tenus = services_tenus_par_un_bail()
+    except Exception:  # noqa: BLE001 - registre des baux illisible : on ne rend rien de tenu par erreur
+        tenus = set(d)
+    reveilles = []
+    candidats = [s for s in sorted(d) if s not in tenus]
+    if _reprise_budgetee():
+        # 31/10 (choix owner) : meme admission que la reprise Hamilton (d7bdddce4) -- demande prouvee d'abord,
+        # absence prouvee reste evincee, budget RAM projete (forfait : le registre ne retient pas de poids).
+        candidats = _admettre_reprises(candidats, {}, {
+            "ram_pct": ram_pct, "ram_total_gb": _ram_totale_gb(),
+            "demandes": {s: _demande_du_service(s) for s in candidats},
+            "plafond_pct": _SUPERVISOR_SLEEP_RAM_THRESHOLD - _HAMILTON_MARGE_REPRISE_PCT})
+    for svc in candidats:
+        try:
+            req = _ur.Request(_url_reveil(svc), method="POST", headers=_supervisor_auth_headers("RESOURCE_MANAGER"))
+            with _ur.urlopen(req, timeout=3):
+                pass
+            reveilles.append(svc)
+        except Exception as e:  # noqa: BLE001 -- REQUESTED != ACHIEVED : non delivre, dit, garde au registre
+            logging.getLogger(__name__).warning("[regulation] reveil de %s NON delivre (%s)", svc, type(e).__name__)
+    if reveilles:
+        try:
+            _ecrire_evinces({k: v for k, v in d.items() if k not in reveilles})
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning("[regulation] registre des evinces non mis a jour (%s)",
+                                                type(e).__name__)
+        logging.getLogger(__name__).info("[regulation] pression retombee (%.0f %%) : %d service(s) rendu(s) %s",
+                                         ram_pct, len(reveilles), reveilles)
+    return reveilles
 
 
 _last_pillar_restart_ts: float = 0.0
@@ -4439,10 +5075,20 @@ def plan_hamilton(attrib: dict | None = None, detresse: bool = False) -> dict:
     except Exception:  # noqa: BLE001 - sans la garde des capacites, tout candidat est VITAL
         _caps = None
     candidats = []
+    epargnes_travail = []
     for nom, pid in registre.items():
         decl = toml.get(nom)
         if decl is None:
             continue
+        # 30/10 21:30:37 : Hamilton endormait NokidoTaskExecutorOpencodeGlm en pleine tache (travail perdu, relance
+        # 1 s apres). Meme doctrine que _sleep_service_verdict : travail en vol (ou file ILLISIBLE) = epargne, sauf
+        # urgence vitale (detresse).
+        if not detresse and str(nom).startswith("NokidoTaskExecutor"):
+            vol = _travail_en_vol(nom)
+            if vol is None or vol:
+                epargnes_travail.append({"service": nom, "raison": "TRAVAIL_EN_VOL %s" % (
+                    ", ".join(str(t)[:24] for t in vol) if vol else "ILLISIBLE (prudence)")})
+                continue
         try:
             critique = bool(_caps.is_critical(nom)) if _caps is not None else True
         except Exception:  # noqa: BLE001 - capacite illisible : liste blanche, VITAL
@@ -4452,7 +5098,49 @@ def plan_hamilton(attrib: dict | None = None, detresse: bool = False) -> dict:
             candidats.append({"service": nom, "classe": classe, "rss_mb": _memoire_privee_mb(pid)})
     plan = ordre_delestage(candidats, verdict, detresse)
     plan.update(mode="OBSERVATION", verdict=verdict or "ILLISIBLE")
+    if epargnes_travail:
+        plan["epargnes"] = list(plan.get("epargnes") or []) + epargnes_travail
     return plan
+
+
+# Seuil du CUMUL (mesure 25/10 : gate de spawn a 92,9 % mesure directe, 1,68 Go libre, manque 2,58 Go ;
+# l'echelle n'avait endormi qu'UN candidat de ~1,02 Go). Au-dessus de 90 % le corps n'a plus de marge :
+# on cumule les candidats ordonnes par cout jusqu'a couvrir le manque. En dessous, l'echelle historique.
+_EVICT_CUMUL_SEUIL_PCT = float(os.environ.get("LAFORGE_EVICT_CUMUL_SEUIL_PCT", "90.0"))
+
+
+def delester_jusqu_au_manque(manque_gb: float, delester: list, vetos: dict, dormir, pct: float | None) -> dict:
+    """Cumule les candidats DEJA ordonnes (`ordre_delestage`) jusqu'a couvrir `manque_gb` -- au-dessus de 90 %.
+
+    `dormir(service) -> (accepte, motif)`. Un service sous veto de sommeil (acte en cours) ou de classe
+    VITAL/inconnue n'est JAMAIS endormi ; un refus se nomme et on passe au suivant. Rend
+    {actions, couvert_gb, reste_gb, ecartes} : le non-couvert se DIT (estimation = memoire privee mesuree)."""
+    manque = max(0.0, float(manque_gb))
+    out = {"actions": [], "couvert_gb": 0.0, "reste_gb": round(manque, 2), "ecartes": []}
+    if pct is None or float(pct) <= _EVICT_CUMUL_SEUIL_PCT:
+        return out
+    couvert = 0.0
+    for c in delester:
+        if couvert >= manque:
+            break
+        svc = c.get("service")
+        if c.get("classe") not in ("DIFFERABLE", "UTILE"):
+            out["ecartes"].append({"service": svc, "motif": "classe %r jamais delestee" % (c.get("classe"),)})
+            continue
+        if svc in (vetos or {}):
+            out["ecartes"].append({"service": svc, "motif": "veto de sommeil: %s" % vetos[svc]})
+            continue
+        ok, motif = dormir(svc)
+        if not ok:
+            out["ecartes"].append({"service": svc, "motif": motif})
+            continue
+        mb = c.get("rss_mb")
+        gb = float(mb) / 1024.0 if isinstance(mb, (int, float)) and not isinstance(mb, bool) else 0.0
+        couvert += gb
+        out["actions"].append("sleep:%s(~%.2fGB)" % (svc, gb))
+    out["couvert_gb"] = round(couvert, 2)
+    out["reste_gb"] = round(max(0.0, manque - couvert), 2)
+    return out
 
 
 _HAMILTON_PAUSE_MAX_S = float(os.environ.get("NOKIDO_HAMILTON_PAUSE_MAX_S", "45"))
@@ -4460,8 +5148,43 @@ _HAMILTON_CALME_MIN_S = float(os.environ.get("NOKIDO_HAMILTON_CALME_MIN_S", "120
 _HAMILTON_RECHUTE_FENETRE_S = float(os.environ.get("NOKIDO_HAMILTON_RECHUTE_FENETRE_S", "900"))
 
 
+def _admettre_reprises(eligibles: list, etat: dict, budget: dict | None) -> list:
+    """Reprises ADMISES parmi les services dont le calme est ecoule (owner 31/10). Pur.
+
+    Mesure 31/10 11:08-11:27 : 42 DIFFERABLE repris d'un coup des que la RAM repassait sous le seuil de sommeil (76,8 %),
+    une fois meme SOUS pression (79 %, verdict NON_SOI) ; le redemarrage recreait la pression, trois oscillations.
+    Ordre d'utilite : demande prouvee d'abord, puis sans signal (UNKNOWN != NO), plus legers d'abord ; ABSENCE de demande
+    prouvee (False) = reste endormi. Budget : RAM projetee (ram_pct + poids retenu a la cession, prudent si inconnu)
+    sous `plafond_pct`. RAM ou RAM totale illisible = aucune reprise. `budget` None = comportement d'avant (tout)."""
+    if budget is None:
+        return list(eligibles)
+    ram, total_gb = budget.get("ram_pct"), budget.get("ram_total_gb")
+    if ram is None or not total_gb:
+        return []
+    mo_par_pt = float(total_gb) * 1024.0 / 100.0
+    plafond = float(budget.get("plafond_pct"))
+    demandes = budget.get("demandes") or {}
+
+    def _poids(s):
+        p = (etat.get(s) or {}).get("rss_mb")
+        ok = isinstance(p, (int, float)) and not isinstance(p, bool) and p > 0
+        return float(p) if ok else _HAMILTON_POIDS_INCONNU_MB
+
+    candidats = sorted((s for s in eligibles if demandes.get(s) is not False),
+                       key=lambda s: (0 if demandes.get(s) is True else 1, _poids(s), s))
+    projete, admis = float(ram), []
+    for s in candidats:
+        apres = projete + _poids(s) / mo_par_pt
+        if apres > plafond:
+            continue  # un plus leger peut encore tenir
+        admis.append(s)
+        projete = apres
+    return admis
+
+
 def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: float | None = None,
-                    calme_min_s: float | None = None) -> tuple:
+                    calme_min_s: float | None = None, poids: dict | None = None,
+                    budget: dict | None = None) -> tuple:
     """Pause AVANT arret, reprise apres calme durable (decision owner 19/10) -- pur, aucune action.
 
     `delester` = services que le plan cederait maintenant ; `etat` = {service: {pause_ts, calme_ts}} des pauses en
@@ -4482,6 +5205,9 @@ def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: 
             h = rechutes.get(s) or {}
             recent = h and maintenant - float(h.get("ts") or 0) < _HAMILTON_RECHUTE_FENETRE_S
             etat[s] = {"pause_ts": maintenant, "calme_ts": None, "rechutes": (int(h.get("n") or 0) + 1) if recent else 0}
+            p = (poids or {}).get(s)
+            if isinstance(p, (int, float)) and not isinstance(p, bool):
+                etat[s]["rss_mb"] = float(p)  # poids retenu a la cession : la reprise le projette (31/10)
             gestes[s] = "SUSPENDRE"
         elif e.get("arrete"):
             # deja arrete : on attend le calme (20/10 : sans ce suivi, un nouveau SUSPENDRE partait tous les 2 ticks)
@@ -4495,6 +5221,7 @@ def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: 
         else:
             e["calme_ts"] = None
             gestes[s] = "MAINTENIR_PAUSE"
+    eligibles = []
     for s in [k for k in etat if k not in delester]:
         e = etat[s]
         exige = calme_min * (2 ** min(int(e.get("rechutes") or 0), 4))
@@ -4502,11 +5229,15 @@ def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: 
             e["calme_ts"] = maintenant
             gestes[s] = "MAINTENIR_PAUSE"
         elif maintenant - float(e["calme_ts"]) >= exige:
-            etat.pop(s)
-            rechutes[s] = {"n": int(e.get("rechutes") or 0), "ts": maintenant}
-            gestes[s] = "REPRENDRE"
+            eligibles.append(s)
         else:
             gestes[s] = "MAINTENIR_PAUSE"
+    for s in _admettre_reprises(eligibles, etat, budget):
+        e = etat.pop(s)
+        rechutes[s] = {"n": int(e.get("rechutes") or 0), "ts": maintenant}
+        gestes[s] = "REPRENDRE"
+    for s in eligibles:
+        gestes.setdefault(s, "MAINTENIR_PAUSE")  # calme garde : eligible au tick suivant, RAM relue
     rechutes = {s: h for s, h in rechutes.items()
                 if maintenant - float(h.get("ts") or 0) < _HAMILTON_RECHUTE_FENETRE_S}
     if rechutes:
@@ -4708,7 +5439,7 @@ def _ordre_superviseur(svc: str, geste: str) -> None:
     if geste == "SUSPENDRE":
         url, mot = f"{_SUPERVISOR_URL}/sleep/{svc}", "sommeil"
     elif geste == "REPRENDRE":
-        url, mot = f"{_SUPERVISOR_URL}/wake/{svc}", "reveil"
+        url, mot = _url_reveil(svc), "reveil"
     else:
         return  # MAINTENIR_PAUSE / ARRETER : rien a ordonner pour l'instant
     try:
@@ -4792,6 +5523,16 @@ def _regulation_disque_tick() -> dict:
 # cede la place au plan, mais PROGRESSIVEMENT -- 36 services d'un coup serait une seconde panne.
 _HAMILTON_ETAT_RAM_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "hamilton_pauses_ram.json"
 _HAMILTON_CIBLE_PCT = float(os.environ.get("NOKIDO_HAMILTON_CIBLE_PCT", str(_SUPERVISOR_WAKE_RAM_THRESHOLD)))
+# REPRISE UTILE (owner 31/10) : une reprise n'est admise que si la RAM projetee reste sous le seuil de sommeil MOINS
+# cette marge (le demarrage d'un service depasse son RSS de croisiere) ; un poids inconnu compte ce forfait, jamais 0.
+_HAMILTON_MARGE_REPRISE_PCT = float(os.environ.get("NOKIDO_HAMILTON_MARGE_REPRISE_PCT", "5"))
+_HAMILTON_POIDS_INCONNU_MB = float(os.environ.get("NOKIDO_HAMILTON_POIDS_INCONNU_MB", "400"))
+
+
+def _reprise_budgetee() -> bool:
+    """INTERRUPTEUR GLOBAL lu a chaque appel (defaut ARME) : NOKIDO_HAMILTON_REPRISE_BUDGET=0 rend la reprise d'avant le
+    31/10 (tout service calme repart). Sert au retour arriere et au rejeu d'une fenetre passee sous sa politique."""
+    return os.environ.get("NOKIDO_HAMILTON_REPRISE_BUDGET", "1").strip().lower() not in ("0", "0.0", "false", "non")
 _REGULATION_HAMILTON_DERNIER = 0.0
 
 
@@ -4800,11 +5541,137 @@ def _hamilton_arme() -> bool:
     return os.environ.get("NOKIDO_HAMILTON_ARME", "1") != "0"
 
 
+# BAREME A 4 PALIERS (owner 24/10) : « l'intention est plus forte que la regulation », puis « il y a des nuances :
+# critique, detresse, gene, gene legere, ralentissement ». Un seul geste existait (sommeil superviseur = MORT du
+# processus) des 78 % : 13 executeurs tues en pleine tache a 20:27, 20:32, 20:38, 20:48. Le palier est publie en
+# hormone (NORADRENALINE_PRESSION_RAM) ; l'executeur, recepteur declare, ralentit, cesse de reclamer, puis gele sa
+# delegation ; seul le CRITIQUE passe outre l'intention (veto de sommeil).
+_PALIER_GENE_PCT = float(os.environ.get("LAFORGE_PALIER_GENE_PCT", "88"))
+_CRITIQUE_LIBRE_GB = float(os.environ.get("LAFORGE_CRITIQUE_LIBRE_GB", "0.5"))
+HORMONE_PRESSION_RAM = "NORADRENALINE_PRESSION_RAM"
+# CALME a 0.05 et non 0.0 (mesure 24/10 22:12) : `release(h, 0.0)` ETEINT l'hormone, et les 13 executeurs lisaient
+# INCONNU par RAM 72,7 %. Le calme est un signal, pas un silence ; 0.05 reste sous le seuil 0.125 du recepteur.
+NIVEAU_PALIER = {"CALME": 0.05, "RALENTISSEMENT": 0.25, "GENE": 0.5, "DETRESSE": 0.75, "CRITIQUE": 1.0}
+_PALIER_REEMIS_S = 60.0
+_dernier_palier_publie: list = [None, 0.0]
+
+
+_INTENTION_DIFFERER = "differer_taches_lourdes_in_process"
+
+
+def _chemin_etat_memoire_hub() -> Path:
+    brut = os.environ.get("LAFORGE_MEM_ETAT_PATH")
+    return Path(brut) if brut else Path(__file__).resolve().parent.parent / "sandbox" / "hub_mem_palier.json"
+
+
+def etat_memoire_hub(max_age_s: float = 120.0, chemin=None) -> dict:
+    """Lit l'etat publie par le chien de garde memoire du hub (mem_watchdog).
+
+    statut OK (frais), STALE (perime : on ne sait plus, ce n'est ni calme ni detresse, intentions vides),
+    ILLISIBLE (absent, corrompu, mal forme : jamais CALME). Ne leve pas."""
+    import json as _json
+
+    p = Path(chemin) if chemin is not None else _chemin_etat_memoire_hub()
+    try:
+        d = _json.loads(p.read_text(encoding="utf-8"))
+        ts = d["ts"]
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+            raise ValueError("ts")
+        palier = d["palier"]
+        intentions = d.get("intentions") or []
+        if not isinstance(palier, str) or not isinstance(intentions, list):
+            raise ValueError("forme")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
+        return {"statut": "ILLISIBLE", "intentions": [], "raison": type(e).__name__}
+    age = time.time() - float(ts)
+    if age > float(max_age_s):
+        return {"statut": "STALE", "age_s": round(age, 1), "intentions": []}
+    return {"statut": "OK", "palier": palier, "age_s": round(max(age, 0.0), 1), "intentions": list(intentions),
+            "rss_mb": d.get("rss_mb"), "ratio": d.get("ratio")}
+
+
+def orienter_vers_run_job(max_age_s: float = 120.0, chemin=None, contexte: str = "") -> str | None:
+    """Si le chien de garde demande de differer les taches lourdes in-process (etat frais seulement), rend le
+    message qui oriente vers run_job detache, et journalise la decision. Sinon None (comportement inchange)."""
+    e = etat_memoire_hub(max_age_s=max_age_s, chemin=chemin)
+    if e["statut"] != "OK" or _INTENTION_DIFFERER not in e["intentions"]:
+        return None
+    logging.getLogger(__name__).info(
+        "[mem_hub] decision influencee: %s -> run_job detache (palier=%s, rss=%s Mo, ratio=%s, ctx=%s)",
+        _INTENTION_DIFFERER, e.get("palier"), e.get("rss_mb"), e.get("ratio"), contexte or "-")
+    return ("memoire du hub sous palier %s (intention %s) : tache lourde non lancee in-process, "
+            "la relancer en job detache via run_job" % (e.get("palier"), _INTENTION_DIFFERER))
+
+
+# Seuils de la voie SYNCHRONE du hub (`run action=python|shell`), dont la sortie capturee vit dans la memoire du
+# hub. Au-dessus, et seulement sous intention differer_taches_lourdes_in_process (etat frais), refus DIT -> run_job.
+SEUIL_SYNC_DUREE_S = 60.0  # duree demandee (timeout) au-dela de laquelle un appel synchrone est « lourd »
+SEUIL_SYNC_SORTIE_CHARS = 200_000  # budget de sortie demande (max_output_chars) au-dela duquel il est « lourd »
+
+
+def refus_synchrone_lourd(args: dict, chemin=None, max_age_s: float = 120.0) -> str | None:
+    """Refus dit (str) pour un `run` synchrone python/shell lourd sous pression memoire du hub, sinon None.
+
+    Ne s'applique qu'a action python/shell ; run_job, job_status, job_kill, trusted_script : jamais (None).
+    Livraison CLAUDE_HEADLESS 442a0a21d (reprise de e60ab688e, consommateur recible a l'integration 28/10)."""
+    if args.get("action") not in ("python", "shell"):
+        return None
+    try:
+        duree = float(args.get("timeout", 0) or 0)
+        sortie = float(args.get("max_output_chars", 0) or 0)
+    except (TypeError, ValueError):
+        return None  # budget illisible : comportement actuel inchange
+    if duree <= SEUIL_SYNC_DUREE_S and sortie <= SEUIL_SYNC_SORTIE_CHARS:
+        return None
+    msg = orienter_vers_run_job(max_age_s=max_age_s, chemin=chemin, contexte="run_sync:%s" % args.get("action"))
+    if not msg:
+        return None
+    return ("ERR: run %s synchrone refuse (timeout=%ss > %ss ou sortie=%s > %s car.) : %s"
+            % (args.get("action"), duree, SEUIL_SYNC_DUREE_S, int(sortie), SEUIL_SYNC_SORTIE_CHARS, msg))
+
+
+def palier_pression_ram(plancher_pct, libre_gb) -> str:
+    """Pur. Le palier de pression : la memoire LIBRE prime (detresse, critique), puis le pourcentage plancher.
+
+    Pourcentage absent = INCONNU, jamais CALME (UNKNOWN != NO). Libre absente ou nulle (non lue, cf. `0.0 < libre`
+    ailleurs dans ce module) : seul le pourcentage tranche."""
+    if plancher_pct is None:
+        return "INCONNU"
+    if isinstance(libre_gb, (int, float)) and not isinstance(libre_gb, bool) and libre_gb > 0.0:
+        if libre_gb < _CRITIQUE_LIBRE_GB:
+            return "CRITIQUE"
+        if libre_gb < float(os.environ.get("LAFORGE_DETRESSE_LIBRE_GB", "1.5")):
+            return "DETRESSE"
+    pct = float(plancher_pct)
+    if pct >= _PALIER_GENE_PCT:
+        return "GENE"
+    if pct >= _SUPERVISOR_SLEEP_RAM_THRESHOLD:
+        return "RALENTISSEMENT"
+    return "CALME"
+
+
+def publier_palier_pression(palier: str) -> bool:
+    """Emet le palier en hormone (niveau NIVEAU_PALIER). INCONNU n'est pas emis : le signal vieillit et le recepteur
+    le lit PERIME, ce qui est la verite. Echec d'emission : faux, et DIT -- la regulation n'en depend pas."""
+    if palier not in NIVEAU_PALIER:
+        return False
+    try:
+        from nokido_agent.app import forge_endocrine as _en
+
+        _en.release(HORMONE_PRESSION_RAM, NIVEAU_PALIER[palier], source="RESOURCE_MANAGER",
+                    reason="palier %s" % palier)
+    except Exception as e:  # noqa: BLE001 -- hormone non emise : les executeurs liront INCONNU, dit
+        logging.getLogger(__name__).warning("[hamilton] palier %s NON emis (%s)", palier, type(e).__name__)
+        return False
+    return True
+
+
 def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos=None,
-                            seuil_sommeil=None, cible=None) -> dict:
+                            seuil_sommeil=None, cible=None, critique: bool = False, demandes=None) -> dict:
     """Pur. Sous pression (ram_pct >= seuil) ET verdict SOI : suspend les DIFFERABLE du plan, plus gros d'abord,
     seulement jusqu'a couvrir la memoire a rendre ((ram_pct - cible) % de la RAM totale) ; vetos ecartes ;
-    puis gestes_observes (pause avant arret, reprise apres calme durable). Motif toujours dit."""
+    puis gestes_observes (pause avant arret, reprise apres calme durable). Motif toujours dit.
+    `critique` (palier CRITIQUE, libre < seuil vital) : l'intention (veto) est OUTREPASSEE, et le motif le dit."""
     seuil = _SUPERVISOR_SLEEP_RAM_THRESHOLD if seuil_sommeil is None else float(seuil_sommeil)
     vise = _HAMILTON_CIBLE_PCT if cible is None else float(cible)
     vetos, plan, choisis = vetos or {}, plan or {}, []
@@ -4817,10 +5684,15 @@ def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos
     else:
         besoin_mb = max(0.0, (float(ram_pct) - vise) / 100.0 * float(ram_total_gb or 0.0) * 1024.0)
         rendu = 0.0
+        outrepasses = []
         for d in plan["delester"]:
             svc = d.get("service")
-            if not svc or svc in vetos:
+            if not svc:
                 continue
+            if svc in vetos:
+                if not critique:
+                    continue
+                outrepasses.append(svc)
             if rendu >= besoin_mb and choisis:
                 break
             choisis.append(svc)
@@ -4828,7 +5700,15 @@ def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos
             rendu += float(rss) if isinstance(rss, (int, float)) and not isinstance(rss, bool) else 0.0
         motif = "%s : %d service(s) pour %.0f Mo a rendre (%.0f Mo vises)" % (
             plan.get("motif") or "pression SOI", len(choisis), besoin_mb, rendu)
-    gestes, nouvel = gestes_observes(choisis, etat or {}, maintenant)
+        if outrepasses:
+            motif = "CRITIQUE : intention outrepassee pour %s -- %s" % (", ".join(outrepasses), motif)
+    poids = {d.get("service"): d.get("rss_mb") for d in (plan.get("delester") or []) if d.get("service")}
+    budget = ({"ram_pct": ram_pct, "ram_total_gb": ram_total_gb, "demandes": demandes or {},
+               "plafond_pct": seuil - _HAMILTON_MARGE_REPRISE_PCT} if _reprise_budgetee() else None)
+    gestes, nouvel = gestes_observes(choisis, etat or {}, maintenant, poids=poids, budget=budget)
+    n_rep = sum(1 for g in gestes.values() if g == "REPRENDRE")
+    if n_rep and budget:
+        motif = "%s ; %d reprise(s) dans le budget (plafond %.0f %%)" % (motif, n_rep, budget["plafond_pct"])
     return {"gestes": gestes, "etat": nouvel, "choisis": choisis, "motif": motif}
 
 
@@ -4858,7 +5738,14 @@ def _regulation_hamilton_tick() -> dict:
                     if _HAMILTON_ETAT_RAM_PATH.exists() else {})
         except (OSError, ValueError):
             etat = {}  # etat abime : on repart d'un calme, dit par le motif
-        r = regulation_hamilton_ram(plan, ram, total, etat, time.time(), vetos=vetos_sommeil_actifs())
+        palier = palier_pression_ram(ram, libre)
+        _t = time.time()
+        if palier != _dernier_palier_publie[0] or _t - _dernier_palier_publie[1] >= _PALIER_REEMIS_S:
+            if publier_palier_pression(palier):
+                _dernier_palier_publie[:] = [palier, _t]
+        demandes = {s: _demande_du_service(s) for s in etat if not str(s).startswith("_")}
+        r = regulation_hamilton_ram(plan, ram, total, etat, time.time(), vetos=vetos_sommeil_actifs(),
+                                    critique=(palier == "CRITIQUE"), demandes=demandes)
         try:
             _HAMILTON_ETAT_RAM_PATH.parent.mkdir(parents=True, exist_ok=True)
             _HAMILTON_ETAT_RAM_PATH.write_text(_j.dumps(r.get("etat") or {}), encoding="utf-8")
@@ -4866,6 +5753,23 @@ def _regulation_hamilton_tick() -> dict:
             logging.getLogger(__name__).warning("[hamilton] etat des pauses non persiste (%s)", type(e).__name__)
         for svc, geste in (r.get("gestes") or {}).items():
             _ordre_superviseur(svc, geste)
+        # Log tick summary (never raises)
+        try:
+            _row = {
+                "ts": round(time.time(), 1),
+                "plancher_60s_pct": ram,
+                "ram_free_gb": libre,
+                "palier": palier,
+                "verdict": plan.get("verdict") if isinstance(plan, dict) else None,
+                "n_candidats": len(plan.get("delester", [])) if isinstance(plan, dict) else 0,
+                "n_vetos": len(vetos_sommeil_actifs()),
+            }
+            if not (_REGULATION_TICK_PATH == _REGULATION_TICK_PATH_DEFAUT and "PYTEST_CURRENT_TEST" in os.environ):
+                _ecrire_jsonl(_REGULATION_TICK_PATH, _row, _REGULATION_TICK_MAX_BYTES)
+        except Exception as _e:
+            if not _regulation_tick_ko[0]:
+                _regulation_tick_ko[0] = True
+                logging.getLogger(__name__).warning("[regulation_tick] ecriture impossible (%s)", type(_e).__name__)
         if r.get("gestes"):
             try:
                 _audit_lifecycle("hamilton_arme", "ram", str(r.get("motif"))[:300], gestes=r.get("gestes"))
@@ -5200,10 +6104,51 @@ def _deleguer_au_hub(needed: float):
     return res
 
 
+# PERIODE REFRACTAIRE de l'eviction Ollama (owner 29/10, point 2 de l'homeostasie). Physiologie : apres une decharge,
+# un neurone ne peut pas etre re-stimule aussitot -- c'est ce qui empeche l'emballement. Mesure du 29/10 : l'etape 2a
+# dechargeait laforge-qwen a chaque refus d'admission, un client le rechargeait aussitot (pompage). Un modele RECHARGE
+# dans la periode = preuve de demande : il n'est plus decharge, sauf DETRESSE vitale (meme seuil que l'etape 2b).
+OLLAMA_REFRACTAIRE_S = float(os.environ.get("LAFORGE_OLLAMA_REFRACTAIRE_S", "600"))
+_OLLAMA_EVINCES: dict[str, float] = {}
+
+
+def _evincer_ollama_lru(needed: float, horloge=time.time, refresh=None) -> list[str]:
+    """Etape 2a de request_resources : decharge les modeles Ollama (LRU) jusqu'au besoin, periode refractaire comprise."""
+    actions: list[str] = []
+    try:
+        loaded = ollama_loaded_models()
+    except Exception:  # noqa: BLE001 -- muet-ok : sans liste, aucun modele a decharger
+        loaded = []
+    seuil_detresse = float(os.environ.get("LAFORGE_DETRESSE_LIBRE_GB", "1.5"))
+    for m in loaded:
+        cur_free = _free_now()
+        if cur_free >= needed:
+            break
+        nom = m["name"]
+        maintenant = horloge()
+        age = maintenant - _OLLAMA_EVINCES.get(nom, float("-inf"))
+        if age < OLLAMA_REFRACTAIRE_S:
+            if cur_free >= seuil_detresse:
+                actions.append("ollama_unload:%s:REFRACTAIRE(recharge %.0fs apres eviction, demande prouvee)"
+                               % (nom, age))
+                continue
+            actions.append("ollama_unload:%s:DETRESSE(%.2f Go < %.2f : periode refractaire outrepassee)"
+                           % (nom, cur_free, seuil_detresse))
+        if ollama_unload(nom):
+            _OLLAMA_EVINCES[nom] = maintenant
+            actions.append(f"ollama_unload:{nom}({m.get('size_gb', 0)}GB)")
+            _audit_lifecycle("evict", "llm", "reclaim RAM (LRU ollama)",
+                             target=nom, size_gb=m.get("size_gb", 0))
+            if refresh:
+                refresh()
+    return actions
+
+
 def request_resources(
     needed_ram_gb: float,
     allow_evict: bool = False,
     deleguer: bool = True,
+    proteger_docker: bool = False,
 ) -> dict[str, Any]:
     """Reserve `needed_ram_gb` of RAM, evicting low-priority loads if needed.
 
@@ -5267,7 +6212,9 @@ def request_resources(
     # Sans jeton superviseur, l'echelle locale ne peut pas endormir un organe : DECLARER le
     # besoin au hub, qui tient ce controle. Dans le hub, ou sur `deleguer=False` : inchange.
     _note_delegation = None
-    if deleguer and "Authorization" not in _supervisor_auth_headers():
+    # proteger_docker : la delegation au hub ne porte pas la protection (il pourrait mettre
+    # Docker en pause) -> pas de delegation ; l'echelle locale n'agit que sur les AUTRES residents.
+    if deleguer and not proteger_docker and "Authorization" not in _supervisor_auth_headers():
         _delegation = _deleguer_au_hub(needed)
         if isinstance(_delegation, dict):
             return _delegation
@@ -5296,20 +6243,8 @@ def request_resources(
             actions.extend(_rec["action"])
             _refresh_free()
 
-    # Step 2a — Ollama LRU eviction
-    try:
-        loaded = ollama_loaded_models()
-    except Exception:
-        loaded = []
-    for m in loaded:
-        cur_free = _free_now()
-        if cur_free >= needed:
-            break
-        if ollama_unload(m["name"]):
-            actions.append(f"ollama_unload:{m['name']}({m.get('size_gb', 0)}GB)")
-            _audit_lifecycle("evict", "llm", "reclaim RAM (LRU ollama)",
-                             target=m["name"], size_gb=m.get("size_gb", 0))
-            _refresh_free()
+    # Step 2a — Ollama LRU eviction, avec PERIODE REFRACTAIRE (29/10, cf. _evincer_ollama_lru)
+    actions.extend(_evincer_ollama_lru(needed, refresh=_refresh_free))
 
     # Step 2b — llama-server :8091
     # GARDE D'INTENTION : ne pas reprendre ce qu'on vient de poser. Ce levier est
@@ -5464,9 +6399,29 @@ def request_resources(
                 _publish_evict_trace(cand, _avant, _apres,
                                      "reclaim RAM (evictable, verdict safe)")
 
-    # Step 2c — Pause all Docker containers
+    # Step 2b-ter — CUMUL au-dessus de 90 % : candidats Hamilton ordonnes par cout, jusqu'au manque.
     cur_free = _free_now()
     if cur_free < needed:
+        try:
+            _pct = float(psutil.virtual_memory().percent)
+            if _pct > _EVICT_CUMUL_SEUIL_PCT:
+                _plan = plan_hamilton(detresse=cur_free < _seuil_detresse)
+                _cum = delester_jusqu_au_manque(needed - cur_free, _plan.get("delester") or [],
+                                                vetos_sommeil_actifs(),
+                                                _sleep_service_verdict, _pct)
+                actions.extend(_cum["actions"])
+                for _e in _cum["ecartes"]:
+                    _audit_lifecycle("sleep_refused", "service", str(_e["motif"])[:160], target=_e["service"])
+                if _cum["actions"]:
+                    _refresh_free()
+                if _cum["reste_gb"] > 0:
+                    actions.append("non_couvert:%.2fGB(RAM %.1f%%)" % (_cum["reste_gb"], _pct))
+        except Exception as _ex:  # noqa: BLE001
+            logging.getLogger(__name__).warning("[evict] cumul >90%% KO (%s)", type(_ex).__name__)
+
+    # Step 2c — Pause all Docker containers
+    cur_free = _free_now()
+    if cur_free < needed and not proteger_docker:
         paused = docker_pause_all()
         if paused > 0:
             actions.append(f"docker_pause_all:{paused}")
@@ -5476,7 +6431,7 @@ def request_resources(
     # La pause laisse la VM WSL et le moteur en RAM ; c'est l'extinction qui rend
     # la surface. Gardes (intention / gain mesure / refractaire) dans la fonction.
     cur_free = _free_now()
-    if cur_free < needed:
+    if cur_free < needed and not proteger_docker:
         verdict = docker_release_prothese()
         if verdict.get("fait"):
             actions.append("docker_release:%d Mo"

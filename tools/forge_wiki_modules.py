@@ -134,6 +134,7 @@ def _lire(p: Path) -> dict:
         "doc": "",
         "couleur": "",
         "publics": [],
+        "deprecies": [],
     }
     try:
         arbre = ast.parse(src)
@@ -147,12 +148,27 @@ def _lire(p: Path) -> dict:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if not n.name.startswith("_"):
                 fiche["publics"].append(n.name)
+                # Un alias qui se DECLARE deprecie dans sa docstring est cite comme tel :
+                # sans cela la page de reference le presentait comme API courante
+                # (`submit` de forge_workflow, renomme `ecrire_plan` le 15/10).
+                if _MOTIF_DEPRECIE.match(ast.get_docstring(n) or ""):
+                    fiche["deprecies"].append(n.name)
         elif isinstance(n, ast.Assign):
             for c in n.targets:
                 if isinstance(c, ast.Name) and c.id == "__FORGE_COLOR__":
                     if isinstance(n.value, ast.Constant):
                         fiche["couleur"] = str(n.value.value)
     return fiche
+
+
+_MOTIF_DEPRECIE = re.compile(r"\s*(D[ÉE]PR[ÉE]CI[ÉE]|DEPRECATED)\b", re.I)
+
+
+def _api(m: dict) -> str:
+    """Quatre premiers symboles publics en backticks ; un alias deprecie porte la mention."""
+    dep = set(m.get("deprecies") or ())
+    return ", ".join(f"`{s}` *(déprécié)*" if s in dep else f"`{s}`"
+                     for s in m["publics"][:4]) or "—"
 
 
 def collecter() -> list[dict]:
@@ -707,7 +723,7 @@ def rendre(fiches: list[dict], carte: dict,
               H["entete"],
               "|---|---|---|---|"]
         for m in mods:
-            api = ", ".join(f"`{s}`" for s in m["publics"][:4]) or "—"
+            api = _api(m)
             if len(m["publics"]) > 4:
                 api += f" *(+{len(m['publics']) - 4})*"
             doc = m["doc"].replace("|", "\\|")
@@ -718,7 +734,7 @@ def rendre(fiches: list[dict], carte: dict,
         L += [H["sans_titre"], "", *H["sans_texte"], "",
               H["sans_entete"], "|---|---|---|"]
         for m in sorted(sans_doc, key=lambda f: -f["loc"]):
-            api = ", ".join(f"`{s}`" for s in m["publics"][:4]) or "—"
+            api = _api(m)
             L.append(f"| `{m['chemin']}` | {api} | {m['loc']} |")
         L.append("")
 

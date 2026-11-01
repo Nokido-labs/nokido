@@ -416,6 +416,28 @@ def _ingest(text: str, source: str, domain: str, role: str, author: str, summary
     """
     import urllib.request, json as _j
 
+    # 30/10 (option B owner, journal du coffre) : voie d'echange armee -> HubClient (echange RFC 8693 pour la portee
+    # rag:ingest de RSS_WATCHER, DPoP) ; le coffre n'est plus lu. Desarmee : chemin d'avant, ci-dessous.
+    # NR tests/nr/test_rss_watcher_echange_nr.py.
+    import os as _os
+    try:
+        from nokido_agent.app import forge_hub_client as _hc
+        _echange = bool(_hc._jeton_sujet() and _os.environ.get("NOKIDO_JOB_ID")
+                        and _hc._echange_arme())
+    except Exception as _e_hc:  # noqa: BLE001
+        logger.info("[rss_watcher] voie d'echange illisible (%s) : chemin d'avant", type(_e_hc).__name__)
+        _echange = False
+    if _echange:
+        rep = _hc.HubClient(agent=_IDENTITE_HUB, timeout=60).appel_outil("rag", {
+            "action": "ingest", "text": text, "source": source, "domain": domain, "role": role,
+            "author": author, "summary": summary}, timeout=60)
+        if rep is None:
+            return (ERREUR, 0, "appel hub echoue par la voie d'echange (voir le journal hub_client)")
+        if rep.get("error"):
+            return (ERREUR, 0, "erreur JSON-RPC : %s" % str(rep["error"])[:300])
+        result = ((rep.get("result") or {}).get("content") or [{}])[0].get("text", "")
+        return _verdict_reponse(result)
+
     # token : jeton A BAIL (1800 s, revocable) echange contre le credential
     # statique, qui reste le secret d'echange sans plus etre le bearer presente.
     # Un statique est PERMANENT : ni expiration, ni revocation (2026-09-02).

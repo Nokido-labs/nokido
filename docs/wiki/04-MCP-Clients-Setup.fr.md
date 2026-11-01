@@ -9,8 +9,8 @@ empreinte: INCONNUE
 
 # 04 — Configuration clients MCP
 
-<!-- revu-le: 2026-09-29 -->
-> Mise à jour : 2026-09-29
+<!-- revu-le: 2026-10-30 -->
+> Mise à jour : 2026-10-30
 
 > 🌐 [English](04-MCP-Clients-Setup.md) · **Français**
 
@@ -32,7 +32,7 @@ Le hub mappe `X-Agent-Name` à un **ring RBAC** :
 | Agent | Ring | Tools par défaut |
 |---|---|---|
 | `CLAUDE_CLI` / `CLAUDE` | 2 | 11+ |
-| `GEMINI` | 3 | 24+ |
+| `ANTIGRAVITY` | 1 | 24+ |
 | `CODEX` | 2 | 25 |
 | `CLINE` | 1 | 15+ |
 | `TRAY` | 4 | 3 (public) |
@@ -73,10 +73,9 @@ machine (aucune valeur affichée). Sans option, il couvre :
 - `~/.claude.json` — portées **locale** (`projects[..].mcpServers`) et **utilisateur**.
   Elles passent AVANT `.mcp.json` : un jeton périmé laissé là continue de répondre
   **401** même après correction du `.mcp.json` ;
-- les clients HTTP : Gemini CLI (`~/.gemini/settings.json`), Antigravity
-  (`~/.gemini/config/mcp_config.json`), VS Code natif (`%APPDATA%\Code\User\mcp.json`,
-  clé `servers`), Copilot (`<espace de travail>/.github/mcp.json`, à la racine du super-dépôt).
-  Autres fichiers : `--client <chemin>` (répétable).
+- les clients HTTP : Antigravity (`~/.gemini/config/mcp_config.json`), VS Code natif
+  (`%APPDATA%\Code\User\mcp.json`, clé `servers`), Copilot (`<espace de travail>/.github/mcp.json`,
+  à la racine du super-dépôt), OpenCode, Mistral Vibe. Autres fichiers : `--client <chemin>` (répétable).
 
 ```bash
 LAFORGE_PYTHON tools/forge_mcp_json_sync.py --dry-run   # ce qui changerait, rien d'écrit
@@ -272,6 +271,20 @@ son équivalent CLAUDE.md.
 ```
 
 Cline utilise deux modes : `Plan` (ring 1, raisonnement) et `Act` (ring 1, exécution).
+
+---
+
+## OpenCode et Mistral Vibe
+
+OpenCode et Mistral Vibe sont tous deux supportés comme clients MCP HTTP de premier ordre (voir les badges dans `README.md` et [25 — Nouveautés](25-Whats-New.fr.md)) :
+- **OpenCode** : configuré via `config/clients/opencode/README.md` et `opencode.json` (`http://127.0.0.1:8766/mcp`, `FORGE_TOKEN_OPENCODE`).
+- **Mistral Vibe** : configuré avec son endpoint MCP HTTP et jeton porteur du coffre-fort.
+
+---
+
+## Nouveautés et mises à jour récentes
+
+Voir [25 — Nouveautés (octobre 2026)](25-Whats-New.fr.md) pour les nouveautés récentes : lecture conditionnelle (`si_etag`), routeur ACP, et suivi des délégations de tâches.
 
 ---
 

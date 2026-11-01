@@ -222,10 +222,19 @@ def test_la_delegation_est_moins_puissante_que_l_authentification_directe():
 
 def test_un_agent_sans_regle_ne_delegue_pas(toks):
     """STATE_ENCODER porte un jeton derive valide mais n'a aucune `delegation`
-    au registre : declarer un autre nom le fait retomber au plancher."""
+    au registre : declarer un autre nom ne le fait JAMAIS agir comme lui.
+
+    Contrat revu par la decision owner du 24/10 « agent = identite prouvee »
+    (39db5579e, NR test_agent_egale_principal_nr) : l'agent reste le proprietaire
+    du jeton, avec SON ring prouve ; le nom annonce n'est garde qu'en `declared`.
+    Avant, il retombait au plancher (via=header). L'invariant de securite tient :
+    ni l'identite ni le ring de CLAUDE ne sont obtenus sans delegation."""
     r = _r("CLAUDE", FAUX_AUTRE, toks)
-    assert r["via"] == "header"
-    assert r["ring"] == V._HEADER_FLOOR_RING
+    soi = _r("STATE_ENCODER", FAUX_AUTRE, toks)
+    assert r["via"] == "token"
+    assert r["agent"] == "STATE_ENCODER" != "CLAUDE"
+    assert r["declared"] == "CLAUDE"
+    assert r["ring"] == soi["ring"]
 
 
 def test_le_droit_de_deleguer_vient_du_registre_pas_du_jeton():

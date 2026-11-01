@@ -237,6 +237,8 @@ _NAMESPACE_ALIASES: Dict[str, str] = {
     "forge_agy_run": "agy_run",
     "forge.meta.agy_config": "agy_config",
     "forge_agy_config": "agy_config",
+    "forge.meta.acp": "acp",
+    "forge_acp": "acp",
     "forge.fs.agy_add_dir": "agy_add_dir",
     "forge_agy_add_dir": "agy_add_dir",
 }
@@ -291,6 +293,9 @@ def resolve_tool_name(name: str) -> str:
 # `classer_retour_intent` : si le libelle change, la classification suit au lieu de rouvrir
 # le faux succes en silence (NR test_goap_outil_inconnu_failclosed_nr).
 OUTIL_INCONNU = "Outil inconnu"
+# Outils du gateway Docker MCP (docker_*) : ring minimal par defaut (owner 28/10, inventaire mesure : 8 outils dont
+# mcp-add et code-mode). 1 = les clients ring 1 y accedent VIA le hub ; surcharge par outil dans _TOOL_MIN_RING.
+_DOCKER_PROXY_MIN_RING = 1
 _PREFIXES_ECHEC_INTENT = ("ERR", "SECURITY", "SECRET GUARD", "FAIL", OUTIL_INCONNU)
 
 
@@ -352,18 +357,41 @@ _WHOAMI_HEALTHY_STATES = {"running", "sleeping", "starting", "disabled"}
 _WHOAMI_HARD_STATES = ("crashed", "quarantine", "error", "failed")
 
 
-def whoami_degraded_services(services: dict, desactives=None) -> list:
+def piliers_endormis_par_regulation(drapeaux: dict, voulue) -> set:
+    """Piliers a la demande qu'AUCUNE intention fraiche ne reclame : le keeper les eteint (« INUTILE »). Pur.
+
+    `drapeaux` : {service: fichier .wanted} (forge_llama_keeper._DRAPEAU_PAR_SERVICE) ; `voulue(fichier)` : la
+    politique de fraicheur du keeper (_intention_voulue), jamais une copie. Derogation owner 30/10.
+    """
+    return {nom for nom, drapeau in (drapeaux or {}).items() if not voulue(drapeau)}
+
+
+def whoami_piliers_endormis(services: dict, endormis) -> list:
+    """Piliers ARRETES par la regulation, gardes VISIBLES avec leur compteur (un battement reste lisible). Pur."""
+    out = []
+    for name in sorted(set(endormis or ())):
+        sv = (services or {}).get(name)
+        if isinstance(sv, dict) and sv.get("status") == "stopped":
+            out.append({"service": name, "status": "stopped", "restarts": sv.get("restarts", 0),
+                        "motif": "eteint par la regulation (aucune intention fraiche)"})
+    return out
+
+
+def whoami_degraded_services(services: dict, desactives=None, endormis=None) -> list:
     """Services hors états sains, depuis le dict /supervisor/status. Pur (testable).
 
     `desactives` : noms declares `disabled = true` dans services.toml. Le superviseur ne publie pas ce drapeau :
     un service a la demande ARRETE sortait « stopped », donc degrade (NokidoEmbedTrigger, 18/10). Seul l'arret est
     explique par la politique ; un crash reste degrade. DISABLED_BY_POLICY n'est pas une panne.
+    `endormis` : piliers qu'aucune intention fraiche ne reclame (piliers_endormis_par_regulation). Meme regle :
+    seul l'arret est excuse (30/10 : NokidoLlamaEmbed eteint par le keeper, whoami conseillait « restart »).
     """
     desactives = set(desactives or ())
+    endormis = set(endormis or ())
     out = []
     for name, sv in (services or {}).items():
         st = (sv.get("status") if isinstance(sv, dict) else None) or "?"
-        if name in desactives and st == "stopped":
+        if (name in desactives or name in endormis) and st == "stopped":
             continue
         if st not in _WHOAMI_HEALTHY_STATES:
             out.append(
@@ -420,10 +448,79 @@ def _profile_dispatch(fn):
 
                 _rec(name, (_t.perf_counter() - _t0) * 1000.0, ok=_ok,
                      payload_bytes=len(str(args)) if args else 0)
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[profiler] enregistrement metriques impossible (%s) | consequence: metriques d'execution perdues pour cet appel", type(e).__name__, exc_info=True)
                 pass
 
     return _wrapper
+
+
+def _chemin_lecture(args: dict, root) -> tuple:
+    """(chemin, None) ou (None, erreur NOMMEE) pour `read action=file`. Accepte `path` ET `file_path` (comme le squelette).
+
+    31/10 (rendu AGY job_f74513a2) : `file_path` n'etait pas lu -> chemin VIDE = la racine -> read_text() sur un
+    DOSSIER levait « PermissionError [Errno 13] ...\\Nokido », qui accusait un droit au lieu du parametre manquant."""
+    s = str((args or {}).get("path") or (args or {}).get("file_path") or "").strip()
+    if not s:
+        return None, "ERR: `path` requis (chemin du fichier ; `file_path` accepte aussi)"
+    return Path(root) / s, None
+
+
+def _hors_portee(agent: str, chemin) -> str | None:
+    """Message de REFUS si `chemin` sort de la portee de lecture de cet executeur ; None sinon (owner : inchange).
+
+    Owner 31/10 : « le scope sur task.db doit etre bien defini dynamiquement ; des taches distinctes, il faut bien les
+    scinder ». Portee recalculee A CHAQUE appel depuis tasks.db (forge_worktree.portee_lecture) : le depot, le worktree
+    habituel, et le worktree de chacune de SES taches en cours -- jamais celui d'une autre tache (ses entrees amont
+    sont deja fusionnees dans le sien). Calcul impossible (module absent) : DIT au journal, lecture laissee."""
+    try:
+        from nokido_agent.tools import forge_worktree as _W
+        portee = _W.portee_lecture(agent, _W.taches_en_cours(agent))
+        if portee is None or _W.dans_portee(chemin, portee):
+            return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[portee] calcul impossible pour %s (%s) : lecture laissee", agent, type(e).__name__)
+        return None
+    return ("REFUS portee de tache : %s est hors de la portee de lecture de %s (le depot, son worktree, ceux de SES "
+            "taches en cours). Les taches distinctes sont cloisonnees ; les entrees amont d'une tache sont deja "
+            "fusionnees dans son propre worktree." % (chemin, agent))
+
+
+def _normaliser_depend_de(valeur, task_id: str, existe) -> tuple:
+    """(liste d'ids, None) ou ([], erreur NOMMEE). `valeur` : liste ou chaine « a, b ». `existe(id)` -> bool."""
+    if valeur in (None, "", []):
+        return [], None
+    if isinstance(valeur, str) and valeur.strip().startswith("["):
+        # 31/10 08:49 (epreuve reelle) : un client au schema en cache envoie la liste en CHAINE JSON
+        try:
+            import json as _json
+            valeur = _json.loads(valeur)
+        except ValueError:
+            return [], "depend_de : liste JSON illisible : %s" % valeur[:120]
+    brut = valeur if isinstance(valeur, (list, tuple)) else str(valeur).replace(";", ",").split(",")
+    ids = []
+    for x in brut:
+        s = str(x).strip()
+        if s and s not in ids:
+            ids.append(s)
+    if task_id in ids:
+        return [], "depend_de : la tache %s ne peut pas dependre d'elle-meme" % task_id
+    inconnues = [i for i in ids if not existe(i)]
+    if inconnues:
+        return [], "depend_de : entree(s) inconnue(s) dans tasks.db : %s" % ", ".join(inconnues)
+    return ids, None
+
+
+def _lister_dossier(p, maxi: int = 200) -> str:
+    """Un DOSSIER se liste (noms seulement, dossiers suffixes de /), au lieu d'un Errno 13 trompeur."""
+    p = Path(p)
+    try:
+        noms = sorted(((e.name + "/") if e.is_dir() else e.name) for e in p.iterdir())
+    except OSError as e:
+        return "ERR: dossier illisible (%s): %s" % (type(e).__name__, p)
+    reste = len(noms) - maxi
+    return ("[DOSSIER %s -- %d entree(s)]\n" % (p, len(noms)) + "\n".join(noms[:maxi])
+            + ("\n... %d de plus (non listees)" % reste if reste > 0 else ""))
 
 
 class ToolRegistry:
@@ -437,7 +534,8 @@ class ToolRegistry:
         if not self.db_path.exists():
             try:
                 self.db_path = next((root_dir / "data").glob("*.db"))
-            except (StopIteration, Exception):
+            except (StopIteration, Exception) as e:
+                logger.debug("[registry] resolution base repli data impossible (%s) | consequence: conservation du chemin embeddings.db par defaut", type(e).__name__, exc_info=True)
                 pass
 
     def _archive_long_args(self, args: dict, agent: str, tool_name: str) -> dict:
@@ -510,6 +608,69 @@ class ToolRegistry:
         except Exception as _e:
             logger.debug(f"CCR archive failed: {_e}")
             return None
+
+    def _resoudre_racine_git(self, chemin: Union[str, Path]) -> str:
+        """Résout la racine git du fichier : premier parent contenant .git (fichier ou dossier),
+        à défaut le dossier parent du fichier.
+        """
+        try:
+            p = Path(chemin).resolve()
+            # Si le chemin pointe sur un dossier existant (rare), partir de lui, sinon de son parent
+            dossier = p if p.is_dir() else p.parent
+            cur = dossier
+            while True:
+                git_cible = cur / ".git"
+                if git_cible.exists():
+                    return str(cur)
+                if cur.parent == cur:
+                    break
+                cur = cur.parent
+            return str(dossier)
+        except Exception:
+            try:
+                return str(Path(chemin).parent)
+            except Exception:
+                return str(self.root)
+
+    def _appliquer_cache_conditionnel(
+        self,
+        chemin_abs: str,
+        texte_rendu: str,
+        si_etag: Optional[str] = None,
+        depuis_etag: Optional[str] = None,
+    ) -> str:
+        """Applique forge_token_cache.lecture_conditionnelle de manière sûre (opt-in strict).
+        Sans si_etag ni depuis_etag : reponse IDENTIQUE et aucune ecriture (un client lit du JSON par `read`).
+        Premier appel pour apprendre l'etag : si_etag="0" -> PLEIN avec en-tete mode/etag."""
+        if not si_etag and not depuis_etag:
+            return texte_rendu
+        racine = self._resoudre_racine_git(chemin_abs)
+        try:
+            try:
+                from nokido_agent.app.forge_token_cache import lecture_conditionnelle, etag
+            except ImportError:
+                from app.forge_token_cache import lecture_conditionnelle, etag
+
+            res = lecture_conditionnelle(
+                chemin_abs=chemin_abs,
+                contenu=texte_rendu,
+                racine=racine,
+                si_etag=si_etag,
+                depuis_etag=depuis_etag,
+            )
+            # Règle 1 : Sans args si_etag ni depuis_etag -> réponse identique avec UN seul ajout : 'etag: <valeur>\n'
+            # Règle 2 : Avec si_etag / depuis_etag -> renvoie `corps` et `mode` de lecture_conditionnelle
+            if not si_etag and not depuis_etag:
+                val_etag = res.get("etag") or etag(texte_rendu)
+                return f"etag: {val_etag}\n{texte_rendu}"
+            else:
+                mode = res.get("mode", "PLEIN")
+                corps = res.get("corps", texte_rendu)
+                val_etag = res.get("etag") or etag(texte_rendu)
+                return f"mode: {mode}\netag: {val_etag}\n{corps}"
+        except Exception as e:
+            logger.debug(f"[token_cache] repli sur reponse normale suite a exception: {e}")
+            return texte_rendu
 
     async def _handle_ensure_service(self, args: Dict[str, Any], agent: str, ring: int) -> Dict[str, Any]:
         """Bouton rouge declaratif : {service, desired_state} -> orchestration SERVIE
@@ -834,7 +995,8 @@ class ToolRegistry:
             if not _ig_ok:
                 return {"error": "intention_drift", "reason": _ig_reason,
                         "tool": name, "agent": agent}
-        except Exception:
+        except Exception as e:
+            logger.debug("[intention_gate] evaluation intention impossible (%s) | consequence: appel autorise en fail-open sans validation de scope", type(e).__name__, exc_info=True)
             pass  # fail-open
 
         # Coupe-circuit COMPORTEMENTAL (anti-fuite-tokens) : throttle la recon FINE
@@ -853,7 +1015,8 @@ class ToolRegistry:
                 try:
                     with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
                         _lf.write(f"{int(_tm.time())} read agent={agent} islf={_islf} v={_v} n={_n}\n")
-                except Exception:
+                except Exception as e:
+                    logger.debug("[recon_breaker] ecriture log C:/tmp/recon_breaker.log impossible (%s) | consequence: trace locale de reconnaissance non persistee", type(e).__name__, exc_info=True)
                     pass
                 if _v == "deny":
                     return {"error": "recon_throttled", "reason": _why,
@@ -862,7 +1025,8 @@ class ToolRegistry:
                 try:
                     with open(r"C:/tmp/recon_breaker.log", "a", encoding="utf-8") as _lf:
                         _lf.write(f"BRK_ERR {type(_e).__name__}: {str(_e)[:140]}\n")
-                except Exception:
+                except Exception as e_log:
+                    logger.debug("[recon_breaker] ecriture erreur breaker dans log impossible (%s) | consequence: diagnostic d'echec breaker non persiste sur disque", type(e_log).__name__, exc_info=True)
                     pass
 
         # PHASE 2 des gardes COTE HUB (owner 17/10 : « les garde fous doivent emaner du hub... et pareil pour les autres
@@ -954,7 +1118,8 @@ class ToolRegistry:
                     import logging as _lg
 
                     _lg.getLogger("Nokido.Registry").debug(f"[RAG hint] {name}: {_hits[0][:80]}")
-            except Exception:
+            except Exception as e:
+                logger.debug("[rag_hint] recherche lecon RAG impossible (%s) | consequence: indice contextuel non injecte pour cet outil", type(e).__name__, exc_info=True)
                 pass
         # Proxy netcfg-agent-mcp (:8767) — noms legacy netcfg_* (deprecated,
         # remplaces par le tool unifie `netcfg`). Ring check ajoute : cette
@@ -968,6 +1133,11 @@ class ToolRegistry:
 
         # Proxy Docker MCP gateway (stdio, lazy-spawned) — sauf si handler natif handle_<name> existe
         if name.startswith("docker_") and not hasattr(self, f"handle_{name}"):
+            # Ring par defaut _DOCKER_PROXY_MIN_RING (owner 28/10, apres inventaire MESURE) : les clients ring 1
+            # atteignent le gateway VIA le hub (garde + journal) au lieu de MCP_DOCKER en direct.
+            _nr = self._TOOL_MIN_RING.get(name, _DOCKER_PROXY_MIN_RING)
+            if ring > _nr:
+                return f"SECURITY: Acces refuse (agent ring {ring} > max autorise {_nr})"
             return await self._handle_docker_proxy(name, args, agent, ring)
 
         # Module red-team OPTIONNEL (laforge-redteam) : exegol/ctf_* ne dispatch que si
@@ -1023,7 +1193,7 @@ class ToolRegistry:
                 if _sw_result is False:
                     return f"SECURITY: Switch DENY {agent}→{_resource}:{name} ({_sw_reason})"
                 # True ou None → continuer (True = allow explicite, None = pas de règle)
-            except ImportError:
+            except ImportError:  # muet-ok : forge_access_switches optionnel ou absent, fail-open voulu
                 pass  # module pas encore dispo → fail-open
             except Exception as _swe:
                 logger.debug(f"[access_switches] skip: {_swe}")
@@ -1124,7 +1294,8 @@ class ToolRegistry:
                         _env = _envf(agent)
                         if _env:
                             result = result + _env
-                except Exception:
+                except Exception as e:
+                    logger.debug("[m2m_envelope] recuperation enveloppe impossible (%s) | consequence: messages en attente non ajoutes au resultat", type(e).__name__, exc_info=True)
                     pass  # fail-open : l'enveloppe M2M ne casse jamais un tool call
 
                 # -- L1 : FILTRAGE DES SECRETS EN SORTIE D'OUTIL (2026-09-12) --
@@ -1181,7 +1352,8 @@ class ToolRegistry:
                             parent_id=start_evt_id if isinstance(start_evt_id, str) else None,
                             trusted=True,
                         )
-                    except Exception:
+                    except Exception as e_pub:
+                        logger.debug("[event_bus] publication violation secret impossible (%s) | consequence: audit bus non emis pour cette violation", type(e_pub).__name__, exc_info=True)
                         pass
                 return str(e)
             except Exception as e:
@@ -1198,7 +1370,8 @@ class ToolRegistry:
                             parent_id=start_evt_id if isinstance(start_evt_id, str) else None,
                             trusted=True,
                         )
-                    except Exception:
+                    except Exception as e_pub:
+                        logger.debug("[event_bus] publication erreur handler impossible (%s) | consequence: audit bus non emis pour l'echec de cet outil", type(e_pub).__name__, exc_info=True)
                         pass
                 return f"ERR: {type(e).__name__}: {e}"
         return f"{OUTIL_INCONNU}: {name}"
@@ -1211,7 +1384,7 @@ class ToolRegistry:
     # verrouillee par `tests/nr/test_corrigibilite_failclosed_nr.py`, qui echoue
     # des que les deux listes divergent.
     _CORRIGIBILITE_MUTANTS_REPLI: frozenset = frozenset((
-        "agy_config", "agy_run", "apply_patch", "bundle", "docker_action",
+        "acp", "agy_config", "agy_run", "apply_patch", "bundle", "docker_action",
         "dyn_orchestrate", "edit", "execute", "forge_call_dynamic",
         "forge_spawn_swarm", "governed_edit", "loop_orchestrate",
         "manage_forge_lifecycle", "nokido_ensure_service", "orchestrate",
@@ -1296,6 +1469,8 @@ class ToolRegistry:
         "forge_stats": 4,
         "agy_run": 2,
         "agy_config": 3,
+        # acp : ring <= 1, comme les outils qui pilotent un CLI sous le compte owner
+        "acp": 1,
         "agy_add_dir": 2,
     }
     # Tools exposés par défaut si agent non identifié (ring > 3)
@@ -1430,7 +1605,7 @@ class ToolRegistry:
                                         match_text = [json_line["data"]["lines"]["text"]]
                                         if match_text:
                                             grep_out.append({"file": file_path, "matches": match_text[:10]})
-                                except _j.JSONDecodeError:
+                                except _j.JSONDecodeError:  # muet-ok : ligne ripgrep non-JSON ignoree dans le flux
                                     continue
                     except Exception as _e:
                         grep_out.append({"error": f"ripgrep failed: {type(_e).__name__}: {_e}"})
@@ -1446,7 +1621,7 @@ class ToolRegistry:
                                     if rx.search(ln):
                                         grep_out.append({"file": str(fpath), "matches": [ln[:300]]})
                                         break
-                            except Exception:
+                            except Exception:  # muet-ok : fichier illisible ignore lors du balayage de repli regex
                                 continue
                     except Exception as _e:
                         grep_out.append({"error": f"re fallback failed: {type(_e).__name__}: {_e}"})
@@ -1578,18 +1753,19 @@ class ToolRegistry:
                    and not _blocked(t["name"])]
         # Sprint 2 : scope dynamique par agent (tool_scope). VISIBILITE seule —
         # le dispatch reste ouvert (un outil hors scope demeure appelable).
+        _scope = None
         try:
             from nokido_agent.app import forge_tool_scope as _ts
             # Perimetre DECLARE par defaut. Avec LAFORGE_TOOLS_LIST_ROLESCOPE,
             # on prend `expected_scope_for` : declare d'abord, sinon DERIVE du
             # role (profil system-owned) -- ce qui ferme le bypass opt-out, un
             # agent ne pouvant plus elargir sa vue en ne declarant rien.
-            # Desarme par defaut : le perimetre derive peut masquer un outil
-            # dont l'agent a besoin (mesure : `code_recon` n'inclut pas
-            # `governed_edit`). Le dispatch, lui, reste ouvert dans les deux cas.
-            if os.environ.get("LAFORGE_TOOLS_LIST_ROLESCOPE", "").strip().lower() in (
-                "1", "true", "on", "yes"
-            ):
+            # ACTIF par defaut (decision owner 2026-10-24 ; mesure des
+            # regressions : rapport_scope_role_defaut_20261024.md), desarme par
+            # LAFORGE_TOOLS_LIST_ROLESCOPE=0. Echappatoire par client :
+            # `tool_scope set intent=all`. Un outil appele >= N fois en 7 j
+            # rejoint le groupe du role. Le dispatch reste ouvert.
+            if _ts.rolescope_enabled():
                 _scope, _src = _ts.expected_scope_for(agent)
             else:
                 _scope, _src = _ts.active_tools_for(agent), "declared"
@@ -1599,21 +1775,49 @@ class ToolRegistry:
             # fail-open volontaire (ne jamais casser tools/list), mais PAS muet :
             # un scope qui s'evapore sur une erreur d'import doit laisser une trace.
             logger.debug("[tool_scope] perimetre indisponible (fail-open) : %s", _se)
+        # Outils du gateway Docker MCP (owner 28/10) : lus dans le CATALOGUE EN CACHE, jamais en reveillant
+        # Docker ; seulement pour le ring autorise a les appeler (meme regle que la garde de dispatch).
+        # 31/10 : le SCOPE vaut aussi pour eux -- ajoutes apres le filtre, ils lui echappaient (test_tool_scope rouge
+        # sur toute machine qui a le cache : 6 docker_mcp-* dans un scope code_recon).
+        _deja = {t["name"] for t in visible}
+        visible.extend(t for t in self._docker_tools_en_cache(ring)
+                       if t["name"] not in _deja and (not _scope or t["name"] in _scope))
         # Sprint 1 anti context-bomb : vue telegraphique NEGOCIEE par client.
         ca = self._compact_agents()
         if ca and ("*" in ca or (agent or "").upper() in ca):
             return self._compact_tools(visible)
         return visible
 
-    # v3.1 : description standard du champ `explanation` (pattern Cursor / Augment).
-    _EXPLANATION_FIELD: Dict[str, str] = {
-        "type": "string",
-        "description": (
-            "One sentence: why this call, and how it serves the goal. Logged for "
-            "audit; when missing, a warning is logged "
-            "(LAFORGE_EXPLANATION_MODE=error makes it required)."
-        ),
-    }
+    def _docker_tools_en_cache(self, ring: int) -> List[Dict[str, Any]]:
+        """Outils docker_* depuis forge_docker_supervisor.catalogue_en_cache() : ABSENT n'ajoute rien
+        (ce n'est pas « aucun outil »), PERIME reste visible mais le dit. Ring : _DOCKER_PROXY_MIN_RING."""
+        try:
+            from nokido_agent.app.forge_docker_supervisor import catalogue_en_cache
+            cat = catalogue_en_cache()
+        except Exception as e:
+            logger.debug("[docker] catalogue illisible : %s", e)
+            return []
+        if cat.get("etat") not in ("FRAIS", "PERIME"):
+            return []
+        out: List[Dict[str, Any]] = []
+        for t in cat.get("outils") or []:
+            natif = (t or {}).get("name") if isinstance(t, dict) else None
+            if not natif:
+                continue
+            nom = f"docker_{natif}"
+            if hasattr(self, f"handle_{nom}") or ring > self._TOOL_MIN_RING.get(nom, _DOCKER_PROXY_MIN_RING):
+                continue
+            desc = t.get("description") or f"Docker MCP gateway tool: {natif}"
+            if cat["etat"] == "PERIME":
+                desc = "[catalogue perime] " + desc
+            out.append({"name": nom, "description": desc,
+                        "inputSchema": t.get("inputSchema") or {"type": "object", "properties": {}}})
+        return out
+
+    # v3.1 : champ `explanation` (pattern Cursor / Augment). SANS description depuis le 31/10 (choix owner, phase 1
+    # de l'audit des schemas) : la meme phrase repetee sur 63 outils coutait ~756 tokens par tools/list (17 % du
+    # catalogue). La consigne vit UNE fois, dans les instructions du serveur MCP ; le nom du champ suffit.
+    _EXPLANATION_FIELD: Dict[str, str] = {"type": "string"}
 
     def _inject_explanation_field(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Injecte `explanation` (optionnel) dans inputSchema.properties de
@@ -1649,7 +1853,7 @@ class ToolRegistry:
     # Le catalogue CANONIQUE n'est jamais modifie (copie par tool).
     _COMPACT_DESC_MAX = 200
     _COMPACT_PROP_DESC_MAX = 80
-    _COMPACT_EXPLANATION_DESC = "Pourquoi cet appel (1 phrase)."
+    _COMPACT_EXPLANATION_DESC = ""   # 31/10 : plus de description par outil (instructions serveur)
 
     def _compact_agents(self) -> set:
         """Agents ayant negocie la vue compacte. Lu LIVE a chaque tools/list."""
@@ -1658,7 +1862,8 @@ class ToolRegistry:
             marker = Path(__file__).resolve().parent.parent / "sandbox" / "tools_compact.txt"
             if marker.exists():
                 raw = raw + "," + marker.read_text(encoding="utf-8")
-        except Exception:
+        except Exception as e:
+            logger.debug("[compact_agents] lecture tools_compact.txt impossible (%s) | consequence: liste des agents compacts restreinte a la variable d'environnement", type(e).__name__, exc_info=True)
             pass  # marqueur best-effort : jamais bloquer tools/list
         return {a.strip().upper() for a in raw.replace(";", ",").split(",") if a.strip()}
 
@@ -1688,7 +1893,7 @@ class ToolRegistry:
             for k, p in (schema.get("properties") or {}).items():
                 p2 = dict(p)
                 if k == "explanation":
-                    p2["description"] = self._COMPACT_EXPLANATION_DESC
+                    p2.pop("description", None)   # 31/10 : consigne dans les instructions serveur, pas par outil
                 else:
                     pd = p2.get("description")
                     if isinstance(pd, str) and len(pd) > self._COMPACT_PROP_DESC_MAX:
@@ -1723,13 +1928,14 @@ class ToolRegistry:
                 _s.path.insert(0, _app)
             from nokido_agent.app.forge_tool_forger import forge_list_dynamic_tools
 
-            for t in forge_list_dynamic_tools().get("tools", []):
-                tools.append({
-                    "name": f"dyn_{t['name']}",
-                    "description": f"[forge] {t.get('description', '')} {t.get('signature', '')}".strip(),
-                    "inputSchema": {"type": "object", "properties": {
-                        "kwargs": {"type": "object", "description": "arguments de l'outil forge"}}},
-                })
+            # 31/10 (audit des schemas, phase 2, choix owner) : plus d'entree `dyn_<nom>` par outil forge -- 4 enveloppes
+            # au meme contrat `kwargs` (~75 tok chacune) doublaient forge_call_dynamic, et `dyn_metier_dispatch` etait
+            # refuse la ou `forge_call_dynamic name=metier_dispatch` passait (veille 26/09). La DECOUVERTE NOMMEE (A2)
+            # reste : les noms sont cites dans la description de forge_call_dynamic. Le routage `dyn_<nom>` ->
+            # forge_call_dynamic(<nom>) reste aussi (_handle_forge_dynamic) : un appelant reste sur l'ancien nom marche.
+            noms = sorted(t["name"] for t in forge_list_dynamic_tools().get("tools", []) if t.get("name"))
+            if noms:
+                tools[0]["description"] += " Outils forges : " + ", ".join(noms) + " (detail : forge_list_dynamic_tools)."
         except Exception as e:  # noqa: BLE001
             import logging as _lg
 
@@ -1836,6 +2042,24 @@ class ToolRegistry:
                 },
             },
             {
+                "name": "acp",
+                "description": "Pilote un CLI agent (ACP), ASYNCHRONE : rend {job_id, etat:REQUESTED} aussitot, op=resultat pour relire l'etat. Permissions via /acp, worktree acp_<cli> impose.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "op": {"type": "string", "enum": ["ouvrir", "envoyer", "fermer", "lister", "resultat"]},
+                        "agent": {"type": "string", "enum": ["claude", "codex", "opencode", "agy"]},
+                        "sid": {"type": "string", "description": "Identifiant de session"},
+                        "prompt": {"type": "string"},
+                        "mode": {"type": "string"},
+                        "profil": {"type": "string", "enum": ["projet", "nu", "complet"],
+                                   "description": "op=ouvrir, claude : contexte charge (defaut projet)"},
+                        "job_id": {"type": "string", "description": "Pour op=resultat"},
+                    },
+                    "required": ["op"],
+                },
+            },
+            {
                 "name": "agy_config",
                 "description": "Read or write settings.json settings.",
                 "inputSchema": {
@@ -1862,12 +2086,9 @@ class ToolRegistry:
             {
                 "name": "nokido_ensure_service",
                 "description": (
-                    "USE THIS to guarantee a Nokido service is in a desired state "
-                    "(docker, searxng, hub, ollama, netcfg, webhub, graph, embed, lmstudio). "
-                    "Do NOT write keeper/diagnostic scripts, do NOT run docker commands, do "
-                    "NOT diagnose manually. The Hub owns the privileges (SeTcbPrivilege), "
-                    "daemons and containers. You are a CLIENT: declare the intent, the Hub "
-                    "makes it true."
+                    "Garantit l'etat voulu d'un service (docker, searxng, hub, ollama, netcfg, webhub, graph, embed, "
+                    "lmstudio). Le hub detient les privileges : declarer l'intention, jamais de script keeper ni de "
+                    "commande docker maison."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -1940,7 +2161,15 @@ class ToolRegistry:
             },
             {
                 "name": "run",
-                "description": "Git/Python/Shell/TrustedScript/Atlas/Snapshot/GitHub. trusted_script: run a git-tracked tools/ or app/ script privileged (path, script_args). shell: code=single OR commands=[...] parallel, sandbox=local|docker|ps_clm|windows. run_job: lance un .py DETACHE (script, online) -> job_id survivant restart ; job_status (job_id) pour poll/reprise ; job_kill (job_id) arrete l'arbre du job + libere la lane (le hub est l'ancetre du job).",
+                # 31/10 (audit des schemas, phase 1) : la liste des actions n'est plus recopiee (elle est dans l'enum).
+                "description": "trusted_script : script tools/ ou app/ SUIVI par git, privilegie (path, script_args shlex). "
+                "shell : code=une commande OU commands=[...] en parallele. "
+                "run_job : .py DETACHE (script sous C:/tmp ou racine Nokido, online=egress, script_args) -> job_id qui survit "
+                "au restart ; lane = admission (deja tenue -> refus, 1 job lourd par lane) ; rss_cap_mb (Mo, defaut "
+                "LAFORGE_JOB_RSS_CAP_MB sinon 6000, depasse -> rc=137) ; notify_agent. "
+                "job_status/job_kill (job_id) : etat, rc, log_tail ; job_kill arrete l'arbre et libere la lane, "
+                "force=true si cmdline illisible. network = SEUL levier d'egress ; sandbox = type de bac "
+                "(console=ring-0 default-deny, gvisor=untrusted). container = nom Docker ; timeout en s (defaut 30).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -1965,58 +2194,27 @@ class ToolRegistry:
                             ],
                         },
                         "code": {"type": "string"},
-                        "path": {
-                            "type": "string",
-                            "description": "Script path under tools/ or app/ (trusted_script action)",
-                        },
-                        "script_args": {
-                            "type": "string",
-                            "description": "Arguments CLI du script (chaine style shell, parsee via shlex) : trusted_script ET run_job",
-                        },
-                        "script": {
-                            "type": "string",
-                            "description": "run_job: chemin .py (sous C:/tmp ou racine Nokido) a lancer DETACHE",
-                        },
-                        "online": {
-                            "type": "boolean",
-                            "description": "run_job: sandbox-online (reseau sortant) si true, sinon offline",
-                        },
-                        "job_id": {
-                            "type": "string",
-                            "description": "job_status/job_kill: id retourne par run_job (poll etat running|done|killed, rc, log_tail)",
-                        },
-                        "force": {
-                            "type": "boolean",
-                            "description": "job_kill: accepte un python dont la cmdline est illisible (identification via la fiche du job seulement)",
-                        },
-                        "notify_agent": {
-                            "type": "string",
-                            "description": "run_job: agent a notifier sur l'inbox a la fin du job (optionnel)",
-                        },
-                        "lane": {
-                            "type": "string",
-                            "description": "run_job: lane d'admission (ex 'gpu8091'). Si fournie et deja tenue -> refus REACTIF (anti-stacking/anti-wedge): 1 job lourd par lane, liberee a la fin. Cf forge_lane_admission.",
-                        },
-                        "rss_cap_mb": {
-                            "type": "integer",
-                            "description": "run_job: plafond memoire de l ARBRE du job, en Mo (defaut env LAFORGE_JOB_RSS_CAP_MB, sinon 6000). Depasse -> job TUE, rc=137, motif dans le .err. Borne la famine RAM (incident 2026-08-02).",
-                        },
-                        "commands": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Parallel shell commands (shell action only)",
-                        },
+                        "path": {"type": "string"},
+                        "script_args": {"type": "string"},
+                        "script": {"type": "string"},
+                        "online": {"type": "boolean"},
+                        "job_id": {"type": "string"},
+                        "force": {"type": "boolean"},
+                        "notify_agent": {"type": "string"},
+                        "lane": {"type": "string"},
+                        "rss_cap_mb": {"type": "integer"},
+                        "commands": {"type": "array", "items": {"type": "string"}},
                         "sandbox": {
                             "type": "string",
                             "enum": ["local", "docker", "ps_clm", "windows", "wasm", "console", "gvisor"],
-                            "description": "TYPE de bac (default: local). N'EST PAS le levier d'egress -- pour le reseau sortant, utiliser `network`. Une valeur HORS de cet enum est REFUSEE (fail-closed) : elle ne retombe jamais sur un contexte plus privilegie. console=session user (ring-0, default-deny). gvisor=tier2 isolation kernel pour untrusted (via forge_exec_tier)",
+                            "description": "TYPE de bac (defaut local), hors enum REFUSEE (fail-closed). Egress: network",
                         },
                         "network": {
                             "type": "boolean",
-                            "description": "Reseau SORTANT (actions shell et python). absent/false -> compte LaForgeSbxOffline (loopback seul, egress bloque) ; true -> LaForgeSbxOnline (egress autorise). C'est le SEUL levier d'egress : sandbox=\"online\" n'a jamais existe. Pour un script git-tracke privilegie (LaForgeTrusted) : action=trusted_script.",
+                            "description": "SEUL levier d'egress : absent/false LaForgeSbxOffline, true LaForgeSbxOnline ; prive: trusted_script",
                         },
-                        "container": {"type": "string", "description": "Docker container name (sandbox=docker)"},
-                        "timeout": {"type": "integer", "description": "Per-command timeout seconds (default 30)"},
+                        "container": {"type": "string"},
+                        "timeout": {"type": "integer"},
                     },
                     "required": ["action"],
                 },
@@ -2038,13 +2236,9 @@ class ToolRegistry:
             {
                 "name": "read",
                 "description": (
-                    "Lit un fichier du depot ou la fin d'un journal. action=file rend le fichier ENTIER : "
-                    "aucun fenetrage, `lines` et `pattern` y sont ignores -- pour une fonction, "
-                    "read_function_body ; pour la structure, get_file_skeleton ; pour une plage, Read "
-                    "offset/limit. action=tail_logs rend les `lines` dernieres lignes (defaut 100) d'un "
-                    "journal : `path` explicite, ou `pattern` qui resout le .log de l'organe et filtre les "
-                    "lignes contenant ce texte. action=archived rend une sortie mise de cote par le garde "
-                    "(`id` = ccr_...)."
+                    "file : fichier ENTIER (lines/pattern ignores ; fonction -> read_function_body, structure -> "
+                    "get_file_skeleton). tail_logs : `lines` dernieres lignes (defaut 100) de `path`, ou du .log "
+                    "d'organe resolu et filtre par `pattern`. archived : sortie mise de cote par le garde (id=ccr_...)."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2056,6 +2250,8 @@ class ToolRegistry:
                         "lines": {"type": "integer",
                                   "description": "tail_logs seulement : dernieres lignes (defaut 100). Ignore par action=file."},
                         "id": {"type": "string", "description": "CCR blob id (action=archived) — récupère une sortie stashée par le guard"},
+                        "si_etag": {"type": "string", "description": "ETag reçu (If-None-Match) : INCHANGE si identique"},
+                        "depuis_etag": {"type": "string", "description": "ETag de base : rend le diff"},
                     },
                     "required": ["action"],
                 },
@@ -2071,7 +2267,7 @@ class ToolRegistry:
             },
             {
                 "name": "governed_edit",
-                "description": "Edition GOUVERNEE in-process (ecrit app/ la ou le sandbox est ACL-bloque). path + (content complet OU blocs SEARCH/REPLACE Aider-style: <<<<<<< SEARCH / ======= / >>>>>>> REPLACE). Gouvernance: AST .py + secret scan + tree_lock claim (anti-clobber). Mode blocs = edition chirurgicale (LLM renvoie des blocs cibles, >80% economie tokens). RING_0.",
+                "description": "Ecriture GOUVERNEE dans le depot (AST .py, scan de secrets, tree_lock). path + blocks (<<<<<<< SEARCH / ======= / >>>>>>> REPLACE, a preferer) ou content complet. RING_0.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2185,11 +2381,9 @@ class ToolRegistry:
             {
                 "name": "oracle_python_repl",
                 "description": (
-                    "Oracle d'EXÉCUTION déterministe (sandbox OFFLINE non-admin, ZÉRO réseau, "
-                    "timeout court). UTILISE-LE quand tu DOUTES du comportement exact d'une "
-                    "fonction / regex / librairie / format de retour — N'HALLUCINE PAS : écris un "
-                    "micro-script et teste ton hypothèse ICI d'abord, puis utilise le résultat avéré "
-                    "pour construire la suite. Renvoie la VÉRITÉ (stdout) ou l'ÉCHEC (stderr) à corriger."
+                    "Exécution Python déterministe (sandbox offline, non-admin, sans réseau, timeout court) : "
+                    "en cas de doute sur une fonction, une regex ou un format, tester ici plutôt que supposer. "
+                    "Rend stdout ou stderr."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2225,10 +2419,8 @@ class ToolRegistry:
             {
                 "name": "forge_spawn_swarm",
                 "description": (
-                    "Essaim de sous-agents LOCAUX (Map-Reduce) pour refacto/tests massifs, 0 API. "
-                    "tasks=[{task_id, targets, prompt, deps, op}]. Valide le DAG (déterministe : "
-                    "collision/FS/cycle/bipartite) puis exécute en parallèle borné (slots), overlay "
-                    "atomique (commit all-or-nothing), self-heal. Visible live sur /forge/swarm."
+                    "Essaim LOCAL Map-Reduce (0 API) pour refacto/tests massifs : tasks=[{task_id, targets, prompt, "
+                    "deps, op}] ; DAG valide (collision/cycle), parallele borne, commit tout-ou-rien. Vue : /forge/swarm."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2256,30 +2448,22 @@ class ToolRegistry:
                     "required": ["tasks"],
                 },
             },
-            {
-                "name": "route_dt",
-                "description": "Routeur intelligent Decision Tree. Prédit le provider optimal.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "prompt": {"type": "string", "description": "Texte du prompt à router"},
-                        "task_type": {"type": "string", "description": "Type de tâche (optionnel)"},
-                    },
-                    "required": ["prompt"],
-                },
-            },
+            # 31/10 (audit des schemas, phase 3, choix owner) : route_dt absorbe -> route_task mode=dt. L'ancien nom
+            # reste APPELABLE (handle_route_dt, ring 2 inchange) ; il n'est plus liste.
             {
                 "name": "route_task",
-                "description": "Route tache vers provider LLM gratuit (ollama/gemini/groq)",
+                "description": "Route une tache vers un provider LLM gratuit (ollama/gemini/groq) ; mode=dt : predit "
+                               "seulement le provider optimal (arbre de decision, prompt = payload.prompt, ring<=2).",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"task_type": {"type": "string"}, "payload": {"type": "object"}},
+                    "properties": {"task_type": {"type": "string"}, "payload": {"type": "object"},
+                                   "mode": {"type": "string", "enum": ["route", "dt"]}},
                     "required": ["task_type", "payload"],
                 },
             },
             {
                 "name": "docker_action",
-                "description": "Actions Docker GOUVERNEES (broker souverain forge_docker_agent, exec contexte LaForgeTrusted). argv = liste sans le mot 'docker' (ex: [\"ps\",\"-a\"] / [\"start\",\"searxng-laforge\"] / [\"logs\",\"searxng-laforge\"]). DockerPolicy default-deny: read-only toujours, lifecycle sur conteneurs Nokido, run images-whitelist sans evasion hote.",
+                "description": "Docker GOUVERNE (broker forge_docker_agent). argv sans le mot 'docker' (ex: [\"ps\",\"-a\"]). Default-deny : lecture toujours, cycle de vie des conteneurs Nokido, run sur images en liste blanche.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2307,15 +2491,20 @@ class ToolRegistry:
             {
                 "name": "hub",
                 "description": (
-                    "Etat hub: action=get_mode|set_mode|poll|notify|list_providers|search_recent|whoami|"
-                    "quota_model|quota_report|emit_telemetry. notify: to=claude|gemini|cline|daemon (explicite) "
-                    "+ message. whoami : identite et ring de l'appelant, taches non reclamees par agent. "
-                    "quota_report : declare le % utilise (flash, flash_lite, pro, preview_pro). quota_model : "
-                    "choisit un modele selon quality=high|medium|low|ultra (apply pour l'appliquer). "
+                    # 31/10 (audit des schemas, phase 1) : liste d'actions et `to` retires (deja dans les enums) ;
+                    # quota_report n'est plus decrit deux fois.
+                    "Etat du hub (action). notify : to (explicite) + message. whoami : identite et ring de "
+                    "l'appelant, taches non reclamees par agent. quota_report : declare le % utilise (flash, "
+                    "flash_lite, pro, preview_pro). quota_model : choisit un modele selon quality=high|medium|low|ultra "
+                    "(apply pour l'appliquer). "
                     "emit_telemetry : lire le handler avant usage. demander_ordre : ordre=<nom> "
-                    "(tailscale-statut|funnel-ouvrir|funnel-fermer|pair-approuver|pair-repondre|restart), "
+                    "(tailscale-statut|funnel-ouvrir|funnel-fermer|pair-approuver|pair-repondre|restart|restart-hub "
+                    "(hub SEUL, preferer a restart quand seul le hub change)|"
+                     "commande-deposer|commandes-en-attente|commande-faite ; commande-deposer texte=<commande> "
+                     "-> l'owner la lance -> commande-faite cible=<cmd-id> texte=<extrait du retour>), "
                     "question a l'owner par elicitation puis execution (hub) ou depot pour le tray ; "
-                    "cible/texte/pointeur selon l'ordre."
+                    "cible/texte/pointeur selon l'ordre : cible = id du depot (pair-approuver) ou client du pair "
+                    "(pair-repondre) ; texte = compte rendu (1000 car. max) ; pointeur = pointer_ref M2M."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2344,27 +2533,28 @@ class ToolRegistry:
                         "to": {
                             "type": "string",
                             "enum": ["claude", "gemini", "cline", "daemon", "hub"],
-                            "description": "Destinataire explicite pour action=notify",
                         },
                         "topic": {"type": "string"},
                         "limit": {"type": "integer"},
-                        "flash": {"type": "number", "description": "quota_report: % flash used"},
-                        "flash_lite": {"type": "number", "description": "quota_report: % flash_lite used"},
-                        "pro": {"type": "number", "description": "quota_report: % pro used"},
-                        "preview_pro": {"type": "number", "description": "quota_report: % preview_pro used"},
-                        "quality": {"type": "string", "description": "quota_model: high|medium|low|ultra"},
-                        "apply": {"type": "boolean", "description": "quota_model: apply model selection"},
-                        "ordre": {"type": "string", "description": "demander_ordre : nom de l'ordre"},
-                        "cible": {"type": "string", "description": "demander_ordre : id du depot (pair-approuver) ou client du pair (pair-repondre)"},
-                        "texte": {"type": "string", "description": "demander_ordre pair-repondre : compte rendu (1000 car. max)"},
-                        "pointeur": {"type": "string", "description": "demander_ordre pair-repondre : pointer_ref M2M"},
+                        "flash": {"type": "number"},
+                        "flash_lite": {"type": "number"},
+                        "pro": {"type": "number"},
+                        "preview_pro": {"type": "number"},
+                        "quality": {"type": "string"},
+                        "apply": {"type": "boolean"},
+                        "ordre": {"type": "string"},
+                        "cible": {"type": "string"},
+                        "texte": {"type": "string"},
+                        "pointeur": {"type": "string"},
                     },
                     "required": ["action"],
                 },
             },
             {
                 "name": "task",
-                "description": "Cycle tache: action=assign|claim|result|status",
+                "description": ("Cycle tache: action=assign|claim|result|status. Travaux DISTINCTS = taches distinctes "
+                                "(cloisonnees). assign depend_de=[ids] : la tache attend que ses entrees soient done, "
+                                "puis nait avec leurs livrables fusionnes (un travail 3 nourri par 1 et 2)."),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2376,6 +2566,8 @@ class ToolRegistry:
                         "intent": {"type": "string"},
                         "priority": {"type": "integer"},
                         "result": {"type": "string"},
+                        "depend_de": {"type": "array", "items": {"type": "string"},
+                                      "description": "assign : ids des taches dont celle-ci consomme les livrables"},
                     },
                     "required": ["action"],
                 },
@@ -2448,10 +2640,9 @@ class ToolRegistry:
             {
                 "name": "manage_forge_lifecycle",
                 "description": (
-                    "START/STOP/RESTART/STATUS/LIST des services Nokido d'une liste blanche, par le "
-                    "superviseur :8765 (wake/sleep/restart ; plus NSSM depuis le 24/05) ; quelques organes "
-                    "hors superviseur (llama-server, proxy, netcfg-agent-mcp) par processus. NokidoMCP et "
-                    "NokidoWebHub ne s'arretent pas ; le hub se relance par hub action=redemarrer_stack."
+                    "Cycle de vie des services Nokido en liste blanche, par le superviseur :8765 (quelques organes "
+                    "hors superviseur par processus). NokidoMCP et NokidoWebHub ne s'arretent pas ; le hub se "
+                    "relance par l'ordre restart-hub."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2614,21 +2805,11 @@ class ToolRegistry:
                     "required": ["action"],
                 },
             },
-            {
-                "name": "react_orchestrate",
-                "description": "Boucle ReAct autonome (Ollama qwen3:8b). Supporte le function calling natif.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "task": {"type": "string", "description": "Tâche à accomplir"},
-                        "max_iter": {"type": "integer", "description": "Max itérations (défaut 10)"},
-                    },
-                    "required": ["task"],
-                },
-            },
+            # 31/10 (phase 3, choix owner) : react_orchestrate absorbe -> orchestrate engine=react (ancien nom appelable).
             {
                 "name": "orchestrate",
-                "description": "Boucle agentique locale: Qwen2.5-Coder:7B (llama-server :8091) orchestre les outils MCP en autonomie. Loop tool_calls jusqu a finish_reason=stop.",
+                "description": "Boucle agentique locale : Qwen2.5-Coder:7B (llama-server :8091) orchestre les outils MCP "
+                               "jusqu'a finish_reason=stop. engine=react : boucle ReAct (Ollama qwen3:8b, task + max_iter).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2641,6 +2822,7 @@ class ToolRegistry:
                         "max_iter": {"type": "integer", "description": "Max itérations (défaut 10)"},
                         "model": {"type": "string", "description": "Modèle llama-server (défaut laforge-coder)"},
                         "temperature": {"type": "number", "description": "Température (défaut 0.2)"},
+                        "engine": {"type": "string", "enum": ["coder", "react"]},
                     },
                     "required": ["task"],
                 },
@@ -2673,6 +2855,8 @@ class ToolRegistry:
                             "type": "string",
                             "description": "Nom exact de la fonction ou classe à extraire (ex: 'validate_token')",
                         },
+                        "si_etag": {"type": "string", "description": "ETag reçu (If-None-Match) : INCHANGE si identique"},
+                        "depuis_etag": {"type": "string", "description": "ETag de base : rend le diff"},
                     },
                     "required": ["file_path", "function_name"],
                     "additionalProperties": False,
@@ -2688,6 +2872,8 @@ class ToolRegistry:
                             "type": "string",
                             "description": "Chemin du fichier .py (absolu ou relatif au repo)",
                         },
+                        "si_etag": {"type": "string", "description": "ETag reçu (If-None-Match) : INCHANGE si identique"},
+                        "depuis_etag": {"type": "string", "description": "ETag de base : rend le diff"},
                     },
                     "required": ["file_path"],
                     "additionalProperties": False,
@@ -2715,13 +2901,9 @@ class ToolRegistry:
             {
                 "name": "introspect",
                 "description": (
-                    "Point d'entree d'introspection (21 organes). Pour une question en langage "
-                    "naturel, rend les symboles qui existent vraiment, ou ils sont definis, si "
-                    "l'attribution de leurs appelants est sure (RESOLU / AMBIGU / ILLISIBLE), et si "
-                    "Nokido a deja enquete sur ce symptome ; declare ce qu'il n'a pas consulte. "
-                    "Borne a 5 symboles et au budget demande. A utiliser avant un grep, une lecture "
-                    "ou une ecriture sur un domaine pas encore connu : c'est le moyen le moins cher "
-                    "de ne pas reinventer un module existant."
+                    "A appeler AVANT grep, lecture ou ecriture sur un domaine inconnu : question en langage naturel "
+                    "-> symboles reels, definitions, attribution (RESOLU/AMBIGU/ILLISIBLE), enquetes deja menees, "
+                    "et ce qui n'a pas ete consulte. 5 symboles max."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2741,7 +2923,7 @@ class ToolRegistry:
             },
             {
                 "name": "blackboard_read_zone",
-                "description": "Lit UNE zone du tableau noir SQLite WAL du swarm (mémoire de travail partagée). Lecture condensée par zone pour éviter le lost-in-the-middle. Zones: mission, architecture_rules, discovered_facts, active_bugs, scratch, tree_locks (verrous d'edition entre agents : cle = agent, fait = fichiers reclames ; lue par governed_edit et le gate git).",
+                "description": "Lit UNE zone du tableau noir ; key/key_prefix ciblent un fait, limit (defaut 200). Zones : mission, architecture_rules, discovered_facts, active_bugs, scratch, roadmap, tree_locks (cle = agent, fait = fichiers reclames).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2751,8 +2933,11 @@ class ToolRegistry:
                         },
                         "filter": {
                             "type": "object",
-                            "description": "Optionnel: {category, min_trust, limit}",
+                            "description": "Optionnel: {category, min_trust}",
                         },
+                        "key": {"type": "string"},
+                        "key_prefix": {"type": "string"},
+                        "limit": {"type": "integer"},
                     },
                     "required": ["zone_name"],
                     "additionalProperties": False,
@@ -2760,7 +2945,7 @@ class ToolRegistry:
             },
             {
                 "name": "blackboard_propose_fact",
-                "description": "Propose un fait atomique dans une zone (fire-and-forget). Le hub est l'unique write-funnel (mono-writer sérialisé, zéro contention 'database is locked'). Clé déterministe = idempotent. ACL par ring: mission/architecture_rules ring<=1, discovered_facts/active_bugs ring<=2.",
+                "description": "Propose un fait atomique dans une zone (ecriture serialisee par le hub ; cle = idempotent). ACL : mission/architecture_rules ring<=1, discovered_facts/active_bugs ring<=2.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2880,7 +3065,8 @@ class ToolRegistry:
                         if _l.startswith("NETCFG_MCP_TOKEN="):
                             token = _l.split("=", 1)[1].strip()
                             break
-                except Exception:
+                except Exception as e:
+                    logger.debug("[netcfg_proxy] lecture token dans Nokido.env impossible (%s) | consequence: requete proxy netcfg envoyee sans authentification bearer", type(e).__name__, exc_info=True)
                     pass
             if token:
                 headers["Authorization"] = f"Bearer {token}"
@@ -3020,7 +3206,15 @@ class ToolRegistry:
         sup = get_supervisor()
         native_name = name[len("docker_") :] if name.startswith("docker_") else name
         try:
-            return await sup.call_tool(native_name, args or {}, timeout=15)
+            res = await sup.call_tool(native_name, args or {}, timeout=15)
+            # Gateway prouve vivant : rafraichir le catalogue s'il n'est pas frais (tools/list le lit en cache).
+            try:
+                from nokido_agent.app.forge_docker_supervisor import catalogue_en_cache
+                if catalogue_en_cache().get("etat") != "FRAIS":
+                    await sup.list_tools(force=True)
+            except Exception as e:
+                logger.debug("[docker] catalogue non rafraichi : %s", e)
+            return res
         except DockerSupervisorError as e:
             return f"ERR: docker gateway: {e}"
         except Exception as e:
@@ -3054,7 +3248,8 @@ class ToolRegistry:
                         "inputSchema": t.get("inputSchema", {"type": "object", "properties": {}}),
                     }
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug("[docker_tools] parsing definition outil docker impossible (%s) | consequence: outil docker ignore de la liste exposee", type(e).__name__, exc_info=True)
                 continue
         return out
 
@@ -3150,6 +3345,34 @@ class ToolRegistry:
                 "stderr": str(e),
                 "error": f"Execution failed: {str(e)}"
             }
+
+    async def handle_acp(self, args: dict, agent: str, ring: int) -> dict:
+        """Depose un job ACP signe (jamais d'attente) ou relit son etat. Aucune cle lue ici."""
+        op = args.get("op")
+        if op not in ("ouvrir", "envoyer", "fermer", "lister", "resultat"):
+            return {"ok": False, "raison": "op inconnue"}
+        from nokido_agent.tools import forge_acp_hub as H  # convention du registre (cf. forge_recon_breaker)
+        if op == "resultat":
+            return H.resultat(args.get("job_id"))
+        cli = args.get("agent")
+        if cli is not None and cli not in ("claude", "codex", "opencode", "agy"):
+            return {"ok": False, "raison": "agent hors enum"}
+        params = {k: args[k] for k in ("agent", "sid", "prompt", "mode", "profil") if args.get(k) is not None}
+        # 29/10 (audit AGY ACP (a), derogation owner) : l'APPELANT authentifie entre dans le job signe ; le worker
+        # en fait le proprietaire de la session (envoyer/fermer/lister d'un autre refuses). `agent` dans args est le
+        # CLI vise, jamais l'appelant. NR tests/nr/test_acp_session_proprietaire_nr.py.
+        params["appelant"] = agent
+        try:
+            from nokido_agent.app.forge_semantic_firewall import redact_str_for_log
+            logging.getLogger("Nokido.Registry").info(
+                "[acp] op=%s agent=%s prompt=%s", op, cli, redact_str_for_log(str(params.get("prompt", "")))[:200])
+        except Exception:  # noqa: BLE001 - pas de caviardeur : on ne journalise pas le prompt
+            logging.getLogger("Nokido.Registry").info("[acp] op=%s agent=%s (prompt non journalise)", op, cli)
+        try:
+            jid = H.deposer(op, **params)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "raison": f"depot impossible : {type(e).__name__}: {e}"[:300]}
+        return {"ok": True, "job_id": jid, "etat": "REQUESTED"}
 
     async def handle_agy_config(self, args: dict, agent: str, ring: int) -> dict:
         """Handle reading or writing configuration in settings.json."""
@@ -3272,7 +3495,7 @@ class ToolRegistry:
                 if os.path.exists(temp_path):
                     try:
                         os.remove(temp_path)
-                    except Exception:
+                    except Exception:  # muet-ok : suppression du fichier temporaire best-effort en cas d'erreur d'ecriture
                         pass
                 return {"success": False, "error": f"Failed to write settings.json: {str(e)}"}
 
@@ -3354,7 +3577,7 @@ class ToolRegistry:
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                except Exception:
+                except Exception:  # muet-ok : suppression du fichier temporaire best-effort en cas d'erreur d'ecriture
                     pass
             return {"success": False, "error": f"Failed to write settings.json: {str(e)}"}
 
@@ -3374,13 +3597,24 @@ class ToolRegistry:
                 return f"CCR: aucun blob id={_mid} (expiré ou inexistant)."
             return _p.read_text(encoding="utf-8", errors="replace")
 
-        path_str = args.get("path", "")
+        path_str = args.get("path", "") or args.get("file_path", "")
         path = self.root / path_str
 
         # v3 : SecretGuard bloque meme en RING 0
         # Verifier sur path_str (forme passee) ET sur path resolu
         assert_can_read(path_str, agent, ring)
         assert_can_read(str(path), agent, ring)
+
+        if args.get("action") != "tail_logs":
+            # 31/10 : parametre absent NOMME, dossier LISTE (plus d'Errno 13 qui accuse un droit)
+            _p_lu, _err_lu = _chemin_lecture(args, self.root)
+            if _err_lu:
+                return _err_lu
+            _refus_portee = _hors_portee(agent, path)
+            if _refus_portee:
+                return _refus_portee
+            if path.is_dir():
+                return _lister_dossier(path)
 
         if args.get("action") == "tail_logs":
             from pathlib import Path as _P
@@ -3407,7 +3641,7 @@ class ToolRegistry:
                         if not _pattern or _np in _nf:
                             try:
                                 _cands.append((_f.stat().st_mtime, str(_f)))
-                            except OSError:
+                            except OSError:  # muet-ok : fichier journal disparu ou inaccessible pendant le listage
                                 continue
                 if not _cands:
                     # « rien trouve » != « pas pu voir » : dire OU l'on a cherche.
@@ -3439,7 +3673,13 @@ class ToolRegistry:
                 _shown = path
             return (f"[tail_logs {_shown} — {len(lines)} lignes, tail {_budget // 1024} Ko]\n"
                     + "\n".join(lines[-_lines:]))
-        return path.read_text(encoding="utf-8", errors="replace")
+        contenu = path.read_text(encoding="utf-8", errors="replace")
+        return self._appliquer_cache_conditionnel(
+            chemin_abs=str(path.resolve()),
+            texte_rendu=contenu,
+            si_etag=args.get("si_etag"),
+            depuis_etag=args.get("depuis_etag"),
+        )
 
     async def handle_write(self, args: dict, agent: str, ring: int) -> str:
         """v3 : SecretGuard bloque l'ecriture sur fichiers proteges."""
@@ -3525,6 +3765,36 @@ class ToolRegistry:
         except ValueError:
             return f"SECURITY: edit hors projet refuse: {path_str}"
 
+        # ETAPE 2 de P1_worktree_par_provenance_et_reconciliation_20261018 (decision owner 22/10) : une provenance
+        # EXECUTEUR (identite CLAUDE_HEADLESS / OPENCODE_* / ANTIGRAVITY / MISTRAL, ou en-tete LaForge-Provenance
+        # TASK_EXECUTOR transmis en `_provenance`) ecrit dans SON worktree (nokido_worktrees/<agent>), jamais dans
+        # l'arbre partage. Owner / inconnu : inchange. Worktree introuvable : REFUS, jamais de repli silencieux.
+        # Mesure 22/10 : chaque livraison de `claude -p` laissait une copie de ses tests dans l'arbre partage.
+        _agent_ecriture = agent
+        try:
+            from nokido_agent.tools.forge_worktree import cible_ecriture as _cible_ecriture
+
+            _cible = _cible_ecriture(agent, args.get("_provenance", ""), self.root.parent / "nokido_worktrees")
+        except Exception as _e_wt:  # noqa: BLE001 - fail-closed pour un executeur, inchange pour l'owner
+            _nom_wt = str(agent or "").strip().upper()
+            _exec_wt = (_nom_wt in ("CLAUDE_HEADLESS", "ANTIGRAVITY", "MISTRAL") or _nom_wt.startswith("OPENCODE_")
+                        or str(args.get("_provenance", "")).strip().upper() == "TASK_EXECUTOR")
+            _cible = ({"cible": "REFUS", "racine": None,
+                       "raison": "resolution du worktree impossible (%s) : refus, jamais d'arbre partage"
+                                 % type(_e_wt).__name__}
+                      if _exec_wt else {"cible": "PARTAGE", "racine": None, "raison": ""})
+        if _cible["cible"] == "REFUS":
+            return f"GOVERNED EDIT BLOCKED (worktree_introuvable): {_cible['raison']}"
+        if _cible["cible"] == "WORKTREE":
+            path = _cible["racine"] / path_str
+            try:
+                path.resolve().relative_to(_cible["racine"].resolve())
+            except ValueError:
+                return f"SECURITY: edit hors worktree refuse: {path_str}"
+            # Le garde « arbre_partage » de governed_write vise le NOM de l'agent (OPENCODE_*), pas le chemin :
+            # l'ecriture est ici hors de l'arbre partage, on l'etiquette donc `<agent>@worktree` pour ce garde.
+            _agent_ecriture = f"{agent}@worktree"
+
         # Separation of Powers: check if agent is trying to edit its own judge/scorer
         try:
             from nokido_agent.app.forge_separation import enforce_separation
@@ -3571,9 +3841,11 @@ class ToolRegistry:
                 return f"GOVERNED EDIT BLOCKED (cognitif): {_cog}"
         except Exception as _e:  # noqa: BLE001 - le gate ne casse jamais l'edition
             _cog = "COGNITIF INCONNU : gate indisponible (%s)" % type(_e).__name__
-        verdict = governed_write(str(path), content, agent=agent, allow_critical=_allow_crit)
+        verdict = governed_write(str(path), content, agent=_agent_ecriture, allow_critical=_allow_crit)
         if not verdict.get("ok"):
             return f"GOVERNED EDIT BLOCKED ({verdict.get('blocked')}): {verdict.get('reason')}"
+        if _cible["cible"] == "WORKTREE":
+            verdict["cible"] = "worktree:%s" % _cible["racine"].name
         if _cog:
             verdict["avertissement_cognitif"] = _cog
         try:  # impulsion : seule une edition REUSSIE remet la fenetre a zero (revue adverse Codex 17/10)
@@ -3582,6 +3854,15 @@ class ToolRegistry:
             _brk4.impulsion_remise(_brk4.cle_de_garde(str(agent or "HUB")))
         except Exception:  # noqa: BLE001 - muet-ok : un garde ne casse jamais l'edition
             pass
+        if blocks_raw:  # symbiose (owner 31/10) : rayon d'impact OBSERVE, jamais bloquant, calcul en tache de fond
+            try:
+                from nokido_agent.app.forge_callgraph_jit import observer_rayon_impact as _ori
+
+                _obs = _ori(path_str, str(blocks_raw), agent=str(agent or "?"))
+                if _obs:
+                    verdict["rayon_impact_observe"] = _obs
+            except Exception as _e:  # noqa: BLE001 - l'observation ne casse jamais l'edition
+                verdict["rayon_impact_indisponible"] = type(_e).__name__
         self.state_mgr.add_notification(f"governed_edit: {path.name}", source=agent)
         import json as _j
 
@@ -3894,7 +4175,7 @@ class ToolRegistry:
         finally:
             try:
                 script.unlink()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001  # muet-ok : suppression du script temporaire en best-effort dans finally
                 pass
 
     def _run_sandboxed_shell(self, cmd: str, online: bool, timeout: int,
@@ -3959,7 +4240,7 @@ class ToolRegistry:
         finally:
             try:
                 script.unlink()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001  # muet-ok : suppression du script temporaire oracle en best-effort
                 pass
         try:
             from nokido_agent.app.forge_swarm_bus import publish
@@ -3968,7 +4249,8 @@ class ToolRegistry:
                     data={"agent": agent, "exit": r.get("exit_code"),
                           "timed_out": r.get("timed_out"), "out_len": len(r.get("stdout") or "")},
                     topic="oracle")
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[oracle] publication evenement ORACLE_INVOKED impossible (%s) | consequence: invocation oracle non tracee sur le bus swarm", type(e).__name__, exc_info=True)
             pass
         if r.get("timed_out"):
             return f"ÉCHEC DE L'ORACLE : timeout > {timeout}s (ton code boucle ou est trop lent — simplifie l'hypothèse)."
@@ -4078,6 +4360,21 @@ class ToolRegistry:
         )
 
     async def handle_run(self, args: dict, agent: str, ring: int) -> str:
+        """P1 levier 2 (GO owner 22/10) : la sortie est bornee A L'ENTREE pour les seuls agents LLM (liste blanche,
+        app/forge_run_sortie.py) -- tete + fin + chemin du fichier complet caviarde ; demons internes intacts."""
+        if args.get("action") in ("python", "shell"):
+            from nokido_agent.app.forge_resource_manager import refus_synchrone_lourd
+            _refus = refus_synchrone_lourd(args)
+            if _refus:
+                return _refus
+        res = await self._handle_run_brut(args, agent, ring)
+        try:
+            from nokido_agent.app.forge_run_sortie import borner
+            return borner(res, agent, args)
+        except Exception:  # noqa: BLE001 -- muet-ok : borne indisponible = sortie rendue entiere (jamais de perte)
+            return res
+
+    async def _handle_run_brut(self, args: dict, agent: str, ring: int) -> str:
         """v3 : SecretGuard sur action 'python' pour empecher contournement."""
         from nokido_agent.app.forge_utils import safe_shell_run
         import sys
@@ -4089,7 +4386,8 @@ class ToolRegistry:
             _ij.record(agent=agent, intent_type=f"run:{act}",
                        target=str(args.get("script") or args.get("path") or args.get("code", "")[:60] or "")[:120],
                        payload={"ring": ring, "sandbox": args.get("sandbox")}, decision="executed")
-        except Exception:
+        except Exception as e:
+            logger.debug("[intention_journal] enregistrement intention run impossible (%s) | consequence: intention d'execution non consignee dans le journal d'audit", type(e).__name__, exc_info=True)
             pass
         if act == "trusted_script":
             return await self._handle_trusted_script(args, agent, ring)
@@ -4125,6 +4423,14 @@ class ToolRegistry:
             except ImportError:
                 _lane = None  # module absent -> pas d'admission, on laisse passer
 
+            # 29/10 (chantier coffre cloisonne, derogation owner) : jeton de JOB (RFC 8693) pose dans l'env du job,
+            # pour que le job echange au lieu de lire au coffre le secret d'une identite ring <= 3 ; NOKIDO_JOB_ID
+            # etait ABSENT de tout run_job (mesure job_9a9e8163b463). Echec d'emission = job lance sans jeton, dit
+            # par launch_job. NR tests/nr/test_run_job_emet_jeton_de_job_nr.py.
+            try:
+                from nokido_agent.app.forge_oauth_route import emettre_pour_job as _emettre_pour_job
+            except ImportError:
+                _emettre_pour_job = None
             res = launch_job(
                 args.get("script") or args.get("path") or "", bool(args.get("online", False)),
                 _lane or "", args.get("rss_cap_mb"),
@@ -4132,6 +4438,7 @@ class ToolRegistry:
                 # le JETAIT en silence. Un `--once` perdu = daemon infini a la place
                 # d'un drain one-shot, qu'il faut ensuite tuer a la main.
                 args.get("script_args") or "",
+                jeton_factory=_emettre_pour_job,
             )
             if _lane and _lane_acq and res.get("ok"):
                 try:
@@ -4187,7 +4494,8 @@ class ToolRegistry:
                                     parameters={"job_id": jid},
                                 )
                             )
-                        except Exception:
+                        except Exception as e:
+                            logger.debug("[job_runner] notification fin de job dans INBOX impossible (%s) | consequence: agent demandeur non notifie de la fin du job", type(e).__name__, exc_info=True)
                             pass
 
                 _aio.ensure_future(_watch_job(res["job_id"], notify or "", _lane or ""))
@@ -4226,7 +4534,7 @@ class ToolRegistry:
                     code = open(_f, encoding="utf-8", errors="replace").read()
                 try:
                     _os.unlink(_f)
-                except:
+                except Exception:  # muet-ok : suppression du code_file temporaire en best-effort apres lecture
                     pass
             else:
                 code = args.get("code", "")
@@ -4787,7 +5095,8 @@ class ToolRegistry:
                 _to_map[_nm.lower()] = _bx
                 if _bx not in _broadcast_all:
                     _broadcast_all.append(_bx)
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[videur] resolution dynamique des boites aux lettres impossible (%s) | consequence: repli sur la table des destinataires statiques", type(e).__name__, exc_info=True)
             pass  # registre illisible -> plancher fige conserve
         _explicit_to = args.get("to", "")
         _self_agt = f"agt_{agent.lower()}"
@@ -4900,7 +5209,8 @@ class ToolRegistry:
             try:
                 from nokido_agent.app.forge_videur import cli_agents as _cag2
                 _AGT = "|".join(sorted(set(_AGT.split("|")) | _cag2()))
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001
+                logger.debug("[videur] enrichissement regex agents impossible (%s) | consequence: routage base uniquement sur la liste d'agents par defaut", type(e).__name__, exc_info=True)
                 pass
             _head = msg[:80]
             # 1) forme DIRIGEE [EMETTEUR->DEST] : c'est DEST qui route, pas l'emetteur.
@@ -5151,7 +5461,8 @@ class ToolRegistry:
                     _sys_tm.path.insert(0, str(_P(__file__).resolve().parent.parent / "tools"))
                     from nokido_agent.tools.forge_token_meter import get_agent_usage
                     _tok_usage = get_agent_usage(agent, since_hours=720)
-                except Exception:
+                except Exception as e:
+                    logger.debug("[token_meter] calcul consommation tokens impossible (%s) | consequence: metriques de consommation absentes du rapport whoami", type(e).__name__, exc_info=True)
                     pass
 
             # 7. Santé services (cross-ref superviseur :8765, GET non gaté) — sinon
@@ -5159,6 +5470,7 @@ class ToolRegistry:
             # en file. RCA 2026-05-29 : SearXNG down + veille KO non détectés car
             # les chains avaient expiré → "rien à reprendre" trompeur.
             _degraded = []
+            _piliers_endormis = []
             try:
                 import urllib.request as _u
 
@@ -5170,7 +5482,17 @@ class ToolRegistry:
                     _desactives = {n for n, d in _declared_services().items() if d.get("disabled")}
                 except Exception:  # noqa: BLE001 - registre illisible : AUCUN service excuse (sens prudent)
                     _desactives = set()
-                _degraded = whoami_degraded_services(_svcs, _desactives)
+                try:
+                    from nokido_agent.tools.forge_llama_keeper import (  # noqa: PLC0415
+                        _DRAPEAU_PAR_SERVICE,
+                        _intention_voulue,
+                    )
+
+                    _endormis = piliers_endormis_par_regulation(_DRAPEAU_PAR_SERVICE, _intention_voulue)
+                except Exception:  # noqa: BLE001 - politique illisible : AUCUN pilier excuse (sens prudent)
+                    _endormis = set()
+                _piliers_endormis = whoami_piliers_endormis(_svcs, _endormis)
+                _degraded = whoami_degraded_services(_svcs, _desactives, _endormis)
             except Exception:
                 _degraded = []
             _health_actions = whoami_health_actions(_degraded)
@@ -5207,6 +5529,12 @@ class ToolRegistry:
                            % (_u8["n"], _u8["agent"], _u8["plus_ancienne"]),
                 }] + _health_actions
 
+            try:
+                import psutil
+                _hub_demarre_a = datetime.fromtimestamp(psutil.Process(os.getpid()).create_time()).isoformat(timespec="seconds")
+            except Exception:
+                _hub_demarre_a = "ILLISIBLE"
+
             out = {
                 "agent": agent,
                 "ts": _now,
@@ -5240,6 +5568,10 @@ class ToolRegistry:
                 "biblio_unverified": [{"id": b["id"][:12], "title": b["title"][:60]} for b in _biblio],
                 "tasks_unclaimed": _unclaimed,
                 "services_degraded": _degraded,
+                # arretes par la regulation (aucune intention fraiche) : pas une panne, mais gardes visibles
+                "piliers_endormis": _piliers_endormis,
+                "hub_pid": os.getpid(),
+                "hub_demarre_a": _hub_demarre_a,
                 "last_action": _last["created_at"] if _last else None,
                 # Resource Discovery — ce que Gemini Ultra appellait check_privileges()
                 "resources": {
@@ -5358,7 +5690,8 @@ class ToolRegistry:
                     f"[POSTAL #{_m['id']} from {_m['from']}/{_m.get('from_channel', '')} "
                     f"reply->{_m.get('reply_to')}] {_m['body']}"
                 )
-        except Exception:
+        except Exception as e:
+            logger.debug("[postal] releve courrier secretaire impossible (%s) | consequence: messages postaux non recuperes lors du poll", type(e).__name__, exc_info=True)
             pass
         out = list(notifs) + _mail
         return "\n".join(out) if out else "Aucune notification."
@@ -5446,23 +5779,48 @@ class ToolRegistry:
         tid = args.get("task_id", "")
         job_id = args.get("job_id", "") or tid
 
+        # SANS identifiant : la vue des delegations en vol, la MEME que `forge_job_watch_cli --delegations`
+        # (P1_suivi_delegations_tout_cli, derogation owner 26/10) -- un CLI sans Monitor recevait `not_found`.
+        # `de` = demandeur (defaut : l'appelant ; "*" = tous).
+        if not tid and not job_id:
+            from nokido_agent.tools import forge_job_watch_cli as _wcli
+
+            de = str(args.get("de") or agent or "").strip()
+            vols = _wcli.delegations_en_vol(de=None if de in ("*", "") else de)
+            return _j.dumps({"ok": True, "vue": "delegations", "de": de or "*", "n": len(vols),
+                             "delegations": vols}, ensure_ascii=False, default=str)
+
         # Priorité : jobs_state (riche)
         ctx = load_job(job_id) if job_id else None
         if not ctx and tid and tid != job_id:
             ctx = load_job(tid)
         if ctx:
-            return _j.dumps(
-                {
-                    "job_id": ctx.job_id,
-                    "task_id": tid,
-                    "status": ctx.status,
-                    "agent": ctx.agent,
-                    "intent_type": ctx.intent_type,
-                    "result_summary": ctx.result_summary,
-                    "error": ctx.error,
-                },
-                ensure_ascii=False,
-            )
+            # 30/10 : jobs_state garde le statut de l'ASSIGNATION ; tasks.db porte celui de l'executeur (running,
+            # done...). Mesure : job_83b95c11 rendu « pending » ici pendant que tasks.db disait « running » (bail,
+            # exec_pid). Le statut REEL est celui de tasks.db ; l'ecart se DIT (statut_jobs_state).
+            reel = None
+            try:
+                _c = self._task_db()
+                try:
+                    _r = _c.execute("SELECT status FROM tasks WHERE id=? OR job_id=?",
+                                    (tid or job_id, job_id or tid)).fetchone()
+                finally:
+                    _c.close()
+                reel = _r[0] if _r else None
+            except Exception:  # noqa: BLE001 - tasks.db illisible : statut de jobs_state, l'ecart reste possible
+                reel = None
+            sortie = {
+                "job_id": ctx.job_id,
+                "task_id": tid,
+                "status": reel or ctx.status,
+                "agent": ctx.agent,
+                "intent_type": ctx.intent_type,
+                "result_summary": ctx.result_summary,
+                "error": ctx.error,
+            }
+            if reel and reel != ctx.status:
+                sortie["statut_jobs_state"] = ctx.status
+            return _j.dumps(sortie, ensure_ascii=False)
 
         # Fallback : tasks.db
         conn = self._task_db()
@@ -5682,6 +6040,76 @@ class ToolRegistry:
         conn.commit()
         return conn
 
+    def _avertissement_agent(self, ag_raw: str):
+        """Owner 30/10 : une tache adressee a OPENCODE (aucun executeur de ce nom) est restee 25 min orpheline,
+        acceptee sans un mot. Avertissement NON bloquant (observer avant d'enforcer) quand aucun service de
+        services.toml ne porte `--agent <ag_raw>` ; rend None si l'agent est servi ou si le fichier est illisible."""
+        import re as _re_ag
+        try:
+            _toml = (self.root / "proxy_deno" / "core" / "services.toml").read_text(encoding="utf-8",
+                                                                                   errors="replace")
+        except OSError:
+            return None
+        _servis = {a.upper() for a in _re_ag.findall(r'"--agent",\s*"([^"]+)"', _toml)}
+        if not _servis or ag_raw in _servis:
+            return None
+        _proches = sorted(a for a in _servis if a.split("_")[0] == ag_raw.split("_")[0])
+        return ("aucun executeur ne porte --agent %s : la tache attendra qu'une surface la reclame (task claim)%s"
+                % (ag_raw, (" ; executeurs proches : %s" % ", ".join(_proches)) if _proches else ""))
+
+    def _services_executeurs_de(self, ag_raw: str) -> list:
+        """Services de services.toml qui portent `--agent <ag_raw>` et ne sont pas coupes (`disabled = true`). Meme
+        lecture que `_avertissement_agent` ; fichier illisible -> [] (le reveil est un confort, jamais une condition)."""
+        import re as _re_sx
+        try:
+            _toml = (self.root / "proxy_deno" / "core" / "services.toml").read_text(encoding="utf-8",
+                                                                                   errors="replace")
+        except OSError:
+            return []
+        noms = []
+        for _bloc in _re_sx.split(r"(?m)^\[\[service\]\]", _toml)[1:]:
+            _nom = _re_sx.search(r'(?m)^name\s*=\s*"([^"]+)"', _bloc)
+            _ag = _re_sx.search(r'"--agent",\s*"([^"]+)"', _bloc)
+            if (_nom and _ag and _ag.group(1).upper() == (ag_raw or "").upper()
+                    and not _re_sx.search(r"(?m)^disabled\s*=\s*true", _bloc)):
+                noms.append(_nom.group(1))
+        return noms
+
+    def _reveiller_executeur_de(self, ag_raw: str) -> None:
+        """30/10 (docs/enquetes/reveil_apres_delestage_20261030.md) : le superviseur ne reveille un executeur deleste
+        que sous 82 % RAM et 84 % de budget ; RAM tenue entre 82 et 88 % = tache deposee que personne ne reclame.
+        L'assignation est une INTENTION : demander au superviseur de demarrer l'executeur (/supervisor/service/start,
+        sans effet s'il tourne). L'admission RAM reste la sienne (gate should_spawn du hub) : jamais contournee.
+        Thread daemon : appel HTTP hors de l'event loop du hub (meme patron que le reveil du drain postal)."""
+        noms = self._services_executeurs_de(ag_raw)
+        if not noms:
+            return
+
+        def _reveil():
+            import urllib.request as _ur_x
+
+            _tok_x = ""
+            try:
+                from nokido_agent.app.forge_secrets import get_secret as _gs_x
+
+                _tok_x = _gs_x("LAFORGE_SUPERVISOR_TOKEN") or ""
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[reveil executeur] jeton superviseur illisible (%s) | consequence: appel NON "
+                               "authentifie, refus possible en aval", type(e).__name__)
+            for _nom_x in noms:
+                _req_x = _ur_x.Request("http://127.0.0.1:8765/supervisor/service/start/" + _nom_x, data=b"",
+                                       method="POST", headers={"Authorization": f"Bearer {_tok_x}"} if _tok_x else {})
+                try:
+                    with _ur_x.urlopen(_req_x, timeout=30) as _rp_x:
+                        logger.info("[reveil executeur] %s demande au superviseur (HTTP %s)", _nom_x, _rp_x.status)
+                except Exception as _e_x:  # noqa: BLE001
+                    logger.warning("[reveil executeur] %s NON reveille (%s) : la tache attend qu'il soit relance",
+                                   _nom_x, type(_e_x).__name__)
+
+        import threading as _th_x
+
+        _th_x.Thread(target=_reveil, daemon=True, name="reveil_executeur").start()
+
     async def handle_task_assign(self, args: dict, agent: str, ring: int) -> str:
         import json as _j, sqlite3 as _sq
         from datetime import datetime as _dt
@@ -5692,6 +6120,10 @@ class ToolRegistry:
         # Alias identite : AGY == ANTIGRAVITY (inbox canonique drainee agt_antigravity)
         if ag_raw in ("AGY", "ANTIGRAVITY"):
             ag_raw = "ANTIGRAVITY"
+        try:
+            _avert_agent = self._avertissement_agent(ag_raw)
+        except Exception:  # muet-ok : l'avertissement est un confort, jamais une cause d'echec d'assignation
+            _avert_agent = None
         to_agt = f"agt_{ag_raw.lower()}"
         from_agt = f"agt_{agent.lower()}" if not agent.startswith("agt_") else agent
         # Le schema du tool expose `task` ; ce handler ne lisait QUE `description`.
@@ -5703,6 +6135,10 @@ class ToolRegistry:
         desc = (args.get("task") or args.get("description") or args.get("message") or "").strip()
         intent = args.get("intent", "task_assign")
         priority = int(args.get("priority", 5))
+        # Contrat de livrable STRUCTURE, pose par l'appelant (hors bande) : le juge le lit en priorite.
+        _liv = args.get("livrable")
+        if isinstance(_liv, dict) and desc:
+            desc = desc + "\n[LIVRABLE_CONTRAT] " + _j.dumps({"livrable": _liv}, ensure_ascii=False)
 
         # Inject file context: detect py file paths in description, prepend content
         if intent == "code" and desc:
@@ -5721,7 +6157,8 @@ class ToolRegistry:
                     try:
                         content = fp.read_text(encoding="utf-8", errors="replace")[:3500]
                         _injected.append(f"# FILE: {rel}\n```python\n{content}\n```")
-                    except Exception:
+                    except Exception as e:
+                        logger.debug("[task_assign] lecture fichier contexte impossible (%s) | consequence: contenu du fichier omis de la description de tache", type(e).__name__, exc_info=True)
                         pass
             if _injected:
                 desc = "\n\n".join(_injected) + "\n\n---\n\n# TASK\n" + desc
@@ -5729,6 +6166,17 @@ class ToolRegistry:
         job_id = args.get("job_id") or generate_job_id(agent, intent)
         tid = args.get("task_id") or job_id
         now = _dt.now().isoformat()
+
+        # 0. Entrees (31/10, owner : un travail 3 nourri par les travaux 1 et 2) -- validees AVANT toute ecriture
+        _c_dep = self._task_db()
+        try:
+            _entrees, _err_dep = _normaliser_depend_de(
+                args.get("depend_de"), tid,
+                lambda i: _c_dep.execute("SELECT 1 FROM tasks WHERE id=?", (i,)).fetchone() is not None)
+        finally:
+            _c_dep.close()
+        if _err_dep:
+            return _j.dumps({"ok": False, "error": _err_dep}, ensure_ascii=False)
 
         # 1. Persist task
         conn = self._task_db()
@@ -5747,6 +6195,12 @@ class ToolRegistry:
             (tid, desc, ag_raw, "pending", None, now, now, job_id, from_agt,
              self._ring_delegant(ring)),
         )
+        if _entrees:
+            try:
+                conn.execute("ALTER TABLE tasks ADD COLUMN depend_de TEXT")
+            except _sq.OperationalError:
+                pass  # muet-ok : colonne deja presente
+            conn.execute("UPDATE tasks SET depend_de=? WHERE id=?", (_j.dumps(_entrees), tid))
         conn.commit()
         conn.close()
 
@@ -5788,6 +6242,11 @@ class ToolRegistry:
         # 5. Push queue volatile (SSE wake-up immédiat)
         INBOX.push(frame)
 
+        try:  # 6. Intention : un executeur endormi (deleste par pression RAM) est demande au superviseur
+            self._reveiller_executeur_de(ag_raw)
+        except Exception:  # muet-ok : le reveil est un confort, jamais une cause d'echec d'assignation
+            logger.debug("reveil executeur non tente", exc_info=True)
+
         return _j.dumps(
             {
                 "ok": True,
@@ -5795,6 +6254,9 @@ class ToolRegistry:
                 "job_id": job_id,
                 "agent": ag_raw,
                 "frame_id": frame.frame_id,
+                **({"depend_de": _entrees,
+                    "note": "servie quand ses entrees sont done (BLOQUE_PAR_DEPENDANCE d'ici la)"} if _entrees else {}),
+                **({"avertissement": _avert_agent} if _avert_agent else {}),
             },
             ensure_ascii=False,
         )
@@ -5867,6 +6329,12 @@ class ToolRegistry:
         result_text = (args.get("result", "") or "")[:2000]
         now = _dt.now().isoformat()
 
+        # task_id vide : refus explicite (avant, UPDATE sur 0 ligne puis ok:true sans effet).
+        if not isinstance(tid, str) or not tid.strip():
+            return _j.dumps({"ok": False, "error": "TASK_ID_REQUIS",
+                             "detail": "task result: task_id vide ou absent, rien enregistre"},
+                            ensure_ascii=False)
+
         # Sprint 3 M2M : validation du result (warn par defaut ; error = refus).
         try:
             from nokido_agent.app.forge_m2m_protocol import check as _m2m_check
@@ -5874,7 +6342,8 @@ class ToolRegistry:
             if not _m2m_ok:
                 return _j.dumps({"ok": False, "error": "M2M_REFUSED", "code": _m2m_v.get("code"),
                                  "violations": _m2m_v.get("violations")}, ensure_ascii=False)
-        except Exception:
+        except Exception as e:
+            logger.debug("[m2m_protocol] validation protocole M2M impossible (%s) | consequence: resultat de tache accepte sans validation de format M2M", type(e).__name__, exc_info=True)
             pass
 
         # Separation of Powers: check that the validator/creator is not the task worker
@@ -5886,6 +6355,17 @@ class ToolRegistry:
         except Exception as e:
             return f"SECURITY: Separation of powers check error: {e}"
 
+        # task_id inconnu : refus explicite AVANT tout effet de bord (scorecard, RAG, notif).
+        _conn_chk = self._task_db()
+        try:
+            _existe = _conn_chk.execute("SELECT 1 FROM tasks WHERE id=?", (tid,)).fetchone()
+        finally:
+            _conn_chk.close()
+        if not _existe:
+            return _j.dumps({"ok": False, "error": "TASK_ID_INCONNU",
+                             "detail": f"task result: task_id {tid!r} inconnu, rien enregistre"},
+                            ensure_ascii=False)
+
         # Quality gate on Python code blocks in result (non-blocking, warn only)
         _qg_errs: list = []
         try:
@@ -5896,7 +6376,8 @@ class ToolRegistry:
                 import logging as _lg
 
                 _lg.getLogger("Nokido.Registry").warning("[quality_gate] task=%s errors=%s", tid, _qg_errs[:3])
-        except Exception:
+        except Exception as e:
+            logger.debug("[quality_gate] verification qualite du resultat impossible (%s) | consequence: erreurs potentielles de qualite non detectees", type(e).__name__, exc_info=True)
             pass
 
         # Scorecard : enrobe le quality_gate dans le contrat unifie
@@ -5942,7 +6423,8 @@ class ToolRegistry:
                         )
                 finally:
                     _os.unlink(_tmp_path)
-        except Exception:
+        except Exception as e:
+            logger.debug("[dep_manager] verification des dependances impossible (%s) | consequence: paquets python manquants potentiellement non installes", type(e).__name__, exc_info=True)
             pass
 
         conn = self._task_db()
@@ -6074,7 +6556,8 @@ class ToolRegistry:
             )
             conn3.commit()
             conn3.close()
-        except Exception:
+        except Exception as e:
+            logger.debug("[rag] indexation du resultat de tache dans rag_chunks impossible (%s) | consequence: resultat non indexe pour la recherche RAG", type(e).__name__, exc_info=True)
             pass
 
         return _j.dumps(
@@ -6412,10 +6895,14 @@ class ToolRegistry:
         """Extrait le corps complet d'une fonction/classe via AST. Single Source of Truth pour zoom SWE."""
         import ast as _ast, os as _os
 
-        file_path = args.get("file_path", "")
+        file_path = args.get("file_path", "") or args.get("path", "")
         func_name = args.get("function_name", "")
         if not file_path or not func_name:
             return "ERR: file_path et function_name requis"
+        _refus_portee = _hors_portee(agent, file_path if _os.path.isabs(file_path)
+                                     else _os.path.join(str(self.root), file_path))
+        if _refus_portee:
+            return _refus_portee
         root = _os.path.dirname(_os.path.dirname(__file__))
         abs_path = file_path if _os.path.isabs(file_path) else _os.path.join(root, file_path)
         if not _os.path.exists(abs_path):
@@ -6432,7 +6919,13 @@ class ToolRegistry:
                     start = node.lineno - 1
                     end = getattr(node, "end_lineno", node.lineno)
                     body = "".join(src_lines[start:end])
-                    return f"### {file_path} — {func_name} (L{node.lineno}–L{end})\n```python\n{body.rstrip()}\n```"
+                    rendu = f"### {file_path} — {func_name} (L{node.lineno}–L{end})\n```python\n{body.rstrip()}\n```"
+                    return self._appliquer_cache_conditionnel(
+                        chemin_abs=str(Path(abs_path).resolve()),
+                        texte_rendu=rendu,
+                        si_etag=args.get("si_etag"),
+                        depuis_etag=args.get("depuis_etag"),
+                    )
         return f"ERR: '{func_name}' non trouvé dans {file_path}"
 
     async def handle_forge_stats(self, args: dict, agent: str, ring: int) -> str:
@@ -6459,6 +6952,36 @@ class ToolRegistry:
             out["resources"] = {k: s.get(k) for k in ("ram_pct", "cpu_pct", "gpu_pct")}
         except Exception as e:
             out["resources"] = f"err: {type(e).__name__}: {e}"
+        # symbiose (owner 31/10) : vues DERIVEES de journaux existants, zero ecriture
+        try:
+            from nokido_agent.app.forge_network_logger import carte_attention
+
+            out["attention"] = carte_attention()
+        except Exception as e:
+            out["attention"] = f"err: {type(e).__name__}: {e}"
+        try:
+            from nokido_agent.app.forge_token_cache import bilan_economie
+
+            out["economie_etag"] = bilan_economie()
+        except Exception as e:
+            out["economie_etag"] = f"err: {type(e).__name__}: {e}"
+        # Un client qui ignore l'etag se voit ici : lectures ECONOMES (token_savings) / lectures TOTALES (journal
+        # d'actes), meme fenetre de 30 min. Une source manquante = ILLISIBLE, jamais un ratio invente.
+        try:
+            from nokido_agent.app.forge_token_cache import bilan_economie as _be
+
+            _att = out.get("attention") if isinstance(out.get("attention"), dict) else {}
+            _eco = _be(fenetre_s=1800)
+            _tot = _att.get("lectures_totales")
+            if _eco.get("etat") != "MESURE" or not isinstance(_tot, int):
+                out["lectures_economes_30min"] = {"etat": "ILLISIBLE",
+                                                  "raison": _eco.get("raison") or "carte d'attention indisponible"}
+            else:
+                _n = sum(m["appels"] for m in _eco["par_mode"].values())
+                out["lectures_economes_30min"] = {"economes": _n, "totales": _tot,
+                                                  "ratio": round(_n / _tot, 2) if _tot else None}
+        except Exception as e:
+            out["lectures_economes_30min"] = f"err: {type(e).__name__}: {e}"
         return _j.dumps(out, ensure_ascii=False)
 
     async def handle_get_file_skeleton(self, args: dict, agent: str, ring: int) -> str:
@@ -6471,6 +6994,9 @@ class ToolRegistry:
         path = args.get("file_path") or args.get("path") or ""
         if not path:
             return "ERR: file_path requis"
+        _refus_portee = _hors_portee(agent, path if _os.path.isabs(path) else _os.path.join(str(self.root), path))
+        if _refus_portee:
+            return _refus_portee
         root = _os.path.dirname(_os.path.dirname(__file__))
         try:
             sk = await _aio.to_thread(_fs, path, root)
@@ -6478,7 +7004,14 @@ class ToolRegistry:
             return f"ERR: {type(e).__name__}: {e}"
         if not sk:
             return f"ERR: skeleton vide (fichier introuvable ou SyntaxError): {path}"
-        return f"### SKELETON {path}\n```python\n{sk}\n```"
+        rendu = f"### SKELETON {path}\n```python\n{sk}\n```"
+        abs_p = path if _os.path.isabs(path) else _os.path.join(root, path)
+        return self._appliquer_cache_conditionnel(
+            chemin_abs=str(Path(abs_p).resolve()),
+            texte_rendu=rendu,
+            si_etag=args.get("si_etag"),
+            depuis_etag=args.get("depuis_etag"),
+        )
 
     async def handle_get_function_dependencies(self, args: dict, agent: str, ring: int) -> str:
         """Callers+callees fonction-level (impact d'une modif) via forge_callgraph_jit."""
@@ -6544,7 +7077,9 @@ class ToolRegistry:
                 zone,
                 category=flt.get("category"),
                 min_trust=flt.get("min_trust"),
-                limit=int(flt.get("limit", 200)),
+                limit=int(args.get("limit") or flt.get("limit") or 200),
+                key=args.get("key") or flt.get("key"),
+                key_prefix=args.get("key_prefix") or flt.get("key_prefix"),
             )
         except Exception as e:
             return f"ERR: {type(e).__name__}: {e}"
@@ -6606,7 +7141,8 @@ class ToolRegistry:
             _r = _clarify(message)
             if _r["needs_clarif"]:
                 return _r["clarification_q"]
-        except Exception:
+        except Exception as e:
+            logger.debug("[clarification] analyse de clarification impossible (%s) | consequence: transmission directe au modele sans demande de clarification", type(e).__name__, exc_info=True)
             pass
         provider = args.get("provider", "gemini")
         if provider in ("claude",):
@@ -6747,7 +7283,7 @@ class ToolRegistry:
         for k in ["flash", "flash_lite", "pro", "preview_pro"]:
             try:
                 state[k] = float(state[k])
-            except:
+            except (TypeError, ValueError, Exception):  # muet-ok : valeur de quota non convertible ou absente laissee telle quelle
                 pass
         db = _P(__file__).resolve().parent.parent / "RAG" / "quota_state.json"
         db.write_text(_j.dumps(state, indent=2), encoding="utf-8")
@@ -6863,7 +7399,8 @@ class ToolRegistry:
                 from nokido_agent.app.forge_db_conn import _audit_db_access
 
                 _audit_db_access(str(self.root / "RAG" / "embeddings.db"), "read", "sqlite")
-            except Exception:
+            except Exception as e:
+                logger.debug("[audit_db] audit acces base RAG impossible (%s) | consequence: acces a embeddings.db non trace dans le journal d'audit db", type(e).__name__, exc_info=True)
                 pass
             import asyncio as _aio
             try:
@@ -7105,7 +7642,8 @@ class ToolRegistry:
                     "UPDATE rag_chunks SET access_count=COALESCE(access_count,0)+1 "
                     "WHERE id IN (%s)" % ",".join("?" * len(_ids)), _ids)
                 conn.commit()
-        except Exception:
+        except Exception as e:
+            logger.debug("[rag_bm25] incrementation access_count impossible (%s) | consequence: statistiques d'acces des chunks non mises a jour", type(e).__name__, exc_info=True)
             pass  # signal d'usage best-effort : jamais casser la lecture
         conn.close()
         if not rows:
@@ -7297,15 +7835,13 @@ class ToolRegistry:
             # ce SELECT relisait 1,15 M lignes de texte (46,5 Go) a CHAQUE recharge du
             # cache alors que la recherche n'en consulte que 80 — le texte n'est lu que
             # pour les candidats, par `_meta_par_ids`. `_meta` reste donc VIDE ici.
-            for _cid, _ext, _fold in _conn.execute(
-                "SELECT id, ext, folder FROM rag_chunks "
-                "WHERE embedding IS NOT NULL"
-            ):
-                if not _cid:
-                    continue
-                _ids.append(_cid)
-                _exts.append(_ext or "")
-                _folders.append(_fold or "")
+            # 24/10 : index COUVRANTS seulement (ext/folder virtuels = balayage 45 Go). Cf. forge_rag_sql.
+            try:
+                from nokido_agent.app.forge_rag_sql import ids_avec_embedding as _ids_emb
+            except ImportError:
+                from forge_rag_sql import ids_avec_embedding as _ids_emb
+            _ids = _ids_emb(_conn)
+            _exts = None  # lu a la demande pour les candidats (ext_par_ids)
             _conn.close()
             logging.getLogger(__name__).info(
                 "[rag:index] %d chunks indexables, AUCUNE matrice en RAM (dense servi "
@@ -7317,7 +7853,7 @@ class ToolRegistry:
                 # la forme porte deja l'information.
                 "mat": _np.zeros((0, 1024), dtype=_np.float32),
                 "meta": _meta,
-                "exts": _np.array(_exts),
+                "exts": None,
                 "folders": _np.array(_folders),
                 "ts": _t.time(),
             }
@@ -7386,7 +7922,8 @@ class ToolRegistry:
                     jv = _j.loads(emb)
                     if isinstance(jv, list) and len(jv) == 1024:
                         v = _np.asarray(jv, dtype=_np.float32)
-                except Exception:
+                except Exception as e:
+                    logger.debug("[rag_cache] decodage vecteur json impossible (%s) | consequence: chunk omis du cache matriciel dense", type(e).__name__, exc_info=True)
                     pass
             if v is None or not cid:
                 continue
@@ -7695,8 +8232,20 @@ class ToolRegistry:
                     "sidecar — resultats PARTIELS, dits plutot que tus",
                     _erreurs, len(qm))
             _ordre = sorted(_scores, key=lambda i: -_scores[i])
-            if flt.get("ext") and _exts is not None:
-                _filtres = [i for i in _ordre if _exts[i] == flt["ext"]]
+            if flt.get("ext"):
+                if _exts is not None:
+                    _filtres = [i for i in _ordre if _exts[i] == flt["ext"]]
+                else:
+                    try:
+                        from nokido_agent.app.forge_rag_sql import ext_par_ids as _ext_ids
+                    except ImportError:
+                        from forge_rag_sql import ext_par_ids as _ext_ids
+                    _cx_e = _sq.connect(str(self.db_path), timeout=8)
+                    try:
+                        _em = _ext_ids(_cx_e, [ids[i] for i in _ordre])
+                    finally:
+                        _cx_e.close()
+                    _filtres = [i for i in _ordre if _em.get(ids[i]) == flt["ext"]]
                 if len(_filtres) >= max(limit, 12):
                     _ordre = _filtres
                     mode = f"hybride.ext={flt['ext']}"
@@ -7726,7 +8275,8 @@ class ToolRegistry:
                 ).fetchall()
                 cx.close()
                 bm_cand = [idpos[r[0]] for r in rows if r[0] in idpos]
-        except Exception:
+        except Exception as e:
+            logger.debug("[rag_dense] recuperation candidats bm25 impossible (%s) | consequence: recherche hybride degradee en recherche purement dense", type(e).__name__, exc_info=True)
             pass
         # union dense + BM25 (le reranker tranche), plafonne a 80
         seen, cand = set(), []
@@ -7801,7 +8351,8 @@ class ToolRegistry:
                 res = sorted(res, key=lambda x: -_autorite(x))
                 cand = [cand[x["index"]] for x in res]
                 mode += "+rerank+autorite"
-        except Exception:
+        except Exception as e:
+            logger.debug("[rag_dense] reranking cross-encoder impossible (%s) | consequence: ordre des resultats base sur le score de similarite initial sans reranking", type(e).__name__, exc_info=True)
             pass
         final = cand[:limit]
         out = []
@@ -8001,7 +8552,8 @@ class ToolRegistry:
             ap.parent.mkdir(parents=True, exist_ok=True)
             with open(ap, "a", encoding="utf-8") as f:
                 f.write(_cj.dumps(rec, ensure_ascii=False) + "\n")
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[console_exec] ecriture audit console_exec_audit.jsonl impossible (%s) | consequence: execution console non consignee dans le journal d'audit", type(e).__name__, exc_info=True)
             pass
         if decision != "ALLOW":
             return {"ok": False, "stdout": "", "stderr": f"[console:{decision}] {reason}",
@@ -8038,7 +8590,8 @@ class ToolRegistry:
             violation = sanitize_shell_command(cmd, agent, ring)
             if violation:
                 return {"ok": False, "stdout": "", "stderr": violation, "elapsed_ms": _elapsed()}
-        except ImportError:
+        except ImportError as e:
+            logger.debug("[secret_guard] import sanitize_shell_command impossible (%s) | consequence: commande shell executee sans sanitisation des secrets", type(e).__name__, exc_info=True)
             pass
 
         # ── Route by sandbox type ─────────────────────────────────────────
@@ -8363,7 +8916,7 @@ class ToolRegistry:
                 import shutil
 
                 shutil.rmtree(tmp, ignore_errors=True)
-            except Exception:
+            except Exception:  # muet-ok : suppression du dossier temporaire de sandbox en best-effort dans finally
                 pass
 
     async def handle_ps_run(self, args: dict, agent: str, ring: int) -> str:
@@ -8442,6 +8995,15 @@ class ToolRegistry:
             return f"ERR handle_route_dt: {type(e).__name__}: {e}"
 
     async def handle_route_task(self, args: dict, agent: str, ring: int) -> str:
+        if args.get("mode") == "dt":
+            # 31/10 : route_dt fusionne. Le ring de route_dt (2) vaut ICI : route_task est ouvert au ring 3, sans
+            # ce garde le mode dt elevait le privilege d'un appelant ring 3.
+            besoin = self._TOOL_MIN_RING.get("route_dt", 2)
+            if ring > besoin:
+                return json.dumps({"error": "route_task mode=dt reserve au ring <= %d (ring %d)" % (besoin, ring)})
+            p = args.get("payload") or {}
+            return await self.handle_route_dt({"prompt": p.get("prompt", p.get("task", "")),
+                                               "task_type": args.get("task_type")}, agent, ring)
         task_type = args.get("task_type", "code")
         payload = args.get("payload", {})
         prompt = payload.get("prompt", payload.get("task", ""))
@@ -8497,7 +9059,8 @@ class ToolRegistry:
             complexity = _estimate_complexity(prompt)
             model = _select_model(complexity, ring)
             payload["_cognitive"] = {"complexity": complexity, "model": model}
-        except Exception:
+        except Exception as e:
+            logger.debug("[cognitive_router] estimation complexite ou selection modele impossible (%s) | consequence: payload route sans metadata cognitive", type(e).__name__, exc_info=True)
             pass
 
         # ETAPE 3 : RBAC filter tools avant envoi LLM
@@ -8883,7 +9446,8 @@ class ToolRegistry:
                     names = [n for n in names if _ring_ok(n, ring)]  # grille ring (post-sémantique)
                     if names:
                         return json.dumps(names)
-            except Exception:
+            except Exception as e:
+                logger.debug("[skill] lecture des competences en base impossible (%s) | consequence: bascule sur le scan du systeme de fichiers", type(e).__name__, exc_info=True)
                 pass
             # Fallback filesystem
             if not skills_root.exists():
@@ -8906,7 +9470,8 @@ class ToolRegistry:
                 conn.close()
                 if rows:
                     return "\n\n".join(r[0] for r in rows)
-            except Exception:
+            except Exception as e:
+                logger.debug("[skill] lecture du contenu de la competence en base impossible (%s) | consequence: bascule sur la lecture du fichier SKILL.md", type(e).__name__, exc_info=True)
                 pass
             # Fallback filesystem
             skill_path = skills_root / name / "SKILL.md"
@@ -9088,6 +9653,9 @@ class ToolRegistry:
         In-process : un run détaché NE survit PAS à un restart du hub. Pour de la
         durabilité event-sourced (resume-from-step) -> forge_durable_workflow.
         """
+        if args.get("engine") == "react":   # 31/10 : react_orchestrate fusionne (meme ring que orchestrate)
+            return await self.handle_react_orchestrate({"task": args.get("task", ""),
+                                                        "max_iter": args.get("max_iter", 10)}, agent, ring)
         import json as _j
         import sys
 
@@ -9166,7 +9734,8 @@ class ToolRegistry:
             conn.execute("INSERT OR IGNORE INTO autonomous_loop_state (pattern, enabled) VALUES (?, 1)", (pattern,))
             conn.commit()
             conn.close()
-        except Exception:
+        except Exception as e:
+            logger.debug("[loop_orchestrate] insertion etat boucle impossible (%s) | consequence: etat initial de la boucle autonome non persiste en base", type(e).__name__, exc_info=True)
             pass
 
         # 2. Plan & Execute
@@ -9196,7 +9765,8 @@ class ToolRegistry:
                 )
                 conn.commit()
                 conn.close()
-            except Exception:
+            except Exception as e:
+                logger.debug("[loop_orchestrate] mise a jour resultat boucle impossible (%s) | consequence: statut d'execution de la boucle autonome non persiste en base", type(e).__name__, exc_info=True)
                 pass
 
             return _j.dumps(
@@ -9413,6 +9983,8 @@ class ToolRegistry:
                 "les valeurs codees en dur, la politique appliquee n'est plus celle "
                 "de la base", type(e).__name__)
         # Fallback hardcodé si DB indisponible
+        if name == "acp":
+            return 1
         if name == "agy_config":
             return 1 if args.get("action") == "write" else 3
         if name in ("agy_run", "agy_add_dir"):
@@ -9570,7 +10142,8 @@ def _parse_markdown_tool_call(content: str) -> list:
     if isinstance(args, str):
         try:
             args = json.loads(args)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.debug("[markdown_parser] decodage arguments json impossible (%s) | consequence: arguments conserves sous forme de chaine brute", type(e).__name__, exc_info=True)
             pass
     tc_id = f"md_{name}_{int(time.time())}"
     return [
@@ -9595,6 +10168,7 @@ def get_registry() -> ToolRegistry:
         if os.environ.get("LAFORGE_RAG_PREWARM", "1") != "0":
             try:
                 _registry._dense_refresh_bg()
-            except Exception:
+            except Exception as e:
+                logger.debug("[registry_boot] prechauffage cache dense impossible (%s) | consequence: cache RAG non initialise au demarrage, premier appel rag synchrone", type(e).__name__, exc_info=True)
                 pass
     return _registry

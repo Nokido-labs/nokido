@@ -289,8 +289,128 @@ def balayer(terme):
                      " et vides ; sinon INDETERMINE.")}
 
 
+SEUIL_VEILLE = 2048
+PREFIXE_VEILLE = "nokido_veille_"
+
+
+def _config_veille_dir():
+    """`veille_dumps.dir` lu dans config/*.json ; None si aucune config ne le porte."""
+    for f in sorted((ROOT / "config").glob("*.json")) if (ROOT / "config").is_dir() else []:
+        try:
+            d = json.loads(f.read_text(encoding="utf-8")).get("veille_dumps")
+        except (OSError, ValueError, AttributeError):  # muet-ok : config illisible = sans veille_dumps (cherche ailleurs)
+            continue
+        if isinstance(d, dict) and d.get("dir"):
+            return str(d["dir"])
+    return None
+
+
+def couverture_veilles(racine, db=None, dir_config=None, seuil=SEUIL_VEILLE,
+                       sortie=None):
+    """MESURE SEULE : quelles veilles de `racine` (E:/) sont deja au RAG.
+
+    Par dossier `nokido_veille_*` (+ `(racine)` = fichiers .md a la racine) :
+    fichiers > seuil, deja au RAG (source EXACTE, `WHERE source = ?` sur
+    idx_rag_source : jamais de balayage de rag_chunks), jamais ingeres.
+    Base illisible -> `au_rag`/`jamais_ingeres` = None (INDETERMINE), jamais 0.
+    LIMITE : un fichier dont la taille est illisible (OSError) n'est pas compte.
+    Base ouverte en lecture seule ; aucune ecriture au RAG.
+    """
+    import os
+    racine = Path(racine)
+    groupes = {}
+    for ent in sorted(os.listdir(racine)):
+        p = racine / ent
+        if p.is_dir() and ent.startswith(PREFIXE_VEILLE):
+            lst = groupes.setdefault(ent, [])
+            for dp, _dn, fns in os.walk(p):
+                for fn in sorted(fns):
+                    fp = Path(dp) / fn
+                    try:
+                        if fp.stat().st_size > seuil:
+                            lst.append(fp)
+                    except OSError:  # muet-ok : fichier illisible non compte (limite dite dans la docstring)
+                        pass
+        elif p.is_file() and ent.lower().endswith(".md"):
+            try:
+                if p.stat().st_size > seuil:
+                    groupes.setdefault("(racine)", []).append(p)
+            except OSError:  # muet-ok : fichier illisible non compte (limite dite dans la docstring)
+                pass
+
+    con, etat_rag, raison = None, "ok", None
+    try:
+        if db is None:
+            db = _db()
+        if db is None or not Path(db).exists():
+            raise OSError("base absente")
+        con = sqlite3.connect("file:%s?mode=ro" % str(db).replace("\\", "/"),
+                              uri=True)
+        con.execute("SELECT 1 FROM rag_chunks WHERE source = ? LIMIT 1", ("",))
+    except (OSError, sqlite3.Error) as e:
+        con, etat_rag, raison = None, "illisible", "%s: %s" % (type(e).__name__, e)
+
+    def _au_rag(fp):
+        cles = []
+        for c in (fp.as_posix(), str(fp),
+                  fp.relative_to(racine).as_posix(), fp.name):
+            if c not in cles:
+                cles.append(c)
+        return any(con.execute(
+            "SELECT 1 FROM rag_chunks WHERE source = ? LIMIT 1", (c,)
+        ).fetchone() for c in cles)
+
+    dossiers, tf, ta = {}, 0, 0
+    for nom, fichiers in groupes.items():
+        d = {"fichiers": len(fichiers)}
+        tf += len(fichiers)
+        if con is None:
+            d.update(au_rag=None, jamais_ingeres=None)
+        else:
+            non = [f for f in fichiers if not _au_rag(f)]
+            d.update(au_rag=len(fichiers) - len(non), jamais_ingeres=len(non),
+                     exemples_jamais_ingeres=[f.as_posix() for f in non[:5]])
+            ta += len(fichiers) - len(non)
+        dossiers[nom] = d
+    if con is not None:
+        con.close()
+    cfg = dir_config if dir_config is not None else _config_veille_dir()
+    res = {
+        "racine": str(racine), "seuil_octets": seuil, "etat_rag": etat_rag,
+        "dossiers": dossiers,
+        "total": {"fichiers": tf,
+                  "au_rag": ta if con is not None or etat_rag == "ok" else None,
+                  "jamais_ingeres": (tf - ta) if etat_rag == "ok" else None},
+        "veille_dumps_dir": {
+            "valeur": cfg,
+            "pointe_vers_v3": bool(cfg) and Path(cfg).name.startswith(
+                "nokido_veille_dumps_v3") and not Path(cfg).name.endswith("_src_v1"),
+        },
+    }
+    if raison:
+        res["raison_rag"] = raison
+    if etat_rag != "ok":
+        res["total"]["au_rag"] = None
+    if sortie:
+        Path(sortie).parent.mkdir(parents=True, exist_ok=True)
+        Path(sortie).write_text(json.dumps(res, ensure_ascii=False, indent=1),
+                                encoding="utf-8")
+    return res
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if "--couverture" in argv:
+        racine = Path(next((a.split("=", 1)[1] for a in argv
+                            if a.startswith("--racine=")), "E:/"))
+        r = couverture_veilles(
+            racine, sortie=ROOT / "sandbox" / "workspace" / "couverture_veilles_E.json")
+        print(json.dumps({"etat_rag": r["etat_rag"], "total": r["total"],
+                          "veille_dumps_dir": r["veille_dumps_dir"],
+                          "dossiers": {k: [v["fichiers"], v["au_rag"], v["jamais_ingeres"]]
+                                       for k, v in r["dossiers"].items()}},
+                         ensure_ascii=False))
+        return 0 if r["etat_rag"] == "ok" else 3
     termes = [a for a in argv if not a.startswith("--")]
     if not termes:
         print("usage: forge_retrieval_sweep.py <terme> [--json]", file=sys.stderr)

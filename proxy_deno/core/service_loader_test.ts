@@ -162,3 +162,12 @@ Deno.test("fichier machine par-dessus [vars], %NOM% developpe, %NOM% inconnu vis
   verifier(s![0].args[0] === "/opt/test/outil", `%NOM% non developpe : ${s![0].args[0]}`);
   verifier(s![1].cmd.includes("%NOKIDO_TEST_ABSENT_XYZ%"), "un %NOM% inconnu doit rester VISIBLE, jamais vide");
 });
+
+Deno.test("heartbeat_max_s est LU (declare par 15 services, lu par personne avant le 27/10)", () => {
+  const s = loadServices(defaultTomlPath(), { ROOT });
+  verifier(s !== null, "le vrai services.toml ne se charge plus");
+  const hw = s!.find((x) => x.name === "NokidoHarnessWorker");
+  verifier(hw?.heartbeat_max_s === 90, `NokidoHarnessWorker.heartbeat_max_s = ${hw?.heartbeat_max_s} (attendu 90)`);
+  const n = s!.filter((x) => typeof x.heartbeat_max_s === "number").length;
+  verifier(n >= 10, `seulement ${n} service(s) portent heartbeat_max_s apres chargement`);
+});

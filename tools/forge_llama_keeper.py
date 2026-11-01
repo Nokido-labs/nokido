@@ -706,6 +706,23 @@ def _activite_recente(port: int):
     return len({v for _, v in hist}) > 1
 
 
+CONTENTION_LOG_S = 600.0
+_CONTENTION_DITE: dict = {}
+
+
+def _dire_contention(nom: str, message: str, maintenant: float | None = None) -> bool:
+    """Ecrit la contention AU JOURNAL, au plus une fois par CONTENTION_LOG_S et par pilier (1/11).
+
+    Elle ne vivait que dans l'etat (`_bloc` -> heartbeat) : le 1/11, 1 280 lots du Knowledge Pack ont echoue derriere
+    « NokidoLlamaEmbed RECLAME mais NON DEMARRE : ram 76 % > 70 % » sans qu'une seule ligne n'apparaisse au journal."""
+    t = time.time() if maintenant is None else maintenant
+    if t - _CONTENTION_DITE.get(nom, float("-inf")) < CONTENTION_LOG_S:
+        return False
+    _CONTENTION_DITE[nom] = t
+    print(f"[llama-keeper] pilier {message}", flush=True)
+    return True
+
+
 def _piliers_on_demand(ram: float) -> list:
     """Allume/eteint les piliers RAG selon (intention x RAM dispo). Directive owner
     2026-08-10 : « les services necessitant trop de RAM devraient etre lances
@@ -773,9 +790,10 @@ def _piliers_on_demand(ram: float) -> list:
             # Les 172 607 chunks sans vecteur attendaient derriere.
             # On ne tranche PAS ici : arbitrer entre deux consommateurs legitimes
             # est une politique, pas un correctif de keeper. On le NOMME.
-            _bloc.append(
-                f"{nom} RECLAME mais NON DEMARRE : ram {ram:.0f}% > {RELOAD_OK:.0f}% "
-                f"(contention memoire, aucun arbitrage entre consommateurs)")
+            _msg = (f"{nom} RECLAME mais NON DEMARRE : ram {ram:.0f}% > {RELOAD_OK:.0f}% "
+                    f"(contention memoire, aucun arbitrage entre consommateurs)")
+            _bloc.append(_msg)
+            _dire_contention(nom, _msg)
     if not actes:
         # ⚠️ On rend `_bloc` MEME sans acte : c'est precisement le cas ou le
         # keeper ne peut rien faire, et donc celui ou son silence trompe le plus.

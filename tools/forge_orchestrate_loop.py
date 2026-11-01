@@ -13,10 +13,10 @@ import requests
 
 HUB = "http://127.0.0.1:8766/mcp"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from nokido_agent.app.forge_secrets import get_secret  # noqa: E402
+from nokido_agent.app.forge_hub_client import HubClient  # noqa: E402
 
-TOKEN = get_secret("FORGE_MCP_TOKEN") or ""
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
+# Jeton propre ou a bail via forge_hub_client ; repli maitre dit et sans nom.
+_CLIENT = HubClient(agent="ORCHESTRATE")
 
 SYNTH_PROMPT = """/no_think Synthetise les resultats suivants pour le goal: {goal}
 Steps: {steps_summary}
@@ -26,7 +26,7 @@ Reponds en 3-5 phrases, points cles uniquement."""
 def _hub(tool: str, **args) -> str:
     r = requests.post(
         HUB,
-        headers=HEADERS,
+        headers=_CLIENT.entetes(),
         json={"method": "tools/call", "params": {"name": tool, "arguments": args}},
         timeout=60,
     )

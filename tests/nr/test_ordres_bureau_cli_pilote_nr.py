@@ -56,13 +56,14 @@ def test_executeur_autonome_prouve_garde_le_dialogue(monkeypatch):
 
 
 def test_relance_de_pile_demandee_par_le_cli_pilote_prouve_aussi(monkeypatch):
-    # Le cas D'ORIGINE (owner 17/10 : « reboot stack ») : demander_ordre sortait tot vers redemarrer_stack.
+    # Le cas D'ORIGINE (owner 17/10 : « reboot stack ») ; owner 30/10 : pour le restart, ni question a coller ni
+    # elicitation qui expire -- l'ordre est DEPOSE a valider, le tray fait monter une fenetre (NR
+    # test_restart_fenetre_de_validation_nr).
     monkeypatch.setattr(OB, "_surface_de", lambda agent: "interactive")
     monkeypatch.setattr(OB, "_consigner", lambda *_a, **_k: None)
     d = _Dialogue()
     r = asyncio.run(OB.demander_ordre("CLAUDE", "restart", raison="RAM", confirmer=d, demandeur_prouve=True))
-    assert d.appels == 0 and r.get("a_demander_dans_la_session") is True
-    assert "nokido_launcher" in (r.get("commande") or "")
+    assert d.appels == 0 and r.get("depose") is True and r.get("a_valider") is True
 
 
 def test_registre_illisible_garde_le_dialogue(monkeypatch):

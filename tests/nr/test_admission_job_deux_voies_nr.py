@@ -57,6 +57,14 @@ def test_une_machine_saturee_refuse_le_lancement(monkeypatch):
     assert "EMBOLIE" in str(v.get("reason")), v
 
 
+def test_le_refus_dit_de_ne_pas_passer_par_la_fenetre(monkeypatch):
+    """Owner 26/10 : un refus RAM a ete contourne par un pytest « de 15 s » en appel direct. Le message du refus,
+    lu par TOUS les appelants (Claude, AGY, Codex...), dit que ce detour est interdit -- pas seulement une memoire."""
+    v = _admettre(monkeypatch, ressources={"ok": False, "reason": "RISQUE EMBOLIE", "freed_gb": 0.0},
+                  script="C:/tmp/x/lourd.py", online=False, lane="")
+    assert "jamais" in v["react"].lower() and "appel direct" in v["react"], v
+
+
 def test_une_lane_occupee_refuse_le_lancement(monkeypatch):
     v = _admettre(monkeypatch, occupee={"holder": "job_autre"},
                   script="C:/tmp/x/lourd.py", online=False, lane="")

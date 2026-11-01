@@ -122,6 +122,22 @@ PATCH_HUB = [
      '                                break\n'
      '                            except asyncio.TimeoutError:\n'
      '                                yield ": ping\\n\\n"\n'),
+    # 31/10 : 1789bbbb5 (elicitation etape 1, accord owner) a pose ce point a la main dans le hub sans le declarer ici
+    # -> test_patch_hub_elicitation_nr rouge (« cite le module hors des points du patch ») en CI de reference.
+    ("H4 mesure de ce que le client declare",
+     '        method = body.get("method", "")\n'
+     '        bid = body.get("id")\n'
+     '\n'
+     '        # MCP 2026-07-28 (lot 1 additif ; docs ingerees streamable-http.md / basic/index.md) :\n',
+     '        method = body.get("method", "")\n'
+     '        bid = body.get("id")\n'
+     '        try:  # 31/10 (accord owner) : ce que le client DECLARE (protocole, capacites, session) -- mesure, noms seuls\n'
+     '            from nokido_agent.app.forge_mcp_elicitation import observer_requete as _obs_req\n'
+     '            _obs_req(agent_hdr, request.headers, body)\n'
+     '        except Exception:  # noqa: BLE001 - muet-ok : une mesure ne casse jamais une requete\n'
+     '            pass\n'
+     '\n'
+     '        # MCP 2026-07-28 (lot 1 additif ; docs ingerees streamable-http.md / basic/index.md) :\n'),
 ]
 
 PATCH_REGISTRE = [

@@ -2,6 +2,7 @@
  "app/forge_auth_jwt.py::LAFORGE_JWT_SECRET",
  "app/forge_encrypt.py::FORGE_MCP_TOKEN",
  "app/forge_graph_explorer.py::FORGE_MCP_TOKEN",
+ "app/forge_hub_client.py::LAFORGE_HUB_TOKEN",
  "app/forge_inspector.py::FORGE_MCP_TOKEN",
  "app/forge_litellm_connector.py::GEMINI_API_KEY",
  "app/forge_mcp_registry.py::NETCFG_MCP_TOKEN",

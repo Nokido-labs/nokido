@@ -75,7 +75,7 @@ def _run_import_test(module_name: str) -> dict:
     try:
         r = subprocess.run(
             [sys.executable, "-c", script],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, errors="replace", timeout=15,
             cwd=str(ROOT_P),
         )
         output = r.stdout.strip()
@@ -182,7 +182,7 @@ class TestImportAllModules:
         try:
             r = subprocess.run(
                 [sys.executable, "-c", script],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, errors="replace", timeout=30,
                 cwd=str(ROOT_P),
             )
             output = r.stdout.strip()

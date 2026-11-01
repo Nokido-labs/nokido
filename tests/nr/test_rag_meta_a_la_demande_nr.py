@@ -67,7 +67,10 @@ def base(tmp_path):
 def test_le_cache_delegue_ne_porte_aucun_texte(base):
     cache = _classe()._load_dense_cache(_Faux(base))
     assert cache["ids"] == ["c0", "c1", "c2", "c4", "c5"]       # meme filtre embedding IS NOT NULL
-    assert len(cache["exts"]) == len(cache["folders"]) == 5
+    # 24/10 (levier 1) : ext/folder sont des colonnes VIRTUELLES calculees depuis `source`,
+    # rangee apres `text` -- les precharger relisait les 45 Go. ext est lu a la demande
+    # pour les candidats (forge_rag_sql.ext_par_ids) ; folders n'a aucun consommateur.
+    assert cache["exts"] is None and len(cache["folders"]) == 0
     assert cache["mat"].shape[0] == 0                            # sentinelle de delegation inchangee
     assert not any("text" in (m or {}) for m in cache["meta"].values()), "texte charge pour tout le corpus"
 

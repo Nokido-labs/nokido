@@ -138,10 +138,16 @@ def test_une_chaine_hors_budget_passe_stalled_et_n_est_pas_jouee(monkeypatch, tm
     vieux = (datetime.now(tz=timezone.utc) - timedelta(seconds=99999)
              ).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(str(tmp_path / "chain.db"))
+    # 27/10 : le budget court depuis le PREMIER DEPART d'une etape, pas depuis la creation -- une
+    # chaine retenue en attente (satiete RAM) n'a rien consomme. Ici l'etape 0 est partie il y a longtemps.
+    conn.execute(
+        "INSERT INTO agent_chain_nodes (id, chain_id, step_index, step_name, "
+        "agent_role, status, created_at, started_at) VALUES (?,?,?,?,?,?,?,?)",
+        ("n0", "vieille", 0, "keywords", "KeywordAgent", "completed", vieux, vieux))
     conn.execute(
         "INSERT INTO agent_chain_nodes (id, chain_id, step_index, step_name, "
         "agent_role, status, created_at) VALUES (?,?,?,?,?,?,?)",
-        ("n1", "vieille", 0, "search", "SearchAgent", "pending", vieux))
+        ("n1", "vieille", 1, "search", "SearchAgent", "pending", vieux))
     conn.commit()
     conn.close()
 

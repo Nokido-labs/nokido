@@ -97,6 +97,14 @@ conversation : réponse en texte, rien d'exécuté.
    lire UNIQUEMENT par l'outil MCP `read` / `read_function_body` du hub, écrire avec son outil d'édition, et
    « si un outil t'est refusé, écris quand même ce que tu as pu lire ». Ne jamais lui proposer `git show`.
 
+- **Travail laissé non committé** (21/10, deux fois) : la tâche rend FAILURE « fichiers non commités : 1 » alors
+  que le code est juste. Vérifier la base (`git diff --quiet <base> -- <fichier>` sur alpha), puis transférer
+  `git -C <worktree> diff -- <fichier> | git -C <dépôt> apply`, et jouer les NR avant de committer.
+- **Une mesure déléguée lit la base VIDE de son worktree** (21/10 : « 1 tâche en 30 jours » contre 390) : donner
+  le chemin ABSOLU de la base vivante, exiger le nombre de lignes lues, recouper la population avant d'accepter.
+- **Réponse vide** (`[REPONSE VIDE]`, rien produit) : souvent un quota épuisé ; réaffecter, ne pas relancer à
+  l'identique.
+
 ## Ce que cette skill ne couvre pas
 
 - Débat mesuré entre agents (arène, axes admis sur mesure, faux verts du juge) :

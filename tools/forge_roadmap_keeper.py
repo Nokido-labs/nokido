@@ -45,7 +45,7 @@ PREV = ROOT / "sandbox" / "workspace" / "roadmap_prev.md"  # snapshot pour --del
 ARBRE_JSON = ROOT / "docs" / "roadmap_arbre.json"  # arbre d'évolution (UI web)
 # Carte RELISIBLE des dependances que le texte du SSoT n'ecrit pas sous forme de cle (19/10 : 26 citations pour 140 items).
 CARTE_DEPENDANCES = ROOT / "docs" / "roadmap_dependances.json"
-_ETATS_ARBRE = ("CLOS", "PARTIEL", "DECISION_OWNER", "OWNER_PLANIFIE",
+_ETATS_ARBRE = ("CLOS", "PARTIEL", "OUVERT", "DECISION_OWNER", "OWNER_PLANIFIE",
                 "GELE", "SANS_MARQUEUR")
 
 # Contrat OrganAgent (organisme d'agents). Le keeper est un AGENT (état+proactif+autonome).
@@ -210,7 +210,8 @@ def status() -> dict:
 # Livré par OPENCODE_NEMOTRON (job_094dea4e), intégré et relu par CLAUDE le 18/10.
 _ARBRE_MARQUEUR = re.compile(r"^(?:P[012]\s*[:\-]\s*)?\[([^\]]{0,60})")
 _PRIO_ARBRE = re.compile(r"(?<![A-Za-z0-9])P([012])(?![0-9])", re.I)
-_RESTE_ARBRE = re.compile(r"reste\s*=", re.I)
+# 24/10 : 5 variantes (RESTE = / RESTE : / (5) RESTE : / EN COURS : / Ensuite :).
+_RESTE_ARBRE = re.compile(r"(?:\(\d+\)\s*)?(?:reste|en\s+cours|ensuite)\s*[=:]", re.I)
 _CLOTURE_ARBRE = re.compile(r"^(CLOS|FAIT|LIVRE|RESOLU|TERMINE|FERME)\b")
 
 
@@ -254,6 +255,11 @@ def _etat_arbre(texte) -> str:
         return "OWNER_PLANIFIE"
     if re.match(r"^(GELE|SANS OBJET)", mot):
         return "GELE"
+    # 22/10 : un item NEUF « [OUVERT ...] » sortait SANS_MARQUEUR, donc hors du plan (les P0 du 21/10 inclus).
+    if re.match(r"^(OUVERT|EN COURS|A FAIRE)\b", mot):
+        return "OUVERT"
+    if re.match(r"^A DECIDER\b", mot) or (re.match(r"^(PROPOSE|EVALUE)\b", mot) and "A VALIDER" in mot):
+        return "DECISION_OWNER"
     return "SANS_MARQUEUR"
 
 
@@ -265,6 +271,48 @@ def _priorite_arbre(cle, texte) -> str:
             if m:
                 return "P" + m.group(1)
     return ""
+
+
+def lire_structure(valeur):
+    """Dict du canal roadmap_item si la valeur est un JSON intent=ROADMAP_ITEM, sinon None (prose)."""
+    if isinstance(valeur, dict):
+        d = valeur
+    elif isinstance(valeur, str) and valeur.lstrip().startswith("{"):
+        try:
+            d = json.loads(valeur)
+        except ValueError:
+            return None
+    else:
+        return None
+    return d if isinstance(d, dict) and d.get("intent") == "ROADMAP_ITEM" else None
+
+
+def extraire_reste(texte) -> list:
+    """Reste sous forme de liste ; non parse -> ["ILLISIBLE"] (jamais devine)."""
+    r = _reste_arbre(texte)
+    return [r] if r else ["ILLISIBLE"]
+
+
+def structurer(texte, cle="") -> dict:
+    """Prose -> dict roadmap_item. L'etat est LU (_etat_arbre), jamais change ; texte d'origine conserve."""
+    return {"intent": "ROADMAP_ITEM", "etat": _etat_arbre(texte), "prio": _priorite_arbre(cle, texte),
+            "titre": re.sub(r"\s+", " ", re.sub(r"^P[012]\s*[:\-]\s*", "", str(texte or "").strip()))[:120],
+            "reste": extraire_reste(texte), "preuve": (_SHA_RE.findall(str(texte or "")) or [""])[0],
+            "texte": str(texte or "")}
+
+
+def migrer_structurer(faits, ecrire=None, dry_run=True) -> dict:
+    """Migration --structurer : DRY-RUN par defaut. `ecrire(cle, json)` n'est appele que si dry_run=False."""
+    a_migrer, ecrits = [], 0
+    for f in faits or []:
+        val = f.get("value") or ""
+        if lire_structure(val) is not None:
+            continue
+        a_migrer.append(str(f.get("key") or ""))
+        if not dry_run and ecrire:
+            ecrire(f.get("key"), json.dumps(structurer(val, str(f.get("key") or "")), ensure_ascii=False))
+            ecrits += 1
+    return {"dry_run": bool(dry_run), "a_migrer": len(a_migrer), "cles": a_migrer[:50], "ecrits": ecrits}
 
 
 def _reste_arbre(texte) -> str:
@@ -280,6 +328,116 @@ def _reste_arbre(texte) -> str:
     if crochet != -1:
         suite = suite[:crochet]
     return suite.strip()[:200]
+
+
+# --- Quality gate CLOS : le MOTEUR D'ETAT refuse une transition sans preuve (cf. task-orchestrator
+# AdvanceService.kt:856-889, GateId.NOTE -> GateBlocked(missingNotes) ; le prompt ne decide pas). ---
+CLOS_JOURNAL = ROOT / "sandbox" / "workspace" / "roadmap_clos_refus.log"
+_SHA_RE = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])")
+_NR_RE = re.compile(r"(?:tests/(?:nr/)?)?(test_[A-Za-z0-9_]+?(?:_nr)?\.py)")
+
+
+def _sha_existe(sha, root) -> bool:
+    import subprocess
+    try:
+        # safe.directory : le hub et les jobs tournent sous un compte qui n'est PAS proprietaire du depot ;
+        # sans lui git refuse (dubious ownership) et TOUT CLOS paraissait sans preuve (mesure 24/10).
+        r = subprocess.run(["git", "-c", "safe.directory=*", "cat-file", "-e", sha + "^{commit}"], cwd=str(root),
+                           capture_output=True, timeout=15)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _commit_porte_un_test(sha, root) -> bool:
+    """Le commit cite modifie-t-il tests/ ? Recensement 24/10 : 112/127 CLOS sans preuve, dont des items dont
+    les commits PORTENT leurs NR sans que le texte nomme le fichier -- le NR est dans le commit."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-c", "safe.directory=*", "show", "--name-only", "--format=", sha],
+                           cwd=str(root), capture_output=True, text=True, errors="replace", timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and any(l.startswith("tests/") for l in r.stdout.splitlines())
+
+
+def _livrables_contrat(texte):
+    mq = "[LIVRABLE_CONTRAT]"
+    out = []
+    i = texte.find(mq)
+    if i < 0:
+        return out
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(texte[i + len(mq):].lstrip())
+    except ValueError:
+        return out
+    # Contrat canonique emis et juge par forge_task_executor : {"type": ..., "chemins": [...]}.
+    # "livrable" (format de la livraison d'origine, qu'aucun emetteur ne produit) reste lu en repli.
+    liv = obj.get("chemins", obj.get("livrable")) if isinstance(obj, dict) else None
+
+    def _coll(v):
+        if isinstance(v, str):
+            out.append(v)
+        elif isinstance(v, dict):
+            for x in v.values():
+                _coll(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v:
+                _coll(x)
+    _coll(liv)
+    return out
+
+
+def preuve_cloture(texte, root=None):
+    """(ok, motif) : sha de commit EXISTANT (git cat-file) + (NR nomme present dans tests/ OU artefact
+    [LIVRABLE_CONTRAT] existant, verifie par forge_mesure.artefact_reference)."""
+    root = Path(root) if root else ROOT
+    texte = texte if isinstance(texte, str) else ""
+    shas = _SHA_RE.findall(texte)
+    if not shas:
+        return False, "aucun sha de commit cite"
+    if not any(_sha_existe(s, root) for s in shas):
+        return False, "sha de commit inexistant dans le depot"
+    for nom in _NR_RE.findall(texte):
+        if any(root.joinpath("tests", sub, nom).is_file() for sub in ("nr", "")):
+            return True, "sha + NR present"
+    for s in shas:
+        if _sha_existe(s, root) and _commit_porte_un_test(s, root):
+            return True, "sha d'un commit qui porte son test"
+    from app.forge_mesure import artefact_reference
+    for chemin in _livrables_contrat(texte):
+        p = Path(chemin)
+        p = p if p.is_absolute() else root / p
+        if artefact_reference(p).statut_lu(__import__("time").time()) == "VALEUR":
+            return True, "sha + artefact LIVRABLE_CONTRAT"
+    return False, "ni NR present dans tests/ ni artefact LIVRABLE_CONTRAT existant"
+
+
+def etat_affiche(texte, root=None) -> str:
+    """Etat pour l'AFFICHAGE : un CLOS sans preuve devient CLOS_SANS_PREUVE (rien n'est reecrit)."""
+    etat = _etat_arbre(texte)
+    if etat == "CLOS" and not preuve_cloture(texte, root)[0]:
+        return "CLOS_SANS_PREUVE"
+    return etat
+
+
+def exiger_preuve_cloture(ancien, nouveau, root=None, journal=None):
+    """Garde de transition : passer vers CLOS sans preuve est REFUSE (motif nomme, journalise)."""
+    if _etat_arbre(nouveau) != "CLOS" or _etat_arbre(ancien) == "CLOS":
+        return True, "non gardee"
+    ok, motif = preuve_cloture(nouveau, root)
+    if ok:
+        return True, motif
+    try:
+        j = Path(journal) if journal else CLOS_JOURNAL
+        j.parent.mkdir(parents=True, exist_ok=True)
+        with open(j, "a", encoding="utf-8") as f:
+            f.write("%s refus CLOS : %s | %s\n" % (datetime.now(timezone.utc).isoformat(), motif,
+                                                   str(nouveau)[:120].replace("\n", " ")))
+    except OSError as exc:
+        # le refus tient ; seule sa trace manque -- le dire a l'appelant plutot que l'avaler
+        motif = "%s (journal du refus NON ecrit : %s)" % (motif, type(exc).__name__)
+    return False, motif
 
 
 def arbre(out=None) -> dict:
@@ -306,12 +464,22 @@ def arbre(out=None) -> dict:
         if cle.startswith(("CURRENT_", "NEXT_")) or str(val).lstrip().startswith(("CURRENT:", "NEXT:")):
             exclus.append(cle)
             continue
-        etat = _etat_arbre(val)
+        struct = lire_structure(val)   # champs structures d'abord, texte ensuite
+        if struct is not None:
+            val = struct.get("texte") or struct.get("titre") or ""
+            etat = struct.get("etat") if struct.get("etat") in par_etat else _etat_arbre(val)
+            reste = struct.get("reste")
+            reste = "; ".join(str(x) for x in reste) if isinstance(reste, list) else str(reste or "")
+            prio = struct.get("prio") or _priorite_arbre(cle, val)
+        else:
+            etat, reste, prio = _etat_arbre(val), _reste_arbre(val), _priorite_arbre(cle, val)
         par_etat[etat] += 1
         valeurs[cle] = str(val)
         items.append({"cle": cle, "etat": etat,
-                      "priorite": _priorite_arbre(cle, val),
-                      "reste": _reste_arbre(val)})
+                      "etat_affiche": etat_affiche(val) if etat == "CLOS" else etat,
+                      "priorite": prio,
+                      "reste": reste,
+                      "decision": bool(re.match(r"^(?:P[012]\s*[:\-]\s*)?\[DECISION\s+\d", str(val).strip(), re.I))})
     # 19/10 (owner : « il n'y a aucune hierarchie ») : un item qui CITE la cle d'un autre en depend -- la resolution
     # de l'item cite aide la sienne. Frontieres explicites : une cle prefixe d'une autre ne compte pas.
     import re as _re
@@ -321,6 +489,7 @@ def arbre(out=None) -> dict:
                             and _re.search(r"(?<![\w-])%s(?![\w-])" % _re.escape(c["cle"]), texte))
     # Carte des dependances : fusionnee aux citations ; une arete vers une cle inconnue est ECARTEE et comptee.
     carte, carte_ecartees = "absente", 0
+    carte_conflits = []
     try:
         aretes = (json.loads(Path(CARTE_DEPENDANCES).read_text(encoding="utf-8")) or {}).get("aretes") or []
         carte = "lue"
@@ -333,11 +502,17 @@ def arbre(out=None) -> dict:
         de, vers = str((a or {}).get("de") or ""), str((a or {}).get("vers") or "")
         if de in par_cle and vers in par_cle and de != vers:
             par_cle[vers]["cite"] = sorted(set(par_cle[vers]["cite"]) | {de})
+            if vers in par_cle[de]["cite"]:
+                par_cle[de]["cite"] = [c for c in par_cle[de]["cite"] if c != vers]
+                conf = {"item": de, "cite": vers, "carte": "%s->%s" % (de, vers)}
+                if conf not in carte_conflits:
+                    carte_conflits.append(conf)
         else:
             carte_ecartees += 1
+    carte_conflits.sort(key=lambda x: (x["item"], x["cite"]))
     doc = {"genere_le": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "total": len(items), "par_etat": par_etat, "items": items, "etats_globaux_exclus": exclus,
-           "carte": carte, "carte_ecartees": carte_ecartees}
+           "carte": carte, "carte_ecartees": carte_ecartees, "carte_conflits": carte_conflits}
     cible = Path(out) if out is not None else ARBRE_JSON
     cible.parent.mkdir(parents=True, exist_ok=True)
     cible.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -775,12 +950,18 @@ _RX_ECRIT = None
 # v2 (19/10, enquete AGY job_55a851be) : un reste qui cite un geste de l'owner n'est pas jouable par un repondeur.
 _RX_ATTENTE_OWNER = re.compile(r"\b(d[eé]cision|geste|d[eé]rogation|arbitrage)\s*(?:de\s+l['’]|d['’])?owner\b"
                                r"|\battente\s+owner\b|\breposer\s+la\s+bascule\s+[àa]\s+l['’]owner\b", re.I)
+_RX_GESTE_OWNER = re.compile(r"\b(geste|d[eé]rogation)\s*(?:de\s+l['’]|d['’])?owner\b|\bl['’]owner\s+(?:relance|lance|doit)\b"
+                             r"|\battente\s+owner\b|\breposer\s+la\s+bascule\s+[àa]\s+l['’]owner\b", re.I)
+_RX_DECISION_PRISE = re.compile(r"^(?:P[012]\s*[:\-]\s*)?\[DECISION\s+\d", re.I)
 _EN_VOL = ("running", "claimed", "assigned")    # meme liste que tools/forge_task_executor._EN_VOL
 
 
 def attend_owner(item: dict) -> bool:
     """Vrai si le reste de l'item attend un geste ou une decision de l'owner."""
-    return bool(_RX_ATTENTE_OWNER.search(str(item.get("reste") or "")))
+    reste = str(item.get("reste") or "")
+    # 22/10 : decision deja prise -> « decision/arbitrage owner » du reste est le passe ; seul un GESTE explicite attend.
+    decide = bool(item.get("decision")) or bool(_RX_DECISION_PRISE.match(str(item.get("texte") or "").strip()))
+    return bool((_RX_GESTE_OWNER if decide else _RX_ATTENTE_OWNER).search(reste))
 
 
 # PORTES (owner 19/10, « liens de cause a effet ») : mesure sur 58 items ouverts -- le graphe est plat (levier max 4
@@ -829,10 +1010,18 @@ def gestes_groupes(items: list) -> list:
     return sorted(out, key=lambda x: (-x["poids"], -(x["n"] + x["aval"]), _ORDRE_PORTES.index(x["porte"])))
 
 
+def _tasks_db() -> Path:
+    """tasks.db vivante, ou NOKIDO_PLAN_TASKS_DB : un test de --plan qui n'isole pas l'occupation depend
+    de qui travaille a l'instant (rouge mesure le 24/10 : OPENCODE_NEMOTRON en vol, donc retire)."""
+    import os
+    return Path(os.environ.get("NOKIDO_PLAN_TASKS_DB")
+                or Path(__file__).resolve().parents[1] / "sandbox" / "tasks.db")
+
+
 def _occupes(db=None) -> tuple:
     """(agents en vol dans tasks.db, raison) ; base illisible -> (set(), raison NOMMEE), jamais un silence."""
     import sqlite3
-    db = Path(db) if db is not None else Path(__file__).resolve().parents[1] / "sandbox" / "tasks.db"
+    db = Path(db) if db is not None else _tasks_db()
     try:
         c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
         try:
@@ -845,6 +1034,45 @@ def _occupes(db=None) -> tuple:
     return {r[0] for r in rows if r[0]}, ""
 
 
+_RX_BB = re.compile(r"\bbb:([\w\-.]+)")
+
+
+def items_en_cours(taches: list | None = None) -> dict[str, str]:
+    """{cle: agent} pour chaque tache pending|claimed|running dont la description cite 'bb:<cle>' (cle = [\\w\\-.]+)."""
+    if taches is None:
+        res, _ = _en_cours()
+        return res
+    out = {}
+    for t in taches:
+        if not isinstance(t, dict):
+            continue
+        st = str(t.get("statut") or t.get("status") or "").lower()
+        if st not in ("pending", "claimed", "running"):
+            continue
+        agent = str(t.get("agent") or "")
+        desc = str(t.get("description") or "")
+        m = _RX_BB.search(desc)
+        if m and agent:
+            out[m.group(1)] = agent
+    return out
+
+
+def _en_cours(db=None) -> tuple[dict[str, str], str]:
+    """{cle: agent} pour les taches en cours (pending|claimed|running) dans tasks.db lu en lecture seule ; ({}, raison) si illisible."""
+    import sqlite3
+    db = Path(db) if db is not None else _tasks_db()
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            rows = c.execute("SELECT agent, status, description FROM tasks").fetchall()
+        finally:
+            c.close()
+    except Exception as exc:  # noqa: BLE001
+        return {}, "tasks.db ILLISIBLE (%s) : items en cours inconnus" % type(exc).__name__
+    taches = [{"agent": r[0], "status": r[1], "description": r[2]} for r in rows]
+    return items_en_cours(taches), ""
+
+
 def classe_item(item: dict) -> str:
     """M:ecrit si le reste demande du code (RED/GREEN, cabler, implementer, ecrire, coder), sinon M:lit."""
     import re as _re
@@ -854,8 +1082,510 @@ def classe_item(item: dict) -> str:
     return "M:ecrit" if _RX_ECRIT.search(str(item.get("reste") or "")) else "M:lit"
 
 
+# ── Chronologie en vagues (owner 21/10) ──────────────────────────────────────────
+# Résolution multipartite ordonnée selon causalité + contraintes déclarées inline.
+_TAG_PAT = re.compile(r"(?i)\b(apr[eè]s|pas_avant|exclusif|palier|[eé]ch[eé]ance|remplace)\s*:")
+
+
+def contraintes_item(item: dict) -> dict:
+    """Lit les étiquettes du reste : apres, pas_avant, exclusif, palier, echeance, remplace."""
+    reste = str(item.get("reste") or "")
+    tags: dict = {"apres": [], "pas_avant": [], "exclusif": [], "palier": "", "echeance": "", "remplace": []}
+    matches = list(_TAG_PAT.finditer(reste))
+    for i, m in enumerate(matches):
+        raw = m.group(1).lower()
+        if raw.startswith("apr"):
+            key = "apres"
+        elif raw == "pas_avant":
+            key = "pas_avant"
+        elif raw == "exclusif":
+            key = "exclusif"
+        elif raw == "palier":
+            key = "palier"
+        elif raw.startswith("remplace"):
+            key = "remplace"
+        else:
+            key = "echeance"
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(reste)
+        val = reste[start:end].strip()
+        if key in ("apres", "pas_avant", "exclusif", "remplace"):
+            tags[key].extend([p.strip() for p in val.split(",") if p.strip()])
+        elif key == "palier":
+            m_pal = re.search(r"\b([SML])\b", val, re.I)
+            tags["palier"] = m_pal.group(1).upper() if m_pal else (val.split()[0].upper() if val else "")
+        elif key == "echeance":
+            m_ech = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", val)
+            tags["echeance"] = m_ech.group(1) if m_ech else (val.split()[0] if val else "")
+    return tags
+
+
+def nature_item(item: dict) -> str:
+    """Classe la nature de l'item : doc | verif | publication | miroir | autre."""
+    reste = str(item.get("reste") or "").lower()
+    if re.search(r"\b(miroir|miroirs)\b", reste):
+        return "miroir"
+    if re.search(r"\b(publi(?:er|cation)|release|pypi|tag\s+public)\b", reste):
+        return "publication"
+    if re.search(r"\b(readme|changelog|docs?|documentation)\b", reste):
+        return "doc"
+    if re.search(r"\b(v[eé]rif(?:ication)?|\bci\b)\b", reste):
+        return "verif"
+    return "autre"
+
+
+def _cle_tri_vague(it: dict, eff_prio: dict | None = None, eff_ech: dict | None = None,
+                   aval: dict | None = None) -> tuple:
+    prio_map = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+    k = str(it.get("cle") or "")
+    if eff_prio and k in eff_prio:
+        p_str = eff_prio[k]
+    else:
+        p_str = str(it.get("priorite") or "").upper()
+    p = prio_map.get(p_str, 4)
+
+    if eff_ech and k in eff_ech and eff_ech[k]:
+        ech = eff_ech[k]
+    else:
+        c_it = contraintes_item(it)
+        ech = c_it.get("echeance") or "9999-99-99"
+
+    av = aval.get(k, 0) if aval else 0
+    return (p, ech, -av, k)
+
+
+_EXTS_EMPREINTE = {"py", "ts", "js", "json", "toml", "yaml", "yml", "md", "ps1", "sh", "sql"}
+_RX_CHEMIN_SEP = re.compile(r"[\s,;()\"'<>`]+")
+
+
+def empreinte_item(item: dict) -> set[str]:
+    """Chemins du depot cites (avec / ou extension connue), README->readme.md, CHANGELOG->changelog.md en minuscules."""
+    reste = str(item.get("reste") or "")
+    tokens = _RX_CHEMIN_SEP.split(reste)
+    out: set[str] = set()
+    for raw in tokens:
+        tok = raw.strip(" \t\r\n'\"`()[]{}<>,;")
+        tok = tok.replace("\\", "/")
+        if tok.endswith(":"):
+            tok = tok.rstrip(":")
+        while tok.endswith(".") and not tok.endswith("/."):
+            tok = tok[:-1]
+        if not tok:
+            continue
+        tok_lower = tok.lower()
+        if tok_lower in ("readme", "readme.md"):
+            out.add("readme.md")
+        elif tok_lower in ("changelog", "changelog.md"):
+            out.add("changelog.md")
+        elif not tok_lower.startswith(("http://", "https://")) and tok_lower not in ("et/ou", "and/or", "n/a"):
+            ext = tok_lower.rsplit(".", 1)[1] if "." in tok_lower else ""
+            if "/" in tok_lower or ext in _EXTS_EMPREINTE:
+                out.add(tok_lower)
+    return out
+
+
+def _paths_collision(p1: str, p2: str) -> bool:
+    if p1 == p2:
+        return True
+    p1_slash = p1 if p1.endswith("/") else p1 + "/"
+    p2_slash = p2 if p2.endswith("/") else p2 + "/"
+    return p2.startswith(p1_slash) or p1.startswith(p2_slash)
+
+
+def empreintes_collision(a: set[str] | list[str], b: set[str] | list[str]) -> bool:
+    """Vrai si meme chemin ou prefixe de dossier (app/web_hub/ englobe app/web_hub/routes.py)."""
+    for p1 in a:
+        for p2 in b:
+            if _paths_collision(p1, p2):
+                return True
+    return False
+
+
+def _trouver_cycles(noeuds: list[str], adj: dict[str, list[str]]) -> list[list[str]]:
+    """Composantes fortement connexes (Tarjan) : taille > 1 ou boucle sur soi."""
+    index = 0
+    indices: dict[str, int] = {}
+    lowlink: dict[str, int] = {}
+    on_stack: dict[str, bool] = {}
+    stack: list[str] = []
+    cycles: list[list[str]] = []
+
+    def strongconnect(node: str) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlink[node] = index
+        index += 1
+        stack.append(node)
+        on_stack[node] = True
+
+        for nxt in adj.get(node, []):
+            if nxt not in indices:
+                strongconnect(nxt)
+                lowlink[node] = min(lowlink[node], lowlink[nxt])
+            elif on_stack.get(nxt, False):
+                lowlink[node] = min(lowlink[node], indices[nxt])
+
+        if lowlink[node] == indices[node]:
+            scc: list[str] = []
+            while True:
+                w = stack.pop()
+                on_stack[w] = False
+                scc.append(w)
+                if w == node:
+                    break
+            # composante de taille > 1 ou boucle sur soi
+            if len(scc) > 1 or (len(scc) == 1 and scc[0] in adj.get(scc[0], [])):
+                cycles.append(sorted(scc))
+
+    for n in sorted(noeuds):
+        if n not in indices:
+            strongconnect(n)
+
+    cycles.sort(key=lambda cy: (len(cy), cy))
+    return cycles
+
+
+def vagues(items: list, contexte: dict | None = None) -> dict:
+    """Chronologie en vagues (couches topologiques) des items jouables sous contraintes.
+
+    Retourne : {mode: 'OBSERVATION', vagues, prets, attente, liens_deduits, cycles, en_retard, heritage, aval, fusions, subsomptions, cloturables}.
+    Pur, sans E/S.
+    """
+    ctx = contexte or {}
+    maintenant = str(ctx.get("maintenant") or "")
+    go_owner = [str(x) for x in (ctx.get("go_owner") or [])]
+    occupees = set(ctx.get("ressources_occupees") or [])
+    quotas = ctx.get("quotas")
+    en_cours_raw = ctx.get("en_cours")
+    en_cours = en_cours_raw if isinstance(en_cours_raw, dict) else (items_en_cours(en_cours_raw) if isinstance(en_cours_raw, (list, tuple)) else {})
+
+    items_by_key = {it.get("cle"): it for it in items if it.get("cle")}
+    jouables = [it for it in items if str(it.get("etat") or "").upper() in _JOUABLES and it.get("cle")]
+    jouables_keys = {it["cle"] for it in jouables}
+
+    # 1. Liens déduits par nature
+    open_docs_verifs = [it for it in jouables if nature_item(it) in ("doc", "verif")]
+    open_pubs = [it for it in jouables if nature_item(it) == "publication"]
+    open_miroirs = [it for it in jouables if nature_item(it) == "miroir"]
+    liens_deduits = []
+    seen_links = set()
+    for pub in open_pubs:
+        for dv in open_docs_verifs:
+            if dv["cle"] != pub["cle"]:
+                pair = (dv["cle"], pub["cle"])
+                if pair not in seen_links:
+                    seen_links.add(pair)
+                    liens_deduits.append({
+                        "de": dv["cle"],
+                        "vers": pub["cle"],
+                        "raison": f"nature:{nature_item(dv)}->publication",
+                    })
+    for mir in open_miroirs:
+        for pub in open_pubs:
+            if pub["cle"] != mir["cle"]:
+                pair = (pub["cle"], mir["cle"])
+                if pair not in seen_links:
+                    seen_links.add(pair)
+                    liens_deduits.append({
+                        "de": pub["cle"],
+                        "vers": mir["cle"],
+                        "raison": "nature:publication->miroir",
+                    })
+    liens_deduits.sort(key=lambda x: (x["de"], x["vers"]))
+
+    # 2. Prérequis par item
+    ded_par_item: dict[str, list[str]] = {}
+    for l in liens_deduits:
+        ded_par_item.setdefault(l["vers"], []).append(l["de"])
+
+    prereqs: dict[str, list[str]] = {}
+    for it in jouables:
+        k = it["cle"]
+        c_it = contraintes_item(it)
+        vus: list[str] = []
+        for p in (it.get("cite") or []):
+            if p not in vus and p != k:
+                vus.append(p)
+        for p in c_it["apres"]:
+            if p not in vus and p != k:
+                vus.append(p)
+        for p in ded_par_item.get(k, []):
+            if p not in vus and p != k:
+                vus.append(p)
+        prereqs[k] = vus
+
+    # 3. Détection des cycles (Tarjan SCC)
+    deps_jouables = {k: [p for p in prereqs[k] if p in jouables_keys] for k in jouables_keys}
+    cycles = _trouver_cycles(list(jouables_keys), deps_jouables)
+    cycle_nodes = {n for cy in cycles for n in cy}
+
+    # 4. Aval {cle: n} : descendants ouverts distincts (fermeture transitive)
+    succ: dict[str, set[str]] = {k: set() for k in jouables_keys}
+    for k in jouables_keys:
+        for p in prereqs[k]:
+            if p in jouables_keys:
+                succ[p].add(k)
+
+    descendants: dict[str, set[str]] = {}
+    for k in jouables_keys:
+        vus_desc = set()
+        stack = list(succ.get(k, []))
+        while stack:
+            curr = stack.pop()
+            if curr != k and curr not in vus_desc:
+                vus_desc.add(curr)
+                stack.extend(succ.get(curr, []))
+        descendants[k] = vus_desc
+    aval = {k: len(descendants[k]) for k in jouables_keys}
+
+    # 5. Héritage {cle: {priorite, echeance, de}} : backward pass sur le DAG
+    eff_prio: dict[str, str] = {}
+    eff_ech: dict[str, str] = {}
+    heritage: dict[str, dict] = {}
+    prio_rank_map = {"P0": 0, "P1": 1, "P2": 2, "P3": 3}
+
+    for k in jouables_keys:
+        it = items_by_key[k]
+        c_it = contraintes_item(it)
+        intr_prio = str(it.get("priorite") or "").upper()
+        intr_prio_rank = prio_rank_map.get(intr_prio, 4)
+        intr_ech = c_it.get("echeance") or ""
+
+        best_prio_rank = intr_prio_rank
+        best_prio_str = intr_prio
+        best_ech = intr_ech
+
+        for d in descendants[k]:
+            it_d = items_by_key[d]
+            c_d = contraintes_item(it_d)
+            d_prio = str(it_d.get("priorite") or "").upper()
+            d_prio_rank = prio_rank_map.get(d_prio, 4)
+            d_ech = c_d.get("echeance") or ""
+
+            if d_prio_rank < best_prio_rank:
+                best_prio_rank = d_prio_rank
+                best_prio_str = d_prio
+
+            if d_ech:
+                if not best_ech or d_ech < best_ech:
+                    best_ech = d_ech
+
+        eff_prio[k] = best_prio_str
+        eff_ech[k] = best_ech
+
+        if best_prio_str != intr_prio or best_ech != intr_ech:
+            imposers = []
+            for d in descendants[k]:
+                it_d = items_by_key[d]
+                c_d = contraintes_item(it_d)
+                d_prio = str(it_d.get("priorite") or "").upper()
+                d_prio_rank = prio_rank_map.get(d_prio, 4)
+                d_ech = c_d.get("echeance") or ""
+
+                is_prio_imposer = (best_prio_str != intr_prio and d_prio_rank == best_prio_rank)
+                is_ech_imposer = (best_ech != intr_ech and d_ech == best_ech)
+                if is_prio_imposer or is_ech_imposer:
+                    score = (
+                        0 if (is_prio_imposer and is_ech_imposer) else 1,
+                        d_prio_rank,
+                        d_ech or "9999-99-99",
+                        -aval.get(d, 0),
+                        d,
+                    )
+                    imposers.append((score, d))
+            imposers.sort()
+            de = imposers[0][1] if imposers else ""
+            heritage[k] = {
+                "priorite": best_prio_str,
+                "echeance": best_ech,
+                "de": de,
+            }
+
+    # 6. Motifs d'attente
+    attente = {}
+    for it in jouables:
+        k = it["cle"]
+        c_it = contraintes_item(it)
+        motifs = []
+        # Prérequis
+        for p in prereqs[k]:
+            if p not in items_by_key:
+                motifs.append(f"inconnu:{p}")
+            else:
+                p_etat = str(items_by_key[p].get("etat") or "").upper()
+                if p_etat != "CLOS":
+                    motifs.append(f"cause:{p}")
+        # pas_avant
+        for val in c_it["pas_avant"]:
+            if re.match(r"^\d{4}-\d{2}-\d{2}$", val):
+                if not maintenant or maintenant < val:
+                    motifs.append(f"pas_avant:{val}")
+            else:
+                if val not in go_owner and k not in go_owner:
+                    motifs.append(f"pas_avant:{val}")
+        # exclusif (ressource occupée à l'instant)
+        for r in c_it["exclusif"]:
+            if r in occupees:
+                motifs.append(f"exclusif:{r}")
+        # quota
+        palier = c_it["palier"]
+        if palier:
+            if quotas is None or palier not in quotas or not quotas.get(palier):
+                motifs.append(f"quota:{palier}:INCONNU")
+        # en_cours
+        if k in en_cours:
+            motifs.append(f"en_cours:{en_cours[k]}")
+
+        if motifs:
+            attente[k] = motifs
+
+    # Subsomptions (remplace:)
+    # Un item ouvert remplace par un item OUVERT -> motif 'remplace_par:<cle>' ; subsomptions=[{par, items tries}]
+    # Remplaçant CLOS -> cloturables=[{cle, par}], l'item n'est pas pret (motif 'cloturable_par:<cle>')
+    subsomptions_map: dict[str, list[str]] = {}
+    cloturables: list[dict[str, str]] = []
+
+    for it in items:
+        cle_par = it.get("cle")
+        if not cle_par:
+            continue
+        c_it = contraintes_item(it)
+        remplaces = c_it.get("remplace") or []
+        if not remplaces:
+            continue
+        etat_par = str(it.get("etat") or "").upper()
+        if etat_par in _JOUABLES:
+            for sub in remplaces:
+                if sub in jouables_keys and sub != cle_par:
+                    subsomptions_map.setdefault(cle_par, []).append(sub)
+                    motifs = attente.setdefault(sub, [])
+                    m_str = f"remplace_par:{cle_par}"
+                    if m_str not in motifs:
+                        motifs.append(m_str)
+        elif etat_par == "CLOS":
+            for sub in remplaces:
+                if sub in jouables_keys and sub != cle_par:
+                    clot_entry = {"cle": sub, "par": cle_par}
+                    if clot_entry not in cloturables:
+                        cloturables.append(clot_entry)
+                    motifs = attente.setdefault(sub, [])
+                    m_str = f"cloturable_par:{cle_par}"
+                    if m_str not in motifs:
+                        motifs.append(m_str)
+
+    subsomptions = [
+        {"par": par, "items": sorted(set(subs))}
+        for par, subs in sorted(subsomptions_map.items())
+    ]
+    cloturables.sort(key=lambda x: (x["cle"], x["par"]))
+
+    # 7. Échéances dépassées
+    en_retard = []
+    for it in jouables:
+        c_it = contraintes_item(it)
+        ech = c_it.get("echeance")
+        if ech and maintenant and ech < maintenant:
+            en_retard.append(it["cle"])
+    en_retard.sort()
+
+    # 8. Empreintes et ressources
+    empreinte = {it["cle"]: empreinte_item(it) for it in jouables}
+    excl = {it["cle"]: set(contraintes_item(it)["exclusif"]) for it in jouables}
+
+    # 9. Couches topologiques (vagues)
+    restants = [it for it in jouables if it["cle"] not in cycle_nodes]
+    places = set()
+    vagues_list = []
+    deps = {it["cle"]: set(deps_jouables.get(it["cle"], [])) for it in jouables}
+
+    def _tri(item_dict: dict) -> tuple:
+        return _cle_tri_vague(item_dict, eff_prio, eff_ech, aval)
+
+    while restants:
+        eligibles = [it for it in restants if deps[it["cle"]].issubset(places)]
+        if not eligibles:
+            break
+        eligibles.sort(key=_tri)
+        vague_courante = []
+        ressources_vague = set()
+        fichiers_vague = set()
+
+        for it in eligibles:
+            k = it["cle"]
+            r_it = excl[k]
+            emp_it = empreinte[k]
+            has_res_col = bool(r_it & ressources_vague)
+            has_file_col = empreintes_collision(emp_it, fichiers_vague)
+
+            if not has_res_col and not has_file_col:
+                vague_courante.append(k)
+                ressources_vague.update(r_it)
+                fichiers_vague.update(emp_it)
+            else:
+                if has_file_col:
+                    for f in sorted(emp_it):
+                        if any(_paths_collision(f, fv) for fv in fichiers_vague):
+                            motifs = attente.setdefault(k, [])
+                            m_str = f"fichier:{f}"
+                            if m_str not in motifs:
+                                motifs.append(m_str)
+                if has_res_col:
+                    for r in sorted(r_it & ressources_vague):
+                        motifs = attente.setdefault(k, [])
+                        m_str = f"exclusif:{r}"
+                        if m_str not in motifs:
+                            motifs.append(m_str)
+
+        if not vague_courante:
+            break
+        vagues_list.append(vague_courante)
+        places.update(vague_courante)
+        restants = [it for it in restants if it["cle"] not in places]
+
+    # 10. Prêts : items de la vague 0 sans motif d'attente et hors cycles
+    prets = [cle for cle in (vagues_list[0] if vagues_list else []) if cle not in attente and cle not in cycle_nodes]
+
+    # 11. Fusions : >=2 items causalement libres et sans motif pas_avant/quota touchant un meme fichier
+    par_fichier: dict[str, list[dict]] = {}
+    for it in jouables:
+        k = it["cle"]
+        if k in cycle_nodes:
+            continue
+        motifs = attente.get(k, [])
+        if any(m.startswith(("cause:", "inconnu:", "pas_avant:", "quota:", "en_cours:", "remplace_par:", "cloturable_par:")) for m in motifs):
+            continue
+        emp = empreinte.get(k, set())
+        for f in sorted(emp):
+            par_fichier.setdefault(f, []).append(it)
+
+    fusions = []
+    for f in sorted(par_fichier.keys()):
+        group_items = par_fichier[f]
+        if len(group_items) >= 2:
+            group_items.sort(key=_tri)
+            fusions.append({
+                "fichier": f,
+                "cles": [it["cle"] for it in group_items],
+            })
+
+    return {
+        "mode": "OBSERVATION",
+        "vagues": vagues_list,
+        "prets": prets,
+        "attente": attente,
+        "liens_deduits": liens_deduits,
+        "cycles": cycles,
+        "en_retard": en_retard,
+        "heritage": heritage,
+        "aval": aval,
+        "fusions": fusions,
+        "subsomptions": subsomptions,
+        "cloturables": cloturables,
+    }
+
+
 def plan_puct(items: list, libres: list, resultats: list, visites: dict | None = None, duel: bool = True,
-              c: float = _C_PUCT) -> dict:
+              c: float = _C_PUCT, contexte: dict | None = None) -> dict:
     """Attributions (item, repondeur) par PUCT, gloutonnes : chaque repondeur libre recoit au plus un item ; un item
     au plus un repondeur, sauf DUEL (P0/P1 de code, deux meilleurs ecrivains libres). Pur, sans E/S."""
     import math
@@ -865,9 +1595,13 @@ def plan_puct(items: list, libres: list, resultats: list, visites: dict | None =
         _s.path.insert(0, _a)
     from forge_motivation import force_repondeurs
     visites = visites or {}
-    jouables = [it for it in items if str(it.get("etat") or "").upper() in _JOUABLES]
-    attente = [it.get("cle") for it in jouables if attend_owner(it)]
-    jouables = [it for it in jouables if not attend_owner(it)]
+    ctx = contexte or {}
+    en_cours_raw = ctx.get("en_cours")
+    en_cours = en_cours_raw if isinstance(en_cours_raw, dict) else (items_en_cours(en_cours_raw) if isinstance(en_cours_raw, (list, tuple)) else {})
+    jouables_tous = [it for it in items if str(it.get("etat") or "").upper() in _JOUABLES]
+    nb_ecartes = len(items) - len(jouables_tous)
+    attente = [it.get("cle") for it in jouables_tous if attend_owner(it)]
+    jouables = [it for it in jouables_tous if not attend_owner(it) and it.get("cle") not in en_cours]
     forces = {cl: force_repondeurs(resultats, cl) for cl in ("M:ecrit", "M:lit")}
 
     def _q(rep, cl):
@@ -900,8 +1634,18 @@ def plan_puct(items: list, libres: list, resultats: list, visites: dict | None =
             out.append(x)
             pris_rep.add(x["repondeur"])
         pris_item.add(x["cle"])
-    return {"mode": "OBSERVATION", "attributions": out, "ecartes": len(items) - len(jouables),
-            "attente_owner": attente, "libres": list(libres), "portes": gestes_groupes(items)}
+    if contexte is None:
+        contexte = {
+            "maintenant": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "go_owner": [],
+            "ressources_occupees": [],
+            "quotas": {},
+            "en_cours": {},
+        }
+    chronologie = vagues(items, contexte)
+    return {"mode": "OBSERVATION", "attributions": out, "ecartes": nb_ecartes,
+            "attente_owner": attente, "libres": list(libres), "portes": gestes_groupes(items),
+            "chronologie": chronologie}
 
 
 def _visites_taches() -> tuple:
@@ -935,9 +1679,18 @@ def _plan_cli(libres: list) -> dict:
     visites = {it.get("cle"): sum(1 for d in descs if it.get("cle") and it.get("cle") in d) for it in items} \
         if isinstance(descs, list) else {}
     occupes, raison_occ = _occupes()
+    en_cours, raison_enc = _en_cours()
     retires = [x for x in libres if str(x).upper() in occupes]
-    plan = plan_puct(items, [x for x in libres if x not in retires], resultats, visites)
-    plan.update(ts=_t.time(), visites_raison=raison or None, occupes=retires, occupes_raison=raison_occ or None)
+    ctx = {
+        "maintenant": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "go_owner": [],
+        "ressources_occupees": [],
+        "quotas": {},
+        "en_cours": en_cours,
+    }
+    plan = plan_puct(items, [x for x in libres if x not in retires], resultats, visites, contexte=ctx)
+    plan.update(ts=_t.time(), visites_raison=raison or None, occupes=retires, occupes_raison=raison_occ or None,
+                en_cours=en_cours, en_cours_raison=raison_enc or None)
     journal = Path(_os.environ.get("NOKIDO_PLAN_JOURNAL")
                    or Path(__file__).resolve().parents[1] / "sandbox" / "plan_puct_observe.jsonl")
     journal.parent.mkdir(parents=True, exist_ok=True)
@@ -962,6 +1715,9 @@ def _main() -> int:
     ap.add_argument("--ctx", default=None, help="contexte d'exécution (run_job|trusted)")
     ap.add_argument("--verify", action="store_true",
                     help="registre intent VÉRIFIÉ (dead/done/open : intention confrontée au code réel)")
+    ap.add_argument("--structurer", action="store_true",
+                    help="migration prose -> roadmap_item : DRY-RUN par defaut")
+    ap.add_argument("--appliquer", action="store_true", help="avec --structurer : ecrit reellement")
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--plan", action="store_true",
                     help="planificateur AlphaGo (PUCT item x repondeur), OBSERVATION : plan journalise, rien attribue")
@@ -985,6 +1741,16 @@ def _main() -> int:
             from app.web_hub.roadmap_arbre import ecrire_page
         doc = arbre(out=Path(a.html).with_suffix(".json"))
         print(json.dumps({"page": str(ecrire_page(doc, a.html)), "items": len(doc.get("items") or [])}))
+        return 0
+    if a.structurer:
+        try:
+            from nokido_agent.app.forge_swarm_blackboard import read_zone
+        except ImportError:
+            from app.forge_swarm_blackboard import read_zone
+        faits = read_zone("architecture_rules", category="roadmap", limit=1000) or []
+        print(json.dumps(migrer_structurer(faits, dry_run=True), ensure_ascii=False))
+        if a.appliquer:
+            print("ecriture non branchee ici : --appliquer exige un geste owner", file=sys.stderr)
         return 0
     if a.selftest:
         return _selftest()

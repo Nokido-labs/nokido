@@ -18,7 +18,7 @@ Sécurités matérielles INJECTÉES (non-négociables) :
   - pids_limit=128               : 128 process max (anti-fork-bomb)
   - cap_drop=['ALL']             : aucune capability Linux (anti-priv-esc)
   - security_opt=['no-new-privileges']  : pas d'élévation
-  - auto_remove=True             : nettoyage automatique
+  - auto_remove=False + remove(force=True) apres lecture des logs : nettoyage explicite (Phase 28, 2026-05-25)
   - timeout enforced via container.wait(timeout=N) + container.kill()
 
 WHITELIST images : seulement runtimes legit (pas d'arbitrary image qui

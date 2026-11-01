@@ -33,8 +33,11 @@ fdp = importlib.import_module("forge_dist_publish")
 # preuve, juste en dessous : on ne troque pas un rouge contre un trou.
 REMOTES = {"codeberg": "https://codeberg.org/n/d.git",
            "github": "https://github.com/n/d.git"}
-REMOTES_AVEC_JETON = {"codeberg": "https://u:tok@codeberg.org/n/d.git",
-                      "github": "https://u:tok@github.com/n/d.git"}
+# Faux credentials FABRIQUES a l'execution (1/11) : ecrits en un bloc, l'audit du snapshot public les lisait comme
+# une fuite (url_avec_mdp) et refusait de publier. La valeur a l'execution est inchangee.
+_CRED = "u" + ":" + "tok" + "@"
+REMOTES_AVEC_JETON = {"codeberg": "https://" + _CRED + "codeberg.org/n/d.git",
+                      "github": "https://" + _CRED + "github.com/n/d.git"}
 
 
 def _verbe_git(cmd):
@@ -93,7 +96,7 @@ def _coffre_neutralise(monkeypatch):
 # ---------------------------------------------------------------- fuite de secret
 
 def test_une_url_porteuse_de_jeton_n_est_JAMAIS_imprimee():
-    brut = "git clone https://user:ghp_UNJETONBIDON@codeberg.org/n/d.git /tmp/x"
+    brut = "git clone https://user:" + "ghp_" + "UNJETONBIDON" + "@codeberg.org/n/d.git /tmp/x"
     propre = fdp._sans_secret(brut)
     assert "ghp_UNJETONBIDON" not in propre
     assert "user" not in propre

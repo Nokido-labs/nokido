@@ -22,13 +22,37 @@ from __future__ import annotations
 
 import logging
 import os
+import socket
 import threading
+from urllib.parse import urlparse
 
 logger = logging.getLogger("forge_otel_export")
 
 _tracer = None
 _lock = threading.Lock()
 _disabled_reason: str | None = None
+_PROBE_TIMEOUT_S = 0.5
+
+
+def _collector_present(endpoint: str) -> bool:
+    """Sonde TCP courte du collecteur OTLP : True si `host:port` accepte la connexion.
+
+    Jaeger est un dashboard OPTIONNEL (tools/forge_obs_setup.py : « au choix »),
+    lance a la demande. Un collecteur absent n'est donc pas une panne a signaler
+    a chaque span : c'est une politique, lue UNE fois par processus. Une adresse
+    illisible vaut absente (jamais une exception qui remonte).
+    """
+    try:
+        p = urlparse(endpoint)
+        host = p.hostname or "127.0.0.1"
+        port = p.port or (443 if p.scheme == "https" else 80)
+    except (ValueError, AttributeError):
+        return False
+    try:
+        with socket.create_connection((host, port), timeout=_PROBE_TIMEOUT_S):
+            return True
+    except OSError:
+        return False
 
 
 def _get_tracer():
@@ -44,6 +68,14 @@ def _get_tracer():
     with _lock:
         if _tracer is not None:
             return _tracer
+        if _disabled_reason is not None:
+            return None
+        if not _collector_present(endpoint):
+            # DISABLED_BY_POLICY : une seule ligne pour le processus, aucun retry.
+            _disabled_reason = "collecteur OTLP absent (%s)" % endpoint
+            logger.info("collecteur OTLP absent : export désactivé, lancer Jaeger "
+                        "à la demande via tools/forge_obs_setup.py")
+            return None
         try:
             from opentelemetry import trace
             from opentelemetry.sdk.resources import Resource

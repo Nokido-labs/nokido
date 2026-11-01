@@ -627,6 +627,12 @@ def _run_identity(quarantine: set, escalate: str) -> dict:
     }
 
 
+# CANARI (26/10, meme regle que forge_bfcl_runner) : si les CANARI_N premiers cas sont TOUS des erreurs
+# d'appel, le fournisseur est en panne : la passe s'arrete, n'ecrit AUCUN JSON de mesure ni ancre RAG,
+# et le dit (`non_mesure`). Le « 7,3 % » d'octobre etait 152 llm_error sur 164, publie comme mesure.
+CANARI_N = 3
+
+
 def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
         self_repair: int = 0, escalate: str = "", tag: str = "") -> dict:
     entries = ensure_dataset()
@@ -822,6 +828,11 @@ def run(provider: str = "mistral", max_entries: int = 50, repair: int = 0,
             print(f"  [quota] ARRET : quota JOURNALIER epuise ({quota_epuise[:140]}) -- "
                   f"{len(subset) - i - 1} tache(s) NON jouee(s), dites dans le resume", flush=True)
             break
+        if i + 1 == CANARI_N and errors == CANARI_N and len(subset) > CANARI_N:
+            canari = "%d/%d temoins en erreur d'appel : %s" % (errors, CANARI_N, response[:120])
+            print(f"[humaneval] CANARI : {canari} -> passe arretee, NON_MESURE (rien n'est ecrit)", flush=True)
+            return {"provider": provider, "n_total": len(subset), "non_mesure": True, "canari": canari,
+                    "errors": errors, "results": results}
         time.sleep(0.8)
 
     # Frame FINAL : la boucle emet AVANT chaque entree -> jamais total/total,
@@ -904,5 +915,7 @@ if __name__ == "__main__":
     parser.add_argument("--tag", default="",
                         help="suffixe du JSON de sortie (defaut: horodatage — jamais ecraser un resultat)")
     args = parser.parse_args()
-    run(provider=args.provider, max_entries=args.max, repair=args.repair,
-        self_repair=args.self_repair, escalate=args.escalate, tag=args.tag)
+    _s = run(provider=args.provider, max_entries=args.max, repair=args.repair,
+             self_repair=args.self_repair, escalate=args.escalate, tag=args.tag)
+    # Passe arretee par le canari : le .rc du job le dit (2), jamais un 0 qui passerait pour une mesure.
+    sys.exit(2 if _s.get("non_mesure") else 0)

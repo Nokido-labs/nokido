@@ -15,12 +15,15 @@
 # et APRES les preflights, LaForge-Master est redemarre. Il ne tient plus que le hub,
 # qui tombe aussitot et revient ~9 s plus tard avec la flotte en vagues : sous les 15 s
 # de reconnexion de Claude Code (5 essais, +0/+1/+2/+4/+8 s), le MCP se reconnecte seul.
-param([switch]$RelanceHub)
+# -NoWait (owner 30/10 : la fenetre ne se fermait pas seule) : passe par le restart du tray ; un start REUSSI
+# ferme sa fenetre seul apres 5 s, un start en ECHEC la garde ouverte pour que l'owner lise l'erreur.
+param([switch]$RelanceHub, [switch]$NoWait)
 
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     # Le drapeau doit SUIVRE l'elevation (meme regle que nokido_stop.ps1 -NoWait).
     $relArgs = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
     if ($RelanceHub) { $relArgs += " -RelanceHub" }
+    if ($NoWait) { $relArgs += " -NoWait" }
     Start-Process powershell -ArgumentList $relArgs -Verb RunAs
     exit
 }
@@ -446,6 +449,14 @@ if ($failed -eq 0) {
     Write-Host "  Ollama     -> http://127.0.0.1:11434" -ForegroundColor DarkGray
 } else {
     Write-Host "  Certains services ont echoue. Verifier logs NSSM." -ForegroundColor Yellow
+    $echecStart = $true
+}
+
+if ($NoWait -and -not $echecStart) {
+    Write-Host "  Fermeture automatique dans 5 s..." -ForegroundColor DarkGray
+    Start-Sleep -Seconds 5
+    try { Stop-Transcript | Out-Null } catch {}
+    exit 0
 }
 
 Write-Host ""

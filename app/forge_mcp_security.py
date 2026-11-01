@@ -302,7 +302,10 @@ def audit(tool: str, args: dict, status: str, error: str = "") -> None:
         AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
         from nokido_agent.app.forge_conv_sanitizer import _redact
         args_summary = json.dumps({k: _redact(str(v))[:80] for k, v in args.items()}, ensure_ascii=False)
-        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} | {tool:20s} | {args_summary[:120]:120s} | {status}"
+        # 260 : direction + trace_id + agent + principal + declared + ring + transport_signale
+        # + canal_contradictoire (principal/declared ont allonge la ligne ; 160 coupait le meta).
+        # Derogation owner 25/10 (CI de reference 50221f9ca, test_audit_meta_survit_troncature_nr).
+        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S')} | {tool:20s} | {args_summary[:260]:160s} | {status}"
         if error:
             line += f" | ERR: {error[:80]}"
         with open(str(AUDIT_LOG), "a", encoding="utf-8") as f:

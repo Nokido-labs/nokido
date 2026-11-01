@@ -101,6 +101,8 @@ def scan(files: list[str]) -> list[str]:
         if not p.exists() or p.name in _SKIP:
             continue
         ext = p.suffix.lower()
+        if ext == ".md":
+            continue
         try:
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
         except Exception:

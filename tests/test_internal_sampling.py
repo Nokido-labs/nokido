@@ -29,6 +29,7 @@ def _router(monkeypatch, capture: dict, retour="reponse"):
 
     mod.router_call = router_call
     monkeypatch.setitem(sys.modules, "forge_llm_router", mod)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_llm_router", mod)
 
 
 def test_local_par_defaut(monkeypatch):
@@ -73,6 +74,7 @@ def test_router_en_erreur_rend_None_sans_lever(monkeypatch):
 
     mod.router_call = boom
     monkeypatch.setitem(sys.modules, "forge_llm_router", mod)
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_llm_router", mod)
     assert isamp.sample("x", purpose="t") is None
 
 

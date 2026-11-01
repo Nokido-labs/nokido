@@ -22,7 +22,8 @@ def _faux(monkeypatch, catalogue_code=200):
     from nokido_agent.app import forge_secrets as s
     monkeypatch.setattr(s, "get_secret", lambda k: "cle-de-test")
     monkeypatch.setattr(C, "catalogue", lambda base, cle: (catalogue_code, [{"id": "a"}], {}))
-    monkeypatch.setattr(C, "sonder", lambda base, cle, m, outils=False: {
+    # 31/10 : 640262e9a (30/10) a ajoute `fournisseur=` a sonder/joignable (coupe-circuit avant requete) ; la doublure suit.
+    monkeypatch.setattr(C, "sonder", lambda base, cle, m, outils=False, fournisseur=None: {
         "joignable": m == "a", "motif": "OK" if m == "a" else "HTTP 404", "limites": {}, "outils": True})
 
 

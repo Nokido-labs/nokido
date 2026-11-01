@@ -17,8 +17,6 @@ import py_compile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-target = ROOT / "app" / "forge_rag_warmup.py"
-content = target.read_text(encoding="utf-8", errors="ignore")
 
 SPAWN_FN = '''
 def rag_warmup_spawn() -> str:
@@ -52,17 +50,26 @@ def rag_warmup_spawn() -> str:
 '''
 
 MARKER = "\nasync def rag_self_warmup("
-if "rag_warmup_spawn" in content:
-    print("already present")
-elif MARKER in content:
-    idx = content.find(MARKER)
-    content = content[:idx] + SPAWN_FN + content[idx:]
-    target.write_text(content, encoding="utf-8")
-    py_compile.compile(str(target), doraise=True)
-    print("PASS injected")
-else:
-    # Append at end
-    content = content + SPAWN_FN
-    target.write_text(content, encoding="utf-8")
-    py_compile.compile(str(target), doraise=True)
-    print("PASS appended")
+
+
+def main() -> None:
+    target = ROOT / "app" / "forge_rag_warmup.py"
+    content = target.read_text(encoding="utf-8", errors="ignore")
+    if "rag_warmup_spawn" in content:
+        print("already present")
+    elif MARKER in content:
+        idx = content.find(MARKER)
+        content = content[:idx] + SPAWN_FN + content[idx:]
+        target.write_text(content, encoding="utf-8")
+        py_compile.compile(str(target), doraise=True)
+        print("PASS injected")
+    else:
+        # Append at end
+        content = content + SPAWN_FN
+        target.write_text(content, encoding="utf-8")
+        py_compile.compile(str(target), doraise=True)
+        print("PASS appended")
+
+
+if __name__ == "__main__":
+    main()

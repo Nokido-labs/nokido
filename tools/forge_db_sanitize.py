@@ -121,13 +121,9 @@ def _redact_value(v: str) -> str:
 
 
 def _sanitize_dict_str_recursive(d) -> object:
-    if isinstance(d, str):
-        return _redact_value(d)
-    if isinstance(d, dict):
-        return {k: _sanitize_dict_str_recursive(v) for k, v in d.items()}
-    if isinstance(d, list):
-        return [_sanitize_dict_str_recursive(x) for x in d]
-    return d
+    """Caviarde chaque chaine d'une structure imbriquee (parcours commun : forge_utils.mapper_chaines)."""
+    from nokido_agent.app.forge_utils import mapper_chaines
+    return mapper_chaines(d, _redact_value)
 
 
 def _sanitize_meta_json(meta_raw) -> str:

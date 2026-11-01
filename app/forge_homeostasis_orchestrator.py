@@ -72,13 +72,10 @@ SANDBOX = ROOT / "sandbox"
 HEARTBEAT = SANDBOX / "homeostasis_orchestrator.heartbeat"
 STATE_FILE = SANDBOX / "homeostasis_state.json"
 
+# gemini_poll_daemon RETIRE le 2026-10-26 (decision owner) : NokidoGeminiDaemon est `enabled = false`
+# dans services.toml, mais ce watchdog le relancait sans lire le drapeau ; il ecrivait ~/.gemini/inbox.md
+# que personne ne lit (AGY recoit son courrier par le hub). NR test_watchdog_ne_relance_pas_gemini_poll_nr.
 DAEMON_WATCHDOGS = [
-    {
-        "name": "gemini_poll_daemon",
-        "heartbeat": SANDBOX / "gemini_poll_daemon.heartbeat",
-        "cmd": [sys.executable, str(ROOT / "tools" / "gemini_poll_daemon.py")],
-        "stale_s": 600,
-    },
     {
         "name": "ingestion_pipeline",
         "heartbeat": SANDBOX / "ingestion_pipeline.heartbeat",
@@ -467,6 +464,12 @@ def _algedonic_signals(out: dict) -> list[dict]:
         sigs.append({"kind": "port_reconcile", "severity": "high",
                      "detail": f"listeners fantomes termines: {_rc['reconciled']}"})
 
+    # Capture AGY absente (0 session indexee en 24 h alors que des transcripts existent).
+    _ag = (ph.get("capture_agy") or {}).get("result") or {}
+    if _ag.get("alerte"):
+        sigs.append({"kind": "capture_agy_absente", "severity": "medium",
+                     "detail": f"0 indexee/24h, {_ag.get('sur_disque')} sessions sur disque"})
+
     # Anomalie de l'environnement = signal S4. Trace, n'escalade pas seule.
     _nov = out.get("novelty") or {}
     if _nov.get("alert"):
@@ -733,6 +736,15 @@ def tick(state: dict) -> dict:
                           flush=True)
         except ImportError as e:
             out["phases"]["delivery_integrity"] = {"ok": False, "err": str(e)}
+
+    # Capture AGY verifiee sur l'artefact (rag_chunks), quotidienne (288 ticks de 5 min).
+    if tc % 288 == 0:
+        try:
+            from nokido_agent.app.forge_conv_indexer import verifier_capture_agy
+
+            out["phases"]["capture_agy"] = _safe_call("capture_agy", verifier_capture_agy)
+        except ImportError as e:
+            out["phases"]["capture_agy"] = {"ok": False, "err": str(e)}
 
     # F. Journal de FLAP (2026-07-25) : prealable MESURABLE au S2 anti-oscillateur.
     # Le `restarts` du superviseur repart de zero a chaque boot : un flap chronique

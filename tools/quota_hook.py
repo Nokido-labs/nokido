@@ -100,74 +100,81 @@ def get_rag_filters() -> str:
   snapshot      → `query sql="SELECT text FROM rag_chunks WHERE id='snapshot_20260429'"`"""
 
 
-# 1. Lire état quota précédent
-quota_state = read_quota_state()
-# Reset quotidien des compteurs si la date a changé
-if quota_state.get("ts", "").split("T")[0] != datetime.now().strftime("%Y-%m-%d"):
-    for k in list(quota_state.keys()):
-        if k.startswith("tokens_"):
-            quota_state[k] = 0
-    quota_state["ts"] = datetime.now().isoformat()
-model = get_best_available(quota_state)
+def main():
+    # 28/10 : tout le boot (lecture quota, poll hub, ecriture GEMINI.md, notify) etait execute au chargement du
+    # module ; il est sous main(), execute en direct a l'identique (hook SessionStart).
+    # 1. Lire état quota précédent
+    quota_state = read_quota_state()
+    # Reset quotidien des compteurs si la date a changé
+    if quota_state.get("ts", "").split("T")[0] != datetime.now().strftime("%Y-%m-%d"):
+        for k in list(quota_state.keys()):
+            if k.startswith("tokens_"):
+                quota_state[k] = 0
+        quota_state["ts"] = datetime.now().isoformat()
+    model = get_best_available(quota_state)
 
-# 2. Lire messages hub en attente
-msgs = hub_call("hub", {"action": "poll"})
-pending = "" if not msgs or msgs == "Aucune notification." else msgs[:500]
+    # 2. Lire messages hub en attente
+    msgs = hub_call("hub", {"action": "poll"})
+    pending = "" if not msgs or msgs == "Aucune notification." else msgs[:500]
 
-# 3. Construire BOOT CONTEXT dans GEMINI.md
-ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-session_id = f"gemini_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-os.environ["X_SESSION_ID"] = session_id
-os.environ["X_AGENT_NAME"] = "GEMINI"
-lines = [
-    f"## BOOT CONTEXT — {ts}",
-    "",
-    f"**Modèle recommandé :** `{model}`",
-    f"**Session ID :** `{session_id}`",
-]
+    # 3. Construire BOOT CONTEXT dans GEMINI.md
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    session_id = f"gemini_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    os.environ["X_SESSION_ID"] = session_id
+    os.environ["X_AGENT_NAME"] = "GEMINI"
+    lines = [
+        f"## BOOT CONTEXT — {ts}",
+        "",
+        f"**Modèle recommandé :** `{model}`",
+        f"**Session ID :** `{session_id}`",
+    ]
 
-if quota_state:
+    if quota_state:
+        lines += [
+            "",
+            "**État quota (reporté session précédente) :**",
+            f"  Flash      : {quota_state.get('flash', '?')}%",
+            f"  Flash-Lite : {quota_state.get('flash_lite', '?')}%",
+            f"  Pro 2.5    : {quota_state.get('pro', '?')}%",
+            f"  Pro 3.1    : {quota_state.get('preview_pro', '?')}%  ← pool séparé",
+        ]
+    else:
+        lines += ["", "**Quota :** état inconnu — fais `/model` pour voir les vrais %"]
+
+    if pending:
+        lines += ["", "**Messages en attente :**", "```", pending[:300], "```"]
+
+    rag_section = get_rag_filters()
+    if rag_section:
+        lines += ["", rag_section]
+
     lines += [
         "",
-        "**État quota (reporté session précédente) :**",
-        f"  Flash      : {quota_state.get('flash', '?')}%",
-        f"  Flash-Lite : {quota_state.get('flash_lite', '?')}%",
-        f"  Pro 2.5    : {quota_state.get('pro', '?')}%",
-        f"  Pro 3.1    : {quota_state.get('preview_pro', '?')}%  ← pool séparé",
+        "**Actions OBLIGATOIRES au boot :**",
+        "1. `/model` → noter les % réels → `hub action=quota_report flash=X flash_lite=Y pro=Z preview_pro=W`",
+        "2. Appliquer le bon modèle selon les vrais %",
+        "3. Lire les messages en attente ci-dessus",
+        "",
+        "---",
+        "",
     ]
-else:
-    lines += ["", "**Quota :** état inconnu — fais `/model` pour voir les vrais %"]
 
-if pending:
-    lines += ["", "**Messages en attente :**", "```", pending[:300], "```"]
+    boot_section = "\n".join(lines)
+    current = GEMINI_MD.read_text(encoding="utf-8") if GEMINI_MD.exists() else ""
+    current = re.sub(r"## BOOT CONTEXT.*?---\n", "", current, flags=re.DOTALL)
+    GEMINI_MD.write_text(boot_section + current, encoding="utf-8")
 
-rag_section = get_rag_filters()
-if rag_section:
-    lines += ["", rag_section]
+    # 4. Notifier hub
+    hub_call(
+        "hub",
+        {
+            "action": "notify",
+            "message": f"[GEMINI][BOOT] modele_recommande={model} quota_state={quota_state}",
+        },
+    )
 
-lines += [
-    "",
-    "**Actions OBLIGATOIRES au boot :**",
-    "1. `/model` → noter les % réels → `hub action=quota_report flash=X flash_lite=Y pro=Z preview_pro=W`",
-    "2. Appliquer le bon modèle selon les vrais %",
-    "3. Lire les messages en attente ci-dessus",
-    "",
-    "---",
-    "",
-]
+    print(f"[hook] OK model={model} quota={quota_state}")
 
-boot_section = "\n".join(lines)
-current = GEMINI_MD.read_text(encoding="utf-8") if GEMINI_MD.exists() else ""
-current = re.sub(r"## BOOT CONTEXT.*?---\n", "", current, flags=re.DOTALL)
-GEMINI_MD.write_text(boot_section + current, encoding="utf-8")
 
-# 4. Notifier hub
-hub_call(
-    "hub",
-    {
-        "action": "notify",
-        "message": f"[GEMINI][BOOT] modele_recommande={model} quota_state={quota_state}",
-    },
-)
-
-print(f"[hook] OK model={model} quota={quota_state}")
+if __name__ == "__main__":
+    main()

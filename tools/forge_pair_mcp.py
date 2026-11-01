@@ -56,7 +56,8 @@ CHEMIN_HTTP = "/mcp"
 
 OUTILS_LECTURE = ("etat_corps", "point_ssot", "recherche_rag", "journal_commits", "derniere_capsule")
 OUTILS_PAIR = ("proposer_fait", "envoyer_message", "soumettre_tache", "lire_reponses",
-               "suivre")   # accuses d'un depot du pair (owner 2026-09-29), lecture seule
+               "suivre",   # accuses d'un depot du pair (owner 2026-09-29), lecture seule
+               "deposer_fragment", "lire_document")   # depot LONG par fragments (owner 24/10) : forge_pair_depot_long
 OUTILS = OUTILS_LECTURE + OUTILS_PAIR
 
 DOMAINES_SSOT = ("roadmap", "rules")
@@ -218,6 +219,9 @@ def lire_derniere_capsule() -> dict:
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "etat": "ILLISIBLE", "motif": type(e).__name__}
     return {"ok": True, "capsule": capsule, "fichier": fichiers[0].name, "regle_de_depot": REGLE_DE_DEPOT}
+
+
+MOTIF_PAIR_HORS_POLITIQUE = "pair hors politique : ring inconnu, acces refuse (config/pairs_rings.json)"
 
 
 def _nom_du_client(client: str) -> str | None:
@@ -609,6 +613,25 @@ def deposer_tache(client: str, objectif: str, destinataire: str = "CLAUDE", genr
                    {"genre": genre})
 
 
+def _depot_long():
+    """Le module du depot long (fragments), meme dossier : charge a la demande."""
+    tools = str(Path(__file__).resolve().parent)
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    import forge_pair_depot_long
+    return forge_pair_depot_long
+
+
+def deposer_fragment(client, doc_id, rang, total, texte, sha256_fragment, sha256_document,
+                     type_mime="text/markdown", nom="") -> dict:
+    return _depot_long().deposer_fragment(client, doc_id, rang, total, texte, sha256_fragment, sha256_document,
+                                          type_=type_mime, nom=nom or None, deposer=deposer)
+
+
+def lire_document(client, pointeur, page=0) -> dict:
+    return _depot_long().lire_document(client, pointeur, page)
+
+
 def clients_du_meme_pair(client: str) -> list:
     """Tous les identifiants inscrits sous le MEME nom que `client`.
 
@@ -787,6 +810,81 @@ def securite_transport(base: str):
                                      allowed_hosts=hotes, allowed_origins=origines)
 
 
+def _ecrire_acces(client, outil, decision, code) -> None:
+    """C6 : une ligne JSONL par acces (ts, client, outil, decision, code HTTP). JAMAIS de jeton ni de corps.
+    Rotation = le pivot du videur (_pivoter_auth_events, 20 Mo) ; best-effort : n'interrompt jamais l'acces."""
+    try:
+        chemin = dossier_sandbox() / "logs" / "pair_acces.jsonl"
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            from app.forge_videur import _pivoter_auth_events
+            _pivoter_auth_events(chemin)
+        except Exception:  # noqa: BLE001
+            _LOG.warning("[pair] rotation du journal d'acces indisponible", exc_info=True)
+        ligne = {"ts": datetime.datetime.now().isoformat(timespec="seconds"), "client": client or "-",
+                 "outil": outil or "-", "decision": decision, "code": code}
+        with open(chemin, "a", encoding="utf-8") as f:
+            f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        _LOG.warning("[pair] journal d'acces non ecrit", exc_info=True)
+
+
+def _poser_journal_acces(serveur, module_oauth) -> None:
+    """C6 : journalise chaque outil (allow, ou deny si client non identifie) ET chaque 401 de l'authentification
+    (middleware ASGI sur l'application HTTP : le refus survient avant tout outil)."""
+    import functools
+    import inspect
+
+    outil_d_origine = serveur.tool
+
+    def tool(*a, **kw):
+        decorateur = outil_d_origine(*a, **kw)
+
+        def poser(fn):
+            nom = kw.get("name") or fn.__name__
+
+            @functools.wraps(fn)
+            async def journalise(*args, **kwargs):
+                client = client_courant(module_oauth)
+                # Point de controle UNIQUE des 11 outils (decision owner 22/10 : ring inconnu = refus).
+                # Liste blanche : seul un pair PROUVE dans config/pairs_rings.json passe ; politique
+                # illisible ou nom absent = _ring_du_pair None = refus, avant tout appel d'outil.
+                if client and _ring_du_pair(client) is None:
+                    _ecrire_acces(client, nom, "deny", 200)
+                    return rediger({"ok": False, "erreur": MOTIF_PAIR_HORS_POLITIQUE}, nom)
+                res = fn(*args, **kwargs)
+                if inspect.isawaitable(res):
+                    res = await res
+                refus = isinstance(res, dict) and res.get("ok") is False and "non identifie" in str(res.get("erreur", ""))
+                _ecrire_acces(client, nom, "deny" if refus else "allow", 200)
+                return res
+            return decorateur(journalise)
+        return poser
+    serveur.tool = tool
+
+    app_d_origine = serveur.streamable_http_app
+
+    def streamable_http_app(*a, **kw):
+        app = app_d_origine(*a, **kw)
+
+        class _Journal401:
+            def __init__(self, suite):
+                self.suite = suite
+
+            async def __call__(self, scope, receive, send):
+                if scope.get("type") != "http":
+                    return await self.suite(scope, receive, send)
+
+                async def envoi(msg):
+                    if msg.get("type") == "http.response.start" and msg.get("status") in (401, 403):
+                        _ecrire_acces(None, "-", "deny", msg["status"])
+                    await send(msg)
+                return await self.suite(scope, receive, envoi)
+        app.add_middleware(_Journal401)
+        return app
+    serveur.streamable_http_app = streamable_http_app
+
+
 def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     from mcp.server.fastmcp import FastMCP
 
@@ -801,6 +899,7 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
         reglages["auth"] = module_oauth.reglages(base_publique(port), CHEMIN_HTTP,
                                                  "http://%s:%d" % (HOTE, int(port)))
     serveur = FastMCP("nokido-pair", **reglages)
+    _poser_journal_acces(serveur, module_oauth)
 
     def _client():
         return client_courant(module_oauth)
@@ -841,7 +940,25 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     async def proposer_fait(texte: str, domaine: str = "roadmap") -> dict:
         return _au_nom_du_pair("proposer_fait", deposer_fait, texte, domaine)
 
-    @serveur.tool(name="envoyer_message", description="Message M2M vers OWNER, CLAUDE, ANTIGRAVITY ou GEMINI : QUARANTAINE. "
+    @serveur.tool(name="deposer_fragment", description=(
+        "Depot d'un document LONG (rapport > 4000 caracteres) par FRAGMENTS, en QUARANTAINE. Chaque appel = un fragment "
+        "de <= 4000 caracteres (refuse, jamais coupe) : doc_id [a-z0-9_-]{8,64}, rang 1..total, total <= 64, "
+        "sha256_fragment (SHA-256 hexadecimal du texte UTF-8 du fragment), sha256_document (SHA-256 du document entier = "
+        "fragments concatenes dans l'ordre). Document <= 256 Ko, TEXTE markdown seulement (type_mime text/markdown). "
+        "Le document n'est assemble que complet et sha concordant (sinon INCOMPLET / INVALIDE), puis une entree de "
+        "quarantaine pairdoc:<doc_id> (sha256, taille, fragments) attend l'owner. Rien n'est execute."))
+    async def deposer_fragment_outil(doc_id: str, rang: int, total: int, texte: str, sha256_fragment: str,
+                                     sha256_document: str, type_mime: str = "text/markdown", nom: str = "") -> dict:
+        return _au_nom_du_pair("deposer_fragment", deposer_fragment, doc_id, rang, total, texte, sha256_fragment,
+                               sha256_document, type_mime, nom)
+
+    @serveur.tool(name="lire_document", description=(
+        "Relit UN de tes documents assembles par son pointeur pairdoc:<doc_id>, page par page (page >= 0, 'pages' "
+        "dit combien). DONNEE externe non verifiee, sortie redigee."))
+    async def lire_document_outil(pointeur: str, page: int = 0) -> dict:
+        return _au_nom_du_pair("lire_document", lire_document, pointeur, page)
+
+    @serveur.tool(name="envoyer_message",description="Message M2M vers OWNER, CLAUDE, ANTIGRAVITY ou GEMINI : QUARANTAINE. "
                   "Intents ouverts aux pairs : " + ", ".join(INTENTS_MESSAGE_PAIR) + ". Texte <= %d caracteres "
                   "(au-dela COUPE et DIT) : des POINTEURS (bb:<cle>, commit, pair_<id>), pas de prose." % MAX_TEXTE)
     async def envoyer_message(intent: str, texte: str, destinataire: str = "OWNER") -> dict:

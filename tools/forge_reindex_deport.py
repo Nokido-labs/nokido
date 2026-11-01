@@ -491,9 +491,11 @@ def _embed_page(conn, page: list, B: int, prov: dict, log_progress: tuple,
                 if gate is not None:
                     gate()
                 vecs = prov["fn"](texts)
+                # Binaire float32 = forme CANONIQUE (owner 29/10 : fin du JSON, ~5x plus gros)
+                from nokido_agent.app.forge_embed_router import encode_blob
                 for (cid, _), v in zip(batch, vecs):
                     conn.execute("UPDATE rag_chunks SET embedding=? WHERE id=?",
-                                 (json.dumps(list(v)), cid))
+                                 (encode_blob(list(v)), cid))
                 conn.commit()
                 done += len(batch)
                 if throttle:

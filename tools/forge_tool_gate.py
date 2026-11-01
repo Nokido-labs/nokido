@@ -664,8 +664,28 @@ def main() -> int:
     # qu'il faut (surface, methode, charge, session) et ne peut rien changer.
     _observer_transient(data)
     out = _emit_gemini(d) if cli == "gemini" else _emit_claude(d)
+    hso = out.get("hookSpecificOutput") if isinstance(out, dict) else None
+    if isinstance(hso, dict) and hso.get("additionalContext"):
+        reste = _rappel_filtre(hso["additionalContext"], data.get("session_id") or "")
+        if reste:
+            hso["additionalContext"] = reste
+        else:
+            del hso["additionalContext"]
     print(json.dumps(out, ensure_ascii=False))
     return 0
+
+
+def _rappel_filtre(texte: str, session: str):
+    """P1a (GO owner 22/10) : un conseil DÉPORT deja montre a l'identique a cette session n'est pas reinjecte
+    (tools/forge_hook_rappel). Le refus (deny) ne passe jamais ici. Filtre indisponible : le conseil est montre."""
+    try:
+        dossier = os.path.dirname(os.path.abspath(__file__))
+        if dossier not in sys.path:
+            sys.path.insert(0, dossier)
+        import forge_hook_rappel
+        return forge_hook_rappel.filtrer(texte, session)
+    except Exception:  # noqa: BLE001 -- muet-ok : sans filtre, le conseil est montre (jamais de silence par defaut)
+        return texte
 
 
 if __name__ == "__main__":

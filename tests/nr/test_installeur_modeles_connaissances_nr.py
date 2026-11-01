@@ -137,7 +137,9 @@ def test_jeton_du_premier_client_seme_et_relu(monkeypatch, rcs, attendu):
     assert appels[0][1].endswith("forge_vault_seed_agent_tokens.py")
     # jamais --overwrite (pas de rotation) ; --from-registre : EDITOR n'est pas dans la liste figee du generateur
     assert appels[0][2:] == ["--generate-missing", "--from-registre", "--agents", "EDITOR"]
-    assert "FORGE_TOKEN_EDITOR" in appels[1][-1] and F.COMPOSANTS[-1] == "jetons"
+    # 31/10 : `[-1]` supposait jetons en DERNIER ; 4e265b49f (29/10) a ajoute reglage_gpu apres. Le contrat (8ec621baa,
+    # 13/10) est que l'etape existe et seme EDITOR, pas sa place : on verifie sa presence.
+    assert "FORGE_TOKEN_EDITOR" in appels[1][-1] and "jetons" in F.COMPOSANTS
 
 
 def test_editor_n_est_semable_que_depuis_le_registre():

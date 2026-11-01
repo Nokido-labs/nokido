@@ -444,9 +444,13 @@ class ForgeSourceDiscovery:
                     # Context async → créer une task
                     import concurrent.futures  # noqa: PLC0415
 
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                    # C2.1 (29/10) : sans `with`, le delai libere l'appelant (shutdown sans attente de la tache)
+                    pool = concurrent.futures.ThreadPoolExecutor()
+                    try:
                         future = pool.submit(asyncio.run, _crawl())
                         return future.result(timeout=20)
+                    finally:
+                        pool.shutdown(wait=False, cancel_futures=True)
                 else:
                     return loop.run_until_complete(_crawl())
             except RuntimeError:

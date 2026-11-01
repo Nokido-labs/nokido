@@ -894,6 +894,10 @@ async def run_queue(
     return {"ok": True, "plan_id": plan.plan_id, "tasks": len(tasks), "completed": done, "failed": failed}
 
 
+# Audit C2.1 (29/10) : delai de drain_queue appelee depuis une boucle active ; l'appelant est LIBERE a ce delai.
+GOAP_DELAI_S = 120.0
+
+
 def drain_queue(
     agent: str = "agt_daemon",
     max_tasks: int = 10,
@@ -910,8 +914,15 @@ def drain_queue(
         # Already inside a running loop
         import concurrent.futures
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            return pool.submit(asyncio.run, coro).result(timeout=120)
+        # `with` attendait la tache en sortie de bloc (shutdown(wait=True)) et le TimeoutError, leve dans ce
+        # handler, remontait a l'appelant : pool ferme SANS attendre, delai rendu comme un echec.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="goap_drain")
+        try:
+            return pool.submit(asyncio.run, coro).result(timeout=GOAP_DELAI_S)
+        except concurrent.futures.TimeoutError:
+            return {"ok": False, "error": "DELAI %.0f s depasse (drain abandonne, appelant libere)" % GOAP_DELAI_S}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

@@ -47,10 +47,27 @@ def _ci_local():
     return mod
 
 
+def _suivis_nr():
+    """Noms des fichiers de tests NR SUIVIS par git (vue de la CI). None = git illisible -> repli sur le disque.
+
+    31/10 : 304 orphelins sur le disque, 272 suivis -- 32 `test_appui_*` generes non suivis comptaient alors que la
+    CI (worktree propre) ne les voit pas. Meme correctif que le cliquet racine_donnees le meme jour."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(NR.parents[1]), "ls-files", "--", "tests/nr"],
+                           capture_output=True, text=True, errors="replace", timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {Path(x).name for x in r.stdout.split()} if r.returncode == 0 and r.stdout.strip() else None
+
+
 def _hors_suite() -> set[str]:
     mod = _ci_local()
     dans = {Path(p).name for p in mod.PURE_TESTS if p.startswith("tests/nr/")}
     tous = {p.name for p in NR.glob("test_*.py")}
+    suivis = _suivis_nr()
+    if suivis is not None:
+        tous &= suivis
     return tous - dans
 
 

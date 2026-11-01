@@ -651,6 +651,131 @@ RESERVES_EN_TRANSITION = frozenset({
 })
 
 
+OBSERVES_CLOISONNEMENT: list = []   # noms seulement, jamais de valeur
+
+
+# 29/10 : trace DURABLE des lectures « aurait_refuse » (la liste en memoire mourait avec le processus) -- nom de cle,
+# compte, script, pid, heure ; JAMAIS la valeur. NR tests/nr/test_coffre_observation_journal_durable_nr.py.
+_JOURNAL_OBSERVATIONS = Path(__file__).resolve().parents[1] / "sandbox" / "logs" / "coffre_cloisonne_observations.jsonl"
+
+
+def _pile_appelants(n: int = 6) -> list:
+    """Chaine d'appel « fichier:fonction » (la plus proche d'abord), hors du guichet lui-meme. Noms seulement.
+
+    31/10 (accord owner) : NokidoRSSWatcher lisait FORGE_TOKEN_SERVICES via forge_hub_client a chaque demarrage, sans
+    que l'appelant reel soit lisible -- `module` nommait le lecteur direct, pas qui l'appelait."""
+    try:
+        import traceback as _tb
+        pile = []
+        for fr in reversed(_tb.extract_stack(limit=24)[:-1]):
+            nom = os.path.basename(fr.filename or "?")
+            if nom == "forge_secrets.py":
+                continue
+            pile.append("%s:%s" % (nom.replace(" ", "_"), fr.name))
+            if len(pile) >= n:
+                break
+        return pile
+    except Exception:  # noqa: BLE001 - muet-ok : une pile illisible ne casse jamais la lecture du secret
+        return []
+
+
+def _journaliser_observation(key: str, compte: str, raison: str) -> None:
+    """Meme patron que `_journaliser_reserve` (etape 2a des noms reserves), pour les IDENTITES `FORGE_TOKEN_*` du
+    cloisonnement : premiere lecture par (cle, module) et par process, la liste a traiter AVANT le refus.
+    Aucune valeur n'entre ici, par construction. Ne leve jamais ; un echec est COMPTE dans _JOURNAL_ECHECS.
+    """
+    module, organe = _demandeur()
+    marque = ("observation", key, module, str(_JOURNAL_OBSERVATIONS))
+    if marque in _DEJA_JOURNALISE:
+        return
+    _DEJA_JOURNALISE.add(marque)
+    try:
+        import json as _json
+        import time as _t
+        rec = {"ts": round(_t.time(), 3), "cle": key, "raison": raison, "compte": compte,
+               "module": module, "organe": organe, "pid": os.getpid(),
+               "script": os.path.basename(sys.argv[0]) if sys.argv and sys.argv[0] else "",
+               "aussi_dans_environ": key in os.environ,
+               "pile": _pile_appelants()}
+        _JOURNAL_OBSERVATIONS.parent.mkdir(parents=True, exist_ok=True)
+        with open(_JOURNAL_OBSERVATIONS, "a", encoding="utf-8") as f:
+            f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception as exc:  # noqa: BLE001 -- un journal ne casse jamais la lecture
+        _JOURNAL_ECHECS["n"] += 1
+        _JOURNAL_ECHECS["derniere"] = type(exc).__name__
+
+
+# COF-1 tranche 1 (plan owner 30/10) : services dont un process PROUVE descendant est exempte du refus de lecture des
+# identites. Le hub (service NokidoMCP) lit les FORGE_TOKEN_* en clair : comparaison des Bearer et codes HMAC des
+# boites aux lettres (forge_mailbox.verify_code) -- des empreintes seules casseraient le courrier.
+# {service: profondeur maximale}. Profondeur 0 = le process DECLARE lui-meme : tout run_job / trusted_script DESCEND
+# du hub (mesure 30/10 par les NR du coffre) -- une exemption par simple parente couvrirait tous les jobs du bac.
+PRINCIPAUX_EXEMPTES = {"NokidoMCP": 0}
+_PRINCIPAL_MEMO: dict = {}
+
+
+def _principal_exempte():
+    """Service exempte dont CE process descend (attestation forge_process_inventory.service_porteur), ou None.
+    Calcule UNE fois par process, et seulement quand une lecture aurait ete refusee : aucun appel au superviseur sur
+    le chemin normal. Attestation illisible -> None (pas d'exemption : UNKNOWN n'est pas OUI)."""
+    if "v" in _PRINCIPAL_MEMO:
+        return _PRINCIPAL_MEMO["v"]
+    principal = None
+    try:
+        try:
+            from nokido_agent.tools.forge_process_inventory import service_porteur
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from forge_process_inventory import service_porteur
+        service, prof, _motif = service_porteur(timeout=3.0)
+        limite = PRINCIPAUX_EXEMPTES.get(service)
+        principal = service if (limite is not None and prof is not None and prof <= limite) else None
+    except Exception:  # noqa: BLE001 - muet-ok : sans attestation, pas d'exemption (la lecture reste observee)
+        principal = None
+    _PRINCIPAL_MEMO["v"] = principal
+    return principal
+
+
+def observer_lecture_cloisonnee(key: str) -> tuple:
+    """OBSERVATION : un compte du bac lit-il une identite ring <= 3 ? Journalise, ne refuse pas.
+    Genre identite = FORGE_TOKEN_* (ring 3 par prudence). Ne leve jamais.
+    Un process PROUVE descendant d'un service de PRINCIPAUX_EXEMPTES (le hub) est exempte (COF-1 tranche 1)."""
+    try:
+        from app.forge_coffre_cloisonne import decision_lecture
+        bac = [c for c in os.environ.get("NOKIDO_COMPTES_BAC", "LaForgeSbxOffline,LaForgeSbxOnline").split(",") if c]
+        genre = "identite" if key.startswith("FORGE_TOKEN_") else "autre"
+        compte = _compte_du_jeton()
+        ok, raison = decision_lecture(compte, genre, 3, bac, "observation")
+        if raison.startswith("aurait_refuse"):
+            principal = _principal_exempte()
+            if principal:
+                # 31/10 : l'exemption laisse une TRACE sous sa propre raison (exempte:<service>), hors de la liste a
+                # traiter : sans elle, « 0 observation du hub » ne distinguait pas « exempte » de « n'a rien lu ».
+                ok, raison = decision_lecture(compte, genre, 3, bac, "observation", principal_exempte=principal)
+                _journaliser_observation(key, compte, raison)
+                return ok, raison
+            OBSERVES_CLOISONNEMENT.append({"cle": key, "raison": raison})
+            del OBSERVES_CLOISONNEMENT[:-500]
+            _journaliser_observation(key, compte, raison)
+        return ok, raison
+    except Exception:  # noqa: BLE001 -- une observation ne casse jamais la lecture
+        return True, "observation_indisponible"
+
+
+def migrer_cli(argv, noms=None) -> int:
+    """CLI de migration vers le coffre owner : --dry-run = noms seulement ; reel = refus (2)."""
+    from app.forge_coffre_cloisonne import planifier_migration
+    if "--dry-run" not in argv:
+        print("REFUS : migration reelle = commande owner (tray), pas ce CLI.")
+        return 2
+    if noms is None:
+        noms = sorted(k for k in _OBSERVE if k.startswith("FORGE_TOKEN_"))
+    plan = planifier_migration([{"nom": n, "genre": "identite", "ring": 3}
+                                for n in noms if n.startswith("FORGE_TOKEN_")], dry_run=True)
+    for d in plan["deplacements"]:
+        print("a deplacer : %s (ring %s) -> %s" % (d["nom"], d["ring"], d["vers"]))
+    return 0
+
+
 def get_secret(key: str, required: bool = False) -> Optional[str]:
     """
     Récupère un secret dans l'ordre de priorité :
@@ -674,6 +799,12 @@ def get_secret(key: str, required: bool = False) -> Optional[str]:
     _v_test = _coffre_test(key)
     if _v_test:
         return _v_test
+    try:                                 # OBSERVATION seulement (suite 3), ne refuse rien
+        observer_lecture_cloisonnee(key)
+    except Exception as _e:  # noqa: BLE001 -- l'observation ne casse JAMAIS une lecture de secret
+        import logging as _lg
+        _lg.getLogger("forge.secrets").warning(
+            "observation de lecture indisponible (%s) : lecture inchangee", type(_e).__name__)
     if key in _BASCULES_DE_POLITIQUE:
         # Relue a CHAQUE appel, jamais memorisee : c'est ce qui permet au garde
         # de se refermer quand l'operateur retire l'autorisation.
@@ -1141,9 +1272,12 @@ def main() -> int:
     import argparse
     p = argparse.ArgumentParser(description="Nokido secrets manager")
     p.add_argument("command", nargs="?", default="status",
-                   choices=["status","selftest","set","get"])
+                   choices=["status","selftest","set","get","migrer"])
     p.add_argument("--key", "-k", help="Nom de la clé")
+    p.add_argument("--dry-run", action="store_true", help="migrer : noms seulement")
     args = p.parse_args()
+    if args.command == "migrer":
+        return migrer_cli(["--dry-run"] if args.dry_run else [])
 
     if args.command in ("status", "selftest"):
         d = diagnostic()

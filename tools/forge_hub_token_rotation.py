@@ -70,6 +70,9 @@ CONFIG_FILES = [
     SUPER / ".mcp.json",
     SUPER / ".zcode" / "config.json",
     SUPER / ".claude" / "settings.local.json",          # littéraux allowlist
+    # 25/10 (P0 coffre seul) : l'homonyme DANS le sous-module porte aussi des littéraux (6 x 64-hex, 1 Bearer,
+    # compte sans valeur). Fichier ORPHELIN pour les hooks, mais un jeton sur disque reste un jeton : inventorie.
+    ROOT / ".claude" / "settings.local.json",
     ROOT / ".mcp.json",
     ROOT / "Nokido.env",                                # 3e couche forge_secrets
     ROOT / ".env",
@@ -79,6 +82,11 @@ CONFIG_FILES = [
     OWNER_HOME / "AppData" / "Roaming" / "Code" / "User" / "mcp.json",
     OWNER_HOME / ".codex" / "config.toml",
     OWNER_HOME / ".gemini" / "settings.json",
+    # 24/10 : lus en clair par une tache MISTRAL (job_c76e84a5) et partis chez le fournisseur cloud, sans etre
+    # inventories ici. Cle du coffre attendue INCONNUE : inventaire seulement, pas d'entree EXPECTED_VAULT_KEY.
+    OWNER_HOME / ".copilot" / "mcp-config.json",
+    OWNER_HOME / "AppData" / "Roaming" / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev"
+    / "settings" / "cline_mcp_settings.json",
     # Pont STDIO (Claude Desktop / Cowork) : le bearer n'y vit pas dans un
     # header HTTP mais dans l'ENV du lanceur. forge_mcp_json_sync ne le voit
     # PAS (il n'inspecte que les serveurs porteurs d'un X-Agent-Name), et
@@ -121,15 +129,31 @@ def _scan_text(path: Path):
 
 
 def _git_history_tokens(repo: Path):
-    """Valeurs 64-hex dans l'historique COMPLET du dépôt (donc divulguées si poussé)."""
+    """Valeurs 64-hex dans l'historique COMPLET du dépôt (donc divulguées si poussé).
+
+    Lu EN FLUX, ligne a ligne : la capture d'un bloc de `git log --all -p` tenait tout l'historique en memoire
+    (mesure 26/10 : sonde tuee a 7,9 Go de RSS). Seul l'ensemble des valeurs trouvees est garde."""
+    import time as _time
+
+    trouves: set = set()
     try:
-        out = subprocess.run(
+        proc = subprocess.Popen(
             ["git", "-c", "safe.directory=*", "-C", str(repo), "log", "--all", "-p",
              "--diff-filter=ACDM", "--", "*.json", "*.env", "*.md", "*.py", "*.toml"],
-            capture_output=True, text=True, errors="replace", timeout=300)
-        if out.returncode != 0:
-            return "illisible (git rc=%d)" % out.returncode, []
-        return "trouve", sorted(set(TOKEN_RE.findall(out.stdout)))
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace")
+        limite = _time.time() + 300
+        try:
+            for ligne in proc.stdout:
+                trouves.update(TOKEN_RE.findall(ligne))
+                if _time.time() > limite:
+                    proc.kill()
+                    return "illisible (delai 300 s depasse, %d valeur(s) vues)" % len(trouves), sorted(trouves)
+        finally:
+            proc.stdout.close()
+        rc = proc.wait(timeout=30)
+        if rc != 0:
+            return "illisible (git rc=%d)" % rc, []
+        return "trouve", sorted(trouves)
     except Exception as e:
         return "illisible (%s)" % e.__class__.__name__, []
 
@@ -450,6 +474,7 @@ EXPECTED_VAULT_KEY = {
     str(SUPER / ".mcp.json"): "FORGE_TOKEN_CLAUDE",
     str(ROOT / ".mcp.json"): "FORGE_TOKEN_CLAUDE",
     str(SUPER / ".claude" / "settings.local.json"): "FORGE_TOKEN_CLAUDE",
+    str(ROOT / ".claude" / "settings.local.json"): "FORGE_TOKEN_CLAUDE",
     str(OWNER_HOME / ".zcode" / "mcp.json"): "FORGE_TOKEN_ZCODE",
     str(SUPER / ".zcode" / "config.json"): "FORGE_TOKEN_ZCODE",
     str(OWNER_HOME / ".gemini" / "settings.json"): "FORGE_TOKEN_GEMINI",

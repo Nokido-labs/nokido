@@ -734,12 +734,95 @@ def selectionner_natif(dist, juge, embed_fn, lot: int = 32, reprises: int = 12, 
     return retenus, cr
 
 
+MODELE_NATIF = "BAAI/bge-m3 (local :8099 seul)"
+CRITERE_NATIF = "pack natif : arbre publie du dist a ce commit, decoupe MarkdownChunker 2000/200"
+
+
+def cache_depuis_pack(pack) -> dict:
+    """{texte: vecteur} d'un pack precedent du MEME espace (meme modele, meme decoupage) ; {} sinon -- un autre espace
+    de vecteurs ne se melange jamais. NR test_pack_cache_vecteurs_nr (21/10)."""
+    try:
+        with np.load(pack) as z:
+            man = json.loads(z["meta"].tobytes().decode("utf-8")).get("manifest") or {}
+            if man.get("model") != MODELE_NATIF or man.get("critere") != CRITERE_NATIF:
+                return {}
+            textes = json.loads(z["texts"].tobytes().decode("utf-8"))
+            vecs = z["embeddings"].astype(np.float32)
+    except Exception:  # noqa: BLE001 -- pack absent ou illisible : aucun cache, tout est vectorise
+        return {}
+    return {t: vecs[i] for i, t in enumerate(textes)}
+
+
+def embed_avec_cache(embed_fn, cache: dict):
+    """N'appelle `embed_fn` que pour les textes ABSENTS du cache ; un lot neuf en echec reste en echec (rend []).
+    `depuis_cache` compte les vecteurs repris."""
+    def _f(textes):
+        manque = list(dict.fromkeys(t for t in textes if t not in cache))
+        neufs = {}
+        if manque:
+            vecs = embed_fn(manque) or []
+            if len(vecs) != len(manque):
+                return []
+            neufs = dict(zip(manque, vecs))
+        _f.depuis_cache += sum(1 for t in textes if t in cache)
+        return [cache[t] if t in cache else neufs[t] for t in textes]
+    _f.depuis_cache = 0
+    return _f
+
+
+ATTENTE_EMBEDDER_S = 300.0   # ~10 tours du keeper (intervalle 30 s)
+PAS_EMBEDDER_S = 15.0
+
+
+def embedder_pret(sonde=None, attente_s: float = ATTENTE_EMBEDDER_S, pas_s: float = PAS_EMBEDDER_S,
+                  dormir=None, horloge=None) -> tuple:
+    """(pret, motif) -- :8099 vectorise-t-il AVANT de lancer des milliers de lots ? (1/11)
+
+    MESURE du 1/11 (promotion v0.20.15) : embedder arrete, RAM 76 % > seuil de reveil du keeper (70 %) ; le keeper
+    nommait la contention dans son etat, personne ne la lisait, et le pack a enchaine 1 280 echecs (lot 40/1400)
+    avant le refus final. La sonde est `_embed_bge_m3_local` lui-meme (declare `embed.wanted` puis appelle :8099) :
+    un texte d'essai vectorise prouve que le pilier TIENT ; sinon refus immediat, motif dit."""
+    import time as _t
+    sonde = sonde or (lambda: _embed_bge_m3_local(["preflight pack natif"])[0] is not None)
+    dormir = dormir or _t.sleep
+    horloge = horloge or _t.time
+    debut, essais = horloge(), 0
+    while True:
+        essais += 1
+        try:
+            if sonde():
+                return True, "embedder :8099 pret (%d essai(s), %.0f s)" % (essais, horloge() - debut)
+        except Exception as exc:  # noqa: BLE001 -- une sonde qui casse vaut « pas pret », et se dit
+            print("[pack natif] sonde :8099 en echec (%s)" % type(exc).__name__, file=sys.stderr, flush=True)
+        if horloge() - debut >= attente_s:
+            break
+        dormir(pas_s)
+    try:
+        import psutil
+        ram = "RAM %.0f %%" % psutil.virtual_memory().percent
+    except Exception:  # noqa: BLE001
+        ram = "RAM ILLISIBLE"
+    return False, ("embedder :8099 injoignable apres %.0f s et %d essai(s) malgre embed.wanted (%s) -- le keeper ne "
+                   "rallume qu'au-dessous de son seuil reload_ok : voir sa contention (« RECLAME mais NON DEMARRE ») "
+                   "dans logs/supervisor/NokidoLlamaKeeper.log" % (horloge() - debut, essais, ram))
+
+
 def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.0.0", dry_run: bool = False,
-                      embed_fn=None) -> dict:
+                      embed_fn=None, cache_pack=None) -> dict:
+    if embed_fn is None and not dry_run:
+        pret, motif = embedder_pret()
+        print("[pack natif] %s" % motif, flush=True)
+        if not pret:
+            raise SystemExit("[pack natif] REFUSE AVANT VECTORISATION : " + motif)
     d = Dist(dist)
-    retenus, cr = selectionner_natif(d, _juge_public(), embed_fn or _embed_bge_m3_local)
+    cache = cache_depuis_pack(cache_pack) if cache_pack else {}
+    fn = embed_avec_cache(embed_fn or _embed_bge_m3_local, cache) if cache else (embed_fn or _embed_bge_m3_local)
+    if cache_pack:
+        print("[pack natif] cache : %d vecteur(s) repris de %s" % (len(cache), Path(cache_pack).name), flush=True)
+    retenus, cr = selectionner_natif(d, _juge_public(), fn)
     stats = {"format": FORMAT, "selection": SELECTION_NATIF, "version": version, "dist_commit": d.commit,
-             "retenus": len(retenus), **cr}
+             "retenus": len(retenus), "depuis_cache": getattr(fn, "depuis_cache", 0),
+             "cache_pack": str(cache_pack) if cache_pack else None, **cr}
     trou = cr.get("non_vectorise_total", 0) / max(cr.get("candidats", 0), 1)
     if cr["essentiels_absents"] or trou > SEUIL_NON_VECTORISE:
         # Le rapport part AVANT le refus : le 15/10 il etait perdu, et la cause a du etre reconstituee a la main.
@@ -754,9 +837,9 @@ def export_pack_natif(dist: Path, output: Path | None = None, version: str = "0.
         return stats
     manifest = {"format": FORMAT, "selection": SELECTION_NATIF, "version": version,
                 "exported_at": datetime.now(UTC).isoformat(),
-                "dist_commit": d.commit, "count": len(retenus), "dim": DIM, "model": "BAAI/bge-m3 (local :8099 seul)",
+                "dist_commit": d.commit, "count": len(retenus), "dim": DIM, "model": MODELE_NATIF,
                 "dtype": "float16", "license": "AGPL-3.0-or-later", "exclus": list(EXCLUS_NATIF),
-                "critere": "pack natif : arbre publie du dist a ce commit, decoupe MarkdownChunker 2000/200"}
+                "critere": CRITERE_NATIF}
     sortie = Path(output) if output else OUT_DIR / ("nokido_knowledge_pack_v%s.npz" % version)
     stats["sha256"] = ecrire_pack(sortie, retenus, manifest)
     stats["out_path"], stats["octets"] = str(sortie), sortie.stat().st_size

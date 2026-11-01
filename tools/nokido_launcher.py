@@ -555,7 +555,7 @@ def _action_restart():
     else:
         print(f"  {YE}  Pas de signal après 240s — start quand même "
               f"(la fenêtre du stop attend peut-être une touche){R}")
-    _run_stack_script("nokido_start.ps1", "-RelanceHub")
+    _run_stack_script("nokido_start.ps1", "-RelanceHub", "-NoWait")  # succes -> fenetre fermee seule (30/10)
     print(f"  {DIM}Start lancé (UAC) : preflights, puis rebond du hub.{R}")
     # Le restart relancait la stack mais JAMAIS le tray, contrairement au Start :
     # l'icone ne revenait pas et le restart semblait sans effet.

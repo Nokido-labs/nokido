@@ -100,6 +100,21 @@ curl -X POST "http://127.0.0.1:8766/api/watch/create" \
   -d '{"theme": "...", "idea_id": "veille_active", "agent": "..."}'
 ```
 
+### 2 bis. Après `create_job` : réveiller le consommateur, vérifier la RAM (mesuré 27/10)
+
+`create_job()` écrit les chaînes mais ne réveille PERSONNE : le consommateur `NokidoWatchAgent`
+(`tools/forge_watch_agent_worker.py`) est **désactivé par défaut, on-demand**. Sans lui, les chaînes restent
+`pending` indéfiniment (8 veilles figées le 27/10, aucun nœud exécuté depuis le matin).
+
+1. `run action=trusted_script path=tools/forge_supervisor_ctl.py script_args="ensure NokidoWatchAgent"` ;
+   prouver par son journal (`logs/supervisor/NokidoWatchAgent.log` : « watch_agent_worker UP ... deps »).
+2. **Satiété RAM** : au-dessus du seuil du superviseur (`_SUPERVISOR_SLEEP_RAM_THRESHOLD`, ~80 %), AUCUNE veille ne
+   démarre (`forge_chain_executor._etaler_veilles`) — garde VOULUE, ne jamais la contourner ; libérer ou attendre.
+   Le motif d'attente est désormais journalisé en WARNING (« RAM en satiete : N veille(s) attendent »).
+3. Parallélisme : au plus `LAFORGE_VEILLES_MAX` veilles simultanées (défaut 2 depuis le 27/10 ; avant : 1).
+   Docker/SearXNG : `_ensure_searxng` repose `docker.wanted` à chaque recherche et la dernière chaîne le retire —
+   ne pas écrire de script de garde.
+
 ### 3. Pipeline 7 étapes (autonome, ChainExecutor)
 
 `create_job()` écrit une ligne `watch_jobs` et 7 nœuds `agent_chain_nodes` dans UNE

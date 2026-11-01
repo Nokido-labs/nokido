@@ -27,6 +27,20 @@ except ImportError:
 class GateResult:
     ok: bool
     errors: List[str] = field(default_factory=list)
+    # Mesures qui n'ont rien rendu (outil absent, plantage, delai) : ni succes ni echec, DITES (UNKNOWN != NO).
+    illisibles: List[str] = field(default_factory=list)
+
+
+_RE_MARQUEUR_CRITIQUE = re.compile(r"#\s*TODO CRITICAL")
+
+
+def _extrait(r) -> str:
+    """Derniere ligne non vide de stderr (sinon stdout) : le motif d'une mesure muette, borne a 160 car."""
+    for flux in (getattr(r, "stderr", "") or "", getattr(r, "stdout", "") or ""):
+        lignes = [l.strip() for l in flux.splitlines() if l.strip()]
+        if lignes:
+            return lignes[-1][:160]
+    return "sortie vide"
 
 
 class QualityGateError(Exception):
@@ -40,6 +54,7 @@ class QualityGate:
 
     def check(self, file_path: str) -> GateResult:
         errors: List[str] = []
+        illisibles: List[str] = []
         p = Path(file_path)
 
         # 1. AST parse
@@ -50,13 +65,19 @@ class QualityGate:
             return GateResult(ok=False, errors=errors)  # fatal
 
         # 2. Pylint score
-        r = subprocess.run(
-            [sys.executable, "-m", "pylint", file_path, "--score=y"], capture_output=True, text=True, timeout=30
-        , errors="replace")
-        m = re.search(r"rated at (-?\d+\.?\d*)/10", r.stdout)
-        score = float(m.group(1)) if m else 0.0
-        if score < self.min_pylint:
-            errors.append(f"pylint {score:.1f}/10 < {self.min_pylint}")
+        # 30/10 : sans note (pylint absent de l'interpreteur, plantage, delai), le score valait 0.0 -> faux refus
+        # et fausse lecon « Quality gate FAIL » au RAG. Sans note, la mesure est ILLISIBLE et son motif se dit.
+        try:
+            r = subprocess.run(
+                [sys.executable, "-m", "pylint", file_path, "--score=y"], capture_output=True, text=True, timeout=30
+            , errors="replace")
+            m = re.search(r"rated at (-?\d+\.?\d*)/10", r.stdout or "")
+            if m is None:
+                illisibles.append(f"pylint ILLISIBLE (rc={r.returncode}) : {_extrait(r)}")
+            elif float(m.group(1)) < self.min_pylint:
+                errors.append(f"pylint {float(m.group(1)):.1f}/10 < {self.min_pylint}")
+        except subprocess.TimeoutExpired:
+            illisibles.append("pylint ILLISIBLE : delai de 30 s depasse")
 
         # 3. Coverage (only if test file exists)
         test_file = p.parent / f"test_{p.name}"
@@ -75,21 +96,36 @@ class QualityGate:
                 text=True,
                 timeout=60,
             errors="replace")
-            m2 = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", cov.stdout)
-            pct = int(m2.group(1)) if m2 else 0
-            if pct < self.min_coverage:
-                errors.append(f"coverage {pct}% < {self.min_coverage}%")
+            m2 = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)%", cov.stdout or "")
+            if m2 is None:
+                illisibles.append(f"coverage ILLISIBLE (rc={cov.returncode}) : {_extrait(cov)}")
+            elif int(m2.group(1)) < self.min_coverage:
+                errors.append(f"coverage {int(m2.group(1))}% < {self.min_coverage}%")
 
-        # 4. TODO CRITICAL
+        # 4. Marqueur critique : un COMMENTAIRE seulement (30/10 : le gate se refusait lui-meme en lisant sa
+        # docstring, sa propre recherche et son message -- un instrument ne lit pas son propre vocabulaire).
         for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-            if "TODO CRITICAL" in line:
+            if _RE_MARQUEUR_CRITIQUE.search(line):
                 errors.append(f"TODO CRITICAL at line {i}")
 
-        return GateResult(ok=len(errors) == 0, errors=errors)
+        return GateResult(ok=len(errors) == 0, errors=errors, illisibles=illisibles)
+
+
+def _chemin_depot(file_path: str) -> str:
+    """Chemin relatif au depot, separateurs '/' (absolu hors depot : tel quel)."""
+    p = Path(file_path)
+    try:
+        p = p.resolve().relative_to(Path(__file__).resolve().parent.parent)
+    except (ValueError, OSError):
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_quality_gate.py', 96, exc_info=True)
+    return p.as_posix()
 
 
 def block_if_failing(file_path: str) -> GateResult:
     result = QualityGate().check(file_path)
+    if result.illisibles:  # ni succes ni echec : le dire, sans lecon d'echec ni refus
+        print(f"[gate][quality][illisible] {_chemin_depot(file_path)} : {'; '.join(result.illisibles)}",
+              file=sys.stderr)
     if not result.ok:
         try:
             import sys as _sys
@@ -97,9 +133,13 @@ def block_if_failing(file_path: str) -> GateResult:
             _sys.path.insert(0, str(Path(__file__).parent))
             from nokido_agent.app.forge_self_correction import anchor_error
 
+            _rel = _chemin_depot(file_path)
+            _titre = f"Quality gate FAIL: {_rel}"
+            if len(_titre) > 60:  # le titre markdown est borne a 60 : le dire
+                _titre = f"Quality gate FAIL: ...{_rel[-(60 - 21 - 3 - 16):]} [{len(_rel)} car.]"
             anchor_error(
-                error_msg=f"Quality gate FAIL: {file_path}",
-                context="; ".join(result.errors),
+                error_msg=_titre,
+                context=f"{_rel}; " + "; ".join(result.errors),
                 solution="Fix errors before commit",
                 domain="systeme",
             )

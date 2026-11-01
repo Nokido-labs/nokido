@@ -59,7 +59,7 @@ def test_la_delegation_codex_ecrit_l_effort_de_la_taille_dans_le_job(tmp_path, m
     monkeypatch.setattr(T, "_consommer_quota_codex", lambda: 1)
     monkeypatch.setattr(T, "_attendre_harness", lambda job, delai, task_id=None: {"ok": False, "error": "doublure"})
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, wt_, avant, autorises=None: (False, "commits produits : 0", None))
+                        lambda ok, detail, wt_, avant, autorises=None, desc=None: (False, "commits produits : 0", None))
     monkeypatch.setattr(T, "_clore_delegation", lambda task_id, token, ok, detail, intent=None: None)
     T._delegate_to_codex({"id": "job_codex_taille_01",
                           "description": "LOT de 1 demande owner A FAIRE (taille S) : consigne de test assez longue."},

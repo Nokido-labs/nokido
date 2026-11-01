@@ -142,10 +142,39 @@ def _count_refutations(conn, chunk_id: str) -> int:
         return 0
 
 
-def recompute(dry_run: bool = False, limit: int | None = None) -> dict:
-    if not DB.exists():
-        return {"error": f"DB missing: {DB}"}
-    conn = sqlite3.connect(str(DB), timeout=30)
+STATE = ROOT / "RAG" / "epistemic_recompute_state.json"
+BATCH_BOUND = 5000
+# Curseur sur rowid (cle primaire implicite) : SEARCH, pas de TEMP B-TREE, +active
+# interdit l'usage de idx_rag_chunks_active.
+SELECT_SQL = (
+    "SELECT rowid, id, source, author, domain, ingested_at FROM rag_chunks"
+    " WHERE rowid > ? AND (+active IS NULL OR +active = 1)"
+    " ORDER BY rowid LIMIT ?"
+)
+
+
+def _load_cursor(state_path: Path) -> int | None:
+    try:
+        return int(json.loads(Path(state_path).read_text(encoding="utf-8"))["last_rowid"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _save_cursor(state_path: Path, rowid: int) -> None:
+    Path(state_path).write_text(json.dumps({"last_rowid": int(rowid)}), encoding="utf-8")
+
+
+def recompute(
+    dry_run: bool = False,
+    limit: int | None = None,
+    db_path: Path | None = None,
+    state_path: Path | None = None,
+) -> dict:
+    db = Path(db_path) if db_path else DB
+    state_path = Path(state_path) if state_path else STATE
+    if not db.exists():
+        return {"error": f"DB missing: {db}"}
+    conn = sqlite3.connect(str(db), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
 
@@ -157,22 +186,27 @@ def recompute(dry_run: bool = False, limit: int | None = None) -> dict:
         )
         return {"error": "migration_required"}
 
-    where = "(active IS NULL OR active = 1)"
-    sql = f"SELECT id, source, author, domain, ingested_at FROM rag_chunks WHERE {where}"
-    if limit:
-        sql += f" LIMIT {int(limit)}"
-
-    rows = conn.execute(sql).fetchall()
-    logger.info(f"to process: {len(rows)} active chunks")
+    last_rowid = _load_cursor(state_path)
+    mode = "full_initial" if last_rowid is None else "incremental"
+    if mode == "full_initial":
+        logger.warning("etat absent: premier passage COMPLET (borne par lots, curseur rowid)")
+    bound = int(limit) if limit else BATCH_BOUND
+    rows = conn.execute(SELECT_SQL, (last_rowid or 0, bound)).fetchall()
+    logger.info(f"to process: {len(rows)} chunks (mode={mode}, rowid>{last_rowid or 0})")
+    base = {"mode": mode, "bound": bound, "cursor_from": last_rowid or 0}
     if not rows:
-        return {"processed": 0}
+        conn.close()
+        if mode == "full_initial" and not dry_run:
+            _save_cursor(state_path, 0)
+        return {**base, "processed": 0, "cursor": last_rowid or 0}
+    max_rowid = rows[-1][0]
 
     t_now = _now_year()
     n_updated = 0
     n_skipped = 0
     t0 = time.time()
 
-    for chunk_id, source, author, domain, ingested_at in rows:
+    for _rid, chunk_id, source, author, domain, ingested_at in rows:
         pub_year = _parse_year(ingested_at, fallback=t_now - 0.5)
         half_life = _domain_half_life(domain)
         peer_rev = _peer_reviewed_heuristic(source, author)
@@ -216,25 +250,16 @@ def recompute(dry_run: bool = False, limit: int | None = None) -> dict:
         conn.commit()
     elapsed = time.time() - t0
 
-    # Stats finales
-    stats = conn.execute("""
-        SELECT
-            COUNT(*) FILTER (WHERE active=1 OR active IS NULL) AS n_active,
-            AVG(epistemic_weight) FILTER (WHERE active=1 OR active IS NULL) AS avg_w,
-            MIN(epistemic_weight) FILTER (WHERE active=1 OR active IS NULL) AS min_w,
-            MAX(epistemic_weight) FILTER (WHERE active=1 OR active IS NULL) AS max_w
-        FROM rag_chunks
-    """).fetchone()
-
     conn.close()
+    if not dry_run:
+        _save_cursor(state_path, max_rowid)
     result = {
+        **base,
         "processed": n_updated if not dry_run else n_skipped,
+        "cursor": max_rowid,
         "elapsed_s": round(elapsed, 2),
-        "n_active": stats[0],
-        "avg_weight": round(stats[1] or 0, 3),
-        "min_weight": round(stats[2] or 0, 3),
-        "max_weight": round(stats[3] or 0, 3),
         "dry_run": dry_run,
+        "not_covered": "chunks modifies apres leur premier passage (pas d'index updated_at)",
     }
     logger.info(f"[OK] {result}")
     return result

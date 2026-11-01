@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nokido-agent"
-version = "0.20.14"
+version = "0.20.15"
 description = "Autonomous, Local-First AI Operating System — MCP hub, hybrid RAG, neuro-symbolic governance, AMI cognitive stack"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -84,7 +84,7 @@ sauvegarde = [
 
 # Routage LLM multi-providers (litellm cascade)
 llm = [
-    "litellm>=1.96.2",
+    "litellm>=1.100.4",  # GHSA-7hp6-4w63-5g45 / CVE-2026-114612 (1/11)
     "openai>=1.30.0",
     "google-genai>=1.0.0",
 ]
@@ -144,7 +144,7 @@ organisme = [
 
 # Git ingestion + monitoring
 git = [
-    "gitpython>=3.2.0",
+    "gitpython>=3.2.1",
     "pygithub>=2.3.0",
 ]
 
@@ -418,6 +418,7 @@ packages = [
     "nokido_agent.app.netcfg",
     "nokido_agent.app.web_hub.forms",
     "nokido_agent.tools.archive_tui",
+    "nokido_agent.tools.bancs",
     "nokido_agent.tools.bench",
     "nokido_agent.tools.intel",
     "nokido_agent.tools.nomad",

@@ -160,24 +160,27 @@ def track_cache_usage(usage: Any, provider: str = "anthropic") -> dict:
     Anthropic : usage.cache_read_input_tokens, usage.cache_creation_input_tokens
     OpenRouter : idem via openai SDK
     """
-    stats = {"provider": provider, "cache_hit": 0, "cache_write": 0, "input": 0, "output": 0, "savings_pct": 0}
+    # Compteur ABSENT de la reponse = None (inconnu), jamais 0.
+    stats = {"provider": provider, "cache_hit": None, "cache_write": None, "input": None,
+             "output": None, "savings_pct": None}
     try:
-        if hasattr(usage, "cache_read_input_tokens"):
-            stats["cache_hit"] = usage.cache_read_input_tokens or 0
-            stats["cache_write"] = getattr(usage, "cache_creation_input_tokens", 0) or 0
-            stats["input"] = getattr(usage, "input_tokens", 0) or 0
-            stats["output"] = getattr(usage, "output_tokens", 0) or 0
-        elif isinstance(usage, dict):
-            stats["cache_hit"] = usage.get("cache_read_input_tokens", 0)
-            stats["cache_write"] = usage.get("cache_creation_input_tokens", 0)
-            stats["input"] = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            stats["output"] = usage.get("completion_tokens", usage.get("output_tokens", 0))
+        def _lire(*noms):
+            for n in noms:
+                v = usage.get(n) if isinstance(usage, dict) else getattr(usage, n, None)
+                if v is not None:
+                    return v
+            return None
 
-        total_input = stats["input"] + stats["cache_hit"] + stats["cache_write"]
-        if total_input > 0:
-            stats["savings_pct"] = round(stats["cache_hit"] * 100 / total_input, 1)
+        stats["cache_hit"] = _lire("cache_read_input_tokens")
+        stats["cache_write"] = _lire("cache_creation_input_tokens")
+        stats["input"] = _lire("prompt_tokens", "input_tokens")
+        stats["output"] = _lire("completion_tokens", "output_tokens")
 
-        if stats["cache_hit"] > 0 or stats["cache_write"] > 0:
+        if None not in (stats["input"], stats["cache_hit"], stats["cache_write"]):
+            total_input = stats["input"] + stats["cache_hit"] + stats["cache_write"]
+            stats["savings_pct"] = round(stats["cache_hit"] * 100 / total_input, 1) if total_input > 0 else 0.0
+
+        if (stats["cache_hit"] or 0) > 0 or (stats["cache_write"] or 0) > 0:
             logger.info(
                 f"[cache] hit={stats['cache_hit']} write={stats['cache_write']} "
                 f"input={stats['input']} savings={stats['savings_pct']}%"

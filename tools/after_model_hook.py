@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-after_model_hook.py — Hook AfterModel Gemini CLI
+after_model_hook.py — Hook AfterModel de l'ex-Gemini CLI (client retire le 2026-07-04 ;
+remplacant : AGY CLI -- que AGY expose le meme evenement AfterModel n'est PAS verifie)
 1. Écrit les tokens consommés dans RAG/quota_state.json
 2. Poll hub volatile queue → stdout = contexte injecté au prochain tour Gemini
 """

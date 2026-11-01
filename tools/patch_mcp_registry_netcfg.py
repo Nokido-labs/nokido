@@ -34,22 +34,23 @@ async def handle_netcfg_proxy(self, name: str, args: dict, agent: str, ring: int
         return f"ERR: Proxy netcfg failed: {e}"
 
 
-# Lecture du fichier original
-registry_path = ROOT / "app" / "forge_mcp_registry.py"
-content = registry_path.read_text(encoding="utf-8")
-
-# Modification de dispatch pour intercepter netcfg_
-if 'if name.startswith("netcfg_"):' not in content:
-    old_dispatch = '        method_name = f"handle_{name}"'
-    new_dispatch = """        # Proxy netcfg-agent-mcp (:8767)
+def _patcher(content: str) -> str:
+    """Le texte du registre patche (sans rien ecrire)."""
+    # Modification de dispatch pour intercepter netcfg_
+    if 'if name.startswith("netcfg_"):' not in content:
+        old_dispatch = '        method_name = f"handle_{name}"'
+        new_dispatch = """        # Proxy netcfg-agent-mcp (:8767)
         if name.startswith("netcfg_"):
             return await self._handle_netcfg_proxy(name, args, agent, ring)
 
         method_name = f"handle_{name}\""""
-    content = content.replace(old_dispatch, new_dispatch)
+        content = content.replace(old_dispatch, new_dispatch)
+    return _patcher_suite(content)
 
-# Ajout de la méthode _handle_netcfg_proxy dans la classe ToolRegistry
-if "async def _handle_netcfg_proxy" not in content:
+
+def _patcher_suite(content: str) -> str:
+  # Ajout de la méthode _handle_netcfg_proxy dans la classe ToolRegistry
+  if "async def _handle_netcfg_proxy" not in content:
     # On l'ajoute après dispatch
     import_urllib = "import urllib.request\\nimport urllib.error"
     if "import urllib.request" not in content:
@@ -82,15 +83,30 @@ if "async def _handle_netcfg_proxy" not in content:
         "    async def handle_read", proxy_method + "\\n    async def handle_read"
     )
 
-# Mise à jour de _all_tools pour inclure les outils netcfg virtuels
-if '"netcfg_ping"' not in content:
+  # Mise à jour de _all_tools pour inclure les outils netcfg virtuels
+  if '"netcfg_ping"' not in content:
     netcfg_tools_def = """
             {"name":"netcfg_ping","description":"Smoke test netcfg-agent-mcp","inputSchema":{"type":"object","properties":{}}},
             {"name":"netcfg_audit","description":"Audit drift réseau","inputSchema":{"type":"object","properties":{}}},
             {"name":"netcfg_topology","description":"Analyse topologique","inputSchema":{"type":"object","properties":{}}},
     """
     content = content.replace('{"name":"run"', netcfg_tools_def + '{"name":"run"')
+  return content
 
-# Sauvegarde
-registry_path.write_text(content, encoding="utf-8")
-print("Patch MCP Registry appliqué avec succès.")
+
+def main() -> int:
+    """Applique le patch au registre. 28/10 : sous garde __main__ -- l'IMPORT (test d'appui) reecrivait
+    le fichier critique app/forge_mcp_registry.py a chaque chargement ; et on n'ecrit que si le texte change."""
+    registry_path = ROOT / "app" / "forge_mcp_registry.py"
+    avant = registry_path.read_text(encoding="utf-8")
+    apres = _patcher(avant)
+    if apres == avant:
+        print("Patch MCP Registry deja applique : rien a ecrire.")
+        return 0
+    registry_path.write_text(apres, encoding="utf-8")
+    print("Patch MCP Registry appliqué avec succès.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -118,6 +118,38 @@ def test_le_delestage_epargne_une_intention_fraiche_hors_critique():
     assert "catch" in helper, "illisible = pas d'intention (n'autorise rien, ne bloque rien)"
 
 
+def test_un_executeur_endormi_emporte_ses_sessions_d_agent():
+    """Mesure 30/10 20:25:03 (laforge-master.log) : « Sleeping NokidoTaskExecutorAntigravity / Mistral / Claude (rss
+    41 Mo) » au seuil critique. `proc.kill` ne tue que le parent : sous Windows les sessions AGY et Vibe (la vraie
+    charge, deja GELEES par l'executeur) lui survivent orphelines et suspendues -- rien n'est rendu, le travail est
+    perdu, et elles tiennent la RAM qui entretient la pression. Un executeur de taches s'endort avec son ARBRE ;
+    la tache orpheline repart dans son worktree (reprise du 30/10). Helper hors boucle : pas de sonde DANS la boucle."""
+    src = _sans_commentaires((CORE / "supervisor.ts").read_text(encoding="utf-8"))
+    # 31/10 : _tuerArbre est SYNCHRONE (outputSync) -- un `.output()` attendu dans resourceLoop pouvait ne jamais se
+    # resoudre (test_superviseur_boucle_ressources_non_bloquante_nr). Le contrat reste : helper, /T, appel executeur.
+    helper = re.split(r"(?:async\s+)?function _tuerArbre\(", src, maxsplit=1)
+    assert len(helper) == 2, "pas de mise a mort d'arbre pour le delestage"
+    assert re.search(r'"/T"', helper[1].split("\n}\n", 1)[0]), "taskkill sans /T : les enfants survivent"
+    bloc = src.split("sleeping non-essential services", 1)[1].split("endormis++", 1)[0]
+    assert re.search(r'startsWith\("NokidoTaskExecutor"\)[^;]*_tuerArbre\(', bloc, re.S), \
+        "un executeur de taches endormi doit emporter son arbre"
+    assert "proc?.kill(\"SIGTERM\")" in bloc, "les autres services gardent l'arret simple"
+
+
+def test_la_ram_lue_par_la_boucle_est_dite_meme_hors_delestage():
+    """Mesure 30/10 : derniers « Waking » a 20:39 (80-81 %), puis plus RIEN pendant 25 min alors que psutil lisait
+    77,5 % -- et aucune ligne ne disait la RAM que la boucle lisait entre 82 et 88 % (ni delestage ni reveil) :
+    l'ecart de capteur etait INDECIDABLE. Un passage sur dix, la boucle dit ce qu'elle lit et combien dorment."""
+    src = _sans_commentaires((CORE / "supervisor.ts").read_text(encoding="utf-8"))
+    boucle = _corps(src, "async function resourceLoop()")
+    i = boucle.find("const memPct = await getMemUsagePct()")
+    j = boucle.find("if (memPct > RAM_SLEEP_PCT)", i)
+    assert i != -1 and j != -1
+    zone = boucle[i:j]
+    assert re.search(r"_passagesVitalite % 10 === 0", zone), "la RAM lue n'est jamais dite hors delestage/reveil"
+    assert "dormeur" in zone and "RAM_WAKE_PCT" in zone, "dire aussi combien dorment et sous quel seuil on reveille"
+
+
 def test_le_reveil_n_attend_plus_un_seuil_jamais_atteint():
     """Base mesuree du poste : 65-80 %. Un reveil sous 72 % laissait 27 organes endormis a 81,5 %."""
     c = _constantes(_sans_commentaires((CORE / "supervisor.ts").read_text(encoding="utf-8")))

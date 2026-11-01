@@ -225,7 +225,7 @@ class Cadence:
             cad.dormir()                   # emet le pouls, puis attend un tick
     """
 
-    def __init__(self, nom: str, cycle_s: float, echappement_s: float = ECHAPPEMENT_S) -> None:
+    def __init__(self, nom: str, cycle_s: float, echappement_s: float = ECHAPPEMENT_S, reprendre: bool = True) -> None:
         self.nom = nom
         self.cycle_s = max(0.0, float(cycle_s))
         # Periode de SECOURS. La periode NORMALE n'est pas ici : elle est imposee par
@@ -238,10 +238,30 @@ class Cadence:
         self.rythme = "inconnu"               # sinusal | echappement
         self.tick_coeur = None                # temps biologique commun, quand il existe
         self._du = True          # le premier tour travaille, comme avant
+        self._pas_avant: float | None = None  # premier cycle differe (`differer`), sans progression fabriquee
         self._dernier_cycle_ts: float | None = None
         self._dernier_cycle_ok: bool | None = None
         self._travail_depuis: float | None = None
         self._extra: dict = {}
+        if reprendre and self.cycle_s:
+            self._reprendre_dernier_cycle()
+
+    def _reprendre_dernier_cycle(self) -> None:
+        """Au demarrage, relit le dernier cycle REUSSI publie dans `sandbox/<nom>.heartbeat`.
+
+        31/10 : un daemon mis en sommeil par le delestage (RAM) puis reveille refaisait un cycle COMPLET -- NokidoRSSWatcher
+        a 09:21, 09:35, 09:55 pour un intervalle de 360 min (reseau, ingestion, lecture du coffre) ; hebbian_linker et
+        skill_curator idem. Un cycle reussi plus recent que `cycle_s` est REPRIS (ce n'est pas une progression fabriquee :
+        il a eu lieu) ; un cycle echoue, absent ou illisible laisse le premier tour travailler, comme avant."""
+        try:
+            d = json.loads((_ROOT / "sandbox" / ("%s.heartbeat" % self.nom)).read_text(encoding="utf-8"))
+            ts, ok = float(d.get("progres_ts") or 0), d.get("progres_ok")
+        except Exception:  # noqa: BLE001 - muet-ok : pas de battement lisible = comportement d'avant (le tour travaille)
+            return
+        if ok is True and 0 <= time.time() - ts < self.cycle_s:
+            self._du = False
+            self._dernier_cycle_ts = ts
+            self._dernier_cycle_ok = True
 
     def _accorder(self) -> None:
         """Se cale sur le coeur. A defaut, passe en echappement et le DIT.
@@ -280,6 +300,8 @@ class Cadence:
         if self._du:
             self._du = False
             du = True
+        elif self._pas_avant is not None and self._dernier_cycle_ts is None:
+            du = time.time() >= self._pas_avant
         elif self.cycle_s and self._dernier_cycle_ts is not None:
             du = (time.time() - self._dernier_cycle_ts) >= self.cycle_s
         if du:
@@ -291,6 +313,16 @@ class Cadence:
             self._accorder()
             self.battre()
         return du
+
+    def differer(self, attente_s: float) -> None:
+        """Le premier cycle n'est du qu'apres `attente_s` ; le POULS, lui, bat des le premier tick.
+
+        30/10 : le consolidateur de memoire reprenait un cycle deja enregistre par un `time.sleep` de 11 h sans pouls,
+        lu « organe silencieux » par le demon epistemique. On ne fabrique aucune progression (`progres_ts` reste vide
+        jusqu'au premier vrai cycle) : seule l'echeance du premier travail est reportee."""
+        if attente_s and attente_s > 0:
+            self._du = False
+            self._pas_avant = time.time() + float(attente_s)
 
     def cycle_termine(self, ok: bool = True, **extra) -> None:
         """Enregistre la PROGRESSION -- un axe distinct du pouls.
@@ -370,7 +402,8 @@ def _rag_stats_fast() -> dict:
     try:
         from nokido_agent.app.forge_db import db as _db
 
-        chunks = _db.scalar("SELECT COUNT(*) FROM rag_chunks") or 0
+        # ORDRE DE GRANDEUR par seek (MAX(rowid)), jamais COUNT(*) (SCAN d'index sur ~2 M+ entrees).
+        chunks = _db.scalar("SELECT MAX(rowid) FROM rag_chunks") or 0
         last = _db.scalar("SELECT MAX(timecode) FROM rag_snapshots") or ""
         return {"db_timestamp": last, "db_chunks": chunks}
     except Exception:

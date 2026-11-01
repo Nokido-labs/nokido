@@ -14,16 +14,18 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 GI = REPO / "data" / "gitingest"
 GI.mkdir(parents=True, exist_ok=True)
 WORK = pathlib.Path("C:/tmp/veille_juicedata_repos")
-WORK.mkdir(parents=True, exist_ok=True)
 # Bypass du credential helper docker casse (image publique, aucune auth requise)
 _CFG = pathlib.Path("C:/tmp/dockercfg_clean")
-_CFG.mkdir(parents=True, exist_ok=True)
-(_CFG / "config.json").write_text("{}", encoding="utf-8")
-_ENV = {**os.environ, "DOCKER_CONFIG": str(_CFG)}
 REPOS = ["juicefs", "juicefs-csi-driver", "juicesync", "juicefs-operator"]
 
 
 def main():
+    # 28/10 : preparation des dossiers et de la config docker sous main() (et non au chargement du module :
+    # l'import ecrivait C:/tmp/dockercfg_clean/config.json). Comportement direct inchange.
+    WORK.mkdir(parents=True, exist_ok=True)
+    _CFG.mkdir(parents=True, exist_ok=True)
+    (_CFG / "config.json").write_text("{}", encoding="utf-8")
+    _ENV = {**os.environ, "DOCKER_CONFIG": str(_CFG)}
     mount = str(WORK).replace("\\", "/")
     for r in REPOS:
         dst = WORK / r

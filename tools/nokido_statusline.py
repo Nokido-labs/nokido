@@ -199,8 +199,53 @@ def _tracer_payload(charge):
         pass
 
 
+_COURT = {"CLAUDE_HEADLESS": "HEADLESS", "ANTIGRAVITY": "AGY"}
+
+
+def _delegations(db=None, maintenant=None) -> str:
+    """Segment des delegations de Claude en cours (▶) ou en attente (⏸), avec leur age (owner 24/10).
+
+    Lecture seule, delai court : la ligne d'etat ne doit jamais attendre. Base illisible = « DÉL ? »
+    (jamais 0) ; aucune delegation = segment absent. NR : tests/nr/test_statusline_delegations_nr.py
+    """
+    import sqlite3
+    from datetime import datetime
+
+    db = Path(db) if db else RACINE / "sandbox" / "tasks.db"
+    if not db.exists():
+        return "DÉL ?"
+    try:
+        cx = sqlite3.connect("file:%s?mode=ro" % db.as_posix(), uri=True, timeout=0.3)
+        try:
+            rows = cx.execute(
+                "SELECT agent, status, updated_at FROM tasks WHERE status IN ('running','pending') "
+                "AND lower(from_agent) LIKE '%claude%' ORDER BY updated_at").fetchall()
+        finally:
+            cx.close()
+    except Exception:  # noqa: BLE001 - muet-ok : dit « DÉL ? », jamais un faux zero
+        return "DÉL ?"
+    if not rows:
+        return ""
+    now = maintenant or datetime.now()
+    morceaux = []
+    for agent, statut, maj in rows[:4]:
+        nom = str(agent or "?")
+        nom = _COURT.get(nom, nom.split("_", 1)[1] if nom.startswith("OPENCODE_") else nom)
+        try:
+            age = "%dm" % max(0, int((now - datetime.fromisoformat(str(maj)[:26])).total_seconds() // 60))
+        except Exception:  # noqa: BLE001 - muet-ok : age illisible affiche « ? »
+            age = "?"
+        morceaux.append("%s%s%s" % (nom, "▶" if statut == "running" else "⏸", age))
+    reste = " +%d" % (len(rows) - 4) if len(rows) > 4 else ""
+    return "DÉL %d %s%s" % (len(rows), " ".join(morceaux), reste)
+
+
 def main():
     global _BRUT
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")  # ▶ ⏸ hors cp1252 (sous-processus Windows)
+    except Exception:  # noqa: BLE001 - muet-ok
+        pass
     try:
         _BRUT = sys.stdin.read()
         charge = json.loads(_BRUT)
@@ -220,6 +265,9 @@ def main():
         motif = "adaptateur KO (" + type(exc).__name__ + ")"
     amont = _statusline_amont()
     mien = _ligne(ev, charge) if ev else ("usage " + motif)
+    deleg = _delegations()
+    if deleg:
+        mien = mien + " | " + deleg
     print((amont + " | " + mien) if amont else mien)
     if ev:
         _collecter(ev)

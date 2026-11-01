@@ -166,7 +166,7 @@ def test_delegation_pilotee_par_acp_client_double(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit executeur ok")
     monkeypatch.setattr(
         T, "_juger_livraison",
-        lambda ok, detail, wt_, avant, autorises=None: (True, "commits produits : 1", "OK_DONE")
+        lambda ok, detail, wt_, avant, autorises=None, desc=None: (True, "commits produits : 1", "OK_DONE")
     )
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: f"token_vault_{inst}")
     vus = {}
@@ -237,7 +237,7 @@ def test_le_juge_refuse_une_livraison_vide(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: None)
     monkeypatch.setattr(
         T, "_juger_livraison",
-        lambda ok, detail, wt_, avant, autorises=None: (True, "commits produits : 0", None)
+        lambda ok, detail, wt_, avant, autorises=None, desc=None: (True, "commits produits : 0", None)
     )
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: f"token_vault_{inst}")
     vus = {}
@@ -424,7 +424,7 @@ def test_set_model_qui_leve_est_dit_dans_le_detail(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
     monkeypatch.setattr(
         T, "_juger_livraison",
-        lambda ok, detail, wt_, avant, autorises=None: (True, "commits produits : 1", "OK_DONE")
+        lambda ok, detail, wt_, avant, autorises=None, desc=None: (True, "commits produits : 1", "OK_DONE")
     )
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: f"token_vault_{inst}")
 
@@ -466,7 +466,7 @@ def test_set_model_via_request_qui_leve_est_dit_dans_le_detail(tmp_path, monkeyp
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
     monkeypatch.setattr(
         T, "_juger_livraison",
-        lambda ok, detail, wt_, avant, autorises=None: (True, "commits produits : 1", "OK_DONE")
+        lambda ok, detail, wt_, avant, autorises=None, desc=None: (True, "commits produits : 1", "OK_DONE")
     )
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: f"token_vault_{inst}")
 

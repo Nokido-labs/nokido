@@ -39,6 +39,61 @@ def _searxng_sync(query: str, max_results: int, engines: str = "") -> List[Dict]
     return _searxng_diag(query, max_results, engines)[0]
 
 
+OLLAMA_WEB_SEARCH = "https://ollama.com/api/web_search"
+
+
+def _cle_ollama() -> str:
+    """OLLAMA_API_KEY du coffre (offre gratuite, owner 24/10) ; '' si absente ou coffre illisible."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+
+        return get_secret("OLLAMA_API_KEY") or ""
+    except Exception as e:  # noqa: BLE001 - coffre illisible : dit par l'appelant (pas de cle)
+        logger.warning("[web] coffre illisible pour OLLAMA_API_KEY (%s)", type(e).__name__)
+        return ""
+
+
+def _pre_flight(query: str) -> tuple:
+    """(ok, raison) du pare-feu semantique AVANT tout envoi cloud (regle d'or 4) ; illisible = refus."""
+    try:
+        from nokido_agent.app.forge_semantic_firewall import get_firewall
+
+        res = get_firewall().pre_flight(query, provider="ollama_cloud")
+        return bool(getattr(res, "ok", False)), str(getattr(res, "reason", "") or "")
+    except Exception as e:  # noqa: BLE001 - pare-feu absent : on n'envoie pas
+        return False, "pare-feu indisponible (%s)" % type(e).__name__
+
+
+def _ollama_web_search(query: str, max_results: int) -> tuple:
+    """([resultats], erreur) via la recherche web GRATUITE d'Ollama Cloud (decision owner 26/10).
+
+    Repli quand SearXNG ne trouve rien (moteurs generalistes suspendus, mesure 26/10). La requete ne
+    part qu'apres le pare-feu ; toute panne est NOMMEE (cle absente, refus, 429, reseau)."""
+    import os as _os
+
+    if _os.environ.get("LAFORGE_WEB_OLLAMA", "1") == "0":
+        return [], ""
+    ok, raison = _pre_flight(query)
+    if not ok:
+        return [], "ollama_cloud: requete retenue par le pare-feu (%s)" % raison[:120]
+    cle = _cle_ollama()
+    if not cle:
+        return [], "ollama_cloud: OLLAMA_API_KEY absente du coffre"
+    corps = json.dumps({"query": query, "max_results": max(1, min(int(max_results), 10))}).encode()
+    req = urllib.request.Request(OLLAMA_WEB_SEARCH, data=corps, method="POST",
+                                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + cle})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            d = json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return [], "ollama_cloud: HTTP %s" % e.code
+    except Exception as e:  # noqa: BLE001 - reseau, egress, JSON : nomme
+        return [], "ollama_cloud: %s" % type(e).__name__
+    res = [{"title": x.get("title", ""), "url": x.get("url", ""), "content": x.get("content", "")}
+           for x in (d.get("results") or []) if isinstance(x, dict) and x.get("url")]
+    return res, ""
+
+
 async def web_search_diag(query: str, max_results: int = 5) -> Dict:
     """{"results": [...], "erreurs": [...], "source": ...} -- meme cascade, erreurs NOMMEES.
 
@@ -54,6 +109,13 @@ async def web_search_diag(query: str, max_results: int = 5) -> Dict:
             for r in res:
                 r["_source"] = source
             return {"results": res, "erreurs": erreurs, "source": source}
+    res, err = await loop.run_in_executor(None, _ollama_web_search, query, max_results)
+    if err:
+        erreurs.append(err)
+    if res:
+        for r in res:
+            r["_source"] = "ollama_cloud"
+        return {"results": res, "erreurs": erreurs, "source": "ollama_cloud"}
     return {"results": [], "erreurs": erreurs, "source": None}
 
 

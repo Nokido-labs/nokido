@@ -99,6 +99,15 @@ def test_PyPI_est_inatteignable_sans_l_audit_des_dependances_livrees():
     assert "--no-deps" in corps and "--disable-pip" in corps, "audit sans resolution : multi-plateforme, rien installe"
 
 
+def test_TestPyPI_est_inatteignable_sans_l_audit_des_dependances_livrees():
+    """Mesure 0.20.13 (21/10) : `publish-testpypi` ne dependait que de `build`. Le premier run du tag a TELEVERSE le
+    build vulnerable sur TestPyPI pendant que l'audit le refusait ; TestPyPI interdisant tout re-televersement, le
+    build corrige n'a plus pu y etre prouve (« TestPyPI sert un AUTRE artefact ») et la version a du etre bumpee. Un
+    televersement est un acte de PUBLICATION : il attend l'audit, comme PyPI."""
+    jobs = _graphe()
+    assert "audit-deps" in _besoins(jobs["publish-testpypi"]), "TestPyPI atteignable sans audit des dependances livrees"
+
+
 def _juger(tmp_path, monkeypatch, rapports: dict) -> int:
     import json as _j
     import runpy

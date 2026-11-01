@@ -200,7 +200,10 @@ def _holder_termine(holder: str) -> bool:
         r = read_job(str(holder), tail=0)
     except Exception:  # noqa: BLE001 - fail-safe : on ne libere pas sur un doute
         return False
-    return bool(r.get("ok")) and r.get("status") in ("done", "killed")
+    # `dead` = fiche `running` dont le pid N'EXISTE PLUS (psutil.pid_exists False, preuve sure ;
+    # un pid recycle rend True, donc reste `running`). Mesure 25/10 : CI tuee par taskkill,
+    # lane tenue jusqu'au TTL par un mort.
+    return bool(r.get("ok")) and r.get("status") in ("done", "killed", "dead")
 
 
 def current(lane: str) -> dict | None:
@@ -304,6 +307,72 @@ def _ram_saturee(h: dict) -> bool:
             or (h.get("ram_dispo_gb") is not None and h["ram_dispo_gb"] < RESERVE_GB))
 
 
+RAM_FRAICHE_S = 10.0       # une lecture plus jeune l'emporte sur une plus vieille
+RAM_ECART_PTS = 10.0       # au-dela, deux observateurs se contredisent : on re-mesure
+RAM_RETRY_APRES_S = 15
+
+
+def _obs_sature(o: dict) -> bool:
+    return _ram_saturee({"ram_pct": o.get("ram_pct", 0), "ram_dispo_gb": o.get("ram_dispo_gb")})
+
+
+def _lire_snapshot_ram() -> dict | None:
+    """Second observateur : l'instantane publie du sampler, AVEC son age. None si indisponible."""
+    try:
+        from nokido_agent.app.forge_resource_manager import get_snapshot as _snap
+        s = _snap() or {}
+        if s.get("ram_pct") is None:
+            return None
+        return {"ram_pct": float(s["ram_pct"]), "ram_dispo_gb": s.get("ram_free_gb"),
+                "age_s": max(0.0, time.time() - float(s.get("ts") or 0.0)), "source": "sampler"}
+    except Exception:  # noqa: BLE001  # muet-ok : un seul observateur reste
+        return None
+
+
+def _mesure_directe_ram() -> dict | None:
+    try:
+        import psutil as _ps
+        vm = _ps.virtual_memory()
+        return {"ram_pct": float(vm.percent), "ram_dispo_gb": vm.available / 1e9,
+                "age_s": 0.0, "source": "psutil"}
+    except Exception:  # noqa: BLE001  # muet-ok
+        return None
+
+
+def arbitrer_ram(observations: list, remesurer=_mesure_directe_ram) -> dict:
+    """Politique a deux observateurs. Jamais relachee : une lecture FRAICHE saturee refuse.
+    -> {ok, ram_desaccord, observations, retry_after, source, age_s, motif}"""
+    obs = [o for o in observations if o]
+    if len(obs) >= 2 and (max(o["ram_pct"] for o in obs) - min(o["ram_pct"] for o in obs)) > RAM_ECART_PTS:
+        r = remesurer()
+        if r:
+            obs.append(r)
+    fraiches = [o for o in obs if o.get("age_s", 0.0) < RAM_FRAICHE_S]
+    pivot = fraiches or obs
+    desaccord = len(fraiches) >= 2 and (
+        max(o["ram_pct"] for o in fraiches) - min(o["ram_pct"] for o in fraiches)) > RAM_ECART_PTS
+    sat = [o for o in pivot if _obs_sature(o)]
+    out = {"ok": not sat, "ram_desaccord": desaccord and bool(sat), "observations": obs}
+    if sat:
+        w = max(sat, key=lambda o: o["ram_pct"])
+        out.update(source=w.get("source"), age_s=round(w.get("age_s", 0.0), 1),
+                   retry_after=RAM_RETRY_APRES_S)
+        out["motif"] = ("RISQUE EMBOLIE RAM (%s%% > %s%% ou dispo %s Go < reserve %s Go ; source %s, age %s s)"
+                        % (w["ram_pct"], MAX_RAM_PCT, w.get("ram_dispo_gb"), RESERVE_GB,
+                           w.get("source"), out["age_s"]))
+        if out["ram_desaccord"]:
+            out["motif"] += " ; ram_desaccord " + ", ".join(
+                "%s=%s%%@%ss" % (o.get("source"), o["ram_pct"], round(o.get("age_s", 0.0), 1)) for o in obs)
+            _journaliser_refus("ram_desaccord " + out["motif"], {"observations": obs})
+    return out
+
+
+def _ram_decision(health: dict) -> dict:
+    live = {"ram_pct": health.get("ram_pct", 0), "ram_dispo_gb": health.get("ram_dispo_gb"),
+            "age_s": 0.0, "source": health.get("source", "?")}
+    return arbitrer_ram([live, _lire_snapshot_ram()])
+
+
 def etat_ressources(heavy: bool = True) -> dict:
     """Verdict d'embolie SANS EFFET (19/10, relecture pair_0891188ab09db024) : meme mesure et meme seuil que
     check_ressources, mais ni eviction (_try_reserve) ni journal de refus -- pour qui doit SAVOIR sans AGIR (bilan,
@@ -325,7 +394,80 @@ def etat_ressources(heavy: bool = True) -> dict:
     return {"sature": False, "motif": ""}
 
 
-def check_ressources(heavy: bool = True) -> dict:
+# CONTROLEUR PI D'ADMISSION, EN OBSERVATION (owner 29/10, point 4 de l'homeostasie). Technique : senpai (boucle
+# fermee, avance lente / recul rapide, terme integral). Physiologie : retroaction negative autour d'un point de consigne
+# (OpenStax A&P 2e, m45989). La decision PI est JOURNALISEE a cote du verdict actuel et n'en change RIEN tant que
+# l'owner n'a pas compare les deux sur mesure (doctrine : observer avant d'enforcer).
+import json
+import math as _math
+
+PI_CONSIGNE_GO = RESERVE_GB
+PI_KP = 1.0
+PI_KI = 0.05
+PI_AVANCE = 0.1          # poids de la marge POSITIVE dans l'integrale (avance prudente)
+PI_RECUL = 1.0           # poids du DEFICIT (recul rapide, x10)
+PI_FUITE_TAU_S = 120.0   # memoire de l'integrale (fuite exponentielle)
+PI_INTEGRALE_MAX = 10.0
+PI_PAS_DEFAUT_S = 5.0
+_PI_ETAT: dict = {"I": 0.0, "t": None}
+_FICHIER_OBSERVATION_PI = Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / \
+    "admission_pi_observation.jsonl"
+
+
+def decision_pi(etat: dict, libre_go: float, t: float, consigne_go: float = PI_CONSIGNE_GO) -> tuple:
+    """Decision PURE : (admettre, nouvel_etat). Erreur = marge a la consigne ; integrale a fuite, bornee, asymetrique."""
+    dt = PI_PAS_DEFAUT_S if etat.get("t") is None else max(0.0, min(60.0, t - etat["t"]))
+    e = float(libre_go) - float(consigne_go)
+    poids = PI_AVANCE if e > 0 else PI_RECUL
+    integrale = etat.get("I", 0.0) * _math.exp(-dt / PI_FUITE_TAU_S) + e * dt * poids
+    integrale = max(-PI_INTEGRALE_MAX, min(PI_INTEGRALE_MAX, integrale))
+    u = PI_KP * e + PI_KI * integrale
+    return u > 0, {"I": integrale, "t": t, "u": u, "e": e}
+
+
+def _libre_instant_go() -> float:
+    import psutil
+    return psutil.virtual_memory().available / 2 ** 30
+
+
+def _observer_pi(res: dict) -> None:
+    """Journalise la decision PI a cote du verdict actuel. Ne leve JAMAIS, ne modifie JAMAIS `res`."""
+    global _PI_ETAT
+    try:
+        libre = _libre_instant_go()
+        adm, _PI_ETAT = decision_pi(_PI_ETAT, libre, time.time())
+        f = Path(_FICHIER_OBSERVATION_PI)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        if f.exists() and f.stat().st_size > 5 * 2 ** 20:
+            f.replace(f.with_suffix(".jsonl.1"))
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "libre_go": round(libre, 3),
+                                 "decision_actuelle": bool(res.get("ok")), "decision_pi": bool(adm),
+                                 "u": round(_PI_ETAT["u"], 4), "I": round(_PI_ETAT["I"], 4),
+                                 "motif_actuel": str(res.get("reason") or "")[:120],
+                                 "voie": str(res.get("voie") or "lourde"),
+                                 # 29/10 soir : cle de jointure du juge de rejeu (observation <-> fiche du job)
+                                 "lane": str(res.get("lane") or "")}) + "\n")
+    except Exception as e:  # noqa: BLE001 -- un observateur ne casse jamais le verdict qu'il observe
+        logging.getLogger(__name__).debug("[admission-pi] observation non ecrite (%s)", type(e).__name__)
+
+
+def observer_decision(res: dict) -> None:
+    """Point d'entree PUBLIC de l'observation PI pour les autres voies d'admission (29/10 soir : la voie legere de
+    forge_job_runner admettait sans passer par check_ressources -- 7 observations seulement en 2 h). Sans effet."""
+    _observer_pi(res)
+
+
+def check_ressources(heavy: bool = True, lane: str | None = None) -> dict:
+    """Verdict d'embolie (voir _check_ressources_brut) + observation PI a cote, sans effet sur le verdict.
+    `lane` ne sert qu'a l'observation (cle de jointure du juge de rejeu), jamais au verdict."""
+    res = _check_ressources_brut(heavy)
+    if heavy:
+        _observer_pi(dict(res, lane=lane) if lane else res)
+    return res
+
+
+def _check_ressources_brut(heavy: bool = True) -> dict:
     """Verdict d'embolie SEUL, sans toucher aux baux de lane. {ok, reason, ...}
 
     Extrait d'`admit` (qui l'appelle toujours) parce qu'un appelant peut avoir
@@ -347,15 +489,17 @@ def check_ressources(heavy: bool = True) -> dict:
         _journaliser_refus(motif, health)
         return {"ok": False, "reason": motif, "alt": ALT_CLOUD,
                 "source": health.get("source")}
-    if _sature(health):
-        # RESERVER AVANT DE REFUSER : tenter de liberer (charges rechargeables :
-        # Ollama, llama-server, conteneurs non-perceptifs), re-mesurer, refuser
-        # seulement si la place manque VRAIMENT.
+    if _sature(health) or not _ram_decision(health)["ok"]:
+        # RESERVER AVANT DE REFUSER : tenter de liberer, re-mesurer, refuser
+        # seulement si la place manque VRAIMENT (politique a deux observateurs).
         plan = _try_reserve()
         health = _get_system_health()
-        if _sature(health):
-            motif = (f"RISQUE EMBOLIE RAM ({health.get('ram_pct')}% > {MAX_RAM_PCT}% "
-                     f"ou dispo {health.get('ram_dispo_gb', 0):.1f} Go < reserve {RESERVE_GB} Go)")
+        dec = _ram_decision(health)
+        if not dec["ok"] or _sature(health):
+            motif = dec.get("motif") or (
+                f"RISQUE EMBOLIE RAM ({health.get('ram_pct')}% > {MAX_RAM_PCT}% ou dispo "
+                f"{health.get('ram_dispo_gb', 0):.1f} Go < reserve {RESERVE_GB} Go ; "
+                f"source {health.get('source')}, age 0.0 s)")
             _journaliser_refus(motif, health)
             return {
                 "ok": False,
@@ -363,7 +507,10 @@ def check_ressources(heavy: bool = True) -> dict:
                 "alt": ALT_CLOUD,
                 "reserve": plan.get("action") or "rien a liberer",
                 "freed_gb": plan.get("freed_gb", 0.0),
-                "source": health.get("source"),
+                "source": dec.get("source") or health.get("source"),
+                "age_s": dec.get("age_s", 0.0),
+                "retry_after": dec.get("retry_after", RAM_RETRY_APRES_S),
+                "ram_desaccord": dec.get("ram_desaccord", False),
             }
     if health.get("cpu_pct", 0) > MAX_CPU_PCT:
         motif = (f"RISQUE EMBOLIE CPU ({health['cpu_pct']}% > {MAX_CPU_PCT}%, "

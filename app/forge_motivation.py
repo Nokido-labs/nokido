@@ -20,8 +20,10 @@ Author-Agent: CLAUDE | Phase 6 — Symbiose
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -78,6 +80,7 @@ CREATE TABLE IF NOT EXISTS motivation_evolution_notes (
     ts REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_evol_method ON motivation_evolution_notes(method);
+CREATE INDEX IF NOT EXISTS idx_evol_ts ON motivation_evolution_notes(ts);
 """
 
 
@@ -292,13 +295,75 @@ def valeur_resultat(verdict: str, repondeur: str, minutes: float | None = None) 
     return round(_PLAISIR[v] - douleur, 4)
 
 
+_RE_JOB = re.compile(r"job_[0-9a-f]{8}")
+
+
+def _cle_job(ligne: dict) -> str | None:
+    """Identifiant court du job d'une ligne : champ `job_id`, sinon la preuve (lignes d'avant le 26/10)."""
+    for champ in (ligne.get("job_id"), ligne.get("preuve")):
+        trouve = _RE_JOB.search(str(champ or ""))
+        if trouve:
+            return trouve.group(0)
+    return None
+
+
+def _est_integrateur(r: dict) -> bool:
+    """Decision d'integration ? `integrateur_retro` (rattrapage owner 26/10 des jobs cites dans alpha) en est une,
+    sauf si NOKIDO_MOTIVATION_SANS_RETRO=1 -- le retour arriere du rattrapage, sans reecrire le registre."""
+    import os as _os
+
+    src = r.get("source")
+    if src == "integrateur_retro":
+        return _os.environ.get("NOKIDO_MOTIVATION_SANS_RETRO", "") != "1"
+    return src == "integrateur"
+
+
+def _dedoublonner(resultats: list) -> list:
+    """Une ligne par (job, repondeur) : la decision de l'INTEGRATEUR prime, sinon la derniere ; sans job, toutes.
+
+    Une meme livraison ecrit plusieurs lignes (scorecard, verdict automatique, puis decision d'integration) :
+    sans cle, elle comptait deux fois -- et un faux VIDE de l'executeur annulait l'integration reelle. La cle
+    porte le repondeur : une reaffectation garde l'echec de A ET le succes de B (seules paires contrefactuelles).
+    """
+    garde: Dict[tuple, dict] = {}
+    libres = []
+    for r in resultats or []:
+        if r.get("source") == "integrateur_retro" and not _est_integrateur(r):
+            continue  # rattrapage debranche : la ligne n'existe pas pour le score
+        job = _cle_job(r)
+        if job is None:
+            libres.append(r)
+            continue
+        k = (job, str(r.get("repondeur")).upper())
+        prec = garde.get(k)
+        if prec is not None and _est_integrateur(prec) and not _est_integrateur(r):
+            continue
+        garde[k] = r
+    return libres + list(garde.values())
+
+
+def decisions_integrateur(resultats: list) -> Dict[tuple, str]:
+    """{(job, REPONDEUR): verdict} des seules decisions d'integration ; la derniere prime."""
+    out: Dict[tuple, str] = {}
+    for r in resultats or []:
+        job = _cle_job(r) if _est_integrateur(r) else None
+        if job:
+            out[(job, str(r.get("repondeur")).upper())] = str(r.get("verdict")).upper()
+    return out
+
+
 def recompenser_resultat(repondeur: str, classe: str, verdict: str, minutes: float | None = None,
-                         preuve: str = "") -> Dict[str, Any]:
+                         preuve: str = "", job_id: str | None = None, sha: str | None = None,
+                         source: str = "executeur", motif: str | None = None) -> Dict[str, Any]:
     """Consigne un resultat VERIFIE (registre) et le fait sentir au corps : reward sur INTEGREE/PARTIELLE,
     punish sur REJETEE/VIDE (methode `executeur:<repondeur>:<classe>`, cible = la preuve)."""
     valeur = valeur_resultat(verdict, repondeur, minutes)
     ligne = {"ts": time.time(), "repondeur": str(repondeur).upper(), "classe": classe,
-             "verdict": str(verdict).upper(), "minutes": minutes, "valeur": valeur, "preuve": preuve}
+             "verdict": str(verdict).upper(), "minutes": minutes, "valeur": valeur, "preuve": preuve,
+             "source": source}
+    for nom, val in (("job_id", job_id), ("sha", sha), ("motif", motif)):
+        if val:
+            ligne[nom] = val
     cible = Path(RESULTATS)
     cible.parent.mkdir(parents=True, exist_ok=True)
     with open(cible, "a", encoding="utf-8") as f:
@@ -314,6 +379,41 @@ def recompenser_resultat(repondeur: str, classe: str, verdict: str, minutes: flo
     else:
         corps = {"ok": False, "raison": "INCONNU : ni recompense ni punition"}
     return {"ligne": ligne, "corps": corps}
+
+
+PERTINENCE_SEUIL = 0.5      # owner 26/10 : sous ce taux d'integration TELLE QUELLE, l'organe produit du bruit
+PERTINENCE_N_MIN = 5        # en dessous, on ne juge pas (INSUFFISANT) : pas de verdict sur 2 cas
+PERTINENCE_FENETRE_J = 30
+
+
+def taux_pertinence(repondeur: str, resultats: list | None = None, now: float | None = None) -> Dict[str, Any]:
+    """Pertinence d'un organe PRODUCTEUR (self-patcher, soif...) : candidats que l'owner a tranches, owner 26/10.
+
+    INTEGREE = garde tel quel, PARTIELLE = a reprendre, REJETEE = jete ; taux = integres tels quels / tranches sur
+    la fenetre. statut : INSUFFISANT (< N_MIN decisions), OBSERVATION (taux < SEUIL : le bruit coupe son robinet),
+    ACTIF sinon. Seules les decisions d'integration comptent (jamais le verdict automatique)."""
+    cible = str(repondeur).upper()
+    debut = (now or time.time()) - PERTINENCE_FENETRE_J * 86400
+    decisions = [r for r in _dedoublonner(resultats if resultats is not None else lire_resultats())
+                 if _est_integrateur(r) and str(r.get("repondeur")).upper() == cible
+                 and float(r.get("ts") or 0) >= debut]
+    c = {v: sum(1 for r in decisions if str(r.get("verdict")).upper() == v)
+         for v in ("INTEGREE", "PARTIELLE", "REJETEE")}
+    n = sum(c.values())
+    taux = round(c["INTEGREE"] / n, 3) if n else None
+    statut = ("INSUFFISANT" if n < PERTINENCE_N_MIN
+              else "OBSERVATION" if taux < PERTINENCE_SEUIL else "ACTIF")
+    return {"repondeur": cible, "n": n, "integrees": c["INTEGREE"], "reprises": c["PARTIELLE"],
+            "rejetees": c["REJETEE"], "taux": taux, "statut": statut}
+
+
+def decider_integration(job_id: str, repondeur: str, verdict: str, sha: str = "", motif: str = "",
+                        classe: str = "M:ecrit") -> Dict[str, Any]:
+    """Decision de l'INTEGRATEUR sur une livraison (INTEGREE|PARTIELLE|REJETEE|VIDE|INCONNU) : elle prime sur
+    le verdict automatique de l'executeur dans les deux signaux du score hedoniste (owner 26/10)."""
+    return recompenser_resultat(repondeur, classe, verdict,
+                                preuve="%s : integrateur %s %s" % (str(job_id)[:40], sha or "", motif or ""),
+                                job_id=job_id, sha=sha, source="integrateur", motif=motif)
 
 
 def lire_resultats(chemin=None) -> list:
@@ -333,7 +433,7 @@ def lire_resultats(chemin=None) -> list:
 def force_repondeurs(resultats: list, classe: str) -> Dict[str, Dict[str, Any]]:
     """{repondeur: {n, utilite, integrees, rejetees}} pour une classe ; INCONNU n'entre pas dans n."""
     force: Dict[str, Dict[str, Any]] = {}
-    for r in resultats or []:
+    for r in _dedoublonner(resultats):
         if r.get("classe") != classe:
             continue
         f = force.setdefault(str(r.get("repondeur")).upper(), {"n": 0, "somme": 0.0, "integrees": 0, "rejetees": 0})
@@ -359,6 +459,152 @@ def ordre_hedoniste(candidats: list, classe: str, resultats: list | None = None)
         return _PRIOR_JAMAIS_ESSAYE if u is None else u
 
     return sorted(candidats, key=lambda c: -_u(c))
+
+
+# ── ARMEMENT sur la MESURE de tasks.db (decision owner 22/10, rapport_hedoniste_mesure_20261022) ─────────────
+# valeur = (livrees + 1,25) / (touches + 5) (prior 0,25, k=5) sur 14 jours glissants ; score = 0,7 mesure + 0,3 amorce.
+# PANNE FOURNISSEUR : poids 0 ; plafond journalier / echec d'auth : neutres ; NON LIVRE / VIDE / rejet : punissent.
+# L'amorce (9 verdicts du 18/10, NEMOTRON 1,0) est BORNEE a [0 ; prior] : elle ne releve pas un echec mesure
+# au-dessus d'un jamais-essaye et ne condamne pas un executeur que la mesure sauve.
+FENETRE_JOURS = 14
+_POIDS_MESURE, _POIDS_AMORCE = 0.7, 0.3
+_PRIOR_K = 5
+_RE_PANNE_FOURNISSEUR = re.compile(r"PANNE FOURNISSEUR|SilenceACP|silence de l.agent|silence ACP|RuntimeError", re.I)
+_RE_NEUTRE = re.compile(r"plafond|ECHEC AUTHENTIFICATION|authentification", re.I)
+_RE_COMMITS = re.compile(r"commits produits\s*:\s*(\d+)")
+
+
+def _maintenant():
+    return datetime.now()
+
+
+def _date(txt):
+    try:
+        d = datetime.fromisoformat(str(txt).strip())
+    except (ValueError, TypeError):
+        return None
+    return d.replace(tzinfo=None) if d.tzinfo else d
+
+
+def _poids_motif(motif) -> int:
+    """0 = neutre (panne fournisseur, plafond, auth) ; 1 = punit pleinement (NON LIVRE, vide, rejet, autre)."""
+    t = str(motif or "")
+    return 0 if (_RE_PANNE_FOURNISSEUR.search(t) or _RE_NEUTRE.search(t)) else 1
+
+
+def _livree(result) -> bool:
+    t = str(result or "")
+    m = _RE_COMMITS.search(t)
+    return bool(m and int(m.group(1)) >= 1 and not re.search(r"NON LIVRE|REPONSE VIDE|rejet", t, re.I))
+
+
+def _compter_livraisons(conn, now, fenetre_jours=FENETRE_JOURS,
+                        decisions: Dict[tuple, str] | None = None) -> Dict[str, Dict[str, int]]:
+    """{agent: {livrees, touches}} sur la fenetre ; leve sqlite3.Error si la base est illisible.
+
+    `decisions` ({(job, AGENT): verdict} de l'integrateur) remplace le texte du resultat pour la tache
+    tranchee : INTEGREE/PARTIELLE = livree, REJETEE/VIDE = touchee sans livraison, INCONNU = non comptee.
+    """
+    debut = now - timedelta(days=fenetre_jours)
+    cpt: Dict[str, Dict[str, int]] = {}
+
+    def _c(a):
+        return cpt.setdefault(str(a).upper(), {"livrees": 0, "touches": 0})
+
+    cols = "agent, status, result, COALESCE(updated_at, created_at), reaffectations" + (", job_id" if decisions else "")
+    rows = conn.execute("SELECT " + cols + " FROM tasks "
+                        "WHERE COALESCE(updated_at, created_at) >= ?", (debut.isoformat(timespec="seconds"),)).fetchall()
+    for row in rows:
+        agent, status, result, quand, trace = row[:5]
+        d = _date(quand)
+        if d is None or d < debut:
+            continue
+        try:
+            sorties = json.loads(trace) if trace else []
+        except ValueError:
+            sorties = []  # muet-ok : trace corrompue d'une tache, ses renvois ne comptent pas
+        for t in sorties if isinstance(sorties, list) else []:
+            dq = _date(t.get("quand")) if isinstance(t, dict) else None
+            if dq is not None and dq >= debut and t.get("de") and _poids_motif(t.get("motif")):
+                _c(t["de"])["touches"] += 1
+        dec = decisions.get((_cle_job({"job_id": row[5]}), str(agent).upper())) if decisions and agent else None
+        if dec is not None:
+            if dec != "INCONNU":
+                c = _c(agent)
+                c["touches"] += 1
+                c["livrees"] += dec in ("INTEGREE", "PARTIELLE")
+            continue
+        if agent and status in ("done", "failed") and _poids_motif(result):
+            c = _c(agent)
+            c["touches"] += 1
+            c["livrees"] += status == "done" and _livree(result)
+    _crediter_amont(conn, debut, decisions, _c)
+    return cpt
+
+
+# 31/10 (owner, reflexion « incubation -> saillance -> renforcement ») : une sequence d'agents qui a MENE a un succes se
+# renforce. Une tache aval LIVREE (depend_de, ca6defd6b) vaut a chaque agent amont un credit d'une demi-livraison.
+_POIDS_CREDIT_AMONT = 0.5
+
+
+def _crediter_amont(conn, debut, decisions, _c) -> None:
+    """Credit retrograde sur le chainage : aval livre -> +1/2 livree et +1/2 touchee pour l'agent de chaque entree.
+
+    Un aval ECHOUE ne punit pas l'amont (la cause peut etre l'aval ; dans le doute on s'abstient). Base sans colonne
+    `depend_de` : rien (comportement d'avant). Entree hors base : ignoree (pas de credit invente)."""
+    try:
+        rows = conn.execute("SELECT agent, status, result, job_id, depend_de FROM tasks WHERE depend_de IS NOT NULL "
+                            "AND COALESCE(updated_at, created_at) >= ?",
+                            (debut.isoformat(timespec="seconds"),)).fetchall()
+    except sqlite3.OperationalError:
+        return  # muet-ok : base d'avant le chainage, aucune tache n'a d'entree
+    for agent, status, result, job_id, dep in rows:
+        dec = decisions.get((_cle_job({"job_id": job_id}), str(agent).upper())) if decisions and agent else None
+        livre = (dec in ("INTEGREE", "PARTIELLE")) if dec is not None else (status == "done" and _livree(result))
+        if not livre:
+            continue
+        try:
+            entrees = json.loads(dep)
+        except (TypeError, ValueError):
+            continue  # muet-ok : liste illisible, aucun credit invente
+        for e in entrees if isinstance(entrees, list) else []:
+            r = conn.execute("SELECT agent FROM tasks WHERE id=?", (str(e),)).fetchone()
+            if r and r[0]:
+                c = _c(r[0])
+                c["livrees"] += _POIDS_CREDIT_AMONT
+                c["touches"] += _POIDS_CREDIT_AMONT
+
+
+def scores_hedonistes_mesure(candidats: list, conn, classe: str = "M:ecrit", now=None,
+                             resultats: list | None = None) -> Dict[str, Dict[str, Any]]:
+    """{candidat: {livrees, touches, valeur, amorce, score}} ; leve sqlite3.Error si tasks.db est illisible."""
+    res = resultats if resultats is not None else lire_resultats()
+    cpt = _compter_livraisons(conn, now or _maintenant(), decisions=decisions_integrateur(res))
+    force = force_repondeurs(res, classe)
+    out: Dict[str, Dict[str, Any]] = {}
+    for c in candidats:
+        k = str(c).upper()
+        m = cpt.get(k, {"livrees": 0, "touches": 0})
+        if m["touches"] == 0:  # jamais essaye (ou seulement des pannes / neutres) : prior pur
+            out[c] = {"livrees": 0, "touches": 0, "valeur": _PRIOR_JAMAIS_ESSAYE, "amorce": None,
+                      "score": _PRIOR_JAMAIS_ESSAYE}
+            continue
+        valeur = (m["livrees"] + _PRIOR_K * _PRIOR_JAMAIS_ESSAYE) / (m["touches"] + _PRIOR_K)
+        u = (force.get(k) or {}).get("utilite")
+        amorce = _PRIOR_JAMAIS_ESSAYE if u is None else min(max(float(u), 0.0), _PRIOR_JAMAIS_ESSAYE)
+        out[c] = {"livrees": m["livrees"], "touches": m["touches"], "valeur": valeur, "amorce": amorce,
+                  "score": _POIDS_MESURE * valeur + _POIDS_AMORCE * amorce}
+    return out
+
+
+def ordre_hedoniste_mesure(candidats: list, classe: str, conn, now=None, resultats: list | None = None):
+    """Candidats tries par score mesure decroissant (tri stable) ; None si tasks.db est illisible : l'appelant garde
+    alors l'ordre d'amorce, jamais un classement invente."""
+    try:
+        sc = scores_hedonistes_mesure(candidats, conn, classe, now, resultats)
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+    return sorted(candidats, key=lambda c: -sc[c]["score"])
 
 
 def curiosity_prompt(method: str, target: str = "", error: str = "", fail_count: int = 0) -> str:
@@ -479,6 +725,11 @@ if __name__ == "__main__":
     ap.add_argument("--revive", nargs=2, metavar=("METHOD", "TARGET"))
     # Recompense par resultat (owner 18/10) : tout CLI consigne un verdict VERIFIE et lit la force des repondeurs.
     ap.add_argument("--verdict", nargs=3, metavar=("REPONDEUR", "CLASSE", "VERDICT"))
+    # Decision de l'integrateur (owner 26/10) : prime sur le verdict automatique de l'executeur.
+    ap.add_argument("--decision", nargs=3, metavar=("JOB_ID", "REPONDEUR", "VERDICT"))
+    ap.add_argument("--sha", default="")
+    ap.add_argument("--motif", default="")
+    ap.add_argument("--classe", default="M:ecrit")
     ap.add_argument("--preuve", default="")
     ap.add_argument("--minutes", type=float, default=None)
     ap.add_argument("--force", metavar="CLASSE")
@@ -487,7 +738,10 @@ if __name__ == "__main__":
     import os as _os
     if _os.environ.get("NOKIDO_MOTIVATION_RESULTATS"):
         RESULTATS = Path(_os.environ["NOKIDO_MOTIVATION_RESULTATS"])
-    if args.verdict:
+    if args.decision:
+        job, rep, v = args.decision
+        print(json.dumps(decider_integration(job, rep, v, args.sha, args.motif, args.classe), ensure_ascii=False))
+    elif args.verdict:
         rep, cl, v = args.verdict
         print(json.dumps(recompenser_resultat(rep, cl, v, args.minutes, args.preuve), ensure_ascii=False))
     elif args.force:

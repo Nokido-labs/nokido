@@ -69,6 +69,12 @@ l'avaient aussi demandée. Tout ce qui suit a été pratiqué et vérifié le 15
 - Rejeu ciblé (secondes) : `PYTHONNOUSERSITE=1`, `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`,
   l'interpréteur du hub (`miniforge3/envs/laforge_py314`), `-p pytest_timeout`,
   `--basetemp` sous `sandbox/workspace`.
+- Module `forge_*.py` NEUF : rejouer AUSSI les cliquets qui comptent tous les modules,
+  avant le commit — `test_cliquet_racine_donnees_nr`, `test_pouls_canon_nr`,
+  `test_sous_processus_borne_sous_la_suite_nr`, `forge_module_census.py --check`. Les
+  données (`logs/`, `sandbox/`) passent par `forge_db_path.racine_donnees()`, jamais par
+  `Path(__file__)`. Payé le 31/10 : un module de guet a remonté le cliquet de 405 à 406,
+  seul rouge sur 19 096, et une CI de référence (~25 min) a été perdue.
 - La validation AST des `.py` est faite par le hook PostToolUse : ne pas la doubler.
 - Le `rc` dit qu'un programme s'est terminé, pas qu'il a fait son travail : relire
   l'artefact. Une recherche vide ne prouve pas une absence.

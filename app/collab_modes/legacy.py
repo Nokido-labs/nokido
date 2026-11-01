@@ -30,8 +30,7 @@ def ollama_ask_sync(task: str, context: str = "", system: str = "", max_tokens: 
         finally:
             loop.close()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(_run).result(timeout=60)
+    return _appel_borne(_run)
 
 
 def gemini_ask_sync(task: str, context: str = "", mode: str = "STRICT", session_id: str = "") -> str:
@@ -46,5 +45,18 @@ def gemini_ask_sync(task: str, context: str = "", mode: str = "STRICT", session_
         finally:
             loop.close()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(_run).result(timeout=60)
+    return _appel_borne(_run)
+
+
+# Audit C2.1 (29/10) : `with ThreadPoolExecutor` attendait la tache en sortie de bloc, le delai ne liberait pas
+# l'appelant. Pool ferme sans attente ; TimeoutError au delai, comme avant, mais AU delai.
+_DELAI_S = 60
+
+
+def _appel_borne(fn):
+    import concurrent.futures
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn).result(timeout=_DELAI_S)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)

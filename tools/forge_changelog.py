@@ -122,11 +122,36 @@ def rendre_section(liste, debut: str, fin: str, branche: str, jour: str) -> str:
     return "\n".join(corps) + "\n"
 
 
+_RE_PUCE_SHA = re.compile(r"\(`([0-9a-f]{4,40})`\)")
+
+
+def _retirer_perimees(texte: str, section: str, debut: str, fin: str) -> tuple[str, int]:
+    """Retire les sections de MEME base `debut`, d'une autre fin, dont TOUS les commits figurent dans
+    `section` : une relance de --ecrire avant le push les englobe (mesure 25/10 : 309 commits listes
+    deux fois). Une section de meme base qui n'est pas incluse (autre historique) reste."""
+    neufs = set(_RE_PUCE_SHA.findall(section))
+    marques = list(_RE_MARQUEUR.finditer(texte))
+    retirees, morceaux, curseur = 0, [], 0
+    for k, m in enumerate(marques):
+        if m.group(1) != debut or m.group(2) == fin:
+            continue
+        stop = marques[k + 1].start() if k + 1 < len(marques) else len(texte)
+        shas = set(_RE_PUCE_SHA.findall(texte[m.start():stop]))
+        if shas and shas <= neufs:
+            morceaux.append(texte[curseur:m.start()])
+            curseur, retirees = stop, retirees + 1
+    morceaux.append(texte[curseur:])
+    return "".join(morceaux), retirees
+
+
 def inserer(texte: str, section: str) -> tuple[str, bool]:
-    """Pose `section` en tete (sous l'entete). -> (texte, ecrit). Une plage deja presente n'est pas reposee."""
+    """Pose `section` en tete (sous l'entete). -> (texte, ecrit). Une plage deja presente n'est pas reposee ;
+    une section non poussee de meme base qu'elle englobe est REMPLACEE, jamais doublee."""
     m = _RE_MARQUEUR.search(section)
-    if m and m.group(0) in texte:
-        return texte, False
+    if m:
+        texte, retirees = _retirer_perimees(texte, section, m.group(1), m.group(2))
+        if m.group(0) in texte:
+            return texte, retirees > 0
     if not texte.strip():
         texte = ENTETE
     i = texte.find(MARQUEUR)

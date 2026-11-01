@@ -347,6 +347,14 @@ def jeton_hub(agent: str) -> str:
     return maitre
 
 
+def jeton_sujet_du_job() -> str:
+    """Jeton de SUJET d'un job (RFC 8693), INJECTE par app/forge_job_runner.py dans l'environnement de chaque job :
+    ephemere, propre au job, il ne vit PAS au coffre (decision owner option B, 30/10). SEUL lecteur admis -- classe
+    INJECTE de forge_secret_source_audit et de golden-rules (choix owner 31/10) ; les autres modules l'appellent.
+    '' si absent. NR tests/nr/test_jeton_injecte_classe_a_part_nr.py."""
+    return os.environ.get("NOKIDO_JOB_SUBJECT_TOKEN", "")
+
+
 def jeton_pour(agent: str) -> str:
     """Jeton a presenter pour cet organe. Court si possible, statique sinon.
 

@@ -82,7 +82,7 @@ def test_modele_absent_pas_de_set_model_et_c_est_dit(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_etat_git", lambda wt_: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, wt_, avant, autorises=None: (ok, "commits produits : 1", "OK_DONE"))
+                        lambda ok, detail, wt_, avant, autorises=None, desc=None: (ok, "commits produits : 1", "OK_DONE"))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: "jeton_coffre_%s" % inst)
     vus = {}
     monkeypatch.setattr(T, "_clore_delegation",

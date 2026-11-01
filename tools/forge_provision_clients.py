@@ -74,7 +74,7 @@ def _cfg_blocks(tok: dict) -> str:
          "headers": {"Authorization": f"Bearer {tok['LMSTUDIO']}", "LaForge-Agent-Name": "LMSTUDIO"}}}}, indent=2))
     b.append("===== Claude Desktop  (claude_desktop_config.json -> mcpServers ; STDIO bridge) =====\n" + json.dumps(
         {"laforge": {"command": PY, "args": [BRIDGE],
-         "env": {"FORGE_TOKEN_CLAUDE_DESKTOP": tok["CLAUDE_DESKTOP"], "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}}, indent=2))
+         "env": {"FORGE_TOKEN_CLAUDE_DESKTOP": tok["CLAUDE_DESKTOP"], "LAFORGE_AGENT": "CLAUDE_DESKTOP", "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}}, indent=2))
     b.append("===== Antigravity (agy)  (mcpServers) =====\n" + json.dumps(
         {"mcpServers": {"laforge-sovereign-hub": {"type": "http", "url": URL,
          "headers": {"Authorization": f"Bearer {tok['ANTIGRAVITY']}", "LaForge-Agent-Name": "ANTIGRAVITY"}}}}, indent=2))
@@ -339,7 +339,58 @@ def _patch_vibe(home=None, dry: bool = False) -> list[str]:
             % (cfg, sauve or "aucune, fichier neuf")]
 
 
+# Voie HYBRIDE de la cle Mistral (owner 24/10) : lanceur/executeur injectent depuis le coffre ; un `vibe` lance A LA MAIN
+# lit le trousseau Windows. Service/utilisateur MESURES dans le paquet installe : vibe/utils/keyring.py:15 et :320.
+_VIBE_KEYRING = ("ai.mistral.vibe", "MISTRAL_API_KEY")
+_KR_POSE = "import sys,keyring; keyring.set_password(sys.argv[1], sys.argv[2], sys.stdin.read())"
+_KR_VERIFIE = ("import sys,keyring; v=keyring.get_password(sys.argv[1], sys.argv[2]); "
+               "print('ABSENTE' if v is None else ('EGAL' if v == sys.stdin.read() else 'DIFFERENTE'))")
+
+
+def _python_vibe() -> Path:
+    """L'interpreteur de Vibe lui-meme : son backend de trousseau est, par construction, celui que Vibe lit."""
+    import os as _os
+    return Path(_os.environ.get("APPDATA", "")) / "uv" / "tools" / "mistral-vibe" / "Scripts" / "python.exe"
+
+
+def _vibe_keyring(verifier=False, est_owner=None, lire_secret=None, executer=None, py=None) -> list[str]:
+    """Pose (ou verifie, booleen) la cle Mistral du coffre dans le trousseau Windows lu par Vibe.
+
+    Le trousseau est PAR UTILISATEUR : hors compte owner, la cle atterrirait dans le mauvais -> refus nomme. La cle
+    passe par stdin, jamais en argument (visible des autres processus) ; aucune valeur n'est jamais rendue."""
+    import subprocess as _sp
+    if est_owner is None:
+        try:
+            from forge_connect_clients import resoudre_home
+        except ImportError:
+            from tools.forge_connect_clients import resoudre_home
+        import os as _os
+        est_owner = resoudre_home([], _os.environ, Path.home()) is not None
+    if not est_owner:
+        return ["  REFUS : compte courant hors owner -- le trousseau est par utilisateur ; lancer depuis la session owner"]
+    if lire_secret is None:
+        from nokido_agent.app.forge_secrets import get_secret as lire_secret
+    cle = lire_secret("MISTRAL_API_KEY")
+    if not cle:
+        return ["  cle Mistral absente du coffre -> rien pose"]
+    py = Path(py) if py else _python_vibe()
+    if not py.is_file():
+        return ["  interpreteur de Vibe introuvable (%s) -> rien pose" % py]
+    executer = executer or (lambda args, entree: _sp.run(args, input=entree, capture_output=True, text=True,
+                                                         errors="replace", timeout=30))
+    r = executer([str(py), "-I", "-c", _KR_VERIFIE if verifier else _KR_POSE, *_VIBE_KEYRING], cle)
+    if r.returncode != 0:
+        return ["  trousseau ILLISIBLE (rc %d) -> rien conclu" % r.returncode]
+    if verifier:
+        return ["  trousseau %s / %s : %s" % (_VIBE_KEYRING + ((r.stdout or "").strip() or "ILLISIBLE",))]
+    return ["  cle Mistral posee dans le trousseau (%s / %s) ; verifier : --vibe-keyring --verifier" % _VIBE_KEYRING]
+
+
 def main() -> int:
+    if "--vibe-keyring" in sys.argv:
+        print("=== cle Mistral de Vibe dans le trousseau Windows (voie hybride, owner 24/10) ===")
+        print("\n".join(_vibe_keyring(verifier="--verifier" in sys.argv)))
+        return 0
     if "--vibe" in sys.argv:
         # Branche FERMEE : aucun jeton lu, aucun bloc emis (le chemin par defaut ecrit les jetons de TOUS les agents
         # en clair dans C:/tmp).

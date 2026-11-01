@@ -40,12 +40,23 @@ except Exception:  # ImportError, mais aussi l'echec reseau de tiktoken a l'impo
     _DSPY_OK = False
     dspy = None  # type: ignore
 
-if _DSPY_OK and hasattr(dspy, "configure_cache"):
+MITIGATION_CACHE_DISQUE = "SANS_DSPY"
+if _DSPY_OK:
     # GHSA-w8v5-vhqr-4h9v : diskcache (<= 5.6.3, AUCUNE version corrigee publiee) depique ce qu'il trouve dans son
     # dossier, et dspy ouvre par defaut un tel cache DISQUE (~/.dspy_cache). Ce module ne se sert de dspy que pour ses
     # Signatures -- l'appel LLM passe par le hub, jamais par dspy.LM -- donc ce cache n'a aucun usage ici : on le
     # coupe, et le seul chemin vulnerable du paquet disparait. Registre : docs/cve_sans_correctif.md.
-    dspy.configure_cache(enable_disk_cache=False, enable_memory_cache=True)
+    # La coupure est VERIFIEE (relue sur dspy.cache) et son echec DIT : NR test_dspy_cache_disque_coupe_nr.
+    try:
+        dspy.configure_cache(enable_disk_cache=False, enable_memory_cache=True)
+        _coupe = getattr(getattr(dspy, "cache", None), "enable_disk_cache", None) is False
+        MITIGATION_CACHE_DISQUE = "COUPE" if _coupe else "ECHEC: cache disque toujours actif"
+    except Exception as _e:
+        MITIGATION_CACHE_DISQUE = "ECHEC: %s" % type(_e).__name__
+    if MITIGATION_CACHE_DISQUE != "COUPE":
+        import sys
+        print("[forge_dspy_router] GHSA-w8v5-vhqr-4h9v : cache disque de dspy NON coupe (%s)" % MITIGATION_CACHE_DISQUE,
+              file=sys.stderr)
 
 HUB_URL = "http://127.0.0.1:8766/mcp"
 

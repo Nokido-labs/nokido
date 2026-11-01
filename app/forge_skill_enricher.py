@@ -368,6 +368,12 @@ def main() -> int:
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_skill_enricher.py', 359, exc_info=True)
 
+    if args.daemon and not args.once:
+        from nokido_agent.app.forge_heartbeat import Cadence
+
+        _boucle_daemon(args, state, Cadence("skill_enricher", cycle_s=args.interval))
+        return 0
+
     while True:
         since = state.get("last_run_ts", 0)
         print(f"[skill_enricher] cycle start (since_ts={since}, threshold={args.threshold})", flush=True)
@@ -399,6 +405,34 @@ def main() -> int:
             return 0
 
         time.sleep(args.interval)
+
+
+def _boucle_daemon(args, state: dict, cad, tours: int | None = None) -> None:
+    """--daemon : le POULS bat a chaque tick, le cycle lecons -> brouillons de skills tourne une fois par intervalle.
+
+    30/10 (owner : skill_enricher DECLARE ACTIF) : l'ancienne boucle faisait time.sleep(1 h) sans pouls ; declaree au
+    superviseur, elle aurait ete jugee figee et relancee toutes les 10 min. Primitive canonique forge_heartbeat.Cadence :
+    perfusion (tick) et progression (dernier cycle, ok ou non) sur deux axes. `tours` borne la boucle pour le NR."""
+    n = 0
+    while tours is None or n < tours:
+        n += 1
+        if cad.tour():
+            try:
+                stats = run_cycle(args.threshold, state.get("last_run_ts", 0), auto_review=args.auto_review)
+                state["last_run_ts"] = time.time()
+                state.setdefault("skills_proposed", {})
+                for slug in stats.get("skills_touched") or []:
+                    state["skills_proposed"][slug] = state["skills_proposed"].get(slug, 0) + 1
+                _save_state(state)
+                print(f"[skill_enricher] cycle done : lessons={stats.get('lessons_scanned')} "
+                      f"proposals={stats.get('proposals_created')}", flush=True)
+                cad.cycle_termine(True, interval_s=args.interval,
+                                  **{k: stats.get(k) for k in ("lessons_scanned", "topics_scanned",
+                                                               "proposals_created", "skills_touched")})
+            except Exception as exc:  # noqa: BLE001 - un cycle en echec se DIT (progres_ok=False), la boucle continue
+                print(f"[skill_enricher] cycle ERREUR : {exc}", flush=True)
+                cad.cycle_termine(False, interval_s=args.interval, erreur=str(exc)[:300])
+        cad.dormir()
 
 
 if __name__ == "__main__":

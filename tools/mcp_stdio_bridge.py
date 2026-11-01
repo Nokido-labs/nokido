@@ -117,7 +117,7 @@ _TOKEN = ""
 # clair dans un fichier de config. DÉFAUT INCHANGÉ : sans la variable, comportement
 # identique (Claude chat/cowork restent BRIDGE) — l'identité doit exister dans
 # config/agent_identities.json, sinon le videur la traitera en ring par défaut.
-_AGENT = (os.environ.get("LAFORGE_AGENT") or "BRIDGE").strip().upper() or "BRIDGE"
+_AGENT = (os.environ.get("LAFORGE_AGENT") or os.environ.get("LAFORGE_AGENT_NAME") or "BRIDGE").strip().upper() or "BRIDGE"
 
 # ParamÃ¨tres configurables via env
 # Timeout 30s : aucun tool MCP legitime ne devrait prendre plus. Fail fast
@@ -355,8 +355,63 @@ def _get_conn():
     return _conn
 
 
+def _nom_exe_windows(pid: int) -> str:
+    """Nom de l'executable du pid via Toolhelp32 (ctypes, aucun sous-processus). '' si absent."""
+    import ctypes
+    from ctypes import wintypes
+
+    class _PE(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PE)]
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PE)]
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = k32.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+    if snap in (None, wintypes.HANDLE(-1).value):
+        return ""
+    try:
+        pe = _PE()
+        pe.dwSize = ctypes.sizeof(_PE)
+        ok = k32.Process32FirstW(snap, ctypes.byref(pe))
+        while ok:
+            if pe.th32ProcessID == pid:
+                return pe.szExeFile
+            ok = k32.Process32NextW(snap, ctypes.byref(pe))
+        return ""
+    finally:
+        k32.CloseHandle(snap)
+
+
+def _parent_process_name() -> str:
+    """Nom de l'executable parent (client qui a lance le pont) ; INCONNU si illisible."""
+    try:
+        ppid = os.getppid()
+        if os.name == "nt":
+            out = _nom_exe_windows(ppid)
+        else:
+            with open(f"/proc/{ppid}/comm", encoding="utf-8") as f:
+                out = f.read().strip()
+        return out or "INCONNU"
+    except Exception:  # noqa: BLE001 - illisible => INCONNU, jamais invente
+        return "INCONNU"
+
+
+_CLIENT_PROC = None
+
+
 def _headers():
+    global _CLIENT_PROC
+    if _CLIENT_PROC is None:
+        _CLIENT_PROC = _parent_process_name()
     h = {
+        "X-Client-Process": _CLIENT_PROC,
         "Content-Type": "application/json",
         "X-Agent-Name": _AGENT,
         "X-Transport": "stdio-bridge/3.1",

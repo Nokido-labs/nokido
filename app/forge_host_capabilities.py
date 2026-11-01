@@ -22,9 +22,11 @@ from __future__ import annotations
 import datetime
 import json
 import platform
+import os
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -160,37 +162,75 @@ def _detect_ram() -> dict:
     return info
 
 
+# Lecture PowerShell : Win32_VideoController + memoire REELLE du registre pilote (qwMemorySize, 64 bits ; AdapterRAM
+# est un uint32 plafonne a 4 Go). Classe registre {4d36e968-e325-11ce-bfc1-08002be10318}. Lecture seule, pas de BIOS.
+_PS_GPU = (
+    "$cls='HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}';"
+    "$reg=@{};Get-ChildItem $cls -ErrorAction SilentlyContinue | ForEach-Object {"
+    "$p=Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue;"
+    "if($p.DriverDesc -and $p.'HardwareInformation.qwMemorySize'){"
+    "$reg[$p.DriverDesc]=[int64]$p.'HardwareInformation.qwMemorySize'}};"
+    "@(Get-CimInstance Win32_VideoController | ForEach-Object {"
+    "[pscustomobject]@{Name=$_.Name;AdapterRAM=$_.AdapterRAM;DriverVersion=$_.DriverVersion;"
+    "VideoProcessor=$_.VideoProcessor;QwMemorySize=$reg[$_.Name]}}) | ConvertTo-Json -Compress"
+)
+
+# Heuristiques de classe (documentees). Ordre : integres d'abord (un « Radeon Graphics » n'est pas un RX).
+#  - NVIDIA GeForce/RTX/GTX/Quadro/Tesla/A-series : dedie.
+#  - AMD « Radeon(TM) Graphics », « Radeon 780M Graphics », « Vega ... Graphics » : APU, memoire partagee -> integre ;
+#    « Radeon RX », « Radeon Pro », « Instinct » : dedie.
+#  - Intel UHD/HD/Iris : integre ; Intel Arc « A### » : dedie ; Arc « Graphics » seul (Meteor Lake) : integre.
+#  - tout le reste (Basic Display, virtuel, nom vide) : inconnu. UNKNOWN != NO.
+_RE_INTEGRE = (
+    r"intel.*\b(uhd|hd graphics|iris)\b", r"intel.*arc.*graphics(?!.*\ba\d{3})",
+    r"radeon\W*(\(tm\))?\W*(\d{3}m\W+)?graphics\b", r"radeon\W*(\(tm\))?\W*\d{3}m\b", r"radeon.*vega.*graphics",
+)
+_RE_DEDIE = (
+    r"nvidia|geforce|\brtx\b|\bgtx\b|quadro|tesla", r"radeon\W*(\(tm\))?\W*(rx|pro|instinct)\b",
+    r"intel.*\barc\b.*\b[ab]\d{3}\b",
+)
+
+
+def _classer_gpu(nom: str, vram_gb: float) -> str:
+    import re
+    n = (nom or "").lower()
+    if any(re.search(p, n) for p in _RE_DEDIE):
+        return "dedie"
+    if any(re.search(p, n) for p in _RE_INTEGRE):
+        return "integre"
+    return "inconnu"
+
+
+def _gpus_depuis_json(stdout: str) -> list[dict]:
+    """Sortie JSON PowerShell -> GPUs classes. memoire_source : qwMemorySize | plafonnee_4go (repli AdapterRAM)."""
+    data = json.loads(stdout)
+    if isinstance(data, dict):
+        data = [data]
+    out = []
+    for g in data or []:
+        qw = g.get("QwMemorySize") or 0
+        ar = g.get("AdapterRAM") or 0
+        if qw:
+            vram, src = round(qw / 1024**3, 2), "qwMemorySize"
+        elif ar:
+            vram, src = round(ar / 1024**3, 2), "plafonnee_4go"
+        else:
+            vram, src = 0, "inconnue"
+        nom = g.get("Name") or "?"
+        out.append({"name": nom, "vram_gb": vram, "driver": g.get("DriverVersion", "?"),
+                    "video_processor": g.get("VideoProcessor", "?"),
+                    "type": _classer_gpu(nom, vram), "memoire_source": src})
+    return out
+
+
 def _detect_gpu_windows() -> list[dict]:
-    """GPU info via PowerShell Get-CimInstance Win32_VideoController.
-    Detect : nom + RAM video (VRAM dedie OR partage iGPU).
-    """
+    """GPU info via PowerShell (Win32_VideoController + registre qwMemorySize), classe integre|dedie|inconnu."""
     try:
-        cmd = [
-            "powershell.exe",
-            "-NoProfile",
-            "-Command",
-            "Get-CimInstance Win32_VideoController | "
-            "Select-Object Name,AdapterRAM,DriverVersion,VideoProcessor | "
-            "ConvertTo-Json -Compress",
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10, encoding="utf-8", errors="replace")
+        cmd = ["powershell.exe", "-NoProfile", "-Command", _PS_GPU]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             return []
-        data = json.loads(r.stdout)
-        if isinstance(data, dict):
-            data = [data]
-        out = []
-        for g in data:
-            adapter_ram = g.get("AdapterRAM") or 0
-            out.append(
-                {
-                    "name": g.get("Name", "?"),
-                    "vram_gb": round(adapter_ram / 1024**3, 2) if adapter_ram else 0,
-                    "driver": g.get("DriverVersion", "?"),
-                    "video_processor": g.get("VideoProcessor", "?"),
-                }
-            )
-        return out
+        return _gpus_depuis_json(r.stdout)
     except Exception:
         return []
 
@@ -410,9 +450,121 @@ def display_summary() -> str:
     return "\n".join(lines)
 
 
+# Mesures de reference 29/10 (banc_ollama_vulkan_20261029_095615 / _v2_102738, commit 516c027bd, Radeon 780M) :
+# 1.5B Vulkan prompt 107 tok/s vs 347 CPU (3x plus lent) -> num_gpu 0 ; 6.7B Vulkan 18,8-19,6 vs CPU 15,2 tok/s.
+SEUIL_PETIT_MODELE_GO = 2.0
+# Modeles effectivement BANCES le 29/10 : seul leur motif dit « mesure » ; les autres petits modeles recoivent le meme
+# reglage (statu quo CPU, aucun risque de regression) mais le motif dit « extrapole, non mesure » (methode du takehome).
+MODELES_BANCES = frozenset({"qwen2.5-coder:1.5b", "laforge-qwen:latest"})
+IGPU_RESERVE_MIN_GO = 4.0
+GPU_OVERHEAD_OCTETS = 1024**3
+
+
+def regler_ollama(materiel: dict, modeles: list) -> dict:
+    """Propose (PURE, n'ecrit rien) le reglage Ollama : {env, num_gpu_par_modele, motifs}.
+
+    materiel = {"gpus": [{name, vram_gb, type, ...}]} ; modeles = [{"nom", "taille_go"}].
+    """
+    gpus = (materiel or {}).get("gpus") or []
+    env: dict = {}
+    num_gpu: dict = {}
+    motifs: list = []
+    dedies = [g for g in gpus if g.get("type") == "dedie"]
+    integres = [g for g in gpus if g.get("type") == "integre"]
+    inconnus = [g for g in gpus if g.get("type") not in ("dedie", "integre")]
+    for g in inconnus:
+        motifs.append(f"GPU {g.get('name', '?')} : type inconnu, indecidable -> aucun reglage (inconnu != absent)")
+    if dedies:
+        motifs.append("GPU dedie : pas d'OLLAMA_IGPU_ENABLE ; petits modeles laisses sur GPU (non mesure, defaut Ollama)")
+    elif integres:
+        best = max(integres, key=lambda g: g.get("vram_gb") or 0)
+        reserve = best.get("vram_gb") or 0
+        if reserve >= IGPU_RESERVE_MIN_GO:
+            env["OLLAMA_IGPU_ENABLE"] = "1"
+            motifs.append(f"iGPU {best.get('name')} reserve {reserve} Go >= {IGPU_RESERVE_MIN_GO} : "
+                          "OLLAMA_IGPU_ENABLE=1 (iGPU ecarte par defaut, Vulkan)")
+            for m in modeles or []:
+                if (m.get("taille_go") or 0) <= SEUIL_PETIT_MODELE_GO:
+                    num_gpu[m["nom"]] = 0
+                    if m["nom"] in MODELES_BANCES:
+                        motifs.append(f"{m['nom']} <= {SEUIL_PETIT_MODELE_GO} Go sur iGPU : num_gpu 0 "
+                                      "(mesure : prompt 3x plus lent sur iGPU)")
+                    else:
+                        motifs.append(f"{m['nom']} <= {SEUIL_PETIT_MODELE_GO} Go sur iGPU : num_gpu 0 "
+                                      "(extrapole de la meme taille, non mesure ; statu quo CPU)")
+        else:
+            motifs.append(f"iGPU reserve {reserve} Go < {IGPU_RESERVE_MIN_GO} : iGPU non active")
+    elif not inconnus:
+        motifs.append("aucun GPU detecte : rien a regler")
+    if env or dedies:
+        env["OLLAMA_GPU_OVERHEAD"] = str(GPU_OVERHEAD_OCTETS)
+        env["OLLAMA_MAX_LOADED_MODELS"] = "1"
+        motifs.append("OLLAMA_GPU_OVERHEAD 1 Go conserve ; MAX_LOADED_MODELS=1 (cohabitation non prouvee)")
+    return {"env": env, "num_gpu_par_modele": num_gpu, "motifs": motifs}
+
+
+def _modeles_ollama_locaux() -> list:
+    """Modeles installes via `ollama list` (lecture seule). Liste vide si ollama absent."""
+    exe = shutil.which("ollama")
+    if not exe:
+        return []
+    try:
+        r = subprocess.run([exe, "list"], capture_output=True, text=True, timeout=15, errors="replace")
+    except Exception:  # muet-ok : l'appelant _modeles_ollama dit la liste « illisible » avec son motif
+        return []
+    out = []
+    for ligne in (r.stdout or "").splitlines()[1:]:
+        p = ligne.split()
+        if len(p) >= 4 and p[3].upper() in ("GB", "MB", "KB"):
+            try:
+                v = float(p[2])
+            except ValueError:  # muet-ok : ligne d'en-tete ou taille illisible d'un modele, on passe a la suivante
+                continue
+            go = v if p[3].upper() == "GB" else v / 1024 if p[3].upper() == "MB" else v / 1024**2
+            out.append({"nom": p[0], "taille_go": round(go, 2)})
+    return out
+
+
+def _modeles_ollama() -> dict:
+    """Modeles installes : API HTTP d'Ollama d'abord (/api/tags), puis `ollama list`.
+
+    Acceptation reelle 29/10 : le compte du bac a sable ne peut pas executer ollama.exe (WinError 5) ; `ollama list`
+    seul rendait une liste VIDE en silence. Rend {modeles, source: api|cli|illisible, motif}."""
+    hote = os.environ.get("OLLAMA_HOST") or "127.0.0.1:11434"
+    base = hote if hote.startswith("http") else "http://" + hote
+    try:
+        with urllib.request.urlopen(base.rstrip("/") + "/api/tags", timeout=5) as r:
+            data = json.loads(r.read())
+        mods = [{"nom": m.get("name"), "taille_go": round((m.get("size") or 0) / 1024**3, 2)}
+                for m in data.get("models", []) if m.get("name")]
+        return {"modeles": mods, "source": "api", "motif": None}
+    except Exception as e:  # noqa: BLE001 - repli CLI, motif garde
+        motif_api = "API Ollama injoignable (%s)" % type(e).__name__
+    mods = _modeles_ollama_locaux()
+    if mods:
+        return {"modeles": mods, "source": "cli", "motif": motif_api}
+    return {"modeles": [], "source": "illisible",
+            "motif": "liste des modeles illisible (%s ; `ollama list` indisponible) : aucun num_gpu propose" % motif_api}
+
+
+def proposer(materiel: dict | None = None) -> dict:
+    """Proposition pour la machine courante (ou `materiel` fourni) : lecture seule, aucune ecriture de configuration."""
+    if materiel is None:
+        materiel = {"gpus": (_detect_gpu_windows() if platform.system() == "Windows" else _detect_gpu_linux())}
+    for g in materiel.get("gpus") or []:
+        g.setdefault("type", _classer_gpu(g.get("name", ""), g.get("vram_gb") or 0))
+    lm = _modeles_ollama()
+    prop = regler_ollama(materiel, lm["modeles"])
+    if lm["motif"]:
+        prop.setdefault("motifs", []).append(lm["motif"])
+    return {"materiel": materiel, "modeles_source": lm["source"], "proposition": prop}
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
-    if "--refresh" in args:
+    if "--proposer" in args:
+        print(json.dumps(proposer(), indent=2, ensure_ascii=False))
+    elif "--refresh" in args:
         info = detect_host()
         print(f"[host-capabilities] refreshed, cached to {CACHE_PATH}")
         print(display_summary())

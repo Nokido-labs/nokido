@@ -327,6 +327,10 @@ def _resolve_channel(agent: str, request=None) -> str:
       HTTP_DIRECT   : Appel direct sans agent identifie
       INTERNAL_HUB  : Hub interne (cron, janitor, inspector)
     """
+    # 29/10 (owner : « le tray voit stdio claude alors que le CLI est en HTTP streamable ») : le TRANSPORT MESURE
+    # prime sur le nom. Seul le pont stdio pose X-Transport: stdio-bridge -> STDIO_CLAUDE, quel que soit le nom.
+    if request is not None and _transport_signale(request) == "STDIO_BRIDGE":
+        return "STDIO_CLAUDE"
     if not agent:
         return "HTTP_DIRECT"
 
@@ -334,7 +338,7 @@ def _resolve_channel(agent: str, request=None) -> str:
 
     # Canaux agents identifies
     _CHANNEL_MAP = {
-        "CLAUDE": "STDIO_CLAUDE",
+        "CLAUDE": "HTTP_CLAUDE",
         "GEMINI": "GEMINI_OAUTH",
         "GEMINI_HEADLESS": "GEMINI_API",
         "CLINE": "CLINE_MCP",
@@ -345,7 +349,7 @@ def _resolve_channel(agent: str, request=None) -> str:
         "MASTER_TOKEN": "HTTP_DIRECT",
         "LOCAL": "HTTP_DIRECT",
         "COLLAB_BROKER": "INTERNAL_HUB",
-        "CLAUDE_CLI": "STDIO_CLAUDE",
+        "CLAUDE_CLI": "HTTP_CLAUDE",
         "NETCFG": "CLINE_MCP",
         "CODEX": "CODEX_MCP",
     }
@@ -364,6 +368,48 @@ def _resolve_channel(agent: str, request=None) -> str:
             return "CLINE_MCP"
 
     return "HTTP_DIRECT"
+
+
+def _transport_signale(request) -> str:
+    """Transport SIGNALE : marque DECLAREE par le client (en-tete X-Transport du bridge), jamais prouvee : un client HTTP peut la poser ; sert a reperer les contradictions avec le canal deduit du nom, pas a authentifier.
+
+    Le bridge tools/mcp_stdio_bridge.py pose `X-Transport: stdio-bridge/<v>`
+    (cf. _headers()). Requete lisible sans cette marque -> HTTP_DIRECT.
+    Pas de requete ou en-tetes illisibles -> INCONNU.
+    """
+    if request is None:
+        return "INCONNU"
+    try:
+        h = request.headers
+        xt = (h.get("X-Transport", "") or "").strip().lower()
+        if xt.startswith("stdio-bridge"):
+            return "STDIO_BRIDGE"
+        if h is None:
+            return "INCONNU"
+        return "HTTP_DIRECT"
+    except Exception:  # noqa: BLE001
+        return "INCONNU"
+
+
+def _client_process(request) -> str:
+    try:
+        return ((request.headers.get("X-Client-Process", "") or "").strip()[:64]) or "INCONNU"
+    except Exception:  # noqa: BLE001
+        return "INCONNU"
+
+
+def _canal_contradictoire(declare: str, mesure: str) -> bool:
+    """True si le canal deduit du nom d'agent contredit le transport signale
+    (contradiction entre deux DECLARATIONS, jamais une preuve)."""
+    if mesure == "INCONNU":
+        return False
+    if declare == "STDIO_CLAUDE":
+        return mesure != "STDIO_BRIDGE"
+    if declare == "HTTP_CLAUDE":
+        return mesure == "STDIO_BRIDGE"
+    if declare == "HTTP_DIRECT":
+        return mesure == "STDIO_BRIDGE"
+    return False
 
 
 def _init_network_log():
@@ -588,6 +634,8 @@ def _log_network(
         _channel_meta["auth_type"] = "api_key"
     elif _channel == "STDIO_CLAUDE":
         _channel_meta["bridge"] = "mcp_stdio_bridge"
+    elif _channel == "HTTP_CLAUDE":
+        _channel_meta["transport"] = "mcp_streamable_http"
     elif _channel == "CLINE_MCP":
         _channel_meta["client"] = "vscode_cline"
     elif _channel == "HTTP_DIRECT" and request is not None:
@@ -602,6 +650,12 @@ def _log_network(
         except Exception as _e:  # noqa: BLE001
             _channel_meta["origine"] = "illisible"
             _channel_meta["raison"] = type(_e).__name__
+    _tm = _transport_signale(request)
+    _meta_transport = {"transport_signale": _tm}
+    if _canal_contradictoire(_channel, _tm):
+        _meta_transport["canal_contradictoire"] = True
+        _channel_meta["canal_contradictoire"] = True
+    _channel_meta["transport_signale"] = _tm
     # Extraire tokens depuis payload_out LLM si disponibles
     _tokens_in, _tokens_out, _model, _provider = 0, 0, None, None
     if payload_out and tool in (
@@ -661,6 +715,7 @@ def _log_network(
         # Mapper le canal string vers enum NetworkChannel
         _nc_map = {
             "STDIO_CLAUDE": NetworkChannel.STDIO_CLAUDE,
+            "HTTP_CLAUDE": NetworkChannel.HTTP_CLAUDE,
             "GEMINI_OAUTH": NetworkChannel.GEMINI_OAUTH,
             "GEMINI_API": NetworkChannel.GEMINI_API,
             "CLINE_MCP": NetworkChannel.CLINE_MCP,
@@ -689,6 +744,7 @@ def _log_network(
             payload_in=payload_in,
             payload_out=payload_out,
             client_ip=client_ip,
+            meta=_meta_transport,
         )
     except Exception as e:  # noqa: BLE001
         import logging as _lg
@@ -982,8 +1038,8 @@ _AGENT_RING: dict = {
 # aussi la traçabilité read/write DB (#7-9) et le futur multi-machine (Tailscale).
 _AGENT_IDENTITY_STORE = ROOT / "config" / "agent_identities.json"
 _CHANNEL_SEED = {
-    "BRIDGE": ("STDIO_CLAUDE", "stdio"), "CLAUDE": ("STDIO_CLAUDE", "http"),
-    "CLAUDE_CLI": ("STDIO_CLAUDE", "cli"), "CLAUDE_HOOK": ("STDIO_CLAUDE", "hook"),
+    "BRIDGE": ("STDIO_CLAUDE", "stdio"), "CLAUDE": ("HTTP_CLAUDE", "http"),
+    "CLAUDE_CLI": ("HTTP_CLAUDE", "cli"), "CLAUDE_HOOK": ("HTTP_CLAUDE", "hook"),
     "GEMINI": ("GEMINI_OAUTH", "cli"), "GEMINI_HEADLESS": ("GEMINI_OAUTH", "cli"),
     "GEMINI_HOOK": ("GEMINI_OAUTH", "hook"), "COPILOT": ("HTTP_DIRECT", "cli"),
     "COPILOT_CLI": ("HTTP_DIRECT", "cli"), "COPILOT_HOOK": ("HTTP_DIRECT", "hook"),
@@ -1118,14 +1174,108 @@ def _dire_une_fois(cle: str, message: str) -> None:
         logger.warning(message)
 
 
+def _args_avec_provenance(name, args, request):
+    """args d'un tools/call avec `_provenance` = l'en-tete LaForge-Provenance VALIDE, pour governed_edit seul.
+
+    P1_worktree_par_provenance (derogation owner 26/10) : le registre route l'ecriture d'un EXECUTEUR vers son
+    worktree d'apres args["_provenance"], que personne ne remplissait. Un `_provenance` fourni par le CLIENT
+    est retire pour TOUT outil : la provenance vient de l'en-tete, jamais d'un argument (usurpation).
+    NR test_hub_provenance_vers_governed_edit_nr."""
+    if not isinstance(args, dict):
+        return args
+    args.pop("_provenance", None)
+    if name == "governed_edit":
+        args["_provenance"] = _provenance_http(request)
+    return args
+
+
+def _provenance_http(request) -> str:
+    """En-tete LaForge-Provenance, VALIDE ([A-Z0-9_]+) ; invalide -> "INVALIDE", jamais la valeur brute.
+    Absent -> "" (le videur ecrira INCONNUE)."""
+    import re as _re
+    try:
+        brut = str(request.headers.get("LaForge-Provenance") or "").strip()
+    except Exception:  # noqa: BLE001
+        return "INVALIDE"
+    if not brut:
+        return ""
+    brut = brut.upper()
+    return brut if _re.fullmatch(r"[A-Z0-9_]+", brut) else "INVALIDE"
+
+
+def _resoudre_jwt_standard(parts: list) -> tuple[int, str]:
+    """REFUS explicite d'une chaine bearer a 3 parties hors format maison. N'accepte JAMAIS rien.
+
+    L'acceptation de JWT RFC 9068 est l'etape 4 du chantier jeton maitre : passage par le videur,
+    ring plafonne par le registre, aud/iss/jti/exp verifies (pointer_ref blackboard
+    architecture_rules/chantier_jeton_maitre_passe_partout_20261022). Aucun ring n'est lu du payload.
+    """
+    import base64
+    import json
+
+    def _dec(seg: str):
+        return json.loads(base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
+
+    try:
+        if not isinstance(_dec(parts[0]), dict) or not isinstance(_dec(parts[1]), dict):
+            raise ValueError("segments non objets")
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("bearer a 3 parties illisible: %s", type(_e).__name__)
+        return -1, "malformed_bearer"
+    logger.warning("bearer a 3 parties hors format maison refuse (JWT standard non pris en charge)")
+    return -1, "jwt_standard_non_pris_en_charge"
+
+
 def _resolve_ring(request) -> tuple[int, str]:
     auth = request.headers.get("Authorization", "")
-    # LaForge-Agent-Name = canonique ORG-SCOPÉ (RFC 6648 §3 anti-collision, directive
-    # ARCHITECTURE_IDENTITE 2026-06-16) ; Agent-Name (interim générique) + X-Agent-Name (legacy) = fallbacks transition.
-    agent_hdr = (request.headers.get("LaForge-Agent-Name") or request.headers.get("Agent-Name")
-                 or request.headers.get("X-Agent-Name") or "").upper().strip()
+    # Porter les deux assertions séparément : X-Agent-Name / Agent-Name est le
+    # principal présenté ; LaForge-Agent-Name est le nom déclaré. Aucun des deux
+    # n'est une preuve de ring : le credential vérifié reste l'autorité.
+    principal_hdr = (request.headers.get("X-Agent-Name") or request.headers.get("Agent-Name")
+                     or "").upper().strip()
+    declared_hdr = (request.headers.get("LaForge-Agent-Name") or "").upper().strip()
+    agent_hdr = declared_hdr or principal_hdr
     client = request.client.host if request.client else "unknown"
     local = client in ("127.0.0.1", "::1", "localhost")
+
+    # 30/10 (owner, option B, derogation) : jeton d'acces ECHANGE (RFC 8693) -> schema DPoP + preuve liee exiges
+    # (RFC 9449), portees posees pour le controle `portee` de la garde ; tout autre jeton continue par le chemin
+    # existant. Erreur sur un appel DPoP = refus, jamais le chemin bearer. NR tests/nr/test_jeton_echange_sur_mcp_nr.py.
+    # 30/10 (mesure reelle job_0b2250468862) : _resolve_ring est appele PLUSIEURS fois par requete ; re-verifier la
+    # preuve DPoP faisait voir le meme jti -> « rejeu » -> 401. La resolution est faite UNE fois et mise en cache dans
+    # request.state (partage par tous les objets Request d'une requete) ; le cache repose les portees pour la garde.
+    # Un refus rend un CODE COURT (le 2e element sert de nom d'agent en aval) ; le motif va au journal.
+    _etat_req = getattr(request, "state", None)
+    _cache = getattr(_etat_req, "nokido_resolution_echange", None) if _etat_req is not None else None
+    if _cache is not None:
+        if _cache[2] is not None:
+            try:
+                from nokido_agent.app.forge_token_exchange import PORTEES_REQUETE as _portees_req
+                _portees_req.set(_cache[2])
+            except Exception as _e_pr:  # noqa: BLE001
+                logger.warning("portees du jeton echange non reposees (%s)", type(_e_pr).__name__)
+                return -1, "jeton_echange_illisible"
+        return _cache[0], _cache[1]
+    try:
+        from nokido_agent.app.forge_token_exchange import resoudre_jeton_echange
+        from nokido_agent.app.forge_oauth_route import _secret as _secret_oauth
+        _ech = resoudre_jeton_echange(auth, request.headers.get("DPoP", ""), getattr(request, "method", "POST"),
+                                      str(getattr(request, "url", "")), _secret_oauth())
+    except Exception as _e_ech:  # noqa: BLE001
+        logger.warning("jeton echange non resolu (%s)", type(_e_ech).__name__)
+        if auth.lower().startswith("dpop "):
+            return -1, "jeton_echange_illisible"
+        _ech = None
+    if _ech is not None:
+        if _ech[0] < 0:
+            logger.warning("jeton echange refuse ip=%s : %s", client, _ech[1])
+            _ech = (-1, "dpop_refuse", None)
+        if _etat_req is not None:
+            try:
+                _etat_req.nokido_resolution_echange = _ech
+            except Exception as _e_st:  # noqa: BLE001
+                logger.debug("resolution echange non mise en cache (%s)", type(_e_st).__name__)
+        return _ech[0], _ech[1]
 
     if not HUB_TOKEN:
         # Installation neuve : pas de maitre, mais un jeton d'agent DERIVE se prouve sans lui (parcours
@@ -1156,6 +1306,13 @@ def _resolve_ring(request) -> tuple[int, str]:
             # ANOMALIE DE CREDENTIAL en classement par defaut.
             logger.debug("classement capability impossible: %s",
                          type(_e_cap).__name__)
+
+    # ── JWT standard (RFC 7519/9068) : header.payload.signature, payload = parts[1]. ──
+    # Le format maison (payload.sig[.tpm]) garde son payload en parts[0] ; il est reconnu
+    # plus haut (is_cap). Une chaine a 3 parties dont parts[0] n'est pas un payload maison
+    # est ou un JWT, ou un jeton mal forme : JAMAIS un bearer brut en silence.
+    if not is_cap and len(parts) == 3:
+        return _resoudre_jwt_standard(parts)
 
     if is_cap:
         try:
@@ -1209,7 +1366,10 @@ def _resolve_ring(request) -> tuple[int, str]:
         if not _valid:
             logger.warning(f"Token invalide agent={agent_hdr} ip={client}")
             return -1, "bad_token"
-        _ident = _vresolve(agent_hdr, token, local=local, agent_tokens=_AGENT_TOKENS, hub_token=HUB_TOKEN)
+        _ident = _vresolve(
+            agent_hdr, token, local=local, agent_tokens=_AGENT_TOKENS, hub_token=HUB_TOKEN,
+            provenance=_provenance_http(request), principal_agent_hdr=principal_hdr,
+            declared_agent_hdr=declared_hdr)
         try:
             # ACTEUR/SUJET JUSQU'AU JOURNAL. `resolve_identity` les produit
             # (RFC 8693 : A agit POUR B, A garde son identité) mais `capture`
@@ -1293,6 +1453,13 @@ def _resolve_ring(request) -> tuple[int, str]:
     if hmac.compare_digest(token.encode(), HUB_TOKEN.encode()):
         agent_id = agent_hdr if agent_hdr and agent_hdr != "UNKNOWN" else "MASTER_TOKEN"
         _ring = _agent_ring(agent_id, 3)
+        # Borne du maitre : MEME regle que le videur (fonction pure partagee, pas de 2e version).
+        try:
+            from nokido_agent.app.forge_videur import borne_porteur_maitre as _borne
+            _ring, _ = _borne(_ring, agent_id)
+        except Exception:  # noqa: BLE001 - videur illisible : fail-closed si arme
+            if os.environ.get("LAFORGE_MASTER_BORNE") == "1" and agent_id not in ("MASTER", "MASTER_TOKEN"):
+                _ring = max(_ring, 4)
         _capturer_repli(agent_id, _ring, "ALLOW")
         return _ring, agent_id
     logger.warning(f"Token invalide agent={agent_hdr} ip={client}")
@@ -2595,9 +2762,22 @@ def _identite_inbox(request) -> dict:
                or request.headers.get("Agent-Name")
                or request.headers.get("X-Agent-Name") or "").upper().strip()
         hote = request.client.host if request.client else "unknown"
+        # JETON A BAIL : `_resolve_ring` le verifie (signature + exp) et lui donne son ring, mais le
+        # videur ne connait que le magasin statique -> il l'etiquetait `bad_token`, sujet non prouve
+        # (mesure 24/10 : RSS_WATCHER, STATE_ENCODER, ... ; boite /inbox refusee). On rend ici la
+        # MEME verification : decode signe + non expire = sujet prouve ; sinon on retombe au videur.
+        if len(jeton.split(".")) == 2:
+            try:
+                from nokido_agent.app.forge_integrity import CapabilityToken, get_manager
+                _cap = CapabilityToken.decode(jeton, get_manager()._secret)
+                return {"agent": str(_cap.sub).upper(), "ring": int(_cap.ring),
+                        "via": "capability_token", "sujet_prouve": True}
+            except Exception:  # noqa: BLE001 -- muet-ok : jeton capability non verifiable, le videur tranche juste apres (resolve_identity)
+                pass
         from nokido_agent.app.forge_videur import resolve_identity as _vr
         ident = _vr(nom, jeton, local=hote in ("127.0.0.1", "::1", "localhost"),
-                    agent_tokens=_AGENT_TOKENS, hub_token=HUB_TOKEN)
+                    agent_tokens=_AGENT_TOKENS, hub_token=HUB_TOKEN,
+                    provenance=_provenance_http(request))
         return ident if isinstance(ident, dict) else vide
     except Exception as e:  # noqa: BLE001 — fail-closed, et on le DIT
         logger.warning("[inbox] identite INDETERMINEE (%s) — refus, pas de repli "
@@ -2792,6 +2972,12 @@ async def auth_login_renouveler(request):
     except Exception as e:  # noqa: BLE001
         logger.error("Renouvellement error: %s", type(e).__name__)
         return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+
+async def _oauth_token_route(request):
+    """`POST /oauth/token` : delegue a app.forge_oauth_route (RFC 8693 §2.2.1/§2.2.2)."""
+    from app.forge_oauth_route import oauth_token
+    return await oauth_token(request)
 
 
 _boot_probe("=== module top-level FINI (tous imports forge_*+init) -> def _build_app ===")
@@ -3143,6 +3329,14 @@ async def _build_app():
         client_ip = request.client.host if request.client else "unknown"
         agent_hdr = (request.headers.get("LaForge-Agent-Name") or request.headers.get("Agent-Name")
                      or request.headers.get("X-Agent-Name") or auth_agent)  # LaForge-Agent-Name (org-scopé RFC 6648) > Agent-Name > X- legacy
+        # Trois axes : `agent_hdr` (surface : declare sinon auth_agent) sert presence/_agent_meta/audit ;
+        # `principal` = auth_agent resolu par _resolve_ring (UNKNOWN si ring<0) ; `declared` = en-tete brut.
+        # Sur un jeton partage, ecraser agent_hdr par le principal rendrait les surfaces indiscernables.
+        declared_agent = (request.headers.get("LaForge-Agent-Name") or request.headers.get("Agent-Name")
+                          or request.headers.get("X-Agent-Name") or "UNKNOWN").upper().strip() or "UNKNOWN"
+        principal = (auth_agent or "UNKNOWN").upper().strip() or "UNKNOWN"
+        if ring < 0:
+            principal = "UNKNOWN"
         session_id = request.headers.get("X-Session-Id", "")  # insensible a la casse
         # trace_id (corrélation end-to-end) : extrait du header W3C `traceparent`
         # ou `X-Trace-Id` entrant, sinon nouveau. Posé dans le ContextVar ->
@@ -3163,7 +3357,10 @@ async def _build_app():
             from nokido_agent.app.forge_trace_context import set_actor
 
             _ach, _atr, _amc = _agent_meta(agent_hdr)
-            set_actor(agent_hdr, ring=ring, channel=_ach, transport=_atr, machine=_amc)
+            set_actor(agent_hdr, principal=principal, declared=declared_agent, ring=ring,
+                      channel=_ach, transport=_atr, machine=_amc,
+                      transport_signale=_transport_signale(request),
+                      client_process=_client_process(request))
         except Exception:  # muet-ok : contexte d'acteur = observabilite, jamais bloquant
             pass
         _write_agent_presence(agent_hdr, ring, client=client_ip)
@@ -3201,6 +3398,42 @@ async def _build_app():
 
         method = body.get("method", "")
         bid = body.get("id")
+        try:  # 31/10 (accord owner) : ce que le client DECLARE (protocole, capacites, session) -- mesure, noms seuls
+            from nokido_agent.app.forge_mcp_elicitation import observer_requete as _obs_req
+            _obs_req(agent_hdr, request.headers, body)
+        except Exception:  # noqa: BLE001 - muet-ok : une mesure ne casse jamais une requete
+            pass
+
+        # MCP 2026-07-28 (lot 1 additif ; docs ingerees streamable-http.md / basic/index.md) :
+        # validation STRICTE des en-tetes miroirs SEULEMENT si la requete annonce 2026+ ;
+        # un client 2025-11-25 ne passe par aucune branche de ce bloc.
+        from nokido_agent.app.forge_mcp_protocole import (
+            annonce_2026 as _annonce26, declared_depuis_meta as _declared_meta,
+            habiller_tools_list as _habiller_tl, resultat_discover as _res_discover,
+            valider_requete as _valider26)
+        _refus26 = _valider26(request.headers, body)
+        if _refus26 is not None:
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": bid,
+                 "error": {"code": _refus26[1], "message": _refus26[2],
+                           **({"data": _refus26[3]} if len(_refus26) > 3 else {})}},
+                status_code=_refus26[0])
+        _est26 = _annonce26(request.headers, body)
+        if _est26:
+            # identite : clientInfo.name -> `declared` (prioritaire sur LaForge-Agent-Name),
+            # JAMAIS `principal` (reste le jeton verifie).
+            try:
+                from nokido_agent.app.forge_trace_context import set_actor as _set_actor26
+
+                _decl26 = _declared_meta(body, declared_agent)
+                if _decl26 != declared_agent:
+                    _ach, _atr, _amc = _agent_meta(agent_hdr)
+                    _set_actor26(agent_hdr, principal=principal, declared=_decl26, ring=ring,
+                                 channel=_ach, transport=_atr, machine=_amc,
+                                 transport_signale=_transport_signale(request),
+                                 client_process=_client_process(request))
+            except Exception:  # muet-ok : contexte d'acteur = observabilite
+                pass
 
         # ITEM 14 — enrichir IN avec tool name si tools/call
         _in_tool = None
@@ -3217,6 +3450,7 @@ async def _build_app():
             ring=ring,
             payload_in=body_str[:800],
             client_ip=client_ip,
+            request=request,
         )
 
         # Notifications JSON-RPC (notifications/*, ou requête sans id) : AUCUNE réponse JSON-RPC
@@ -3314,14 +3548,21 @@ async def _build_app():
                 {
                     "jsonrpc": "2.0",
                     "id": bid,
-                    "result": {"tools": get_registry().get_tool_list(ring=ring, agent=agent_hdr)},
+                    "result": _habiller_tl(get_registry().get_tool_list(ring=ring, agent=agent_hdr), _est26),
                 }
             )
+
+        if method == "server/discover":
+            from nokido_agent.app.forge_mcp_protocole import INSTRUCTIONS_SERVEUR as _consignes_d
+
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": bid,
+                 "result": _res_discover({"tools": {}}, "Nokido-Hub", "18.3", _consignes_d)})
 
         if method == "tools/call":
             params = body.get("params", {})
             name = params.get("name", "")
-            args = params.get("arguments", {})
+            args = _args_avec_provenance(name, params.get("arguments", {}), request)
             accept = request.headers.get("Accept", "")
             use_sse = "text/event-stream" in accept and name in {
                 "web_search",
@@ -3395,6 +3636,7 @@ async def _build_app():
                         payload_in=json.dumps(args, ensure_ascii=False)[:800],
                         payload_out=str(r2)[:800],
                         client_ip=client_ip,
+                        request=request,
                     )
                     pl = json.dumps(
                         {
@@ -3426,6 +3668,7 @@ async def _build_app():
                 payload_in=json.dumps(args, ensure_ascii=False)[:800],
                 payload_out=str(res)[:800],
                 client_ip=client_ip,
+                request=request,
             )
             return JSONResponse(
                 {
@@ -5721,7 +5964,11 @@ Retourne exactement ce JSON:
             # 503 : refus de CAPACITE, pas une faute d'appel -- reessayer plus tard ou ailleurs.
             return JSONResponse(adm, status_code=503)
         params["lane"] = adm["lane"]
-        res = launch_job(**params)
+        try:
+            from app.forge_oauth_route import emettre_pour_job as _emettre
+        except Exception:  # noqa: BLE001 -- pas de route OAuth : le job part sans jeton
+            _emettre = None
+        res = launch_job(**params, jeton_factory=_emettre)
         if not res.get("ok"):
             err = str(res.get("error", ""))
             # Une faute d'appel est une requete invalide (400) ; un spawn qui
@@ -5740,6 +5987,11 @@ Retourne exactement ce JSON:
             logger.warning(
                 "[lane] bail NON pris sur %s (%s) | consequence: le job tourne hors admission, "
                 "un second job peut demarrer sur la meme lane", params["lane"], type(e).__name__)
+        try:   # le jeton de JOB est passe par l'ENV de l'enfant (launch_job) ; ici on lie job_id <-> pid
+            from app.forge_oauth_route import lier_pid
+            lier_pid(res["job_id"], res.get("pid"))
+        except Exception as e:
+            logger.warning("[oauth] liaison job/pid NON posee (%s)", type(e).__name__)
         logger.info(
             "admin_run_job %s pid=%s script=%s lane=%s",
             res.get("job_id"), res.get("pid"), sp.name, params["lane"] or "-",
@@ -6560,8 +6812,32 @@ Retourne exactement ce JSON:
         except Exception as _e:
             return JSONResponse({"ok": False, "error": str(_e)}, status_code=500)
 
+    async def acp_jwks(request):
+        # 28/10 (owner) : cle PUBLIQUE Ed25519 des jobs ACP (RFC 7517/8037), lue par forge_acp_epingler sous le
+        # compte owner. Jamais la privee ; avant l'attrape-tout /.well-known (sinon 404 OAuth).
+        try:
+            from forge_acp_hub import jwks as _jwks
+            return JSONResponse(_jwks())
+        except Exception as _e:  # noqa: BLE001
+            return JSONResponse({"keys": [], "error": type(_e).__name__}, status_code=503)
+
+    async def acp_sign(request):
+        # 28/10 (owner) : signature d'une decision ACP sous SYSTEM (seul lecteur de la cle privee). Le JWT owner
+        # est REVERIFIE (portee admin) dans traiter_signature ; corps borne, aucun jeton ni cle journalise.
+        try:
+            from forge_acp_hub import traiter_signature as _ts
+            corps = await request.body()
+            if len(corps) > 4096:
+                return JSONResponse({"erreur": "corps trop gros"}, status_code=413)
+            st, rep = _ts(request.headers.get("authorization"), corps)
+            return JSONResponse(rep, status_code=st)
+        except Exception as _e:  # noqa: BLE001
+            return JSONResponse({"erreur": type(_e).__name__}, status_code=503)
+
     app = Starlette(
         routes=[
+            Route("/.well-known/acp-jwks.json", acp_jwks, methods=["GET"]),
+            Route("/acp/sign", acp_sign, methods=["POST"]),
             Route("/.well-known/{wk_path:path}", oauth_discovery, methods=["GET"]),
             Route("/mcp/.well-known/{wk_path:path}", oauth_discovery, methods=["GET"]),
             Route("/admin/restart", admin_restart, methods=["POST"]),
@@ -6617,6 +6893,7 @@ Retourne exactement ce JSON:
             Route("/api/push", inbox_push, methods=["POST"]),
             Route("/api/login", auth_login, methods=["POST"]),
             Route("/api/login/renouveler", auth_login_renouveler, methods=["POST"]),
+            Route("/oauth/token", _oauth_token_route, methods=["POST"]),   # RFC 8693, suite 3
             Route("/inbox/{agent_id}", inbox_stream, methods=["GET"]),
             Route("/inbox/status", inbox_status, methods=["GET"]),
             Route("/ingest/url", ingest_url, methods=["POST", "OPTIONS"]),
@@ -6684,6 +6961,18 @@ Retourne exactement ce JSON:
         allow_credentials=False,
     )
     app.add_middleware(_PressureReliefMW)
+
+    # OBSERVATION RFC 9449 des appels ring <= 3 (suite 4) : observer_appel, enforcement DESARME
+    # (NOKIDO_OAUTH_ENFORCE=1 seulement). Ne refuse rien ; ring illisible = hors champ (99).
+    def _ring_observe(scope):
+        try:
+            from starlette.requests import Request as _Rq
+            return int(_resolve_ring(_Rq(scope))[0])
+        except Exception:  # noqa: BLE001
+            return 99
+
+    from app.forge_oauth_route import ObservationASGI as _ObsASGI
+    app.add_middleware(_ObsASGI, ring_de=_ring_observe)
 
     # -- OBSERVATION D'AUTORISATION (SHADOW) -------------------------------
     # Mesure du 2026-09-02 : sur 81 routes declarees, 41 sondables en GET, dont
@@ -7112,6 +7401,15 @@ async def main():
         logger.warning("[hub] LAFORGE_HUB_TLS_CERT/KEY incomplet — HTTPS non demarre (HTTP seul)")
     _boot_mark(f"pre-serve — uvicorn bind :{HUB_PORT} (boot quasi complet)")
     _boot_emit_to_analysis(ring=0)  # timeline -> forge_startup_logger -> lessons -> evolution loop
+    # 31/10 (choix owner « le hub notifie », derogation owner tracee) : un ordre restart / restart-hub execute se SOLDE
+    # ici -- « atteint » au journal des ordres, demandeur prevenu. Ne bloque jamais le boot.
+    try:
+        from nokido_agent.app.forge_ordres_bureau import solder_redemarrages
+        _soldes = solder_redemarrages(time.time() - (time.perf_counter() - _BOOT_T0))
+        if _soldes:
+            logger.info("[ordres] %d ordre(s) de redemarrage solde(s) au boot : %s", len(_soldes), _soldes)
+    except Exception as _e_solde:  # noqa: BLE001 - le solde est un compte rendu, jamais une condition du boot
+        logger.warning("[ordres] solde des redemarrages au boot en echec (%s)", type(_e_solde).__name__)
     asyncio.create_task(_battement_de_service())
     await asyncio.gather(*(_serve_guarded(s, lbl) for s, lbl in _servers))
 

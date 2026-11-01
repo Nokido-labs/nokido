@@ -70,7 +70,9 @@ def test_active_tools_union_core(iso):
     assert tools is not None
     assert set(ts.CORE_TOOLS) <= tools
     assert "forge_deep_explore" in tools
-    assert "governed_edit" not in tools
+    # 24/10 : `governed_edit` est au NOYAU depuis 9793b3175 (02/09, « le noyau du scope porte l'edition gouvernee ») ;
+    # l'intention du test reste : une recon de code ne porte pas d'outil d'execution HORS noyau.
+    assert "oracle_python_repl" not in tools
     assert ts.active_tools_for("AUTRE_AGENT") is None
 
 

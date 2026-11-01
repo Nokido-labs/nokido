@@ -39,6 +39,24 @@ def _safe_llm_text(res: dict, fallback: str = "") -> str:
     return fallback
 
 
+def valeur_option(argv, nom: str):
+    """Valeur qui suit l'option `nom` dans `argv`, ou None (option absente ou sans valeur). Source unique (cliquet
+    clones 31/10 : claude_session_start._opt et forge_acp_router._val en portaient chacun une copie)."""
+    return argv[argv.index(nom) + 1] if nom in argv and argv.index(nom) + 1 < len(argv) else None
+
+
+def mapper_chaines(v, f):
+    """Applique `f` a chaque chaine d'une structure dict/list imbriquee ; le reste passe tel quel. Source unique
+    (cliquet clones 31/10 : acp_harness._caviarder_valeur et forge_db_sanitize._sanitize_dict_str_recursive)."""
+    if isinstance(v, str):
+        return f(v)
+    if isinstance(v, dict):
+        return {k: mapper_chaines(x, f) for k, x in v.items()}
+    if isinstance(v, list):
+        return [mapper_chaines(x, f) for x in v]
+    return v
+
+
 def contient_un_mot(texte: str | None, mots) -> bool:
     """`texte` (insensible a la casse) contient-il l'un de `mots` ?
 

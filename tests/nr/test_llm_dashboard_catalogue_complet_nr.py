@@ -73,6 +73,27 @@ def test_chaque_variable_de_clef_est_citee(page):
         "variables de clef absentes de la page : %s" % ", ".join(manquantes))
 
 
+def test_la_synchro_ajoute_les_absents_sans_toucher_l_existant(tmp_path):
+    """Chemin reel de la reparation (`--dashboard`) : la page se COMPLETE depuis le catalogue.
+
+    31/10 : 21 fournisseurs ajoutes au catalogue le 30/10 manquaient a la page, ecrite a la main.
+    La synchro ajoute ce qui manque, garde une ligne existante (son lien soigne), et un second
+    passage n'ajoute rien (idempotent).
+    """
+    cat = _catalogue()
+    premier = cat.FOURNISSEURS[0][0]
+    p = tmp_path / "page.html"
+    p.write_text("<h2>%s</h2><table><tbody>\n    <tr><td>%s</td><td>lien-main</td></tr>\n  </tbody></table>"
+                 % (cat._ANCRE_TABLE, premier), encoding="utf-8")
+    ajoutes = cat.synchroniser_dashboard(p)
+    assert premier not in ajoutes and len(ajoutes) == len(cat.FOURNISSEURS) - 1, ajoutes
+    texte = p.read_text(encoding="utf-8")
+    assert "lien-main" in texte
+    for nom, var, _url in cat.FOURNISSEURS[1:]:      # la ligne existante est gardee telle quelle
+        assert nom in texte and (not var or var in texte), nom
+    assert cat.synchroniser_dashboard(p) == []
+
+
 def test_aucune_clef_n_est_affichee(page):
     """Contre-epreuve : documenter des variables ne doit pas devenir les DIVULGUER.
 

@@ -143,7 +143,8 @@ def test_le_panneau_enchaine_stop_garde_puis_start_rebond():
             args = [a.value for a in c.args if isinstance(a, ast.Constant)]
             scripts[args[0]] = args[1:]
     assert set(scripts["nokido_stop.ps1"]) == {"-NoWait", "-GarderHub"}
-    assert scripts["nokido_start.ps1"] == ["-RelanceHub"]
+    # 9e0fabc9e (30/10) : la fenetre du start se ferme seule apres un restart reussi (-NoWait), test non suivi
+    assert set(scripts["nokido_start.ps1"]) == {"-RelanceHub", "-NoWait"}
     noms = {getattr(c.func, "id", None) for c in appels}
     # Le hub est garde pendant le stop : `_wait_hub` le verrait « UP » avant le rebond
     # (REQUESTED pris pour ACHIEVED).

@@ -61,7 +61,7 @@ def _brancher(monkeypatch, tmp_path, horloge):
     monkeypatch.setattr(CE, "unprocessed", unprocessed)
     monkeypatch.setattr(CE, "mark_processed", lambda ids: len(ids))
     monkeypatch.setattr(CE, "purge_older_than", lambda j: 0)
-    monkeypatch.setattr(RM, "run_remediation_cycle", lambda armed=False: soins.append(1) or {"ok": True})
+    monkeypatch.setattr(RM, "run_remediation_cycle", lambda armed=False, lesions=None: soins.append(1) or {"ok": True})
     monkeypatch.setattr(C, "_log", lambda *a, **k: None)
     monkeypatch.setattr(C, "_REFRACTAIRE", tmp_path / "refractaire.json", raising=False)
     monkeypatch.setattr(C.time, "time", lambda: horloge["t"])

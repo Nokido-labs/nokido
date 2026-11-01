@@ -3,6 +3,18 @@
   "_doc_mode": "mode=interactive|autonomous|relay ; drains=la file consommee ; acts=execute|respond ; wake=service a reveiller ('-' si l'owner l'ouvre). Ajoute 2026-07-26 : le registre disait QUI et AVEC QUELS DROITS, jamais COMMENT il agit -- d'ou une liste de CLI interactifs recopiee en dur dans forge_task_executor, qui pouvait diverger du registre en silence. Champs ADDITIFS : les lecteurs (videur, mcp_security, postal, ring_admin) ne lisent que ring/write_paths/channel.",
   "version": 1,
   "agents": {
+    "SWARM_LANCEUR": {
+      "ring": 3,
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "kind": "daemon",
+      "actor": "SWARM_LANCEUR",
+      "surface": "autonomous",
+      "mailbox": "SWARM_LANCEUR",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "_note": "2026-10-29 (GO owner) : depot et statut des taches de secours de synthese du swarm (tools/forge_secours_lanceur.py). Jeton FORGE_TOKEN_SWARM_LANCEUR au coffre, jamais de repli sur FORGE_MCP_TOKEN. Le modele d'identite ne porte AUCUNE restriction d'outils (seulement ring/write_paths/channel) : pas de limite a task inventee ici, la limite est le ring 3."
+    },
     "LAFORGE_CLI": {
       "ring": 1,
       "channel": "INTERNAL_HUB",
@@ -21,7 +33,7 @@
     },
     "CLAUDE_CLI": {
       "ring": 1,
-      "channel": "STDIO_CLAUDE",
+      "channel": "HTTP_CLAUDE",
       "transport": "cli",
       "machine": "local",
       "kind": "surface",
@@ -39,7 +51,7 @@
       "write_paths": [
         "*"
       ],
-      "channel": "STDIO_CLAUDE",
+      "channel": "HTTP_CLAUDE",
       "transport": "http",
       "machine": "local",
       "kind": "cli_agent",
@@ -54,7 +66,7 @@
     },
     "CLAUDE_HOOK": {
       "ring": 4,
-      "channel": "STDIO_CLAUDE",
+      "channel": "HTTP_CLAUDE",
       "transport": "hook",
       "machine": "local",
       "kind": "hook",
@@ -449,6 +461,20 @@
         "ci_reference"
       ]
     },
+    "CIRCADIAN": {
+      "ring": 3,
+      "_note": "2026-10-31, decision owner (option 1). Le circadien (tache planifiee Nokido-Circadian-Auto, app/forge_circadian.py) POSTait /supervisor/restart SANS jeton : REFUS 401 a chaque NREM3 (11:21:49, 11:51:49), consolidation jamais faite. Il redemarre desormais PAR LE HUB (outil manage_forge_lifecycle, ring 3) sous cette identite ; le jeton maitre du superviseur ne sort pas du hub. Sans FORGE_TOKEN_CIRCADIAN au coffre, il REFUSE (n'emprunte ni SERVICES ni le maitre).",
+      "channel": "INTERNAL_HUB",
+      "transport": "internal",
+      "machine": "local",
+      "kind": "service",
+      "actor": "CIRCADIAN",
+      "surface": "internal",
+      "mailbox": "CIRCADIAN",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "organe": "rythme circadien (phases de sommeil tirees sur inactivite mesuree) -- redemarre les organes de consolidation par le hub",
+      "porte_son_propre_marqueur": "FORGE_TOKEN_CIRCADIAN au coffre, frappe par tools/forge_vault_mint_agent_token.py --agent CIRCADIAN (trusted_script). Il n'emprunte ni FORGE_TOKEN_SERVICES ni le maitre."
+    },
     "RSS_WATCHER": {
       "ring": 3,
       "_note": "2026-10-13, decision owner (GO a). La veille automatique (NokidoRSSWatcher) ingerait sous SERVICES, ring 4, alors que `rag` exige 3 : GATE_DENIED a chaque cycle depuis au moins le 24/09 (code) et le 07/10 (journal, 13 522 refus), « 0 chunks ingeres ». Ring 3 = le minimum pour indexer. SERVICES n'est PAS releve : ce serait donner le droit d'ecrire au RAG a tout organe qui emprunte ce badge commun.",
@@ -747,7 +773,7 @@
       ]
     },
     "VSCODE": {
-      "ring": 2,
+      "ring": 1,
       "channel": "VSCODE_MCP",
       "transport": "http",
       "machine": "local",
@@ -1700,6 +1726,113 @@
       "transport": "http",
       "machine": "local"
     },
+    "GOAP": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "GOAP",
+      "surface": "internal",
+      "mailbox": "GOAP",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_goap", "goap"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_goap_hub_bridge.py:36 lit le maitre faute de jeton propre ; appelle run/oracle_python_repl/ask/crawl/rag (:369-427), tous _TOOL_MIN_RING=3 (app/forge_mcp_registry.py:1244). Ring 3 suffit. ATTENTION : l'action hub_tool=write (:419) exige ring 0, elle ne passera plus -- repli maitre non retire a ce stade."
+    },
+    "A2A": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "A2A",
+      "surface": "backend",
+      "mailbox": "A2A",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_a2a", "a2a"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_a2a_server.py:104 lit FORGE_MCP_TOKEN pour VERIFIER le Bearer entrant (identite portee par le jeton, :16/:125) ; aucun appel sortant au hub. Plancher 4 : doute, rien ne justifie plus."
+    },
+    "ACP": {
+      "ring": 4,
+      "kind": "endpoint",
+      "actor": "ACP",
+      "surface": "backend",
+      "mailbox": "ACP",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_acp", "acp"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_acp_server.py:542 lit FORGE_MCP_TOKEN pour verifier le Bearer entrant (:555-570) ; l'adaptateur tools/forge_acp_adapter.py:51 prefere deja FORGE_TOKEN_BRIDGE. Plancher 4 : doute, aucun appel au hub qui exige plus."
+    },
+    "ORCHESTRATE": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "ORCHESTRATE",
+      "surface": "internal",
+      "mailbox": "ORCHESTRATE",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_orchestrate", "orchestrate"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_orchestrate_loop.py:18 (et forge_orchestrate_react.py:18) lit le maitre ; appelle run/rag/read/web_search/blackboard_* (forge_orchestrate_loop.py:76-194), min_ring 3 pour run/rag/read (app/forge_mcp_registry.py:1244-1250). Ring 3 suffit."
+    },
+    "EPISTEMIC": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "EPISTEMIC",
+      "surface": "internal",
+      "mailbox": "EPISTEMIC",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": [
+        "agt_epistemic",
+        "epistemic"
+      ],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_epistemic_daemon.py:779 HubClient(agent=EPISTEMIC).tool(task) depose l'enquete de code ; sous FORGE_TOKEN_SERVICES+repli_statique le hub la voyait ring 4 -> GATE_DENIED ring 4 <= requis 3 (logs/epistemic_daemon.log 26/10 20:17:51). Ring 3 suffit pour task. Decision owner 26/10."
+    },
+    "SELF_PATCHER": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "SELF_PATCHER",
+      "surface": "internal",
+      "mailbox": "SELF_PATCHER",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_self_patcher", "self_patcher"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/forge_self_patcher.py:51 lit le maitre (_resolve_hub_token) ; appelle _hub_call (:186) : ask (:248) et rag, ring 3 par defaut (app/forge_mcp_registry.py:964 .get(name, 3)). Ring 3 suffit."
+    },
+    "MULTI_LLM": {
+      "ring": 3,
+      "kind": "daemon",
+      "actor": "MULTI_LLM",
+      "surface": "internal",
+      "mailbox": "MULTI_LLM",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_multi_llm", "multi_llm"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "tools/multi_llm_daemon.py:647 (_hub_token) et :232 lisent le maitre ; appelle l'outil run action=shell (:658-660), _TOOL_MIN_RING run=3 (app/forge_mcp_registry.py:1244). Ring 3 suffit."
+    },
+    "WATCHDOG": {
+      "ring": 4,
+      "kind": "daemon",
+      "actor": "WATCHDOG",
+      "surface": "internal",
+      "mailbox": "WATCHDOG",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "aliases": ["agt_watchdog", "watchdog"],
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "pourquoi": "app/forge_service_watchdog.py:84-91 lit FORGE_MCP_TOKEN en repli de LAFORGE_SUPERVISOR_TOKEN pour POST :8765/supervisor/restart (:211-217) : API superviseur, pas un outil MCP du hub, donc aucun ring requis. Plancher 4 : doute."
+    },
     "INSPECTOR": {
       "ring": 4,
       "kind": "daemon",
@@ -2247,6 +2380,7 @@
       "machine": "local"
     },
     "OPENCODE_NEMOTRON": {
+      "suspendu": {"depuis": "2026-10-22", "motif": "modele indisponible : « [Nvidia] Function ... Not found for account » (-32603, job_9500c296) ; le repli lui envoyait encore des taches (job_260f64bf). Lever la suspension apres changement de modele dans config/opencode_instances.json et un essai reussi."},
       "ring": 1,
       "_note": "owner 17/10, meme protocole que OPENCODE_GPTOSS ; modele openrouter/nvidia/nemotron-3-super-120b-a12b:free, worktree nokido_worktrees/opencode_nemotron, jeton FORGE_TOKEN_OPENCODE_NEMOTRON.",
       "kind": "daemon",

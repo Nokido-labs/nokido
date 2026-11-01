@@ -194,6 +194,10 @@ def fill_holes(skel: dict, infer=None, capability: str = "weak") -> dict:
 
 
 def form_from_jsonschema(name: str, jschema: dict, action: str = "/run", method: str = "hx-post") -> dict:
+    return skeleton_from_schema(_form_tree(name, jschema, action, method))
+
+
+def _form_tree(name: str, jschema: dict, action: str = "/run", method: str = "hx-post") -> dict:
     """Contrat JSON Schema (tool hub / endpoint) -> form UI FIDÈLE. DÉTERMINISTE, 0 token.
 
     LE backbone "couvrir tout le dépôt" : chaque tool hub a déjà un JSON Schema (params) ;
@@ -233,15 +237,39 @@ def form_from_jsonschema(name: str, jschema: dict, action: str = "/run", method:
               "root": {"tag": "form", "class": "lf-form",
                        "attrs": {"data-tool": name}, "htmx": {method: action, "hx-swap": "outerHTML"},
                        "children": children}}
-    return skeleton_from_schema(schema)
+    return schema
 
 
 def render_form_html(name: str, jschema: dict, action: str = "#") -> str:
     """Génère ET rend le form HTML d'un coup (pratique pour un endpoint runtime). 0 token."""
-    skel = form_from_jsonschema(name, jschema, action=action)
-    ns: dict = {}
-    exec(skel["code"], ns)
-    return ns[skel["name"]]()
+    tree = _form_tree(name, jschema, action=action)
+    return _render_inert(tree["root"])
+
+
+_VOID_TAGS = ("img", "input", "br", "hr", "meta", "link")
+
+
+def _render_inert(node: dict) -> str:
+    """Arbre -> HTML DIRECT, tout echappe (html.escape quote=True), aucune interpolation,
+    aucune generation ni execution de code (CS-2)."""
+    from html import escape as _x
+    tag = _x(str(node.get("tag", "div")))
+    a = ""
+    if node.get("class"):
+        a += f' class="{_x(str(node["class"]))}"'
+    if node.get("id"):
+        a += f' id="{_x(str(node["id"]))}"'
+    for grp in ("attrs", "alpine", "htmx"):
+        for k, v in (node.get(grp) or {}).items():
+            a += f' {_x(str(k))}="{_x(str(v))}"'
+    out = [f"<{tag}{a}>"]
+    if node.get("text"):
+        out.append(_x(str(node["text"])))
+    for child in (node.get("children") or []):
+        out.append(_render_inert(child))
+    if tag not in _VOID_TAGS:
+        out.append(f"</{tag}>")
+    return "".join(out)
 
 
 def _classify(spec: str):

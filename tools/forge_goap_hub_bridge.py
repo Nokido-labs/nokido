@@ -15,7 +15,7 @@ from pathlib import Path as _Path_amorce
 _RACINE_AMORCE = str(_Path_amorce(__file__).resolve().parent.parent)
 if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
-from nokido_agent.app.forge_secrets import get_secret
+from nokido_agent.app.forge_hub_client import HubClient
 
 import json as _json
 import urllib.request as _urllib
@@ -32,8 +32,8 @@ except ImportError:
     tqdm = lambda x, **kw: x
 
 HUB_URL = "http://127.0.0.1:8766/mcp"
-# FORGE_MCP_TOKEN is the canonical hub token; LAFORGE_HUB_TOKEN kept for compat
-HUB_TOKEN = get_secret("LAFORGE_HUB_TOKEN") or get_secret("FORGE_MCP_TOKEN") or ""
+# Jeton propre (FORGE_TOKEN_GOAP) ou a bail via forge_hub_client ; repli maitre dit, sans nom.
+_HUB_CLIENT = HubClient(agent="GOAP")
 LAFORGE_PYTHON = os.getenv("LAFORGE_PYTHON_BIN", "%USERPROFILE%/miniforge3/python.exe")
 
 
@@ -255,7 +255,7 @@ class GOAPPlanner:
         req = _urllib.Request(
             HUB_URL,
             data=payload,
-            headers={"Authorization": f"Bearer {HUB_TOKEN}", "Content-Type": "application/json"},
+            headers=_HUB_CLIENT.entetes_repli_env(),
         )
         try:
             with _urllib.urlopen(req, timeout=60) as resp:

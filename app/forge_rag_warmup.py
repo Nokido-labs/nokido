@@ -46,6 +46,34 @@ logger = logging.getLogger("Nokido.RAGWarmup")
 _logger = logging.getLogger(__name__)
 
 
+def rag_warmup_spawn() -> str:
+    """Lance l'indexation d'app/ en processus DETACHE ; rend l'identifiant de tache (ou l'erreur, dite).
+
+    Importee par forge_web_service ; ne vivait que dans app/patch_rag_warmup.py (24/10, import
+    casse). NR : tests/nr/test_rag_warmup_spawn_existe_nr.py
+    """
+    lignes = [
+        "from pathlib import Path as _P",
+        "import sys as _s",
+        "_s.path.insert(0, str(_P(__file__).resolve().parent.parent / 'app'))",
+        "from forge_rag_index_app import index_app_dir as _idx",
+        "_idx(str(_P(__file__).resolve().parent.parent / 'app'))",
+    ]
+    try:
+        from forge_runner import spawn as _sp
+        tid = _sp("\n".join(lignes), prefix="rag_warm")
+    except Exception as e:
+        _logger.warning("[RAG warmup] lancement detache impossible : %s: %s", type(e).__name__, e)
+        return "%s: %s" % (type(e).__name__, e)
+    try:
+        from live_bridge import bridge as _br
+        _br.json_set("rag_warmup.tid", tid)
+        _br.json_set("rag_warmup.status", "started")
+    except Exception as e:
+        _logger.info("[RAG warmup] etat non publie au pont live : %s: %s", type(e).__name__, e)
+    return tid
+
+
 async def rag_self_warmup(app, _rag_warmup_done=None) -> None:
     """
     Auto-enrichissement RAG au démarrage :

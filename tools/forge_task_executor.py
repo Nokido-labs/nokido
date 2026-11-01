@@ -34,6 +34,7 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 __FORGE_COLOR__ = "GREEN"
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import json
 import logging
@@ -49,6 +50,11 @@ import urllib.error
 import urllib.request
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+try:  # levier A (23/10) : table unique modele+effort par palier ; paquet d'abord, repli checkout
+    from nokido_agent.tools import forge_palier_effort as _palier
+except ImportError:  # repli checkout : tools/ dans sys.path
+    import forge_palier_effort as _palier
 
 ROOT = Path(__file__).resolve().parent.parent
 (ROOT / "logs").mkdir(exist_ok=True)
@@ -94,6 +100,12 @@ POLL_INTERVAL = int(os.environ.get("TASK_EXEC_POLL_INTERVAL", "60"))
 BATCH_SIZE = int(os.environ.get("TASK_EXEC_BATCH", "5"))
 
 HUB_URL = "http://127.0.0.1:8766"
+
+LAFORGE_TASK_PARALLEL = int(os.environ.get("LAFORGE_TASK_PARALLEL", "2"))
+_delegations_en_vol = 0
+_lock_delegations = threading.Lock()
+_lock_tool_scope = threading.Lock()
+_pool_delegations = ThreadPoolExecutor(max_workers=max(1, LAFORGE_TASK_PARALLEL), thread_name_prefix="task_deleg")
 
 _stop = False
 
@@ -298,6 +310,20 @@ def _extract_message(description: str) -> str:
     return description[:30000]
 
 
+def _avec_carte_attention(desc: str) -> str:
+    """Prefixe la consigne deleguee par la carte d'attention (symbiose, owner 31/10) : fichiers chauds de l'arbre
+    partage, etag a reutiliser, collisions en tete. Interrupteur LAFORGE_CARTE_DELEGATION=0 (cout : quelques lignes
+    par delegation). Indisponible ou vide = consigne inchangee, jamais un echec de delegation."""
+    if not desc or os.environ.get("LAFORGE_CARTE_DELEGATION", "1") == "0":
+        return desc
+    try:
+        from nokido_agent.app.forge_network_logger import consigne_attention
+        return consigne_attention() + desc
+    except Exception as exc:  # noqa: BLE001 - un en-tete facultatif ne casse jamais une delegation
+        log.debug("carte d'attention indisponible pour la consigne (%s)", type(exc).__name__)
+        return desc
+
+
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(TASKS_DB), timeout=15)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -340,6 +366,44 @@ def ensure_lease_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+_COLONNES_TRACE = (("taille", "TEXT"), ("modele", "TEXT"), ("effort", "TEXT"),
+                   ("cout_usd", "REAL"), ("cout_etat", "TEXT"), ("verdict_effet", "TEXT"))
+
+
+def ensure_trace_schema(conn: sqlite3.Connection) -> None:
+    """Colonnes DEDIEES de la trace de fin de tache (decision owner 23/10). ADDITIF et idempotent : rien n'est
+    supprime ni reecrit, une valeur absente reste NULL (jamais 0)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+    for nom, decl in _COLONNES_TRACE:
+        if nom not in cols:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {nom} {decl}")
+    conn.commit()
+
+
+def _cout_et_etat(cout) -> tuple[float, str]:
+    """(cout_usd, cout_etat) d'un `total_cost_usd` lu : MESURE s'il est connu ; sinon le FORFAIT effectivement
+    facture au budget (jamais 0 : unknowable != free)."""
+    if cout is None:
+        return float(_CLAUDE_COUT_INCONNU_USD), "FORFAIT"
+    return float(cout), "MESURE"
+
+
+def ecrire_trace_tache(conn: sqlite3.Connection, task_id: str, taille=None, modele=None, effort=None,
+                       cout_usd=None, cout_etat=None, verdict_effet=None) -> None:
+    """Ecrit la trace de FIN de tache. Absent = NULL ; sans cout fourni, cout_etat = INCONNU (cout_usd NULL).
+    Le cout vient de `_cout_claude(sortie complete)`, lu AVANT toute troncature du result."""
+    ensure_trace_schema(conn)
+    if cout_usd is None:
+        cout_etat = "INCONNU"
+    elif cout_etat is None:
+        cout_etat = "MESURE"
+    conn.execute(
+        "UPDATE tasks SET taille=?, modele=?, effort=?, cout_usd=?, cout_etat=?, verdict_effet=? WHERE id=?",
+        (taille or None, modele or None, effort or None, cout_usd, cout_etat,
+         (str(verdict_effet)[:2000] if verdict_effet else None), task_id))
+    conn.commit()
+
+
 def touch_progress(task_id: str, checkpoint: str = "") -> None:
     """Un agent VIVANT prolonge son bail. C'est la progression de la MISSION qui
     est attestee ici, pas la survie du process : un worker peut respirer tout en
@@ -364,6 +428,124 @@ def touch_progress(task_id: str, checkpoint: str = "") -> None:
         log.warning(f"  touch_progress KO pour {str(task_id)[:24]} ({type(e).__name__}): {e}")
 
 
+_SERVICE_SUPERVISEUR: list = []   # cache du nom resolu (liste vide = pas encore resolu)
+
+
+def _mon_service_superviseur() -> str | None:
+    """Le service superviseur qui porte CE processus, lu dans services.toml d'apres son `--agent`.
+
+    Le superviseur ne transmet pas le nom du service a l'enfant ; services.toml declare en revanche, pour chaque
+    executeur, `args = [..., "--agent", X]` (sans --agent : NokidoTaskExecutor). C'est la source de verite, pas une
+    table recopiee ici. TOML illisible : None, et la delegation continue sans veto (DIT au journal)."""
+    if _SERVICE_SUPERVISEUR and _SERVICE_SUPERVISEUR[0][0] == tuple(sys.argv):
+        return _SERVICE_SUPERVISEUR[0][1]
+    argv = list(sys.argv)
+    agent = argv[argv.index("--agent") + 1].upper() if "--agent" in argv[:-1] else None
+    nom = None
+    try:
+        import tomllib
+
+        doc = tomllib.loads((ROOT / "proxy_deno" / "core" / "services.toml").read_text(encoding="utf-8"))
+        for svc in doc.get("service") or []:
+            args = [str(a) for a in (svc.get("args") or [])]
+            if not any(a.replace("\\", "/").endswith("tools/forge_task_executor.py") for a in args):
+                continue
+            a_agent = args[args.index("--agent") + 1].upper() if "--agent" in args[:-1] else None
+            if a_agent == agent:
+                nom = svc.get("name")
+                break
+    except Exception as e:  # noqa: BLE001 -- sans nom, pas de veto : la delegation continue, et on le DIT
+        log.warning(f"  service superviseur ILLISIBLE ({type(e).__name__}) : pas de veto de sommeil")
+        return None
+    _SERVICE_SUPERVISEUR[:] = [(tuple(sys.argv), nom)]
+    return nom
+
+
+# RECEPTEUR du palier de pression RAM (owner 24/10, bareme a 4 paliers) : Hamilton publie NORADRENALINE_PRESSION_RAM
+# (niveaux 0 / 0.25 / 0.5 / 0.75 / 1) ; l'executeur RALENTIT (boucle x2), cesse de RECLAMER (GENE), GELE sa delegation
+# en vol (DETRESSE) ; seul le CRITIQUE, cote Hamilton, passe outre l'intention. Absent, perime ou illisible = INCONNU,
+# et l'executeur garde son comportement d'avant : ni calme ni panne fabriques.
+_HORMONE_PRESSION_RAM = "NORADRENALINE_PRESSION_RAM"
+_PALIER_PERIME_S = 300
+_PALIER_TOUTES_S = float(os.environ.get("LAFORGE_PALIER_TOUTES_S", "10"))
+_PALIERS_PAR_NIVEAU = ((0.875, "CRITIQUE"), (0.625, "DETRESSE"), (0.375, "GENE"), (0.125, "RALENTISSEMENT"))
+
+
+def _palier_pression() -> str:
+    """Le palier publie par Hamilton, lu au niveau d'EMISSION (fresh_level) ; INCONNU s'il manque ou a vieilli."""
+    try:
+        from nokido_agent.app import forge_endocrine as _en
+
+        r = _en.read_full(_HORMONE_PRESSION_RAM)
+    except Exception as e:  # noqa: BLE001 -- signal illisible : INCONNU, dit en debug (lu toutes les 10 s)
+        log.debug(f"  palier de pression ILLISIBLE ({type(e).__name__})")
+        return "INCONNU"
+    if r is None or getattr(r, "expired", False) or float(getattr(r, "age_s", 0) or 0) > _PALIER_PERIME_S:
+        return "INCONNU"
+    niveau = float(getattr(r, "fresh_level", 0.0) or 0.0)
+    for seuil, palier in _PALIERS_PAR_NIVEAU:
+        if niveau >= seuil:
+            return palier
+    return "CALME"
+
+
+def _reclamation_permise(palier: str) -> bool:
+    """GENE et au-dela : plus de nouvelle tache (celle en vol continue, sous veto)."""
+    return palier in ("CALME", "RALENTISSEMENT", "INCONNU")
+
+
+def _intervalle_boucle(base, palier: str):
+    """RALENTISSEMENT : la boucle de reclamation bat deux fois moins vite."""
+    return base * 2 if palier == "RALENTISSEMENT" else base
+
+
+def _empreinte_db(chemin=None) -> tuple:
+    """mtime de tasks.db et de son WAL : change a chaque ecriture. Un stat(), aucune lecture de la base."""
+    p = Path(chemin or TASKS_DB)
+    out = []
+    for f in (p, p.with_name(p.name + "-wal")):
+        try:
+            out.append(f.stat().st_mtime_ns)
+        except OSError:
+            out.append(None)
+    return tuple(out)
+
+
+def _taches_pending(chemin=None) -> int:
+    """Taches pending ; -1 si illisible (un illisible ne reveille jamais)."""
+    try:
+        c = sqlite3.connect(f"file:{Path(chemin or TASKS_DB)}?mode=ro", uri=True, timeout=2)
+        try:
+            return int(c.execute("SELECT COUNT(*) FROM tasks WHERE status='pending'").fetchone()[0])
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def _reveil_tache_deposee(etat: dict, chemin=None) -> bool:
+    """REVEIL (owner 30/10 « c'est trop lent ») : une tache deposee pendant la sieste se prend sans attendre
+    POLL_INTERVAL (jusqu'a 2 min mesurees). La base n'est relue que si son empreinte a change, et seule une HAUSSE
+    du nombre de taches pending reveille (une reclamation ou une cloture ne reveille pas)."""
+    e = _empreinte_db(chemin)
+    if e == etat.get("empreinte"):
+        return False
+    etat["empreinte"] = e
+    n = _taches_pending(chemin)
+    avant, etat["pending"] = etat.get("pending", -1), n
+    return avant >= 0 and n > avant
+
+
+def _geste_delegation(palier: str, gelee: bool):
+    """GELER en DETRESSE ; DEGELER des que le palier redescend -- ou devient illisible (jamais gele a l'aveugle) ;
+    au CRITIQUE on reste gele, Hamilton tranche."""
+    if palier == "DETRESSE":
+        return None if gelee else "GELER"
+    if palier == "CRITIQUE":
+        return None
+    return "DEGELER" if gelee else None
+
+
 @contextlib.contextmanager
 def _battement_delegation(agent: str, task_id: str):
     """Pendant une DELEGATION longue, DECLARE le travail au superviseur.
@@ -382,6 +564,12 @@ def _battement_delegation(agent: str, task_id: str):
     hb_nom = _hb_file(agent).stem
     t0 = time.time()
     stop = threading.Event()
+    # INTENTION > REGULATION (owner 24/10). Hamilton endormait les 13 executeurs en pleine tache (ordres
+    # RESOURCE_MANAGER 20:27-20:48, supervisor_ordres.jsonl) ; un sommeil superviseur TUE le processus. Le veto de
+    # sommeil, deja oppose par Hamilton et le bail, declare l'acte en cours ; renouvele a chaque battement, il
+    # expire seul si l'executeur meurt sans le lever. L'eviction dure (detresse) n'en tient pas compte.
+    service = _mon_service_superviseur()
+    duree_veto = max(60.0, 3.0 * float(_PROGRES_TOUTES_S))
 
     def _battre() -> None:
         # Bail de MISSION : la tache reste `en vol`, `reclaim_expired` ne la reprend pas.
@@ -395,6 +583,16 @@ def _battement_delegation(agent: str, task_id: str):
                         travail_depuis_s=round(time.time() - t0, 1), tache=task_id)
         except Exception as e:  # noqa: BLE001
             log.warning(f"  pouls de delegation KO pour {str(task_id)[:24]} ({type(e).__name__}): {e}")
+        # Intention declaree a la regulation RAM : un veto KO laisse la delegation continuer, et le DIT.
+        if service:
+            try:
+                from nokido_agent.app import forge_resource_manager as _rm
+
+                r = _rm.poser_veto_sommeil(service, "tache %s en vol (%s)" % (task_id, agent), duree_veto)
+                if not (r or {}).get("ok"):
+                    log.warning(f"  veto de sommeil NON pose pour {service} : {(r or {}).get('erreur')}")
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"  veto de sommeil NON pose pour {service} ({type(e).__name__}): {e}")
 
     def _boucle() -> None:
         while not stop.wait(timeout=_PROGRES_TOUTES_S):
@@ -407,15 +605,68 @@ def _battement_delegation(agent: str, task_id: str):
     _battre()
     fil = threading.Thread(target=_boucle, daemon=True, name="battement-delegation")
     fil.start()
+
+    # DETRESSE : la delegation en vol est GELEE (processus enfants suspendus), pas tuee ; reprise des que le palier
+    # redescend. Veille plus rapide que le battement (300 s) : une detresse se joue en secondes.
+    gel = {"gelee": False, "procs": []}
+
+    def _degeler() -> None:
+        for p in gel["procs"]:
+            try:
+                p.resume()
+            except Exception as e:  # noqa: BLE001 -- processus deja termine : rien a reprendre, dit
+                log.warning(f"  reprise de {getattr(p, 'pid', '?')} impossible ({type(e).__name__})")
+        if gel["gelee"]:
+            log.info(f"  delegation {str(task_id)[:24]} DEGELEE ({len(gel['procs'])} processus)")
+        gel.update(gelee=False, procs=[])
+
+    def _veille_palier() -> None:
+        while not stop.wait(timeout=_PALIER_TOUTES_S):
+            if stop.is_set() or _stop:
+                break
+            palier = _palier_pression()
+            geste = _geste_delegation(palier, gel["gelee"])
+            if geste == "DEGELER":
+                _degeler()
+            elif geste == "GELER":
+                try:
+                    import psutil as _ps
+
+                    procs = _ps.Process().children(recursive=True)
+                except Exception as e:  # noqa: BLE001 -- sans psutil, pas de gel : la delegation continue, dit
+                    log.warning(f"  gel impossible ({type(e).__name__}) : la delegation continue en DETRESSE")
+                    continue
+                gel_ok = []
+                for p in procs:
+                    try:
+                        p.suspend()
+                        gel_ok.append(p)
+                    except Exception as e:  # noqa: BLE001
+                        log.warning(f"  gel de {getattr(p, 'pid', '?')} impossible ({type(e).__name__})")
+                gel.update(gelee=True, procs=gel_ok)
+                log.warning(f"  DETRESSE RAM : delegation {str(task_id)[:24]} GELEE ({len(gel_ok)} processus)")
+
+    veille = threading.Thread(target=_veille_palier, daemon=True, name="veille-palier-delegation")
+    veille.start()
     try:
         yield
     finally:
         stop.set()
         fil.join(timeout=max(1.0, float(_PROGRES_TOUTES_S)))
+        veille.join(timeout=max(1.0, float(_PALIER_TOUTES_S)))
+        _degeler()
         try:
             beat_daemon(hb_nom, agent=agent, travail_en_cours=False, tache=task_id)
         except Exception as e:  # noqa: BLE001
             log.warning(f"  pouls de fin de delegation KO pour {str(task_id)[:24]} ({type(e).__name__}): {e}")
+        if service:
+            try:
+                from nokido_agent.app import forge_resource_manager as _rm
+
+                if not _rm.lever_veto_sommeil(service):
+                    log.warning(f"  veto de sommeil de {service} non leve : il expirera seul")
+            except Exception as e:  # noqa: BLE001
+                log.warning(f"  veto de sommeil de {service} non leve ({type(e).__name__}) : il expirera seul")
 
 
 def reclaim_expired(timeout_s: int = 0) -> dict:
@@ -498,6 +749,63 @@ def _lire_registre() -> dict:
         return {}
 
 
+# TTL des surfaces indisponibles. Une marque ne vaut QUE pour une duree : un
+# echec d'authentification passager (token expire, rate de reseau) ne doit pas
+# ecarter la surface jusqu'au redemarrage de l'executeur.
+_TTL_SURFACE_INDISPO_DEFAUT_S = 1800
+_SURFACES_INDISPONIBLES: dict[str, tuple[float, str]] = {}
+
+
+def _ttl_surface_indispo_s() -> float:
+    """TTL en secondes, lu a CHAQUE appel (jamais fige a l'import).
+
+    Absent ou illisible -> le defaut. L'operateur peut changer la valeur sans
+    redemarrer l'executeur, et un test peut la poser."""
+    try:
+        return float(os.environ.get("LAFORGE_SURFACE_INDISPO_TTL_S", ""))
+    except (TypeError, ValueError):
+        return float(_TTL_SURFACE_INDISPO_DEFAUT_S)
+
+
+def marquer_surface_indisponible(agent: str, motif: str = "echec authentification") -> None:
+    """Marque une surface d'execution comme indisponible (ex: echec d'authentification du CLI).
+
+    L'heure de la marque est NOTEE : c'est elle qui portera l'expiration."""
+    nom = (agent or "").upper()
+    if nom:
+        _SURFACES_INDISPONIBLES[nom] = (time.time(), str(motif))
+
+
+def surface_est_indisponible(agent: str, maintenant: float | None = None) -> str | None:
+    """Rend le motif si la surface est marquee indisponible ET non expiree, None sinon.
+
+    Expiree = `maintenant - marque >= TTL` : la marque disparait alors et la
+    surface est RETENTEE. `maintenant` est optionnel (defaut : l'heure
+    courante) -- l'appel d'origine, a un seul argument, continue de marcher."""
+    nom = (agent or "").upper()
+    entree = _SURFACES_INDISPONIBLES.get(nom)
+    if entree is None:
+        return None
+    marque, motif = entree
+    instant = time.time() if maintenant is None else float(maintenant)
+    if instant - marque >= _ttl_surface_indispo_s():
+        _SURFACES_INDISPONIBLES.pop(nom, None)
+        return None
+    return motif
+
+
+_marquer_surface_indisponible = marquer_surface_indisponible
+_surface_indisponible = surface_est_indisponible
+
+
+def reinitialiser_surfaces_indisponibles() -> None:
+    """Reinitialise l'etat des surfaces indisponibles (usage tests)."""
+    _SURFACES_INDISPONIBLES.clear()
+
+
+_reinitialiser_surfaces_indisponibles = reinitialiser_surfaces_indisponibles
+
+
 def _executeur_suspendu(agent: str) -> str | None:
     """Le motif de suspension de `agent`, ou None s'il n'est pas suspendu.
 
@@ -508,7 +816,13 @@ def _executeur_suspendu(agent: str) -> str | None:
     nom = (agent or "").upper()
     if not nom:
         return None
-    spec = (_lire_registre().get("agents") or {}).get(nom)
+    motif_surface = surface_est_indisponible(nom)
+    if motif_surface is not None:
+        return f"surface indisponible (motif : {motif_surface})"
+    repos = executeur_en_repos(nom)  # coupe-circuit fournisseur OpenCode (24/10)
+    if repos:
+        return f"en repos (coupe-circuit fournisseur) : {repos}"
+    spec =(_lire_registre().get("agents") or {}).get(nom)
     if not isinstance(spec, dict):
         return None
     susp = spec.get("suspendu")
@@ -551,6 +865,21 @@ def _interactive_clis() -> tuple:
 
 
 def _fetch_batch(conn: sqlite3.Connection, agent_filter: str | None) -> list:
+    """Taches `pending` servables, SANS celles dont une entree n'est pas livree (31/10 : BLOQUE_PAR_DEPENDANCE, dit
+    une fois par tache au journal ; elle repart d'elle-meme quand ses entrees passent `done`)."""
+    lignes = _fetch_batch_brut(conn, agent_filter)
+    pretes = []
+    for r in lignes:
+        ok, motif = _dependances_pretes(conn, r[0])
+        if ok:
+            pretes.append(r)
+        elif r[0] not in _BLOQUEES_DITES:
+            _BLOQUEES_DITES.add(r[0])
+            log.info(f"  {str(r[0])[:24]} : {motif}")
+    return pretes
+
+
+def _fetch_batch_brut(conn: sqlite3.Connection, agent_filter: str | None) -> list:
     if agent_filter:
         return conn.execute(
             "SELECT id, description, agent, job_id FROM tasks"
@@ -594,12 +923,97 @@ def _publier_tache(conn: sqlite3.Connection, kind: str, task_id: str, statut: st
         log.debug(f"  bus d'essaim : {kind} non publie ({type(e).__name__})")
 
 
+def _creation_processus(pid: int):
+    """Heure de creation PROUVEE du pid, ou None si illisible (psutil absent, acces refuse...)."""
+    try:
+        import psutil
+        return float(psutil.Process(int(pid)).create_time())
+    except Exception:  # noqa: BLE001 - muet-ok : None = illisible, l'appelant s'abstient
+        return None
+
+
+def _vivacite_processus(pid, cree):
+    """True = vivant (meme pid ET meme creation), False = PROUVE mort (absent ou pid recycle), None = illisible."""
+    try:
+        import psutil
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        if not psutil.pid_exists(int(pid)):
+            return False
+        vraie = float(psutil.Process(int(pid)).create_time())
+    except psutil.NoSuchProcess:
+        return False
+    except Exception:  # noqa: BLE001
+        return None
+    if cree is None:
+        return None
+    return abs(vraie - float(cree)) <= 2.0
+
+
+def _estampiller_proprietaire(conn: sqlite3.Connection, task_id: str) -> None:
+    """Note pid + creation de l'executeur sur la tache qu'il vient de prendre (meilleur effort)."""
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+        for nom, decl in (("exec_pid", "INTEGER"), ("exec_cree", "REAL")):
+            if nom not in cols:
+                conn.execute(f"ALTER TABLE tasks ADD COLUMN {nom} {decl}")
+        conn.execute("UPDATE tasks SET exec_pid=?, exec_cree=? WHERE id=?",
+                     (os.getpid(), _creation_processus(os.getpid()), task_id))
+        conn.commit()
+    except Exception as e:  # noqa: BLE001
+        log.warning("[orpheline] proprietaire non note pour %s (%s)", task_id, e)
+
+
+def requalifier_orphelines(agent_filter: str | None, vivacite=None) -> dict:
+    """Au demarrage : les taches `running` de CET agent dont le proprietaire est PROUVE mort repassent `pending`
+    (INTERROMPUE, journalise). Proprietaire inconnu/illisible -> abstention (jamais reprise d'une tache peut-etre vivante)."""
+    vivacite = vivacite or _vivacite_processus
+    requalifiees, abstenues = [], []
+    conn = _db()
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+        if "exec_pid" not in cols or "exec_cree" not in cols:
+            return {"requalifiees": [], "abstenues": []}
+        q = "SELECT id, agent, exec_pid, exec_cree FROM tasks WHERE status='running'"
+        args: tuple = ()
+        if agent_filter:
+            q += " AND upper(agent)=?"
+            args = (agent_filter.upper(),)
+        for r in conn.execute(q, args).fetchall():
+            if r["exec_pid"] is None:
+                abstenues.append(r["id"])
+                log.warning("[orpheline] %s running sans proprietaire note : abstention", r["id"])
+                continue
+            try:
+                v = vivacite(r["exec_pid"], r["exec_cree"])
+            except Exception:  # noqa: BLE001
+                v = None
+            if v is False:
+                cur = conn.execute(
+                    "UPDATE tasks SET status='pending', exec_pid=NULL, exec_cree=NULL, updated_at=?, "
+                    "result=COALESCE(result,'') || ? WHERE id=? AND status='running'",
+                    (time.strftime("%Y-%m-%dT%H:%M:%S"),
+                     "\n[INTERROMPUE] proprietaire pid %s mort : remise en pending" % r["exec_pid"], r["id"]))
+                if cur.rowcount == 1:
+                    requalifiees.append(r["id"])
+                    log.warning("[orpheline] %s INTERROMPUE (pid %s mort) -> pending", r["id"], r["exec_pid"])
+            elif v is None:
+                abstenues.append(r["id"])
+                log.warning("[orpheline] %s vivacite illisible (pid %s) : abstention", r["id"], r["exec_pid"])
+        conn.commit()
+    finally:
+        conn.close()
+    return {"requalifiees": requalifiees, "abstenues": abstenues}
+
+
 def _mark_running(conn: sqlite3.Connection, task_id: str) -> None:
     conn.execute(
         "UPDATE tasks SET status='running', updated_at=? WHERE id=?",
         (time.strftime("%Y-%m-%dT%H:%M:%S"), task_id),
     )
     conn.commit()
+    _estampiller_proprietaire(conn, task_id)
     _publier_tache(conn, "task_running", task_id, "running")
 
 
@@ -616,12 +1030,52 @@ def _servables_par_le_generique() -> frozenset:
     return frozenset(k for k in PROVIDER_CHAIN if k.upper() not in exclus and _delegation_pour(k) is None)
 
 
+def _attester_par_le_superviseur(sub: str, declares: dict | None = None, chaine: list | None = None,
+                                 services: dict | None = None) -> tuple[bool, str]:
+    """(prouve, preuve) : l'identite se DEMANDE a l'organe qui lance le process, jamais a son drapeau --agent.
+
+    30/10 (docs/enquetes/identite_executeurs_claim_20261030.md) : `prouve` valait False en dur. Preuve : ce process
+    DESCEND du pid que le superviseur declare pour un service (runAs interactive : le superviseur note le LANCEUR, son
+    enfant execute -- d'ou la remontee de parente, jamais l'egalite de pid), et ce service porte `--agent <sub>` dans
+    services.toml (aucun --agent : sujet TASK_EXECUTOR). Superviseur muet, aucun ancetre declare, services.toml
+    illisible : NON prouve, et le motif le dit (UNKNOWN n'est pas OUI). Arguments injectables pour le NR."""
+    sub = (sub or "").upper()
+    try:
+        try:  # primitive UNIQUE d'attestation (30/10), partagee avec le coffre cloisonne (COF-1)
+            from nokido_agent.tools.forge_process_inventory import service_porteur
+        except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
+            from forge_process_inventory import service_porteur
+        service, profondeur, motif = service_porteur(declares, chaine, timeout=5.0)
+    except Exception as e:  # noqa: BLE001
+        return False, f"superviseur ILLISIBLE ({type(e).__name__})"
+    if service is None:
+        return False, motif
+    if services is None:
+        try:
+            import tomllib
+            with open(Path(__file__).resolve().parent.parent / "proxy_deno" / "core" / "services.toml", "rb") as fh:
+                services = {s.get("name"): list(s.get("args") or []) for s in tomllib.load(fh).get("service", [])}
+        except Exception as e:  # noqa: BLE001
+            return False, f"services.toml ILLISIBLE ({type(e).__name__}) pour {service}"
+    if service not in services:
+        return False, f"{service} absent de services.toml"
+    args = [str(a) for a in services[service]]
+    declare = args[args.index("--agent") + 1].upper() if "--agent" in args[:-1] else "TASK_EXECUTOR"
+    if declare != sub:
+        return False, f"{service} porte --agent {declare}, pas {sub}"
+    return True, f"descendant (profondeur {profondeur}) du pid declare de {service}, qui porte --agent {declare}"
+
+
 def _identite_executeur(agent_filter: str | None) -> dict:
     """Qui reclame ? `sub` = l'agent dont cette instance porte la file, `act` = le process executeur qui agit pour lui.
-    La PREUVE (jeton de l'instance verifie par le hub, a la maniere d'une introspection RFC 7662) n'est pas encore
-    cablee : `prouve` vaut False et le DIT -- jamais une identite tenue pour prouvee sur le seul drapeau --agent."""
-    ident = {"sub": (agent_filter or "TASK_EXECUTOR").upper(), "act": "TASK_EXECUTOR", "prouve": False,
-             "pourquoi": "sujet DECLARE par --agent, preuve par jeton d'instance verifie au hub non cablee"}
+    `prouve` ne vient QUE de `_attester_par_le_superviseur` (30/10) -- jamais du seul drapeau --agent."""
+    sub = (agent_filter or "TASK_EXECUTOR").upper()
+    try:
+        prouve, preuve = _attester_par_le_superviseur(sub)
+    except Exception as e:  # noqa: BLE001
+        prouve, preuve = False, f"attestation ILLISIBLE ({type(e).__name__})"
+    ident = {"sub": sub, "act": "TASK_EXECUTOR", "prouve": bool(prouve),
+             "pourquoi": ("sujet ATTESTE par le superviseur : " if prouve else "sujet NON prouve : ") + preuve}
     if not agent_filter:
         ident["servables"] = sorted(_servables_par_le_generique())
     return ident
@@ -657,13 +1111,18 @@ def _reclamer(conn: sqlite3.Connection, task_id: str, agent_tache: str, identite
             log.warning(f"  [claim] REFUS {str(task_id)[:24]} : {pourquoi}")
             return False
         log.info(f"  [claim][observe] refuserait {str(task_id)[:24]} : {pourquoi}")
+    # 24/10 23:00:48 : sans progress_at, une tache requalifiee gardait celui de sa tentative PRECEDENTE et le
+    # reclaim_expired d'une autre instance la remettait en pending 28 ms apres la reclamation. Reclamer = progresser.
+    _maintenant = time.strftime("%Y-%m-%dT%H:%M:%S")
+    ensure_lease_schema(conn)   # progress_at garanti, comme reclaim_expired (schema ancien : no such column)
     cur = conn.execute(
-        "UPDATE tasks SET status='running', updated_at=? WHERE id=? AND status='pending' AND upper(agent)=?",
-        (time.strftime("%Y-%m-%dT%H:%M:%S"), task_id, (agent_tache or "").upper()))
+        "UPDATE tasks SET status='running', updated_at=?, progress_at=? WHERE id=? AND status='pending' AND upper(agent)=?",
+        (_maintenant, _maintenant, task_id, (agent_tache or "").upper()))
     conn.commit()
     if cur.rowcount != 1:
         log.info(f"  [claim] {str(task_id)[:24]} deja reclamee ou reaffectee : un autre executeur l'a prise")
         return False
+    _estampiller_proprietaire(conn, task_id)
     _publier_tache(conn, "task_running", task_id, "running")   # 19/10 : la voie AGY ne passait pas par _mark_running
     return True
 
@@ -1109,6 +1568,346 @@ def _agy_permission_args(env=None) -> list:
     return ["--sandbox", "--mode", "accept-edits", "--print-timeout", "%ds" % borne]
 
 
+import contextvars as _contextvars
+
+# 29/10 (GO owner) : UN WORKTREE PAR TACHE. Deux taches du meme agent partageaient son worktree (job_3a3347e0 et
+# job_b6c4b5a1) : l'executeur committait les fichiers de l'une sous l'etiquette de l'autre. Le chemin de la tache
+# en cours est porte par ce contexte ; tous les `_workdir_*` le rendent EN PRIORITE (claude, opencode, codex, agy,
+# mistral). Hors contexte (controles de capacite) : worktrees d'agent historiques, inchanges.
+_WT_TACHE: "_contextvars.ContextVar" = _contextvars.ContextVar("nokido_wt_tache", default=None)
+
+
+class WorktreeTacheRefuse(RuntimeError):
+    """Creation du worktree de tache impossible : la tache est REFUSEE, jamais de repli sur un arbre partage."""
+
+
+def _wt_tache_arme() -> bool:
+    """Interrupteur NOKIDO_WORKTREE_PAR_TACHE : ARME par defaut, `0/off/false/non` le desarme."""
+    return os.environ.get("NOKIDO_WORKTREE_PAR_TACHE", "1").strip().lower() not in ("0", "off", "false", "non", "no")
+
+
+def _wt_court(task_id) -> str:
+    """Identifiant court UNIQUE par tache. 29/10 soir : les 12 DERNIERS caracteres valaient `detaskassign` pour
+    toute tache `job_<hex>_<ts>_claude_task_assign` -> 4 taches refusees. Tete aleatoire + empreinte de l'id."""
+    try:  # 31/10 : SOURCE UNIQUE dans forge_worktree (la portee de lecture du hub doit nommer le meme dossier)
+        from forge_worktree import court_tache
+        return court_tache(task_id)
+    except ImportError:
+        pass  # muet-ok : module absent (checkout partiel) -> meme calcul ci-dessous, resultat identique
+    import hashlib
+    s = re.sub(r"[^A-Za-z0-9]", "", str(task_id).replace("job_", "", 1))
+    if len(s) <= 12:
+        return s or "tache"
+    return s[:8] + hashlib.sha1(str(task_id).encode("utf-8")).hexdigest()[:4]
+
+
+def _depend_de(conn, task_id) -> list:
+    """Entrees declarees d'une tache (colonne `depend_de`, liste JSON d'ids). Colonne absente / vide -> []."""
+    try:
+        row = conn.execute("SELECT depend_de FROM tasks WHERE id=?", (task_id,)).fetchone()
+    except sqlite3.OperationalError:
+        return []  # muet-ok : base d'avant le 31/10, aucune tache n'a d'entree
+    if not row or not row[0]:
+        return []
+    try:
+        v = json.loads(row[0])
+    except (TypeError, ValueError):
+        return [str(row[0])]  # illisible : garde la valeur, la porte la dira inconnue (bloque, jamais servie a tort)
+    return [str(x) for x in (v if isinstance(v, list) else [v]) if str(x).strip()]
+
+
+def _dependances_pretes(conn, task_id) -> tuple:
+    """(True, "") si TOUTES les entrees de la tache sont livrees (`done`) ; sinon (False, motif BLOQUE_PAR_DEPENDANCE).
+
+    Owner 31/10 : « un travail 1 et un travail 2 peuvent ensuite nourrir un travail 3 ». Une entree en cours, echouee
+    ou inconnue BLOQUE la tache -- elle n'est ni servie ni declaree morte (constitution : BLOQUE_PAR_DEPENDANCE != DEAD)."""
+    entrees = _depend_de(conn, task_id)
+    if not entrees:
+        return True, ""
+    manque = []
+    for dep in entrees:
+        r = conn.execute("SELECT status FROM tasks WHERE id=?", (dep,)).fetchone()
+        st = (r[0] if r else None) or "inconnue"
+        if st != "done":
+            manque.append("%s:%s" % (dep, st))
+    if manque:
+        return False, "BLOQUE_PAR_DEPENDANCE entree(s) non livree(s) : %s" % ", ".join(manque)
+    return True, ""
+
+
+_BLOQUEES_DITES: set = set()
+# Entrees fusionnees par worktree de tache (cle = chemin resolu) : la consigne de l'agent les NOMME (31/10).
+_ENTREES_FUSIONNEES: dict = {}
+
+
+def _texte_entrees(workdir) -> str:
+    """Bloc de consigne listant les entrees fusionnees dans ce worktree ; "" sans entree (prefixe de cache intact)."""
+    try:
+        faits = _ENTREES_FUSIONNEES.get(str(Path(workdir).resolve()))
+    except OSError:
+        faits = None
+    if not faits:
+        return ""
+    lignes = ["- %s : %s" % (dep, ("branche %s, deja FUSIONNEE dans ton repertoire" % br) if br
+                              else "livree sans commit (rien a fusionner)") for dep, br in faits]
+    return ("\n[Executeur Nokido] ENTREES de cette tache (travaux amont, livres) :\n" + "\n".join(lignes)
+            + "\nLeurs fichiers sont DEJA dans ton repertoire de travail : lis-les la, ne les recree pas.")
+
+
+def _fusionner_entrees(chemin: Path, depot: Path, task_id, entrees: list) -> list:
+    """Fusionne dans le worktree de la tache la branche `tache/*/<court>` de chaque entree livree. Rend [(entree,
+    branche ou None)]. Conflit -> WorktreeTacheRefuse NOMMANT l'entree (le worktree est defait par l'appelant)."""
+    faits = []
+    for dep in entrees:
+        r = _wt_git(depot, "for-each-ref", "--format=%(refname:short)", "refs/heads/tache/*/" + _wt_court(dep))
+        branches = [b for b in (r.stdout or "").split() if b]
+        if not branches:
+            faits.append((dep, None))  # livree sans commit (reponse seule) : rien a fusionner, et c'est dit
+            continue
+        m = _wt_git(chemin, "merge", "--no-ff", "--no-edit", "-m", "entree %s (%s)" % (dep, branches[0]), branches[0])
+        if m.returncode != 0:
+            _wt_git(chemin, "merge", "--abort")
+            raise WorktreeTacheRefuse("fusion de l'entree %s (%s) impossible : %s"
+                                      % (dep, branches[0], (m.stdout or m.stderr or "")[-200:]))
+        faits.append((dep, branches[0]))
+    return faits
+
+
+def _wt_racine_taches() -> Path:
+    return ROOT.parent / "nokido_worktrees" / "taches"
+
+
+def _wt_git(depot, *a, timeout=120):
+    import subprocess as _sp
+    return _sp.run(["git", "-c", "safe.directory=*", "-C", str(depot), *a], capture_output=True, text=True,
+                   encoding="utf-8", errors="replace", timeout=timeout, env=_env_git())
+
+
+# Owner 30/10 « 180 000 tokens c'est encore enorme » : un tour AGY SANS outil coute 22 336 tokens (sonde
+# job_ca153392), dont ~19 000 de fichiers de contexte recharges a CHAQUE tour (GEMINI.md, AGENTS.md, CLAUDE.md, et
+# RULES_SHARED.md importe deux fois). La consigne de l'executeur porte deja la regle de la tache : le worktree de
+# tache recoit ce texte MINIMAL, en skip-worktree (git ne le voit ni en status, ni au commit, ni au retrait).
+_CONTEXTE_ALLEGE = (
+    "# Tache deleguee par Nokido (contexte allege)\n\n"
+    "La consigne de l'executeur fait foi. Regles permanentes :\n"
+    "- aucune commande shell ; agir par les outils du hub ;\n"
+    "- lecture par pointeur : get_file_skeleton puis read_function_body, jamais un gros fichier entier ;\n"
+    "- jamais de balayage de la base RAG (%NOKIDO_DATA%\embeddings.db) : `rag` ou FTS `MATCH` seulement ;\n"
+    "- secrets au coffre, jamais affiches ni copies ;\n"
+    "- ecrire seulement sous le repertoire de la tache, par blocs cibles ; ne modifier aucun test existant.\n")
+_FICHIERS_CONTEXTE = ("GEMINI.md", "AGENTS.md", "CLAUDE.md")
+# Owner 30/10 « impose et adapte selon le fonctionnement de chaque CLI » : chaque CLI lit SON fichier (AGY
+# GEMINI.md ; Codex, OpenCode, Vibe AGENTS.md ; Claude headless CLAUDE.md) -- les trois sont alleges pour TOUS les
+# agents delegues dans un worktree de tache (le texte minimal porte les regles permanentes).
+_AGENTS_CONTEXTE_ALLEGE = frozenset({"*"})
+
+
+def _alleger_contexte_tache(chemin) -> list:
+    """Remplace les fichiers de contexte SUIVIS du worktree par _CONTEXTE_ALLEGE, en skip-worktree. Un fichier non
+    suivi n'est jamais cree ; un echec laisse le fichier d'origine (cout, pas panne) et le DIT. Rend les fichiers alleges."""
+    chemin = Path(chemin)
+    faits = []
+    for nom in _FICHIERS_CONTEXTE:
+        f = chemin / nom
+        try:
+            if not f.is_file() or _wt_git(chemin, "ls-files", "--error-unmatch", nom).returncode != 0:
+                continue
+            if _wt_git(chemin, "update-index", "--skip-worktree", nom).returncode != 0:
+                log.warning(f"  contexte allege : skip-worktree refuse sur {nom} -- fichier d'origine garde")
+                continue
+            f.write_text(_CONTEXTE_ALLEGE, encoding="utf-8")
+            faits.append(nom)
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"  contexte allege : {nom} garde ({type(e).__name__}: {e})")
+    return faits
+
+
+def _wt_tache_ouvrir(agent: str, task_id, depot=None, racine=None, depend_de=None) -> Path:
+    """Worktree detache depuis la tete d'alpha, branche tache/<agent>/<id court>. Echec = WorktreeTacheRefuse.
+    `depend_de` (31/10) : les branches des entrees livrees sont FUSIONNEES dans le worktree neuf -- un travail 3 nait
+    avec les livrables des travaux 1 et 2 ; conflit = refus nomme, worktree et branche neufs defaits."""
+    depot = Path(depot) if depot else ROOT
+    racine = Path(racine) if racine else _wt_racine_taches()
+    ag = re.sub(r"[^a-z0-9_]", "_", str(agent).lower())
+    court = _wt_court(task_id)
+    chemin = racine / ("%s_%s" % (ag, court))
+    branche = "tache/%s/%s" % (ag, court)
+    try:
+        racine.mkdir(parents=True, exist_ok=True)
+        # Reprise apres redemarrage : le `finally` n'a pas tourne. Le claim (running) exclut deux executions de la
+        # MEME tache ; un reste PROPRE se retire (la branche garde les commits), un reste SALE est refuse (travail).
+        if chemin.exists() and not _wt_tache_retirer(chemin, depot=depot):
+            # 30/10 : executeur relance pendant la tache -> le travail partiel de CETTE tache bloquait sa reprise
+            # (refus, puis reaffectation en boucle). Meme tache, meme branche, claim exclusif : on REPREND dedans.
+            tete = _wt_git(chemin, "rev-parse", "--abbrev-ref", "HEAD")
+            if tete.returncode == 0 and (tete.stdout or "").strip() == branche:
+                log.warning(f"  worktree de tache {chemin.name} : REPRISE du travail non committe de cette tache")
+                return chemin
+            raise WorktreeTacheRefuse("worktree de tache deja present avec du travail non committe (%s) : "
+                                      "conserve, a examiner" % chemin)
+        r = _wt_git(depot, "worktree", "add", "--detach", str(chemin), "alpha")
+        if r.returncode != 0:
+            raise WorktreeTacheRefuse("git worktree add a echoue : %s" % (r.stderr or r.stdout)[-300:])
+        existe = _wt_git(depot, "rev-parse", "--verify", "-q", "refs/heads/" + branche).returncode == 0
+        r = _wt_git(chemin, "checkout", "-q", branche) if existe else _wt_git(chemin, "checkout", "-q", "-b", branche)
+        if r.returncode != 0:
+            _wt_git(depot, "worktree", "remove", "--force", str(chemin))
+            raise WorktreeTacheRefuse("branche %s impossible : %s" % (branche, (r.stderr or r.stdout)[-300:]))
+        if depend_de:
+            try:
+                faits = _fusionner_entrees(chemin, depot, task_id, list(depend_de))
+            except WorktreeTacheRefuse:
+                _wt_git(depot, "worktree", "remove", "--force", str(chemin))
+                if not existe:
+                    _wt_git(depot, "branch", "-D", branche)
+                raise
+            log.info(f"  worktree de tache {chemin.name} : entrees fusionnees "
+                     f"{', '.join('%s<-%s' % (d, b or 'sans commit') for d, b in faits)}")
+            _ENTREES_FUSIONNEES[str(chemin.resolve())] = faits
+    except WorktreeTacheRefuse:
+        raise
+    except Exception as e:  # noqa: BLE001 -- tout echec = refus motive
+        raise WorktreeTacheRefuse("creation du worktree de tache impossible (%s: %s)" % (type(e).__name__, e)) from e
+    return chemin
+
+
+def _creation_interrompue(chemin) -> bool:
+    """Reste d'un `worktree add` coupe avant l'extraction (pid de l'executeur mort, 30/10, job_7234db4e) : tete
+    DETACHEE et index VIDE, donc toute l'arborescence vue « supprimee ». L'agent ne travaille jamais la (sa branche
+    est posee avant lui) : ce reste ne porte aucun travail, il bloquait pourtant chaque nouvelle tentative."""
+    try:
+        if _wt_git(chemin, "symbolic-ref", "-q", "HEAD").returncode == 0:
+            return False
+        r = _wt_git(chemin, "ls-files")
+        return r.returncode == 0 and not (r.stdout or "").strip()
+    except Exception:  # noqa: BLE001 -- doute = travail possible, on garde
+        return False
+
+
+def _wt_tache_retirer(chemin, depot=None) -> bool:
+    """Retire le worktree APRES la livraison (la branche reste). Jamais avec du travail non committe : True = retire."""
+    chemin = Path(chemin)
+    depot = Path(depot) if depot else ROOT
+    try:
+        interrompue = bool(_chemins_travail(str(chemin))) and _creation_interrompue(chemin)
+        if interrompue:
+            log.warning(f"  worktree de tache {chemin} : creation interrompue (tete detachee, index vide) -- retire")
+        elif _chemins_travail(str(chemin)):
+            log.warning(f"  worktree de tache {chemin} CONSERVE : travail non committe")
+            return False
+        # seule la config d'agent (non livrable) peut rester : --force ne perd alors rien. Creation interrompue :
+        # git laisse le verrou « initializing », que seul un DOUBLE --force leve (mesure 30/10).
+        forces = ("--force", "--force") if interrompue else ("--force",)
+        r = _wt_git(depot, "worktree", "remove", *forces, str(chemin))
+        if r.returncode != 0:
+            log.warning(f"  worktree de tache {chemin} NON retire : {(r.stderr or r.stdout)[-200:]}")
+            # 30/10 : git DESENREGISTRE le worktree puis echoue sur le dossier (« Invalid argument ») -> un reliquat
+            # de ~5 100 fichiers reste. Desenregistre et sans .git : on efface le reliquat, et on DIT ce qui resiste.
+            _enr = _wt_enregistres(depot)
+            if _enr is not None and chemin.resolve() not in _enr and not (chemin / ".git").exists():
+                ok, erreurs = _rmtree_reliquat(chemin)
+                log.warning(f"  reliquat {chemin.name} : {'EFFACE' if ok else 'RESISTE'} {erreurs or ''}")
+                return ok
+            return False
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"  worktree de tache {chemin} NON retire ({type(e).__name__})")
+        return False
+
+
+def _wt_enregistres(depot=None):
+    """Chemins (resolus) des worktrees ENREGISTRES dans git ; None si git est illisible (alors on n'efface rien)."""
+    try:
+        r = _wt_git(Path(depot) if depot else ROOT, "worktree", "list", "--porcelain")
+        if r.returncode != 0:
+            return None
+        return {Path(l[9:].strip()).resolve() for l in (r.stdout or "").splitlines() if l.startswith("worktree ")}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _rmtree_reliquat(chemin) -> tuple:
+    """Efface un reliquat de worktree : leve la lecture seule et retente UNE fois ; rend (efface, {erreur: nb, ex.}).
+    L'erreur Windows exacte de ce qui resiste est rendue (winerror), jamais avalee."""
+    import shutil
+    import stat as _stat
+    from collections import Counter
+    erreurs, exemples = Counter(), {}
+
+    def _sur_erreur(fn, path, exc):
+        e = exc[1] if isinstance(exc, tuple) else exc
+        try:
+            os.chmod(path, _stat.S_IWRITE)
+            fn(path)
+            return
+        except Exception as e2:  # noqa: BLE001
+            e = e2
+        cle = "%s winerror=%s" % (type(e).__name__, getattr(e, "winerror", None))
+        erreurs[cle] += 1
+        exemples.setdefault(cle, str(path)[-120:])
+
+    shutil.rmtree(chemin, False, _sur_erreur)  # 3e argument positionnel = gestionnaire d'erreur
+    resume = {k: (v, exemples[k]) for k, v in erreurs.most_common(3)}
+    return (not Path(chemin).exists()), resume
+
+
+def _wt_orphelins(racine=None, age_h: float = 24.0) -> list:
+    """Worktrees de tache plus vieux que `age_h` : SIGNALES (log), jamais supprimes.
+
+    30/10 (owner « hygiene systematique ») : un RELIQUAT -- dossier que git a deja desenregistre, sans .git, plus
+    vieux que 10 min -- n'est plus un worktree : il est EFFACE (les commits vivent sur la branche de tache), et ce qui
+    resiste est DIT avec l'erreur Windows exacte. Enregistrements git illisibles : on n'efface rien."""
+    racine = Path(racine) if racine else _wt_racine_taches()
+    if not racine.is_dir():
+        return []
+    _enr = _wt_enregistres()
+    if _enr is not None:
+        _jeune = time.time() - 600
+        for p in sorted(x for x in racine.iterdir() if x.is_dir()):
+            try:
+                if p.resolve() in _enr or (p / ".git").exists() or p.stat().st_mtime > _jeune:
+                    continue
+            except OSError as e:
+                log.warning(f"  reliquat {p.name} ILLISIBLE ({e}) -- laisse en place")
+                continue
+            ok, erreurs = _rmtree_reliquat(p)
+            log.warning(f"  reliquat de worktree {p.name} : {'EFFACE' if ok else 'RESISTE'} {erreurs or ''}")
+    limite = time.time() - age_h * 3600
+    vieux = sorted(p for p in racine.iterdir() if p.is_dir() and p.stat().st_mtime < limite)
+    for p in vieux:
+        log.warning(f"  worktree de tache ORPHELIN (> {age_h:g} h) : {p} -- a examiner, non supprime")
+    return vieux
+
+
+def _avec_worktree_tache(agent: str, task, token: str, fn) -> None:
+    """Execute `fn()` dans un worktree dedie a la tache. Creation impossible : tache REFUSEE (pas de repli)."""
+    if not _wt_tache_arme():
+        fn()
+        return
+    try:
+        _wt_orphelins()
+        _c_dep = _db()
+        try:
+            _entrees = _depend_de(_c_dep, task["id"])
+        finally:
+            _c_dep.close()
+        wt = _wt_tache_ouvrir(agent, task["id"], depend_de=_entrees)
+    except WorktreeTacheRefuse as e:
+        log.error(f"  {str(task['id'])[:24]} REFUSEE : {e}")
+        _clore_delegation(task["id"], token, False, "[REFUSEE worktree par tache] %s" % e)
+        return
+    if (("*" in _AGENTS_CONTEXTE_ALLEGE or str(agent).upper() in _AGENTS_CONTEXTE_ALLEGE)
+            and os.environ.get("LAFORGE_CONTEXTE_ALLEGE", "1") != "0"):
+        _faits = _alleger_contexte_tache(wt)
+        log.info(f"  {str(task['id'])[:24]} contexte allege : {_faits or 'aucun fichier suivi'}")
+    jeton = _WT_TACHE.set(wt)
+    try:
+        fn()
+    finally:
+        _WT_TACHE.reset(jeton)
+        _wt_tache_retirer(wt)
+
+
 def _workdir_agy() -> str:
     """Repertoire de travail d'AGY : LAFORGE_AGY_WORKDIR > son worktree dedie > racine partagee (DIT).
 
@@ -1119,6 +1918,8 @@ def _workdir_agy() -> str:
     « BypassSandbox » que l'owner devait approuver. Le worktree dedie est aussi la convention
     du depot (RULES_SHARED : « le worktree protege la MESURE »)."""
     import os as _os
+    if _WT_TACHE.get() is not None:
+        return str(_WT_TACHE.get())
     env = _os.environ.get("LAFORGE_AGY_WORKDIR")
     if env:
         return env
@@ -1137,6 +1938,18 @@ def _env_git() -> dict:
     # GIT_CEILING_DIRECTORIES est GARDEE : elle ne detourne rien, elle borne la recherche du depot.
     return {k: v for k, v in _os.environ.items()
             if not k.upper().startswith("GIT_") or k.upper() == "GIT_CEILING_DIRECTORIES"}
+
+
+def _hors_alpha(workdir: str) -> list:
+    """["--not", "alpha"] si la branche locale `alpha` existe dans le depot, sinon [] (comportement inchange)."""
+    import subprocess as _sp
+    try:
+        r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-parse", "--verify", "-q",
+                     "refs/heads/alpha"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=20, env=_env_git())
+    except Exception:  # noqa: BLE001 - illisible : pas d'exclusion, comportement d'avant
+        return []
+    return ["--not", "refs/heads/alpha"] if r.returncode == 0 and r.stdout.strip() else []
 
 
 class _EtatGit(tuple):
@@ -1196,8 +2009,10 @@ def _effet_observe(workdir: str, avant: tuple) -> str:
             # branche de l'agent comptait toute l'histoire qu'elle apporte -- « commits produits : 1338 » pour une
             # delegation qui n'avait RIEN committe de son travail (5 fichiers laisses non commites), verdict SUCCESS.
             plage = "%s..%s" % (h_av, h_ap)
+            # 22/10 : un ff-only / rebase sur alpha rend alpha LINEAIRE dans HEAD ; `--not alpha` ecarte tout ce
+            # qu'alpha contient deja (ce n'est pas le travail du delegue).
             r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "rev-list", "--count", "--first-parent",
-                         "--no-merges", plage, "--"], capture_output=True, text=True,
+                         "--no-merges", plage, *_hors_alpha(workdir), "--"], capture_output=True, text=True,
                         encoding="utf-8", errors="replace", timeout=20, env=_env_git())
             # rc VERIFIE (2026-10-02, CI de reference f340e9ca4) : `int(stdout or 0)` faisait d'un
             # rev-list en ECHEC « 0 commit » -- HEAD avait bouge, l'effet etait annonce nul.
@@ -1220,6 +2035,22 @@ def _effet_observe(workdir: str, avant: tuple) -> str:
 _INTENTS_NON_FAITS = ("NEED_HUMAN_APPROVAL", "NEED_CLARIFY", "BUDGET_EXCEEDED")
 
 
+_RE_POINTER = re.compile(r'\\?"pointer_ref\\?"\s*:\s*\\?"([^"]+)')
+_RE_INTENT = re.compile(r'\\?"intent\\?"\s*:\s*\\?"([A-Z_]+)')
+
+
+def _pointer_refs(reponse: str) -> list[str]:
+    """Tous les `pointer_ref` d'une reponse, en clair OU echappes.
+
+    22/10 : CLAUDE_HEADLESS (`claude -p` stream-json) rend le JSON final dans le champ `result` du flux, donc
+    echappe ; la regex stricte etait muette -> [RIEN PRODUIT] sur un rapport existant (job_dd56ab31...)."""
+    return [r.rstrip("\\") for r in _RE_POINTER.findall(reponse or "")]
+
+
+def _a_pointer_ref(reponse) -> bool:
+    return bool(_RE_POINTER.search(str(reponse or "")))
+
+
 def _non_livre(effet: str, reponse: str) -> str | None:
     """Motif « NON LIVRE » si la delegation n'a produit AUCUN commit propre mais laisse du travail non committe,
     sans pointer d'artefact. None sinon.
@@ -1229,12 +2060,57 @@ def _non_livre(effet: str, reponse: str) -> str | None:
     n'est ni relisible par le hub (ACL) ni fusionnable : DECLARE n'est pas ACHIEVED. Une tache de rapport qui
     pointe son artefact (`pointer_ref`) est jugee par `_artefact_declare_absent`, pas ici."""
     m = re.search(r"commits produits : (\d+) \([^)]*\) ; fichiers non commites : (\d+)", effet or "")
-    if not m or m.group(1) != "0" or int(m.group(2)) == 0 or '"pointer_ref"' in (reponse or ""):
+    if not m or m.group(1) != "0" or int(m.group(2)) == 0 or _pointe_un_artefact(reponse):
         return None
     return "[NON LIVRE] aucun commit propre, %s fichier(s) non committe(s)" % m.group(2)
 
 
-def _rien_produit(effet: str, reponse: str) -> str | None:
+def _pointe_un_artefact(reponse) -> bool:
+    """Le dernier `pointer_ref` designe-t-il un ARTEFACT (chemin, sha, autre registre) ?
+
+    28/10 (job_22f3db0c) : OPENCODE_DEFAUT2 a rendu OK_DONE en declarant 4 fichiers crees, aucun n'existait ;
+    son pointeur « forge_introspect_performance_plan » (mot nu) suffisait a sauter NON LIVRE. Un mot nu et un
+    `tasks.db:` ne designent pas un livrable ; un chemin, un sha et un autre registre (bb:, rag:, URL) si."""
+    refs = _pointer_refs(reponse)
+    if not refs:
+        return False
+    for morceau in _morceaux_ref(refs[-1]):
+        ref = morceau.strip()
+        if not ref or ref.startswith("tasks.db:"):
+            continue
+        if ("://" in ref or re.search(r"[\\/]", ref) or re.search(r"\.[A-Za-z0-9]{1,6}$", ref)
+                or re.search(r"(?:^|@)[0-9a-fA-F]{7,40}$", ref) or re.match(r"^[A-Za-z][A-Za-z0-9_.]{1,20}:", ref)):
+            return True
+    return False
+
+
+# `pas` RETIRE (26/10) : « ne cree pas de systeme parallele » est une contrainte de conception, et la classait en
+# lecture seule -> OK_DONE a 0 commit (job_d0021c97). NR test_juge_lecture_seule_contrainte_de_conception_nr.
+_RE_LECTURE_SEULE = re.compile(r"lecture[\s-]+seule|read[\s-]?only|ne\s+(?:modifie|cree|[eé]cris)\s+(?:aucun|rien)|"
+                               r"sans\s+(?:rien\s+)?(?:modifier|[eé]crire)", re.I)
+_RE_LIVRABLE = re.compile(r"\bcommit|\brapport\b|\blivrable|\b[eé]cri(?:s|re|t|vez)\b|\bcr[eé]e[rz]?\b|\bfichier|"
+                          r"\bmodifie[rz]?\b|\bimpl[eé]mente", re.I)
+
+
+# « livrable juge sur le commit » ajoute le 27/10 (job_d0021c97 : cette formule ne nommait rien -> OK_DONE a 0 commit).
+_RE_LIVRABLE_NOMME = re.compile(r"livrable\s+obligatoire|\bcommitt?[eé]e?\b|\blivrable\s*:\s*\S|pointer_ref\W{0,4}commit:|"
+                                r"livrable\s+jug[eé]\s+sur\s+(?:le\s+)?commit", re.I)
+
+
+def _lecture_seule(desc: str) -> bool:
+    """La consigne DIT qu'elle est en lecture seule : la tache se juge alors sur son rapport (inchange)."""
+    return bool(_RE_LECTURE_SEULE.search(str(desc or "")))
+
+
+def _exige_livrable(desc: str) -> bool:
+    """La consigne exige un livrable ECRIT (commit, fichier, rapport) et n'est pas explicitement en lecture seule."""
+    d = str(desc or "")
+    if _RE_LIVRABLE_NOMME.search(d):
+        return True     # 24/10 (job_73a41438) : livrable NOMME > « ne modifie aucun code » (qui vise le code, pas le livrable)
+    return bool(_RE_LIVRABLE.search(d)) and not _lecture_seule(d)
+
+
+def _rien_produit(effet: str, reponse: str, desc: str | None = None) -> str | None:
     """« [RIEN PRODUIT] » si la delegation n'a laisse ni commit ni fichier et ne pointe aucun artefact. None sinon.
 
     2026-10-20 (job_aa2229e3) : un diff rendu EN TEXTE, tronque a 8000 caracteres avec sa ligne finale, est sorti
@@ -1242,17 +2118,24 @@ def _rien_produit(effet: str, reponse: str) -> str | None:
     n'est pas une livraison. Une reponse qui pointe son artefact (`pointer_ref`) reste jugee par les gardes d'artefact.
     Sans commit produit, un pointeur de commit ne designe pas la livraison (20/10, GREEN livre par MISTRAL)."""
     m = re.search(r"commits produits : (\d+) \([^)]*\) ; fichiers non commites : (\d+)", effet or "")
-    refs = re.findall(r'"pointer_ref"\s*:\s*"([^"]+)"', reponse or "")
-    if not m or m.group(1) != "0" or m.group(2) != "0" or (
-            refs and not re.match(r"^(commit:|\S+@[0-9a-fA-F]{7,40}\b)", refs[-1].strip())):
+    refs = _pointer_refs(reponse)
+    if not m or m.group(1) != "0" or m.group(2) != "0":
         return None
-    return "[RIEN PRODUIT] ni commit ni fichier, et aucun artefact pointe : une reponse sans effet n'est pas livree"
+    if refs and not re.match(r"^(commit:|\S+@[0-9a-fA-F]{7,40}\b)", refs[-1].strip()):
+        # 24/10 (job_cedfb687, MISTRAL) : quand la consigne EXIGE un livrable ecrit, un pointeur sans fichier
+        # (tasks.db:, bb:, texte) ne prouve rien -- seul un chemin de fichier reste juge par les gardes d'artefact.
+        r = refs[-1].strip()
+        chemin = (bool(re.search(r"[\\/]", r) or re.search(r"\.[A-Za-z0-9]{1,6}$", r)) and "://" not in r
+                  and not r.startswith("tasks.db:") and not re.match(r"^[A-Za-z][A-Za-z0-9_.]{1,20}:(?![\\/])", r))
+        if not (desc is not None and _exige_livrable(desc) and not chemin):
+            return None
+    return "[RIEN PRODUIT] (RIEN_PRODUIT) ni commit ni fichier, et aucun artefact pointe : une reponse sans effet n'est pas livree"
 
 
 def _intention_finale(texte: str) -> str | None:
     """Dernier intent M2M ecrit dans un texte (`"intent": "X"`), quel qu'il soit ; None : l'agent n'a rien conclu.
     Parseur UNIQUE : _intent_rendu en est la vue « pas fait », la relance OpenCode la vue « rien conclu »."""
-    trouves = re.findall(r'"intent"\s*:\s*"([A-Z_]+)"', texte or "")
+    trouves = _RE_INTENT.findall(texte or "")
     return trouves[-1] if trouves else None
 
 
@@ -1268,6 +2151,34 @@ def _intent_rendu(reponse: str) -> str | None:
     return dernier if (dernier in _INTENTS_NON_FAITS or dernier.startswith("ERR_")) else None
 
 
+def _morceaux_ref(ref: str) -> list[str]:
+    """Un pointer_ref COMPOSITE (« <commit> + sandbox/workspace/x.md ») en morceaux ; un seul morceau sinon."""
+    morceaux = [m.strip() for m in re.split(r"\s+\+\s+", ref or "") if m.strip()]
+    return morceaux or [(ref or "").strip()]
+
+
+def _chemin_existe(p: Path, workdir: str) -> bool:
+    """Le chemin existe-t-il DANS le workdir de l'executeur ou le depot partage ? Un chemin qui sort des deux
+    (`..`, absolu etranger) n'est jamais lu : il compte absent."""
+    racines = []
+    for r in (workdir, ROOT):
+        try:
+            racines.append(Path(r).resolve())
+        except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 1689, exc_info=True)
+            continue
+    cands = [p] if p.is_absolute() else [Path(workdir) / p, ROOT / p]
+    for c in cands:
+        try:
+            rc = c.resolve()
+            if any(rc == r or r in rc.parents for r in racines) and c.exists():
+                return True
+        except OSError:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 1697, exc_info=True)
+            continue
+    return False
+
+
 def _artefact_declare_absent(reponse: str, workdir: str) -> str | None:
     """L'artefact que l'agent DECLARE (dernier `"pointer_ref"`) et qui n'existe PAS ; None sinon.
 
@@ -1277,12 +2188,25 @@ def _artefact_declare_absent(reponse: str, workdir: str) -> str | None:
     et un `<branche>@<sha>` ; un pointeur d'un autre type (tasks.db:, URL, cle de blackboard) n'est pas
     juge, et une verification ILLISIBLE n'accuse pas (None) : une sonde muette ne fabrique pas d'echec."""
     import subprocess as _sp
-    refs = re.findall(r'"pointer_ref"\s*:\s*"([^"]+)"', reponse or "")
+    refs = _pointer_refs(reponse)
     if not refs:
         return None
-    ref = refs[-1].strip()
+    for morceau in _morceaux_ref(refs[-1]):
+        motif = _ref_declare_absent(morceau, workdir)
+        if motif:
+            return motif
+    return None
+
+
+def _ref_declare_absent(ref: str, workdir: str) -> str | None:
+    """Jugement d'UN morceau de pointer_ref (voir _artefact_declare_absent)."""
+    import subprocess as _sp
+    ref = ref.strip()
     if not ref or ref.startswith("tasks.db:") or "://" in ref:
         return None
+    ref = re.sub(r"^commit\s+(?=[0-9a-fA-F]{7,40}$)", "", ref)
+    if re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
+        ref = "@" + ref
     # 16/10 (essai partage n°2) : « bb:architecture_rules/... » etait juge comme un FICHIER absent -> livraison
     # reelle classee ERR_INTERNAL. Un pointeur a schema (bb:, commit:, gh_run:, rag:...) designe un autre registre ;
     # une lettre de lecteur (C:\...) reste un chemin.
@@ -1305,12 +2229,7 @@ def _artefact_declare_absent(reponse: str, workdir: str) -> str | None:
         return "commit declare introuvable : %s" % ref if r.returncode == 1 else None
     if not re.search(r"[\\/]", ref) and not re.search(r"\.[A-Za-z0-9]{1,6}$", ref):
         return None     # ni chemin ni nom de fichier : pointeur d'un autre type
-    p = Path(ref)
-    candidats = [p] if p.is_absolute() else [Path(workdir) / p, ROOT / p]
-    try:
-        if any(c.exists() for c in candidats):
-            return None
-    except OSError:  # illisible : n'accuse pas
+    if _chemin_existe(Path(ref), workdir):
         return None
     return "fichier declare absent : %s" % ref
 
@@ -1320,10 +2239,14 @@ def _artefact_non_produit(reponse: str, workdir: str, avant) -> str | None:
     sans commit ni modification. None sinon.
     Revue adverse Codex (17/10, R3) : sans commit, pointer un fichier preexistant passait."""
     import subprocess as _sp
-    refs = re.findall(r'"pointer_ref"\s*:\s*"([^"]+)"', reponse or "")
+    refs = _pointer_refs(reponse)
     if not refs:
         return None
     ref = refs[-1].strip()
+    morceaux = _morceaux_ref(ref)
+    if len(morceaux) > 1:   # composite : le morceau CHEMIN (un commit/texte libre ne designe pas de fichier)
+        chemins = [m for m in morceaux if re.search(r"[\\/]", m) or re.search(r"\.[A-Za-z0-9]{1,6}$", m)]
+        ref = chemins[-1] if chemins else ""
     if not ref or ref.startswith("tasks.db:") or "://" in ref:
         return None
     if re.match(r"^[A-Za-z][A-Za-z0-9_.]{1,20}:(?![\\/])", ref):
@@ -1412,8 +2335,7 @@ def _clore_delegation(task_id: str, token: str, ok: bool, detail: str, intent: s
     intent = intent or ("OK_DONE" if ok else "ERR_INTERNAL")
     try:
         _hub_call("task", {"action": "result", "task_id": task_id, "intent": intent,
-                  "result": json.dumps({"intent": intent, "status_code": "SUCCESS" if ok else (
-                      "NEEDS_HUMAN" if intent == "NEED_HUMAN_APPROVAL" else "FAILURE"),
+                  "result": json.dumps({"intent": intent, "status_code": _statut_livraison(ok, detail, intent),
                   "pointer_ref": f"tasks.db:{task_id}", "detail": detail[:220]}, ensure_ascii=False)},
                   token, timeout=30)
     except Exception as e:  # noqa: BLE001
@@ -1422,7 +2344,108 @@ def _clore_delegation(task_id: str, token: str, ok: bool, detail: str, intent: s
                     f"-- tache close en base, emetteur non prevenu")
 
 
-_CONFIG_AGENT = (".vibe/", ".agy/", ".codex/", ".opencode/", "AGENTS.md", "GEMINI.md")
+_CONFIG_AGENT = (".vibe/", ".agy/", ".codex/", ".opencode/", "AGENTS.md", "GEMINI.md",
+                 ".claude_headless_mcp.json")
+
+# 22/10 (bb:architecture_rules/bug_juge_failure_avec_livraison_20261022) : le VERDICT d'une delegation se LIT sur
+# l'ARTEFACT produit -- un commit livre, un fichier modifie non committe -- et JAMAIS sur la seule absence de commit.
+# Mesure : job_0cd422a1 (1 commit livre, refuse au contenu) et job_af6dbf75 / job_818ec8d8 (travail juste, non
+# committe) rendus FAILURE : le travail EXISTAIT, il s'est perdu derriere un verdict d'echec.
+_LIVRE_NON_COMMITTE = "[LIVRE NON COMMITTE]"
+
+
+def _statut_artefact(effet: str) -> tuple:
+    """(commits produits, fichiers non commites) lus dans l'effet observe ; (None, None) si l'effet est illisible."""
+    m = re.search(r"commits produits\s*:\s*(\d+|ILLISIBLE)\s*\([^)]*\)\s*;\s*fichiers non commites\s*:\s*(\d+)",
+                  str(effet or ""))
+    if not m:
+        return None, None
+    c = m.group(1)
+    return (int(c) if c.isdigit() else None), int(m.group(2))
+
+
+def _chemins_travail(workdir: str) -> list:
+    """Chemins modifies ou non suivis du worktree, configuration d'agent EXCLUE (meme regle que le compte)."""
+    config = tuple(c.lower() for c in _CONFIG_AGENT)
+    out = []
+    for p in (_chemins_status(workdir) or ()):
+        rel = str(p).replace("\\", "/")
+        if rel.lower().startswith(config) or rel.rsplit("/", 1)[-1] == ".nokido.agent":
+            continue
+        out.append(rel)
+    return sorted(out)
+
+
+def _livres_non_committes(workdir: str) -> str:
+    """Marqueur LIVRE NON COMMITTE + la liste des fichiers du travail non committe (l'ARTEFACT, nomme)."""
+    fichiers = _chemins_travail(workdir)
+    if not fichiers:
+        return "%s (liste indisponible)" % _LIVRE_NON_COMMITTE
+    return "%s %d fichier(s) : %s" % (_LIVRE_NON_COMMITTE, len(fichiers), ", ".join(fichiers[:15]))
+
+
+def _statut_livraison(ok: bool, effet: str, intent: str | None = None) -> str:
+    """SUCCESS | PARTIEL | LIVRE_NON_COMMITTE | NEEDS_HUMAN | FAILURE -- le verdict se LIT sur l'ARTEFACT.
+
+    22/10 : un travail LIVRE n'est JAMAIS un FAILURE. Un commit sur la branche de l'executeur -> PARTIEL (le contenu
+    peut etre refuse, la livraison est la) ; des fichiers modifies non committes -> LIVRE_NON_COMMITTE (le travail
+    existe : il est committe ou sauvegarde) ; ni l'un ni l'autre -> FAILURE (la, rien n'a ete livre)."""
+    effet = str(effet or "")
+    if _LIVRE_NON_COMMITTE in effet:
+        return "LIVRE_NON_COMMITTE"
+    # 30/10 (job_db32d872) : 4 traductions remplacees par un message d'erreur d'outil, commit REFUSE par le garde
+    # (reecriture destructrice) -- et la tache sortait SUCCESS. Un commit refuse par l'executeur est A RELIRE.
+    if "commit executeur REFUSE" in effet:
+        return "NEEDS_HUMAN"
+    # 30/10 (job_84c166a1) : session AGY en echec, travail commite « INACHEVE a relire » par l'executeur -- et la
+    # tache sortait SUCCESS. Livre mais A RELIRE : PARTIEL, jamais un succes propre.
+    if "travail INACHEVE preserve" in effet:
+        return "PARTIEL"
+    # 30/10 (job_9b5d2a58) : claude -p « Not logged in », l'executeur ecrit [RIEN PRODUIT] -- et la tache sortait
+    # SUCCESS. Une reponse sans effet n'est pas livree.
+    if "[RIEN PRODUIT]" in effet:
+        return "FAILURE"
+    if ok:
+        return "SUCCESS"
+    if intent == "NEED_HUMAN_APPROVAL":
+        return "NEEDS_HUMAN"
+    c, _f = _statut_artefact(effet)
+    if c:
+        return "PARTIEL"
+    return "FAILURE"
+
+
+def _finaliser_effet(task_id, ok: bool, effet: str) -> bool:
+    """Point UNIQUE de toutes les voies (claude -p, opencode, vibe, codex, agy) : ECRIT verdict_effet en base et
+    rend `ok` force a False si l'effet porte RIEN_PRODUIT (0 commit, 0 fichier, aucun artefact) -> statut d'echec.
+    24/10 : la voie Vibe (job_f97e4be0) calculait l'effet sans l'ecrire. Ne leve jamais."""
+    effet = str(effet or "")
+    if "RIEN_PRODUIT" in effet or "[RIEN PRODUIT]" in effet:
+        ok = False
+    try:
+        conn = _db()
+        try:
+            ensure_trace_schema(conn)
+            conn.execute("UPDATE tasks SET verdict_effet=? WHERE id=?", (effet[:2000] or None, str(task_id)))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001 -- la trace ne doit jamais faire echouer la tache
+        log.warning(f"  verdict_effet NON ecrit pour {str(task_id)[:24]} ({type(e).__name__}): {e}")
+    return bool(ok)
+
+
+def _aucun_effet(effet: str, detail: str) -> bool:
+    """VRAI si la delegation n'a produit NI commit NI fichier non committe, et ne pointe aucun artefact.
+
+    22/10 : un travail laisse non committe EST un effet (job_af6dbf75) -- le compter comme « aucun effet » en
+    faisait une livraison ratee."""
+    if _a_pointer_ref(detail):
+        return False
+    c, f = _statut_artefact(effet)
+    if c is None or f is None:
+        return True      # effet illisible : rien n'est PROUVE (comportement historique)
+    return c == 0 and f == 0
 
 
 def _tests_autorises(desc: str) -> list:
@@ -1446,7 +2469,7 @@ def _contenu_livre(workdir: str, avant, autorises=None) -> "str | None":
         return _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, *a], capture_output=True, text=True,
                        encoding="utf-8", errors="replace", timeout=20, env=_env_git())
 
-    r = _g("rev-list", "--first-parent", "--no-merges", "%s..%s" % (h_av, h_ap), "--")
+    r = _g("rev-list", "--first-parent", "--no-merges", "%s..%s" % (h_av, h_ap), *_hors_alpha(workdir), "--")
     if r.returncode != 0:
         return "[CONTENU ILLISIBLE] rev-list rc=%s : rien n'est prouve sur ce qui a ete livre" % r.returncode
     statuts = {}
@@ -1501,7 +2524,94 @@ def _contenu_livre(workdir: str, avant, autorises=None) -> "str | None":
     return None
 
 
-def _juger_livraison(ok: bool, detail: str, workdir: str, avant, autorises=None) -> tuple:
+_RE_EXIGE_TDD = re.compile(r"\bTDD\b|\bRED\b|test d'abord|test d.abord", re.I)
+
+
+def _red_non_observe(desc, workdir: str, avant) -> "str | None":
+    """Motif RED_NON_OBSERVE si la consigne exige du TDD ET qu'un commit de la livraison consigne « DEJA VERTS »
+    (rejeu sur le commit RED). INDETERMINE / ROUGE / sans exigence TDD : None (inchange)."""
+    if not desc or not _RE_EXIGE_TDD.search(str(desc)):
+        return None
+    h_av = (avant or (None,))[0]
+    if not h_av:
+        return None
+    import subprocess as _sp
+    try:
+        r = _sp.run(["git", "-c", "safe.directory=*", "-C", str(workdir), "log", "--format=%B", "%s..HEAD" % h_av],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, env=_env_git())
+    except Exception:  # noqa: BLE001 - mesure douteuse : on n'accuse pas
+        return None
+    if r.returncode != 0 or "DEJA VERTS" not in (r.stdout or ""):
+        return None
+    return "[RED_NON_OBSERVE] TDD exige mais tests DEJA VERTS sur le commit RED : code ecrit avant le test"
+
+
+_MARQUEUR_CONTRAT = "[LIVRABLE_CONTRAT]"
+_TYPES_LIVRABLE = ("commit", "fichier", "tests_verts", "aucun")
+
+
+def _contrat_livrable(desc) -> dict | None:
+    """Contrat de livrable STRUCTURE pose par l'appelant (task assign). Le PREMIER marqueur fait foi.
+    None si absent ou illisible (repli sur l'heuristique textuelle)."""
+    d = str(desc or "")
+    i = d.find(_MARQUEUR_CONTRAT)
+    if i < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(d[i + len(_MARQUEUR_CONTRAT):].lstrip())
+        liv = obj.get("livrable") if isinstance(obj, dict) else None
+    except Exception:  # noqa: BLE001 - illisible : repli
+        return None
+    if not isinstance(liv, dict) or liv.get("type") not in _TYPES_LIVRABLE:
+        return None
+    ch = liv.get("chemins")
+    return {"type": liv["type"], "chemins": [str(c) for c in ch] if isinstance(ch, list) else []}
+
+
+def _tests_verts_ok(sortie) -> bool:
+    s = str(sortie or "")
+    return bool(re.search(r"\bpassed\b", s)) and not re.search(r"\bfailed\b", s)
+
+
+_RE_FAUSSE_REPONSE = re.compile(
+    r"<think(?:ing)?>|</think(?:ing)?>|json-?rpc error|-32603|provider overloaded|surcharg|internal error", re.I)
+
+
+def _verdict_contrat(contrat: dict, detail: str, workdir: str, effet: str) -> str | None:
+    """Motif de rejet (RIEN_PRODUIT) du contrat structure, ou None si respecte."""
+    import subprocess as _sp
+    t = contrat["type"]
+    if t == "aucun":
+        return None
+    txt = str(detail or "")
+    if not txt.strip():
+        return "rapport vide"
+    if _RE_FAUSSE_REPONSE.search(txt):
+        return "reponse = erreur de proxy ou trace de raisonnement, pas un compte rendu"
+    if t == "tests_verts":
+        return None if _tests_verts_ok(txt) else "sortie pytest sans 'passed' ou avec 'failed'"
+    m = re.search(r"commits produits : (\d+)", effet or "")
+    if not m or m.group(1) == "0":
+        return "0 commit produit"
+    for c in contrat["chemins"]:
+        try:
+            r = _sp.run(["git", "-c", "safe.directory=*", "-C", workdir, "cat-file", "-s", "HEAD:" + c],
+                        capture_output=True, text=True, errors="replace", timeout=20, env=_env_git())
+        except Exception as e:  # noqa: BLE001
+            return "git illisible (%s)" % type(e).__name__
+        if r.returncode != 0:
+            return "chemin attendu absent de l'arbre : %s" % c
+        if t == "fichier" and r.stdout.strip() == "0":
+            return "chemin attendu vide : %s" % c
+    return None
+
+
+# Le REFUS du depot seulement (hook pre-commit, gate) : « IMPOSSIBLE : status illisible » et « ECHOUE (exception) »
+# restent jugees par les gardes d'effet ([AUCUN EFFET] -> VIDE), test_codex_sans_effet_n_est_pas_un_succes.
+_RE_COMMIT_REFUSE = re.compile(r"commit executeur REFUSE rc=")
+
+
+def _juger_livraison(ok: bool, detail: str, workdir: str, avant, autorises=None, desc: str | None = None) -> tuple:
     """Jugement COMMUN d'une delegation (AGY, CODEX) sur ce qu'elle a LIVRE, pas sur ce qu'elle dit.
     Rend (ok, effet, intent_rendu). Extrait de `_delegate_to_agy` le 16/10 : une seconde voie qui le
     recopierait divergerait de la premiere en silence."""
@@ -1519,18 +2629,35 @@ def _juger_livraison(ok: bool, detail: str, workdir: str, avant, autorises=None)
         effet = "%s ; %s" % (effet, non_produit)
     # Garde d'ACCUSE DE RECEPTION (2026-10-02, bb:delegate_agy_sans_garde_accuse) : une promesse sans compte
     # rendu est un echec NOMME. Une reponse qui pointe un artefact est jugee par le controle ci-dessus.
-    if (not rendu and not absent and not non_produit and '"pointer_ref"' not in str(detail)
+    if (not rendu and not absent and not non_produit and not _a_pointer_ref(detail)
             and _est_accuse_reception(str(detail))):
         ok = False
         effet = "%s ; [ACCUSE DE RECEPTION] promesse sans compte rendu" % effet
     nl = None if (rendu or absent or non_produit) else _non_livre(effet, str(detail))
     if nl:
-        ok = False      # du travail laisse non committe n'est ni relisible ni fusionnable (2026-10-13)
-        effet = "%s ; %s" % (effet, nl)
+        # 22/10 : du travail laisse non committe n'est pas un ECHEC, c'est une livraison PARTIELLE -- le verdict se
+        # LIT sur l'ARTEFACT. L'executeur le committe ou le SAUVE (`_preserver_livraison`) : il ne doit plus
+        # disparaitre derriere un FAILURE (job_af6dbf75, job_818ec8d8, job_d7d57967).
+        effet = "%s ; %s ; %s" % (effet, nl, _livres_non_committes(workdir))
     if not rendu and "REFUSE par le scorecard" in str(detail):
         ok = False      # 20/10 (job_2a6a27b3) : le pointer_ref exemptait _non_livre ; un refus du scorecard est NOMME
         effet = "%s ; [SCORECARD REFUSE] commit de l'executeur refuse, travail laisse non livre" % effet
-    rien = None if (rendu or absent or non_produit or nl) else _rien_produit(effet, str(detail))
+    elif not rendu and _RE_COMMIT_REFUSE.search(str(detail)):
+        # 24/10 : le gate qualite du pre-commit bloquait le worktree claude_headless ; 4 delegations sorties OK avec
+        # 0 commit. Un commit refuse par le depot (hook, gate), echoue ou impossible est un ECHEC NOMME, pointeur ou non.
+        ok = False
+        effet = "%s ; [COMMIT REFUSE] commit de l'executeur refuse par le depot, travail laisse non livre" % effet
+    contrat = _contrat_livrable(desc) if desc is not None else None
+    if desc is not None and contrat is None:
+        logging.getLogger(__name__).warning("juge: pas de contrat de livrable structure, repli sur l'heuristique "
+                                            "textuelle (livrable non declare hors bande)")
+    rien = None
+    if contrat is not None:
+        motif = None if rendu else _verdict_contrat(contrat, str(detail), workdir, effet)
+        if motif:
+            rien = "[RIEN PRODUIT] (RIEN_PRODUIT) contrat livrable %s : %s" % (contrat["type"], motif)
+    elif not (rendu or absent or non_produit or nl):
+        rien = _rien_produit(effet, str(detail), desc)
     if rien:
         ok = False      # ni commit ni fichier ni artefact pointe : DECLARE n'est pas ACHIEVED (2026-10-20)
         effet = "%s ; %s" % (effet, rien)
@@ -1541,6 +2668,11 @@ def _juger_livraison(ok: bool, detail: str, workdir: str, avant, autorises=None)
         effet = "%s ; %s" % (effet, contenu)
     elif autorises and not (rendu or absent or nl or non_produit):
         effet = "%s ; [tests modifies AUTORISES par la tache] %s" % (effet, ", ".join(autorises))
+    if ok and not rendu:
+        rnn = _red_non_observe(desc, workdir, avant)
+        if rnn:
+            ok = False      # PARTIEL (le code peut etre bon), jamais OK_DONE
+            effet = "%s ; %s" % (effet, rnn)
     return bool(ok), effet, rendu
 
 
@@ -1548,7 +2680,7 @@ def _juger_livraison(ok: bool, detail: str, workdir: str, avant, autorises=None)
 # resultat »). Liste BLANCHE : seul un vide PROUVE par le juge de livraison est VIDE ; une panne d'infrastructure n'est
 # pas la faute du repondeur (19/10 : 429 et sessions muettes chez des modeles qui livraient la veille) -> INCONNU.
 _RE_PANNE_INFRA = re.compile(r"harness MUET|erreur ACP|TimeoutError|timeout en attente|\b429\b|\b402\b|Too Many "
-                             r"Requests|Payment Required|session occupee|jeton absent", re.I)
+                             r"Requests|Payment Required|session occupee|jeton absent|authentication failed|not logged in|unauthorized|\b401\b", re.I)
 # [RIEN PRODUIT] (20/10) passe AVANT le garde [AUCUN EFFET] des voies Codex / Vibe / OpenCode : absent d'ici, il
 # rabattait une livraison vide de VIDE a INCONNU.
 _MARQUES_VIDE = ("[AUCUN EFFET]", "[RIEN PRODUIT]", "[LIVRAISON VIDE]", "[ACCUSE DE RECEPTION]", "[artefact ABSENT]")
@@ -1560,7 +2692,7 @@ def verdict_automatique(ok: bool, effet: str, detail: str, rendu) -> str | None:
     if ok:
         return None
     effet, detail = str(effet), str(detail)
-    if "REFUSE par le scorecard" in detail:
+    if "REFUSE par le scorecard" in detail or "[RED_NON_OBSERVE]" in effet:
         return None
     if "[TESTS TOUCHES]" in effet or "[SYNTAXE INVALIDE]" in effet:
         return "REJETEE"
@@ -1655,11 +2787,98 @@ def lire_sortie_agy(raw: str) -> tuple:
     if str(d.get("status", "")).upper() == "SUCCESS":
         if reponse:
             return True, reponse
-        refus = ", ".join(str(a.get("action") or a) if isinstance(a, dict) else str(a)
-                          for a in (d.get("denied_actions") or []))
+        # 31/10 (job_add2906f) : coupe par son --print-timeout en plein tour, agy rend « SUCCESS » a reponse vide ; lu
+        # « REPONSE VIDE », le TIMEOUT etait masque -- et la consigne trop lourde avec lui.
+        if str(d.get("finished_reason") or "").lower() == "print_timeout":
+            return False, "[TIMEOUT] agy print_timeout apres %ss, tour en cours, reponse vide" % (
+                int(float(d.get("duration_seconds") or 0)))
+        # 30/10 : le NOM de l'outil seul (« read_file ») ne disait pas QUOI etait refuse -- 4 taches AGY perdues sans
+        # savoir si le chemin sortait du worktree. Les autres champs du refus (chemin, arguments) sont rendus, tronques.
+        def _un_refus(a) -> str:
+            if not isinstance(a, dict):
+                return str(a)[:200]
+            reste = {k: v for k, v in a.items() if k != "action"}
+            return "%s%s" % (a.get("action") or "?", (" " + json.dumps(reste, ensure_ascii=False)[:200]) if reste else "")
+
+        refus = ", ".join(_un_refus(a) for a in (d.get("denied_actions") or []))
         return False, "[REPONSE VIDE] agy SUCCESS sans reponse%s" % (" ; actions refusees par le bac : " + refus
                                                                      if refus else "")
     return False, reponse or str(d.get("error") or "")[:400] or str(raw)[:400]
+
+
+def _bin_agy() -> str:
+    """Binaire AGY : `LAFORGE_AGY_BIN`, sinon l'installation ABSOLUE de l'owner (jamais le PATH du
+    compte de service, qui ne montre pas le profil de l'owner). Source UNIQUE : la facade
+    headless reprend CE binaire, elle n'en invente pas un autre."""
+    return os.environ.get("LAFORGE_AGY_BIN", r"%USERPROFILE%\AppData\Local\agy\bin\agy.exe")
+
+
+def _effort_agy(desc: str = "") -> str:
+    """Effort AGY : `low|high` SEULEMENT (gemini-3.1-pro refuse `medium`).
+
+    30/10 (owner : « adapter l'effort selon la tache, AGY je le paye aussi ») : une petite tache whoami a coute
+    405 k tokens et 611 s sous `high`. L'effort suit la TAILLE declaree (`_taille_tache`) : L -> high ; S, M ou non
+    declaree -> low. `LAFORGE_AGY_EFFORT` (low|high) reste un forcage explicite."""
+    force = os.environ.get("LAFORGE_AGY_EFFORT", "")
+    if force in ("low", "high"):
+        return force
+    try:   # LA table unique (levier A, owner 23/10) : aucune valeur dispersee ici
+        try:
+            from forge_palier_effort import resoudre
+        except ImportError:
+            from tools.forge_palier_effort import resoudre
+        eff = resoudre("agy", _taille_tache(desc) or "M").get("effort")
+    except Exception as e:  # noqa: BLE001 - table illisible : DIT, et l'effort le plus econome
+        log.warning(f"  effort AGY : table forge_palier_effort ILLISIBLE ({type(e).__name__}) -- low")
+        eff = None
+    return eff if eff in ("low", "medium", "high") else "low"
+
+
+def _modele_agy(desc: str = "") -> str | None:
+    """Modele AGY de LA table (`forge_palier_effort`) selon la taille ; `LAFORGE_AGY_MODEL` = forcage explicite.
+    30/10 : sans `--model`, chaque tache AGY tournait sur le /model de l'owner (Gemini 4 Argon : vide les tokens)."""
+    force = os.environ.get("LAFORGE_AGY_MODEL", "")
+    if force:
+        return force
+    try:
+        try:
+            from forge_palier_effort import resoudre
+        except ImportError:
+            from tools.forge_palier_effort import resoudre
+        return resoudre("agy", _taille_tache(desc) or "M").get("modele")
+    except Exception as e:  # noqa: BLE001 - table illisible ou modele hors quota : DIT, defaut du binaire
+        log.warning(f"  modele AGY : table forge_palier_effort ILLISIBLE ou refus ({type(e).__name__}) -- defaut agy")
+        return None
+
+
+_RE_CHEMIN_DEPOT = re.compile(r"(?<![\w\\/:.<>-])((?:app|tools|tests|docs|config)[\\/][\w.\-\\/]*[\w\-])")
+
+
+def _absolutiser_chemins(desc: str, workdir: str) -> str:
+    """Chemins RELATIFS du depot cites dans une consigne (`app/x.py`, `tests\\nr\\y.py`) -> absolus sous `workdir`.
+
+    30/10 : `read_file` d'AGY refuse tout chemin relatif et agy s'arrete a la PREMIERE action refusee ; seule une
+    consigne portant le chemin absolu complet a lu (sonde 18b65b0c6). Chemins deja absolus et URL : intacts."""
+    base = str(workdir).rstrip("\\/")
+    return _RE_CHEMIN_DEPOT.sub(lambda m: base + "\\" + m.group(1).replace("/", "\\"), str(desc or ""))
+
+
+def _conserver_sortie_agy(task_id: str, r) -> str:
+    """Ecrit la sortie BRUTE d'agy (stdout/stderr/rc) dans sandbox/jobs/agy_<tache>.json ; rend le chemin ou "".
+
+    30/10 (sonde job_ce55a33f) : la reaffectation ecrasait le resultat dans tasks.db, et avec lui la seule preuve du
+    chemin refuse par le bac. La preuve est ecrite AVANT tout jugement ; un echec d'ecriture se DIT dans le journal."""
+    try:
+        d = ROOT / "sandbox" / "jobs"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / ("agy_%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))[:80])
+        p.write_text(json.dumps({"rc": getattr(r, "returncode", None), "stdout": (getattr(r, "stdout", "") or "")[-200000:],
+                                 "stderr": (getattr(r, "stderr", "") or "")[-50000:], "ts": time.time()},
+                                ensure_ascii=False), encoding="utf-8")
+        return str(p)
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"  DELEGATE {str(task_id)[:24]} -> sortie brute agy NON conservee ({type(e).__name__})")
+        return ""
 
 
 def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
@@ -1671,15 +2890,20 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     import subprocess as _sp
     import os as _os
     task_id = task["id"]
-    desc = _extract_message(task["description"] or "") or (task["description"] or "")
+    desc = _avec_carte_attention(_extract_message(task["description"] or "") or (task["description"] or ""))
 
     def _fin(ok: bool, detail: str, intent: str | None = None) -> None:
         _clore_delegation(task_id, token, ok, detail, intent)
 
-    agy_bin = _os.environ.get("LAFORGE_AGY_BIN", r"%USERPROFILE%\AppData\Local\agy\bin\agy.exe")
+    agy_bin = _bin_agy()
     if not _os.path.exists(agy_bin):
         return _fin(False, f"agy introuvable: {agy_bin}")
     workdir = _workdir_agy()
+    desc = _absolutiser_chemins(desc, workdir)   # 30/10 : read_file d'AGY refuse les chemins relatifs
+    _hors = _chemins_hors_bac(desc, workdir)
+    if _hors:
+        log.warning(f"  DELEGATE {task_id[:24]} -> consigne cite {len(_hors)} chemin(s) HORS du bac de lecture agy "
+                    f"(read_file y sera refuse) : {', '.join(_hors[:5])}")
     # B1 (2026-09-12) — VERROU DE RESSOURCE REELLE, pas d'identite.
     # agy est lance ici avec --add-dir <workdir> + --dangerously-skip-permissions :
     # il ECRIT dans ce repertoire. Deux agy concurrents sur le MEME repertoire
@@ -1713,9 +2937,7 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     # faisait rendre agy "invalid model selection" (mesure 2026-08-13, 1er delegate
     # ANTIGRAVITY reussi). On borne donc aux valeurs valides, defaut "high" (qualite
     # de debat) — un effort inconnu est rabattu sur high plutot que de casser l'appel.
-    _eff = _os.environ.get("LAFORGE_AGY_EFFORT", "high")
-    if _eff not in ("low", "high"):
-        _eff = "high"
+    _eff = _effort_agy(desc)
     # SESSION CONTINUE — PAR LOT EXPLICITE, JAMAIS PAR DEFAUT (arbitrage owner, 2026-09-18).
     #
     # Mesure du jour, agy interroge sur ses propres capacites : il n'a PAS `--experimental-acp`,
@@ -1730,15 +2952,43 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     # L'emetteur declare donc son intention en tete de tache, et c'est LUI qui porte la
     # responsabilite de la coherence du lot.
     _continu = desc.lstrip().upper().startswith("LOT_CONTINU")
-    cmd = [agy_bin, "--print", desc[:29000] + _CONSIGNE_SANS_COMMANDE_AGY, "--add-dir", workdir,
-           *_agy_permission_args(), "--output-format", "json",
+    # 30/10 (patron « Worktree mode » de Codex, veille wj_568a0b05f9 ; mesure owner cmd-041b15585ee8) : agy tourne DANS
+    # le worktree de tache, qui devient SON projet (--new-project, cwd=workdir). Avec --add-dir, son projet restait le
+    # worktree habituel : lectures du worktree de tache refusees en headless, ecritures au mauvais endroit.
+    # 30/10 (chasse aux tokens) : PREFIXE STABLE en tete -- regles fixes de l'executeur, puis chemin, puis la consigne
+    # variable -- pour que le cache de prefixe du fournisseur serve d'une tache a l'autre ; --disable-slash-commands :
+    # une tache deleguee porte sa consigne complete, les skills developpees a chaque lancement ne sont que du contexte.
+    cmd = [agy_bin, "--print", _consigne_agy(workdir) + "\n\n[Tache]\n" + desc[:29000], "--new-project",
+           "--disable-slash-commands", *_agy_permission_args(), "--output-format", "json",
            "--effort", _eff]
+    _mod = _modele_agy(desc)
+    if _mod:
+        cmd += ["--model", _mod]
+    # 30/10 : 9 taches mortes sur « read_file » refuse sans que ni denied_actions ni stderr nomment le fichier ; le
+    # journal de session d'agy (--log-file) est la seule trace du chemin refuse.
+    _journal_agy = ROOT / "sandbox" / "jobs" / ("agy_%s.log" % re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))[:80])
+    cmd += ["--log-file", str(_journal_agy)]
+    # 30/10 (point 3, chasse aux tokens) : le catalogue MCP complet (> 80 outils) repartait a chaque tour ; une tache
+    # deleguee n'a besoin que du socle + l'edition de code. Deterministe, sans embedder ; un echec se DIT.
+    try:
+        try:
+            from nokido_agent.app.forge_tool_scope import set_scope_groupe
+        except ImportError:
+            from forge_tool_scope import set_scope_groupe
+        with _lock_tool_scope:
+            _sc = set_scope_groupe("ANTIGRAVITY", "edition_code")
+        log.info(f"  DELEGATE {task_id[:24]} -> outils MCP bornes : {_sc.get('intent_code')} ({_sc.get('n_tools')})")
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"  DELEGATE {task_id[:24]} -> scope MCP NON pose ({type(e).__name__}) : catalogue complet")
     if _continu:
         cmd.append("--continue")
         log.info(f"  DELEGATE {task_id[:24]} -> LOT_CONTINU : session reprise (--continue)")
     log.info(f"  DELEGATE {task_id[:24]} -> AGY agent (add-dir={workdir})")
     _avant = _etat_git(workdir)
     _sales_avant = _chemins_status(workdir) or frozenset()
+    # 30/10 : AGY ecrit dans son worktree HABITUEL quel que soit le chemin donne ; son etat est releve AVANT la tache
+    _habituel = str(ROOT.parent / "nokido_worktrees" / "antigravity")
+    _habituel_avant = _chemins_status(_habituel)
     try:
         # Le battement (bail de MISSION + pouls de l'EXECUTEUR) couvre TOUTE l'execution agy :
         # sans lui, une instruction de plus d'une heure fait relancer l'executeur en plein travail.
@@ -1751,19 +3001,39 @@ def _delegate_to_agy(task: sqlite3.Row, token: str) -> None:
     finally:
         if _jeton_wd and _lm is not None:
             _lm.liberer(_jeton_wd)
+    _rapatries = _rapatrier_ecrits_hors_tache(_habituel, workdir, _habituel_avant)
+    if _rapatries:
+        log.info(f"  DELEGATE {task_id[:24]} -> {len(_rapatries)} fichier(s) ecrit(s) par AGY dans son worktree "
+                 f"habituel, rapatries dans le worktree de tache : {', '.join(_rapatries[:6])}")
     raw = (r.stdout or "").strip() or (r.stderr or "").strip()
+    _brut = _conserver_sortie_agy(task_id, r)
     ok, detail = lire_sortie_agy(raw)
+    if not ok and _brut:
+        detail = "%s\n[executeur] sortie brute agy : %s" % (detail, _brut)
+    # 22/10 (bb:architecture_rules/bug_juge_failure_avec_livraison_20261022) : la session peut echouer APRES avoir
+    # ecrit (job_af6dbf75, job_818ec8d8) -- le travail produit est alors committe (marque INACHEVE) ou COPIE, jamais
+    # perdu derriere un FAILURE. `_preserver_livraison` sait deja faire les deux.
     if ok:
-        # 16/10 : sous --sandbox AGY ne lance aucune commande (RunCommand hors bac refuse) ; l'executeur committe
-        # ce que la tache a PRODUIT, jamais ce qui etait deja sale avant elle.
+        # 16/10 : sous --sandbox AGY ne lance aucune commande ; l'executeur committe ce que la tache a PRODUIT, jamais ce
+        # qui etait deja sale avant elle (contrat test_agy_worktree_et_effet_nr).
         _note = _committer_pour_agent(workdir, task_id, str(detail), "agy", exclus=_sales_avant)
-        if _note:
-            detail = "%s\n[executeur] %s" % (detail, _note)
+    else:
+        _note = _preserver_livraison(False, workdir, task_id, str(detail), "agy", exclus=_sales_avant)
+    if _note:
+        detail = "%s\n[executeur] %s" % (detail, _note)
     # Jugement COMMUN (16/10) : intent rendu, artefact absent, accuse de reception (le repli _relay_to_agy
     # refusait deja de clore sur « je vais chercher... » ; `agy --print` ne rend qu'UNE reponse), non livre.
-    ok, effet, rendu = _juger_livraison(bool(ok), str(detail), workdir, _avant, autorises=_tests_autorises(desc))
+    ok, effet, rendu = _juger_livraison(bool(ok), str(detail), workdir, _avant, autorises=_tests_autorises(desc), desc=desc)
+    ok = _finaliser_effet(task_id, ok, effet)
+    # 31/10 : la longueur seule (« KO (176 chars) ») rendait la cause ILLISIBLE ; sur un KO, la TETE du rendu est ecrite.
     log.info(f"  DELEGATE {task_id[:24]} -> AGY {'OK' if ok else 'KO'}{(' ' + rendu) if rendu else ''} "
-             f"({len(str(detail))} chars) {effet}")
+             f"({len(str(detail))} chars) {effet}" + ("" if ok else " | rendu : " + _tete_rendu(detail)))
+    motif = _motif_reaffectation_apres(bool(ok), effet, str(detail))
+    t_reaff = dict(task)
+    if not t_reaff.get("agent"):
+        t_reaff["agent"] = "ANTIGRAVITY"
+    if motif and _reaffecter(t_reaff, motif, ordre=_ORDRE_REPLI, rendu=str(detail)):
+        return
     # L'effet passe EN TETE : `_fin` tronque le detail a 220 caracteres pour le M2M.
     _fin(bool(ok), "%s | %s" % (effet, detail), intent=rendu)
 
@@ -1784,12 +3054,15 @@ _HARNESS_JOBS = ROOT / "sandbox" / "harness_jobs"
 _POLL_HARNESS_S = 5
 LAFORGE_HARNESS_ATTENTE_FILE_S = int(os.environ.get("LAFORGE_HARNESS_ATTENTE_FILE_S", "1800"))
 _quota_codex_dit = {"jour": None}
+_lock_codex_quota = threading.Lock()
 
 
 def _workdir_codex() -> Path:
     """Worktree DEDIE de Codex (creation = geste OWNER, branche agent/codex). PAS de repli sur la racine partagee,
     a la difference d'AGY : un agent qui ecrit hors de son claim empeche tout verdict de CI de se rattacher a un
     commit (RULES_SHARED, 2026-09-07)."""
+    if _WT_TACHE.get() is not None:
+        return Path(_WT_TACHE.get())
     env = os.environ.get("LAFORGE_CODEX_WORKDIR")
     return Path(env) if env else ROOT.parent / "nokido_worktrees" / "codex"
 
@@ -1809,11 +3082,12 @@ def _quota_codex(jour: str | None = None) -> int:
 
 def _consommer_quota_codex(jour: str | None = None) -> int:
     """Compte un LANCEMENT (quel que soit son effet). Un seul jour est garde : le compteur repart chaque jour."""
-    jour = jour or time.strftime("%Y-%m-%d")
-    n = _quota_codex(jour) + 1
-    _CODEX_QUOTA.parent.mkdir(parents=True, exist_ok=True)
-    _CODEX_QUOTA.write_text(json.dumps({jour: n}), encoding="utf-8")
-    return n
+    with _lock_codex_quota:
+        jour = jour or time.strftime("%Y-%m-%d")
+        n = _quota_codex(jour) + 1
+        _CODEX_QUOTA.parent.mkdir(parents=True, exist_ok=True)
+        _CODEX_QUOTA.write_text(json.dumps({jour: n}), encoding="utf-8")
+        return n
 
 
 def _peut_lancer_codex() -> tuple[bool, str]:
@@ -1863,6 +3137,15 @@ def _attendre_harness(job: Path, delai_s: float, attente_file_s: float | None = 
             if started.exists() or done.exists():
                 break
             n_s = int(attente_file_s) if attente_file_s == int(attente_file_s) else attente_file_s
+            # 27/10 : l'abandon SORT le job de la file (.done + resultat) -- sinon le worker relance l'executait des
+            # heures plus tard pour personne (eec0f153, a5971348) et le job vivant attendait derriere.
+            try:
+                job.with_suffix(".result.json").write_text(json.dumps(
+                    {"ok": False, "error": "abandonne par l'executeur : jamais demarre apres %s s" % n_s}),
+                    encoding="utf-8")
+                done.write_text("1", encoding="utf-8")
+            except OSError as e:
+                log.warning(f"  job harness abandonne mais laisse en file ({type(e).__name__}): {job.name}")
             return {"ok": False, "error": f"harness OCCUPE : job jamais demarre apres {n_s} s (file sequentielle)"}
         time.sleep(_POLL_HARNESS_S)
         if task_id and (time.time() - dernier_battement >= _PROGRES_TOUTES_S):
@@ -1906,7 +3189,17 @@ def _args_codex(wt: Path, taille: str | None = None) -> list[str]:
     (« index.lock : Permission denied »), alors que la session owner sans bac a sable le peut. Le bac a sable reste ;
     c'est l'EXECUTEUR qui committe (`_committer_pour_codex`). L'effort suit la taille ; le prompt `-` reste dernier."""
     args = ["exec", "--skip-git-repo-check", "-C", str(wt), "-s", "workspace-write"]
-    effort = _EFFORT_CODEX_PAR_TAILLE.get(str(taille or "").upper())
+    # 30/10 : UNE table modele+effort (forge_palier_effort, surface "codex", cle verifiee config-reference.md) ;
+    # l'ancienne table locale reste le repli si le module est illisible.
+    # Taille inconnue : AUCUN drapeau, Codex garde son defaut (contrat de test_codex_effort_selon_taille_nr).
+    effort = None
+    if str(taille or "").upper() in ("S", "M", "L"):
+        try:
+            from forge_palier_effort import resoudre as _resoudre_palier
+            effort = _resoudre_palier("codex", str(taille).upper()).get("effort")
+        except Exception as _e_pal:  # noqa: BLE001
+            log.debug("palier codex illisible (%s) : table locale", type(_e_pal).__name__)
+        effort = effort or _EFFORT_CODEX_PAR_TAILLE.get(str(taille).upper())
     if effort:
         args += ["-c", 'model_reasoning_effort="%s"' % effort]
     return args + ["-"]
@@ -1923,6 +3216,93 @@ _CONSIGNE_SANS_COMMANDE_AGY = (
     "(ni git, ni pytest, ni script). Ecris seulement les fichiers demandes dans ce worktree ; l'executeur committe "
     "ce que tu as produit et Claude relance les tests a la relecture. Termine par UNE ligne JSON "
     '{"intent":"OK_DONE"|"ERR_INTERNAL","pointer_ref":"...","commit_message":"<type(portee): resume>"}.')
+
+
+# Owner 30/10 « technique du pointeur, lecture et ecriture ciblees » : une tache M relisait des fichiers entiers
+# (forge_task_executor.py, 288 Ko) a chaque tour -- 340 k tokens + 11 M relus en cache. Texte FIXE, place AVANT la
+# partie variable (workdir) : le prefixe reste identique d'une tache a l'autre (cache de prompt).
+_CONSIGNE_POINTEURS_AGY = (
+    "\n[Executeur Nokido] LECTURE PAR POINTEUR : n'ouvre JAMAIS en entier un fichier de plus de 150 lignes. "
+    "D'abord get_file_skeleton (hub) pour la structure, puis read_function_body (hub) pour CHAQUE fonction citee. "
+    "Relire un fichier deja lu : passe si_etag=<etag recu> au hub (reponse INCHANGE quasi vide) ; premier appel "
+    "si_etag=\"0\" pour obtenir l'etag. ECRITURE CIBLEE : edit_file sur le seul bloc a changer, jamais write_file "
+    "sur un fichier existant.")
+
+
+# 31/10 (job_b2738b35) : read_file hors du worktree est soft-denied en headless et agy s'arrete SANS nommer le chemin.
+# Texte FIXE (prefixe de cache) : toute source externe passe par les outils MCP du hub, deja autorises (mcp(*)).
+_CONSIGNE_HORS_WORKTREE_AGY = (
+    "\n[Executeur Nokido] HORS DE CE REPERTOIRE, ta lecture de fichier est REFUSEE et la session s'arrete sans "
+    "reponse. Pour une source externe (depot ingere `github:...`, doc, historique), utilise les outils MCP du hub "
+    "laforge-sovereign-hub : `rag` (recherche, cite [chunk:id]) ou `read` ; ne lis jamais C:\\tmp, le depot Nokido "
+    "principal ni ton profil.")
+
+# Seules lectures accordees hors des worktrees par le profil agy (permissions.allow mesurees le 31/10).
+_LECTURES_ACCORDEES_AGY = ("rules_shared.md", "rules_clients_sans_hooks.md")
+
+
+def _chemins_hors_bac(desc: str, workdir: str) -> list:
+    """Chemins ABSOLUS cites par la consigne qui sortent du bac de lecture d'agy (ni sous le worktree de tache, ni
+    sous nokido_worktrees, ni accordes) : le journal les NOMME avant le lancement -- agy, lui, ne dira rien."""
+    base = str(workdir or "").replace("/", "\\").rstrip("\\").lower()
+    hors = []
+    # lettre de lecteur ISOLEE et un seul separateur : « https://x » ne donne pas le chemin « s:/x » (NR du 31/10) ;
+    # un REPERTOIRE peut porter des espaces (« Script python IA\ », faux positif job_f74513a2), le dernier segment non.
+    _seg = r"[^\\/\s;,\"'`<>|*?:]+"
+    for m in re.finditer(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])(?:%s(?: %s)*[\\/])*%s" % (_seg, _seg, _seg),
+                         str(desc or "")):
+        brut = m.group(0).rstrip(".):]")
+        p = brut.replace("/", "\\").lower()
+        if (base and p.startswith(base)) or "\\nokido_worktrees\\" in p or p.endswith(_LECTURES_ACCORDEES_AGY):
+            continue
+        if brut not in hors:
+            hors.append(brut)
+    return hors
+
+
+def _consigne_agy(workdir: str) -> str:
+    """Consigne de l'executeur pour AGY, avec le chemin ABSOLU ou ecrire.
+
+    Mesure du 29/10 : depuis le worktree par tache, agy ecrivait relativement a SON espace habituel
+    (nokido_worktrees/antigravity) et non au cwd/--add-dir : 3 audits reels juges RIEN_PRODUIT.
+    NR tests/nr/test_agy_chemin_absolu_worktree_tache_nr.py.
+    """
+    return (_CONSIGNE_SANS_COMMANDE_AGY + _CONSIGNE_POINTEURS_AGY + _CONSIGNE_HORS_WORKTREE_AGY
+            + "\n[Executeur Nokido] REPERTOIRE DE TRAVAIL de cette tache : %s -- ecris "
+            "tout fichier demande SOUS ce chemin absolu (un chemin relatif s'entend depuis lui), jamais dans un autre "
+            "worktree : un fichier ecrit ailleurs n'est ni vu ni livre.\n[Executeur Nokido] POUR LIRE un fichier, donne "
+            "TOUJOURS son chemin ABSOLU sous ce repertoire (ex. %s\\app\\forge_ssot.py) : ton outil de lecture REFUSE "
+            "tout chemin relatif (« must be an absolute path », sonde du 30/10)." % (workdir, workdir)
+            + _texte_entrees(workdir))
+
+
+def _rapatrier_ecrits_hors_tache(habituel: str, workdir: str, avant) -> list:
+    """Copie dans le worktree de TACHE ce qui est APPARU ou devenu modifie, PENDANT la tache, dans le worktree HABITUEL
+    d'AGY ; rend les chemins copies.
+
+    29-30/10 : AGY ecrit relativement a SON espace (nokido_worktrees/antigravity) quel que soit le chemin donne, meme
+    absolu (_consigne_agy) -- 5 livraisons reelles jugees RIEN_PRODUIT. `avant` = etat releve AVANT la tache : ce qui y
+    etait deja sale n'est pas le travail de la tache. Rien n'est supprime dans le worktree habituel.
+    NR tests/nr/test_agy_rapatrie_ecrits_hors_tache_nr.py."""
+    import os as _osr
+    import shutil as _sh
+    if not habituel or avant is None or not workdir:
+        return []
+    if _osr.path.normcase(_osr.path.abspath(habituel)) == _osr.path.normcase(_osr.path.abspath(workdir)):
+        return []
+    apres = _chemins_status(habituel)
+    if apres is None:
+        return []
+    copies = []
+    for rel in sorted(set(apres) - set(avant)):
+        src = Path(habituel) / rel
+        if rel.startswith("nokido_worktrees/") or not src.is_file():
+            continue
+        dst = Path(workdir) / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        _sh.copy2(src, dst)
+        copies.append(rel)
+    return copies
 
 
 def _chemins_status(wt: str):
@@ -2025,6 +3405,124 @@ def _preserver_livraison(ok: bool, wt: str, task_id, detail: str, agent: str, ex
     return "travail INACHEVE NON committe, reste dans le worktree : %s%s" % (note, " ; " + sauve if sauve else "")
 
 
+def _est_chemin_de_test(p: str) -> bool:
+    """Vrai pour un fichier sous tests/ (commit RED du commit en deux temps)."""
+    return str(p).replace("\\", "/").lstrip("./").startswith("tests/")
+
+
+def _rejouer_tests_sur_commit(wt: str, commit: str, tests: list, timeout: int = 300) -> tuple:
+    """Rejoue `tests` (fichiers test_*.py) sur l'arbre de `commit` seul, dans un worktree jetable.
+    Rend (etat, extrait) : etat = ROUGE | VERT | INDETERMINE. Ne leve jamais."""
+    import subprocess as _sp
+    import tempfile
+    import shutil
+    fichiers = [p for p in tests if p.endswith(".py") and (Path(p).name.startswith("test_") or p.endswith("_test.py"))]
+    if not fichiers:
+        return "INDETERMINE", "aucun fichier de test python"
+    g = ["git", "-c", "safe.directory=*", "-C", str(wt)]
+    tmp = tempfile.mkdtemp(prefix="red_replay_")
+    cible = str(Path(tmp) / "arbre")
+    ajoute = False
+    try:
+        r = _sp.run(g + ["worktree", "add", "--detach", cible, commit], capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=120, env=_env_git())
+        if r.returncode != 0:
+            return "INDETERMINE", "worktree jetable impossible : %s" % (r.stderr or r.stdout)[-200:]
+        ajoute = True
+        env = _env_git()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        t = _sp.run([sys.executable, "-m", "pytest", "-q", "-x", "--no-header", "-p", "no:cacheprovider"] + fichiers,
+                    cwd=cible, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=timeout, env=env)
+        extrait = ((t.stdout or "").strip().splitlines() or [""])[-1][:200]
+        if t.returncode == 0:
+            return "VERT", extrait
+        if t.returncode in (1, 2):
+            return "ROUGE", extrait
+        return "INDETERMINE", "pytest rc=%s %s" % (t.returncode, extrait)
+    except Exception as e:  # noqa: BLE001 - la preuve est un signal, jamais un refus
+        return "INDETERMINE", type(e).__name__
+    finally:
+        if ajoute:
+            try:
+                _sp.run(g + ["worktree", "remove", "--force", cible], capture_output=True, timeout=60, env=_env_git())
+            except Exception:  # noqa: BLE001
+                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 2733, exc_info=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _committer_deux_temps(wt, g, tests_ch, code_ch, msg, corps, agent) -> str:
+    """(1) `test(<agent>): RED -- <msg>` avec les seuls tests, (2) le reste, dont le message consigne la preuve :
+    les tests rejoues sur l'arbre du commit (1) seul etaient ROUGES (preuve) ou DEJA VERTS (alerte, pas un refus)."""
+    import subprocess as _sp
+
+    def _run(*a, t=180):
+        return _sp.run(g + list(a), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=t,
+                       env=_env_git())
+    msg_red = "test(%s): RED -- %s" % (agent, msg)
+    try:
+        a = _run("add", "--", *tests_ch, t=60)
+        c = _run("commit", "-m", msg_red, "-m", corps + " Commit RED : tests seuls.") if a.returncode == 0 else a
+        if c.returncode != 0:
+            return "commit executeur REFUSE rc=%s : %s" % (c.returncode, (c.stderr or c.stdout)[-400:])
+        sha = _run("rev-parse", "HEAD", t=30).stdout.strip()
+        etat, extrait = _rejouer_tests_sur_commit(str(wt), sha, tests_ch)
+        if etat == "VERT" or (etat == "ROUGE" and not str(extrait or "").strip()):
+            extrait = "RED NON OBSERVE : %s" % (str(extrait or "").strip() or "preuve vide")
+            etat = "VERT" if etat == "VERT" else "VIDE"
+        preuve = {"ROUGE": "preuve RED : tests ROUGES sur le commit RED seul (%s)" % extrait,
+                  "VERT": "ALERTE : tests DEJA VERTS sur le commit RED seul, le test ne prouve pas le correctif (%s)"
+                          % extrait}.get(etat, "preuve RED INDETERMINEE (%s)" % extrait)
+        a = _run("add", "--", *code_ch, t=60)
+        c = (_run("commit", "-m", msg, "-m", corps, "-m", "%s [commit RED %s]" % (preuve, sha[:9]))
+             if a.returncode == 0 else a)
+        if c.returncode != 0:
+            return ("commit executeur REFUSE rc=%s (commit RED %s livre, code non committe) : %s"
+                    % (c.returncode, sha[:9], (c.stderr or c.stdout)[-400:]))
+    except Exception as e:  # noqa: BLE001
+        return "commit executeur ECHOUE (%s)" % type(e).__name__
+    return "commit executeur de %d fichier(s) en 2 commits (RED %d tests, %d code) : %s ; %s" % (
+        len(tests_ch) + len(code_ch), len(tests_ch), len(code_ch), msg, preuve)
+
+
+# Fichiers qui ne sont JAMAIS une livraison : marqueur d'identite du worktree, verrou transitoire.
+_TRANSITOIRES_JAMAIS_LIVRES = frozenset({".nokido.agent", "nokido.lock"})
+
+
+def _jamais_livre(chemin: str) -> bool:
+    """Le fichier n'est JAMAIS une livraison. 25/10 : la liste figee divergeait du gate « transitoires » du
+    pre-commit -- `sandbox/idle_state.json.tmp`, laisse INDEXE par une tache, a fait refuser les 2 livraisons
+    suivantes de CLAUDE_HEADLESS. On lit donc LA MEME regle que le gate (forge_git_gate._fichiers_transitoires :
+    *.tmp/*.swp/*~, *.lock non legitime, .nokido.agent), plus la config MCP propre a l'executeur
+    (`.<agent>_mcp.json`, ecrite par lui dans le worktree, jamais un livrable)."""
+    nom = Path(chemin).name
+    if nom in _TRANSITOIRES_JAMAIS_LIVRES or (nom.startswith(".") and nom.endswith("_mcp.json")):
+        return True
+    try:
+        try:
+            from nokido_agent.tools.forge_git_gate import _fichiers_transitoires
+        except ImportError:
+            from forge_git_gate import _fichiers_transitoires
+        return bool(_fichiers_transitoires([chemin], []))
+    except Exception:  # noqa: BLE001 - gate illisible : on retombe sur la liste figee (deja testee ci-dessus)
+        return False
+
+
+def _reecritures_destructrices(numstat: str, seuil: int = 200) -> list:
+    """Fichiers qu'un diff RASE (`git diff --numstat`) : au moins `seuil` lignes retirees ET moins de la moitie
+    remplacee. 30/10 : OPENCODE_DEFAUT3 a reecrit app/forge_health_diagnostic.py (-2532 / +27) en annoncant OK_DONE.
+    Un vrai refactor retire et ajoute dans les memes ordres de grandeur ; un rasage, non."""
+    out = []
+    for ligne in str(numstat or "").splitlines():
+        parts = ligne.split("\t")
+        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue   # binaire (« - ») ou ligne illisible : ni accuse ni absous ici
+        ajout, retrait = int(parts[0]), int(parts[1])
+        if retrait >= seuil and ajout * 2 < retrait:
+            out.append(parts[2])
+    return out
+
+
 def _committer_pour_agent(wt: str, task_id, detail: str, agent: str, exclus=frozenset()) -> str | None:
     """Commit par l'executeur (session owner) de ce que l'agent a ECRIT dans son worktree -- meme resultat que les
     autres CLI (des commits sur agent/<nom>), sans retirer le bac a sable. Fichiers LISTES par `git status`, jamais
@@ -2040,9 +3538,29 @@ def _committer_pour_agent(wt: str, task_id, detail: str, agent: str, exclus=froz
         return "commit executeur IMPOSSIBLE : status illisible"
     # Le marqueur d'identite du worktree (`.nokido.agent`) n'est JAMAIS une livraison : il partait dans les commits
     # (17/10 : 4 fois chez GPTOSS, 1 chez GLM) et le garde du pre-commit (demande owner R7) le bloque.
-    chemins = sorted(p for p in tous - frozenset(exclus or ()) if Path(p).name != ".nokido.agent")
+    # 24/10 : idem pour le verrou transitoire `nokido.lock` -- deja INDEXE par une tache precedente, il partait dans
+    # chaque commit et le gate « transitoires » a refuse 5 livraisons ; on le RETIRE de l'index (fichier conserve).
+    _transitoires = [p for p in tous if _jamais_livre(p)]
+    if _transitoires:
+        try:
+            _sp.run(g + ["reset", "-q", "--"] + _transitoires, capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=60, env=_env_git())
+        except Exception as e:  # noqa: BLE001 - dit : le gate refusera, et on saura pourquoi
+            log.warning(f"  transitoires NON retires de l'index ({type(e).__name__}): {_transitoires}")
+    chemins = sorted(p for p in tous - frozenset(exclus or ()) if not _jamais_livre(p))
     if not chemins:
         return None
+    # 30/10 : un fichier RASE (-2532 / +27 chez OPENCODE_DEFAUT3) n'est jamais committe, quel que soit le scorecard.
+    try:
+        _ns = _sp.run(g + ["diff", "--numstat", "--"] + chemins, capture_output=True, text=True, encoding="utf-8",
+                      errors="replace", timeout=60, env=_env_git())
+        _rases = _reecritures_destructrices(_ns.stdout)
+    except Exception as e:  # noqa: BLE001 - garde indisponible : DIT, le scorecard reste le juge
+        log.warning(f"  garde reecriture destructrice INDISPONIBLE ({type(e).__name__})")
+        _rases = []
+    if _rases:
+        return "commit executeur REFUSE : reecriture destructrice de %s (plus de la moitie des lignes retirees)" % (
+            ", ".join(_rases[:5]))
     # Scorecard du DIFF avant tout commit (decision owner 19/10) : un diff casse n'est jamais committe, et le verdict
     # REJETEE est consigne sans relecteur (ead32585b : IndentationError committe par Mistral).
     try:
@@ -2063,6 +3581,10 @@ def _committer_pour_agent(wt: str, task_id, detail: str, agent: str, exclus=froz
         msg = m.group(1)
     msg = msg or "chore(%s): livraison de la tache %s" % (agent, str(task_id)[:40])
     corps = "Tache %s, executee par %s (bac a sable conserve) ; commit par l'executeur Nokido." % (task_id, agent)
+    tests_ch = [p for p in chemins if _est_chemin_de_test(p)]
+    code_ch = [p for p in chemins if not _est_chemin_de_test(p)]
+    if tests_ch and code_ch:
+        return _committer_deux_temps(wt, g, tests_ch, code_ch, msg, corps, agent)
     try:
         a = _sp.run(g + ["add", "--"] + chemins, capture_output=True, text=True, encoding="utf-8",
                     errors="replace", timeout=60, env=_env_git())
@@ -2072,14 +3594,17 @@ def _committer_pour_agent(wt: str, task_id, detail: str, agent: str, exclus=froz
         return "commit executeur ECHOUE (%s)" % type(e).__name__
     if c.returncode != 0:
         return "commit executeur REFUSE rc=%s : %s" % (c.returncode, (c.stderr or c.stdout)[-400:])
-    return "commit executeur de %d fichier(s) : %s" % (len(chemins), msg)
+    note = "commit executeur de %d fichier(s) : %s" % (len(chemins), msg)
+    if code_ch and not tests_ch and any(p.replace("\\", "/").startswith(("app/", "tools/")) for p in code_ch):
+        note += " ; LIVRAISON SANS NR (code de production sans test)"
+    return note
 
 
 def _delegate_to_codex(task, token: str) -> None:
     """Codex execute dans SON worktree via le harness ; le verdict porte sur ce qui est LIVRE (commits, artefact
     verifie), jamais sur sa prose : le harness rend la sortie de codex, pas un statut de reussite."""
     task_id = task["id"]
-    desc = _extract_message(task["description"] or "") or (task["description"] or "")
+    desc = _avec_carte_attention(_extract_message(task["description"] or "") or (task["description"] or ""))
     wt = str(_workdir_codex())
     args = (json.loads(os.environ["LAFORGE_CODEX_EXEC_ARGS"]) if os.environ.get("LAFORGE_CODEX_EXEC_ARGS")
             else _args_codex(Path(wt), _taille_tache(desc)))
@@ -2106,15 +3631,19 @@ def _delegate_to_codex(task, token: str) -> None:
             note = _committer_pour_codex(wt, task_id, detail, exclus=_sales_avant)
             if note:
                 detail = "%s\n[executeur] %s" % (detail, note)
-    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, autorises=_tests_autorises(desc))
-    m = re.search(r"commits produits\s*:\s*(\d+)", effet)
-    if ok and not rendu and (m is None or int(m.group(1)) == 0) and '"pointer_ref"' not in detail:
+    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, autorises=_tests_autorises(desc), desc=desc)
+    if ok and not rendu and _aucun_effet(effet, detail):
         ok = False      # rien de livre ni de pointe : le harness a tourne, Codex n'a rien produit de verifiable
         effet = "%s ; [AUCUN EFFET] 0 commit et aucun pointer_ref verifiable" % effet
-    log.info(f"  DELEGATE {str(task_id)[:24]} -> CODEX {'OK' if ok else 'KO'} {effet}")
+    ok = _finaliser_effet(task_id, ok, effet)
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> CODEX {'OK' if ok else 'KO'} {effet}"
+             + ("" if ok else " | rendu : " + _tete_rendu(detail)))
     _consigner_verdict_auto("CODEX", task_id, ok, effet, detail, rendu)
-    motif = _motif_reaffectation_apres(ok, effet)
-    if motif and _reaffecter(dict(task), motif, ordre=_palier_executeurs("M", ecrit=True)):
+    motif = _motif_reaffectation_apres(ok, effet, detail)
+    t_reaff = dict(task)
+    if not t_reaff.get("agent"):
+        t_reaff["agent"] = "CODEX"
+    if motif and _reaffecter(t_reaff, motif, ordre=_ordre_repli_pour(task), rendu=str(detail)):
         return
     _clore_delegation(task_id, token, ok, "%s | %s" % (effet, detail), intent=rendu)
 
@@ -2139,6 +3668,8 @@ _CONSIGNE_GIT_VIBE = (
 
 def _workdir_vibe() -> Path:
     """Worktree DEDIE de Mistral Vibe (creation = geste OWNER). PAS de repli sur la racine partagee."""
+    if _WT_TACHE.get() is not None:
+        return Path(_WT_TACHE.get())
     env = os.environ.get("LAFORGE_VIBE_WORKDIR")
     return Path(env) if env else ROOT.parent / "nokido_worktrees" / "mistral"
 
@@ -2163,9 +3694,15 @@ def _peut_lancer_vibe() -> tuple[bool, str]:
     return True, f"worktree {wt} et binaire vibe {bv} presents"
 
 
-def _args_vibe(wt: Path | str, prompt_file: Path | str | None = None) -> list[str]:
-    """Arguments d'invocation de Mistral Vibe en mode programmatique, bornes et sans shell."""
-    raw_turns = os.environ.get("LAFORGE_VIBE_MAX_TURNS", "60")
+_TOURS_VIBE_PAR_TAILLE = {"S": 15, "M": 40, "L": 60}
+
+
+def _args_vibe(wt: Path | str, prompt_file: Path | str | None = None, taille: str | None = None) -> list[str]:
+    """Arguments d'invocation de Mistral Vibe en mode programmatique, bornes et sans shell.
+
+    30/10 (reglages des CLI) : le plafond de tours suit la TAILLE de la tache (S 15, M 40, L 60), comme Claude headless ;
+    taille inconnue = 60 (comportement d'avant) ; LAFORGE_VIBE_MAX_TURNS l'emporte toujours."""
+    raw_turns = os.environ.get("LAFORGE_VIBE_MAX_TURNS", str(_TOURS_VIBE_PAR_TAILLE.get(taille or "", 60)))
     try:
         max_turns = str(int(raw_turns))
     except (ValueError, TypeError):
@@ -2201,6 +3738,10 @@ def _args_vibe(wt: Path | str, prompt_file: Path | str | None = None) -> list[st
     ]
     if prompt_file:
         args.extend(["--prompt-file", str(prompt_file)])
+        # 27/10 : 3 echecs Vibe lisibles seulement en fouillant le flux JSON et un vibe.log en UTC. A chaque sortie,
+        # Vibe ecrit export.json (config effective, jetons, cout, raison d'arret, resultat) dans ce dossier.
+        pf = Path(prompt_file)
+        args.extend(["--output-dir", str(pf.with_name(pf.name.split(".")[0] + ".vibe_export"))])
     return args
 
 
@@ -2254,7 +3795,7 @@ permission = "never"
 """
 
 
-_MODELE_VIBE = ("mistral", "codestral-latest")   # (fournisseur au census, modele) -- celui du gabarit ci-dessus
+_MODELE_VIBE = ("mistral", _palier.modele_de("vibe", "M"))   # (fournisseur au census, modele) -- celui du gabarit ci-dessus
 _ENTETE_CONFIG_VIBE = "# Ecrit par tools/forge_task_executor.py"
 
 
@@ -2275,16 +3816,29 @@ def _config_mcp_vibe(wt) -> Path:
     return chemin
 
 
-def _modele_hors_quota(fournisseur: str, modele: str, chemin=None) -> str | None:
-    """Motif si le census free tier PROUVE le couple hors d'usage (0 req/min, ou mort 402/404/410), None sinon.
+def _modele_hors_quota(fournisseur: str, modele: str, chemin=None, maintenant: float | None = None) -> str | None:
+    """Motif si le census free tier PROUVE le couple hors d'usage (0 req/min, ou mort 402/404/410, ou quota epuise
+    CONSTATE dont l'echeance court -- 29/10), None sinon.
 
     Invariant bloquant (owner 19/10). Census absent, illisible ou muet sur le couple = None : INCONNU n'est pas NON, on
     delegue. Un 429 SANS limite nulle est un debit passager, pas une interdiction."""
-    p = Path(chemin) if chemin else ROOT / "sandbox" / "free_tier_census.json"
+    if chemin is None:
+        try:  # le fichier que le census ECRIT (SORTIE), une seule verite pour l'ecrivain et le lecteur
+            from forge_free_tier_census import SORTIE as chemin
+        except Exception:  # noqa: BLE001 - census non importable : son emplacement historique
+            chemin = ROOT / "sandbox" / "free_tier_census.json"
+    p = Path(chemin)
     try:
         v = ((json.loads(p.read_text(encoding="utf-8")) or {}).get("verdicts") or {}).get("%s:%s" % (fournisseur, modele))
     except (OSError, ValueError, AttributeError):
         return None
+    try:
+        from forge_free_tier_census import quota_epuise_actif
+        epuise = quota_epuise_actif(v, maintenant)
+    except Exception:  # noqa: BLE001 - census non importable : l'epuisement est INCONNU, pas un refus
+        epuise = None
+    if epuise:
+        return "%s:%s %s" % (fournisseur, modele, epuise)
     if not isinstance(v, dict) or v.get("joignable") is not False:
         return None
     limites = v.get("limites") or {}
@@ -2321,20 +3875,44 @@ def _texte_final_vibe(sortie: str) -> str:
     return sortie
 
 
-def _delegate_to_vibe(task, token: str) -> None:
+def _cle_mistral_au_coffre() -> bool:
+    """Booleen : la cle Mistral existe au coffre (valeur jamais retournee ni journalisee)."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+        return bool(get_secret("MISTRAL_API_KEY"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _delegate_to_vibe(task, token: str, _conseil: dict | None = None) -> None:
     """Mistral Vibe execute dans SON worktree via le harness ; le verdict porte sur ce qui est LIVRE (commits, artefact
     verifie), jamais sur sa prose : le harness rend la sortie de vibe, pas un statut de reussite."""
     task_id = task["id"]
+    _vivant, _motif_hw = _harness_vivant()
+    if _vivant is not True:
+        # 27/10 : worker mort depuis 03 h 04, chaque delegation attendait ~28 min un harness muet puis relancait
+        log.warning(f"  {str(task_id)[:24]} : harness worker {_motif_hw} -- Vibe non lance, reaffectation")
+        if _reaffecter(dict(task), "HARNESS WORKER %s" % _motif_hw, ordre=_ordre_repli_pour(task)):
+            return
+        _clore_delegation(task_id, token, False, "[HARNESS WORKER %s] Vibe non lance" % _motif_hw)
+        return
     # INVARIANT (owner 19/10) : pas de delegation sur un modele que le census PROUVE hors quota -- l'essai du matin
     # (job_10971233) a rendu 429 avant toute action, mistral-medium etant a 0 req/min sur notre cle.
     _hors_quota = _modele_hors_quota(*_MODELE_VIBE)
     if _hors_quota:
         log.warning(f"  {str(task_id)[:24]} : modele de Vibe REFUSE ({_hors_quota}) -- reaffectation")
-        if _reaffecter(dict(task), "MODELE HORS QUOTA : %s" % _hors_quota, ordre=_palier_executeurs("M", ecrit=True)):
+        if _reaffecter(dict(task), "MODELE HORS QUOTA : %s" % _hors_quota, ordre=_ordre_repli_pour(task)):
             return
         _clore_delegation(task_id, token, False, "[MODELE HORS QUOTA] %s -- aucun autre executeur vivant" % _hors_quota)
         return
-    desc = _extract_message(task["description"] or "") or (task["description"] or "")
+    if not _cle_mistral_au_coffre():
+        # Decision owner 24/10 : la cle n'est plus sur disque, le harness l'injecte au seul enfant vibe depuis le
+        # coffre ; absente, on echoue NOMME plutot que de lancer Vibe sans cle.
+        log.warning(f"  {str(task_id)[:24]} : cle Mistral absente du coffre -- Vibe non lance")
+        _clore_delegation(task_id, token, False, "[CLE MISTRAL ABSENTE] cle Mistral absente du coffre (MISTRAL_API_KEY)"
+                          " -- Vibe non lance")
+        return
+    desc = _avec_carte_attention(_extract_message(task["description"] or "") or (task["description"] or ""))
     wt = str(_workdir_vibe())
     jid = "vibe_" + re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))[:80]
     prompt_file = _HARNESS_JOBS / (jid + ".prompt.md")
@@ -2343,15 +3921,23 @@ def _delegate_to_vibe(task, token: str) -> None:
         _config_mcp_vibe(wt)   # AVANT l'etat git : la config n'est jamais comptee comme un livrable de la tache
     except OSError as e:
         log.warning(f"  config MCP de Vibe NON posee dans {wt} ({type(e).__name__}) : Vibe tournera sans le hub")
-    _avant = _etat_git(wt)
-    _sales_avant = _chemins_status(wt) or frozenset()
+    conseil = _conseil if _conseil is not None else {}
+    if "etat_avant" in conseil:     # relance : on juge contre l'etat d'AVANT le premier essai
+        _avant, _sales_avant = conseil["etat_avant"]
+    else:
+        _avant = _etat_git(wt)
+        _sales_avant = _chemins_status(wt) or frozenset()
     try:
         _HARNESS_JOBS.mkdir(parents=True, exist_ok=True)
     except Exception:
         __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 2219, exc_info=True)
-    prompt_file.write_text(desc + _CONSIGNE_GIT_VIBE, encoding="utf-8")
+    if _conseil is None:
+        _pre = _conseil_plan(desc, "vibe", conseil)
+    else:
+        _pre = "Avis de revue du conseiller : %s\n\n" % conseil.get("avis_revue", "")
+    prompt_file.write_text(_pre + desc + _CONSIGNE_GIT_VIBE, encoding="utf-8")
     args = (json.loads(os.environ["LAFORGE_VIBE_EXEC_ARGS"]) if os.environ.get("LAFORGE_VIBE_EXEC_ARGS")
-            else _args_vibe(wt, prompt_file=prompt_file))
+            else _args_vibe(wt, prompt_file=prompt_file, taille=_taille_tache(desc)))
     _purger_marqueurs_harness(job)
     job.write_text(json.dumps({"agent": "vibe", "args": args,
                                "timeout": VIBE_TIMEOUT_S, "cwd": wt}, ensure_ascii=False), encoding="utf-8")
@@ -2370,15 +3956,378 @@ def _delegate_to_vibe(task, token: str) -> None:
             note = _committer_pour_agent(wt, task_id, detail, "MISTRAL", exclus=_sales_avant)
             if note:
                 detail = "%s\n[executeur] %s" % (detail, note)
-    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant)
-    m = re.search(r"commits produits\s*:\s*(\d+)", effet)
-    if ok and not rendu and (m is None or int(m.group(1)) == 0) and '"pointer_ref"' not in detail:
+    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, desc=desc)
+    if ok and not rendu and _aucun_effet(effet, detail):
         ok = False      # rien de livre ni de pointe : le harness a tourne, Vibe n'a rien produit de verifiable
         effet = "%s ; [AUCUN EFFET] 0 commit et aucun pointer_ref verifiable" % effet
-    log.info(f"  DELEGATE {str(task_id)[:24]} -> VIBE {'OK' if ok else 'KO'} {effet}")
+    if res is not None and _conseil_actif() and not conseil.get("revue_faite") and _conseil_a_revoir(ok, effet, detail):
+        # res None = harness MUET : une relance attendrait le meme vide (27/10, 28 min x 2 par tache)
+        avis = _conseil_revue(desc, "vibe", effet, wt, conseil)
+        if avis:
+            conseil["avis_revue"] = avis
+            conseil["etat_avant"] = (_avant, _sales_avant)
+            log.info("  [conseiller] VIBE : revue obtenue -- UNE relance avec l'avis")
+            return _delegate_to_vibe(task, token, _conseil=conseil)
+    effet = _conseil_trace(effet, conseil)
+    ok = _finaliser_effet(task_id, ok, effet)
+    _conseil_compter("vibe", ok, conseil)
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> VIBE {'OK' if ok else 'KO'} {effet}"
+             + ("" if ok else " | rendu : " + _tete_rendu(detail)))
     _consigner_verdict_auto("MISTRAL", task_id, ok, effet, detail, rendu)
     motif = _motif_reaffectation_apres(ok, effet, detail)
-    if motif and _reaffecter(dict(task), motif, ordre=_palier_executeurs("M", ecrit=True)):
+    t_reaff = dict(task)
+    if not t_reaff.get("agent"):
+        t_reaff["agent"] = "MISTRAL"
+    if motif and _reaffecter(t_reaff, motif, ordre=_ordre_repli_pour(task), rendu=str(detail)):
+        return
+    _clore_delegation(task_id, token, ok, "%s | %s" % (effet, detail), intent=rendu)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# CLAUDE HEADLESS (`claude -p`) -- CREDITS API, jamais le quota Max (owner 22/10)
+# ---------------------------------------------------------------------------------------------------------------
+# La session interactive de l'owner est connectee par le compte Max ; seul un `claude -p` lance AVEC la cle API
+# (ANTHROPIC_API_KEY_ORG, au coffre, injectee par le harness sous l'identite `claude_api`) consomme les credits.
+# L'agent DISTINCT `claude_api` porte cette cle ; `claude` (pilotage interactif) ne la recoit jamais.
+#
+# Extension des briques EXISTANTES, pas un second executeur : meme worktree dedie, meme harness, meme juge de
+# livraison, meme consigne git. Le BUDGET est mesure sur `total_cost_usd` (sortie JSON de claude), avec un plafond
+# JOURNALIER ; un cout INCONNU ne vaut JAMAIS 0 (unknowable != free) : il consomme un forfait.
+CLAUDE_HEADLESS_AGENT = "CLAUDE_HEADLESS"
+CLAUDE_TIMEOUT_S = int(os.environ.get("LAFORGE_CLAUDE_TIMEOUT_S", "1800"))
+_CLAUDE_BUDGET = SANDBOX / "claude_headless_budget.json"
+# Decision owner 22/10 « mesurer d'abord » : 3 $/jour pendant les essais, valeur a refonder sur le cout reel mesure.
+# 22/10 (owner « fais sauter la limite de depenses ») : AUCUN plafond par defaut (inf). Le compteur journalier reste tenu
+# (observabilite : cout mesure, inconnu = forfait) ; la Console Anthropic fait foi sur le credit reel (en differe).
+# Un plafond se repose par LAFORGE_CLAUDE_PLAFOND_JOUR_USD. Le defaut du CODE porte la decision : un redemarrage du
+# service ne relit pas l'env de services.toml (mesure 22/10).
+_CLAUDE_PLAFOND_JOUR_USD = float(os.environ.get("LAFORGE_CLAUDE_PLAFOND_JOUR_USD", "inf"))
+_CLAUDE_COUT_INCONNU_USD = float(os.environ.get("LAFORGE_CLAUDE_COUT_INCONNU_USD", "2.0"))
+
+# Modele et nombre de tours par TAILLE de tache (S/M/L) : plus la tache est grosse, plus le modele est fort.
+# Levier A (23/10) : modele ET effort viennent de la table UNIQUE tools/forge_palier_effort.py.
+_MODELE_CLAUDE_PAR_TAILLE = {t: _palier.modele_de("claude", t) for t in ("S", "M", "L")}
+_TOURS_CLAUDE_PAR_TAILLE = {"S": 15, "M": 40, "L": 80}
+
+# Outils autorises : lecture, edition, glob, grep, et TROIS commandes motivees (git status, git diff, pytest).
+# Pas de Bash libre : `Bash` sans motif = un shell entier, ce que le bac a sable du depot refuse partout ailleurs.
+_OUTILS_CLAUDE = ("Read Edit Write Glob Grep "
+                   "Bash(git status:*) Bash(git diff:*) Bash(python -m pytest:*) mcp__nokido")
+
+_CONSIGNE_GIT_CLAUDE = (
+    "\n\n[Executeur Nokido] Bash n'admet que `git status`, `git diff` et `python -m pytest` : ecris les fichiers avec "
+    "Write/Edit (jamais `cat > f <<EOF`). Ne lance ni `git add` ni `git commit` : l'executeur committe lui-meme les "
+    "fichiers que tu as modifies dans ce worktree. Si la tache exige du TDD : ecris le test, lance-le, VOIR ROUGE, "
+    "puis seulement code. Termine par UNE ligne JSON "
+    '{"intent":"OK_DONE"|"ERR_INTERNAL","pointer_ref":"...","commit_message":"<type(portee): resume>"}.')
+
+
+def _workdir_claude() -> Path:
+    """Worktree DEDIE de Claude headless (creation = geste OWNER). PAS de repli sur la racine partagee."""
+    if _WT_TACHE.get() is not None:
+        return Path(_WT_TACHE.get())
+    env = os.environ.get("LAFORGE_CLAUDE_WORKDIR")
+    return Path(env) if env else ROOT.parent / "nokido_worktrees" / "claude_headless"
+
+
+def _args_claude(wt: Path | str, taille: str | None = None, escalade: str | None = None) -> list[str]:
+    """Arguments d'invocation de `claude -p` : sortie JSON (c'est elle qui porte le cout), modele et tours bornes
+    par la TAILLE, MCP strictement configure (le hub, rien d'autre), permission `acceptEdits` (les editions du
+    worktree passent) et une liste d'outils SANS shell libre."""
+    t = str(taille or "M").upper()
+    modele = _MODELE_CLAUDE_PAR_TAILLE.get(t, _MODELE_CLAUDE_PAR_TAILLE["M"])
+    tours = _TOURS_CLAUDE_PAR_TAILLE.get(t, _TOURS_CLAUDE_PAR_TAILLE["M"])
+    effort = _palier.resoudre("claude", t if t in ("S", "M", "L") else "M", escalade=escalade)["effort"]
+    # 22/10 (owner, essai mesure) : `--bare` = ni hooks, ni CLAUDE.md, ni memoire automatique de l'owner -- 5 Edit
+    # natifs refuses par un hook dans le worktree (job_88af1e23) et un contexte injecte paye a chaque tache. Le hub
+    # reste atteint par le --mcp-config EXPLICITE (ses gardes s'appliquent). Exige la cle API (pas d'OAuth Max).
+    return [
+        "-p",
+        "--bare",
+        "--output-format", "json",
+        "--model", modele,
+        "--effort", effort,
+        "--max-turns", str(tours),
+        "--mcp-config", str(Path(wt) / ".claude_headless_mcp.json"),
+        "--strict-mcp-config",
+        "--permission-mode", "acceptEdits",
+        "--allowedTools", _OUTILS_CLAUDE,
+        "--settings", str(ROOT / "config" / "claude_headless_settings.json"),
+    ]
+
+
+_PROVENANCE_RE = re.compile(r"^[A-Z0-9_]+$")
+
+
+def _provenance_valide(provenance: str | None) -> str:
+    """Provenance STRICTE : majuscules, [A-Z0-9_] SEULEMENT.
+
+    Elle part dans la COMMANDE `headersHelper`, executee par un SHELL : un caractere hors
+    alphabet (`&`, `"`, `|`, `;`, espace, backtick, `$()`, redirection) y est une INJECTION DE
+    COMMANDE. Un caractere interdit est donc REFUSE (ValueError) -- jamais ecrit dans la
+    commande, jamais « nettoye » en silence : un appelant qui veut une provenance bizarre doit
+    la corriger, pas la voir rabattue sur un alphabet qui ne dit rien de l'agent."""
+    prov = str(provenance or "").strip().upper()
+    if not _PROVENANCE_RE.match(prov):
+        raise ValueError("provenance refusee : %r (attendu : [A-Z0-9_]+)" % (provenance,))
+    return prov
+
+
+def _config_mcp_claude(wt: Path | str, provenance: str = "TASK_EXECUTOR") -> Path:
+    """Config MCP du worktree : le hub en HTTP, jeton par VARIABLE D'ENVIRONNEMENT (`${FORGE_TOKEN_CLAUDE_HEADLESS}`)
+    -- jamais un jeton ecrit sur disque (meme regle que Vibe, owner 16/10).
+
+    `provenance` : QUI lance ce sous-processus (en-tete `LaForge-Provenance`). Elle est
+    VALIDEE par `_provenance_valide` -- elle part dans une commande de SHELL."""
+    chemin = Path(wt) / ".claude_headless_mcp.json"
+    # 22/10 : `claude -p --mcp-config` NE remplace PAS ${VAR} dans les en-tetes -- CLAUDE_HEADLESS n'avait jamais ete
+    # authentifie (16/16 en 401). headersHelper : le jeton est lu au coffre A LA CONNEXION, jamais ecrit sur disque.
+    aide = '"%s" "%s" --emit-headers CLAUDE_HEADLESS --provenance %s' % (
+        sys.executable, ROOT / "tools" / "forge_mcp_json_sync.py", _provenance_valide(provenance))
+    cfg = {"mcpServers": {"nokido": {
+        "type": "http",
+        "url": "http://127.0.0.1:8766/mcp",
+        "headersHelper": aide}}}
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    chemin.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    return chemin
+
+
+def _job_claude(task_id, prompt, wt, taille: str | None = None) -> dict:
+    """Job harness de `claude -p`. Le job ne porte AUCUN secret : la cle est injectee par le harness au lancement
+    (table _SECRETS_PAR_AGENT de app/forge_cli_harness.py) -- meme regle que Vibe (owner 16/10)."""
+    return {"agent": "claude_api",
+            "args": _args_claude(wt, taille),
+            "send": str(prompt) + _CONSIGNE_GIT_CLAUDE,
+            "eof": True,
+            "timeout": CLAUDE_TIMEOUT_S,
+            "cwd": str(wt)}
+
+
+def _cout_claude(sortie: str) -> float | None:
+    """`total_cost_usd` de la DERNIERE ligne JSON de type `result` (sortie `claude -p --output-format json`) ;
+    None si elle est illisible -- un cout INCONNU n'est jamais 0."""
+    texte = str(sortie or "")
+    candidats = []
+    try:
+        d = json.loads(texte)
+        if isinstance(d, dict):
+            candidats.append(d)
+    except (TypeError, ValueError):  # muet-ok : ligne non JSON attendue dans la sortie de claude -p
+        pass
+    for ligne in texte.splitlines():
+        s = ligne.strip()
+        if not s.startswith("{"):
+            continue
+        try:
+            d = json.loads(s)
+        except (TypeError, ValueError):  # muet-ok : ligne non JSON attendue dans la sortie de claude -p
+            continue
+        if isinstance(d, dict):
+            candidats.append(d)
+    cout = None
+    for d in candidats:
+        if d.get("type") != "result":
+            continue
+        try:
+            cout = float(d.get("total_cost_usd"))
+        except (TypeError, ValueError):
+            cout = None
+    return cout
+
+
+def _consommer_budget_claude(cout=None, jour: str | None = None, chemin=None) -> dict:
+    """Consomme le budget du jour : cout MESURE s'il est connu, FORFAIT s'il est inconnu (unknowable != free).
+    Rend {jour: {usd, taches, inconnus}}."""
+    jour = jour or time.strftime("%Y-%m-%d")
+    # Nom PROPRE et fichier `.json` nomme dans l'affectation : ce compteur n'est pas un pouls (cliquet
+    # test_pouls_canon_nr -- `chemin`, reaffecte ailleurs depuis un parametre, y etait compte comme un pouls brut).
+    fichier_budget = (Path(chemin) if chemin
+                      else Path(_CLAUDE_BUDGET).with_name("claude_headless_budget.json"))
+    try:
+        etat = json.loads(fichier_budget.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        etat = {}
+    if not isinstance(etat, dict):
+        etat = {}
+    j = etat.get(jour)
+    if not isinstance(j, dict):
+        j = {}
+    try:
+        usd = float(j.get("usd") or 0.0)
+    except (TypeError, ValueError):
+        usd = 0.0
+    try:
+        taches = int(j.get("taches") or 0)
+    except (TypeError, ValueError):
+        taches = 0
+    try:
+        inconnus = int(j.get("inconnus") or 0)
+    except (TypeError, ValueError):
+        inconnus = 0
+    try:
+        mesure = float(j.get("mesure_usd") or 0.0)
+    except (TypeError, ValueError):
+        mesure = 0.0
+    try:
+        forfait = float(j.get("forfait_usd") or 0.0)
+    except (TypeError, ValueError):
+        forfait = 0.0
+    if cout is None:
+        usd += float(_CLAUDE_COUT_INCONNU_USD)
+        forfait += float(_CLAUDE_COUT_INCONNU_USD)
+        inconnus += 1
+    else:
+        usd += float(cout)
+        mesure += float(cout)
+    # `usd` = mesure + forfait (total facture) ; les deux parts sont distinguees (23/10).
+    jour_etat = {"usd": usd, "mesure_usd": mesure, "forfait_usd": forfait,
+                 "taches": taches + 1, "inconnus": inconnus}
+    etat[jour] = jour_etat
+    try:
+        fichier_budget.parent.mkdir(parents=True, exist_ok=True)
+        fichier_budget.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as e:
+        log.warning(f"  budget Claude headless NON ECRIT ({type(e).__name__}) : la depense reste non comptee")
+    return {jour: jour_etat}
+
+
+def _depense_claude_du_jour(jour: str | None = None) -> float | None:
+    """Depense du jour en USD. None = ILLISIBLE (budget present mais illisible) : l'appelant REFUSE alors.
+    Un budget ABSENT = aucune depense (0.0) -- rien n'a encore ete facture."""
+    jour = jour or time.strftime("%Y-%m-%d")
+    try:
+        brut = Path(_CLAUDE_BUDGET).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return 0.0
+    except OSError:
+        return None
+    try:
+        etat = json.loads(brut)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(etat, dict):
+        return None
+    j = etat.get(jour)
+    if j is None:
+        return 0.0
+    if not isinstance(j, dict):
+        return None
+    try:
+        return float(j.get("usd") or 0.0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _peut_lancer_claude() -> tuple[bool, str]:
+    """Capacite MESUREE : worktree dedie present, et depense du jour SOUS le plafond. Un budget illisible ou un
+    plafond atteint REFUSENT le lancement -- l'argent ne se devine pas."""
+    wt = _workdir_claude()
+    if not (Path(wt) / ".git").exists():
+        return False, f"worktree Claude headless absent ({wt}) -- creation = geste OWNER"
+    depense = _depense_claude_du_jour()
+    plafond = float(_CLAUDE_PLAFOND_JOUR_USD)
+    if depense is None:
+        return False, ("budget Claude headless ILLISIBLE (%s) : depense inconnue, lancement refuse"
+                       % Path(_CLAUDE_BUDGET).name)
+    if depense >= plafond:
+        return False, ("PLAFOND JOURNALIER atteint : %.2f $ depenses sur %.2f $ (credits API) -- lancement refuse"
+                       % (depense, plafond))
+    return True, f"worktree {wt} present ; depense du jour {depense:.2f} $ / plafond {plafond:.2f} $"
+
+
+_HARNESS_HEARTBEAT = _HARNESS_JOBS.parent / "harness_worker.heartbeat"
+_HARNESS_POULS_MAX_S = 300  # le worker bat toutes les 3 s (--watch 3)
+
+
+def _harness_vivant() -> tuple:
+    """(True | False | None, motif) : le harness worker bat-il ? False = pouls PERIME (mort prouve), None = pouls absent
+    ou illisible (non prouve vivant). NR test_harness_worker_vivant_avant_delegation_nr."""
+    import datetime as _dt
+    if os.environ.get("LAFORGE_HARNESS_POULS_IGNORE") == "1":  # tests qui simulent le harness (tests/nr/conftest.py)
+        return True, "pouls ignore (test)"
+    try:
+        d = json.loads(_HARNESS_HEARTBEAT.read_text(encoding="utf-8"))
+        ts = _dt.datetime.fromisoformat(str(d["ts"])[:19])
+    except FileNotFoundError:
+        return None, "pouls absent"
+    except Exception as e:  # noqa: BLE001 -- muet-ok : l'etat illisible est RENDU a l'appelant
+        return None, "pouls illisible (%s)" % type(e).__name__
+    age = (_dt.datetime.now() - ts).total_seconds()
+    if age > _HARNESS_POULS_MAX_S:
+        return False, "pouls perime de %d s" % age
+    return True, "pouls frais"
+
+
+def _delegate_to_claude(task, token: str) -> None:
+    """`claude -p` execute dans SON worktree via le harness ; le verdict porte sur ce qui est LIVRE (commits,
+    artefact verifie), jamais sur sa prose. Patron de `_delegate_to_vibe`."""
+    task_id = task["id"]
+    _vivant, _motif_hw = _harness_vivant()
+    if _vivant is not True:
+        log.warning(f"  {str(task_id)[:24]} : harness worker {_motif_hw} -- claude -p non lance, reaffectation")
+        if _reaffecter(dict(task), "HARNESS WORKER %s" % _motif_hw, ordre=_ordre_repli_pour(task)):
+            return
+        _clore_delegation(task_id, token, False, "[HARNESS WORKER %s] claude -p non lance" % _motif_hw)
+        return
+    desc = _avec_carte_attention(_extract_message(task["description"] or "") or (task["description"] or ""))
+    wt = str(_workdir_claude())
+    taille = _taille_tache(desc) or "M"
+    jid = "claude_" + re.sub(r"[^A-Za-z0-9_-]", "_", str(task_id))[:80]
+    job = _HARNESS_JOBS / (jid + ".json")
+    try:
+        _config_mcp_claude(wt)   # AVANT l'etat git : la config n'est jamais comptee comme un livrable de la tache
+    except OSError as e:
+        log.warning(f"  config MCP de Claude headless NON posee dans {wt} ({type(e).__name__}) : claude tournera sans le hub")
+    _avant = _etat_git(wt)
+    _sales_avant = _chemins_status(wt) or frozenset()
+    try:
+        _HARNESS_JOBS.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 2400, exc_info=True)
+    _purger_marqueurs_harness(job)
+    job.write_text(json.dumps(_job_claude(task_id, desc, wt, taille), ensure_ascii=False), encoding="utf-8")
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> CLAUDE_HEADLESS via harness ({jid}, taille {taille})")
+    with _battement_delegation("CLAUDE_HEADLESS", task_id):
+        res = _attendre_harness(job, CLAUDE_TIMEOUT_S + 180, task_id=task_id)
+    if res is None:
+        ok, detail = False, (f"harness MUET apres {CLAUDE_TIMEOUT_S + 180} s "
+                             f"(NokidoHarnessWorker arrete ou occupe ?) -- job {jid}")
+    else:
+        ok = bool(res.get("ok"))
+        detail = str(res.get("output") or res.get("error") or "")[-6000:] or "claude : sortie vide"
+        if ok and _panne_cli(detail):
+            ok = False      # le harness rendait ok=True sur une sortie « Error: ... 429 »
+        if ok:
+            note = _committer_pour_agent(wt, task_id, detail, "CLAUDE_HEADLESS", exclus=_sales_avant)
+            if note:
+                detail = "%s\n[executeur] %s" % (detail, note)
+    # BUDGET : mesure sur `total_cost_usd` de la sortie JSON ; un cout INCONNU consomme un forfait (jamais 0).
+    cout = _cout_claude(str(res.get("output") or "") if res else "")
+    budget = _consommer_budget_claude(cout)
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> cout Claude {cout} {budget}")
+    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, desc=desc)
+    if ok and not rendu and _aucun_effet(effet, detail):
+        ok = False      # rien de livre ni de pointe : le harness a tourne, claude n'a rien produit de verifiable
+        effet = "%s ; [AUCUN EFFET] 0 commit et aucun pointer_ref verifiable" % effet
+    try:    # trace en colonnes dediees : le cout vient de la sortie COMPLETE, avant toute troncature du result
+        _usd, _etat = _cout_et_etat(cout)
+        _t = str(taille).upper() if str(taille).upper() in ("S", "M", "L") else "M"
+        _conn_tr = _db()
+        try:
+            ecrire_trace_tache(_conn_tr, str(task_id), taille=_t, modele=_MODELE_CLAUDE_PAR_TAILLE.get(_t),
+                               effort=_palier.resoudre("claude", _t)["effort"],
+                               cout_usd=_usd, cout_etat=_etat, verdict_effet=effet)
+        finally:
+            _conn_tr.close()
+    except Exception as e:  # noqa: BLE001 -- la trace ne doit jamais faire echouer la tache
+        log.warning(f"  trace de fin de tache NON ecrite pour {str(task_id)[:24]} ({type(e).__name__}): {e}")
+    ok = _finaliser_effet(task_id, ok, effet)
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> CLAUDE_HEADLESS {'OK' if ok else 'KO'} {effet}"
+             + ("" if ok else " | rendu : " + _tete_rendu(detail)))
+    _consigner_verdict_auto("CLAUDE_HEADLESS", task_id, ok, effet, detail, rendu)
+    motif = _motif_reaffectation_apres(ok, effet, detail)
+    if motif and _reaffecter(dict(task), motif, ordre=_ordre_repli_pour(task), rendu=str(detail)):
         return
     _clore_delegation(task_id, token, ok, "%s | %s" % (effet, detail), intent=rendu)
 
@@ -2437,6 +4386,8 @@ def _instances_opencode() -> dict[str, dict]:
 
 def _workdir_opencode(agent: str) -> Path:
     """Worktree DEDIE de l'instance OpenCode (creation = geste OWNER). PAS de repli sur la racine partagee."""
+    if _WT_TACHE.get() is not None:
+        return Path(_WT_TACHE.get())
     nom = (agent or "").upper()
     env = os.environ.get(f"LAFORGE_{nom}_WORKDIR") or os.environ.get("LAFORGE_OPENCODE_WORKDIR")
     if env:
@@ -2466,6 +4417,9 @@ def _bin_opencode(agent: str | None = None) -> Path | None:
 def _peut_lancer_opencode(agent: str = "") -> tuple[bool, str]:
     """Capacite MESUREE : worktree dedie present (son fichier .git) et binaire opencode resolu."""
     nom = (agent or "OPENCODE").upper()
+    repos = executeur_en_repos(nom)  # coupe-circuit (24/10) : en repos = plus choisi par defaut
+    if repos:
+        return False, f"en repos (coupe-circuit fournisseur) : {repos}"
     wt = _workdir_opencode(nom)
     if not (wt / ".git").exists():
         return False, f"worktree {nom} absent ({wt}) -- creation = geste OWNER"
@@ -2497,7 +4451,9 @@ def _jeton_opencode_instance(inst: str) -> str | None:
 
 # Variable d'environnement que lit OpenCode pour la cle d'un fournisseur, par le prefixe du modele « fournisseur/... »
 # (mesure 17/10 : « model not found » -- le fournisseur n'etait pas configure faute de cle dans l'env de l'instance).
-_CLE_PAR_FOURNISSEUR = {"groq": "GROQ_API_KEY", "openrouter": "OPENROUTER_API_KEY", "zai": "ZHIPU_API_KEY"}
+# 29/10 soir : « mistral » manquait -- mistral/codestral-latest echouait avant tout appel (aucune trace au journal).
+_CLE_PAR_FOURNISSEUR = {"groq": "GROQ_API_KEY", "openrouter": "OPENROUTER_API_KEY", "zai": "ZHIPU_API_KEY",
+                         "ollama_cloud": "OLLAMA_API_KEY", "mistral": "MISTRAL_API_KEY"}
 
 
 def _env_cle_fournisseur(modele: str) -> str | None:
@@ -2550,8 +4506,127 @@ def _lire_cle_sous(nom: str) -> str | None:
 _MARQUEUR_LOCAL = re.compile(r"\[local\]", re.I)
 # Quota gratuit epuise (owner 17/10 : « utilisez le quota b par jour quand dispo avant bascule ») : l'instance qui declare
 # `repli_modele` relance UNE fois la tache sur ce modele. Mesure : openrouter « free-models-per-day » apres 1-2 taches.
-_RE_QUOTA = re.compile(r"rate limit exceeded|free-models-per-day|quota exceeded|\b429\b", re.I)
+# Solde epuise (26/10, z.ai x2 « Insufficient balance or no resource package ») : un solde a zero est un quota a zero,
+# il doit ouvrir le repli FREE au lieu d'envoyer la tache hors famille. NR test_repli_sur_solde_epuise_nr.
+# 28/10 : quota ChatGPT de Codex (« You've hit your usage limit », codexErrorInfo usageLimitExceeded).
+# 31/10 (etape 1 OmniRoute, choix owner) : « API budget exhausted » (ACP -32603) tombait en panne FOURNISSEUR ->
+# reaffectation en boucle, jamais le repli DANS la tache ; un budget a zero est un quota a zero.
+# NR tests/nr/test_budget_epuise_est_un_quota_nr.py.
+_RE_QUOTA = re.compile(r"rate limit exceeded|free-models-per-day|quota exceeded|\b429\b|insufficient balance|"
+                       r"no resource package|please recharge|hit your usage limit|usageLimitExceeded|"
+                       r"reached your (?:monthly |daily )?usage limit|free usage limit reached|"
+                       r"budget exhausted", re.I)
 _REPLI_EN_COURS: set[str] = set()
+
+
+_RE_POINTEUR_CONSIGNE = re.compile(r"tasks\.db\s*[,:]\s*(?:id\s+)?(job_[A-Za-z0-9_]+)")
+
+
+def _resoudre_pointeurs_consigne(desc: str, profondeur: int = 2) -> str:
+    """29/10 : « tasks.db, id job_X » est INATTEIGNABLE pour l'agent (sandbox/ hors du worktree de tache, bash refuse,
+    SQLite illisible par read) -- DEFAUT3/5 ont cherche tasks.db en boucle. Le pointeur est RESOLU ici, en ligne ;
+    introuvable, il est DIT a l'agent pour qu'il ne le cherche pas."""
+    texte = str(desc or "")
+    ids = list(dict.fromkeys(_RE_POINTEUR_CONSIGNE.findall(texte)))
+    if not ids or profondeur <= 0:
+        return texte
+    blocs = []
+    for tid in ids:
+        try:
+            c = _db()
+            try:
+                r = c.execute("SELECT description FROM tasks WHERE id=?", (tid,)).fetchone()
+            finally:
+                c.close()
+        except Exception:  # noqa: BLE001 - base illisible : dit, jamais laisse a la recherche de l'agent
+            r = None
+        if r and r[0]:
+            blocs.append("--- CONSIGNE RESOLUE (tasks.db:%s) ---\n%s" % (tid, _resoudre_pointeurs_consigne(r[0], profondeur - 1)))
+        else:
+            blocs.append("--- POINTEUR INRESOLU (tasks.db:%s) : ne pas chercher tasks.db, il n'est pas dans ton "
+                         "worktree ; travailler avec la consigne ci-dessus seule ---" % tid)
+    return texte + "\n\n" + "\n\n".join(blocs)
+
+
+def _couple_du_modele(modele) -> tuple[str, str] | None:
+    """`fournisseur/modele` (forme OpenCode) -> (fournisseur, modele) du census ; autre forme -> None (inconnu)."""
+    f, sep, m = str(modele or "").partition("/")
+    return (f, m) if sep and f and m else None
+
+
+def _consigner_quota_principal(modele, detail) -> float | None:
+    """29/10 (owner) : un quota epuise CONSTATE nourrit le census (echeance) ; rend l'echeance, None sinon."""
+    couple = _couple_du_modele(modele)
+    if not couple:
+        return None
+    # 29/10 soir, FAUSSE PANNE mesuree : un « quota exceeded » venu d'un AUTRE fournisseur (providerID=opencode, repli)
+    # a ete impute au principal mistral:codestral-latest -- Vibe refuse « MODELE HORS QUOTA ». N'est consigne que
+    # l'epuisement du fournisseur CITE ; un message sans providerID reste impute au principal, comme avant.
+    m = re.search(r"providerID=([\w.-]+)", str(detail or ""))
+    if m and m.group(1).lower() != couple[0].lower():
+        log.warning(f"  [census] epuisement de {m.group(1)} NON impute a {couple[0]}:{couple[1]} (autre fournisseur)")
+        return None
+    try:
+        from forge_free_tier_census import consigner_quota_epuise
+        fin = consigner_quota_epuise(couple[0], couple[1], str(detail))
+    except Exception:  # noqa: BLE001 - census indisponible : le constat est perdu, DIT
+        log.warning(f"  [census] epuisement de {couple[0]}:{couple[1]} NON consigne (census indisponible)")
+        return None
+    if fin:
+        log.warning(f"  [census] quota epuise consigne : {couple[0]}:{couple[1]} jusqu'a "
+                    f"{time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(fin))}")
+    return fin
+
+
+def _repli_du(inst_cfg: dict):
+    """Modele de repli de l'instance (forme fournisseur/modele), None s'il n'y en a pas."""
+    oc = str((inst_cfg or {}).get("repli_ollama_cloud", "") or "")
+    if oc:
+        return "ollama_cloud/" + oc
+    return str((inst_cfg or {}).get("repli_modele", "") or "") or None
+
+
+def _repli_hors_quota(inst_cfg: dict) -> str | None:
+    """29/10 soir : le repli n'etait jamais verifie au census -- 3 taches ont brule leur tentative sur un repli deja
+    consigne hors quota (mensuel). Motif si le repli est hors quota, None sinon (inconnu = eligible)."""
+    couple = _couple_du_modele(_repli_du(inst_cfg))
+    return _modele_hors_quota(*couple) if couple else None
+
+
+def _opencode_hors_quota(agent: str) -> str | None:
+    """30/10 : la reaffectation passait la tache a OPENCODE_GPTOSS alors que groq gpt-oss etait CONSIGNE epuise (TPD)
+    -> echec en 20 s, nouvelle reaffectation (ping-pong). Motif si le principal de l'instance est hors quota au census
+    ET qu'aucun repli n'est disponible (absent ou hors quota) ; None sinon (inconnu = eligible)."""
+    if not _est_opencode(agent):
+        return None
+    try:
+        inst = (_instances_opencode() or {}).get(str(agent).upper()) or {}
+    except Exception:  # noqa: BLE001 - instances illisibles : INCONNU = eligible, jamais un refus invente
+        return None
+    couple = _couple_du_modele(inst.get("modele"))
+    principal = _modele_hors_quota(*couple) if couple else None
+    if not principal:
+        return None
+    repli = _repli_hors_quota(inst) if _repli_du(inst) else "aucun repli"
+    return f"principal {principal} ; repli {repli}" if repli else None
+
+
+def _principal_hors_quota(modele, inst_cfg: dict) -> str | None:
+    """Motif si le modele principal est hors quota au census ET qu'un repli est configure : on saute l'appel inutile."""
+    couple = _couple_du_modele(modele)
+    if not couple or not ("repli_modele" in (inst_cfg or {}) or (inst_cfg or {}).get("repli_ollama_cloud")):
+        return None
+    return _modele_hors_quota(*couple)
+
+
+def _prompt_opencode_veille(client, sid, texte, timeout):
+    """client.prompt + veilleur du journal OpenCode : une panne fournisseur n'y est ecrite que dans le journal
+    (mesure 28/10 : SilenceACP 300 s). Panne lue -> QuotaJournalOpenCode (« quota exceeded ») -> repli immediat."""
+    try:
+        import forge_opencode_journal as _foj
+    except ImportError:
+        from tools import forge_opencode_journal as _foj
+    return _foj.prompt_avec_veilleur(client, sid, texte, timeout, quota_re=_RE_QUOTA)
 
 
 def _modele_de_la_tache(desc: str, modele_instance: str) -> str:
@@ -2579,11 +4654,21 @@ def _config_opencode_instance(instance: str, modele: str | None = None) -> dict:
         "permission": {
             "bash": "deny",
         },
+        # 30/10 (reglages des CLI, config.mdx d'OpenCode, verifie mot pour mot) : `prune` « Remove old tool outputs to
+        # save tokens (default: false) » -- masquage des anciennes observations ; `auto` garde la compaction a saturation.
+        "compaction": {"auto": True, "prune": True},
     }
     # None = rien demande -> modele de l'instance ; "" = modele PAR DEFAUT d'OpenCode demande explicitement (repli).
     modele = modele if modele is not None else _instances_opencode().get(inst, {}).get("modele")
     if modele:
         cfg["model"] = modele
+    if str(modele or "").startswith("ollama_cloud/"):
+        nom = modele.split("/", 1)[1]
+        cfg["provider"] = {"ollama_cloud": {"npm": "@ai-sdk/openai-compatible", "name": "Ollama Cloud (FREE)",
+                                            "options": {"baseURL": "https://ollama.com/v1",
+                                                        "apiKey": "{env:OLLAMA_API_KEY}"},
+                                            "models": {nom: {"name": nom}}}}
+        cfg["small_model"] = modele
     if str(modele or "").startswith("ollama/"):
         # LOCAL ferme : fournisseur ollama en loopback SEUL autorise, titres compris (small_model) -- aucun repli cloud.
         nom = modele.split("/", 1)[1]
@@ -2600,6 +4685,110 @@ def _config_opencode_instance(instance: str, modele: str | None = None) -> dict:
 # instance qui annonce « je commence » puis s'arrete (ERR_PARTIAL, 0 entree) etait close sur ce premier tour. On relance
 # dans la MEME session tant que l'intention finale manque ou dit ERR_PARTIAL, borne en tours ET en temps.
 OPENCODE_MAX_TOURS = int(os.environ.get("LAFORGE_OPENCODE_MAX_TOURS", "6"))
+# CONSEILLER SOUVERAIN (owner 24/10, P1 etape 2) : voies GRATUITES (OpenCode, Vibe). PLAN avant delegation, UNE revue +
+# UNE relance apres un echec de livraison. Interrupteur LAFORGE_CONSEILLER=0. Un conseiller en echec ne bloque jamais.
+_CONSEIL_PLAN_MAX = 1500
+_CONSEIL_CTX_MAX = 3000
+_CONSEIL_COMPTEUR: dict = {}
+
+
+def _conseil_actif() -> bool:
+    return os.environ.get("LAFORGE_CONSEILLER", "1").strip() != "0"
+
+
+# 29/10 : « jamais bloquant » doit valoir pour le TEMPS. Les 4 executeurs OpenCode ont appele le conseiller (Ollama Cloud
+# nemotron-3-ultra) a 15:54:52 puis plus rien pendant 15 min : le creneau ne declare aucun delai.
+CONSEIL_DELAI_S = float(os.environ.get("LAFORGE_CONSEIL_DELAI_S", "90"))
+
+
+def _appeler_conseiller(tache: str, etape: str, contexte: str) -> dict:
+    """Seul point d'appel du conseiller (doublable). Ne leve jamais, BORNE EN DUREE : echec = {avis:'', fournisseur:None}."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _Delai
+    try:
+        try:
+            from nokido_agent.app.forge_llm_router import conseiller
+        except ImportError:
+            from forge_llm_router import conseiller
+        # PAS de bloc with : sa sortie attendrait la tache malgre le delai (C2.1, audit 29/10)
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="conseiller")
+        try:
+            r = pool.submit(conseiller, tache, etape, contexte).result(timeout=CONSEIL_DELAI_S) or {}
+        except _Delai:
+            log.warning("[conseil] %s : DELAI %.0f s depasse -- la delegation continue sans avis", etape,
+                        CONSEIL_DELAI_S)
+            return {"avis": "", "fournisseur": None, "escalade": [], "erreur": "DELAI %.0fs" % CONSEIL_DELAI_S}
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        return {"avis": str(r.get("avis") or "").strip(), "fournisseur": r.get("fournisseur"),
+                "escalade": r.get("escalade") or []}
+    except Exception as e:  # noqa: BLE001 - le conseil n'est jamais bloquant
+        return {"avis": "", "fournisseur": None, "escalade": [], "erreur": "%s: %s" % (type(e).__name__, e)}
+
+
+def _conseil_plan(desc: str, voie: str, conseil: dict) -> str:
+    """Prefixe de prompt « Plan conseille : ... » ('' si desactive/KO). Remplit `conseil` (fournisseur, notes)."""
+    if not _conseil_actif():
+        return ""
+    fichiers = sorted(set(re.findall(r"[\w./-]+\.(?:py|md|json|toml|ya?ml)", desc)))[:20]
+    ctx = ("%s\nFichiers cites : %s" % (desc, ", ".join(fichiers) or "aucun"))[:_CONSEIL_CTX_MAX]
+    r = _appeler_conseiller(desc[:500], "plan", ctx)
+    avis = r["avis"]
+    if not avis:
+        conseil.setdefault("notes", []).append("conseil: indisponible, delegation SANS conseil")
+        log.warning(f"  [conseiller] {voie} : plan sans avis -- delegation SANS conseil")
+        return ""
+    conseil["fournisseur"] = r.get("fournisseur")
+    conseil["escalade"] = len(r.get("escalade") or [])
+    if len(avis) > _CONSEIL_PLAN_MAX:
+        avis = avis[:_CONSEIL_PLAN_MAX] + " [avis tronque]"
+    return "Plan conseille : %s\n\n" % avis
+
+
+def _conseil_a_revoir(ok: bool, effet: str, detail: str) -> bool:
+    if ok:
+        return False
+    e = "%s\n%s" % (effet, str(detail)[:2000])
+    return any(m in e for m in ("NON LIVRE", "RIEN_PRODUIT", "RIEN PRODUIT", "REJETEE", "BOUCLE SANS PROGRES"))
+
+
+def _conseil_revue(desc: str, voie: str, effet: str, wt: str, conseil: dict) -> str:
+    """UNE revue : rend le texte d'avis a injecter dans la relance ('' si indisponible). Marque revue_faite."""
+    conseil["revue_faite"] = True
+    import subprocess
+    try:
+        diff = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(wt), "diff", "HEAD"], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=30).stdout
+    except Exception:  # noqa: BLE001
+        diff = ""
+    ctx = ("Verdict : %s\nDiff :\n%s" % (effet, diff))[:_CONSEIL_CTX_MAX]
+    r = _appeler_conseiller(desc[:500], "revue", ctx)
+    avis = r["avis"]
+    if not avis:
+        conseil.setdefault("notes", []).append("conseil: revue indisponible, relance annulee")
+        log.warning(f"  [conseiller] {voie} : revue sans avis -- pas de relance")
+        return ""
+    conseil["fournisseur"] = r.get("fournisseur") or conseil.get("fournisseur")
+    conseil["escalade"] = len(r.get("escalade") or [])
+    return avis[:_CONSEIL_PLAN_MAX]
+
+
+def _conseil_trace(effet: str, conseil: dict) -> str:
+    """Ajoute « conseil: <fournisseur> (escalade n) » (ou la note d'absence) au verdict_effet."""
+    if conseil.get("fournisseur"):
+        effet = "%s ; conseil: %s (escalade %s)" % (effet, conseil["fournisseur"], conseil.get("escalade", 0))
+    for n in conseil.get("notes", []):
+        effet = "%s ; %s" % (effet, n)
+    return effet
+
+
+def _conseil_compter(voie: str, ok: bool, conseil: dict) -> None:
+    if not ok:
+        return
+    c = _CONSEIL_COMPTEUR.setdefault(voie, {"avec": 0, "sans": 0})
+    c["avec" if conseil.get("fournisseur") else "sans"] += 1
+    log.info(f"  [conseiller] compteur {voie} : livraisons OK avec conseil={c['avec']} sans conseil={c['sans']}")
+
+
 _RELANCE_OPENCODE = (
     "[Executeur Nokido] Ta reponse ne rend pas d'intention finale (ou rend ERR_PARTIAL) : reprends exactement ou tu t'es "
     "arrete, va jusqu'au critere d'arret de la consigne, puis termine par la ligne JSON finale exigee "
@@ -2645,11 +4834,12 @@ def _choisir_modele(modele, session):
     return None, f"modele {modele} absent de la session ; disponibles : {noms}"
 
 
-def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_avant: tuple | None = None) -> None:
+def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_avant: tuple | None = None,
+                          _conseil: dict | None = None) -> None:
     """Instance OpenCode executee dans SON worktree pilotee par ACPClient ; le verdict porte sur ce qui est LIVRE."""
     task_id = task["id"] if hasattr(task, "__getitem__") else getattr(task, "id")
     raw_desc = (task.get("description") if hasattr(task, "get") else task["description"]) or ""
-    desc = _extract_message(raw_desc) or raw_desc
+    desc = _avec_carte_attention(_resoudre_pointeurs_consigne(_extract_message(raw_desc) or raw_desc))
     inst = str(instance or (task.get("agent") if hasattr(task, "get") else task["agent"]) or "").upper()
     if not inst and _instances_opencode():
         inst = next(iter(_instances_opencode().keys()))
@@ -2668,15 +4858,35 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
         motif_jeton = f"jeton FORGE_TOKEN_{inst} absent ou illisible au coffre"
         log.warning(f"  DELEGATE {str(task_id)[:24]} -> {inst} REFUSE : {motif_jeton}")
         # 19/10 : 4 taches DEFAUT closes ici sans reaffectation -- une demande ne se perd pas (owner)
-        if _reaffecter(dict(task), motif_jeton, ordre=_palier_executeurs("M", ecrit=True)):
+        if _reaffecter(dict(task), motif_jeton, ordre=_ordre_repli_pour(task)):
             return
         _clore_delegation(task_id, token, False, f"delegation refusee : {motif_jeton}")
         return
 
     modele = _modele_de_la_tache(desc, inst_cfg.get("modele", ""))
     note_repli = ""
-    if str(task_id) in _REPLI_EN_COURS:
+    _saute_principal = None
+    if str(task_id) not in _REPLI_EN_COURS:
+        _saute_principal = _principal_hors_quota(modele, inst_cfg)
+        if _saute_principal:
+            log.warning(f"  [opencode] {inst} : principal SAUTE ({_saute_principal}) -> repli direct")
+            _rhq = _repli_hors_quota(inst_cfg)
+            if _rhq:
+                motif_q = "principal ET repli hors quota (%s ; %s)" % (_saute_principal, _rhq)
+                log.warning(f"  [opencode] {inst} : {motif_q} -> reaffectation sans tentative")
+                if _reaffecter(dict(task), motif_q, ordre=_ordre_repli_pour(raw_desc)):
+                    return
+                _clore_delegation(task_id, token, False, motif_q)
+                return
+    if str(task_id) in _REPLI_EN_COURS or _saute_principal:
         modele = str(inst_cfg.get("repli_modele", "") or "")
+        oc = str(inst_cfg.get("repli_ollama_cloud", "") or "")
+        try:
+            from forge_provider_catalogue import palier_ollama_cloud
+            if oc and palier_ollama_cloud(oc) == "FREE":
+                modele = "ollama_cloud/" + oc
+        except Exception:  # noqa: BLE001 - catalogue illisible : repli classique
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_task_executor.py', 3924, exc_info=True)
         note_repli = "repli sur %s apres quota epuise ou delai depasse du modele principal" % (
             modele or "le modele par defaut d'OpenCode")
     repli_a_tenter = False
@@ -2697,7 +4907,12 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
             note_cle = f"cle fournisseur {nom_cle} absente au coffre : le modele {modele} ne peut pas s'appliquer"
             log.warning(f"  [opencode] {inst} : {note_cle}")
     timeout = OPENCODE_TIMEOUT_S
-    prompt_text = desc + _CONSIGNE_GIT_OPENCODE
+    conseil = _conseil if _conseil is not None else {}
+    if _conseil is None:
+        prompt_text = _conseil_plan(desc, "opencode", conseil) + desc + _CONSIGNE_GIT_OPENCODE
+    else:   # relance apres revue : l'avis de revue en prefixe, aucun nouveau plan
+        prompt_text = "Avis de revue du conseiller : %s\n\n%s%s" % (conseil.get("avis_revue", ""), desc,
+                                                                  _CONSIGNE_GIT_OPENCODE)
 
     if ACPClient is None:
         log.warning(f"  ACPClient indisponible pour {inst}")
@@ -2727,22 +4942,33 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
         # OpenCode n'avait AUCUN battement pendant prompt() : un tour long paraissait une mort.
         with _battement_delegation(inst, task_id):
             _t0 = time.time()
-            client.silence_max = OPENCODE_SILENCE_S
-            res = client.prompt(sid, prompt_text, timeout=timeout)
+            # veille de base, rallongee (24/10) pour une tache L ou un modele de raisonnement
+            client.silence_max = OPENCODE_SILENCE_S + _rallonge_veille_s(_taille_tache(desc), modele_choisi or modele,
+                                                                         inst_cfg)
+            res = _prompt_opencode_veille(client, sid, prompt_text, timeout)
             detail = (res.get("text") if isinstance(res, dict) else str(res)) or ""
             tours = 1
+            boucle_sans_progres = False
+            derniere = detail.strip()
             while _doit_relancer(detail) and tours < OPENCODE_MAX_TOURS and time.time() - _t0 < timeout:
                 tours += 1
                 log.info(f"  [opencode] {inst} tour {tours}/{OPENCODE_MAX_TOURS} : intention finale "
                          f"{_intention_finale(detail) or 'absente'} -- relance dans la meme session")
-                res = client.prompt(sid, _RELANCE_OPENCODE, timeout=max(60, int(timeout - (time.time() - _t0))))
+                res = _prompt_opencode_veille(client, sid, _RELANCE_OPENCODE, max(60, int(timeout - (time.time() - _t0))))
                 suite = (res.get("text") if isinstance(res, dict) else str(res)) or ""
                 detail = f"{detail}\n[tour {tours}] {suite}"
+                if suite.strip() == derniere:  # cliquet (24/10) : meme sortie qu'au tour d'avant = aucun progres
+                    boucle_sans_progres = True
+                    break
+                derniere = suite.strip()
         if tours > 1 and _doit_relancer(detail):
             detail = f"{detail}\n[executeur] borne atteinte ({tours} tours) sans intention finale : livraison PARTIELLE"
         if note_modele:
             detail = f"[{note_modele}] {detail}" if detail else note_modele
         ok = bool(detail.strip())
+        if boucle_sans_progres:
+            ok = False
+            detail = f"BOUCLE SANS PROGRES : meme sortie rendue au tour {tours}, relance coupee\n{detail}"
     except SessionBusyError as sbe:
         log.warning(f"  DELEGATE {str(task_id)[:24]} -> {inst} session occupee ({sbe}) -- report")
         _reporter(task, f"session occupee : {sbe}")
@@ -2754,8 +4980,12 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
             detail = f"[{note_modele}] {detail}"
         # Quota epuise OU delai ACP depasse (mesure 17/10 : groq et zai x2 « timeout en attente id=4 », le modele par
         # defaut livre la meme tache ; GO owner ~22 h 50).
+        if _RE_QUOTA.search(str(exc)) and str(task_id) not in _REPLI_EN_COURS and not _saute_principal:
+            _consigner_quota_principal(modele, exc)
         repli_a_tenter = ((bool(_RE_QUOTA.search(str(exc))) or isinstance(exc, TimeoutError))
-                          and "repli_modele" in inst_cfg and str(task_id) not in _REPLI_EN_COURS)
+                          and ("repli_modele" in inst_cfg or inst_cfg.get("repli_ollama_cloud"))
+                          and str(task_id) not in _REPLI_EN_COURS and not _saute_principal
+                          and not _repli_hors_quota(inst_cfg))
     finally:
         try:
             client.close()
@@ -2778,17 +5008,31 @@ def _delegate_to_opencode(task, token: str, instance: str | None = None, _etat_a
     note = _preserver_livraison(ok, wt, task_id, detail, inst, _sales_avant)
     if note:
         detail = "%s\n[executeur] %s" % (detail, note)
-    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, autorises=_tests_autorises(desc))
-    m = re.search(r"commits produits\s*:\s*(\d+)", effet)
-    if ok and not rendu and (m is None or int(m.group(1)) == 0) and '"pointer_ref"' not in detail:
+    ok, effet, rendu = _juger_livraison(ok, detail, wt, _avant, autorises=_tests_autorises(desc), desc=desc)
+    if ok and not rendu and _aucun_effet(effet, detail):
         ok = False      # rien de livre ni de pointe : le client a tourne, l'instance n'a rien produit de verifiable
         effet = "%s ; [AUCUN EFFET] 0 commit et aucun pointer_ref verifiable" % effet
-    log.info(f"  DELEGATE {str(task_id)[:24]} -> {inst} {'OK' if ok else 'KO'} {effet}")
+    if _conseil_actif() and not conseil.get("revue_faite") and _conseil_a_revoir(ok, effet, detail):
+        avis = _conseil_revue(desc, "opencode", effet, wt, conseil)
+        if avis:
+            conseil["avis_revue"] = avis
+            log.info(f"  [conseiller] {inst} : revue obtenue -- UNE relance avec l'avis")
+            return _delegate_to_opencode(task, token, inst, _etat_avant=(_avant, _sales_avant), _conseil=conseil)
+    effet = _conseil_trace(effet, conseil)
+    ok = _finaliser_effet(task_id, ok, effet)
+    _conseil_compter("opencode", ok, conseil)
+    log.info(f"  DELEGATE {str(task_id)[:24]} -> {inst} {'OK' if ok else 'KO'} {effet}"
+             + ("" if ok else " | rendu : " + _tete_rendu(detail)))
     _consigner_verdict_auto(inst, task_id, ok, effet, detail, rendu)
+    if not ok and _est_panne_fournisseur(detail):
+        enregistrer_panne_fournisseur(inst, detail)  # coupe-circuit (24/10) : 2 en 30 min = repos
     # Travail INACHEVE preserve sur la branche : on ne reaffecte pas (la reprise repartirait d'alpha et
     # orphelinerait le commit) -- il attend une relecture.
-    motif = None if (note and "INACHEVE" in note) else _motif_reaffectation_apres(ok, effet)
-    if motif and _reaffecter(dict(task), motif, ordre=_palier_executeurs("M", ecrit=True)):
+    motif = None if (note and "INACHEVE" in note) else _motif_reaffectation_apres(ok, effet, detail)
+    t_reaff = dict(task)
+    if not t_reaff.get("agent"):
+        t_reaff["agent"] = inst
+    if motif and _reaffecter(t_reaff, motif, ordre=_ordre_repli_pour(raw_desc), rendu=str(detail)):
         return
     _clore_delegation(task_id, token, ok, "%s | %s" % (effet, detail), intent=rendu)
 
@@ -2817,13 +5061,228 @@ def _executeur_bat(agent: str, max_age_s: float | None = None) -> bool:
 # sandbox (3 non-livraisons « SUCCESS » mesurees le 18/10) ; Codex hors chaine (quota quasi nul, owner). Le palier L
 # remonte au CLI pilote (Claude) : aucun executeur autonome ne le sert.
 _OPENCODE_ECRITURE = ("OPENCODE_GPTOSS", "OPENCODE_NEMOTRON", "OPENCODE_GLM")
+# 24/10 (mesure : 5 echecs OpenCode sur ~8, reaffectations en chaine GPTOSS -> GLM -> GLM) : hors de la famille
+# OpenCode, la reaffectation va d'abord a CLAUDE_HEADLESS, puis a MISTRAL -- jamais a un autre OpenCode adosse au
+# meme fournisseur gratuit surcharge.
+_ORDRE_HORS_OPENCODE = ("CLAUDE_HEADLESS", "MISTRAL")
+# 29/10 (owner : « executeurs gratuits ») : interrupteur GLOBAL lu a chaque reaffectation. Present = la reaffectation
+# n'envoie jamais une tache a une surface PAYANTE (DEFAUT3 partie chez CLAUDE_HEADLESS, credit API, contre ce choix).
+_FICHIER_REPLI_GRATUIT = ROOT / "sandbox" / "repli_gratuit_seul.switch"
+_SURFACES_PAYANTES = ("CLAUDE_HEADLESS",)
+
+
+def _repli_gratuit_seul() -> bool:
+    try:
+        return Path(_FICHIER_REPLI_GRATUIT).exists()
+    except OSError:
+        return False
+# Demande EXPLICITE d'OpenCode par l'appelant : marqueur `[opencode]` (ou `[opencode_glm]`...) dans la consigne, ou
+# reservation `RESERVE A OPENCODE...` en tete.
+_RE_OPENCODE_EXPLICITE = re.compile(r"\[\s*opencode(?:_[A-Za-z0-9]+)?\s*\]|^\s*RESERVE\s+A\s+OPENCODE", re.I | re.M)
+
+
+def _tailles_opencode_par_defaut() -> tuple:
+    """Tailles confiees a OpenCode SANS demande explicite : celles ou forge_palier_effort.TABLE pose un modele OpenCode
+    (aujourd'hui S, local). M/L = « modele de l'instance » (None) = fournisseur gratuit, surcharge mesuree le 24/10."""
+    try:
+        return tuple(t for t in _palier.TAILLES if _palier.TABLE["opencode"][t][0])
+    except Exception:  # noqa: BLE001 - table illisible : la regle mesuree (S seulement), jamais « tout »
+        return ("S",)
 
 
 def _palier_executeurs(taille: str, ecrit: bool) -> tuple:
-    """Ordre de preference des executeurs pour une tache de `taille` (S/M) qui `ecrit` ou non du code."""
+    """Ordre de preference des executeurs pour une tache de `taille` (S/M) qui `ecrit` ou non du code, quand OpenCode
+    est ADMIS (palier du 18/10). Le choix PAR DEFAUT passe par _palier_par_defaut (regle de taille du 24/10)."""
+    # 27/10 (enquete OPENCODE_DEFAUT3) : les instances CONFIGUREES au-dela des 3 nommees (OPENCODE_DEFAUT2..5) n'etaient
+    # jamais candidates -> « aucun autre executeur vivant » a tort. Nommees d'abord, puis le reste du registre.
+    try:
+        autres = tuple(sorted(k for k in _instances_opencode() if k not in _OPENCODE_ECRITURE))
+    except Exception:  # noqa: BLE001 -- muet-ok : registre illisible, l'ordre nomme reste valable
+        autres = ()
+    ecriture = _OPENCODE_ECRITURE + autres
     if str(taille).upper() == "M" and not ecrit:
-        return ("ANTIGRAVITY",) + _OPENCODE_ECRITURE
-    return _OPENCODE_ECRITURE
+        return ("ANTIGRAVITY",) + ecriture
+    return ecriture
+
+
+def _palier_par_defaut(taille: str, ecrit: bool, explicite: bool = False) -> tuple:
+    """Ordre des executeurs choisis PAR DEFAUT pour une tache de `taille` (S/M/L).
+
+    24/10 : une tache M ou L n'est PAS confiee a OpenCode par defaut (forge_palier_effort.TABLE) ; seule une demande
+    `explicite` de l'appelant l'y ramene (palier du 18/10). Hors OpenCode : CLAUDE_HEADLESS puis MISTRAL."""
+    t = str(taille or "M").strip().upper()
+    if explicite or t in _tailles_opencode_par_defaut():
+        return _palier_executeurs(t, ecrit)
+    if t == "M" and not ecrit:
+        return ("ANTIGRAVITY",) + _ORDRE_HORS_OPENCODE
+    return _ORDRE_HORS_OPENCODE
+
+
+def _opencode_demande(desc) -> bool:
+    """L'appelant a-t-il EXPLICITEMENT demande OpenCode dans la consigne ?"""
+    return bool(_RE_OPENCODE_EXPLICITE.search(str(desc or "")))
+
+
+def _ordre_repli_pour(source, ecrit: bool = True) -> tuple:
+    """Ordre de reaffectation d'une tache d'apres SA consigne : taille declaree (M par defaut) et demande explicite
+    d'OpenCode. `source` = la consigne (str) ou la tache (dict / Row portant `description`)."""
+    if isinstance(source, str) or source is None:
+        desc = source or ""
+    else:
+        try:
+            desc = (source["description"] if "description" in source.keys() else "") or ""
+        except Exception:  # noqa: BLE001 - tache illisible : consigne vide = taille M, sans demande explicite
+            desc = ""
+    return _palier_par_defaut(_taille_tache(desc) or "M", ecrit=ecrit, explicite=_opencode_demande(desc))
+
+
+# COUPE-CIRCUIT par executeur OpenCode (24/10). Mesure : GLM -32603 « service may be temporarily overloaded » x2,
+# DEFAUT2/NEMOTRON/DEFAUT5 « SilenceACP : silence de l'agent depuis 300 s ». Trois avis externes concordent : surcharge
+# du fournisseur gratuit. Apres _COUPE_CIRCUIT_SEUIL pannes FOURNISSEUR en _COUPE_CIRCUIT_FENETRE_S, l'executeur est mis
+# en REPOS : plus choisi ni par la reaffectation (_executeur_suspendu) ni par defaut (_peut_lancer_opencode). L'etat est
+# PARTAGE entre les processus executeurs (fichier) : celui qui reaffecte n'est pas celui qui a vu la panne.
+_COUPE_CIRCUIT_SEUIL = 2
+_COUPE_CIRCUIT_FENETRE_S = 1800.0
+_RE_PANNE_FOURNISSEUR = re.compile(
+    r"-32603|overloaded|surcharg|\b429\b|too many requests|rate.?limit|SilenceACP|silence de l'agent|BOUCLE SANS PROGRES", re.I)
+
+
+def _est_opencode(agent: str) -> bool:
+    nom = (agent or "").upper()
+    if not nom:
+        return False
+    if nom.startswith("OPENCODE"):
+        return True
+    try:
+        return nom in _instances_opencode()
+    except Exception:  # noqa: BLE001 - registre des instances illisible : seul le prefixe fait foi
+        return False
+
+
+def _est_panne_fournisseur(detail) -> bool:
+    """Le DEBUT du detail dit-il une panne du FOURNISSEUR (-32603, overloaded, 429, SilenceACP) ? Un echec de travail
+    (NR rouges) n'en est pas une ; seul le debut compte (un rapport qui PARLE de 429 n'est pas une panne)."""
+    return bool(_RE_PANNE_FOURNISSEUR.search(str(detail or "").lstrip()[:600]))
+
+
+def _fichier_coupe_circuit() -> Path:
+    env = os.environ.get("LAFORGE_OPENCODE_COUPE_CIRCUIT_FILE")
+    return Path(env) if env else SANDBOX / "opencode_coupe_circuit.json"
+
+
+def _repos_opencode_s() -> float:
+    try:
+        return float(os.environ.get("LAFORGE_OPENCODE_REPOS_S", "") or 1800)
+    except (TypeError, ValueError):
+        return 1800.0
+
+
+def _lire_coupe_circuit() -> dict:
+    try:
+        d = json.loads(_fichier_coupe_circuit().read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _ecrire_coupe_circuit(etat: dict) -> None:
+    chemin = _fichier_coupe_circuit()
+    try:
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        tmp = chemin.with_name(f"{chemin.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(etat, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, chemin)
+    except OSError as e:
+        log.warning(f"  [coupe-circuit] etat NON ecrit ({type(e).__name__}: {e}) -- le repos ne sera pas partage")
+
+
+def enregistrer_panne_fournisseur(agent: str, detail: str, maintenant: float | None = None) -> str | None:
+    """Compte une panne FOURNISSEUR de `agent` ; rend le motif de REPOS s'il vient d'y passer, None sinon.
+
+    Une panne isolee ne met pas en repos ; deux dans la fenetre (30 min) oui. Le repos est JOURNALISE."""
+    nom = (agent or "").upper()
+    if not nom or not _est_panne_fournisseur(detail):
+        return None
+    t = time.time() if maintenant is None else float(maintenant)
+    etat = _lire_coupe_circuit()
+    e = etat.get(nom) if isinstance(etat.get(nom), dict) else {}
+    pannes = [p for p in (e.get("pannes") or [])
+              if isinstance(p, (int, float)) and 0 <= t - p <= _COUPE_CIRCUIT_FENETRE_S]
+    pannes.append(t)
+    e["pannes"] = pannes
+    motif = None
+    if len(pannes) >= _COUPE_CIRCUIT_SEUIL:
+        jusqu_a = t + _repos_opencode_s()
+        tete = str(detail or "").strip().splitlines()[0][:160] if str(detail or "").strip() else ""
+        motif = (f"REPOS jusqu'a {time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(jusqu_a))} : {len(pannes)} pannes "
+                 f"fournisseur en {int(_COUPE_CIRCUIT_FENETRE_S // 60)} min (derniere : {tete})")
+        e.update({"repos_depuis": t, "repos_jusqu_a": jusqu_a, "motif": motif, "pannes": []})
+        log.warning(f"  COUPE-CIRCUIT {nom} mis en REPOS -- {motif}")
+    etat[nom] = e
+    _ecrire_coupe_circuit(etat)
+    return motif
+
+
+def executeur_en_repos(agent: str, maintenant: float | None = None) -> str | None:
+    """Motif du repos de `agent` s'il court encore, None sinon (expire, absent, etat illisible)."""
+    nom = (agent or "").upper()
+    e = _lire_coupe_circuit().get(nom) if nom else None
+    if not isinstance(e, dict):
+        return None
+    fin = e.get("repos_jusqu_a")
+    if not isinstance(fin, (int, float)):
+        return None
+    t = time.time() if maintenant is None else float(maintenant)
+    if t >= fin:
+        return None
+    return str(e.get("motif") or "REPOS (coupe-circuit fournisseur)")
+
+
+# VEILLE ACP (24/10) : 300 s par defaut ; 600 s pour une tache L ou un modele declare « raisonnement » (cle
+# `raisonnement` du profil d'instance, ou identifiant de modele qui le dit).
+OPENCODE_SILENCE_LONG_S = int(os.environ.get("LAFORGE_OPENCODE_SILENCE_LONG_S", "600"))
+_RE_MODELE_RAISONNEMENT = re.compile(r"reasoning|raisonnement|thinking|(?<![a-z0-9])r1(?![a-z0-9])", re.I)
+
+
+def _modele_raisonnement(modele: str, inst_cfg: dict | None = None) -> bool:
+    cfg = inst_cfg or {}
+    return bool(cfg.get("raisonnement")) or bool(_RE_MODELE_RAISONNEMENT.search(str(modele or "")))
+
+
+def _silence_acp_s(taille, modele: str = "", inst_cfg: dict | None = None) -> int:
+    """Veille ACP (s) avant de declarer l'agent muet : longue pour une tache L ou un modele de raisonnement."""
+    if str(taille or "").strip().upper() == "L" or _modele_raisonnement(modele, inst_cfg):
+        return max(OPENCODE_SILENCE_S, OPENCODE_SILENCE_LONG_S)
+    return OPENCODE_SILENCE_S
+
+
+def _rallonge_veille_s(taille, modele: str = "", inst_cfg: dict | None = None) -> int:
+    """Ce que la veille ajoute a OPENCODE_SILENCE_S pour cette tache (0 par defaut)."""
+    return _silence_acp_s(taille, modele, inst_cfg) - OPENCODE_SILENCE_S
+
+
+_RE_AUTH_FAIL = re.compile(r"authentication failed|not logged in|unauthorized|\b401\b", re.I)
+# 31/10 (job_81843bc6) : `\bFAILED\b` (re.I) reconnaissait la CLE JSON `"failed":0` des statistiques de `claude -p` -> tout
+# echec CLAUDE_HEADLESS etait lu « echec de travail », jamais reaffecte. Une cle JSON entre guillemets n'est pas un test.
+_RE_ECHEC_TRAVAIL = re.compile(r'(?<!")\bFAILED\b(?!"\s*:)|AssertionError|tests?\s+rouges?|NR\s+rouges?|\b\d+\s+failed\b',
+                               re.I)
+# Credit fournisseur epuise : panne de SURFACE (reaffectation + surface indisponible), pas un echec de travail.
+_RE_CREDIT_EPUISE = re.compile(r"credit balance is too low|insufficient[_ ]quota|insufficient credits?|credits? "
+                               r"(?:epuise|exhausted)|billing.{0,20}(?:required|hard limit)", re.I)
+
+
+def _est_echec_auth(detail: str) -> bool:
+    """Detecte un echec d'authentification du CLI dans le DEBUT du detail.
+
+    22/10 (job_f0172e63) : tout le detail etait scanne ; un rapport qui PARLAIT de 401 / unauthorized (la tache
+    portait sur l'authentification) a ete pris pour une panne -> reaffecte, rapport efface, surface indisponible.
+    Meme critere que _panne_cli : seuls les 400 premiers caracteres disent une panne."""
+    return bool(_RE_AUTH_FAIL.search(str(detail or "").lstrip()[:400]))
+
+
+def _est_echec_travail(detail: str) -> bool:
+    """Detecte un echec de travail (NR rouges / test failure) dans le detail."""
+    return bool(_RE_ECHEC_TRAVAIL.search(str(detail or "")))
 
 
 def _panne_cli(detail: str) -> str | None:
@@ -2833,9 +5292,10 @@ def _panne_cli(detail: str) -> str | None:
     Seul le DEBUT de la sortie compte : un rapport legitime qui PARLE de 429 n'est pas une panne. Motifs reutilises de
     _RE_PANNE_INFRA (meme critere que verdict_automatique)."""
     tete = str(detail or "").lstrip()[:400]
-    if not re.match(r"(error|erreur)\b", tete, re.I):
+    if not re.match(r"(error|erreur|\[NON LIVR[EÉ]\])", tete, re.I):
         return None
-    if _RE_PANNE_INFRA.search(tete) or re.search(r"rate limit|overloaded|service unavailable", tete, re.I):
+    if (_RE_PANNE_INFRA.search(tete)
+            or re.search(r"rate limit|overloaded|surcharg|service unavailable|-32603", tete, re.I)):
         return "PANNE FOURNISSEUR : %s" % tete.splitlines()[0][:160]
     return None
 
@@ -2843,8 +5303,24 @@ def _panne_cli(detail: str) -> str | None:
 def _motif_reaffectation_apres(ok: bool, effet: str, detail: str = ""):
     """Une delegation ECHOUEE sans AUCUN commit se reaffecte ; une livraison existante (meme refusee) se RELIT ;
     effet illisible -> None (UNKNOWN n'est pas NO). Mesure du 18/10 : 8 non-livraisons reprises a la main.
-    19/10 : une panne fournisseur se NOMME (et se reaffecte) au lieu de passer pour du travail non committe."""
+    19/10 : une panne fournisseur se NOMME (et se reaffecte) au lieu de passer pour du travail non committe.
+    20/10 : un echec d'authentification est une indisponibilite de SURFACE (reaffectation + surface indisponible) ;
+    un echec de TRAVAIL (NR rouges) reste sans reaffectation de surface."""
     if ok:
+        return None
+    # 29/10 (job_3a3347e0) : un effet a 2 commits citait des fichiers d'une tache SUR l'authentification -> « ECHEC
+    # AUTHENTIFICATION », surface marquee indisponible, reaffectation a MISTRAL (RIEN_PRODUIT). Un CLI qui a committe
+    # etait connecte : des commits produits excluent l'echec d'authentification.
+    m_commits = re.search(r"commits produits : (\d+)", effet or "")
+    a_livre = bool(m_commits and int(m_commits.group(1)) > 0)
+    m_credit = None if a_livre else (_RE_CREDIT_EPUISE.search(str(detail or "")) or _RE_CREDIT_EPUISE.search(effet or ""))
+    if m_credit:  # 31/10 : « Credit balance is too low » -> la tache CLAUDE_HEADLESS etait close, jamais reaffectee
+        return "CREDIT EPUISE : %s" % m_credit.group(0)
+    panne_auth = not a_livre and (_est_echec_auth(detail) or _est_echec_auth(effet))
+    if panne_auth:
+        txt = detail if _est_echec_auth(detail) else effet
+        return f"ECHEC AUTHENTIFICATION : {str(txt).strip()[:160]}"
+    if _est_echec_travail(detail) or _est_echec_travail(effet):
         return None
     panne = _panne_cli(detail)
     if panne:
@@ -2856,13 +5332,108 @@ def _motif_reaffectation_apres(ok: bool, effet: str, detail: str = ""):
         "travail laisse non committe" if "[NON LIVRE]" in effet else "echec sans livraison")
 
 
-def _reaffecter(task: dict, motif: str, ordre=None):
+_RE_RESERVEE = re.compile(r"^\s*RESERVE\s+A\s+([A-Za-z0-9_\-]+)", re.IGNORECASE)
+
+
+def _reservee_a(description) -> "str | None":
+    """Agent nomme par le marqueur `RESERVE A <AGENT>` en tete de description (insensible a la casse), sinon None.
+    Une tache reservee n'est JAMAIS reaffectee (audit securite : pas de fournisseur cloud tiers)."""
+    m = _RE_RESERVEE.match(str(description or ""))
+    return m.group(1).upper() if m else None
+
+
+def _refuser_reaffectation_reservee(task, agent: str, motif: str) -> None:
+    """Tache reservee : agent inchange, statut failed + M2M NEED_HUMAN_APPROVAL. Ne marque aucune surface indisponible."""
+    tid = task["id"]
+    res = json.dumps({"intent": "NEED_HUMAN_APPROVAL", "status_code": "RESERVEE_NON_REAFFECTABLE",
+                      "pointer_ref": f"tasks.db:{tid}", "detail": str(motif)[:500]}, ensure_ascii=False)
+    conn = _db()
+    try:
+        try:
+            conn.execute("UPDATE tasks SET status='failed', result=? WHERE id=?", (res, tid))
+            conn.commit()
+        except sqlite3.OperationalError as e:
+            log.warning(f"  {str(tid)[:24]} : tache reservee, statut failed NON ecrit ({e})")
+    finally:
+        conn.close()
+    log.warning(f"  RESERVEE {str(tid)[:24]} : reservee a {agent}, reaffectation REFUSEE ({motif}) -> failed, "
+                f"NEED_HUMAN_APPROVAL")
+
+
+def _vers_moins_chargee(conn, task, desc, prefere: str, vivants: list) -> str:
+    """22/10 : a palier egal, l'executeur vivant a la file la plus courte (pending+running) ; a charge egale, le choix
+    deja fait (`prefere`). Garde « meme fichier = meme file » : si une tache en file d'un candidat vise un fichier de
+    meme empreinte (forge_roadmap_keeper.empreinte_item), on reste chez lui. Illisible -> `prefere`."""
+    try:
+        try:
+            from nokido_agent.tools.forge_roadmap_keeper import empreinte_item, empreintes_collision
+        except ImportError:
+            from forge_roadmap_keeper import empreinte_item, empreintes_collision
+        cands = [prefere] + [a for a in vivants if a != prefere]
+        charge = {a: 0 for a in cands}
+        emp = empreinte_item({"reste": desc or ""})
+        meme: list = []
+        rows = conn.execute("SELECT id, agent, description FROM tasks WHERE status IN ('pending','running')").fetchall()
+        for r in rows:
+            ag = (r[1] or "").upper()
+            if ag not in charge or r[0] == task["id"]:
+                continue
+            charge[ag] += 1
+            if emp and ag not in meme and empreintes_collision(emp, empreinte_item({"reste": r[2] or ""})):
+                meme.append(ag)
+        if meme:
+            cands = [a for a in cands if a in meme]
+        return min(cands, key=lambda a: charge[a])
+    except Exception:  # noqa: BLE001 - charge illisible : le choix d'origine, jamais un classement invente
+        return prefere
+
+
+_RENDU_MAX = 500
+
+
+def _tete_rendu(detail) -> str:
+    """Tete d'un rendu sur UNE ligne, bornee a _RENDU_MAX : ce qu'un journal ou une trace garde d'une surface. Le
+    pointeur de sortie brute (« sortie brute agy : <chemin> », ecrit en FIN de detail) passe devant : c'est la preuve."""
+    plat = re.sub(r"\s+", " ", str(detail or "")).strip()
+    m = re.search(r"sortie brute agy : \S+", plat)
+    if m and len(plat) > _RENDU_MAX:
+        plat = "[%s] %s" % (m.group(0), plat)
+    return plat[:_RENDU_MAX]
+
+
+def _reaffecter(task: dict, motif: str, ordre=None, rendu: str = ""):
     """Passe la tache au premier executeur de _ORDRE_REPLI dont le pouls est frais, jamais a un agent deja essaye (pas
     de ping-pong) ; la remet `pending` chez lui et trace {de, vers, motif, quand} dans `reaffectations`. Rend l'agent
-    receveur, ou None : chaine epuisee, la tache reste ou elle est, et le journal le dit."""
+    receveur, ou None : chaine epuisee, la tache reste ou elle est, et le journal le dit.
+
+    31/10 (autopsie OmniRoute) : la reaffectation part AVANT `_fin`, le rendu de la surface n'atteignait donc jamais
+    tasks.db et le receveur ecrivait ensuite le sien. `rendu` (tete bornee, avec le pointeur de sortie brute) est garde
+    dans la trace : la preuve de chaque surface essayee survit."""
     # Row du bus OU dict : les deux s'indexent et ont .keys(), seul le dict a .get (mesure 17/10) ; une tache SANS
     # agent (delegation directe, NR test_agy_worktree_et_effet / test_codex_effort) levait KeyError (2630156af, 18/10)
     de = ((task["agent"] if "agent" in task.keys() else "") or "").upper()
+    _desc = task["description"] if "description" in task.keys() else None
+    if _desc is None:
+        try:
+            _c = _db()
+            try:
+                _r = _c.execute("SELECT description FROM tasks WHERE id=?", (task["id"],)).fetchone()
+                _desc = _r[0] if _r else None
+            finally:
+                _c.close()
+        except Exception:  # noqa: BLE001 - description illisible : non reservee faute de preuve
+            _desc = None
+    _res = _reservee_a(_desc)
+    if _res:
+        _refuser_reaffectation_reservee(task, _res, motif)
+        return None
+    if de and (_est_echec_auth(motif) or str(motif or "").startswith("CREDIT EPUISE")):
+        marquer_surface_indisponible(de, motif)
+    if de and _est_opencode(de) and executeur_en_repos(de):
+        # 24/10 : un OpenCode en REPOS (fournisseur surcharge) ne passe pas la main a un autre OpenCode
+        ordre = _ORDRE_HORS_OPENCODE
+        log.warning(f"  {str(task['id'])[:24]} : {de} en REPOS (coupe-circuit) -- reaffectation HORS famille "
+                    f"OpenCode ({' puis '.join(ordre)})")
     conn = _db()
     try:
         try:
@@ -2877,8 +5448,12 @@ def _reaffecter(task: dict, motif: str, ordre=None):
             return None
         trace = json.loads(row[0]) if row and row[0] else []
         essayes = {de} | {t.get("de") for t in trace} | {t.get("vers") for t in trace}
+        _gratuit = _repli_gratuit_seul()
         vivants = [a for a in (ordre or _ORDRE_REPLI)
-                   if a not in essayes and _executeur_bat(a) and not _executeur_suspendu(a)]
+                   if a not in essayes and not (_gratuit and a in _SURFACES_PAYANTES)
+                   and _executeur_bat(a) and not _executeur_suspendu(a) and not _opencode_hors_quota(a)]
+        if _gratuit and any(a in _SURFACES_PAYANTES for a in (ordre or _ORDRE_REPLI)):
+            log.info(f"  {str(task['id'])[:24]} : repli gratuit seul -- {', '.join(_SURFACES_PAYANTES)} ecarte(s)")
         vers = vivants[0] if vivants else None
         try:  # 19/10 OBSERVATION : ce qu'aurait choisi l'ordre hedoniste (force mesuree) -- ne decide RIEN
             from nokido_agent.app.forge_motivation import ordre_hedoniste
@@ -2886,12 +5461,27 @@ def _reaffecter(task: dict, motif: str, ordre=None):
             hedoniste = (ordre_hedoniste(vivants, classe) or [None])[0] if vivants else None
         except Exception:  # noqa: BLE001 - registre illisible : INCONNU, jamais un choix
             hedoniste = "INCONNU"
+        arme = False
+        if len(vivants) > 1:  # 22/10 ARME (decision owner) : l'ordre suit la MESURE de tasks.db (14 j, panne neutre)
+            try:
+                from nokido_agent.app.forge_motivation import ordre_hedoniste_mesure
+                mesure = ordre_hedoniste_mesure(vivants, (task["classe"] if "classe" in task.keys() else "") or "M:ecrit",
+                                                conn)
+            except Exception:  # noqa: BLE001 - mesure illisible : ordre d'amorce INCHANGE, jamais un classement invente
+                mesure = None
+            if mesure:
+                vers, arme = mesure[0], True
+        if vers and len(vivants) > 1:
+            vers = _vers_moins_chargee(conn, task, _desc, vers, vivants)
         if not vers:
             log.warning(f"  {str(task['id'])[:24]} : {de} ne peut pas la prendre ({motif}) et AUCUN autre executeur "
                         f"vivant hors {sorted(x for x in essayes if x)} -- laissee chez {de}")
             return None
-        trace.append({"de": de, "vers": vers, "motif": str(motif)[:200], "quand": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                      "hedoniste": hedoniste})
+        entree = {"de": de, "vers": vers, "motif": str(motif)[:200], "quand": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                  "hedoniste": hedoniste, "arme": arme}
+        if rendu:
+            entree["rendu"] = _tete_rendu(rendu)
+        trace.append(entree)
         cur = conn.execute("UPDATE tasks SET agent=?, status='pending', reaffectations=? WHERE id=? AND status IN "
                            "('pending', 'running')", (vers, json.dumps(trace, ensure_ascii=False), task["id"]))
         conn.commit()
@@ -2943,14 +5533,33 @@ def _reporter(task: dict, motif: str):
     return _reaffecter(task, motif)
 
 
-def _preparer_worktree(agent: str):
+def _worktree_de(nom: str) -> Path:
+    """Le chemin du worktree d'un agent (meme racine que `forge_worktree.WT_ROOT`)."""
+    return ROOT.parent / "nokido_worktrees" / str(nom).lower()
+
+
+def _sauvegarder_avant_sync(nom: str, agent: str, task_id: str = "") -> str | None:
+    """22/10 (job_d7d57967) : AVANT toute synchronisation, COPIE du travail non committe du worktree.
+
+    `forge_worktree.sync` rebase le worktree sur alpha : un travail laisse non committe peut disparaitre au
+    recalage. La copie est le filet : elle vit dans sandbox/sauvegardes_executeurs, elle n'efface rien."""
+    wt = _worktree_de(nom)
+    marque = "sync_%s_%s" % (str(nom).lower(), time.strftime("%Y%m%d%H%M%S"))
+    return _sauvegarder_travail(str(wt), marque, agent or nom, frozenset(),
+                                motif="avant synchronisation du worktree (%s)" % (task_id or "sans tache"))
+
+
+def _preparer_worktree(agent: str, task_id: str = ""):
     """Avant la delegation : le worktree de l'agent est rebase sur alpha par la brique EXISTANTE `forge_worktree.sync`
     (meme worktree nokido_worktrees/<agent> ; sur conflit elle abandonne le rebase, rien n'est perdu), et c'est
-    journalise. Un doublon (_partir_d_alpha) avait ete ecrit ici le 17/10 sans consulter le domaine : retire (anti-dup)."""
+    journalise. Un doublon (_partir_d_alpha) avait ete ecrit ici le 17/10 sans consulter le domaine : retire (anti-dup).
+
+    22/10 : le travail non committé est COPIE AVANT le recalage -- un travail livre ne peut plus disparaitre."""
     mapping = {
         "ANTIGRAVITY": "antigravity",
         "CODEX": "codex",
         "MISTRAL": "mistral",
+        "CLAUDE_HEADLESS": "claude_headless",
         "OPENCODE_GPTOSS": "opencode_gptoss",
         "OPENCODE_NEMOTRON": "opencode_nemotron",
         "OPENCODE_GLM": "opencode_glm",
@@ -2960,6 +5569,10 @@ def _preparer_worktree(agent: str):
     nom = mapping.get((agent or "").upper())
     if not nom:
         return None
+    try:    # 22/10 : le filet AVANT le recalage -- un travail non committe ne doit pas pouvoir disparaitre
+        _sauvegarder_avant_sync(nom, agent, task_id)
+    except Exception as e:  # noqa: BLE001 -- le filet ne doit jamais empecher la delegation
+        log.warning(f"  worktree {agent} : sauvegarde avant synchro impossible ({type(e).__name__})")
     try:
         import forge_worktree as _fw
 
@@ -2975,14 +5588,16 @@ def _delegation_pour(agent: str):
     ag = (agent or "").upper()
     if ag in _instances_opencode() or ag.startswith("OPENCODE_"):
         return _delegate_to_opencode
-    return {"CODEX": _delegate_to_codex, "MISTRAL": _delegate_to_vibe}.get(ag)
+    return {"CODEX": _delegate_to_codex, "MISTRAL": _delegate_to_vibe,
+            "CLAUDE_HEADLESS": _delegate_to_claude}.get(ag)
 
 
 def _capacite_pour(agent: str):
     ag = (agent or "").upper()
     if ag in _instances_opencode() or ag.startswith("OPENCODE_"):
         return lambda a=ag: _peut_lancer_opencode(a)
-    return {"CODEX": _peut_lancer_codex, "MISTRAL": _peut_lancer_vibe}.get(ag)
+    return {"CODEX": _peut_lancer_codex, "MISTRAL": _peut_lancer_vibe,
+            "CLAUDE_HEADLESS": _peut_lancer_claude}.get(ag)
 
 
 def _marquer_accuse(task_id: str, texte: str) -> None:
@@ -3134,7 +5749,76 @@ def process_task(task: sqlite3.Row, token: str) -> tuple[bool, str]:
     return False, f"Tous providers échoué: {providers}"
 
 
+def _mode_enquete(desc: str) -> dict | None:
+    """Reconnaît une description contenant une ligne `mode: enquete` et en extrait les paramètres."""
+    if not desc:
+        return None
+    lignes = desc.splitlines()
+    est_enquete = False
+    for lig in lignes:
+        if lig.strip().lower() == "mode: enquete":
+            est_enquete = True
+            break
+    if not est_enquete:
+        return None
+
+    question = ""
+    fts: list[str] = []
+    sortie = ""
+
+    for lig in lignes:
+        s = lig.strip()
+        if s.lower().startswith("question:"):
+            if not question:
+                question = s[len("question:"):].strip()
+        elif s.lower().startswith("fts:"):
+            val = s[len("fts:"):].strip()
+            if val:
+                fts.append(val)
+        elif s.lower().startswith("source:"):
+            val = s[len("source:"):].strip()
+            if val:
+                fts.append(f"source:{val}")
+        elif s.lower().startswith("sortie:"):
+            if not sortie:
+                sortie = s[len("sortie:"):].strip()
+
+    return {
+        "question": question,
+        "fts": fts,
+        "sortie": sortie,
+    }
+
+
+def _traiter_enquete(task: sqlite3.Row | dict, token: str, params: dict) -> None:
+    """Traite une tâche en mode enquête via executer_enquete et clôt la délégation."""
+    from forge_enquete_sans_boucle import executer_enquete
+
+    task_id = task["id"]
+    court_id = str(task_id)[:8] if str(task_id) else "sans_id"
+    sortie = params.get("sortie") or f"sandbox/workspace/enquetes/{court_id}.md"
+    question = params.get("question") or ""
+    fts = params.get("fts") or []
+
+    try:
+        res = executer_enquete(question, fts, [], sortie)
+        ok = bool(res.get("ok"))
+        if ok:
+            sortie_reelle = res.get("sortie") or sortie
+            resultat = json.dumps({"intent": "OK_DONE", "pointer_ref": sortie_reelle}, ensure_ascii=False)
+            _clore_delegation(task_id, token, True, resultat)
+        else:
+            motif = res.get("erreur") or "Échec executer_enquete sans détail"
+            _clore_delegation(task_id, token, False, str(motif))
+    except Exception as e:
+        log.error(f"Erreur traitement enquête {task_id[:24]}: {e}", exc_info=True)
+        _clore_delegation(task_id, token, False, f"Exception _traiter_enquete : {type(e).__name__}: {e}")
+
+
 def run_loop(agent_filter: str | None, once: bool) -> None:
+    # compteur PARTAGE avec les threads de delegation : sans `global`, le `+= 1` de la boucle le rend local et
+    # leve UnboundLocalError a la premiere delegation (mesure 30/10 par le NR, avant tout redemarrage)
+    global _delegations_en_vol
     token = _load_token()
     if not token:
         log.error("FORGE_MCP_TOKEN manquant — abort")
@@ -3151,6 +5835,20 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
     _hb = _hb_file(agent_filter)
     _ident = _identite_executeur(agent_filter)
     _enforce = _claim_enforce()
+    try:
+        _o = requalifier_orphelines(agent_filter)
+        if _o["requalifiees"] or _o["abstenues"]:
+            log.warning("[orpheline] demarrage : %d requalifiee(s), %d abstention(s)",
+                        len(_o["requalifiees"]), len(_o["abstenues"]))
+    except Exception as _e_o:  # noqa: BLE001
+        log.warning("[orpheline] requalification INDISPONIBLE (%s: %s)", type(_e_o).__name__, str(_e_o)[:90])
+    # Hygiene au DEMARRAGE (30/10) : le garde-orphelins ne passait qu'au debut d'une delegation ; les reliquats de
+    # worktree attendaient donc la prochaine tache. Un passage ici, sous le compte de l'executeur (proprietaire).
+    if _wt_tache_arme():
+        try:
+            _wt_orphelins()
+        except Exception as _e_w:  # noqa: BLE001
+            log.warning("[worktree] garde-orphelins au demarrage INDISPONIBLE (%s)", type(_e_w).__name__)
     log.info(f"  identite de reclamation : sujet={_ident['sub']} prouve={_ident['prouve']} ({_ident['pourquoi']}) "
              f"| mode={'APPLIQUE' if _enforce else 'OBSERVE'}")
 
@@ -3172,8 +5870,10 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
         _sys.path.insert(0, _app)
     from nokido_agent.app.forge_heartbeat import beat_daemon
 
+    _palier_vu = [None]
     while not _stop:
         beat_daemon(_hb.stem, agent=agent_filter or "*")
+        _palier = "INCONNU"
 
         try:
             # Le bail d'abord : une mission dont l'agent a disparu doit revenir au
@@ -3189,17 +5889,41 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
                             "toujours — c'est le defaut mesure le 2026-08-14 "
                             "(tache running depuis 22 jours)",
                             type(_e_lease).__name__, str(_e_lease)[:90])
-            conn = _db()
-            batch = _fetch_batch(conn, agent_filter)
-            conn.close()
+            # Palier de pression RAM (owner 24/10) : GENE et au-dela, plus de nouvelle reclamation.
+            _palier = _palier_pression()
+            if _palier != _palier_vu[0]:
+                log.info(f"[pression] palier RAM {_palier}")
+                _palier_vu[0] = _palier
+            _retenue = not _reclamation_permise(_palier)
+            if _retenue:
+                batch = []
+            else:
+                conn = _db()
+                batch = _fetch_batch(conn, agent_filter)
+                conn.close()
 
             if not batch:
-                log.info("Aucune tâche pending — attente")
+                if _retenue:
+                    log.info(f"[pression] palier {_palier} : aucune nouvelle reclamation (taches en vol inchangees)")
+                else:
+                    log.info("Aucune tâche pending — attente")
             else:
                 log.info(f"{len(batch)} tâches à traiter")
                 for task in batch:
                     if _stop:
                         break
+
+                    _params_enquete = _mode_enquete(task["description"] or "")
+                    if _params_enquete is not None:
+                        conn_eq = _db()
+                        _pris = _reclamer(conn_eq, task["id"], (task["agent"] or "").upper(), _ident, enforce=_enforce)
+                        conn_eq.close()
+                        if not _pris:
+                            continue
+                        _traiter_enquete(task, token, _params_enquete)
+                        time.sleep(2)
+                        continue
+
                     _agent_dedie = (task["agent"] or "").upper()
                     _deleguer = _delegation_pour(_agent_dedie)
                     if _deleguer:
@@ -3214,36 +5938,46 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
                                             f"(quota non paye, owner 15/10)")
                                 _quota_codex_dit["jour"] = _jour
                             if _reaffecter(task, f"quota Codex du jour atteint ({_quota_codex()}/{CODEX_QUOTA_JOUR})",
-                                           ordre=_palier_executeurs("M", ecrit=True)):  # code : jamais AGY (18/10)
+                                           ordre=_ordre_repli_pour(task)):  # code : jamais AGY (18/10)
                                 continue
                             break
                         _cap, _pq = _capacite_pour(_agent_dedie)()
                         if not _cap:
                             if _reaffecter(task, f"{_agent_dedie} autonome INDISPONIBLE ({_pq})",
-                                           ordre=_palier_executeurs("M", ecrit=True)):  # code : jamais AGY (18/10)
+                                           ordre=_ordre_repli_pour(task)):  # code : jamais AGY (18/10)
                                 continue
                             log.warning(f"  {task['id'][:24]} : {_agent_dedie} autonome INDISPONIBLE ({_pq}) -- laissee pending")
                             break
+                        with _lock_delegations:
+                            if _delegations_en_vol >= LAFORGE_TASK_PARALLEL:
+                                log.info(f"  delegations en vol ({_delegations_en_vol}/{LAFORGE_TASK_PARALLEL}) : limite atteinte -- laissee pending")
+                                break
+                            _delegations_en_vol += 1
+
                         conn2 = _db()
                         _pris = _reclamer(conn2, task["id"], _agent_dedie, _ident, enforce=_enforce)
                         conn2.close()
                         if not _pris:
+                            with _lock_delegations:
+                                _delegations_en_vol -= 1
                             continue
-                        try:
-                            _preparer_worktree(_agent_dedie)
-                            _deleguer(task, token)
-                        except Exception as _de:  # noqa: BLE001
-                            log.error(f"delegation {_agent_dedie} KO {task['id'][:24]}: {_de}")
-                            _clore_delegation(task["id"], token, False,
-                                              f"delegation {_agent_dedie} en exception : {type(_de).__name__}: {_de}")
+
+                        def _executer_delegation_dediee(_ag=_agent_dedie, _t=task, _tok=token, _del=_deleguer):
+                            global _delegations_en_vol
+                            try:
+                                _preparer_worktree(_ag, _t["id"])
+                                _avec_worktree_tache(_ag, _t, _tok, lambda: _del(_t, _tok))
+                            except Exception as _de:  # noqa: BLE001
+                                log.error(f"delegation {_ag} KO {_t['id'][:24]}: {_de}")
+                                _clore_delegation(_t["id"], _tok, False,
+                                                  f"delegation {_ag} en exception : {type(_de).__name__}: {_de}")
+                            finally:
+                                with _lock_delegations:
+                                    _delegations_en_vol -= 1
+
+                        _pool_delegations.submit(_executer_delegation_dediee)
                         time.sleep(2)
                         continue
-                    conn2 = _db()
-                    _pris = _reclamer(conn2, task["id"], (task["agent"] or "").upper(), _ident, enforce=_enforce)
-                    conn2.close()
-                    if not _pris:
-                        continue
-
                     if (task["agent"] or "").upper() in _AGY_DELEGATE_AGENTS:
                         # DEUX chemins, et le choix se fait sur une CAPACITE MESUREE.
                         # (a) _delegate_to_agy : agy en mode AGENT — il EXECUTE
@@ -3256,20 +5990,54 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
                         #     repli : on le journalise avec SA RAISON, pour qu'un
                         #     lecteur sache pourquoi la tache n'a pas ete executee.
                         _cap, _pourquoi = _peut_lancer_agy()
-                        try:
-                            if _cap:
-                                _preparer_worktree("ANTIGRAVITY")
-                                _delegate_to_agy(task, token)
-                            elif _reaffecter(task, f"mode AGENT agy indisponible ({_pourquoi})"):
-                                pass
-                            else:
-                                log.warning(
-                                    f"  {task['id'][:24]} : mode AGENT indisponible "
-                                    f"({_pourquoi}) -> repli RELAIS (repond, n'execute pas)")
+                        _indisp = _executeur_suspendu("ANTIGRAVITY")
+                        if _cap and not _indisp:
+                            with _lock_delegations:
+                                if _delegations_en_vol >= LAFORGE_TASK_PARALLEL:
+                                    log.info(f"  delegations en vol ({_delegations_en_vol}/{LAFORGE_TASK_PARALLEL}) : limite atteinte -- laissee pending")
+                                    break
+                                _delegations_en_vol += 1
+
+                            conn2 = _db()
+                            _pris = _reclamer(conn2, task["id"], (task["agent"] or "").upper(), _ident, enforce=_enforce)
+                            conn2.close()
+                            if not _pris:
+                                with _lock_delegations:
+                                    _delegations_en_vol -= 1
+                                continue
+
+                            def _executer_delegation_agy(_t=task, _tok=token):
+                                global _delegations_en_vol
+                                try:
+                                    _preparer_worktree("ANTIGRAVITY", _t["id"])
+                                    _avec_worktree_tache("ANTIGRAVITY", _t, _tok,
+                                                         lambda: _delegate_to_agy(_t, _tok))
+                                except Exception as _pe:  # noqa: BLE001
+                                    log.error(f"delegation KO {_t['id'][:24]}: {_pe}")
+                                finally:
+                                    with _lock_delegations:
+                                        _delegations_en_vol -= 1
+
+                            _pool_delegations.submit(_executer_delegation_agy)
+                            time.sleep(2)
+                            continue
+                        elif _reaffecter(task, f"mode AGENT agy indisponible ({_indisp or _pourquoi})"):
+                            pass
+                        else:
+                            conn2 = _db()
+                            _pris = _reclamer(conn2, task["id"], (task["agent"] or "").upper(), _ident, enforce=_enforce)
+                            conn2.close()
+                            if not _pris:
+                                continue
+                            log.warning(
+                                f"  {task['id'][:24]} : mode AGENT indisponible "
+                                f"({_pourquoi}) -> repli RELAIS (repond, n'execute pas)")
+                            try:
                                 _relay_to_agy(task, token)
-                        except Exception as _pe:  # noqa: BLE001
-                            log.error(f"delegation KO {task['id'][:24]}: {_pe}")
-                        time.sleep(2)
+                            except Exception as _pe:  # noqa: BLE001
+                                log.error(f"delegation KO {task['id'][:24]}: {_pe}")
+                            time.sleep(2)
+                            continue
                         continue
 
                     ok, result = process_task(task, token)
@@ -3296,9 +6064,18 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
         # de POLL_INTERVAL (sinon l'instance lingère 60s et gobe une tâche = "race"
         # stale mesurée 23/07). Fin des instances stale qui survivent au stop.
         _slept = 0.0
-        while not _stop and _slept < POLL_INTERVAL:
+        _etat_reveil = {"empreinte": _empreinte_db(), "pending": _taches_pending()}
+        while not _stop and _slept < _intervalle_boucle(POLL_INTERVAL, _palier):
             time.sleep(2)
             _slept += 2
+            if _reveil_tache_deposee(_etat_reveil):
+                log.info("reveil : tache deposee pendant la sieste")
+                break
+
+    try:
+        _pool_delegations.shutdown(wait=True)
+    except Exception as e:
+        log.warning(f"Arrêt du pool de délégations: {e}")
 
     log.info("TaskExecutor arrêté")
     try:
@@ -3307,7 +6084,31 @@ def run_loop(agent_filter: str | None, once: bool) -> None:
         log.warning(f"Impossible de supprimer le heartbeat: {e}")
 
 
+def _sans_fenetre_par_defaut() -> bool:
+    """INTERRUPTEUR GLOBAL (owner 31/10 « c'est quoi toutes ces fenetres que tu fais poper ? ») : l'executeur tourne SANS
+    console (superviseur -> lanceur -> executeur) ; chaque sous-processus console (git, cmd, opencode, pytest) ouvrait
+    donc SA fenetre -- une seule ligne sur ~30 portait CREATE_NO_WINDOW. Sous Windows, tout Popen sans creationflags
+    explicite recoit CREATE_NO_WINDOW (sorties toujours capturees) ; un drapeau explicite est respecte ;
+    NOKIDO_EXECUTEUR_FENETRES=1 rend le comportement d'avant. Rend True si l'enveloppe vient d'etre posee.
+    NR tests/nr/test_executeur_sans_fenetre_nr.py."""
+    import subprocess as _s
+    drapeau = getattr(_s, "CREATE_NO_WINDOW", 0)
+    if not drapeau or os.environ.get("NOKIDO_EXECUTEUR_FENETRES") == "1" or getattr(_s.Popen, "_nokido_sans_fenetre", False):
+        return False
+    origine = _s.Popen.__init__
+
+    def __init__(self, *a, **k):
+        if not k.get("creationflags"):
+            k["creationflags"] = drapeau
+        origine(self, *a, **k)
+
+    _s.Popen.__init__ = __init__
+    _s.Popen._nokido_sans_fenetre = True
+    return True
+
+
 def main() -> None:
+    _sans_fenetre_par_defaut()
     parser = argparse.ArgumentParser(description="Nokido Task Executor Daemon")
     parser.add_argument("--once", action="store_true", help="Traiter 1 batch puis exit")
     parser.add_argument(

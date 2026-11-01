@@ -30,10 +30,36 @@ ring 1/2 s'arrete au controle de format, jamais au spawn.
 """
 from __future__ import annotations
 
+import sqlite3
 import sys
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _base_temoin_corrigibilite(tmp_path, monkeypatch):
+    """Base du kill-switch TEMOIN : sans elle, le test lisait la base du poste, et un poste ou elle est
+    illisible (CI GitHub du 25/10 apres redemarrage de la pile : « unable to open database file ») rendait
+    CORRIGIBILITY_ILLISIBLE avant le plancher de ring -- 5 rouges qui ne mesuraient pas le ring.
+    Meme remede que bf09a33c0 (tests/nr/test_bacs_privilegies_ring_gates_nr.py)."""
+    db_file = tmp_path / "embeddings.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE IF NOT EXISTS corrigibility_state (key TEXT PRIMARY KEY, value TEXT, set_by TEXT, "
+                 "reason TEXT, ts REAL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS opsec_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, set_by TEXT, "
+                 "reason TEXT, updated_at REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS opsec_audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT "
+                 "NOT NULL, old_level TEXT, new_level TEXT, set_by TEXT, reason TEXT, ts REAL NOT NULL)")
+    conn.commit()
+    conn.close()
+    for nom in ("LAFORGE_DB", "LAFORGE_DB_PATH", "LAFORGE_AUTHORITY_DB"):
+        monkeypatch.setenv(nom, str(db_file))
+    import nokido_agent.app.forge_corrigibility as _corr
+    import nokido_agent.app.forge_db_path as _dbp
+    monkeypatch.setattr(_corr, "DB", db_file)  # fige A L'IMPORT : patcher l'attribut
+    monkeypatch.setattr(_dbp, "authority_path", lambda *a, **k: str(db_file))  # lu a chaque appel par forge_opsec
+
 
 RACINE = Path(__file__).resolve().parents[1]
 for _p in (str(RACINE.parent), str(RACINE)):

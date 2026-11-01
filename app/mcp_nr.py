@@ -93,6 +93,22 @@ def _inject_main() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# pool_borne — audit C2.1 (29/10) : ThreadPoolExecutor avec timeout qui libère l'appelant
+# ─────────────────────────────────────────────────────────────────────────────
+def pool_borne(fn, timeout: float):
+    """`fn()` borné à `timeout` : l'appelant est LIBÉRÉ au délai (audit C2.1, 29/10).
+    `with ThreadPoolExecutor` attendait la tâche en sortie de bloc (shutdown(wait=True)) :
+    le délai ne libérait jamais l'appelant.
+    Lève concurrent.futures.TimeoutError au délai ; la tâche bloquée est abandonnée, jamais attendue."""
+    from concurrent.futures import ThreadPoolExecutor
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mcp_nr_borne")
+    try:
+        return pool.submit(fn).result(timeout=timeout)
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Phase 1 — Smoke Test
 # ─────────────────────────────────────────────────────────────────────────────
 def _smoke_test() -> tuple:
@@ -460,11 +476,8 @@ def _deep_probe() -> tuple:
     try:
         asyncio.run(_run_all())
     except RuntimeError:
-        # Event loop deja en cours (rare en standalone)
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            pool.submit(asyncio.run, _run_all()).result(timeout=30)
+        # Event loop deja en cours (rare en standalone) — pool_borne pour libérer l'appelant (C2.1)
+        pool_borne(lambda: asyncio.run(_run_all()), timeout=30)
 
     return ok_n, fail_n, lines
 

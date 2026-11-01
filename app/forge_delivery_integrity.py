@@ -253,6 +253,23 @@ def _creation_au_plus_tot(raw: str | None):
     return min(dt.replace(tzinfo=timezone.utc), en_local)
 
 
+_RE_PTR_COMMIT = re.compile(r'\\?"pointer_ref\\?"\s*:\s*\\?"commit:([0-9a-f]{7,40})')
+# Une attestation de succes : intent OK_DONE (M2M) ou status_code SUCCESS (enveloppe AGY sans intent).
+_RE_OK_DONE = re.compile(r'\\?"(?:intent\\?"\s*:\s*\\?"OK_DONE|status_code\\?"\s*:\s*\\?"SUCCESS)')
+
+
+def _sha_atteste(result) -> str | None:
+    """Sha du `pointer_ref: commit:` de la DERNIERE enveloppe OK_DONE du resultat (echappee ou non), sinon None."""
+    txt = str(result or "")
+    oks = list(_RE_OK_DONE.finditer(txt))
+    if not oks:
+        return None
+    debut = txt.rfind("{", 0, oks[-1].start())
+    fin = txt.find("}", oks[-1].end())
+    m = _RE_PTR_COMMIT.search(txt[debut if debut >= 0 else 0:fin if fin >= 0 else len(txt)])
+    return m.group(1) if m else None
+
+
 def _scan_false_attestations() -> list[dict]:
     """Une preuve doit etre POSTERIEURE a ce qu'elle prouve.
 
@@ -266,16 +283,31 @@ def _scan_false_attestations() -> list[dict]:
         return out
     con = sqlite3.connect(f"file:{TASKS_DB}?mode=ro", uri=True, timeout=30)
     try:
-        rows = _rows(con, "SELECT id, agent, created_at, result FROM tasks "
+        # description lue si la colonne existe : un SELECT en echec rendrait [] en silence (detecteur muet).
+        cols = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
+        desc_col = "description" if "description" in cols else "NULL"
+        rows = _rows(con, f"SELECT id, agent, created_at, {desc_col}, result FROM tasks "
                           "WHERE status IN ('done','completed') AND result LIKE '%commit:%'")
     finally:
         con.close()
 
-    for tid, agent, created, result in rows:
-        m = _SHA_RE.search(result or "")
-        if not m:
+    for tid, agent, created, description, result in rows:
+        # 28/10 : seul le pointeur de la DERNIERE enveloppe OK_DONE est une attestation. Un `commit:` cite en prose
+        # (« DEJA_FAIT (commit:<vieux sha>) ») est une preuve d'anteriorite, pas un livrable ; pas d'enveloppe : on
+        # s'abstient (cout asymetrique ci-dessus).
+        sha = _sha_atteste(result)
+        if not sha:
             continue
-        sha = m.group(1)
+        m_spec = _RE_PTR_COMMIT.search(description or "")
+        if m_spec and m_spec.group(1) == sha:
+            out.append({
+                "kind": "pointeur_spec_recopie",
+                "target": f"{tid}:{sha}",
+                "severity": "low",
+                "detail": (f"task {tid} (agent {agent}) marquee done en recopiant le pointeur de sa consigne "
+                           f"({sha}) : defaut de forme de l'attestation, son livrable n'est pas designe"),
+            })
+            continue
         created_dt = _creation_au_plus_tot(created)
         raw = _git(ROOT, "show", "-s", "--format=%cI", sha)
         if raw is None:

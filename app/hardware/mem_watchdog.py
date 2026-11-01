@@ -30,10 +30,13 @@ Usage :
 
 
 import gc
+import json
 import logging
+import statistics
 import os
 import threading
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -57,6 +60,26 @@ SNAPSHOT_COUNT = 20  # top-N lignes dans le dump
 # de 500 Mo. Sans LAFORGE_MEM_TRACE=1 le gardien MESURE et DIT ses changements de niveau ; avec, il trace, mais un
 # dump (et un GC force) au plus par fenetre de LAFORGE_MEM_DUMP_COOLDOWN_S.
 DUMP_COOLDOWN_S = int(os.environ.get("LAFORGE_MEM_DUMP_COOLDOWN_S", "1800"))
+
+
+# Paliers relatifs (vocabulaire de forge_resource_manager) : base = mediane glissante du RSS.
+BASE_FENETRE_S = float(os.environ.get("LAFORGE_MEM_BASE_FENETRE_S", "1800"))
+BASE_MIN_ECHANTILLONS = 10
+PLAFOND_MB = float(os.environ.get("LAFORGE_MEM_PLAFOND_MB", "1500"))
+RATIO_PREFERENCE, RATIO_GENE, RATIO_DETRESSE = 1.25, 1.5, 2.0
+HYSTERESIS = 0.10
+PALIERS_ORDRE = ("CALME", "PREFERENCE", "GENE", "DETRESSE")
+_I_PREF = ["preferer_jobs_detaches", "differer_taches_lourdes_in_process"]
+_I_GENE = _I_PREF + ["gc_collect", "vider_caches_bornes"]
+INTENTIONS = {
+    "ILLISIBLE": [],
+    "CALME": [],
+    "PREFERENCE": _I_PREF,
+    "GENE": _I_GENE,
+    "DETRESSE": _I_GENE + ["dump_borne"],
+}
+_ETAT_PATH_DEFAUT = _ROOT / "sandbox" / "hub_mem_palier.json"
+_ETAT_PATH = Path(os.environ.get("LAFORGE_MEM_ETAT_PATH", str(_ETAT_PATH_DEFAUT)))
 
 
 def _trace_demandee() -> bool:
@@ -137,6 +160,10 @@ class MemWatchdog:
         "_baseline",
         "_niveau",
         "_dernier_dump",
+        "_echantillons",
+        "_palier",
+        "_etat",
+        "_publication_ko",
     )
 
     def __init__(
@@ -155,6 +182,10 @@ class MemWatchdog:
         self._baseline: float = 0.0
         self._niveau: str = "OK"
         self._dernier_dump: Optional[float] = None
+        self._echantillons: deque = deque()
+        self._palier: str = "ILLISIBLE"
+        self._etat: dict = {}
+        self._publication_ko: bool = False
 
     # ── API publique ──────────────────────────────────────────────────────────
 
@@ -213,6 +244,9 @@ class MemWatchdog:
         """Retourne l'état courant."""
         rss = _rss_mb()
         return {
+            **self._etat,
+            "palier": self._palier,
+            "intentions": list(INTENTIONS[self._palier]),
             "rss_mb": rss,
             "baseline": self._baseline,
             "delta_mb": rss - self._baseline,
@@ -232,22 +266,98 @@ class MemWatchdog:
                 break
             self._check()
 
-    def _check(self) -> None:
-        """Mesure la RSS, DIT le niveau a sa transition ; trace et dumpe seulement sur demande, borne dans le temps."""
-        rss = _rss_mb()
-        niveau = "CRITIQUE" if rss >= self.dump_mb else ("WARN" if rss >= self.warn_mb else "OK")
-        trace = _trace_demandee()
-        if niveau != self._niveau:
-            mode = "tracemalloc DEMANDE" if trace else "sans tracemalloc (LAFORGE_MEM_TRACE=1 pour diagnostiquer)"
-            if niveau == "CRITIQUE":
-                logger.error(f"[MemWatchdog] 🚨 RAM CRITIQUE {rss:.0f}MB >= {self.dump_mb}MB -- {mode}")
-            elif niveau == "WARN":
-                logger.warning(f"[MemWatchdog] ⚠️  RAM={rss:.0f}MB >= warn={self.warn_mb}MB -- {mode}")
-            else:
-                logger.info(f"[MemWatchdog] ✅ RAM revenue à {rss:.0f}MB < warn={self.warn_mb}MB")
-            self._niveau = niveau
+    def _base_mb(self) -> Optional[float]:
+        """Mediane glissante du RSS ; None tant que moins de BASE_MIN_ECHANTILLONS."""
+        if len(self._echantillons) < BASE_MIN_ECHANTILLONS:
+            return None
+        return float(statistics.median(v for _, v in self._echantillons))
 
-        if not trace or niveau == "OK":
+    def _palier_cible(self, rss: float, base: Optional[float]) -> tuple:
+        """Palier brut avec hysteresis de 10 % a la descente. Retourne (palier, ratio)."""
+        if base is None or base <= 0:
+            # Base illisible : seul le PLAFOND absolu prouve une detresse. Mesure 28/10 15:40 : le hub demarre a
+            # 1103 Mo et vit autour de 500 Mo ; l'ancien repli warn/dump (300/500) le declarait DETRESSE a chaque
+            # demarrage. Sinon ILLISIBLE : ni CALME, ni fausse detresse, aucune intention publiee.
+            if rss >= PLAFOND_MB:
+                return "DETRESSE", 0.0
+            return "ILLISIBLE", 0.0
+        ratio = rss / base
+        seuils = {"PREFERENCE": RATIO_PREFERENCE, "GENE": RATIO_GENE, "DETRESSE": RATIO_DETRESSE}
+
+        def monte(p: str, h: float = 1.0) -> bool:
+            if p == "DETRESSE" and rss >= PLAFOND_MB * h:
+                return True
+            return ratio >= seuils[p] * h
+
+        courant = self._palier if self._palier in PALIERS_ORDRE else "CALME"
+        cible = "CALME"
+        for p in ("PREFERENCE", "GENE", "DETRESSE"):
+            if monte(p):
+                cible = p
+        # hysteresis : on ne descend sous le palier courant que 10 % sous son seuil d'entree
+        if PALIERS_ORDRE.index(cible) < PALIERS_ORDRE.index(courant):
+            tenu = cible
+            for p in ("PREFERENCE", "GENE", "DETRESSE"):
+                if PALIERS_ORDRE.index(p) <= PALIERS_ORDRE.index(courant) and monte(p, 1.0 - HYSTERESIS):
+                    tenu = p
+            cible = max(cible, tenu, key=PALIERS_ORDRE.index)
+        return cible, ratio
+
+    def _publier(self, etat: dict) -> None:
+        """Ecriture atomique : fichier temporaire puis os.replace."""
+        if os.environ.get("PYTEST_CURRENT_TEST") and Path(_ETAT_PATH) == Path(_ETAT_PATH_DEFAUT):
+            # Un test ne touche jamais l'etat vivant (mesure 28/10 : etat reel ecrit par un pytest de 110 Mo).
+            return
+        tmp = None
+        try:
+            _ETAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _ETAT_PATH.with_name(_ETAT_PATH.name + ".tmp")
+            tmp.write_text(json.dumps(etat), encoding="utf-8")
+            os.replace(tmp, _ETAT_PATH)
+            self._publication_ko = False
+        except OSError as exc:
+            # Dit UNE fois par panne (pas a chaque controle) : un etat non publie laisse ses lecteurs en STALE.
+            if not getattr(self, "_publication_ko", False):
+                logger.warning(f"[MemWatchdog] publication de l'etat impossible ({type(exc).__name__}) : "
+                               f"lecteurs en STALE tant que dure la panne")
+            self._publication_ko = True
+
+    def _check(self, rss: Optional[float] = None, maintenant: Optional[float] = None) -> None:
+        """Mesure la RSS, classe le palier, DIT les transitions ; trace et dumpe seulement sur demande, borne dans le temps.
+
+        rss et maintenant sont injectables (tests) ; sinon mesure reelle et horloge monotone."""
+        if rss is None:
+            rss = _rss_mb()
+        if maintenant is None:
+            maintenant = time.monotonic()
+        self._echantillons.append((maintenant, rss))
+        while self._echantillons and maintenant - self._echantillons[0][0] > BASE_FENETRE_S:
+            self._echantillons.popleft()
+        base = self._base_mb()
+        niveau, ratio = self._palier_cible(rss, base)
+        trace = _trace_demandee()
+        if niveau != self._palier:
+            mode = "tracemalloc DEMANDE" if trace else "sans tracemalloc (LAFORGE_MEM_TRACE=1 pour diagnostiquer)"
+            info = f"RAM={rss:.0f}MB base={'?' if base is None else f'{base:.0f}'}MB ratio={ratio:.2f}"
+            if niveau == "DETRESSE":
+                logger.error(f"[MemWatchdog] 🚨 RAM CRITIQUE palier DETRESSE {info} -- {mode}")
+            elif niveau == "GENE":
+                logger.warning(f"[MemWatchdog] ⚠️  palier GENE {info} -- {mode}")
+            else:
+                logger.info(f"[MemWatchdog] palier {niveau} {info}")
+            self._palier = niveau
+        self._niveau = niveau
+        self._etat = {
+            "ts": time.time(),
+            "rss_mb": rss,
+            "base_mb": base,
+            "ratio": ratio,
+            "palier": niveau,
+            "intentions": list(INTENTIONS[niveau]),
+        }
+        self._publier(self._etat)
+
+        if not trace or niveau in ("CALME", "ILLISIBLE"):
             # Pas de demande (ou RAM revenue) : aucun tracage, aucun dump, aucun GC force.
             if self._tracing:
                 self._stop_tracing()
@@ -257,12 +367,13 @@ class MemWatchdog:
         if not self._tracing:
             self._start_tracing()
             logger.warning(f"[MemWatchdog] tracemalloc activé SUR DEMANDE (depth={STACK_DEPTH})")
-        maintenant = time.monotonic()
         if self._dernier_dump is not None and maintenant - self._dernier_dump < DUMP_COOLDOWN_S:
             return      # un instantane coute ~3 s (mesure 16/10) : au plus un par fenetre
         self._dernier_dump = maintenant
-        if niveau == "CRITIQUE":
+        if niveau == "DETRESSE":
             self._dump(rss, level="CRITICAL")
+            gc.collect()
+        elif niveau == "GENE":
             gc.collect()
         else:
             self.checkpoint(f"auto_{datetime.now().strftime('%H%M%S')}")

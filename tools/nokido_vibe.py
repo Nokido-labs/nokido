@@ -31,7 +31,21 @@ def environnement(base=None) -> dict:
     """L'environnement du processus vibe : celui du lanceur, plus le jeton VIBE_CLI lu au coffre (s'il existe)."""
     env = dict(os.environ if base is None else base)
     env.update(jeton_mcp("vibe_cli"))
+    cle = _cle_mistral()
+    if not cle:
+        raise RuntimeError("cle Mistral absente du coffre (MISTRAL_API_KEY) : Vibe ne demarre pas sans cle")
+    env["MISTRAL_API_KEY"] = cle
+    env["NOKIDO_MISTRAL_API_KEY"] = cle
     return env
+
+
+def _cle_mistral() -> str:
+    """Cle Mistral lue au coffre a chaque lancement ; jamais ecrite sur disque ni journalisee."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+        return get_secret("MISTRAL_API_KEY") or ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def commande(argv) -> list:
@@ -39,7 +53,11 @@ def commande(argv) -> list:
 
 
 def main(argv=None) -> int:
-    env = environnement()
+    try:
+        env = environnement()
+    except RuntimeError as exc:
+        print("[nokido_vibe] %s" % exc, file=sys.stderr)
+        return 2
     if JETON not in env:
         print("[nokido_vibe] jeton VIBE_CLI introuvable au coffre : Vibe demarre SANS le hub (401 attendu)",
               file=sys.stderr)

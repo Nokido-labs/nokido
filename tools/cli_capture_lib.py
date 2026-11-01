@@ -2,7 +2,7 @@
 """
 cli_capture_lib.py — Helper partage pour la capture des conversations CLI.
 
-Toutes les surfaces (Claude Code, Gemini CLI, Cline) ecrivent leurs tours
+Toutes les surfaces (Claude Code, ex-Gemini CLI -- mort le 2026-07-04, AGY CLI : capture a verifier --, Cline) ecrivent leurs tours
 de conversation dans la meme table `agent_messages` de RAG/embeddings.db
 via `record_turn()`. Une seule fonction, pas de duplication.
 

@@ -50,8 +50,56 @@ def test_host_config_locked_has_critical_restrictions():
     assert ds._HOST_CONFIG_LOCKED["mem_limit"] == "256m"
     assert ds._HOST_CONFIG_LOCKED["cap_drop"] == ["ALL"]
     assert "no-new-privileges" in ds._HOST_CONFIG_LOCKED["security_opt"]
-    assert ds._HOST_CONFIG_LOCKED["auto_remove"] is True
+    # auto_remove=False VOULU (Phase 28, 2026-05-25 : il detruisait le conteneur avant la lecture des logs, 409) ;
+    # la garantie « aucun conteneur ne survit » est prouvee par test_conteneur_toujours_supprime_apres_logs.
+    assert ds._HOST_CONFIG_LOCKED["auto_remove"] is False
     assert ds._HOST_CONFIG_LOCKED["pids_limit"] == 128
+
+
+@pytest.mark.parametrize("timeout_atteint", [False, True])
+def test_conteneur_toujours_supprime_apres_logs(monkeypatch, tmp_path, timeout_atteint):
+    """Revue 28/10 : remplace l'assertion auto_remove=True (perimee) par la GARANTIE elle-meme : logs lus PUIS
+    remove(force=True), fin normale comme depassement de delai. Faux SDK : aucun vrai Docker."""
+    import sys
+    import types
+
+    ordre = []
+
+    class _Erreur(Exception):
+        pass
+
+    class _Conteneur:
+        short_id = "c0ffee"
+
+        def wait(self, timeout):
+            if timeout_atteint:
+                raise TimeoutError("ReadTimeout")
+            return {"StatusCode": 0}
+
+        def kill(self):
+            ordre.append("kill")
+
+        def logs(self, **kw):
+            ordre.append("logs")
+            return b"ok"
+
+        def remove(self, force=False):
+            ordre.append(("remove", force))
+
+    client = types.SimpleNamespace(
+        images=types.SimpleNamespace(get=lambda name: None, pull=lambda name: None),
+        containers=types.SimpleNamespace(run=lambda **kw: _Conteneur()),
+    )
+    erreurs = types.SimpleNamespace(APIError=_Erreur, ImageNotFound=_Erreur, ContainerError=_Erreur)
+    monkeypatch.setitem(sys.modules, "docker", types.SimpleNamespace(from_env=lambda timeout=15: client, errors=erreurs))
+    monkeypatch.setitem(sys.modules, "docker.errors", erreurs)
+    monkeypatch.setattr(ds, "_prepare_workspace", lambda code, ext: (tmp_path, "w1"))
+    monkeypatch.setattr(ds, "_cleanup_workspace", lambda d: None)
+    runtime = next(iter(ds.ALLOWED_RUNTIMES))
+    res = ds.spawn_sandbox(runtime, "print(1)", 5)
+    assert ("remove", True) in ordre, ordre
+    assert ordre.index("logs") < ordre.index(("remove", True)), ordre
+    assert res["timed_out"] is timeout_atteint
 
 
 def test_prepare_workspace_creates_isolated_dir(tmp_path, monkeypatch):

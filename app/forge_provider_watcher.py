@@ -34,10 +34,13 @@ def _write_scores(results: dict):
         conn = sqlite3.connect(str(DB), timeout=5)
         # Schéma géré par nokido_hub.py — ne pas recréer
         for name, r in results.items():
+            # 21/10 : ces URL sont des CATALOGUES (/api/tags, /v1/models) -- une reponse prouve le TRANSPORT, jamais la
+            # CAPACITE (ollama rendait /api/tags en 32 ms sans pouvoir generer). `ok` reste reserve a une generation
+            # reelle (forge_llm_router_dt.update_provider_health). NR test_provider_watcher_transport_pas_capacite_nr.
             ok = r.get("ok", False)
             ttft = r.get("ttft_ms") or 9999
-            grade = "A" if ok and ttft < 500 else ("B" if ok else "F")
-            status = "ok" if ok else "down"
+            grade = "T" if ok else "F"
+            status = "transport" if ok else "down"
             conn.execute(
                 "INSERT OR REPLACE INTO provider_scores "
                 "(provider, agent_id, ttft_ms, grade, status, measured_at, priority) "

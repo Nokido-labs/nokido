@@ -58,6 +58,20 @@ def test_une_installation_editable_est_exclue_sans_chemin_machine(tmp_path):
     assert "EXCLU forge-bm25" in texte and "C:/Users" not in texte and str(tmp_path) not in texte
 
 
+def test_une_wheel_locale_est_exclue_comme_l_editable(tmp_path):
+    # 31/10 : forge-bm25 reinstalle depuis file:///C:/tmp/.../*.whl s'est retrouve epingle -- rollback casse.
+    m = _module()
+    locale = _Dist("forge_bm25", "0.1.0", tmp_path, direct={
+        "url": "file:///C:/tmp/laforge_jobs/wheels_bm25/forge_bm25-0.1.0-cp39-abi3-win_amd64.whl",
+        "archive_info": {"hash": "sha256=00"}})
+    distante = _Dist("pkg_index", "1.0", tmp_path, direct={"url": "https://files.example/pkg_index-1.0.whl",
+                                                         "archive_info": {"hash": "sha256=11"}})
+    r = m.runtime([locale, distante])
+    assert "forge-bm25" not in r["paquets"] and r["paquets"]["pkg-index"] == "1.0"
+    texte = m.rendu_runtime(r, str(tmp_path / "envs" / "laforge_py314" / "python.exe"))
+    assert "EXCLU forge-bm25 : archive locale" in texte and "C:/tmp" not in texte
+
+
 def test_un_doublon_se_tranche_par_le_record_conforme_au_disque(tmp_path):
     m = _module()
     (tmp_path / "pkg").mkdir()

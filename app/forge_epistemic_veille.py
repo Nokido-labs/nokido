@@ -555,7 +555,7 @@ def _noter(lac: dict, evenement: str, **detail) -> None:
     del h[:-_HISTORIQUE_MAX]
 
 
-def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain") -> dict:
+def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain", critere: dict | None = None) -> dict:
     """Ouvre (ou rouvre) la lacune d'un manque MESURE.
 
     `motif="gap_certain"` exige `gap is True`. `motif="rang_intention"` (le moins couvert de
@@ -585,6 +585,8 @@ def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain") -> dict:
     lac.update(etat=OUVERTE, instrument=cov["instrument"], score_ouverture=cov.get("score"),
                verdict_ouverture=cov.get("verdict"), motif_ouverture=motif, remesures_sans_effet=0,
                irresolution_proposee=False)
+    if critere:
+        lac["critere"] = dict(critere)  # l'instrument de remesure le relit (mesurer_selon_instrument)
     _noter(lac, "ouverte", score=cov.get("score"), verdict=cov.get("verdict"))
     d[k] = lac
     _ecrire_lacunes(d)
@@ -602,6 +604,116 @@ def debuter_enquete(cle: str, traitement: str) -> dict:
     _noter(lac, "enquete", traitement=traitement)
     _ecrire_lacunes(d)
     return {"ok": True, "cle": cle, "etat": EN_ENQUETE}
+
+
+# INSTRUMENTS PAR NOM (27/10, decision owner : soif branchee sur le take-home). `remesurer_lacune` refuse
+# tout instrument different de celui qui a OUVERT la lacune ; le demon remesurait pourtant TOUT par
+# coverage_dense -> une lacune ouverte par un autre instrument ne pouvait jamais fermer.
+_DEFI_TAKEHOME = _Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / "defi_anthropic"
+
+
+def _instrument_banc_takehome(lac: dict) -> dict:
+    """Meilleur score EXACT du registre de preuves chaine vs `critere.seuil_cycles` (un score faux ne compte pas)."""
+    seuil = int((lac.get("critere") or {})["seuil_cycles"])
+    reg = _DEFI_TAKEHOME / "registre_preuves.jsonl"
+    if not reg.is_file():
+        return {"ok": False, "instrument": "banc_takehome", "error": "registre de preuves absent"}
+    best, preuve = None, None
+    for l in reg.read_text(encoding="utf-8").splitlines():
+        if l.strip():
+            d = _json.loads(l)
+            if d.get("statut") == "VALEUR" and d.get("correct") and isinstance(d.get("cycles"), int):
+                if best is None or d["cycles"] < best:
+                    best, preuve = d["cycles"], d.get("empreinte")
+    if best is None:
+        return {"ok": False, "instrument": "banc_takehome", "error": "aucun verdict exact au registre"}
+    return {"ok": True, "instrument": "banc_takehome", "score": best, "gap": best >= seuil,
+            "verdict": "gap" if best >= seuil else "couvert", "preuve": preuve}
+
+
+def _instrument_z3_superopt(lac: dict) -> dict:
+    """Fenetre du hash TRANCHEE (TROUVE ou IMPOSSIBLE) = question close ; INCONNU = encore ouverte."""
+    fen = (lac.get("critere") or {})["fenetre"]
+    # Preuve COMPLEMENTAIRE tranchee (ex. differences finies, 27/10 : (madd, madd) hors de portee de z3) :
+    # elle prime sur un INCONNU du solveur, jamais l'inverse (seul TROUVE/IMPOSSIBLE est lu ici).
+    for p in sorted(_DEFI_TAKEHOME.glob("preuve_*.json")):
+        try:
+            pr = _json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            __import__("logging").getLogger(__name__).warning(
+                "preuve complementaire ILLISIBLE ignoree : %s", p.name)
+            continue
+        if isinstance(pr, dict) and pr.get("fenetre") == fen and pr.get("verdict") in ("TROUVE", "IMPOSSIBLE"):
+            return {"ok": True, "instrument": "z3_superopt", "score": pr["verdict"], "gap": False,
+                    "verdict": "couvert", "preuve": p.name}
+    for nom in ("superopt_enum.json", "superopt_hash.json"):
+        p = _DEFI_TAKEHOME / nom
+        if p.is_file():
+            for r in _json.loads(p.read_text(encoding="utf-8")):
+                if r.get("fenetre") == fen:
+                    tranche = r.get("verdict") in ("TROUVE", "IMPOSSIBLE")
+                    return {"ok": True, "instrument": "z3_superopt", "score": r.get("verdict"),
+                            "gap": not tranche, "verdict": "couvert" if tranche else "gap"}
+    return {"ok": False, "instrument": "z3_superopt", "error": "fenetre %r absente des verdicts z3" % fen}
+
+
+_BANCS = _Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / "bancs"
+
+
+def _instrument_banc_amelioration(lac: dict) -> dict:
+    """BANC D'AMELIORATION (29/10) : instrument `banc_amelioration:<cible>`. Meilleur prouve du registre CHAINE de la
+    cible (maillons REFERENCE/AMELIORE, mesures par le juge deterministe) vs `critere.seuil` (+ `sens`). Une lacune
+    « metrique sous la cible » ne se ferme que par un maillon AMELIORE atteignant le seuil, ou par une impossibilite
+    MESUREE : `critere.n_impossible` essais consecutifs sans gain, dits (score IMPOSSIBLE_MESURE)."""
+    nom = "banc_amelioration"
+    cible = str(lac.get("instrument", "")).split(":", 1)[1]
+    crit = lac.get("critere") or {}
+    seuil, sens = float(crit["seuil"]), crit.get("sens", "max")
+    reg = _BANCS / cible / "registre.jsonl"
+    if not reg.is_file():
+        return {"ok": False, "instrument": nom, "error": "registre de la cible %r absent" % cible}
+    lignes = [_json.loads(l) for l in reg.read_text(encoding="utf-8").splitlines() if l.strip()]
+    best, preuve = None, None
+    for d in lignes:
+        m = d.get("metrique")
+        if d.get("statut") in ("REFERENCE", "AMELIORE") and isinstance(m, (int, float)):
+            if best is None or (m > best if sens == "max" else m < best):
+                best, preuve = m, d.get("empreinte")
+    if best is None:
+        return {"ok": False, "instrument": nom, "error": "aucune mesure au registre de %r" % cible}
+    atteint = best >= seuil if sens == "max" else best <= seuil
+    if atteint:
+        return {"ok": True, "instrument": nom, "score": best, "gap": False, "verdict": "couvert", "preuve": preuve}
+    essais = [d["statut"] for d in lignes if d.get("statut") in
+              ("AMELIORE", "EGAL", "REGRESSION", "GARDE_ROUGE", "NON_APPLICABLE", "HORS_PERIMETRE")]
+    sans_gain = 0
+    for s in reversed(essais):
+        if s == "AMELIORE":
+            break
+        sans_gain += 1
+    n_imp = int(crit.get("n_impossible") or 0)
+    if n_imp and sans_gain >= n_imp:
+        return {"ok": True, "instrument": nom, "score": "IMPOSSIBLE_MESURE", "gap": False, "verdict": "couvert",
+                "preuve": preuve, "essais_sans_gain": sans_gain, "meilleur": best}
+    return {"ok": True, "instrument": nom, "score": best, "gap": True, "verdict": "gap", "preuve": preuve,
+            "essais_sans_gain": sans_gain}
+
+
+INSTRUMENTS = {"banc_takehome": _instrument_banc_takehome, "z3_superopt": _instrument_z3_superopt,
+               "banc_amelioration": _instrument_banc_amelioration}
+
+
+def mesurer_selon_instrument(lac: dict) -> dict:
+    """Mesure une lacune avec SON instrument ; instrument non enregistre -> coverage_dense (historique).
+    Un instrument parametre s'ecrit `famille:cible` (ex. banc_amelioration:juge_ancrage_swarm)."""
+    nom = lac.get("instrument")
+    f = INSTRUMENTS.get(nom) or (INSTRUMENTS.get(nom.split(":", 1)[0]) if isinstance(nom, str) and ":" in nom else None)
+    if f is None:
+        return coverage_dense(lac.get("question", ""))
+    try:
+        return f(lac)
+    except Exception as e:  # noqa: BLE001 -- instrument en panne : remesure IMPOSSIBLE, jamais « fermee »
+        return {"ok": False, "instrument": lac.get("instrument"), "error": "%s: %s" % (type(e).__name__, e)}
 
 
 def remesurer_lacune(cle: str, cov: dict) -> dict:

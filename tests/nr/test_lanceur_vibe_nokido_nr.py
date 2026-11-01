@@ -27,14 +27,14 @@ CLI, HEADLESS = "FORGE_TOKEN_VIBE_CLI", "FORGE_TOKEN_VIBE_HEADLESS"
 @pytest.fixture()
 def coffre(monkeypatch):
     from nokido_agent.app import forge_secrets as s
-    valeurs = {CLI: "jeton-cli", HEADLESS: "jeton-headless"}
+    valeurs = {CLI: "jeton-cli", HEADLESS: "jeton-headless", "MISTRAL_API_KEY": "faux-mistral"}
     monkeypatch.setattr(s, "get_secret", lambda k: valeurs.get(k))
     return valeurs
 
 
 def test_chaque_identite_vibe_a_son_propre_jeton(coffre):
     assert H.jeton_mcp("vibe_cli") == {CLI: "jeton-cli"}
-    assert H.jeton_mcp("vibe") == {HEADLESS: "jeton-headless"}
+    assert H.jeton_mcp("vibe").get(HEADLESS) == "jeton-headless" and CLI not in H.jeton_mcp("vibe")
     assert H.jeton_mcp("codex") == {}
 
 

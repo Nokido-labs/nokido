@@ -34,10 +34,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import date
 from pathlib import Path
@@ -82,6 +84,208 @@ EXCLUDE = "Nokido.py,legacy,_attic,sandbox,inspirations,_mcp_repos,tmp_*.py"
 # L'ecart est sans effet tant que ci.yml reste manuel, mais la phrase, elle, envoyait
 # chercher la liste au mauvais endroit. Un commentaire perime coute une enquete.
 PURE_TESTS = [
+    "tests/nr/test_rel_depuis_junit_nr.py",
+    # Lot du 24-25/10 (cliquet suite pure, CI de reference 50221f9ca) : regulation RAM a 4 paliers, veto de sommeil
+    # pendant la delegation, juge [COMMIT REFUSE], bail rafraichi a la reclamation, rotation (Copilot/Cline), README
+    # traduits, livraisons CLAUDE_HEADLESS integrees, audit des manifestes, moelle, routeur, SDK. Purs : doublures,
+    # bases temporaires / temoin, sous-interpreteur local ; aucune base vivante, aucun reseau.
+    "tests/nr/test_regulation_graduee_intention_nr.py",
+    "tests/nr/test_delegation_pose_un_veto_de_sommeil_nr.py",
+    "tests/nr/test_juge_commit_refuse_par_le_depot_nr.py",
+    "tests/nr/test_reclamation_rafraichit_le_bail_nr.py",
+    "tests/nr/test_rotation_inventorie_copilot_et_cline_vscode_nr.py",
+    "tests/nr/test_readme_traductions_ram_disque_nr.py",
+    "tests/nr/test_sante_agent_messages_plan_nr.py",
+    "tests/nr/test_soin_cible_et_cliquet_count_nr.py",
+    "tests/nr/test_capture_agy_verif_nr.py",
+    "tests/nr/test_balayages_periodiques_bornes_nr.py",
+    "tests/nr/test_lecon_quality_gate_chemin_complet_nr.py",
+    "tests/nr/test_audit_manifestes_cache_dir_nr.py",
+    "tests/nr/test_llm_router_import_sans_racine_nr.py",
+    "tests/nr/test_moelle_llm_nr.py",
+    "tests/nr/test_sdk_anthropic_present_nr.py",
+    "tests/nr/test_forge_mesure_adhoc_gate_nr.py",
+    "tests/nr/test_cache_tiktoken_depuis_worktree_nr.py",
+    # P0 jetons clients au coffre seul, phase 2 (25/10) : verdict de la mesure en profil jetable. Pur.
+    "tests/nr/test_p0_mesure_entetes_verdict_nr.py",
+    # Soif epistemique interne -> enquete de code (25/10, job_4b3bbd10) : depot injecte. Pur.
+    "tests/nr/test_soif_interne_depose_enquete_code_nr.py",
+    # Objectif d'amelioration eval_fitness (25/10, job_3fc66b08) : scores et sandbox injectes. Pur.
+    "tests/nr/test_eval_fitness_objectif_amelioration_nr.py",
+    # Reforme forge_auto_evolution_loop (25/10, job_825ad1a4) : aucun redemarrage, erreurs dedoublonnees. Pur.
+    "tests/nr/test_auto_evolution_reforme_nr.py",
+    # P0 lanceur Codex coffre seul (25/10, job_95ab7a13) : coffre et subprocess injectes. Pur.
+    "tests/nr/test_nokido_codex_coffre_seul_nr.py",
+    "tests/nr/test_self_patcher_dry_run_nr.py",
+    "tests/nr/test_blackboard_read_zone_cle_nr.py",
+    "tests/nr/test_decision_integrateur_prime_nr.py",
+    "tests/nr/test_self_patcher_appel_hub_nr.py",
+    "tests/nr/test_web_repli_ollama_cloud_nr.py",
+    "tests/nr/test_eval_fitness_mesure_valide_nr.py",
+    "tests/nr/test_bfcl_erreur_fournisseur_n_est_pas_no_parse_nr.py",
+    "tests/nr/test_rotation_historique_git_en_flux_nr.py",
+    "tests/nr/test_ci_emet_rel_sur_echec_nr.py",
+    "tests/nr/test_cognitif_emis_chaque_jour_nr.py",
+    "tests/nr/test_rel_localise_les_assertions_nr.py",
+    "tests/nr/test_bfcl_modele_groq_actuel_nr.py",
+    "tests/nr/test_bfcl_canari_nr.py",
+    "tests/nr/test_humaneval_canari_nr.py",
+    "tests/nr/test_spec_extractor_nr.py",
+    "tests/nr/test_firehose_ignore_markdown_nr.py",
+    "tests/nr/test_regle_d_or_tools_agentique_nr.py",
+    "tests/nr/test_census_couvre_tous_les_fournisseurs_nr.py",
+    "tests/nr/test_commercial_archive_liens_nr.py",
+    "tests/nr/test_task_status_sans_id_delegations_nr.py",
+    "tests/nr/test_watchdog_ne_relance_pas_gemini_poll_nr.py",
+    "tests/nr/test_hub_provenance_vers_governed_edit_nr.py",
+    "tests/nr/test_gate_jetons_caviardage_nr.py",
+    "tests/nr/test_juge_lecture_seule_contrainte_de_conception_nr.py",
+    "tests/nr/test_repli_sur_solde_epuise_nr.py",
+    "tests/nr/test_palier_inclut_toutes_les_instances_opencode_nr.py",
+    "tests/nr/test_livrable_juge_sur_le_commit_nr.py",
+    "tests/nr/test_census_base_sans_double_models_nr.py",
+    "tests/nr/test_session_anchor_ne_relance_pas_gemini_nr.py",
+    "tests/nr/test_harness_worker_vivant_avant_delegation_nr.py",
+    "tests/nr/test_harness_worker_bat_pendant_un_job_nr.py",
+    "tests/nr/test_harness_job_abandonne_retire_de_la_file_nr.py",
+    "tests/nr/test_self_patcher_generateur_fort_nr.py",
+    "tests/nr/test_self_patcher_f2p_nr.py",
+    "tests/nr/test_bump_superrepo_ne_balaie_pas_l_index_nr.py",
+    "tests/nr/test_pertinence_par_organe_nr.py",
+    # Eviction cumulee > 90 % (25/10, job_2cdb6a3f) et predicat transitoires de l'executeur (25/10). Purs.
+    "tests/nr/test_eviction_cumule_jusqu_au_manque_nr.py",
+    "tests/nr/test_executeur_ecarte_transitoires_du_gate_nr.py",
+    # Homeostat libere au lieu de freiner (docker_wanted seul : Docker protege, autres residents evinces). Pur.
+    "tests/nr/test_homeostat_libere_au_lieu_de_freiner_nr.py",
+    # Allegement des schemas MCP + palier d'effort : bascules du 24/10, etaient hors CI. Purs.
+    "tests/test_allegement_schemas_mcp.py",
+    "tests/nr/test_palier_effort_nr.py",
+    # Colonnes dediees de tasks (taille/modele/effort/cout_usd/cout_etat/verdict_effet) : migration additive, MESURE|FORFAIT|INCONNU. Pur : sqlite tmp.
+    "tests/nr/test_colonnes_tasks_trace_nr.py",
+    # Census : dimensions specialite/force/effort distinctes, OBSERVE|DECLARE|UNKNOWN (23/10). Pur : aucun reseau.
+    "tests/nr/test_census_dimensions_nr.py",
+    "tests/nr/test_bench_takehome_juge_nr.py",
+    # Quality gate CLOS cote serveur : pas de CLOS sans sha existant + NR/livrable (24/10). Pur : depot git tmp.
+    "tests/nr/test_roadmap_clos_exige_preuve_nr.py",
+    "tests/nr/test_blackboard_roadmap_clos_observation_nr.py",
+    # Cle Mistral de Vibe injectee depuis le coffre au lancement (decision owner 24/10, voie hybride).
+    "tests/nr/test_vibe_cle_mistral_injectee_nr.py",
+    "tests/nr/test_vibe_cle_trousseau_nr.py",
+    "tests/nr/test_readme_stats_marqueurs_nr.py",
+    "tests/nr/test_llama_server_non_justifie_regule_nr.py",
+    "tests/nr/test_installeur_agy_deny_ecriture_nr.py",
+    "tests/nr/test_docker_arret_effectif_nr.py",
+    "tests/nr/test_executeur_coupe_circuit_opencode_nr.py",
+    "tests/nr/test_coupe_circuit_chemin_reel_nr.py",
+    "tests/nr/test_garde_balayage_rag_nr.py",
+    "tests/nr/test_rag_search_plan_sans_scan_nr.py",
+    "tests/nr/test_verdict_fonctionnel_hors_organe_nr.py",
+    "tests/nr/test_matrice_quota_journalier_nr.py",
+    "tests/nr/test_backfill_curseur_persistant_nr.py",
+    "tests/nr/test_index_travail_embed_nr.py",
+    "tests/nr/test_ollama_cloud_palier_free_nr.py",
+    "tests/nr/test_catalogue_matrice_gel_nr.py",
+    "tests/nr/test_rag_warmup_spawn_existe_nr.py",
+    "tests/nr/test_opencode_quota_bascule_ollama_cloud_nr.py",
+    "tests/nr/test_verdict_effet_rien_produit_toutes_voies_nr.py",
+    "tests/nr/test_statusline_delegations_nr.py",
+    "tests/nr/test_executeur_commit_sans_transitoires_nr.py",
+    "tests/nr/test_scope_defaut_preserve_deep_explore_nr.py",
+    "tests/nr/test_fast_test_runner_interpreteur_nr.py",
+    "tests/nr/test_skill_curator_pidfile_recycle_nr.py",
+    "tests/nr/test_executeur_requalifie_orphelines_running_nr.py",
+    "tests/nr/test_reaffectation_charge_des_files_nr.py",
+    "tests/nr/test_ci_local_basetemp_verrou_nr.py",
+    "tests/nr/test_veilles_etalees_une_seule_running_nr.py",
+    "tests/nr/test_conseiller_souverain_escalade_nr.py",
+    "tests/nr/test_forge_inventaire_docs_rag.py",
+    "tests/nr/test_conseiller_executeur_gratuits_nr.py",
+    "tests/nr/test_red_obligatoire_observe_nr.py",
+    "tests/nr/test_couverture_veilles_nr.py",
+    "tests/nr/test_census_echantillon_chat_nr.py",
+    "tests/nr/test_loops_m2m_plan_borne_nr.py",
+    "tests/nr/test_llama_liste_blanche_cliquet_nr.py",
+    "tests/nr/test_roadmap_item_m2m_nr.py",
+    "tests/nr/test_tokenizer_mistral_tekken_nr.py",
+    "tests/nr/test_token_usage_palier_free_nr.py",
+    "tests/nr/test_free_tier_census_injoginable_ne_donne_pas_zero_nr.py",
+    "tests/nr/test_admission_deux_observateurs_nr.py",
+    "tests/nr/test_veille_fin_libere_docker_et_zero_resultat_nr.py",
+    "tests/nr/test_essaim_par_force_nr.py",
+    "tests/nr/test_mesure_prequalifier_nr.py",
+    "tests/nr/test_juge_contrat_livrable_mutants_nr.py",
+    "tests/nr/test_classer_espace_invisible_nr.py",
+    "tests/nr/test_guetteur_vraie_panne_connexion_nr.py",
+    "tests/nr/test_otlp_sans_collecteur_nr.py",
+    "tests/nr/test_mesure_primitive_statuts_nr.py",
+    "tests/nr/test_mesure_legere_nr.py",
+    "tests/nr/test_pair_depot_long_securise_nr.py",
+    "tests/nr/test_contexte_execution_rapports_nr.py",
+    "tests/nr/test_juge_livrable_obligatoire_nr.py",
+    "tests/nr/test_transport_signale_vs_registre_nr.py",
+    "tests/nr/test_catalogue_voies_cloud_nr.py",
+    "tests/nr/test_mcp_20260728_lot5_nr.py",
+    "tests/nr/test_swarm_membres_defaut_gratuits_nr.py",
+    "tests/nr/test_agent_egale_principal_nr.py",
+    "tests/nr/test_installeur_vibe_home_nr.py",
+    "tests/nr/test_mcp_20260728_lot3_nr.py",
+    "tests/nr/test_mcp_20260728_lot2_nr.py",
+    "tests/nr/test_connect_clients_home_owner_nr.py",
+    "tests/nr/test_census_proxy_erreur_pas_echec_nr.py",
+    "tests/nr/test_installeur_gouvernance_cli_nr.py",
+    "tests/nr/test_mcp_20260728_lot1_nr.py",
+    # Verse le 2026-10-24 : bancs -- persistance au census, chemins depuis la racine, banc code durci, vibe nomme, cible local:ollama. Pur.
+    "tests/nr/test_census_bancs_suites_nr.py",
+    # Verse le 2026-10-24 : _identite_inbox reconnait un bail signe (sujet prouve) au lieu de l'etiqueter bad_token. Pur.
+    "tests/nr/test_identite_inbox_bail_nr.py",
+    # Verse le 2026-10-24 : juge -- tache TDD dont les tests sont deja verts sur le commit RED = PARTIEL (RED_NON_OBSERVE). Pur.
+    "tests/nr/test_red_non_observe_executeur_nr.py",
+    # Verse le 2026-10-24 : bancs -- sortie CLI cp1252 decodee sans exception, remplacement signale (decodage_remplace). Pur.
+    "tests/nr/test_free_tier_census_decodage_nr.py",
+    # Verse le 2026-10-24 : bancs du proxy -- payants, abonnements, client mort, meta-routeurs exclus ; cout inconnu jamais 0. Pur.
+    "tests/nr/test_census_proxy_gratuits_nr.py",
+    # Verse le 2026-10-24 : indexeur AGY -- echec non masque par le delai de 24 h, roles USER_EXPLICIT/MODEL/SYSTEM. Pur.
+    "tests/nr/test_index_agy_rag_nr.py",
+    # Verse le 2026-10-24 : scope de role desarme sans snapshot d'usage, echappatoire = liste pleine (chemin reel get_tool_list). Pur.
+    "tests/nr/test_scope_role_regression_reel_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_capture_agy_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_commit_deux_temps_red_green_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_import_palier_paquet_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_juge_livrable_exige_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_scope_role_defaut_nr.py",
+    # Verse le 2026-10-24 (integration de la nuit) : NR pur, fixtures, aucun reseau.
+    "tests/nr/test_scope_role_mesure_nr.py",
+    # Census : bancs (juges deterministes, dry-run, 429 nomme, budget, PAUSE_S), fournisseur factice. Pur : aucun reseau.
+    "tests/nr/test_census_bancs_nr.py",
+    # Proprioception : pas de COUNT(*) massif (MAX(rowid) = estimation), inconnu jamais 0. Pur : sqlite tmp.
+    "tests/nr/test_proprioception_sans_count_massif_nr.py",
+    "tests/nr/test_trace_viz_list_traces_borne_nr.py",
+    "tests/nr/test_trace_viz_sans_count_massif_nr.py",
+    # Etape 3 jeton maitre : lecteurs GOAP/ORCHESTRATE/SELF_PATCHER/MULTI_LLM = jeton propre d'abord, repli maitre dit. Pur : coffre simule.
+    "tests/nr/test_lecteurs_jeton_propre_dabord_nr.py",
+    # Hub : bearer JWT standard (h.p.s, payload parts[1]) vs format maison ; mal forme = refus explicite. Pur : jetons fabriques.
+    "tests/nr/test_hub_jwt_parts_nr.py",
+    # Repli legacy du hub : meme borne du jeton maitre que le videur (parite). Pur : jetons factices, videur force en echec.
+    "tests/nr/test_repli_hub_borne_maitre_nr.py",
+    # Identites phase 5 : resolve_identity emet un evenement d'authentification JSONL par decision. Pur : tmp_path.
+    "tests/nr/test_videur_evenements_auth_nr.py",
+    # Facade headless unique claude/agy/opencode/vibe : provenance validee (rc 2), reutilise l'executeur. Pur : harness simule.
+    "tests/nr/test_nokido_headless_facade_nr.py",
+    # Compteurs de cache inconnus = None, transmis a log_call (forge_agent_proxy). Pur : faux client, log_call monkeypatche.
+    "tests/nr/test_prompt_cache_inconnu_nr.py",
+    # Identites phase 2 : une seule variable d'identite LAFORGE_AGENT (provision, connect, bridge). Pur : lecture de sources.
+    "tests/nr/test_identite_variable_unique_nr.py",
+    # Identites phase 2 : l'audit MCP journalise le transport MESURE (X-Transport) a cote du canal declare. Pur : requetes simulees.
+    "tests/nr/test_canal_mesure_vs_declare_nr.py",
+    # Le transport signale (meta) est place tot dans l'audit : il survit a la troncature reelle. Pur : tmp_path.
+    "tests/nr/test_audit_meta_survit_troncature_nr.py",
+    # Identites phase 2 : la synchro Claude Desktop pose/conserve LAFORGE_AGENT=CLAUDE_DESKTOP (pas BRIDGE). Pur : tmp_path.
+    "tests/nr/test_claude_desktop_sync_identite_nr.py",
     # Verse le 2026-10-18 : test_hub_n vert (13/13) -- jeton seme dans un coffre de TEST isole (pytest seul).
     "tests/nr/test_hub_n.py",
     "tests/nr/test_coffre_test_isole_nr.py",
@@ -163,6 +367,9 @@ PURE_TESTS = [
     # Verse le 2026-10-13 (lot L9, RSI) : une surcharge de modele dans ask() ne fuit plus vers un appel
     # concurrent (copie par appel). Pur : fournisseur factice, aucun reseau.
     "tests/nr/test_ask_modele_par_appel_sans_course_nr.py",
+    # Verse le 2026-10-23 (temoin CODEX) : texte provider vide = echec explicite, acteur resolu
+    # jusqu'aux journaux cloud et au moniteur de tokens. Pur : fournisseur factice, aucun reseau.
+    "tests/nr/test_ask_vide_identite_nr.py",
     # Verse le 2026-10-13 (lot L9, RSI) : la cause d'un echec fournisseur (402/403/429/timeout) entre dans
     # le statut de la trace. Pur : net_log doublé, sidecar lu sur une ligne fixe.
     "tests/nr/test_cause_echec_fournisseur_dans_le_statut_nr.py",
@@ -2005,6 +2212,9 @@ PURE_TESTS = [
     # Chiffrement at-rest obligatoire par defaut (decision owner 20/10) : registre REQUIS, refus consigne,
     # garde --sans-chiffrement avant tout poseur, etape chiffrement de la recette. Rapatrie du socle avec ce GREEN.
     "tests/nr/test_chiffrement_obligatoire_par_defaut_nr.py",
+    "tests/nr/test_composants_installe_chiffrement_opt_in_nr.py",
+    # Le refus --sans-chiffrement expire a 30 jours (decision owner 22/10) ; date illisible = perime.
+    "tests/nr/test_refus_chiffrement_expire_30j_nr.py",
     # Knowledge Pack par source = par licence : schema, manifeste audite, export liste blanche en tar mmap (20/10).
     "tests/nr/test_pack_par_source_licence_nr.py",
     "tests/nr/test_pack_sources_cli_nr.py",
@@ -2018,6 +2228,7 @@ PURE_TESTS = [
     "tests/nr/test_audit_rfc_lance_seul_nr.py",
     # Le juge refuse une delegation qui ne produit rien : 0 commit, 0 fichier, aucun artefact pointe (20/10).
     "tests/nr/test_juge_rien_produit_nr.py",
+    "tests/nr/test_juge_pointer_ref_echappe_nr.py",
     # L'arret gouverne de Docker se juge sur le MOTEUR eteint, attente bornee, sonde illisible = echec (20/10).
     "tests/nr/test_arret_docker_juge_sur_le_moteur_nr.py",
     # Ingestion OpenStax : sections citees au chapitre, CNXML en texte, flux, licence dite en tete (20/10).
@@ -2078,6 +2289,7 @@ PURE_TESTS = [
     "tests/nr/test_keeper_drain_sans_rafale_d_arrets_nr.py",
     "tests/nr/test_tests_du_garde_isolent_son_journal_nr.py",
     "tests/nr/test_gate_impulsion_actes_non_comptes_nr.py",
+    "tests/nr/test_gate_journal_cmd_est_sonde_nr.py",
     "tests/nr/test_registre_fragments_tronques_nr.py",
     "tests/nr/test_reaffectation_code_jamais_vers_agy_nr.py",
     "tests/nr/test_file_owner_session_start_nr.py",
@@ -2121,6 +2333,10 @@ PURE_TESTS = [
     # Failles du 2026-10-12 : cache disque dspy coupe (diskcache sans correctif) ; verificateur deno sous compte de
     # service (acces refuse, cache deno du profil owner). Faux modules, aucun service.
     "tests/nr/test_dspy_cache_disque_coupe_nr.py",
+    "tests/nr/test_skill_curator_instance_vivante_code_dedie_nr.py",
+    "tests/nr/test_db_backup_archive_chiffree_nr.py",
+    "tests/nr/test_provider_watcher_transport_pas_capacite_nr.py",
+    "tests/nr/test_merge_gate_verdict_livraison_nr.py",
     "tests/nr/test_deno_check_acces_refuse_nr.py",
     # 2026-10-13 : audit pip de TOUS les envs (faux poste, pip-audit simule) ; enricher PDF sans PyPDF2
     # (faux modules) ; imports morts d'un fichier non versionne classes hors du corps (faux depot). Aucun service.
@@ -2147,6 +2363,7 @@ PURE_TESTS = [
     "tests/nr/test_agy_effet_fusion_non_livre_nr.py",
     # veille automatique : identite propre RSS_WATCHER, SERVICES non releve (2026-10-13). Hub simule.
     "tests/nr/test_rss_watcher_identite_propre_nr.py",
+    "tests/nr/test_registre_identites_lecteurs_maitre_nr.py",
     # POST_COMMIT au ring 3 pour indexer les commits, SERVICES non releve (2026-10-18). Registre lu.
     "tests/nr/test_post_commit_indexe_au_ring_3_nr.py",
     # archi-lint juge la mesure DEPORTEE faite sous le compte owner (decision owner 18/10). Dossier temporaire.
@@ -2694,10 +2911,11 @@ PURE_TESTS = [
     # La remediation lit l'inventaire ACTUEL du faucheur d'orphelins (import mort depuis c2705bb03, 15/10).
     "tests/nr/test_remediation_orphelins_contrat_nr.py",
     # Audit ChatGPT workflow, corrige par AGY (15/10) : chainage intra-phase du pipeline, verdicts GOAP stricts
-    # (ok:false = echec, illisible = UNKNOWN), plan_route raccorde a forge_workflow.submit sur la voie DEPORT.
+    # (ok:false = echec, illisible = UNKNOWN), plan_route raccorde a forge_workflow.ecrire_plan sur la voie DEPORT.
     "tests/nr/test_workflow_pipeline_chaining_nr.py",
     "tests/nr/test_goap_execution_verdicts_nr.py",
     "tests/nr/test_gate_plan_route_deport_nr.py",
+    "tests/nr/test_workflow_submit_renomme_ecrire_plan_nr.py",
     # zAI : clef valide SANS solde ecartee des joignables, palier gratuit glm-4.5-flash en slot (15/10).
     "tests/nr/test_zai_palier_gratuit_nr.py",
     # Reprise durable : une activity rappelee avec d'autres entrees leve WorkflowDivergence (audit ChatGPT, 15/10).
@@ -2815,6 +3033,8 @@ PURE_TESTS = [
     "tests/nr/test_arene_chemin_promotion_nr.py",
     "tests/nr/test_crawl4ai_a_la_demande_nr.py",
     "tests/nr/test_reaffectation_hedoniste_observee_nr.py",
+    # Ordre hedoniste ARME sur la mesure tasks.db (14 j, panne fournisseur neutre). Pur : tasks.db temporaire.
+    "tests/nr/test_ordre_hedoniste_arme_mesure_nr.py",
     "tests/nr/test_hamilton_classe_spawn_nr.py",
     "tests/nr/test_hamilton_reconcile_classe_nr.py",
     "tests/nr/test_cliquet_racine_donnees_nr.py",
@@ -2854,6 +3074,7 @@ PURE_TESTS = [
     "tests/nr/test_veille_composants_declenchee_nr.py",
     "tests/nr/test_demandes_owner_jamais_perdues_nr.py",
     "tests/nr/test_juge_lit_le_contenu_livre_nr.py",
+    "tests/nr/test_juge_artefact_workdir_nr.py",
     "tests/nr/test_lanceur_session_avec_jeton_nr.py",
     "tests/nr/test_capture_sans_perte_nr.py",
     "tests/nr/test_regle_d_or_tools_nr.py",
@@ -3007,6 +3228,7 @@ PURE_TESTS = [
     "tests/nr/test_veille_modele_vivant_nr.py",
     "tests/nr/test_soif_choisit_son_traitement_nr.py",
     "tests/nr/test_soif_examen_a_la_demande_nr.py",
+    "tests/nr/test_soif_veto_sommeil_examen_nr.py",
     # Soif lot B (2026-10-02) : AVEUGLE_PARTIEL, cycle de vie des lacunes (fermeture par remesure
     # du meme instrument, IRRESOLUE owner seulement), plafond algedonique par fenetre, etalonnage gele.
     "tests/nr/test_soif_lot_b_nr.py",
@@ -3170,6 +3392,12 @@ PURE_TESTS = [
     "tests/nr/test_core_models_classifieur_predictif_nr.py",
     "tests/nr/test_nokido_jauge_entropie_nr.py",
     "tests/nr/test_nokido_contexte_distant_nr.py",
+    "tests/nr/test_nokido_claude_lanceur_nr.py",
+    "tests/nr/test_contexte_par_source_nr.py",
+    "tests/nr/test_hook_rappel_sans_repetition_nr.py",
+    "tests/nr/test_run_sortie_bornee_nr.py",
+    "tests/nr/test_mcp_entetes_identite_nr.py",
+    "tests/nr/test_identites_audit_nr.py",
     "tests/nr/test_agentic_evolve_contexte_nr.py",
     "tests/nr/test_disco_proxy_nr.py",
     "tests/nr/test_mixin_ai_noms_nr.py",
@@ -3187,6 +3415,279 @@ PURE_TESTS = [
     "tests/nr/test_stdout_import_goap_hub_bridge_nr.py",
     "tests/nr/test_stdout_import_self_patcher_nr.py",
     "tests/nr/test_stdout_import_paste_clean_nr.py",
+    # NR des 20-22/10 restes hors suite (rouge test_suite_pure_ratchet_nr, CI de reference 172ae64c4) :
+    # relus un par un -- chemins %NOKIDO_DATA%\ et embeddings.db en CHAINES analysees, bases sous tmp_path,
+    # aucun port ouvert, aucun reseau, aucun secret.
+    "tests/nr/test_ancrage_regles_memoire_nr.py",
+    "tests/nr/test_bash_guard_monitor_delegations_nr.py",
+    "tests/nr/test_census_echantillon_dit_et_filtre_nr.py",
+    "tests/nr/test_census_essaim_cable_nr.py",
+    "tests/nr/test_certification_heritee_diff_restreint_nr.py",
+    "tests/nr/test_db_advisor_mode_portee_nr.py",
+    "tests/nr/test_db_advisor_ordre_et_bruit_nr.py",
+    "tests/nr/test_db_advisor_portee_et_index_complet_nr.py",
+    "tests/nr/test_db_advisor_racines_c_et_temporaires_nr.py",
+    "tests/nr/test_db_advisor_tri_rowid_borne_nr.py",
+    "tests/nr/test_dev_mode_message_non_admin_nr.py",
+    "tests/nr/test_double_none_leve_importerror_nr.py",
+    "tests/nr/test_executeur_claude_headless_nr.py",
+    "tests/nr/test_juge_failure_avec_livraison_nr.py",
+    "tests/nr/test_migrate_env_secret_libelle_nr.py",
+    "tests/nr/test_pack_cache_vecteurs_nr.py",
+    "tests/nr/test_pack_import_cible_db_nr.py",
+    "tests/nr/test_readme_stats_mesure_bornee_nr.py",
+    "tests/nr/test_reaffectation_sur_echec_auth_nr.py",
+    "tests/nr/test_tache_reservee_non_reaffectable_nr.py",
+    "tests/nr/test_recette_provisionne_chiffrement_nr.py",
+    "tests/nr/test_release_pack_candidat_repris_nr.py",
+    "tests/nr/test_repetition_audite_les_manifestes_livres_nr.py",
+    # La CI de reference refuse de partir sans audit pip FRAIS des manifestes livres, au meme contenu qu'au sha (22/10).
+    "tests/nr/test_ci_reference_exige_audit_manifestes_nr.py",
+    # Integres le 22/10 soir sans declaration (cliquet test_suite_pure_ratchet rouge) : tous purs (tmp, ASGI en
+    # memoire, transcript synthetique), zero service externe.
+    "tests/nr/test_governed_edit_worktree_par_provenance_nr.py",
+    "tests/nr/test_hooks_repetitions_nr.py",
+    "tests/nr/test_hub_provenance_rotation_nr.py",
+    # Site utilisateur masque pour la base miniforge SEULEMENT (decision owner 22/10 « par etapes, mesure »).
+    "tests/nr/test_lanceurs_python_masquent_site_utilisateur_nr.py",
+    # Raffinage phase 0 : plan d'archive sur E: en SIMULATION (aucune base ouverte, rien ecrit) (22/10).
+    "tests/nr/test_snapshot_plan_phase0_nr.py",
+    # Atlas des donnees : statuts distincts par magasin (declare/localise/ouvert/requete/integrite/fraicheur) (22/10).
+    "tests/nr/test_atlas_donnees_statuts_nr.py",
+    "tests/nr/test_pair_consentement_limiteur_nr.py",
+    "tests/nr/test_pair_funnel_protection_mesuree_nr.py",
+    "tests/nr/test_task_result_task_id_invalide_nr.py",
+    # Methode A (22/10) : le commit gouverne joue les NR impactes et refuse si rouge, illisible ou au-dessus du plafond.
+    "tests/nr/test_forge_governed_commit_nr.py",
+    "tests/nr/test_roadmap_chemin_critique_empreinte_nr.py",
+    "tests/nr/test_roadmap_chronologie_vagues_nr.py",
+    "tests/nr/test_roadmap_en_cours_et_subsomption_nr.py",
+    "tests/nr/test_roadmap_marqueurs_ouvert_et_decision_nr.py",
+    "tests/nr/test_sante_sans_count_massif_nr.py",
+    "tests/nr/test_suivi_delegations_nr.py",
+    "tests/nr/test_tray_commandes_decouvrables_nr.py",
+    "tests/nr/test_wiki_sourceforge_par_api_nr.py",
+    "tests/nr/test_surface_indisponible_expire_nr.py",
+    # Pre-controle reproduit le profil de reference sur diff infra (P1_methode_B, 2026-10-22)
+    "tests/nr/test_precontrole_profil_reference_nr.py",
+    # 31/10 : 206 orphelins SUIVIS valides un par un (job valider_orphelins, --timeout=30)
+    "tests/nr/test_a2a_carte_digests_nr.py",
+    "tests/nr/test_acp_agent_mort_dit_nr.py",
+    "tests/nr/test_acp_claude_sans_claudecode_nr.py",
+    "tests/nr/test_acp_client_crochets_nr.py",
+    "tests/nr/test_acp_decision_signee_nr.py",
+    "tests/nr/test_acp_epingle_illisible_nr.py",
+    "tests/nr/test_acp_epingler_superviseur_nr.py",
+    "tests/nr/test_acp_jwks_nr.py",
+    "tests/nr/test_acp_outil_worker_meme_vocabulaire_nr.py",
+    "tests/nr/test_acp_parite_nr.py",
+    "tests/nr/test_acp_pool_sessions_nr.py",
+    "tests/nr/test_acp_profil_allege_nr.py",
+    "tests/nr/test_acp_reprise_session_nr.py",
+    "tests/nr/test_acp_router_mode_nr.py",
+    "tests/nr/test_acp_router_modele_nr.py",
+    "tests/nr/test_acp_router_nr.py",
+    "tests/nr/test_acp_router_permissions_garde_nr.py",
+    "tests/nr/test_acp_router_permissions_nr.py",
+    "tests/nr/test_acp_router_recette_securite_nr.py",
+    "tests/nr/test_acp_router_worktree_par_ecrivain_nr.py",
+    "tests/nr/test_acp_session_proprietaire_nr.py",
+    "tests/nr/test_acp_sonde_raw_agent_nr.py",
+    "tests/nr/test_acp_usage_capture_nr.py",
+    "tests/nr/test_acp_views_agy_nr.py",
+    "tests/nr/test_acp_views_csrf_nr.py",
+    "tests/nr/test_acp_views_session_owner_nr.py",
+    "tests/nr/test_acp_worker_auth_nr.py",
+    "tests/nr/test_acp_worker_diag_env_nr.py",
+    "tests/nr/test_acp_worker_sessions_nr.py",
+    "tests/nr/test_admission_pi_observation_nr.py",
+    "tests/nr/test_admission_poids_declare_nr.py",
+    "tests/nr/test_agy_chemin_absolu_worktree_tache_nr.py",
+    "tests/nr/test_agy_chemins_absolutises_nr.py",
+    "tests/nr/test_agy_effort_selon_taille_nr.py",
+    "tests/nr/test_agy_journal_de_session_nr.py",
+    "tests/nr/test_agy_lecture_chemin_absolu_nr.py",
+    "tests/nr/test_agy_lecture_hors_worktree_nr.py",
+    "tests/nr/test_agy_prefixe_stable_nr.py",
+    "tests/nr/test_agy_projet_dans_le_worktree_nr.py",
+    "tests/nr/test_agy_refus_dit_son_chemin_nr.py",
+    "tests/nr/test_agy_rendu_conserve_a_la_reaffectation_nr.py",
+    "tests/nr/test_agy_sans_expansion_skills_nr.py",
+    "tests/nr/test_agy_sortie_brute_conservee_nr.py",
+    "tests/nr/test_arene_dossier_vu_apres_succes_nr.py",
+    "tests/nr/test_assign_agent_sans_executeur_nr.py",
+    "tests/nr/test_banc_amelioration_nr.py",
+    "tests/nr/test_banc_appliquer_indentation_nr.py",
+    "tests/nr/test_banc_decision_owner_nr.py",
+    "tests/nr/test_banc_evolution_lignee_nr.py",
+    "tests/nr/test_banc_juge_ancrage_corpus_v2_nr.py",
+    "tests/nr/test_banc_prompt_annonce_plafond_nr.py",
+    "tests/nr/test_banc_prompt_fonctions_seules_nr.py",
+    "tests/nr/test_banc_rapport_juge_courant_nr.py",
+    "tests/nr/test_banc_redaction_dlp_nr.py",
+    "tests/nr/test_banc_reference_suit_le_juge_nr.py",
+    "tests/nr/test_banc_strategies_nr.py",
+    "tests/nr/test_bench_takehome_bornes_nr.py",
+    "tests/nr/test_bench_takehome_registre_nr.py",
+    "tests/nr/test_bench_traduction_corpus_borne_nr.py",
+    "tests/nr/test_bench_traduction_decodage_borne_nr.py",
+    "tests/nr/test_bench_traduction_nr.py",
+    "tests/nr/test_budget_epuise_est_un_quota_nr.py",
+    "tests/nr/test_cadence_reprend_apres_reveil_nr.py",
+    "tests/nr/test_canal_claude_code_http_nr.py",
+    "tests/nr/test_census_surfaces_free_tier_completes_nr.py",
+    "tests/nr/test_circadien_demande_au_regulateur_nr.py",
+    "tests/nr/test_circadien_inactivite_mesuree_nr.py",
+    "tests/nr/test_circadien_sommeil_consolide_nr.py",
+    "tests/nr/test_circadien_specs_proposees_nr.py",
+    "tests/nr/test_claude_headless_max_en_attendant_nr.py",
+    "tests/nr/test_cloisonnement_coffre_nr.py",
+    "tests/nr/test_cloisonnement_identite_videur_nr.py",
+    "tests/nr/test_cloisonnement_notify_nr.py",
+    "tests/nr/test_cloisonnement_postal_nr.py",
+    "tests/nr/test_cloisonnement_tableau_noir_nr.py",
+    "tests/nr/test_cloisonnement_tasks_nr.py",
+    "tests/nr/test_cof1_principal_hub_exempte_nr.py",
+    "tests/nr/test_coffre_observation_journal_durable_nr.py",
+    "tests/nr/test_coffre_observation_pile_nr.py",
+    "tests/nr/test_collab_legacy_pool_borne_nr.py",
+    "tests/nr/test_consigne_pointeur_resolu_nr.py",
+    "tests/nr/test_consolidateur_bat_pendant_le_sommeil_nr.py",
+    "tests/nr/test_credit_amont_chainage_nr.py",
+    "tests/nr/test_credit_epuise_reaffecte_nr.py",
+    "tests/nr/test_cs2_formulaire_schema_inerte_nr.py",
+    "tests/nr/test_dataset_sync_generateur_dans_hash_nr.py",
+    "tests/nr/test_delivery_integrity_pointeur_spec_nr.py",
+    "tests/nr/test_dette_resolue_ailleurs_nr.py",
+    "tests/nr/test_embed_appel_borne_libere_nr.py",
+    "tests/nr/test_enquete_noms_inventes_nr.py",
+    "tests/nr/test_ensure_service_restarted_dit_vrai_nr.py",
+    "tests/nr/test_ensure_stop_deja_arrete_nr.py",
+    "tests/nr/test_etaler_veilles_parallele_nr.py",
+    "tests/nr/test_executeur_delegations_paralleles_nr.py",
+    "tests/nr/test_executeur_reveil_depot_nr.py",
+    "tests/nr/test_executor_auth_faux_positif_commits_nr.py",
+    "tests/nr/test_forge_bm25_equivaut_rank_bm25_nr.py",
+    "tests/nr/test_fusion_outils_mcp_phase3_nr.py",
+    "tests/nr/test_goap_drain_borne_libere_nr.py",
+    "tests/nr/test_governed_edit_noms_non_definis_nr.py",
+    "tests/nr/test_governed_write_refuse_troncature_nr.py",
+    "tests/nr/test_gpu_auto_motif_mesure_nr.py",
+    "tests/nr/test_hamilton_epargne_travail_en_vol_nr.py",
+    "tests/nr/test_hamilton_reprise_utile_dans_le_budget_nr.py",
+    "tests/nr/test_handoff_cloud_firewall_ferme_nr.py",
+    "tests/nr/test_handoff_outils_cloud_nr.py",
+    "tests/nr/test_handoff_passation_compacte_nr.py",
+    "tests/nr/test_harness_worker_pouls_et_chien_nr.py",
+    "tests/nr/test_harness_worker_veto_sommeil_nr.py",
+    "tests/nr/test_hook_tray_en_attente_nr.py",
+    "tests/nr/test_hub_client_echange_dpop_nr.py",
+    "tests/nr/test_identite_de_job_par_script_nr.py",
+    "tests/nr/test_identite_executeur_attestee_nr.py",
+    "tests/nr/test_identite_swarm_lanceur_nr.py",
+    "tests/nr/test_import_sans_ecriture_nr.py",
+    "tests/nr/test_introspect_bench_mesure.py",
+    "tests/nr/test_introspect_borne_sorties_identiques_nr.py",
+    "tests/nr/test_jeton_injecte_classe_a_part_nr.py",
+    "tests/nr/test_job_portee_ensure_service_nr.py",
+    "tests/nr/test_journal_regulation_par_tick_nr.py",
+    "tests/nr/test_lanceur_passer_identite_nr.py",
+    "tests/nr/test_lecture_conditionnelle_registry_nr.py",
+    "tests/nr/test_lecture_hub_formes_nr.py",
+    "tests/nr/test_livraison_reecriture_destructrice_nr.py",
+    "tests/nr/test_mcp_lab_tool_form_echappe_nr.py",
+    "tests/nr/test_mcp_nr_pool_borne_nr.py",
+    "tests/nr/test_mem_watchdog_etat_hors_tests_nr.py",
+    "tests/nr/test_mem_watchdog_paliers_nr.py",
+    "tests/nr/test_middleware_outils_docker_du_catalogue_nr.py",
+    "tests/nr/test_non_livre_pointeur_sans_artefact_nr.py",
+    "tests/nr/test_nvidia_nim_aligne_routeur_nr.py",
+    "tests/nr/test_observer_clients_mcp_nr.py",
+    "tests/nr/test_opencode_instances_principal_declare_nr.py",
+    "tests/nr/test_opencode_journal_format_reel_nr.py",
+    "tests/nr/test_opencode_quota_journal_nr.py",
+    "tests/nr/test_ordo_demarrage_nr.py",
+    "tests/nr/test_ordre_redemarrage_solde_au_boot_nr.py",
+    "tests/nr/test_ordre_restart_hub_nr.py",
+    "tests/nr/test_outil_hub_acp_nr.py",
+    "tests/nr/test_palier_agy_modele_leger_nr.py",
+    "tests/nr/test_palier_claude_api_nr.py",
+    "tests/nr/test_palier_codex_effort_nr.py",
+    "tests/nr/test_palier_effort_borne_nr.py",
+    "tests/nr/test_passeport_routeur_direct_nr.py",
+    "tests/nr/test_passeport_use_case_nr.py",
+    "tests/nr/test_pytest_coffre_factice_nr.py",
+    "tests/nr/test_quality_gate_illisible_nr.py",
+    "tests/nr/test_quota_codex_usage_limit_nr.py",
+    "tests/nr/test_readme_vitrine_nr.py",
+    "tests/nr/test_redact_text_dlp_1_a_4_nr.py",
+    "tests/nr/test_regulation_n_endort_pas_travail_en_vol_nr.py",
+    "tests/nr/test_regulation_reveille_ce_qu_elle_endort_nr.py",
+    "tests/nr/test_resource_manager_etat_memoire_hub_nr.py",
+    "tests/nr/test_restart_fenetre_de_validation_nr.py",
+    "tests/nr/test_reveil_evinces_utile_dans_le_budget_nr.py",
+    "tests/nr/test_routeur_nemotron_super_identifiant_nr.py",
+    "tests/nr/test_rss_watcher_echange_nr.py",
+    "tests/nr/test_run_job_emet_jeton_de_job_nr.py",
+    "tests/nr/test_run_synchrone_garde_memoire_hub_nr.py",
+    "tests/nr/test_scope_deterministe_delegation_nr.py",
+    "tests/nr/test_secours_lanceur_echange_avant_coffre_nr.py",
+    "tests/nr/test_secours_lanceur_nr.py",
+    "tests/nr/test_secours_texte_complet_nr.py",
+    "tests/nr/test_service_jeton_injecte_sans_coffre_nr.py",
+    "tests/nr/test_skill_enricher_bat_pendant_le_sommeil_nr.py",
+    "tests/nr/test_soif_instruments_takehome_nr.py",
+    "tests/nr/test_spec_extractor_verifier_nr.py",
+    "tests/nr/test_suites_pointeur_pool_nr.py",
+    "tests/nr/test_supervisor_ctl_status_un_service_nr.py",
+    "tests/nr/test_supervisor_stop_sans_relance_nr.py",
+    "tests/nr/test_swarm_dedup_nr.py",
+    "tests/nr/test_swarm_enchaine_lanceur_nr.py",
+    "tests/nr/test_swarm_final_appel_ignore_nr.py",
+    "tests/nr/test_swarm_final_sans_outils_charge_nr.py",
+    "tests/nr/test_swarm_juge_ancrage_unites_nr.py",
+    "tests/nr/test_swarm_perimetre_par_tache_nr.py",
+    "tests/nr/test_swarm_redacteurs_forts_nr.py",
+    "tests/nr/test_swarm_reprise_condensee_nr.py",
+    "tests/nr/test_swarm_secours_bonne_file_nr.py",
+    "tests/nr/test_swarm_secours_executeurs_nr.py",
+    "tests/nr/test_swarm_secours_finitions_nr.py",
+    "tests/nr/test_swarm_secours_par_lanceur_nr.py",
+    "tests/nr/test_swarm_secours_texte_lanceur_nr.py",
+    "tests/nr/test_swarm_synthese_cascade_nr.py",
+    "tests/nr/test_swarm_synthese_garde_nr.py",
+    "tests/nr/test_swarm_synthese_substance_nr.py",
+    "tests/nr/test_takehome_evolution_nr.py",
+    "tests/nr/test_task_status_reel_nr.py",
+    "tests/nr/test_token_cache_nr.py",
+    "tests/nr/test_tray_panneau_se_ferme_nr.py",
+    "tests/nr/test_tray_se_recharge_apres_restart_hub_nr.py",
+    "tests/nr/test_veille_qualite_27_10_nr.py",
+    "tests/nr/test_veille_recherche_degradee_nr.py",
+    "tests/nr/test_veille_reveille_son_consommateur_nr.py",
+    "tests/nr/test_veilles_prioritaires_nr.py",
+    "tests/nr/test_vibe_export_observable_nr.py",
+    "tests/nr/test_vibe_tours_par_taille_nr.py",
+    "tests/nr/test_wasm_outil_dynamique_nr.py",
+    "tests/nr/test_watch_delegations_livraison_nr.py",
+    "tests/nr/test_webhub_taille_corps_nr.py",
+    "tests/nr/test_whoami_demarre_a_nr.py",
+    "tests/nr/test_whoami_pilier_endormi_nr.py",
+    "tests/nr/test_worktree_alias_headless_nr.py",
+    "tests/nr/test_worktree_reliquat_retire_nr.py",
+    # 31/10 : 3 NR rouges des orphelins, REPARES (CORPUS[0], sys.path tools, chien -> tmp_path) + temoin forge_utils
+    "tests/nr/test_banc_juge_ancrage_nr.py",
+    "tests/nr/test_executeur_mode_enquete_nr.py",
+    "tests/nr/test_harness_worker_parle_nr.py",
+    "tests/nr/test_forge_utils_partages_nr.py",
+    "tests/nr/test_symbiose_vues_derivees_nr.py",   # 31/10 : carte d'attention, economie etag, rayon d'impact
+    "tests/nr/test_dialogue_score_dit_scoreur_illisible_nr.py",   # 31/10 : hook de friction, plus de 0 muet
+    "tests/nr/test_actes_lectures_rotation_nr.py",   # 31/10 : lectures au journal d'actes + rotation 20 Mo
+    "tests/nr/test_circadien_phase_tiree_nr.py",   # 31/10 : phase tiree hors creneau, FTS differe puis rattrape
+    "tests/nr/test_guet_consoles_nr.py",   # 31/10 : guet des pops cmd, lanceur nomme, temoin de vie
+    "tests/nr/test_litellm_proxy_boucle_locale_nr.py",   # 1/11 : proxy litellm sur 127.0.0.1 (CVE-2026-114612)
+    "tests/nr/test_bump_superrepo_pathspec_top_nr.py",   # 1/11 : le bump ne commite que ses gitlinks
+    "tests/nr/test_reveil_embedder_dit_nr.py",   # 1/11 : contention :8099 au journal, pack refuse avant le 1er lot
 ]
 
 # ── tests d'APPUI generes ────────────────────────────────────────────────────
@@ -3855,6 +4356,248 @@ def _racine_artefacts(compte: str) -> Path:
     return ROOT / "sandbox" / ("ci_%s" % compte)
 
 
+# ── PROFIL DE LA CI DE REFERENCE & PRE-CONTROLE TURBO (2026-10-22) ───────────
+# Item architecture_rules P1_methode_B_precontrole_profil_reference_20261020 (decision owner).
+# Le pre-controle turbo reproduit le PROFIL de la CI de reference :
+#   - basetemp aussi profond (MAX_PATH resistance), meme compte, xdist, BAIL de priorite
+# et devient OBLIGATOIRE des qu'un fichier d'infra est touche (ou que le diff est ILLISIBLE).
+
+FICHIERS_INFRA = (
+    "tests/conftest.py",
+    "app/forge_heartbeat.py",
+    "tools/ci_local.py",
+    "services.toml",
+    "proxy_deno/core/services.toml",
+)
+
+# TTL du bail d'un PRE-controle : 1200 s (20 min), contre 3600 s auparavant. Le `finally` (ExitStack)
+# rend le bail a toute sortie normale, exception ou Ctrl-C ; le TTL ne couvre que la mort DURE du
+# processus (kill -9, coupure) ou aucun finally ne s'execute. Il doit donc depasser la duree d'un
+# pre-controle turbo (suite pure sous xdist, de l'ordre de 5 a 15 min) avec marge, sans endormir
+# les services DIFFERABLE une heure apres un crash.
+TTL_BAIL_PRECONTROLE_S = 1200.0
+
+
+def _chemin_normalise(chemin: str) -> str:
+    """Chemin en separateurs '/', normalise par posixpath (pas de lstrip de caracteres)."""
+    import posixpath
+    p = str(chemin).strip().replace("\\", "/")
+    return posixpath.normpath(p) if p else ""
+
+
+def est_fichier_infra(chemin: str) -> bool:
+    """True si le chemin designe un fichier d'infrastructure critique (comparaison de chemin normalisee).
+
+    `foo_services.toml` n'est PAS `services.toml` : on compare des composants entiers.
+    """
+    p = _chemin_normalise(chemin)
+    return any(p == f or p.endswith("/" + f) for f in FICHIERS_INFRA)
+
+
+def diff_touche_infra(diff_fichiers: list[str]) -> bool:
+    """True si au moins un fichier du diff est un fichier d'infrastructure."""
+    return any(est_fichier_infra(f) for f in (diff_fichiers or []))
+
+
+def _compte_sur(compte: str | None) -> str:
+    return "".join(c for c in (compte or os.environ.get("USERNAME") or "anon")
+                   if c.isalnum() or c == "_") or "anon"
+
+
+def basetemp_reference(compte: str | None = None, racine: Path | None = None,
+                       execution_id: str | None = None) -> Path:
+    """Chemin du basetemp pytest de la CI de reference (forme turbo).
+
+    <PROOF_ROOT>/<execution_id>/artefacts/ci_<compte>/bt  (~140 a 150 car. sous Windows).
+    """
+    compte = _compte_sur(compte)
+    eid = execution_id or os.environ.get("NOKIDO_EXECUTION_ID") or "ci-reference-canonical"
+    proof_root = Path(os.environ.get("NOKIDO_PROOF_ROOT") or (Path(tempfile.gettempdir()) / "nokido_proof"))
+    return proof_root / eid / "artefacts" / ("ci_%s" % compte) / "bt"
+
+
+def _pid_ci_vivant(pid, ctime=None) -> bool:
+    """Vrai si `pid` vit ET a la meme heure de creation (anti recyclage de pid)."""
+    try:
+        import psutil
+        pr = psutil.Process(int(pid))
+        if ctime is not None and abs(pr.create_time() - float(ctime)) > 2.0:
+            return False
+        return pr.is_running()
+    except ImportError:
+        try:
+            os.kill(int(pid), 0)
+            return True
+        except OSError:
+            return False
+    except Exception:
+        return False
+
+
+def _ctime_propre():
+    try:
+        import psutil
+        return psutil.Process(os.getpid()).create_time()
+    except Exception:
+        return None
+
+
+def basetemp_exclusif(base: Path, execution_id: str | None = None, pid_vivant=None) -> Path:
+    """Basetemp exclusif au run hors mode preuve (verrou pidfile pid + heure de creation).
+
+    Mode preuve (execution_id / NOKIDO_EXECUTION_ID) : inchange. Verrou tenu par un autre
+    ci_local VIVANT : basetemp propre au run (meme profondeur, suffixe court). Verrou orphelin
+    (pid mort prouve) : nettoye, chemin habituel repris. Ne leve jamais.
+    """
+    base = Path(base)
+    if execution_id or os.environ.get("NOKIDO_EXECUTION_ID"):
+        return base
+    vivant = pid_vivant or _pid_ci_vivant
+    moi = os.getpid()
+    try:
+        base.parent.mkdir(parents=True, exist_ok=True)
+        for autre in list(base.parent.glob(base.name + "*.lock")):
+            try:
+                d = json.loads(autre.read_text(encoding="utf-8"))
+                if int(d["pid"]) != moi and not vivant(int(d["pid"]), d.get("ctime")):
+                    autre.unlink()
+                    cible = autre.with_name(autre.name[:-len(".lock")])
+                    if cible != base:
+                        import shutil
+                        shutil.rmtree(cible, ignore_errors=True)
+            except Exception:  # verrou d'une autre CI illisible ou en course : on le laisse, et on le DIT
+                __import__("logging").getLogger(__name__).debug("verrou %s ignore (illisible ou en course)", autre,
+                                                                exc_info=True)
+                continue
+        cand = base
+        for i in range(50):
+            verrou = cand.parent / (cand.name + ".lock")
+            try:
+                d = json.loads(verrou.read_text(encoding="utf-8"))
+                tenu = int(d["pid"]) != moi and vivant(int(d["pid"]), d.get("ctime"))
+            except Exception:
+                tenu = False
+            if not tenu:
+                verrou.write_text(json.dumps({"pid": moi, "ctime": _ctime_propre()}), encoding="utf-8")
+                return cand
+            cand = base.parent / ("%s_%d_%d" % (base.name[:2], moi, i))
+        return cand
+    except Exception:
+        return base
+
+
+def basetemp_precontrole(diff_fichiers: list[str] | None = None,
+                         compte: str | None = None,
+                         racine: Path | None = None,
+                         execution_id: str | None = None,
+                         force_profil: bool = False) -> Path:
+    """Basetemp pytest du pre-controle local.
+
+    Infra touchee (ou `force_profil`) : profondeur >= celle de la reference (MAX_PATH).
+    Sinon : sandbox/ci_<compte>/bt.
+    """
+    racine = Path(racine or ROOT)
+    compte = _compte_sur(compte)
+    eid = execution_id or "ci-precontrole-profil-ref"
+
+    if force_profil or diff_touche_infra(diff_fichiers or []):
+        ref_len = len(str(basetemp_reference(compte=compte, racine=racine, execution_id=execution_id)))
+        base = racine / "sandbox" / "workspace" / "tmp" / "nokido_proof" / eid / "artefacts" / ("ci_%s" % compte) / "bt"
+        if len(str(base)) < ref_len:
+            rembourrage = "_" * (ref_len - len(str(base)))
+            base = racine / "sandbox" / "workspace" / "tmp" / "nokido_proof" / (eid + rembourrage) / "artefacts" / ("ci_%s" % compte) / "bt"
+        return base
+
+    return racine / "sandbox" / ("ci_%s" % compte) / "bt"
+
+
+def _bail_precontrole(motif: str = "Pre-controle turbo (profil reference)"):
+    """Bail de priorite au hub sous l'identite CI_REFERENCE (ring 2), TTL court (cf. TTL_BAIL_PRECONTROLE_S).
+
+    Ne leve jamais : une regulation injoignable se DIT et le pre-controle continue.
+    """
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    try:
+        from nokido_agent.app.forge_resource_manager import bail_priorite
+        return bail_priorite(motif, classe="court", ttl_s=TTL_BAIL_PRECONTROLE_S, agent="CI_REFERENCE")
+    except Exception as e:
+        return contextlib.nullcontext({"ok": False, "error": "REGULATION_INDISPONIBLE(%s)" % type(e).__name__})
+
+
+def _dire_bail(res) -> str:
+    res = res or {}
+    b = res.get("bail") or {}
+    if b.get("id"):
+        return "PRIS %s (%s)" % (b["id"], b.get("mode") or "mode INCONNU")
+    return "NON PRIS (%s) -- continue sans priorite" % (res.get("error") or res.get("detail") or "?")
+
+
+# Pile de sortie du bail : fermee par `main()` dans un `with` -> le bail est rendu sur TOUTE sortie
+# (retour, exception, KeyboardInterrupt). Jamais atexit seul (non execute sur kill/os._exit).
+_PILE_BAIL: "contextlib.ExitStack | None" = None
+
+
+def _prendre_bail(ctx):
+    """Entre dans le contexte du bail SUR la pile de `main()` ; rend la reponse du bail."""
+    if _PILE_BAIL is None:
+        return ctx.__enter__()  # appel hors main() : pas de pile, comportement degrade explicite
+    return _PILE_BAIL.enter_context(ctx)
+
+
+def _rendre_bail() -> None:
+    """Rend le bail des maintenant (idempotent : la pile est vide ensuite)."""
+    if _PILE_BAIL is not None:
+        _PILE_BAIL.close()
+
+
+def profil_precontrole(diff_fichiers: list[str] | None = None,
+                       turbo: bool = False,
+                       compte: str | None = None,
+                       racine: Path | None = None,
+                       execution_id: str | None = None,
+                       etat_diff: str | None = None) -> dict:
+    """Profil d'execution du pre-controle selon le diff.
+
+    Un diff ILLISIBLE (git refuse sous le compte du hub) est traite comme INFRA : ne rien savoir
+    des changements ne autorise pas a alleger le profil. Le profil est alors APPLIQUE et `diff_illisible`
+    le DIT.
+    """
+    diff_fichiers = list(diff_fichiers or [])
+    racine = Path(racine or ROOT)
+    compte_reel = _compte_sur(compte)
+
+    diff_illisible = str(etat_diff or "").startswith("ILLISIBLE")
+    infra_touche = diff_touche_infra(diff_fichiers) or diff_illisible
+    fichiers_infra = [f for f in diff_fichiers if est_fichier_infra(f)]
+
+    ref_btmp = basetemp_reference(compte=compte_reel, racine=racine, execution_id=execution_id)
+    profondeur_ref = len(str(ref_btmp))
+    btmp = basetemp_exclusif(basetemp_precontrole(diff_fichiers=diff_fichiers, compte=compte_reel, racine=racine,
+                                                  execution_id=execution_id, force_profil=infra_touche),
+                             execution_id=execution_id)
+    profondeur_btmp = len(str(btmp))
+
+    xdist_actif = True if infra_touche else bool(turbo)
+
+    return {
+        "infra_touche": infra_touche,
+        "diff_illisible": diff_illisible,
+        "fichiers_infra_touches": fichiers_infra,
+        "profil_reference_requis": infra_touche,
+        "basetemp": btmp,
+        "profondeur_basetemp": profondeur_btmp,
+        "basetemp_reference": ref_btmp,
+        "profondeur_reference": profondeur_ref,
+        "basetemp_conforme_reference": (profondeur_btmp >= profondeur_ref) if infra_touche else True,
+        "turbo": xdist_actif,
+        "xdist": xdist_actif,
+        "compte": compte_reel,
+        "bail_requis": infra_touche,
+        "agent_bail": "CI_REFERENCE" if infra_touche else None,
+    }
+
+
 def _args_depuis_fichier(tests, fichier) -> list:
     """Ecrit la liste des tests (un par ligne) et rend l'argument pytest `@fichier` qui la designe.
 
@@ -3923,6 +4666,16 @@ def _rapporter_faulthandler(dossier) -> list:
             print("\033[31m  [faulthandler] PLANTAGE NATIF %s (%d lignes) :\033[0m" % (f.name, len(lignes)))
             for l in lignes[:14]:
                 print("     " + l[:200])
+            # LE THREAD FAUTIF EST A LA FIN (1/11) : faulthandler ecrit « Current thread ... » APRES les autres
+            # threads. Les 14 premieres lignes ne montraient que des threads endormis (run GitHub 41277423064,
+            # 113 lignes) : le coupable etait coupe a chaque fois. Il est montre, et la coupe est DITE.
+            fautif = next((i for i, l in enumerate(lignes) if "Current thread" in l), None)
+            if fautif is not None and fautif >= 14:
+                print("     [... %d ligne(s) de threads non fautifs omises]" % (fautif - 14))
+                for l in lignes[fautif:fautif + 20]:
+                    print("     " + l[:200])
+            elif fautif is None:
+                print("     [thread fautif ABSENT de la trace : %d ligne(s), voir %s]" % (len(lignes), f))
     if fichiers and not traces:
         print("\033[90m  [faulthandler] %d processus suivi(s), aucun plantage natif\033[0m" % len(fichiers))
     return traces
@@ -4901,6 +5654,38 @@ def auto_preuve(racine) -> dict:
     }
 
 
+def _emettre_rel(junit, out_dir=None) -> int:
+    """Echec CONFIRME -> rapports d'erreur localises (REL) pour le self-patcher (owner 26/10) ; rend le nombre ecrit.
+
+    Le producteur (tools/forge_rel_depuis_junit.py) existait sans appelant. En mode preuve (owner 26/10) : seulement
+    quand la CI juge HEAD (LAFORGE_PREUVE_ROLE=baseline, pose par forge_ci_reference), jamais un candidat, et HORS du
+    worktree juge (LAFORGE_REL_OUTBOX = bac a sable du depot principal). Coupe par LAFORGE_CI_REL=0, JAMAIS bloquant."""
+    if os.environ.get("LAFORGE_CI_REL", "1") == "0":
+        return 0
+    if _PROOF_DIR:
+        role = os.environ.get("LAFORGE_PREUVE_ROLE", "")
+        outbox = os.environ.get("LAFORGE_REL_OUTBOX", "")
+        if role != "baseline" or not outbox:
+            print("  [rel] mode preuve (role=%s, outbox=%s) : aucun REL ecrit -- seule la baseline ecrit, hors du "
+                  "worktree juge" % (role or "?", "oui" if outbox else "non"), flush=True)
+            return 0
+        out_dir = outbox
+    try:
+        import forge_rel_depuis_junit as _rel
+
+        cible = Path(out_dir) if out_dir else _rel.SANDBOX
+        avant = set(cible.glob("evolution_proposal_rel_*.md")) if cible.exists() else set()
+        args = ["--junit", str(junit), "--out-dir", str(cible)]
+        rc = _rel.main(args)
+        apres = set(cible.glob("evolution_proposal_rel_*.md")) if cible.exists() else set()
+        n = len(apres - avant)
+        print("  [rel] %d rapport(s) d'erreur localise(s) emis pour le self-patcher (rc %s)" % (n, rc), flush=True)
+        return n
+    except Exception as e:  # noqa: BLE001 - un REL rate ne change jamais le verdict de la CI ; il est DIT
+        print("  [rel] emission des REL impossible (%s) -- verdict inchange" % type(e).__name__, flush=True)
+        return 0
+
+
 def _lire_junit(chemin) -> dict | None:
     """Bilan du rapport JUnit, ou None si on N'A PAS PU LIRE.
 
@@ -5276,6 +6061,17 @@ def _reprendre_preuve_suite_pure():
 
 
 def main() -> int:
+    """Point d'entree : la pile `_PILE_BAIL` garantit la restitution du bail (try/finally via with)."""
+    global _PILE_BAIL
+    with contextlib.ExitStack() as _pile:
+        _PILE_BAIL = _pile
+        try:
+            return _main_impl()
+        finally:
+            _PILE_BAIL = None
+
+
+def _main_impl() -> int:
     ap = argparse.ArgumentParser(prog="ci_local", description="Miroir local complet des GitHub Actions")
     ap.add_argument("--only", action="append", metavar="GATE", default=None,
                     help="EXCLUSIF : n'execute QUE le(s) gate(s) nomme(s) (sous-chaine "
@@ -5694,6 +6490,14 @@ def main() -> int:
         results.append(_run("preuve formelle (Lean, formel/)", [PY, "tools/forge_lean_verify.py"],
                             blocking=False))
 
+    # ── specs produit (docs/specs) : FRAICHES par rapport au code ? OBSERVATION d'abord ──
+    # Choix owner 31/10 (« gate qui signale + nuit ») : 01_SCHEMA, 02_TRD et 06_PLAN sont GENERES depuis le code par
+    # forge_spec_extractor mais etaient figes au 26/10 sans que rien ne le dise. `--verifier` est en LECTURE SEULE ;
+    # rc 1 = une spec generee perimee ou absente. NON BLOQUANT tant que son bruit n'est pas mesure.
+    if (ROOT / "tools" / "forge_spec_extractor.py").exists():
+        results.append(_run("specs produit fraiches (docs/specs)",
+                            [PY, "tools/forge_spec_extractor.py", "--verifier"], blocking=False))
+
     # ── wiki date : la page GENEREE decrit-elle le corps COURANT ? ──────────
     # NON BLOQUANT d'emblee, comme `anatomie` a sa creation : on observe son
     # bruit avant d'enforcer, un gate promu trop tot se fait desarmer.
@@ -5867,27 +6671,34 @@ def main() -> int:
         # du cote de la prudence (diff illisible, aucun changement, fichier global
         # -> TOUT), et ce mode ne CERTIFIE rien.
         _selection = None
+        # Diff lu UNE fois, pour la selection ET pour le profil du pre-controle. ILLISIBLE n'est
+        # jamais lu comme « rien d'infra » : profil_precontrole l'applique et le DIT.
+        _mods, _etat_diff = [], "ILLISIBLE(non lu)"
+        try:
+            _liste = getattr(a, "impacte_fichiers", None)
+            if _liste:
+                from forge_ci_selection import liste_depuis_fichier
+                _mods, _etat_diff = liste_depuis_fichier(_liste, racine=ROOT)
+            else:
+                from forge_ci_selection import fichiers_modifies
+                _mods, _etat_diff = fichiers_modifies(ROOT)
+        except Exception as _ediff:
+            _mods, _etat_diff = [], "ILLISIBLE(%s)" % type(_ediff).__name__
         if getattr(a, "impacte", False):
             try:
-                from forge_ci_selection import (TOUT, fichiers_modifies, resume,
-                                                selectionner)
+                from forge_ci_selection import TOUT, resume, selectionner
             except ImportError as _esel:
                 print("  [selection] INDISPONIBLE (%s) — suite COMPLETE jouee. "
                       "Un selecteur absent ne doit jamais REDUIRE le perimetre."
                       % type(_esel).__name__, flush=True)
             else:
-                _liste = getattr(a, "impacte_fichiers", None)
-                if _liste:
-                    from forge_ci_selection import liste_depuis_fichier
-                    _mods, _etat_diff = liste_depuis_fichier(_liste, racine=ROOT)
-                else:
-                    # Auto-detection : correcte, mais ILLISIBLE sous le compte du
-                    # hub (git refuse) — elle joue donc TOUT, ce qui est sur.
-                    _mods, _etat_diff = fichiers_modifies(ROOT)
                 _selection = selectionner(present, _mods, etat_diff=_etat_diff)
                 print("  " + resume(_selection), flush=True)
                 if _selection["mode"] != TOUT:
                     present = _selection["retenus"]
+        _profil_infra = profil_precontrole(_mods, turbo=getattr(a, "turbo", False),
+                                           compte=os.environ.get("USERNAME"), racine=ROOT,
+                                           etat_diff=_etat_diff)
         if _absents:
             # Un filtre qui ecarte des donnees le DIT. Sans cette ligne un test
             # DECLARE mais disparu n'est jamais execute et RIEN ne le signale : la
@@ -5997,7 +6808,22 @@ def main() -> int:
                 "tests/test_predict_impact_sr.py",
             )
             _turbo = bool(getattr(a, "turbo", False)) and _has("xdist")
-            if _turbo:
+            _profil_ref = (getattr(a, "reference", None) is None
+                           and _profil_infra["profil_reference_requis"])
+            if _profil_ref:
+                _turbo = bool(_has("xdist"))
+                _btmp = _profil_infra["basetemp"]
+                _xml = _btmp.parent / "pytest_pur_junit.xml"
+                _fh_dir = _btmp.parent / "faulthandler"
+                print("  \033[1;36m[pre-controle] PROFIL REFERENCE APPLIQUE (%s)\033[0m : "
+                      "basetemp %d car. (>= ref %d), xdist=%s"
+                      % (("diff ILLISIBLE traite comme infra: %s" % _etat_diff)
+                         if _profil_infra["diff_illisible"]
+                         else "infra: " + ", ".join(_profil_infra["fichiers_infra_touches"]),
+                         _profil_infra["profondeur_basetemp"],
+                         _profil_infra["profondeur_reference"],
+                         _turbo), flush=True)
+            elif _turbo:
                 # LONGUEUR DE CHEMIN (mesure 2026-10-14, 1re reference en turbo sur ce23f35a8) : xdist ajoute
                 # `popen-gwN\` (10 car.) au basetemp ; sous le worktree de reference
                 # (`...\nokido_proof\ci-reference-<h>\artefacts\<compte>\pytest_basetemp\`), 7 tests qui creent
@@ -6005,6 +6831,8 @@ def main() -> int:
                 # 183. Le sequentiel, 10 caracteres plus court, passait. `bt` (13 car. de moins que
                 # `pytest_basetemp`) rend les chemins turbo PLUS COURTS que les sequentiels.
                 _btmp = _btmp.parent / "bt"
+                _xml = _btmp.parent / "pytest_pur_junit.xml"
+                _fh_dir = _btmp.parent / "faulthandler"
             # Les BLOCS ISOLES sortent du processus principal QUEL QUE SOIT le mode.
             # `_a_part` ne les couvrait pas : il n'existe qu'en turbo, et son motif est
             # tout autre (artefact de capture sous xdist). Deux raisons distinctes
@@ -6054,6 +6882,14 @@ def main() -> int:
             # pas pu lancer, et on impute au depot un defaut d'environnement. Un gate
             # qui crie a faux finit desarme. Le verdict reste BLOQUANT — on ne publie
             # pas sans avoir teste — mais il dit « non execute », pas « en echec ».
+            # Bail CI_REFERENCE pris SUR la pile de main() : rendu par le `with` de main() sur toute
+            # sortie (exception, Ctrl-C), et au plus tot par _rendre_bail() apres la suite.
+            if (getattr(a, "reference", None) is None) and _profil_infra["bail_requis"]:
+                _pris = _prendre_bail(_bail_precontrole(
+                    "Pre-controle turbo (%s)" % (
+                        "diff illisible" if _profil_infra["diff_illisible"]
+                        else ", ".join(_profil_infra["fichiers_infra_touches"]))))
+                print("  [pre-controle] bail de priorite : %s" % _dire_bail(_pris), flush=True)
             _bt = _btmp
             _inapte = ""
             try:
@@ -6129,6 +6965,7 @@ def main() -> int:
                     if not _bilan.get("rates"):
                         print("     (rapport sans <testcase> nomme : compte sans nom, "
                               "a instruire — pas un rachat)", flush=True)
+                    _emettre_rel(_xml)  # le self-patcher recoit l'echec LOCALISE (jamais bloquant)
             # ---- LA PREUVE EST PAR BLOC ---------------------------------------
             # Chaque bloc isole tourne dans SON processus avec SON rapport. Le gate
             # reste aussi exigeant : ces fichiers sont joues INTEGRALEMENT et leur
@@ -6249,6 +7086,7 @@ def main() -> int:
             # couverture soit VISIBLE, et pas seulement vraie par effet de bord.
             if _nom and _nom != _NON_DEMANDE:
                 results.append((_nom, _verdict))
+            _rendre_bail()
         else:
             print("\n\033[90m[skip] aucun test whitelist présent\033[0m")
 

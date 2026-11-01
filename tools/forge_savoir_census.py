@@ -332,8 +332,186 @@ def supports_fichiers() -> dict:
     return out
 
 
+# ======================================================================
+# ATLAS DES DONNEES (P1_atlas_des_donnees_20261021, premiere livraison)
+# ======================================================================
+# Par magasin, des statuts DISTINCTS, jamais fusionnes en un « OK » :
+#   declare      le magasin est-il nomme par une source canonique ?
+#   localise     le chemin existe-t-il (present / absent / ILLISIBLE) ?
+#   ouvert       ouverture lecture seule + lecture de sqlite_master ?
+#   requete      requete representative verifiee par EXPLAIN QUERY PLAN
+#                (EXPLAIN n'execute rien : aucun balayage, meme sur rag_chunks)
+#   integrite    quick_check, JAMAIS au-dessus de 1 Go (fenetre de maintenance)
+#   fraicheur    age de la derniere modification du fichier (mtime), dit tel quel
+# Absent ou illisible est DIT ; rien n'est deduit. Aucune base centrale, aucun
+# index cree, aucun PRAGMA d'ecriture.
+
+SEUIL_INTEGRITE_OCTETS = 1024 ** 3
+FRAICHEUR_PERIME_JOURS = 30.0
+NON_CONTROLEE_GROS = "integrite NON controlee (fenetre de maintenance)"
+RACINES_HORS_DEPOT = ("%NOKIDO_DATA%\", "E:/LaForge_tiede", "D:/", "F:/Grodata")
+_ID_SQL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _chemins_canoniques() -> list[dict]:
+    """Magasins declares par app/forge_db_path.py (source canonique)."""
+    out = []
+    try:
+        from app import forge_db_path as fdp
+    except Exception as e:  # noqa: BLE001  # muet-ok : dit dans la declaration
+        return [{"nom": "forge_db_path", "chemin": None,
+                 "declare_par": "app/forge_db_path.py INDISPONIBLE (%s)" % type(e).__name__}]
+    cand = [("rag", "db_path", ("rag_chunks", "source")),
+            ("authority", "authority_path", None),
+            ("m2m", "m2m_path", None),
+            ("tasks", "tasks_path", None)]
+    for nom, fn, req in cand:
+        try:
+            ch = getattr(fdp, fn)()
+        except Exception as e:  # noqa: BLE001  # muet-ok : dit
+            out.append({"nom": nom, "chemin": None,
+                        "declare_par": "forge_db_path.%s ERREUR (%s)" % (fn, type(e).__name__)})
+            continue
+        out.append({"nom": nom, "chemin": str(ch), "requete": req,
+                    "declare_par": "app/forge_db_path.py:%s" % fn})
+    try:
+        for j in fdp.journaux_connus():
+            out.append({"nom": "journal_%s" % j, "chemin": str(fdp.journal_path(j)),
+                        "declare_par": "app/forge_db_path.py:journal_path"})
+    except Exception as e:  # noqa: BLE001  # muet-ok : dit
+        out.append({"nom": "journaux", "chemin": None,
+                    "declare_par": "journaux_connus ERREUR (%s)" % type(e).__name__})
+    return out
+
+
+def _magasins_hors_depot() -> list[dict]:
+    return [{"nom": "racine:%s" % r, "chemin": r,
+             "declare_par": "ordre owner P1_atlas (racine hors depot)"}
+            for r in RACINES_HORS_DEPOT]
+
+
+def _etat_chemin(chemin: str) -> tuple[str, int | None, float | None]:
+    """(present|absent|ILLISIBLE, octets, mtime). Acces refuse != absent."""
+    try:
+        st = os.stat(chemin)
+    except FileNotFoundError:
+        return "absent", None, None
+    except OSError as e:
+        return "ILLISIBLE (%s)" % type(e).__name__, None, None
+    return "present", st.st_size, st.st_mtime
+
+
+def requete_representative(conn: sqlite3.Connection, table: str, colonne: str) -> dict:
+    """EXPLAIN QUERY PLAN de `SELECT * FROM table WHERE colonne = ?`. N'execute pas."""
+    if not (_ID_SQL.match(table or "") and _ID_SQL.match(colonne or "")):
+        return {"statut": "non verifiee (identifiant refuse)"}
+    try:
+        plan = [str(r[-1]) for r in conn.execute(
+            'EXPLAIN QUERY PLAN SELECT * FROM "%s" WHERE "%s" = ?' % (table, colonne), ("x",))]
+    except sqlite3.Error as e:
+        return {"statut": "non verifiee (%s: %s)" % (type(e).__name__, e)}
+    txt = " | ".join(plan)
+    if "SEARCH" in txt and "USING" in txt:
+        return {"statut": "verifiee (index)", "plan": plan}
+    return {"statut": "SANS INDEX pour la requete representative", "plan": plan}
+
+
+def integrite(conn: sqlite3.Connection | None, octets: int | None) -> str:
+    if conn is None:
+        return "integrite non controlee (base non ouverte)"
+    if octets is not None and octets > SEUIL_INTEGRITE_OCTETS:
+        return NON_CONTROLEE_GROS
+    try:
+        rep = conn.execute("PRAGMA quick_check").fetchone()
+    except sqlite3.Error as e:
+        return "integrite ECHEC du controle (%s)" % type(e).__name__
+    if rep and rep[0] == "ok":
+        return "integrite controlee: ok"
+    return "integrite controlee: CORROMPUE (%s)" % (rep[0] if rep else "?")
+
+
+def _fraicheur(mtime: float | None, maintenant: float) -> str:
+    if mtime is None:
+        return "non controlee"
+    jours = max(0.0, (maintenant - mtime) / 86400.0)
+    pre = "PERIME" if jours > FRAICHEUR_PERIME_JOURS else "frais"
+    return "%s: modifie il y a %.1f j (mtime du fichier)" % (pre, jours)
+
+
+def evaluer_magasin(decl: dict, maintenant: float | None = None) -> dict:
+    """Statuts distincts d'un magasin. decl: nom, chemin, declare_par, requete=(table, col)."""
+    maintenant = time.time() if maintenant is None else maintenant
+    fiche = {"nom": decl.get("nom"), "chemin": decl.get("chemin"),
+             "declare": ("declare (%s)" % decl["declare_par"]) if decl.get("declare_par")
+             else "NON declare", "lacunes": []}
+    ch = decl.get("chemin")
+    if not ch:
+        fiche.update(localise="chemin inconnu", ouvert="non applicable",
+                     requete="non verifiee", integrite="non controlee",
+                     fraicheur="non controlee")
+        fiche["lacunes"].append("chemin non resolu")
+        return fiche
+    etat, octets, mtime = _etat_chemin(ch)
+    fiche["localise"] = etat
+    fiche["octets"] = octets
+    if etat != "present":
+        fiche.update(ouvert="non applicable", requete="non verifiee",
+                     integrite="non controlee", fraicheur="non controlee")
+        fiche["lacunes"].append("localise: %s" % etat)
+        return fiche
+    if os.path.isdir(ch):
+        fiche.update(ouvert="non applicable (repertoire)", requete="non verifiee",
+                     integrite="non applicable (repertoire)",
+                     fraicheur=_fraicheur(mtime, maintenant))
+        return fiche
+    conn = _ouvrir(Path(ch))
+    ok = False
+    if conn is None:
+        fiche["ouvert"] = "NON (ouverture lecture seule refusee)"
+    else:
+        try:
+            conn.execute("SELECT name FROM sqlite_master LIMIT 1").fetchone()
+            ok = True
+            fiche["ouvert"] = "oui (lecture seule)"
+        except sqlite3.Error as e:
+            fiche["ouvert"] = "NON (%s)" % type(e).__name__
+    req = decl.get("requete")
+    if ok and req:
+        r = requete_representative(conn, req[0], req[1])
+        fiche["requete"], fiche["plan"] = r["statut"], r.get("plan")
+    elif ok:
+        fiche["requete"] = "non declaree (aucune requete representative)"
+    else:
+        fiche["requete"] = "non verifiee (base non ouverte)"
+    fiche["integrite"] = integrite(conn if ok else None, octets)
+    fiche["fraicheur"] = _fraicheur(mtime, maintenant)
+    if conn is not None:
+        conn.close()
+    for cle in ("ouvert", "requete", "integrite"):
+        v = fiche[cle]
+        if (v.startswith(("NON", "SANS", "non", "integrite non", "integrite NON",
+                          "integrite ECHEC")) or "CORROMPUE" in v):
+            fiche["lacunes"].append("%s: %s" % (cle, v))
+    if fiche["fraicheur"].startswith("PERIME"):
+        fiche["lacunes"].append("fraicheur: " + fiche["fraicheur"])
+    return fiche
+
+
+def atlas_donnees(declarations: list[dict] | None = None) -> dict:
+    """Atlas par magasin + liste des lacunes. Aucune ecriture, aucun index."""
+    decls = declarations if declarations is not None else (
+        _chemins_canoniques() + _magasins_hors_depot())
+    magasins = [evaluer_magasin(d) for d in decls]
+    lacunes = ["%s: %s" % (m["nom"], x) for m in magasins for x in m["lacunes"]]
+    return {"genere": time.strftime("%Y-%m-%d %H:%M:%S"), "magasins": magasins,
+            "lacunes": lacunes}
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if "--atlas" in argv:
+        print(json.dumps(atlas_donnees(), indent=1, ensure_ascii=False))
+        return 0
     ech = 25
     if "--echantillon" in argv:
         try:

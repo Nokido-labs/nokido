@@ -35,7 +35,7 @@ BRUIT = {"score": 0.5}
 
 def _git(depot, *args):
     r = subprocess.run(["git", "-c", "safe.directory=*", *args], cwd=str(depot),
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, errors="replace")
     assert r.returncode == 0, r.stderr
     return r.stdout.strip()
 

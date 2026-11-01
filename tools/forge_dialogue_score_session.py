@@ -155,7 +155,15 @@ def main() -> int:
 
     try:
         from nokido_agent.app.forge_dialogue_outcome import score_session_turns
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - un hook Stop ne bloque jamais la fin de tour...
+        # ...mais ne se tait pas non plus (31/10) : un scoreur illisible rendait 0 EN SILENCE, la mesure de friction
+        # pouvait etre cablee sans rien mesurer. Le motif part sur stderr ET dans le watermark (le Stop a tourne,
+        # il n'a pas pu scorer) -- ILLISIBLE, jamais un score nul.
+        print("[dialogue_score] scoreur ILLISIBLE : %s: %s" % (type(exc).__name__, exc), file=sys.stderr)
+        wm = _load_wm()
+        wm["_scoreur_illisible"] = {"motif": "%s: %s" % (type(exc).__name__, str(exc)[:200]),
+                                    "ts": __import__("time").strftime("%Y-%m-%dT%H:%M:%S")}
+        _save_wm(wm)
         return 0
 
     wm = _load_wm()

@@ -1,0 +1,16 @@
+{"id": "dlp_cle_sk_log", "regle": "une cle d'API dans un journal est caviardee", "gabarit": "erreur 401 avec la cle {0} sur /v1/chat", "sensibles": ["CLE_SK"], "doit_rester": ["401", "/v1/chat"]}
+{"id": "dlp_cle_ghp_url", "regle": "un jeton GitHub dans une URL est caviarde", "gabarit": "git clone https://x-access:{0}@github.com/user/nokido.git", "sensibles": ["CLE_GHP"], "doit_rester": ["github.com/user/nokido.git"]}
+{"id": "dlp_cle_akia", "regle": "un identifiant d'acces de type AKIA est caviarde", "gabarit": "export ACCESS_KEY={0} avant le deploiement", "sensibles": ["CLE_AKIA"], "doit_rester": ["deploiement"]}
+{"id": "dlp_jwt_bearer", "regle": "un JWT en en-tete Authorization est caviarde", "gabarit": "Authorization: Bearer {0}", "sensibles": ["JWT"], "doit_rester": ["Authorization"]}
+{"id": "dlp_mdp_egal", "regle": "un mot de passe apres password= est caviarde", "gabarit": "connexion avec password={0} refusee", "sensibles": ["MOT_DE_PASSE"], "doit_rester": ["refusee"]}
+{"id": "dlp_mdp_json", "regle": "un mot de passe dans un JSON est caviarde", "gabarit": "{\"user\": \"admin\", \"password\": \"{0}\"}", "sensibles": ["MOT_DE_PASSE"], "doit_rester": ["admin"]}
+{"id": "dlp_email", "regle": "une adresse email est caviardee (doctrine CLAUDE.md)", "gabarit": "rapport envoye a {0} ce matin", "sensibles": ["EMAIL"], "doit_rester": ["rapport"]}
+{"id": "dlp_ip_privee", "regle": "une IP est caviardee (doctrine CLAUDE.md)", "gabarit": "le service ecoute sur {0}:8099", "sensibles": ["IP"], "doit_rester": ["8099"]}
+{"id": "dlp_chemin_win", "regle": "un chemin utilisateur Windows est caviarde (doctrine CLAUDE.md)", "gabarit": "fichier introuvable : {0}", "sensibles": ["CHEMIN_WIN"], "doit_rester": ["introuvable"]}
+{"id": "dlp_multi", "regle": "plusieurs natures dans la meme ligne sont toutes caviardees", "gabarit": "{0} depuis {1} avec {2}", "sensibles": ["EMAIL", "IP", "CLE_SK"], "doit_rester": ["depuis"]}
+{"id": "dlp_garde_version", "regle": "un numero de version n'est PAS une donnee sensible", "gabarit": "wasmtime 45.0.2 et pytest 9.0.3 installes", "sensibles": [], "doit_rester": ["45.0.2", "9.0.3"]}
+{"id": "dlp_garde_sha", "regle": "un sha de commit n'est PAS une donnee sensible", "gabarit": "corrige en c572ae5b5 puis d71f5c1b0", "sensibles": [], "doit_rester": ["c572ae5b5", "d71f5c1b0"]}
+{"id": "dlp_garde_nombres", "regle": "des mesures chiffrees ne sont PAS sensibles", "gabarit": "532 496 vecteurs convertis, ecart 4,3e-19, 8,8 Go liberes", "sensibles": [], "doit_rester": ["532 496", "4,3e-19", "8,8 Go"]}
+{"id": "dlp_garde_port_seul", "regle": "un port seul n'est PAS une IP", "gabarit": "le hub repond sur :8766 et le web_hub sur :7400", "sensibles": [], "doit_rester": [":8766", ":7400"]}
+{"id": "dlp_garde_chemin_depot", "regle": "un chemin RELATIF du depot n'est PAS un chemin utilisateur", "gabarit": "voir tools/forge_task_executor.py:1476", "sensibles": [], "doit_rester": ["tools/forge_task_executor.py:1476"]}
+{"id": "dlp_garde_job", "regle": "un identifiant de job n'est PAS un jeton", "gabarit": "le job job_9023939a9e02 est termine", "sensibles": [], "doit_rester": ["job_9023939a9e02"]}

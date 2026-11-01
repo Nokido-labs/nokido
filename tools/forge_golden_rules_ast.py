@@ -88,6 +88,19 @@ _SUBPROCESS_CALLS = {"subprocess.run", "subprocess.Popen", "subprocess.check_out
 _BARE_PYTHON = {"python", "python3", "python.exe", "python3.exe"}
 
 
+def _jetons_injectes() -> dict:
+    """Classe INJECTE (choix owner 31/10) : {nom: seul fichier admis}, source unique forge_secret_source_audit.
+    Illisible = {} : la lecture reste signalee partout (fail-closed)."""
+    try:
+        from forge_secret_source_audit import JETONS_INJECTES
+    except ImportError:
+        try:
+            from nokido_agent.tools.forge_secret_source_audit import JETONS_INJECTES
+        except ImportError:
+            return {}
+    return dict(JETONS_INJECTES)
+
+
 def _dotted(node: ast.AST) -> str:
     """Reconstitue `a.b.c` depuis un Attribute/Name, sinon chaine vide."""
     parts: list[str] = []
@@ -269,7 +282,8 @@ class _GoldenVisitor(ast.NodeVisitor):
         # ── laforge-cloud-secret-from-env (INFO) ─────────────────────────────
         if name in ("os.environ.get", "os.getenv") and node.args:
             key = _literal_str(node.args[0])
-            if key and _RE_SECRET_ENV.search(key) and not self._repli_apres_coffre():
+            if (key and _RE_SECRET_ENV.search(key) and not self._repli_apres_coffre()
+                    and _jetons_injectes().get(key) != str(self.rel).replace("\\", "/")):
                 self._add(node, "laforge-cloud-secret-from-env", "ERROR",
                           f"secret `{key}` lu depuis l'environnement : le COFFRE "
                           "est l'autorite (forge_secrets.get_secret / "
@@ -284,7 +298,8 @@ class _GoldenVisitor(ast.NodeVisitor):
         # autorite : store_openrouter_key propage au process la cle qu'il vient de ranger au coffre (16/10).
         if _dotted(node.value) == "os.environ" and isinstance(node.ctx, ast.Load):
             key = _literal_str(node.slice)
-            if key and _RE_SECRET_ENV.search(key) and not self._repli_apres_coffre():
+            if (key and _RE_SECRET_ENV.search(key) and not self._repli_apres_coffre()
+                    and _jetons_injectes().get(key) != str(self.rel).replace("\\", "/")):
                 self._add(node, "laforge-cloud-secret-from-env", "ERROR",
                           f"secret `{key}` lu depuis l'environnement : le COFFRE "
                           "est l'autorite (forge_secrets.get_secret / "

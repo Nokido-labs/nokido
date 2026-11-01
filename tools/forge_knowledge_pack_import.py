@@ -330,10 +330,21 @@ def main() -> int:
         "--overwrite", action="store_true", help="Overwrite existing chunks with embedding"
     )
     p.add_argument("--verbose", action="store_true")
+    p.add_argument("--db", type=Path, default=None,
+                   help="Base cible EXISTANTE (defaut : RAG/embeddings.db) ; jamais creee, jamais de repli")
     args = p.parse_args()
 
     if args.verbose:
         logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if args.db is not None:
+        # Recette sur base vierge ou import hors production (21/10) : une cible absente se REFUSE -- la creer en
+        # silence ou retomber sur RAG/embeddings.db ecrirait la ou personne ne l'a demande.
+        if not args.db.is_file():
+            print(f"[ERR] base --db absente : {args.db}", file=sys.stderr)
+            return 1
+        global DB
+        DB = args.db
 
     try:
         if args.download:

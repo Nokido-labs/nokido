@@ -73,6 +73,9 @@ def _lancer(tmp_path, monkeypatch, limit=96):
 
     vrai = sqlite3.connect
     monkeypatch.setattr(bf, "DB", db)
+    # 24/10 : l'etat persistant et l'interrupteur vivent dans sandbox/ -- jamais les vrais ici
+    monkeypatch.setattr(bf, "CURSEUR_FICHIER", tmp_path / "curseur.json", raising=False)
+    monkeypatch.setattr(bf, "INTERRUPTEUR", tmp_path / "embed_backfill.off", raising=False)
     monkeypatch.setattr(bf.sqlite3, "connect", lambda *a, **k: vrai(str(db), factory=_Enregistreuse, timeout=5))
     monkeypatch.setattr(bf, "set_idle_priority", lambda: None)
     monkeypatch.setattr(bf, "should_throttle", lambda *a: (False, 0, 0))

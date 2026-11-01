@@ -29,6 +29,7 @@ __FORGE_COLOR__ = "immunitaire/guard : porte de merge wip vers alpha, jugee sur 
 import argparse
 import glob
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -418,6 +419,75 @@ def promouvable(base: dict, cand: dict) -> dict:
     return {"promouvable": m["verdict"] == "AMELIORE", "pourquoi": m["pourquoi"], "metrique": m["verdict"]}
 
 
+def _norm_rel(p) -> str:
+    s = str(p).strip().replace("\\", "/")
+    while s.startswith("./"):
+        s = s[2:]
+    return s
+
+
+def verifier_livraison(depot, task_id, sha, base, fichiers, tests, attempt=1, timeout=600, sortie=None) -> dict:
+    """Verifie une livraison d'executeur -- ENVELOPPE d'oracle_gele, schema nokido.delivery-verdict/1 (decision owner
+    21/10 : `OK_DONE` dit « tentative finie », c'est le corps qui etablit l'acceptation). Seuls les fichiers NOMMES
+    sont lus au sha ; les tests viennent de la BASE (tests/ protege) ; PASS seulement si la suite a tourne et passe ;
+    `promotion` reste NOT_ATTEMPTED (evaluer n'integre rien). GREEN d'apres AGY dbcadfc86 (9/9 au premier essai), plus
+    le refus d'une liste de tests vide (elle lancerait toute la suite). NR test_merge_gate_verdict_livraison_nr."""
+    depot, fichiers, tests = Path(depot), [_norm_rel(f) for f in (fichiers or [])], [str(t) for t in (tests or [])]
+    res = {"schema": "nokido.delivery-verdict/1", "task_id": str(task_id), "attempt": int(attempt),
+           "commit_sha": str(sha), "base_sha": str(base), "verdict": "UNKNOWN", "raison": "",
+           "tests": {"passed": 0, "failed": 0, "incomplete": True}, "failed_tests": [], "hors_consigne": [],
+           "promotion": "NOT_ATTEMPTED", "duree_s": 0.0}
+
+    def _rendre(**champs):
+        res.update(champs)
+        if sortie:
+            Path(sortie).parent.mkdir(parents=True, exist_ok=True)
+            Path(sortie).write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
+        return res
+
+    rc_s, commit_sha, err_s = _git(["rev-parse", "--verify", "%s^{commit}" % sha], cwd=depot)
+    rc_b, base_sha, err_b = _git(["rev-parse", "--verify", "%s^{commit}" % base], cwd=depot)
+    if rc_s or rc_b:
+        return _rendre(raison="sha ou base introuvable dans le depot (%s)" % ((err_s or err_b or "rev-parse")[:200]))
+    res.update(commit_sha=commit_sha, base_sha=base_sha)
+    if not tests:
+        return _rendre(raison="aucun test de reference : rien ne prouverait la livraison")
+    candidat = {}
+    for rel in fichiers:
+        rc, contenu, _e = _git(["show", "%s:%s" % (commit_sha, rel)], cwd=depot)
+        if rc:
+            return _rendre(verdict="FAIL", raison="fichier nomme absent du commit %s : %s" % (commit_sha[:12], rel))
+        candidat[rel] = contenu
+    rc_d, diff, _e = _git(["diff", "--name-only", base_sha, commit_sha], cwd=depot)
+    res["hors_consigne"] = [f for f in (_norm_rel(l) for l in diff.splitlines() if l.strip()) if f not in candidat] \
+        if not rc_d else []
+    rec = oracle_gele(depot, base_sha, candidat, [sys.executable, "-m", "pytest", *tests, "-q", "-rf",
+                                                  "-p", "no:cacheprovider", "-o", "addopts="], timeout=int(timeout))
+    ov, orc, pourquoi = rec.get("verdict"), rec.get("rc"), rec.get("pourquoi") or ""
+    if ov == "CORRECTNESS_PASS":
+        verdict = "PASS"
+    elif ov == "CORRECTNESS_FAIL":
+        verdict = "FAIL" if orc == 1 else ("SUITE_INCOMPLETE" if orc in (4, 5) else "ERROR")
+    elif ov == "INVALID":
+        verdict = "INVALID"
+    else:
+        verdict = "TIMEOUT" if "delai" in pourquoi.lower() else "UNKNOWN"
+    sortie_pytest = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", (rec.get("sortie") or "") + "\n" + (rec.get("erreurs") or ""))
+    m_p, m_f = re.search(r"(\d+)\s+passed", sortie_pytest), re.search(r"(\d+)\s+failed", sortie_pytest)
+    passed, failed = int(m_p.group(1)) if m_p else 0, int(m_f.group(1)) if m_f else 0
+    echecs = []
+    for ligne in sortie_pytest.splitlines():
+        ligne = ligne.strip()
+        if ligne.startswith("FAILED "):
+            noeud, _sep, motif = ligne[len("FAILED "):].partition(" - ")
+            echecs.append({"test": noeud.strip(), "reason": motif.strip()})
+    raison = pourquoi or {"FAIL": "%d test(s) en echec" % failed,
+                          "SUITE_INCOMPLETE": "aucun test collecte ou usage pytest (rc %s)" % orc,
+                          "ERROR": "erreur d'execution pytest (rc %s)" % orc}.get(verdict, "")
+    return _rendre(verdict=verdict, raison=raison, failed_tests=echecs, duree_s=rec.get("duree_s") or 0.0,
+                   tests={"passed": passed, "failed": failed, "incomplete": verdict not in ("PASS", "FAIL")})
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Porte de merge wip/<agent> -> alpha, jugee sur le gain ; ou reconciliation d'un commit relu")
@@ -431,7 +501,20 @@ def main():
                     help="merge si AMELIORE (defaut: dry-run)")
     ap.add_argument("--tests", nargs="*", default=None,
                     help="suite de tests (defaut: tests/nr/*)")
+    ap.add_argument("--verifier-livraison", action="store_true",
+                    help="verifier une livraison d'executeur (schema nokido.delivery-verdict/1), sans rien integrer")
+    ap.add_argument("--depot", default=str(ROOT), help="verifier-livraison : racine du depot (defaut: ce depot)")
+    ap.add_argument("--task-id", default="", help="verifier-livraison : identifiant de la tache (job_...)")
+    ap.add_argument("--base", default=None, help="verifier-livraison : commit de base de confiance (tests de reference)")
+    ap.add_argument("--attempt", type=int, default=1, help="verifier-livraison : numero de tentative")
+    ap.add_argument("--timeout", type=int, default=600, help="verifier-livraison : borne de la suite en secondes")
+    ap.add_argument("--sortie", default=None, help="verifier-livraison : fichier .rc du verdict JSON")
     a = ap.parse_args()
+    if a.verifier_livraison:
+        v = verifier_livraison(a.depot or str(ROOT), a.task_id, a.commit or "", a.base or "", a.fichiers or [],
+                               a.tests or [], attempt=a.attempt, timeout=a.timeout, sortie=a.sortie)
+        print(json.dumps(v, ensure_ascii=False, indent=2))
+        return 0 if v.get("verdict") == "PASS" else 1
     if a.commit or a.sauvegarde:
         if a.sauvegarde:
             r = reconcilier_sauvegarde(a.sauvegarde, a.fichiers or [], apply=a.apply, agent=a.agent or "?",

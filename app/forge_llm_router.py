@@ -63,8 +63,30 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 # droit d'ecrire dans site-packages. Le cache verifie par empreinte vit dans
 # sandbox/tiktoken_cache. S'il est absent, on ne pose rien et litellm retombe sur son
 # comportement d'origine : ce garde n'ajoute aucun echec, il en retire.
-_CACHE_TIKTOKEN = Path(__file__).resolve().parent.parent / "sandbox" / "tiktoken_cache"
-if _CACHE_TIKTOKEN.is_dir():
+def _dossier_cache_tiktoken(racine: Path):
+    """Le cache verifie : celui de `racine`, sinon celui du depot PRINCIPAL si `racine` est un worktree git.
+
+    25/10 (CI de reference 1021fb487) : dans le worktree de preuve et ceux des executeurs, sandbox/tiktoken_cache
+    n'existe pas (non versionne) ; litellm retombait sur son fichier au mauvais contenu et RETELECHARGEAIT -- echec
+    hors ligne. Le fichier `.git` d'un worktree porte `gitdir: <principal>/.git/worktrees/<nom>`."""
+    propre = racine / "sandbox" / "tiktoken_cache"
+    if propre.is_dir():
+        return propre
+    try:
+        ligne = (racine / ".git").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None   # pas un worktree (ou .git illisible) : rien a poser, comportement d'origine
+    if not ligne.startswith("gitdir:"):
+        return None
+    gitdir = Path(ligne.split(":", 1)[1].strip())
+    if gitdir.parent.name != "worktrees":
+        return None
+    principal = gitdir.parent.parent.parent / "sandbox" / "tiktoken_cache"
+    return principal if principal.is_dir() else None
+
+
+_CACHE_TIKTOKEN = _dossier_cache_tiktoken(Path(__file__).resolve().parent.parent)
+if _CACHE_TIKTOKEN is not None:
     os.environ.setdefault("CUSTOM_TIKTOKEN_CACHE_DIR", str(_CACHE_TIKTOKEN))
 
 # Stratégies de retry LLM-aware (tenacity + rate-limit headers)
@@ -216,13 +238,10 @@ PROVIDERS = {
         "note": "nemotron :free — raisonnement, gratuit ANNONCE, appelle les outils",
     },
     "nvidia_nemotron_super": {
-        # Le PLUS GROS modele du parc qui reponde reellement (audit 2026-08-28 :
-        # [OK] nvidia_nim -> nvidia/nemotron-3-super-120b-a12b). Il existait comme
-        # provider runtime — donc appelable a la main par `ask provider=nvidia_nim` —
-        # mais n'avait AUCUN slot : le ROUTEUR ne pouvait pas le choisir, et il etait
-        # donc absent de toute cascade de raisonnement. 120B contre les 30B du
-        # nemotron :free d'openrouter, sur le meme role.
-        "models": ["nvidia/nemotron-3-super-120b-a12b"],
+        # Remplace le 2026-10-30 : nvidia/nemotron-3-super-120b-a12b renvoie 404
+        # "Function ... Not Found" (modele retire chez NVIDIA).
+        # Remplacement par "nvidia/nemotron-3.5-super-vl-120b-a12b" (meme taille 120B, meme role).
+        "models": ["nvidia/nemotron-3.5-super-vl-120b-a12b"],
         "env_key": "NVIDIA_API_KEY",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "openai_compat": True,   # endpoint OpenAI-compat : cf. _is_openai_compat_custom
@@ -233,6 +252,25 @@ PROVIDERS = {
         "context": 32000,
         "use_case": ["reasoning", "debate", "strategy", "synthesis"],
         "note": "Nemotron-3-Super-120B (NVIDIA NIM free 40 RPM) — juge fort",
+    },
+    # Conseiller souverain (owner 24/10) : Ollama Cloud free, OpenAI-compat. Modeles LIMITES a
+    # tools/forge_provider_catalogue.OLLAMA_CLOUD_FREE (source unique) : `_slot_ollama_cloud` refuse tout autre.
+    "ollama_cloud_ultra": {
+        "models": ["openai/nemotron-3-ultra"], "env_key": "OLLAMA_API_KEY",
+        "base_url": "https://ollama.com/v1", "openai_compat": True, "cost_tier": 0, "ring": 8,
+        "latency": 3000, "rpm": 20, "use_case": ["conseil"], "routeur_seul": True,
+        "note": "Ollama Cloud free nemotron-3-ultra -- conseiller, 429 quota = indisponible",
+    },
+    "ollama_cloud_gptoss": {
+        "models": ["openai/gpt-oss:120b"], "env_key": "OLLAMA_API_KEY",
+        "base_url": "https://ollama.com/v1", "openai_compat": True, "cost_tier": 0, "ring": 8,
+        "latency": 3000, "rpm": 20, "use_case": ["conseil"], "routeur_seul": True,
+        "note": "Ollama Cloud free gpt-oss:120b -- conseiller",
+    },
+    "groq_gpt_oss_120b": {
+        "models": ["groq/openai/gpt-oss-120b"], "env_key": "GROQ_API_KEY", "base_url": None,
+        "rpm": 30, "tpm": 6000, "ring": 8, "latency": 800, "use_case": ["conseil"],
+        "note": "Groq gpt-oss-120b -- 3e marche du conseiller (le 120b rend vide sur budget trop court)",
     },
     "groq_fast": {
         # 2026-08-18 : llama-3.1-8b-instant et llama-3.3-70b-versatile ont
@@ -840,7 +878,39 @@ USE_CASE_CHAINS = {
     # (tpm 6000 declare) sera ecarte sur capacite ; lmstudio en dernier recours LOCAL.
     "agent_code": ["mistral_codestral", "mistral_small", "groq_fast", "openrouter_free",
                    "lmstudio_native"],
+    # Conseiller souverain : free d'abord (Ollama Cloud), Claude EN DERNIER via repli_oauth (capacite
+    # seulement). Pas de local : un avis fort. ORDRE FIGE (cf. call_cascade : ni usable_free ni DT).
+    "conseil": ["ollama_cloud_ultra", "ollama_cloud_gptoss", "groq_gpt_oss_120b",
+                "nvidia_nemotron_super", "mistral_large", "openrouter_free"],
 }
+
+
+def palier_ollama_cloud_ok(model_id: str) -> bool:
+    """Vrai si `openai/<modele>` est dans OLLAMA_CLOUD_FREE (source unique : forge_provider_catalogue).
+
+    Appele AU CHARGEMENT du module : sans la racine du depot dans sys.path (script ou job qui ne
+    pose que `app/`), l'import `nokido_agent` tuait le routeur entier (mesure 24/10). On pose la
+    racine comme les autres sites `nokido_agent.tools` (forge_autonomous_loops), sans changer la source.
+    """
+    try:
+        from nokido_agent.tools.forge_provider_catalogue import OLLAMA_CLOUD_FREE
+    except ModuleNotFoundError:
+        import sys as _sys
+
+        _racine = str(Path(__file__).resolve().parent.parent)
+        if _racine not in _sys.path:
+            _sys.path.insert(0, _racine)
+        from nokido_agent.tools.forge_provider_catalogue import OLLAMA_CLOUD_FREE
+
+    m = str(model_id).split("/", 1)[-1].strip().lower()
+    return m in OLLAMA_CLOUD_FREE
+
+
+# Garde a l'import : un slot ollama_cloud dont un modele sort du catalogue free est RETIRE (jamais choisi).
+for _n in [n for n, c in PROVIDERS.items() if c.get("base_url") == "https://ollama.com/v1"]:
+    if not all(palier_ollama_cloud_ok(m) for m in PROVIDERS[_n]["models"]):
+        del PROVIDERS[_n]
+        USE_CASE_CHAINS["conseil"] = [s for s in USE_CASE_CHAINS["conseil"] if s != _n]
 
 
 # ── Repli OAuth de fin de cascade (owner 2026-09-25) ────────────────────────────
@@ -907,9 +977,13 @@ def _demander_au_proxy(fournisseur: str, prompt: str, system: str, max_tokens: i
 
     # Pas de `with` : sa sortie attend la fin du fil MEME apres l'expiration de result(timeout),
     # et la borne ne protegerait rien. Le fil abandonne finit seul (le proxy borne son appel).
+    import contextvars as _cv
+
     _ex = _cf.ThreadPoolExecutor(max_workers=1)
     try:
-        return _ex.submit(_appel).result(timeout=timeout + _MARGE_PONT_S)
+        # Un ThreadPoolExecutor ne copie pas les ContextVar : sans copy_context, le fil perdait l'acteur et le cas
+        # d'usage, et le passeport ecrivait « direct » / INCONNU pour tout appel route ainsi (30/10).
+        return _ex.submit(_cv.copy_context().run, _appel).result(timeout=timeout + _MARGE_PONT_S)
     finally:
         _ex.shutdown(wait=False)
 
@@ -1373,7 +1447,7 @@ class LLMRouter:
         # Si on a des slots gratuits disponibles, on peut les remonter en tête de chain
         # pour économiser les quotas Cloud payants sur les tâches courantes.
         # Bypassé si use_case=reasoning/complex ou force_local.
-        if use_case not in ("reasoning", "complex") and not force_local:
+        if use_case not in ("reasoning", "complex", "conseil") and not force_local:
             try:
                 free_slots = self.usable_free()
                 if free_slots:
@@ -1610,7 +1684,7 @@ class LLMRouter:
             from nokido_agent.app.forge_llm_router_dt import route_with_dt
 
             _dt_prov, _dt_conf, _dt_src = route_with_dt(use_case, prompt)
-            if _dt_prov and _dt_conf >= 0.6 and _dt_prov in chain:
+            if _dt_prov and _dt_conf >= 0.6 and _dt_prov in chain and use_case != "conseil":
                 chain = [_dt_prov] + [s for s in chain if s != _dt_prov]
         except Exception:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_llm_router.py', 1577, exc_info=True)
@@ -2223,7 +2297,34 @@ def router_call(prompt: str, use_case: str = "general", max_tokens: int = 500,
             kwargs["timeout"] = int(_gm().recommended_timeout(base_s=30.0))
         except Exception:
             kwargs["timeout"] = 30
-    reponse = get_router().call(prompt, use_case, max_tokens, **kwargs)
+    # Passeport d'appel (tranche 2, 30/10) : le cas d'usage voyage dans le contexte jusqu'au proxy.
+    try:
+        from nokido_agent.app import forge_trace_context as _tc
+        _jeton_uc = _tc.set_use_case(use_case)
+        _jeton_marque = _tc.ouvrir_marque_passeport()
+    except Exception:  # noqa: BLE001  # muet-ok : sans contexte, le passeport ecrit « direct » (dit, pas invente)
+        _tc, _jeton_uc, _jeton_marque = None, None, None
+    try:
+        reponse = get_router().call(prompt, use_case, max_tokens, **kwargs)
+        # Tranche 3 (30/10) : un appel en HTTP DIRECT (hors proxy) n'avait aucune ligne de passeport. Si le proxy ne
+        # l'a pas ecrite, le routeur l'ecrit : fournisseur et modele de la reponse, endpoint INCONNU (jamais devine).
+        if (_tc is not None and isinstance(reponse, dict) and reponse.get("ok") and reponse.get("provider")
+                and not _tc.passeport_deja_ecrit()):
+            try:
+                import types as _ty
+
+                from nokido_agent.app import forge_agent_proxy as _ap
+                _ap._ecrire_passeport(_ty.SimpleNamespace(name=str(reponse.get("provider")),
+                                                          model=reponse.get("model")),
+                                      usage={"use_case": use_case, "served_model": reponse.get("model")})
+            except Exception:  # noqa: BLE001  # muet-ok : un passeport ne casse jamais un appel
+                pass
+    finally:
+        if _tc is not None:
+            if _jeton_marque is not None:
+                _tc.fermer_marque_passeport(_jeton_marque)
+            if _jeton_uc is not None:
+                _tc.reset_use_case(_jeton_uc)
     # Observation seule. Le contexte ne modifie AUCUN verdict ici : il rend visible,
     # appel par appel, si le chemin est instrumente -- c'est le denominateur sans
     # lequel on ne peut pas decider d'armer la politique de partage.
@@ -2242,6 +2343,27 @@ def router_call(prompt: str, use_case: str = "general", max_tokens: int = 500,
     except Exception:  # noqa: BLE001  # muet-ok : une observation ne casse jamais un appel
         pass
     return reponse
+
+
+CONSEIL_CONTEXTE_MAX = 6000   # caracteres de contexte envoyes
+CONSEIL_AVIS_MAX = 1500       # caracteres d'avis rendus
+
+
+def conseiller(tache: str, etape: str, contexte: str = "", max_tokens: int = 400) -> dict:
+    """Avis d'un conseiller plus fort (patron advisor, souverain) : cascade `conseil` (Ollama Cloud free ->
+    autres free -> Claude en dernier via repli_oauth). Rend {avis, fournisseur, escalade:[(slot, motif)],
+    tronque, contexte_tronque}. Sorties BORNEES et DITES ; en echec avis='' et fournisseur=None."""
+    ctx = str(contexte or "")
+    ctx_tronque = len(ctx) > CONSEIL_CONTEXTE_MAX
+    prompt = (f"Tu es un conseiller. Tache: {tache}\nEtape: {etape}\nContexte:\n{ctx[:CONSEIL_CONTEXTE_MAX]}\n\n"
+              "Donne un avis court, concret, actionnable (pas de code complet).")
+    n = len(USE_CASE_CHAINS["conseil"])
+    r = get_router().call_cascade(prompt, use_case="conseil", max_tokens=max_tokens, max_attempts=n) or {}
+    avis = (r.get("text") or "") if r.get("ok") else ""
+    tronque = len(avis) > CONSEIL_AVIS_MAX
+    return {"avis": avis[:CONSEIL_AVIS_MAX], "fournisseur": r.get("provider") if r.get("ok") else None,
+            "escalade": [tuple(a) for a in (r.get("attempts") or [])], "tronque": tronque,
+            "contexte_tronque": ctx_tronque, "erreur": None if r.get("ok") else r.get("error")}
 
 
 def router_status() -> dict:

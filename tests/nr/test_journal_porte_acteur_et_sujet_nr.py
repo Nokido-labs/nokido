@@ -52,6 +52,7 @@ lecture forensique reste une capacite owner.
 from __future__ import annotations
 
 import ast
+import functools
 from pathlib import Path
 
 import pytest
@@ -213,14 +214,20 @@ JOURNALISENT = {
 }
 
 
+@functools.lru_cache(maxsize=1)
 def _fonctions_du_hub() -> dict:
     src = (_racine() / "tools" / "nokido_hub.py").read_text(encoding="utf-8")
     return {n.name: n for n in ast.walk(ast.parse(src))
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
-def _alias_du_journal() -> set:
+@functools.lru_cache(maxsize=1)
+def _alias_du_journal() -> frozenset:
     """Les NOMS LOCAUX sous lesquels une fonction d'audit est appelee.
+
+    EN CACHE (mesure 25/10) : `_chemin_vers_le_journal` l'appelle a CHAQUE niveau de recursion,
+    pour chacune des 84 routes, et chaque appel reparsait tout le hub -- plus de 30 s, et
+    pytest-timeout (methode thread) tuait le worker xdist entier (CI d3090d24b). 0,6 s en cache.
 
     DEFAUT MESURE LE 2026-09-21 : `from ... import capture as _cap` rendait le
     detecteur aveugle. Il cherchait « capture », le code appelait « _cap ».
@@ -242,7 +249,7 @@ def _alias_du_journal() -> set:
             for a in n.names:
                 if a.name.split(".")[-1] in _AUDIT and a.asname:
                     noms.add(a.asname)
-    return noms
+    return frozenset(noms)
 
 
 def _chemin_vers_le_journal(nom, fonctions, vus=None, prof=0):

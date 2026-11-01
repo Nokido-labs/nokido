@@ -93,9 +93,15 @@ tasks = [
     ),
 ]
 
-print("Assigning tasks to agents...")
-for agent, job_id, desc in tasks:
-    print(f"\n→ {job_id} → {agent}")
-    hub("task", {"action": "assign", "agent": agent, "description": desc, "job_id": job_id})
+def main():
+    print("Assigning tasks to agents...")
+    for agent, job_id, desc in tasks:
+        print(f"\n→ {job_id} → {agent}")
+        hub("task", {"action": "assign", "agent": agent, "description": desc, "job_id": job_id})
+    print("\nDone. Gemini will claim and execute.")
 
-print("\nDone. Gemini will claim and execute.")
+
+# 31/10 : l'assignation tournait A L'IMPORT -- test_appui_delegate_tasks_nr (qui ne fait qu'importer) appelait le hub
+# (401 en CI de reference) et, avec un jeton valide, aurait cree 4 VRAIES taches agt_gemini. Script seulement.
+if __name__ == "__main__":
+    main()

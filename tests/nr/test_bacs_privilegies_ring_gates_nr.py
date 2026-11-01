@@ -29,6 +29,29 @@ import sys
 from pathlib import Path
 
 import pytest
+import os
+import sqlite3
+
+@pytest.fixture(autouse=True)
+def _setup_corrigibility_db(tmp_path, monkeypatch):
+    db_file = tmp_path / "embeddings.db"
+    db_file.touch()
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE IF NOT EXISTS corrigibility_state (key TEXT PRIMARY KEY, value TEXT, set_by TEXT, reason TEXT, ts REAL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS opsec_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, set_by TEXT, reason TEXT, updated_at REAL NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS opsec_audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, old_level TEXT, new_level TEXT, set_by TEXT, reason TEXT, ts REAL NOT NULL)")
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("LAFORGE_DB", str(db_file))
+    monkeypatch.setenv("LAFORGE_DB_PATH", str(db_file))
+    monkeypatch.setenv("LAFORGE_AUTHORITY_DB", str(db_file))
+    # forge_corrigibility fige DB A L'IMPORT : sans patch de l'attribut, l'environnement ci-dessus ne change rien
+    # des que le module est deja charge (suite complete) -- le test dependrait de l'ordre et de la base du poste.
+    import nokido_agent.app.forge_corrigibility as _corr
+    import nokido_agent.app.forge_db_path as _dbp
+    monkeypatch.setattr(_corr, "DB", db_file)
+    # le kill-switch se lit chez forge_opsec via authority_path() (resolu a chaque appel) : la base temoin, la aussi
+    monkeypatch.setattr(_dbp, "authority_path", lambda *a, **k: str(db_file))
 
 RACINE = Path(__file__).resolve().parents[2]
 for _p in (str(RACINE.parent), str(RACINE)):
