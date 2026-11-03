@@ -415,66 +415,8 @@
   }
  },
  "dernier": {
-  "ci_runs": {
-   "41309961544": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "release.yml"
-   },
-   "41310676754": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "nokido-agent": 3,
-     "pack": 3
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "installation-complete.yml"
-   },
-   "41344174002": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "release.yml"
-   },
-   "41344584249": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "nokido-agent": 3,
-     "pack": 3
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "installation-complete.yml"
-   },
-   "41357570743": {
-    "comptes": {
-     "nokido-agent": 1
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "release.yml"
-   },
-   "41357922425": {
-    "comptes": {
-     "netcfg-agent": 6,
-     "netcfg-agent-mcp": 6,
-     "nokido-agent": 3,
-     "pack": 3
-    },
-    "inconnus": 0,
-    "jour": "2026-11-01",
-    "workflow": "installation-complete.yml"
-   }
-  },
-  "date": "2026-11-02",
+  "ci_runs": {},
+  "date": "2026-11-03",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -534,7 +476,8 @@
     "2026-10-21": 20,
     "2026-10-25": 1,
     "2026-10-29": 1,
-    "2026-11-01": 65
+    "2026-11-01": 65,
+    "2026-11-02": 15
    }
   },
   "pypi_robots": {
@@ -556,7 +499,8 @@
     "2026-10-28": 7,
     "2026-10-30": 2,
     "2026-10-31": 2,
-    "2026-11-01": 7
+    "2026-11-01": 7,
+    "2026-11-02": 2
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 94,
@@ -577,7 +521,8 @@
     "2026-10-28": 5,
     "2026-10-30": 1,
     "2026-10-31": 1,
-    "2026-11-01": 8
+    "2026-11-01": 8,
+    "2026-11-02": 1
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -608,7 +553,8 @@
     "2026-10-29": 1,
     "2026-10-30": 1,
     "2026-10-31": 1,
-    "2026-11-01": 1945
+    "2026-11-01": 1945,
+    "2026-11-02": 20
    }
   },
   "releases": {
@@ -890,6 +836,16 @@
     "nokido-agent": 1945
    },
    "runs_ci": 3
+  },
+  "2026-11-02": {
+   "pypi": {
+    "nokido-agent": 15
+   },
+   "pypi_robots": {
+    "netcfg-agent": 2,
+    "netcfg-agent-mcp": 1,
+    "nokido-agent": 20
+   }
   }
  }
 }
