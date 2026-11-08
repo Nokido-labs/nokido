@@ -416,7 +416,7 @@
  },
  "dernier": {
   "ci_runs": {},
-  "date": "2026-11-07",
+  "date": "2026-11-08",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -570,7 +570,8 @@
     "2026-11-02": 20,
     "2026-11-03": 19,
     "2026-11-04": 9,
-    "2026-11-06": 1
+    "2026-11-06": 1,
+    "2026-11-07": 5
    }
   },
   "releases": {
@@ -899,6 +900,11 @@
    "pypi_robots": {
     "netcfg-agent": 1,
     "nokido-agent": 1
+   }
+  },
+  "2026-11-07": {
+   "pypi_robots": {
+    "nokido-agent": 5
    }
   }
  }
