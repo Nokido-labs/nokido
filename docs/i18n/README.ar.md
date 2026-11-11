@@ -66,17 +66,17 @@
 
 <!-- DIST:nokido-agent -->
 
-<!-- PIP:BEGIN nokido-agent version=0.20.17 -->
-**من PyPI** — [`nokido-agent 0.20.17`](https://pypi.org/project/nokido-agent/0.20.17/), نُشر بعد إثبات التثبيت على Linux وWindows وmacOS. الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:
+<!-- PIP:BEGIN nokido-agent version=0.21.0 -->
+**من PyPI** — [`nokido-agent 0.21.0`](https://pypi.org/project/nokido-agent/0.21.0/), نُشر بعد إثبات التثبيت على Linux وWindows وmacOS. الكائن الكامل ومكوّناته المثبّتة (مع التحقق من المجاميع الاختبارية)، ثم الـ hub:
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.17"
+pip install "nokido-agent[organisme]==0.21.0"
 nokido-composants --tout          # deno، llama.cpp، النماذج، حزمة المعرفة، الرمز المحلي
 nokido-doctor                     # ما لدى هذا الجهاز وما ينقصه وما لا يستطيع قراءته
 nokido-hub                        # ثم: curl http://localhost:8766/health
 ```
 
-عميل فقط (يتصل بـ hub موجود): `pip install nokido-agent==0.20.17`.
+عميل فقط (يتصل بـ hub موجود): `pip install nokido-agent==0.21.0`.
 <!-- PIP:END -->
 
 | المتطلب | المقيس |

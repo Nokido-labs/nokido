@@ -66,17 +66,17 @@ Nokido 将**声明的**、**观察到的**和**验证的**严格区分：响应�
 
 <!-- DIST:nokido-agent -->
 
-<!-- PIP:BEGIN nokido-agent version=0.20.17 -->
-**通过 PyPI** — [`nokido-agent 0.20.17`](https://pypi.org/project/nokido-agent/0.20.17/), 在 Linux、Windows 和 macOS 上完成安装验证后发布. 完整的有机体、其锁定版本的组件（已验证校验和），然后是 hub：
+<!-- PIP:BEGIN nokido-agent version=0.21.0 -->
+**通过 PyPI** — [`nokido-agent 0.21.0`](https://pypi.org/project/nokido-agent/0.21.0/), 在 Linux、Windows 和 macOS 上完成安装验证后发布. 完整的有机体、其锁定版本的组件（已验证校验和），然后是 hub：
 
 ```bash
-pip install "nokido-agent[organisme]==0.20.17"
+pip install "nokido-agent[organisme]==0.21.0"
 nokido-composants --tout          # deno、llama.cpp、模型、知识包、本地令牌
 nokido-doctor                     # 这台机器具备什么、缺少什么或无法读取什么
 nokido-hub                        # 然后：curl http://localhost:8766/health
 ```
 
-仅客户端（连接现有 hub）： `pip install nokido-agent==0.20.17`.
+仅客户端（连接现有 hub）： `pip install nokido-agent==0.21.0`.
 <!-- PIP:END -->
 
 | 要求 | 实测 |
