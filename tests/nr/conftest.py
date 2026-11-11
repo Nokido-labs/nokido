@@ -25,9 +25,46 @@ import sys
 
 import pytest
 
+# 7/11 : le registre vivant des surfaces indisponibles ne doit jamais decider d'un NR (Mistral marque = 13 NR rouges).
+# Pose ici, avant la collecte : `_FICHIER_INDISPO` se lit a l'import de forge_task_executor, sous tous ses noms.
+__import__("os").environ["LAFORGE_SURFACES_INDISPO_FICHIER"] = __import__("os").path.join(
+    __import__("tempfile").gettempdir(), "nokido_nr_surfaces_indispo_%d.json" % __import__("os").getpid())
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "mesure: chronometrage (saute hors `-m mesure`), pas une regression")
+    config.addinivalue_line("markers", "timeout(s): borne de duree du test (pytest-timeout)")
+
+
+# MARGES MESUREES (11/11, job_da23217046a2 : durees de 21 716 tests SOUS CHARGE CI, tirees des journaux de vol).
+# Ces fichiers SAINS durent 15 a 50 s sous 5 workers pour un `--timeout=30` : un rien de charge tue le worker,
+# et en `--dist=loadfile` un worker mort fige la suite. Le contrat global de 30 s NE BOUGE PAS ; ces fichiers
+# recoivent une borne explicite (3x le pire mesure sans marqueur, 26 s), sauf marqueur deja pose par le test.
+# Ajouter un fichier ici = joindre sa mesure (C:/tmp/chasse_tests_lents_vol_20261111.py).
+_TIMEOUT_LENTS_S = 90
+_FICHIERS_LENTS_MESURES = frozenset((
+    "test_ci_bloc_isole_chemin_reel_nr.py", "test_pypi_baseline_nr.py", "test_red_retroactif_nr.py",
+    "test_nr_instables_nr.py", "test_cycle_verdict_nr.py", "test_archeologie_outils_nr.py",
+    "test_flux_etats_nr.py", "test_juge_tests_verts_rejeu_nr.py", "test_pouls_canon_nr.py",
+    "test_dup_adaptateur_entree_nr.py", "test_forge_tui_sonde_nr.py", "test_selecteur_only_nr.py",
+    "test_panorama_imports_qualifies_nr.py", "test_zai_palier_gratuit_nr.py", "test_modules_parsables_nr.py",
+    "test_garde_ui_mutation_nr.py", "test_generer_appui_nr.py", "test_balayeurs_lisent_le_producteur_nr.py",
+    "test_worktrees_preuve_sans_perte_nr.py", "test_ci_selection_partielle_nr.py",
+    "test_critical_file_executoire_commit_nr.py", "test_nr_coverage_ratchet_nr.py",
+    "test_secrets_noms_env_valeurs_coffre_nr.py", "test_syspath_cartography_nr.py",
+    "test_commit_deux_temps_red_green_nr.py", "test_rejeu_red_crash_ou_rouge_nr.py",
+    "test_veille_clone_garde_disque_nr.py",
+    # tue a 31 s le 10/11 (git grep reel sur le depot, vol_gw3_28984) : chemin reel voulu, borne elargie
+    "test_introspect_memoire_active_nr.py",
+))
+
+
+def pytest_collection_modifyitems(config, items):  # pylint: disable=unused-argument
+    for item in items:
+        nom = os.path.basename(str(item.fspath))
+        if nom in _FICHIERS_LENTS_MESURES and item.get_closest_marker("timeout") is None:
+            item.add_marker(pytest.mark.timeout(_TIMEOUT_LENTS_S))
 
 
 def pytest_sessionstart(session):
@@ -39,6 +76,61 @@ def pytest_sessionstart(session):
         sync_before_nr(verbose=False)
     except Exception:  # noqa: BLE001 - les tests concernes echoueront en disant le fichier absent
         __import__("logging").getLogger(__name__).warning("datasets NR non regeneres", exc_info=True)
+
+
+def _tuer_faux_orphelins(dossier) -> int:
+    """Tue les descendants du process courant qui executent `<dossier>/faux.py` ; rend leur nombre.
+
+    10/11, job_b486a06b80ae : 24 NR (ACP surtout) laissaient leur faux agent stdio vivant apres le
+    teardown ; sous un worker xdist longue vie ils s'accumulaient (21 orphelins tues a la main)."""
+    import psutil
+
+    cible = os.path.normcase(str(os.path.join(str(dossier), "faux.py")))
+    tues = []
+    for c in psutil.Process().children(recursive=True):
+        try:
+            if any(os.path.normcase(a) == cible for a in c.cmdline()):
+                c.kill()
+                tues.append(c)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    psutil.wait_procs(tues, timeout=3)
+    return len(tues)
+
+
+@pytest.fixture(autouse=True)
+def _faux_orphelins_au_teardown(request):
+    """Apres le test : si SON tmp_path porte un faux.py, aucun faux agent ne lui survit.
+    Ne demande PAS tmp_path (aucun dossier cree pour les autres tests) ; muet sur toute erreur."""
+    yield
+    tmp = request.node.funcargs.get("tmp_path") if hasattr(request.node, "funcargs") else None
+    try:
+        if tmp is not None and (tmp / "faux.py").exists():
+            _tuer_faux_orphelins(tmp)
+    except Exception:  # noqa: BLE001 - un nettoyage ne fait jamais echouer le test
+        pass
+
+
+_NOMS_ADMISSION = ("app.forge_lane_admission", "forge_lane_admission", "nokido_agent.app.forge_lane_admission")
+
+
+@pytest.fixture(autouse=True)
+def _attribution_ram_neutralisee(monkeypatch):
+    """10/11, pre-vol job_fa2fd1001593 : un refus d'admission appelait `_qui_tient(None)` -> attribuer_pression()
+    REEL (toute la machine, 11,3 s a froid, job_f8d12ac54be7) -> >30 s sous 5 workers -> pytest-timeout
+    os._exit -> worker gw1 mort, suite figee. 20 NR passent par l'admission, 1 seul neutralisait.
+    Ici : attribution PAR DEFAUT neutralisee (dite, jamais tue) ; une attribution INJECTEE reste reelle."""
+    for nom in _NOMS_ADMISSION:
+        m = sys.modules.get(nom)
+        orig = getattr(m, "_qui_tient", None) if m is not None else None
+        if orig is None:
+            continue
+
+        def _neutre(attribuer=None, _orig=orig):
+            if attribuer is None:
+                return "attribution neutralisee (NR hermetique : attribuer_pression reel = 11,3 s a froid)"
+            return _orig(attribuer)
+        monkeypatch.setattr(m, "_qui_tient", _neutre)
 
 
 _MODULES_ACP_SIGNES = ("test_acp_router_permissions_nr", "test_acp_views_csrf_nr", "test_acp_views_nr")
@@ -107,6 +199,13 @@ def _pas_de_verdict_reel_depuis_un_test(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("LAFORGE_CONSEILLER", "0")
     # Repli web Ollama Cloud (26/10) : coupe par defaut -- aucun test n'envoie de requete au cloud ; son NR le rallume.
     monkeypatch.setenv("LAFORGE_WEB_OLLAMA", "0")
+    # Organe de recherche unique (T2a, 10/11) : etages Tavily (payant) et sources primaires (GitHub/PyPI) coupes
+    # par defaut -- aucun test ne sort sur le reseau ; test_organe_recherche_cascade_nr les rallume avec ses doubles.
+    monkeypatch.setenv("LAFORGE_WEB_TAVILY", "0")
+    monkeypatch.setenv("LAFORGE_WEB_PRIMAIRES", "0")
+    # Reveil de SearXNG sur echec (10/11 soir) : coupe -- aucun test ne reclame Docker ; test_web_reveil_searxng_nr
+    # le rallume avec un double.
+    monkeypatch.setenv("LAFORGE_WEB_REVEIL", "0")
     # Vetos de sommeil (26/10) : aucun test n'ecrit dans le sandbox/veto_sommeil que lit Hamilton (un pytest y avait
     # laisse « examen de la soif (nr) », pid mort, 15 min de veto reel).
     # Un repertoire NEUF par test : un veto laisse par run_once (que seul run() leve) ne fuit pas dans le test suivant.

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 __FORGE_COLOR__ = "membrane/autorisation-oauth"
 
+import html
 import importlib.util
 import json
 import logging
@@ -417,6 +418,7 @@ class AutoriteLocale:
         identifiant = secrets.token_urlsafe(16)
         self._demandes[identifiant] = {
             "client_id": client.client_id,
+            "client_name": getattr(client, "client_name", None) or client.client_id,
             "params": params,
             "expire": time.time() + DUREE_CODE_S,
         }
@@ -672,13 +674,62 @@ def reglages(base: str, chemin_mcp: str = "/mcp", base_consentement: str = ""):
     )
 
 
+def _outils_du_pair(nom_client: str) -> tuple:
+    """(statut, outils) d'un client_name, source IDENTIQUE a forge_pair_mcp.
+
+    La page doit dire ce que la surface refuse vraiment, jamais moins : meme
+    fichier (config/pairs_rings.json), meme cle `outils_par_pair`, meme
+    comparaison sans casse que `_outils_permis`. statut : 'libre' (pas de
+    liste, comportement historique), 'liste' (perimetre borne), 'illisible'
+    (politique mal formee -- echec ferme, on n'annonce rien).
+    """
+    chemin = _RACINE_DEPOT / "config" / "pairs_rings.json"
+    try:
+        politique = json.loads(chemin.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "illisible", ()
+    if not isinstance(politique, dict) or "outils_par_pair" not in politique:
+        return "libre", ()
+    section = politique["outils_par_pair"]
+    if not isinstance(section, dict):
+        return "illisible", ()
+    cible = str(nom_client or "").casefold()
+    trouves = [v for k, v in section.items() if isinstance(k, str) and k.casefold() == cible]
+    if not trouves:
+        return "libre", ()
+    liste = trouves[0]
+    if not isinstance(liste, list) or not all(isinstance(o, str) for o in liste):
+        return "illisible", ()
+    return "liste", tuple(liste)
+
+
+def _ligne_perimetre(nom_client: str) -> str:
+    """Ce que la page DECLARE comme perimetre, d'apres la liste blanche reelle.
+
+    Pair sans liste restreinte : le texte historique, inchange. Pair liste
+    blanche : les operations qu'il a vraiment (ex. huggingchat : depot de
+    taches en quarantaine) -- annoncer « aucune ecriture » ici serait menti.
+    Politique illisible : « perimetre illisible », JAMAIS « lecture seule ».
+    """
+    statut, outils = _outils_du_pair(nom_client)
+    if statut == "libre":
+        return ("Un client demande a lire <b>%s</b> en lecture seule, par les cinq "
+                "operations de la passerelle. Aucune ecriture n'existe." % depot_unique())
+    if statut == "liste":
+        return ("Il agit sur <b>%s</b>, limite aux operations declarees pour ce client : %s. "
+                "Aucune autre operation n'est permise."
+                % (depot_unique(), ", ".join(sorted(outils)) or "aucune"))
+    return ("<b>perimetre illisible</b> : la politique de la passerelle ne peut pas etre lue, "
+            "aucune operation ne peut lui etre annoncee de facon fiable.")
+
+
 PAGE = """<!doctype html><meta charset="utf-8"><title>Consentement</title>
 <style>body{font-family:system-ui;margin:3rem auto;max-width:34rem;line-height:1.5}
 input{font-size:1rem;padding:.4rem;width:20rem}button{font-size:1rem;padding:.4rem 1rem}
 .p{color:#555}</style>
-<h1>Autoriser l'acces en lecture</h1>
-<p class="p">Un client demande a lire <b>%s</b> en lecture seule, par les cinq
-operations de la passerelle. Aucune ecriture n'existe.</p>
+<h1>Autoriser l'acces</h1>
+<p class="p">Client demande : <b>%s</b>.</p>
+<p class="p">%s</p>
 <form method="post">
 <input type="hidden" name="demande" value="%s">
 <p><label>Code d'appariement<br><input name="code" type="password" autofocus></label></p>
@@ -771,10 +822,12 @@ def poser_consentement(serveur, autorite: AutoriteLocale) -> None:
     @serveur.custom_route("/consentement", methods=["GET"])
     async def _formulaire(request):  # noqa: ANN001
         identifiant = request.query_params.get("demande", "")
-        if not autorite.demande(identifiant):
+        d = autorite.demande(identifiant)
+        if not d:
             autorite.journaliser_consentement("demande_inconnue_ou_expiree", demande=identifiant, motif="page ouverte")
             return HTMLResponse("<h1>Demande inconnue ou expiree</h1>", status_code=404)
-        return HTMLResponse(PAGE % (depot_unique(), identifiant))
+        nom = d.get("client_name") or d.get("client_id") or ""
+        return HTMLResponse(PAGE % (html.escape(nom), _ligne_perimetre(nom), identifiant))
 
     @serveur.custom_route("/consentement", methods=["POST"])
     async def _valider(request):  # noqa: ANN001

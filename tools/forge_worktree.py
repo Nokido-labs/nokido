@@ -420,12 +420,34 @@ def dans_portee(chemin, portee) -> bool:
     return False
 
 
-def cible_ecriture(agent, provenance="", wt_root=None) -> dict:
+_NON_EXIGEE = object()  # `tentative` non fournie : l'appelant n'a pas de jeton a verifier (comportement d'avant)
+
+
+def tentative_courante(task_id, tasks_db=None):
+    """Tentative (colonne `garde`, +1 a chaque claim pending->running) de la tache `running` `task_id`.
+    7/11 : `attempt` ne sert pas, la voie « pid mort » ne l'incremente pas et son increment consommerait le plafond de
+    reprises. Base illisible, colonne absente, tache non `running` -> None (echec ferme cote appelant)."""
+    import sqlite3
+    db = Path(tasks_db) if tasks_db else ROOT / "sandbox" / "tasks.db"
+    try:
+        c = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+        try:
+            r = c.execute("SELECT garde FROM tasks WHERE id=? AND status='running'", (str(task_id),)).fetchone()
+        finally:
+            c.close()
+        return int(r[0] or 0) if r else None
+    except Exception:  # noqa: BLE001 - illisible : None, l'appelant refuse
+        return None
+
+
+def cible_ecriture(agent, provenance="", wt_root=None, tasks_db=None, tache="", tentative=_NON_EXIGEE) -> dict:
     """Ou un appel `governed_edit` doit ecrire. Rend {cible, racine, raison}.
 
-    cible = "PARTAGE" (owner / inconnu : comportement inchange), "WORKTREE" (racine = nokido_worktrees/<agent>)
-    ou "REFUS" (executeur dont le worktree n'existe pas, ou dont le nom ne se deduit pas : JAMAIS de repli
-    silencieux sur l'arbre partage). Un worktree = un dossier portant un marqueur `.git`.
+    cible = "PARTAGE" (owner / inconnu : comportement inchange), "WORKTREE" (racine = nokido_worktrees/<agent>, ou le
+    worktree de SA tache s'il en a une en cours) ou "REFUS" (executeur dont le worktree n'existe pas, dont le nom ne
+    se deduit pas, ou qui a plusieurs taches en cours : JAMAIS de repli silencieux). Un worktree = un dossier portant
+    un marqueur `.git`. 7/11 : sans cela les livrables de CLAUDE_HEADLESS partaient dans son arbre fixe, en retard,
+    pendant que le juge lisait le worktree de la tache : `[artefact ABSENT]` a tort.
     """
     nom = str(agent or "").strip().upper()
     entete = str(provenance or "").strip().upper()
@@ -442,7 +464,49 @@ def cible_ecriture(agent, provenance="", wt_root=None) -> dict:
         return {"cible": "REFUS", "racine": None,
                 "raison": "en-tete LaForge-Provenance TASK_EXECUTOR mais l'identite %r ne nomme aucun worktree "
                           "d'executeur : refus (on ne devine pas le worktree, jamais d'arbre partage)" % (agent,)}
-    wt = (Path(wt_root) if wt_root is not None else WT_ROOT) / (alias or nom.lower())
+    racine_wt = Path(wt_root) if wt_root is not None else WT_ROOT
+    ag = alias or nom.lower()
+    en_cours = taches_en_cours(ag.upper(), tasks_db)
+    tache = str(tache or "").strip()
+    if tache:
+        # L'en-tete LaForge-Tache lie l'ecriture a SA tache : elle doit etre parmi les taches en cours de CET agent
+        # (une tache d'un autre agent ne donne jamais son arbre).
+        choisies = [t for t in en_cours if tache in (str(t), court_tache(t))]
+        if not choisies:
+            return {"cible": "REFUS", "racine": None,
+                    "raison": "tache %r absente des taches en cours de %s : refus (la tache d'un autre agent ne "
+                              "donne jamais son arbre)" % (tache, nom)}
+        en_cours = choisies
+        if tentative is not _NON_EXIGEE:
+            # Jeton de garde (7/11) : la tentative SIGNEE dans le jeton doit etre celle de la tache `running`.
+            if tentative is None:
+                logging.getLogger("forge_worktree").warning("[garde] tentative ABSENTE du jeton pour %s (%s) : refus", tache, nom)
+                return {"cible": "REFUS", "racine": None,
+                        "raison": "tentative absente du jeton de %s pour la tache %r : refus (echec ferme)"
+                                  % (nom, tache)}
+            actuelle = tentative_courante(en_cours[0], tasks_db)
+            if actuelle is None:
+                return {"cible": "REFUS", "racine": None,
+                        "raison": "tentative de la tache %r illisible (base ou colonne) : refus (echec ferme)" % tache}
+            try:
+                signee = int(tentative)
+            except (TypeError, ValueError):
+                signee = None
+            if signee != actuelle:
+                logging.getLogger("forge_worktree").warning("[garde] tentative perimee pour %s : jeton=%s, base=%s : refus", tache, tentative, actuelle)
+                return {"cible": "REFUS", "racine": None,
+                        "raison": "tentative perimee : le jeton porte la tentative %s, la tache est a la %s "
+                                  "(worker zombie apres reprise) : refus" % (tentative, actuelle)}
+    dossiers = [racine_wt / "taches" / ("%s_%s" % (re.sub(r"[^a-z0-9_]", "_", ag), court_tache(t)))
+                for t in en_cours]
+    dossiers = [d for d in dossiers if d.is_dir() and (d / ".git").exists()]
+    if len(dossiers) == 1:
+        return {"cible": "WORKTREE", "racine": dossiers[0], "raison": ""}
+    if len(dossiers) > 1:
+        return {"cible": "REFUS", "racine": None,
+                "raison": "%d taches en cours pour %s : worktree ambigu, refus. L'en-tete LaForge-Tache manque : "
+                          "la config MCP de la tache doit le porter (--tache)" % (len(dossiers), nom)}
+    wt = racine_wt / ag
     if not (wt.is_dir() and (wt / ".git").exists()):
         return {"cible": "REFUS", "racine": None,
                 "raison": "worktree de l'executeur %s introuvable (%s) : refus, jamais de repli sur l'arbre partage"
@@ -532,10 +596,701 @@ def main(argv: list[str]) -> int:
         print(route(arg or "claude"))
     elif cmd == "sync":
         print(json.dumps(sync(arg or "gemini"), ensure_ascii=False, indent=1))
+    elif cmd == "reconcilier-boucle":
+        print(json.dumps(reconcilier_orphelins_boucle(), ensure_ascii=False, indent=1))
     else:
         print(f"cmd inconnue: {cmd} (status|list|create [agent]|create-proof <sha>|"
-              f"remove-proof <sha>|route <agent>|sync <agent>)")
+              f"remove-proof <sha>|route <agent>|sync <agent>|reconcilier-boucle)")
     return 0
+
+
+# ── RECONCILIATEUR AUTOMATIQUE DE WORKTREE (decision owner 6/11 & v2 7/11) ───
+_REGISTRE_RECONCILIATION = ROOT / "sandbox" / "reconciliateur_lots.json"
+_LOTS_MEMOIRE: set[str] = set()
+_DERNIER_PASSAGE_BOUCLE: float = 0.0
+_INTERVALLE_MIN_BOUCLE_S: float = 30.0
+
+
+def alerter_owner_reconciliation(sujet: str, gravite: str, detail: str, emetteur: str = "reconciliateur_boucle") -> str:
+    """Canal d'alerte owner officiel (forge_critical_events). Ne leve jamais."""
+    try:
+        from nokido_agent.app import forge_critical_events as _ce
+        return _ce.alerter_owner(sujet=sujet, gravite=gravite, detail=detail, emetteur=emetteur)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").warning("[reconciliateur] alerte INDISPONIBLE (%s) : %s", type(exc).__name__, sujet)
+        return "indisponible"
+
+
+def interrupteur_reconciliateur_actif(root: Path | None = None) -> bool:
+    """Interrupteur global lu a CHAQUE passage. Faux par defaut."""
+    if os.environ.get("NOKIDO_RECONCILIATEUR_ACTIF") == "1" or os.environ.get("FORGE_RECONCILIATEUR_ACTIF") == "1":
+        return True
+    r = Path(root) if root else ROOT
+    switch = r / "sandbox" / "reconciliateur_boucle.switch"
+    return switch.is_file()
+
+
+def _lire_pression_systeme() -> tuple[float, float]:
+    """Lit (ram_ratio, cpu_ratio) dans [0.0, 1.0]. Fail-closed : si capteur muet ou leve, ratio=1.0."""
+    # 1. Hormones / endocrine : seul un niveau FRAIS compte. Absent ou expire ne vaut pas zero (relecture 7/11).
+    try:
+        from nokido_agent.app import forge_endocrine as _en
+        r_ram = _en.read_full("pression_ram")
+        r_cpu = _en.read_full("pression_cpu")
+        if r_ram and r_cpu and not getattr(r_ram, "expired", False) and not getattr(r_cpu, "expired", False):
+            return (float(getattr(r_ram, "fresh_level", 1.0)), float(getattr(r_cpu, "fresh_level", 1.0)))
+    except Exception:  # noqa: BLE001 - muet-ok : capteur indisponible, la mesure directe prend le relais
+        pass
+
+    # 2. Repli psutil
+    try:
+        import psutil
+        ram = psutil.virtual_memory().percent / 100.0
+        cpu = psutil.cpu_percent(interval=None) / 100.0
+        return ram, cpu
+    except Exception:  # noqa: BLE001
+        # Capteur muet ou cassé -> fail-closed (abstention)
+        return 1.0, 1.0
+
+
+def garde_ressources_au_rouge() -> bool:
+    """S'abstient si le garde RAM ou CPU est au rouge (seuil >= 0.75).
+    Fail-closed : capteur muet ou en exception -> abstention (True)."""
+    try:
+        ram, cpu = _lire_pression_systeme()
+        if ram >= 0.75 or cpu >= 0.75:
+            return True
+        return False
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def _charger_registre_reconciliation(fichier: Path | None = None) -> tuple[set[str], bool]:
+    """Charge le registre de reconciliation.
+    Rend (lots, illisible) : si le fichier existe mais est illisible/corrompu,
+    illisible=True pour empecher toute re-alerte en double."""
+    p = fichier or _REGISTRE_RECONCILIATION
+    lots = set(_LOTS_MEMOIRE)
+    if not p.is_file():
+        return lots, False
+    try:
+        items = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(items, list):
+            lots.update(str(x) for x in items)
+            return lots, False
+        logging.getLogger("forge_worktree").error("[reconciliateur] registre invalide (pas une liste): %s", p)
+        return lots, True
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").error("[reconciliateur] registre illisible (%s): %s", type(exc).__name__, p)
+        return lots, True
+
+
+def _sauver_registre_reconciliation(lots: set[str], fichier: Path | None = None) -> bool:
+    """Sauvegarde le registre. Journalise en cas d'erreur sans lever."""
+    p = fichier or _REGISTRE_RECONCILIATION
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(sorted(lots), ensure_ascii=False, indent=1), encoding="utf-8")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").error("[reconciliateur] sauvegarde registre impossible (%s): %s", type(exc).__name__, p)
+        return False
+
+
+def _resoudre_tache_et_vol(court: str, agent: str, tasks_db: Path | None = None) -> tuple[bool | str, dict | None]:
+    """Resout la tache associee a (agent, court) et determine son etat de vol.
+    Rend (en_vol, tache_resolue).
+    en_vol vaut True (en vol), False (libre), ou 'INCONNU' (base absente ou illisible).
+    tache_resolue est un dict {'id', 'status', 'exec_pid', 'exec_cree'} ou None.
+    Statuts en vol : ('running', 'claimed', 'assigned', 'pending').
+    """
+    import sqlite3
+    db = Path(tasks_db) if tasks_db else ROOT / "sandbox" / "tasks.db"
+    if not db.is_file():
+        logging.getLogger("forge_worktree").warning("[reconciliateur] tasks.db absente : %s", db)
+        return "INCONNU", None
+    try:
+        try:
+            conn = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+        except Exception:
+            conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        try:
+            statuts = ("running", "claimed", "assigned", "pending")
+            # 1. Recuperer les taches de l'agent (ou toutes si agent vide)
+            if agent:
+                rows = conn.execute("SELECT * FROM tasks WHERE upper(agent) = ?", (str(agent).upper(),)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM tasks").fetchall()
+
+            tache_resolue = None
+            if court and court != "orphan" and court != "wip":
+                for r in rows:
+                    tid = str(r["id"])
+                    try:
+                        ct = court_tache(tid)
+                    except Exception:
+                        ct = None
+                    if (ct and ct == court) or tid.endswith(court) or tid == court:
+                        tache_resolue = {
+                            "id": r["id"],
+                            "status": r["status"],
+                            "exec_pid": r["exec_pid"] if "exec_pid" in r.keys() else None,
+                            "exec_cree": r["exec_cree"] if "exec_cree" in r.keys() else None,
+                        }
+                        break
+
+            # Une tache RESOLUE decide seule
+            if tache_resolue is not None:
+                en_vol = tache_resolue["status"] in statuts
+                return en_vol, tache_resolue
+
+            # Repli prudent si aucune tache n'est resolue : toute tache de l'agent en vol = en vol
+            for r in rows:
+                if r["status"] in statuts:
+                    return True, None
+
+            return False, None
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").warning("[reconciliateur] tasks.db illisible (%s): %s", type(exc).__name__, db)
+        return "INCONNU", None
+
+
+def _tache_est_en_vol(court: str, agent: str, tasks_db: Path | None = None, avec_info: bool = False):
+    """Etat de vol de la tache : True (en vol), False (libre), ou 'INCONNU' (base absente ou illisible).
+    Statuts en vol : ('running', 'claimed', 'assigned', 'pending').
+    Si avec_info=True, rend tuple (en_vol, info_tache_resolue)."""
+    en_vol, info = _resoudre_tache_et_vol(court, agent, tasks_db)
+    if avec_info:
+        return en_vol, info
+    return en_vol
+
+
+def _info_tache_par_id(tasks_db: Path | str | None, task_id: str) -> dict | None:
+    """Recupere id, status, exec_pid et exec_cree d'une tache depuis tasks.db."""
+    import sqlite3
+    db = Path(tasks_db) if tasks_db else ROOT / "sandbox" / "tasks.db"
+    if not db.is_file():
+        return None
+    try:
+        try:
+            conn = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
+        except Exception:
+            conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "status": row["status"],
+                "exec_pid": row["exec_pid"] if "exec_pid" in row.keys() else None,
+                "exec_cree": row["exec_cree"] if "exec_cree" in row.keys() else None,
+            }
+        finally:
+            conn.close()
+    except Exception:
+        return None
+
+
+def _vivacite_par_defaut(pid, cree):
+    """Vivacite par defaut : forge_task_executor._vivacite_processus (import paresseux)."""
+    try:
+        from tools.forge_task_executor import _vivacite_processus
+        return _vivacite_processus(pid, cree)
+    except Exception:
+        try:
+            from forge_task_executor import _vivacite_processus
+            return _vivacite_processus(pid, cree)
+        except Exception:
+            return None
+
+
+def _emettre_resultat_par_defaut(task_id: str, payload: dict) -> None:
+    """Emission par defaut via le hub MCP (task action=result, sur le modele de _clore_delegation).
+    Un echec se journalise sans lever."""
+    try:
+        from tools.forge_task_executor import _hub_call, _jeton_de_la_brique
+    except Exception:
+        try:
+            from forge_task_executor import _hub_call, _jeton_de_la_brique
+        except Exception:
+            logging.getLogger("forge_worktree").warning(
+                "[reconciliateur] emission impossible : forge_task_executor introuvable")
+            return
+    try:
+        token = _jeton_de_la_brique()
+        _hub_call("task", {
+            "action": "result",
+            "task_id": task_id,
+            "intent": payload.get("intent", "ERR_INTERNAL"),
+            "result": json.dumps(payload, ensure_ascii=False)
+        }, token, timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").warning(
+            "[reconciliateur] echec emission resultat pour %s (%s: %s)",
+            task_id, type(exc).__name__, exc
+        )
+
+
+def _clore_tache_session_perdue(tasks_db: Path | str | None, task_id: str,
+                                suffixe_result: str, pointer_ref: str,
+                                emettre=None) -> bool:
+    """Clot une tache a mort prouvee :
+    UPDATE tasks SET status='failed', cause_echec='SESSION_PERDUE',
+    result=COALESCE(result,'')||suffixe_result, updated_at=...
+    WHERE id=? AND status='running'.
+    Puis UN appel emettre(task_id, {intent:'ERR_INTERNAL', status_code:'SESSION_PERDUE', pointer_ref: pointer_ref}).
+    Une tache deja terminale (done/failed/cancelled) n'est ni reecrite ni re-annoncee.
+    """
+    import datetime
+    import sqlite3
+    db = Path(tasks_db) if tasks_db else ROOT / "sandbox" / "tasks.db"
+    if not db.is_file():
+        return False
+    modifie = False
+    try:
+        conn = sqlite3.connect(str(db))
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+            set_clauses = ["status = 'failed'"]
+            params = []
+            if "cause_echec" in cols:
+                set_clauses.append("cause_echec = 'SESSION_PERDUE'")
+            if "result" in cols:
+                set_clauses.append("result = COALESCE(result, '') || ?")
+                params.append(suffixe_result)
+            if "updated_at" in cols:
+                set_clauses.append("updated_at = ?")
+                params.append(datetime.datetime.now(datetime.timezone.utc).isoformat())
+            sql = f"UPDATE tasks SET {', '.join(set_clauses)} WHERE id = ? AND status = 'running'"
+            params.append(task_id)
+            cur = conn.execute(sql, params)
+            modifie = cur.rowcount > 0
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").warning(
+            "[reconciliateur] echec cloture tache %s en base (%s: %s)", task_id, type(exc).__name__, exc)
+        return False
+
+    if modifie:
+        fn_emettre = emettre if emettre is not None else _emettre_resultat_par_defaut
+        payload = {
+            "intent": "ERR_INTERNAL",
+            "status_code": "SESSION_PERDUE",
+            "pointer_ref": pointer_ref,
+            # Le hub REMPLACE result par cette charge (forge_mcp_registry:6946) : la trace y vit.
+            "detail": suffixe_result,
+        }
+        try:
+            fn_emettre(task_id, payload)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger("forge_worktree").warning(
+                "[reconciliateur] echec emission resultat pour %s (%s: %s)", task_id, type(exc).__name__, exc)
+        return True
+    return False
+
+
+def _scorecard_livraison(wt: Path, fichiers: list[str]) -> tuple[str, str]:
+    """Evalue le verdict de livraison via scorecard_de_livraison.
+    Rend (verdict, detail). verdict est le nom du QualityGrade (OPTIMAL/PARTIAL/REJECTED/UNRATED)."""
+    try:
+        from app.forge_scorecard import scorecard_de_livraison
+    except Exception:
+        try:
+            from nokido_agent.app.forge_scorecard import scorecard_de_livraison
+        except Exception:
+            try:
+                import sys
+                if str(ROOT) not in sys.path:
+                    sys.path.insert(0, str(ROOT))
+                from app.forge_scorecard import scorecard_de_livraison
+            except Exception as exc:
+                logging.getLogger("forge_worktree").warning(
+                    "[reconciliateur] import scorecard_de_livraison impossible (%s): %s", type(exc).__name__, exc)
+                return "UNRATED", str(exc)[:80]
+    try:
+        sc = scorecard_de_livraison(wt, fichiers)
+        grade_nom = getattr(sc.grade, "name", str(sc.grade))
+        return grade_nom, getattr(sc, "critique", "")
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("forge_worktree").warning(
+            "[reconciliateur] scorecard_de_livraison impossible (%s): %s", type(exc).__name__, exc)
+        return "UNRATED", str(exc)[:80]
+
+
+def _analyser_porcelain_z(st_z: bytes | str) -> tuple[list[str], list[str]]:
+    """Parse git status --porcelain -z.
+    Rend (toutes_entrees, chemins_a_committer)."""
+    toutes = []
+    chemins = []
+    st_z_bytes = st_z.encode("utf-8") if isinstance(st_z, str) else st_z
+    morceaux = st_z_bytes.split(b"\x00")
+    i = 0
+    n = len(morceaux)
+    while i < n:
+        chunk = morceaux[i]
+        if not chunk:
+            i += 1
+            continue
+        code = chunk[:2].decode("utf-8", "replace")
+        path_bytes = chunk[3:]
+        path = path_bytes.decode("utf-8", "replace")
+        if code[0] in ("R", "C") or code[1] in ("R", "C"):
+            if i + 1 < n:
+                i += 1
+                orig_path = path
+                path = morceaux[i].decode("utf-8", "replace")
+        toutes.append(f"{code} {path}")
+        if path and path != ".nokido.agent" and path != "nokido.lock":
+            chemins.append(path)
+        i += 1
+    return toutes, chemins
+
+
+def _trouver_nom_branche_preserve(root: Path, agent: str, court: str) -> str:
+    """Trouve un nom de branche preserve qui n'ecrase JAMAIS une branche existante."""
+    base = f"preserve/{agent.lower()}/{court}"
+    nom = base
+    idx = 1
+    while True:
+        r = _git(["rev-parse", "--verify", "-q", f"refs/heads/{nom}"], cwd=root)
+        if r.returncode != 0:
+            return nom
+        nom = f"{base}_{idx}"
+        idx += 1
+
+
+def reconcilier_worktree_orphelin(wt: Path, root: Path | None = None, tasks_db: Path | None = None,
+                                  registre: set[str] | None = None,
+                                  notifier=None, vivacite=None, emettre=None) -> dict:
+    """Reconcilie un worktree orphelin jusqu'au commit local preserve/<agent>/<court>.
+    Ne fusionne JAMAIS dans alpha, ne pousse jamais, ne supprime jamais."""
+    notifier = notifier or alerter_owner_reconciliation
+    wt = Path(wt).resolve()
+    root = Path(root) if root else ROOT
+
+    # 1. Verification statut git -z (fail-safe)
+    st = _git(["status", "--porcelain", "-z", "--untracked-files=all"], cwd=wt)
+    if st.returncode != 0:
+        err_msg = (st.stderr if isinstance(st.stderr, str) else st.stderr.decode("utf-8", "replace"))[:200]
+        notifier(
+            f"reconciliateur:illisible:{wt.name}",
+            "WARN",
+            f"Worktree {wt.name} ignore car statut git illisible : {err_msg}",
+            "reconciliateur_boucle",
+        )
+        return {"action": "ignore", "motif": "statut_illisible", "worktree": str(wt)}
+
+    # Extraction agent et court
+    if wt.parent.name == "taches":
+        # Le court n'a jamais de `_`, l'agent si : claude_headless_<court>, opencode_glm_<court>. Un `partition` lisait
+        # l'agent `claude` : sa tache en vol restait invisible, et le worktree occupe etait committe (relecture 7/11).
+        agent, _, court = wt.name.rpartition("_")
+        if not agent or not court:
+            notifier(f"reconciliateur:nom_illisible:{wt.name}", "WARN",
+                     f"Worktree {wt.name} non touche : agent et tache illisibles dans son nom", "reconciliateur_boucle")
+            return {"action": "ignore", "motif": "nom_illisible", "worktree": str(wt)}
+    else:
+        agent = wt.name
+        court = "wip"
+
+    # 2. Tache en vol (tri-etat)
+    en_vol, tache_resolue = _tache_est_en_vol(court, agent, tasks_db, avec_info=True)
+    if en_vol == "INCONNU":
+        notifier(
+            f"reconciliateur:tache_inconnue:{agent}:{court}",
+            "WARN",
+            f"Worktree {wt.name} non touche car etat de vol de la tache INCONNU (tasks.db indisponible)",
+            "reconciliateur_boucle",
+        )
+        return {"action": "ignore", "motif": "etat_tache_inconnu", "agent": agent, "court": court}
+
+    tache_a_clore = None
+    if tache_resolue is not None:
+        if tache_resolue["status"] == "running":
+            pid = tache_resolue.get("exec_pid")
+            if pid is None:
+                return {"action": "ignore", "motif": "tache_en_vol", "agent": agent, "court": court}
+            fn_vivacite = vivacite if vivacite is not None else _vivacite_par_defaut
+            v = fn_vivacite(pid, tache_resolue.get("exec_cree"))
+            if v is None:
+                notifier(
+                    f"reconciliateur:vivacite_illisible:{agent}:{court}",
+                    "WARN",
+                    f"Worktree {wt.name} ignore car vivacite du pid {pid} illisible",
+                    "reconciliateur_boucle",
+                )
+                return {"action": "ignore", "motif": "vivacite_illisible", "agent": agent, "court": court}
+            if v is True:
+                return {"action": "ignore", "motif": "tache_en_vol", "agent": agent, "court": court}
+            # v is False : mort PROUVEE -> on continue la preservation puis on clot
+            tache_a_clore = tache_resolue["id"]
+        elif en_vol is True:
+            return {"action": "ignore", "motif": "tache_en_vol", "agent": agent, "court": court}
+    else:
+        if en_vol is True:
+            return {"action": "ignore", "motif": "tache_en_vol", "agent": agent, "court": court}
+
+    # 3. Detection du travail non integre via porcelain -z
+    toutes_lignes, chemins_a_committer = _analyser_porcelain_z(st.stdout)
+    lignes_utiles = [
+        l for l in toutes_lignes
+        if not any(re.match(p, l) for p in ARTEFACTS_DE_PREUVE)
+        and ".nokido.agent" not in l
+        and "nokido.lock" not in l
+    ]
+
+    alpha_head = _git(["rev-parse", "alpha"], cwd=root).stdout.strip() if root.is_dir() else ""
+    commits_avance = 0
+    if alpha_head:
+        rev_cnt = _git(["rev-list", "--count", "alpha..HEAD"], cwd=wt)
+        if rev_cnt.returncode == 0:
+            try:
+                commits_avance = int(rev_cnt.stdout.strip() or "0")
+            except ValueError:
+                commits_avance = 0
+
+    if not lignes_utiles and commits_avance == 0:
+        return {"action": "ignore", "motif": "aucun_travail_non_integre", "worktree": str(wt)}
+
+    cle_lot = f"{agent}:{court}"
+    if registre is not None and cle_lot in registre and not lignes_utiles:
+        return {"action": "ignore", "motif": "deja_traite", "worktree": str(wt)}
+
+    # Commit du travail non committe s'il existe (SANS changer de branche)
+    if lignes_utiles and chemins_a_committer:
+        _git(["add", "--"] + chemins_a_committer, cwd=wt)
+        c = _git(["commit", "-m", f"chore({agent}): preservation orphelin tache {court}"], cwd=wt)
+        if c.returncode != 0:
+            notifier(
+                f"reconciliateur:refus_hook:{agent}:{court}",
+                "WARN",
+                f"Commit refuse par pre-commit hook pour {agent} {court} : {(c.stderr or c.stdout)[:200]}",
+                "reconciliateur_boucle",
+            )
+            return {"action": "refus_hook", "agent": agent, "tache": court, "worktree": str(wt)}
+
+    # 4. Branche preserve locale (NE DEPLACE JAMAIS la branche courante)
+    branche_preserve = _trouver_nom_branche_preserve(root, agent, court)
+    r_branch = _git(["branch", branche_preserve, "HEAD"], cwd=wt)
+    if r_branch.returncode != 0:
+        notifier(
+            f"reconciliateur:branche_echec:{agent}:{court}",
+            "WARN",
+            f"Impossible de creer {branche_preserve} : {r_branch.stderr[:200]}",
+            "reconciliateur_boucle",
+        )
+        return {"action": "echec", "motif": "branche_impossible", "worktree": str(wt)}
+
+    # 5. Extraction sha et scorecard de livraison
+    sha = _git(["rev-parse", "HEAD"], cwd=wt).stdout.strip()[:12]
+    show_files = _git(["show", "--name-only", "--format=", sha], cwd=wt).stdout.splitlines()
+    fichiers = [f.strip() for f in show_files if f.strip() and f.strip() != ".nokido.agent"]
+
+    verdict, extrait = _scorecard_livraison(wt, fichiers)
+
+    # 6. Commande de fusion et notification idempotente
+    cmd_fusion = f"python tools/forge_merge_gate.py reconcilier {sha} {' '.join(fichiers)} --apply"
+    detail = (
+        f"agent={agent} tache={court} verdict={verdict} fichiers={len(fichiers)} "
+        f"branche={branche_preserve} sha={sha} | fusion: {cmd_fusion}"
+    )
+
+    notifier(
+        f"reconciliateur:lot_pret:{agent}:{court}",
+        "INFO",
+        detail,
+        "reconciliateur_boucle",
+    )
+
+    if registre is not None:
+        registre.add(cle_lot)
+        registre.add(f"{cle_lot}:{sha}")
+    _LOTS_MEMOIRE.add(cle_lot)
+
+    if tache_a_clore:
+        _clore_tache_session_perdue(
+            tasks_db=tasks_db or (root / "sandbox" / "tasks.db"),
+            task_id=tache_a_clore,
+            suffixe_result=f"[SESSION_PERDUE] preserve {branche_preserve} sha {sha}",
+            pointer_ref=f"{branche_preserve}@{sha}",
+            emettre=emettre,
+        )
+
+    return {
+        "action": "preserve",
+        "agent": agent,
+        "tache": court,
+        "branche": branche_preserve,
+        "sha": sha,
+        "verdict": verdict,
+        "fichiers": fichiers,
+        "commande_fusion": cmd_fusion,
+    }
+
+
+def balayer_et_reconcilier(root: Path | None = None, wt_root: Path | None = None,
+                           tasks_db: Path | None = None, max_worktrees: int = 3,
+                           registre: set[str] | None = None, notifier=None,
+                           vivacite=None, emettre=None) -> dict:
+    """Balaye les worktrees orphelins et sauvegardes pour reconcilier les lots prets."""
+    root = Path(root) if root else ROOT
+    notifier = notifier or alerter_owner_reconciliation
+
+    if not interrupteur_reconciliateur_actif(root):
+        return {"actif": False, "raison": "interrupteur_coupe", "lots": []}
+
+    if garde_ressources_au_rouge():
+        return {"actif": True, "retenu": True, "raison": "garde_ressources_au_rouge", "lots": []}
+
+    wt_base = Path(wt_root) if wt_root else (root.parent / "nokido_worktrees")
+    reg_path = root / "sandbox" / "reconciliateur_lots.json"
+    if registre is not None:
+        reg = registre
+        reg_illisible = False
+    else:
+        reg, reg_illisible = _charger_registre_reconciliation(reg_path)
+
+    # Point 6 : Si le registre est illisible, abstention stricte pour eviter re-alertes en double
+    if reg_illisible:
+        notifier(
+            "reconciliateur:registre_illisible",
+            "WARN",
+            f"Registre de reconciliation {reg_path} illisible/corrompu : abstention de balayage",
+            "reconciliateur_boucle",
+        )
+        return {"actif": True, "retenu": True, "raison": "registre_illisible", "lots": []}
+
+    candidats: list[Path] = []
+
+    # 1. Scanner les worktrees sous nokido_worktrees/taches
+    taches_dir = wt_base / "taches"
+    if taches_dir.is_dir():
+        for d in sorted(taches_dir.iterdir()):
+            if d.is_dir() and (d / ".git").exists() and d.resolve() != root.resolve():
+                candidats.append(d)
+
+    # 2. Scanner les worktrees d'agents directs sous nokido_worktrees
+    if wt_base.is_dir():
+        for d in sorted(wt_base.iterdir()):
+            if d.name != "taches" and d.is_dir() and (d / ".git").exists() and d.resolve() != root.resolve():
+                if not d.name.startswith("proof"):
+                    candidats.append(d)
+
+    lots = []
+    traites = 0
+    for wt in candidats:
+        if traites >= max_worktrees:
+            break
+        res = reconcilier_worktree_orphelin(wt, root=root, tasks_db=tasks_db, registre=reg, notifier=notifier,
+                                            vivacite=vivacite, emettre=emettre)
+        if res.get("action") == "preserve":
+            lots.append(res)
+            traites += 1
+
+    # 3. Scanner les sauvegardes dans sandbox/sauvegardes_executeurs/
+    sauv_root = root / "sandbox" / "sauvegardes_executeurs"
+    if sauv_root.is_dir():
+        for ag_dir in sorted(sauv_root.iterdir()):
+            if ag_dir.is_dir():
+                for t_dir in sorted(ag_dir.iterdir()):
+                    if t_dir.is_dir() and (t_dir / "manifeste.json").is_file():
+                        cle_sauv = f"sauvegarde:{ag_dir.name}:{t_dir.name}"
+                        try:
+                            man = json.loads((t_dir / "manifeste.json").read_text(encoding="utf-8"))
+                        except Exception as exc:  # noqa: BLE001
+                            logging.getLogger("forge_worktree").warning(
+                                "[reconciliateur] sauvegarde %s non traitee (%s)", t_dir.name, type(exc).__name__)
+                            continue
+                        if not isinstance(man, dict):
+                            # JSON valide mais pas un objet : sauter CETTE sauvegarde, jamais tout le balayage.
+                            logging.getLogger("forge_worktree").warning(
+                                "[reconciliateur] sauvegarde %s non traitee (manifeste %s, objet attendu)",
+                                t_dir.name, type(man).__name__)
+                            continue
+
+                        tache_id = man.get("tache")
+                        if tache_id:
+                            info = _info_tache_par_id(tasks_db or (root / "sandbox" / "tasks.db"), tache_id)
+                            if info and info["status"] == "running":
+                                pid = info.get("exec_pid")
+                                if pid is not None:
+                                    fn_viv = vivacite if vivacite is not None else _vivacite_par_defaut
+                                    v = fn_viv(pid, info.get("exec_cree"))
+                                    if v is False:
+                                        chemin_sauv = str(t_dir).replace("\\", "/")
+                                        _clore_tache_session_perdue(
+                                            tasks_db=tasks_db or (root / "sandbox" / "tasks.db"),
+                                            task_id=tache_id,
+                                            suffixe_result=f"[SESSION_PERDUE] sauvegarde {chemin_sauv}",
+                                            pointer_ref=chemin_sauv,
+                                            emettre=emettre,
+                                        )
+
+                        if cle_sauv not in reg:
+                            fics = man.get("fichiers", [])
+                            cmd_s = f"python tools/forge_merge_gate.py reconcilier_sauvegarde {t_dir} {' '.join(fics)} --apply"
+                            notifier(
+                                f"reconciliateur:lot_pret_sauvegarde:{ag_dir.name}:{t_dir.name}",
+                                "INFO",
+                                f"sauvegarde agent={ag_dir.name} tache={t_dir.name} fichiers={len(fics)} | fusion: {cmd_s}",
+                                "reconciliateur_boucle",
+                            )
+                            reg.add(cle_sauv)
+                            lots.append({"action": "sauvegarde_signalee", "agent": ag_dir.name, "tache": t_dir.name, "cmd_fusion": cmd_s})
+
+    if registre is None:
+        _sauver_registre_reconciliation(reg, reg_path)
+
+    return {"actif": True, "retenu": False, "lots": lots, "candidats_scannes": len(candidats)}
+
+
+def _acquerir_verrou_reconciliateur(lock_file: Path):
+    """Acquiert un verrou exclusif inter-processus non-bloquant. Rend un lock object ou None."""
+    try:
+        from filelock import FileLock
+        lock = FileLock(str(lock_file), timeout=0)
+        lock.acquire()
+        return lock
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def reconcilier_orphelins_boucle(root: Path | None = None, intervalle_min_s: float | None = None) -> dict:
+    """Point d'entree sovereign pour la boucle de maintenance (ex: TaskExecutor.run_loop).
+    Garantit :
+    - un intervalle minimal entre balayages (evite d'epuiser la machine si la boucle tourne vite)
+    - une seule instance a la fois (verrou exclusif inter-executeurs)."""
+    global _DERNIER_PASSAGE_BOUCLE
+    import time
+    root = Path(root) if root else ROOT
+    intervalle = intervalle_min_s if intervalle_min_s is not None else _INTERVALLE_MIN_BOUCLE_S
+
+    maintenant = time.time()
+    if maintenant - _DERNIER_PASSAGE_BOUCLE < intervalle:
+        return {"actif": True, "retenu": True, "saute_intervalle": True, "lots": []}
+
+    lock_file = root / "sandbox" / "reconciliateur_boucle.lock"
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    lock = _acquerir_verrou_reconciliateur(lock_file)
+    if lock is None:
+        return {"actif": True, "retenu": True, "saute_concurrence": True, "lots": []}
+
+    try:
+        _DERNIER_PASSAGE_BOUCLE = time.time()
+        return balayer_et_reconcilier(root=root)
+    finally:
+        try:
+            lock.release()
+        except Exception:  # noqa: BLE001 - muet-ok : le verrou tombe avec le processus, le balayage est deja rendu
+            pass
+
 
 
 if __name__ == "__main__":

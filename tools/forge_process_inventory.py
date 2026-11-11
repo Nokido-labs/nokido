@@ -64,6 +64,9 @@ def _donnees() -> Path:
             return ROOT
     return Path(racine_donnees())
 SUPERVISOR = "http://127.0.0.1:8765/supervisor/status"
+_REGISTRE_SUPERVISEUR_DEFAUT = _donnees() / "sandbox" / "health.json"
+REGISTRE_SUPERVISEUR = _REGISTRE_SUPERVISEUR_DEFAUT
+_PUBLIES_COURANTS: dict[int, dict] | None = None
 # Un heartbeat n'est PERIME que relativement au rythme ATTENDU du daemon. Ne PAS
 # inventer un seuil ici : services.toml declare deja `heartbeat_tier` et
 # supervisor.ts fixe la convention (HEARTBEAT_TIERS). On reprend SES chiffres,
@@ -176,29 +179,123 @@ def contexte_execution() -> dict:
     }
 
 
-def _declares(timeout: float = 10.0) -> dict:
-    """Ce que le superviseur AFFIRME. Peut mentir sur un pid mort — d'ou le croisement."""
-    try:
-        with urllib.request.urlopen(SUPERVISOR, timeout=timeout) as resp:
-            payload = json.loads(resp.read())
-    except Exception as exc:  # superviseur injoignable != aucun service
-        return {"__erreur__": {"status": f"superviseur injoignable: {exc}"[:120]}}
-    raw = payload.get("services") or payload
-    items = raw.items() if isinstance(raw, dict) else [(s.get("name"), s) for s in raw]
+def _normaliser_entree_service(nom: str, svc: dict) -> dict:
+    """Normalise une entree de service publiee par le superviseur (HTTP /supervisor/status ou sandbox/health.json)."""
+    return {
+        "status": svc.get("status") or "running",
+        "pid": svc.get("pid"),
+        "ppid": svc.get("ppid"),
+        "cmdline": svc.get("cmdline") or svc.get("cmd"),
+        "service": str(svc.get("service") or nom),
+        "intention": svc.get("intention"),
+        "objectif": svc.get("objectif"),
+        "compte": svc.get("compte"),
+        "heure": svc.get("heure"),
+        "uptime_s": svc.get("uptime_s"),
+        "restarts": svc.get("restarts"),
+        "port": svc.get("port"),
+    }
+
+
+def _decoder_registre_payload(payload: object) -> dict:
+    """Decode le contenu JSON du registre superviseur ; rend __erreur__ ILLISIBLE si le format est invalide."""
+    if not isinstance(payload, dict) or not payload:
+        return {"__erreur__": {"status": "ILLISIBLE", "motif": "registre vide ou non-dict"}}
+    if "__erreur__" in payload:
+        return payload
+    has_services_key = "services" in payload
+    raw = payload.get("services") if has_services_key else payload
+    if isinstance(raw, dict):
+        items = list(raw.items())
+    elif isinstance(raw, list):
+        items = [(s.get("service") or s.get("name"), s) for s in raw if isinstance(s, dict)]
+    else:
+        return {"__erreur__": {"status": "ILLISIBLE", "motif": "champ services invalide"}}
     out = {}
     for name, svc in items:
-        if name and isinstance(svc, dict):
-            out[str(name)] = {
-                "status": svc.get("status"),
-                "pid": svc.get("pid"),
-                "uptime_s": svc.get("uptime_s"),
-                "restarts": svc.get("restarts"),
-            }
+        if name and not str(name).startswith("__") and isinstance(svc, dict):
+            if has_services_key or any(k in svc for k in ("pid", "status", "intention", "cmdline", "cmd", "service")):
+                out[str(name)] = _normaliser_entree_service(str(name), svc)
+    if not out and not has_services_key:
+        return {"__erreur__": {"status": "ILLISIBLE", "motif": "aucune entree de service reconnue"}}
     return out
 
 
+def _lire_registre_superviseur(chemin: Path | str | None = None) -> dict:
+    """Lit le fichier de registre publie par le superviseur (sandbox/health.json).
+    Un registre absent, tronque ou corrompu rend __erreur__=ILLISIBLE, jamais {} ni 0."""
+    cible = Path(chemin) if chemin is not None else Path(REGISTRE_SUPERVISEUR)
+    try:
+        texte = cible.read_text(encoding="utf-8")
+        payload = json.loads(texte)
+    except Exception as exc:  # noqa: BLE001 - registre illisible != 0 service
+        return {"__erreur__": {"status": "ILLISIBLE", "motif": f"registre illisible ({cible.name}): {exc}"[:120]}}
+    return _decoder_registre_payload(payload)
+
+
+def _pids_publies(declares: dict | None, prevus: dict | None = None) -> dict[int, dict]:
+    """Table pid -> {service, intention, objectif, cmdline, ppid, compte, heure} extraite du registre publie."""
+    if not isinstance(declares, dict) or "__erreur__" in declares:
+        return {}
+    prevus_map = prevus if isinstance(prevus, dict) else {}
+    out: dict[int, dict] = {}
+    for nom, decl in declares.items():
+        if str(nom).startswith("__") or not isinstance(decl, dict):
+            continue
+        if decl.get("status") not in (None, "running", "starting", "degraded"):
+            continue
+        pid = decl.get("pid")
+        if not pid:
+            continue
+        try:
+            pid_int = int(pid)
+        except (ValueError, TypeError):
+            # 9/11 (visibilite des processus) : un service au pid illisible ne disparait plus en silence.
+            print("[inventaire] pid illisible au registre pour %s : %r -- service non attribue" % (nom, pid),
+                  file=sys.stderr)
+            continue
+        prevu = prevus_map.get(nom) or {}
+        out[pid_int] = {
+            "service": str(decl.get("service") or nom),
+            "intention": decl.get("intention") or prevu.get("intention"),
+            "objectif": decl.get("objectif") or prevu.get("objectif"),
+            "cmdline": decl.get("cmdline") or decl.get("cmd"),
+            "ppid": decl.get("ppid"),
+            "compte": decl.get("compte"),
+            "heure": decl.get("heure"),
+        }
+    return out
+
+
+def _declares(timeout: float = 10.0, chemin_registre: Path | str | None = None) -> dict:
+    """Ce que le superviseur PUBLIE (registre fichier sandbox/health.json et/ou HTTP /supervisor/status).
+    Peut mentir sur un pid mort — d'ou le croisement."""
+    if chemin_registre is not None or Path(REGISTRE_SUPERVISEUR) != _REGISTRE_SUPERVISEUR_DEFAUT:
+        return _lire_registre_superviseur(chemin_registre or REGISTRE_SUPERVISEUR)
+    depuis_fichier = _lire_registre_superviseur(REGISTRE_SUPERVISEUR)
+    try:
+        with urllib.request.urlopen(SUPERVISOR, timeout=timeout) as resp:
+            payload = json.loads(resp.read())
+        depuis_http = _decoder_registre_payload(payload)
+    except Exception as exc:  # superviseur injoignable != aucun service
+        depuis_http = {"__erreur__": {"status": f"superviseur injoignable: {exc}"[:120]}}
+    if "__erreur__" not in depuis_http:
+        if "__erreur__" not in depuis_fichier:
+            for nom, info_f in depuis_fichier.items():
+                if nom in depuis_http and isinstance(info_f, dict):
+                    for cle in ("ppid", "cmdline", "service", "intention", "objectif", "compte", "heure"):
+                        if not depuis_http[nom].get(cle) and info_f.get(cle):
+                            depuis_http[nom][cle] = info_f[cle]
+                elif nom not in depuis_http:
+                    depuis_http[nom] = info_f
+        return depuis_http
+    if "__erreur__" not in depuis_fichier:
+        return depuis_fichier
+    return {"__erreur__": {"status": "ILLISIBLE", "motif": depuis_http["__erreur__"].get("status", "ILLISIBLE")}}
+
+
 def _prevus() -> dict:
-    """Ce que services.toml PREVOIT : script d'entree + fichier de heartbeat."""
+    """Ce que services.toml PREVOIT : script d'entree + fichier de heartbeat + intention/objectif."""
     out = {}
     try:
         text = SERVICES_TOML.read_text(encoding="utf-8", errors="replace")
@@ -231,6 +328,8 @@ def _prevus() -> dict:
             interval = int(m_cycle.group(1))
         m_tier = re.search(r'heartbeat_tier\s*=\s*"(fast|normal|slow)"', bloc)
         m_runas = re.search(r'runAs\s*=\s*"([^"]+)"', bloc)
+        m_intention = re.search(r'^\s*intention\s*=\s*"([^"]+)"', bloc, re.M)
+        m_objectif = re.search(r'^\s*objectif\s*=\s*"([^"]+)"', bloc, re.M)
         out[m_name.group(1)] = {
             "script": script,
             "heartbeat": m_hb.group(1) if m_hb else None,
@@ -239,15 +338,19 @@ def _prevus() -> dict:
             "tier": m_tier.group(1) if m_tier else TIER_DEFAUT,
             "disabled": "disabled = true" in bloc,
             "runAs": m_runas.group(1) if m_runas else None,
+            "intention": m_intention.group(1) if m_intention else None,
+            "objectif": m_objectif.group(1) if m_objectif else None,
         }
     return out
 
 
-def _vivants() -> tuple[dict, int]:
-    """Ce qui TOURNE. `illisibles` compte les cmdline refusees : ne jamais lire
-    une cmdline vide comme une absence de process."""
+def _vivants(publies: dict[int, dict] | None = None) -> tuple[dict, int]:
+    """Ce qui TOURNE. Lit le registre publie par le superviseur AVANT de tenter proc.cmdline() :
+    un pid publie recoit directement sa cmdline, son service et son intention sans se heurter au refus OS inter-comptes.
+    `illisibles` compte les cmdline refusees : ne jamais lire une cmdline vide comme une absence de process."""
     import psutil
 
+    actifs = publies if publies is not None else (_PUBLIES_COURANTS or {})
     now = time.time()
     procs, illisibles = {}, 0
     for proc in psutil.process_iter(
@@ -255,23 +358,33 @@ def _vivants() -> tuple[dict, int]:
     ):
         try:
             info = proc.info
-            try:
-                cmd = " ".join(proc.cmdline()) or None
-            except Exception:  # muet-ok : cmdline refusee -> None, comptee juste en dessous dans `illisibles`
-                cmd = None
+            pid = info["pid"]
+            pub = actifs.get(pid)
+            if pub and pub.get("cmdline"):
+                cmd = pub["cmdline"]
+            else:
+                try:
+                    cmd = " ".join(proc.cmdline()) or None
+                except Exception:  # muet-ok : cmdline refusee -> None, comptee juste en dessous dans `illisibles`
+                    cmd = None
             if cmd is None:
                 illisibles += 1
             mem = info.get("memory_info")
-            procs[info["pid"]] = {
+            entree = {
                 "nom": info.get("name"),
-                "ppid": info.get("ppid"),
+                "ppid": pub.get("ppid") if (pub and pub.get("ppid") is not None and info.get("ppid") is None) else info.get("ppid"),
                 # memoire refusee (vmmemWSL protege) = INCONNUE, jamais 0 (audit RAM 18/10)
                 "rss_mo": round(mem.rss / 1e6, 1) if mem else None,
                 "age_min": round((now - (info.get("create_time") or now)) / 60),
                 "cree": info.get("create_time"),
-                "user": info.get("username"),
+                "user": info.get("username") or (pub.get("compte") if pub else None),
                 "cmd": cmd,
             }
+            if pub:
+                entree["service"] = pub.get("service")
+                entree["intention"] = pub.get("intention")
+                entree["objectif"] = pub.get("objectif")
+            procs[pid] = entree
         except Exception:  # muet-ok : processus disparu ou refuse entre l'iteration et la lecture -> compte illisible
             illisibles += 1
     return procs, illisibles
@@ -424,11 +537,40 @@ def service_porteur(declares=None, chaine=None, timeout=5.0):
     return None, None, "aucun ancetre de ce process n'est un pid declare par le superviseur"
 
 
+def _parse_ts(val, default=0.0):
+    if val is None:
+        return default
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        try:
+            return float(val)
+        except ValueError:
+            pass  # muet-ok : pas un epoch, on essaie le format ISO juste apres
+        try:
+            return time.mktime(time.strptime(val[:19], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, TypeError):
+            pass  # muet-ok : format inconnu -> `default`, que l'appelant traite comme date ILLISIBLE
+    return default
+
+
 def identifier_processus(vivants, pid_service, jobs, battements, maintenant=None, profondeur=8):
     """(identites {pid: {identite, preuve}}, non_identifies [...]) pour les RUNTIMES, par cascade de preuves :
     superviseur -> job -> battement -> parente. Un job ou un battement n'identifie un pid que s'il est COHERENT dans le
     temps avec la creation du processus (19/10 : pid 1988 « matchait » un job du 10/09 -- pid recycle)."""
     maintenant = time.time() if maintenant is None else maintenant
+
+    enfants_par_pid = {}
+    for exec_pid, b in (battements or {}).items():
+        for enf in (b.get("enfants") or []):
+            try:
+                enf_int = int(enf)
+                ts_cand = _parse_ts(b.get("ts") or b.get("payload_ts"))
+                if enf_int not in enfants_par_pid or ts_cand > enfants_par_pid[enf_int][0]:
+                    enfants_par_pid[enf_int] = (ts_cand, b)
+            except (ValueError, TypeError):
+                print("[inventaire] pid enfant illisible %r dans le battement de %s" % (enf, exec_pid), file=sys.stderr)
+                continue
 
     def directe(pid):
         cree = (vivants.get(pid) or {}).get("cree")
@@ -441,6 +583,11 @@ def identifier_processus(vivants, pid_service, jobs, battements, maintenant=None
         if (b and cree is not None and float(b.get("ts") or 0) >= float(cree)
                 and maintenant - float(b.get("ts") or 0) <= _BATTEMENT_FRAIS_S):
             return {"identite": b["identite"], "preuve": "battement"}
+        if pid in enfants_par_pid:
+            ts_enf, b_enf = enfants_par_pid[pid]
+            if cree is None or not ts_enf or ts_enf >= float(cree) - _JOB_TOLERANCE_S:
+                ident = b_enf.get("identite") or b_enf.get("executeur") or "executeur"
+                return {"identite": ident, "preuve": "battement_enfant"}
         return None
 
     ids, non = {}, []
@@ -486,43 +633,226 @@ def _jobs_par_pid() -> dict:
     return out
 
 
+_RE_AGENT_CMD = re.compile(r"--agent[ =]+[\"']?([\w.-]+)", re.I)
+
+
+def cle_doublon(script: str, cmd: str | None, service: str | None) -> str:
+    """Owner 9/11 (« visibilite parfaite, sinon pas d'autoregulation ») : 9 `forge_task_executor.py` d'agents
+    differents etaient comptes en DOUBLONS (groupement par nom de script). Un doublon = meme script ET meme organe :
+    le service du registre prime (ligne de commande souvent ILLISIBLE hors compte proprietaire), puis `--agent`,
+    sinon le script seul."""
+    if service:
+        return "%s@%s" % (script, service)
+    m = _RE_AGENT_CMD.search(cmd or "")
+    return "%s@%s" % (script, m.group(1).upper()) if m else script
+
+
 def _battements_par_pid() -> dict:
-    """pid -> {identite, ts} depuis sandbox/*.heartbeat (JSON avec pid) ; ts = date d'ecriture du fichier."""
+    """pid -> {identite, ts, ...} depuis sandbox/*.heartbeat (JSON avec pid) ; ts = date d'ecriture du fichier."""
     out = {}
     for f in (_donnees() / "sandbox").glob("*.heartbeat"):
         try:
             d = json.loads(f.read_text(encoding="utf-8"))
-            out[int(d["pid"])] = {"identite": f.name, "ts": f.stat().st_mtime}
+            pid = int(d["pid"])
+            enfants = [int(x) for x in d.get("enfants") or [] if isinstance(x, int) or (isinstance(x, str) and str(x).lstrip("-").isdigit())]
+            out[pid] = {
+                "identite": f.name,
+                "ts": f.stat().st_mtime,
+                "payload_ts": d.get("ts"),
+                "agent": d.get("agent"),
+                "enfants": enfants,
+            }
         except (OSError, ValueError, KeyError, TypeError):
             continue  # muet-ok : battement non JSON ou sans pid, il n'identifie personne
     return out
 
 
-def collect() -> dict:
+def _orphelins_prouves(vivants: dict, battements: dict) -> list[dict]:
+    """Processus declares enfants par le DERNIER battement d'un executeur dont le pid est MORT (ou dont le parent est mort).
+
+    Sans cette preuve : jamais « orphelin » (INCERTAIN) — constitution UNKNOWN != NO.
+    Rend [{pid, nom, rss_mo, executeur, battement_ts}, ...].
+    """
+    if not vivants or not battements:
+        return []
+
+    derniers = {}
+    for exec_pid, b in battements.items():
+        cle = b.get("identite") or b.get("executeur") or str(exec_pid)
+        ts = _parse_ts(b.get("ts") or b.get("payload_ts"))
+        if cle not in derniers or ts > derniers[cle][0]:
+            derniers[cle] = (ts, exec_pid, b)
+
+    orphelins = []
+    vus = set()
+    for cle, (ts, exec_pid, b) in derniers.items():
+        # Relecture Claude 9/11 : seul un executeur MORT prouve des orphelins (un executeur vivant dont le lanceur
+        # est mort a toujours ses enfants ; les dire orphelins serait une sur-deduction).
+        if exec_pid in vivants:
+            continue
+
+        enfants = b.get("enfants") or []
+        for enf_pid in enfants:
+            try:
+                enf_pid_int = int(enf_pid)
+            except (ValueError, TypeError):
+                print("[inventaire] pid enfant illisible %r (executeur %s) : non juge" % (enf_pid, cle), file=sys.stderr)
+                continue
+            if enf_pid_int in vus:
+                continue
+            proc = vivants.get(enf_pid_int)
+            if not proc:
+                continue
+            b_ts = b.get("ts") if b.get("ts") is not None else (b.get("payload_ts") or ts)
+            # Pid RECYCLE (relecture Claude 9/11) : l'enfant doit etre ne AVANT le battement qui le declare ; date de
+            # creation illisible -> INCERTAIN, jamais « orphelin » (UNKNOWN != NO).
+            cree = proc.get("cree")
+            if cree is None or float(cree) > _parse_ts(b_ts, ts) + _JOB_TOLERANCE_S:
+                continue
+            vus.add(enf_pid_int)
+            orphelins.append({
+                "pid": enf_pid_int,
+                "nom": proc.get("nom"),
+                "rss_mo": proc.get("rss_mo"),
+                "executeur": b.get("identite") or b.get("executeur") or cle,
+                "battement_ts": b_ts,
+            })
+
+    return sorted(orphelins, key=lambda o: o["pid"])
+
+
+def collect(registre: Path | str | dict | None = None) -> dict:
+    global _PUBLIES_COURANTS
     now = time.time()
-    declares, prevus = _declares(), _prevus()
-    vivants, illisibles = _vivants()
+    if registre is not None:
+        declares = (
+            _decoder_registre_payload(registre)
+            if isinstance(registre, dict)
+            else _lire_registre_superviseur(registre)
+        )
+    elif Path(REGISTRE_SUPERVISEUR) != _REGISTRE_SUPERVISEUR_DEFAUT:
+        declares = _lire_registre_superviseur(REGISTRE_SUPERVISEUR)
+    else:
+        declares = _declares()
+    prevus = _prevus()
+    registre_illisible = not isinstance(declares, dict) or "__erreur__" in declares
+    publies = _pids_publies(declares, prevus)
+    _PUBLIES_COURANTS = publies
+    try:
+        vivants, illisibles = _vivants()
+    finally:
+        _PUBLIES_COURANTS = None
+
+    for pid_pub, pub in publies.items():
+        if pid_pub in vivants:
+            if vivants[pid_pub].get("cmd") is None and pub.get("cmdline"):
+                vivants[pid_pub]["cmd"] = pub["cmdline"]
+                illisibles = max(0, illisibles - 1)
+            vivants[pid_pub]["service"] = pub.get("service")
+            vivants[pid_pub]["intention"] = pub.get("intention")
+            vivants[pid_pub]["objectif"] = pub.get("objectif")
+
     ports = _ports()
 
     fantomes, pid_service = [], {}
-    for nom, decl in declares.items():
-        if nom.startswith("__") or decl.get("status") != "running":
-            continue
-        pid = decl.get("pid")
-        if not pid or int(pid) not in vivants:
-            fantomes.append(
-                {"service": nom, "pid_declare": pid, "uptime_annonce_s": decl.get("uptime_s"),
-                 "qualification": _qualifier_fantome(prevus.get(nom, {}), now)}
-            )
-        else:
-            pid_service[int(pid)] = nom
+    if not registre_illisible:
+        for nom, decl in declares.items():
+            if str(nom).startswith("__") or not isinstance(decl, dict) or decl.get("status") != "running":
+                continue
+            pid = decl.get("pid")
+            if not pid or int(pid) not in vivants:
+                fantomes.append(
+                    {"service": nom, "pid_declare": pid, "uptime_annonce_s": decl.get("uptime_s"),
+                     "qualification": _qualifier_fantome(prevus.get(nom, {}), now)}
+                )
+            else:
+                pid_service[int(pid)] = str(decl.get("service") or nom)
 
-    # un enfant herite de l'identite de son lanceur (gotcha wrapper -> enfant)
+    # Liste blanche (consigne owner 8/11 : LE SUPERVISEUR PUBLIE) :
+    # - un pid publie = identifie (service, intention, cmdline) ;
+    # - les descendants d'un pid publie heritent a toute profondeur (ancetre_identifie, commit 9cb92a322) ;
+    # - ce qui reste non publie et non herite = ILLISIBLE nomme, jamais compte sain.
+    identifies_registre = {}
     herite = {}
-    for pid, proc in vivants.items():
-        parent = proc.get("ppid")
-        if pid not in pid_service and parent in pid_service:
-            herite[pid] = {"via_parent": pid_service[parent], "nom": proc["nom"], "ppid": parent}
+    liste_illisibles = []
+    if registre_illisible:
+        for pid, proc in sorted(vivants.items()):
+            liste_illisibles.append(
+                {
+                    "pid": pid,
+                    "nom": proc.get("nom"),
+                    "ppid": proc.get("ppid"),
+                    "user": proc.get("user"),
+                    "statut": "ILLISIBLE",
+                    "motif": "registre_illisible",
+                }
+            )
+        if not liste_illisibles:
+            liste_illisibles.append(
+                {
+                    "pid": None,
+                    "nom": None,
+                    "ppid": None,
+                    "user": None,
+                    "statut": "ILLISIBLE",
+                    "motif": "registre_illisible",
+                }
+            )
+    else:
+        for pid, proc in sorted(vivants.items()):
+            if pid in pid_service:
+                pub = publies.get(pid) or {}
+                nom_svc = pub.get("service") or pid_service[pid]
+                decl_svc = (declares.get(nom_svc) if isinstance(declares, dict) else None) or {}
+                prevu_svc = (prevus.get(nom_svc) if isinstance(prevus, dict) else None) or {}
+                intention_svc = pub.get("intention") or decl_svc.get("intention") or prevu_svc.get("intention")
+                objectif_svc = pub.get("objectif") or decl_svc.get("objectif") or prevu_svc.get("objectif")
+                cmd_svc = pub.get("cmdline") or decl_svc.get("cmdline") or proc.get("cmd")
+                identifies_registre[str(pid)] = {
+                    "pid": pid,
+                    "ppid": pub.get("ppid") if pub.get("ppid") is not None else proc.get("ppid"),
+                    "service": nom_svc,
+                    "intention": intention_svc,
+                    "objectif": objectif_svc,
+                    "cmdline": cmd_svc,
+                    "compte": pub.get("compte") or decl_svc.get("compte") or proc.get("user"),
+                    "heure": pub.get("heure") or decl_svc.get("heure"),
+                    "nom": proc.get("nom"),
+                    "statut": "IDENTIFIE",
+                    "preuve": "registre_superviseur",
+                }
+                continue
+            anc = ancetre_identifie(pid, vivants, pid_service, {})
+            if anc is not None:
+                service_anc = anc["identite"].removeprefix("descendant de ")
+                decl_anc = (declares.get(service_anc) if isinstance(declares, dict) else None) or {}
+                prevu_anc = (prevus.get(service_anc) if isinstance(prevus, dict) else None) or {}
+                intention_anc = decl_anc.get("intention") or prevu_anc.get("intention")
+                objectif_anc = decl_anc.get("objectif") or prevu_anc.get("objectif")
+                herite[pid] = {
+                    "via_parent": service_anc,
+                    "service": service_anc,
+                    "intention": intention_anc,
+                    "objectif": objectif_anc,
+                    "nom": proc.get("nom"),
+                    "ppid": proc.get("ppid"),
+                    "profondeur": anc["profondeur"],
+                    "statut": "HERITE",
+                    "preuve": "parente",
+                }
+                proc.setdefault("service", service_anc)
+                proc.setdefault("intention", intention_anc)
+            else:
+                liste_illisibles.append(
+                    {
+                        "pid": pid,
+                        "nom": proc.get("nom"),
+                        "ppid": proc.get("ppid"),
+                        "user": proc.get("user"),
+                        "statut": "ILLISIBLE",
+                        "motif": "non_publie_non_herite",
+                    }
+                )
 
     figes = []
     for nom, prevu in prevus.items():
@@ -553,7 +883,20 @@ def collect() -> dict:
                 }
             )
 
-    identification = _identification(vivants, pid_service)
+    battements = _battements_par_pid()
+    identification = _identification(vivants, pid_service, battements=battements)
+    orphelins_prouves = _orphelins_prouves(vivants, battements)
+    for k_pid, info_reg in identifies_registre.items():
+        if k_pid in identification["identites"]:
+            identification["identites"][k_pid]["service"] = info_reg["service"]
+            identification["identites"][k_pid]["intention"] = info_reg["intention"]
+            identification["identites"][k_pid]["cmdline"] = info_reg["cmdline"]
+    for k_pid_int, info_her in herite.items():
+        k_pid = str(k_pid_int)
+        if k_pid in identification["identites"]:
+            identification["identites"][k_pid]["service"] = info_her["service"]
+            identification["identites"][k_pid]["intention"] = info_her["intention"]
+
     inconnus = []
     for port, pid in sorted(ports.items()):
         if pid in pid_service or pid in herite or str(pid) in identification["identites"]:
@@ -590,20 +933,34 @@ def collect() -> dict:
             continue
         noms = re.findall(r"([\w\-]+\.(?:py|ts))", proc.get("cmd") or "")
         if noms:
-            par_script.setdefault(noms[-1], []).append(pid)
+            svc = pid_service.get(pid) or (herite.get(pid) or {}).get("service")
+            par_script.setdefault(cle_doublon(noms[-1], proc.get("cmd"), svc), []).append(pid)
     doublons = {
-        k: v for k, v in par_script.items() if len(v) > 1 and k != Path(__file__).name
+        k: v for k, v in par_script.items() if len(v) > 1 and k.split("@", 1)[0] != Path(__file__).name
     }
+
+    nb_identifies = "ILLISIBLE" if registre_illisible else len(identifies_registre)
+    nb_herites = "ILLISIBLE" if registre_illisible else len(herite)
+    nb_illisibles = "ILLISIBLE" if registre_illisible else len(liste_illisibles)
 
     return {
         "horodatage": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "etat_registre": "ILLISIBLE" if registre_illisible else "OK",
         "totaux": {
             "process_vivants": len(vivants),
-            "cmdline_illisibles": illisibles,
-            "services_declares": len([k for k in declares if not k.startswith("__")]),
-            "declares_avec_pid_vivant": len(pid_service),
+            "identifies": nb_identifies,
+            "herites": nb_herites,
+            "illisibles": nb_illisibles,
+            "ILLISIBLE": nb_illisibles,
+            "cmdline_illisibles": "ILLISIBLE" if registre_illisible else illisibles,
+            "services_declares": "ILLISIBLE" if registre_illisible else len([k for k in declares if not str(k).startswith("__")]),
+            "declares_avec_pid_vivant": "ILLISIBLE" if registre_illisible else len(pid_service),
             "ports_lus": len(ports),
         },
+        "identifies": "ILLISIBLE" if registre_illisible else identifies_registre,
+        "herites": "ILLISIBLE" if registre_illisible else {str(k): v for k, v in sorted(herite.items())},
+        "illisibles": liste_illisibles,
+        "ILLISIBLE": liste_illisibles,
         "fantomes": fantomes,
         "figes": figes,
         "inconnus": inconnus,
@@ -611,13 +968,16 @@ def collect() -> dict:
         "protheses": _protheses(vivants),
         "pid_vers_service": {str(k): v for k, v in sorted(pid_service.items())},
         "enfants_herites": {str(k): v for k, v in sorted(herite.items())},
+        "orphelins_prouves": orphelins_prouves,
         **identification,
     }
 
 
-def _identification(vivants, pid_service) -> dict:
+def _identification(vivants, pid_service, battements=None) -> dict:
     """Identites de TOUS les runtimes (owner 19/10) ; les non-identifies sont listes ET comptes, jamais tus."""
-    ids, non = identifier_processus(vivants, pid_service, _jobs_par_pid(), _battements_par_pid())
+    if battements is None:
+        battements = _battements_par_pid()
+    ids, non = identifier_processus(vivants, pid_service, _jobs_par_pid(), battements)
     return {"identites": {str(k): v for k, v in sorted(ids.items())}, "non_identifies": non,
             "runtimes": {"identifies": len(ids), "non_identifies": len(non)}}
 
@@ -632,10 +992,14 @@ def main() -> int:
         return 0
     tot = rapport["totaux"]
     print(
-        f"[inventaire] {tot['process_vivants']} process "
+        f"[inventaire] {tot['process_vivants']} process | "
+        f"identifies={tot['identifies']} / herites={tot['herites']} / ILLISIBLE={tot['ILLISIBLE']} | "
         f"({tot['cmdline_illisibles']} cmdline illisibles = angle mort du compte) | "
         f"{tot['declares_avec_pid_vivant']}/{tot['services_declares']} services avec pid vivant"
     )
+    print(f"\nILLISIBLE (non publies et non herites): {len(rapport['illisibles'])}")
+    for item in rapport["illisibles"]:
+        print("   ", json.dumps(item, ensure_ascii=False))
     for cle, titre in (
         ("fantomes", "FANTOMES (declare running, pid mort)"),
         ("figes", "FIGES (pid vivant, heartbeat perime)"),

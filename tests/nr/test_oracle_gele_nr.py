@@ -1,6 +1,6 @@
-"""NR 18/10 -- ORACLE GELE + preuve independante des gains (chantier 5 de bb P1_preparation_takehome_anthropic_20261018).
+"""NR 18/10 -- ORACLE GELE + preuve independante des gains (chantier 5).
 
-Owner : le risque n°1 avant de confier le takehome a Nokido -- des resultats spectaculaires etaient invalides parce
+Owner : le risque n°1 avant de confier un banc a Nokido -- des resultats spectaculaires etaient invalides parce
 que des agents avaient modifie les tests. Contrat (tools/forge_merge_gate.oracle_gele) : depot fige par SHA,
 candidat evalue dans un worktree ISOLE, toute ecriture sous un chemin protege (tests/) = INVALID sans execution,
 git diff des proteges revérifie vide, commande officielle executee ; verdicts CORRECTNESS_PASS / CORRECTNESS_FAIL /

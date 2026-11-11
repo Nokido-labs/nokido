@@ -126,6 +126,9 @@ def main():
             continue
 
         src = f"{args.domain}:{pdf_path.stem}#chunk{i}"
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(src, full_text):
+            continue
         chunk_id = hashlib.sha256((src + full_text[:80]).encode()).hexdigest()[:16]
         cur = con.execute(
             "INSERT OR IGNORE INTO rag_chunks (id, source, domain, text) SELECT ?,?,?,? "

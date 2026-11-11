@@ -100,6 +100,9 @@ CRITICAL_RFCS = {
         "RFC 8037",  # EdDSA dans JOSE
         "RFC 6750",  # jeton porteur (Bearer)
         "RFC 7523",  # assertion JWT
+        "RFC 7009",  # revocation de jeton OAuth 2.0
+        "RFC 7591",  # enregistrement dynamique de client OAuth 2.0
+        "RFC 7636",  # PKCE
         "RFC 7662",  # introspection de jeton
         "RFC 9068",  # profil JWT des jetons d'acces
         "RFC 9207",  # identification de l'emetteur

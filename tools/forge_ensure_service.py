@@ -302,6 +302,36 @@ def _attendre_port(vise: bool, secondes: float = 30.0) -> bool:
     return _sonde_lmstudio(timeout=2.0) is vise
 
 
+def _rss_llmster_go():
+    """Go tenus par le moteur LM Studio (node.exe enfants de llmster.exe), ou None si illisible."""
+    try:
+        import psutil
+        tot = 0
+        for p in psutil.process_iter(["name", "ppid", "memory_info"]):
+            try:
+                if (p.info["name"] or "").lower() == "node.exe" and \
+                        psutil.Process(p.info["ppid"]).name().lower() == "llmster.exe":
+                    tot += p.info["memory_info"].rss
+            except Exception:  # noqa: BLE001 -- muet-ok : processus disparu entre deux lectures
+                continue
+        return round(tot / 1e9, 2)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _verdict_arret_lmstudio(rendu: float, rss_llmster) -> str:
+    """Pur (3/11). Une RAM inchangee ne prouve PAS l'absence de modele : `server stop` coupe le serveur, pas le
+    moteur llmster (5,42 Go mesures apres un « aucun modele n'etait resident »). On dit ce que le moteur tient."""
+    if abs(rendu) >= 0.1:
+        return f"arrete : port 1234 s'est tu, {rendu:+.2f} Go rendus"
+    if rss_llmster is None:
+        return "arrete : port 1234 s'est tu, RAM inchangee ; moteur llmster ILLISIBLE (residence non mesuree)"
+    if rss_llmster >= 0.5:
+        return ("arrete : port 1234 s'est tu, RAM inchangee -- le moteur llmster tient encore %.2f Go "
+                "(modele charge hors du serveur)" % rss_llmster)
+    return "arrete : port 1234 s'est tu, RAM inchangee (aucun modele resident : moteur llmster a %.2f Go)" % rss_llmster
+
+
 # Marque du canal de demarrage REFUSE (tache planifiee invisible depuis ce compte) : une seule source, lue par _lmstudio.
 _MARQUE_TACHE_INVISIBLE = "EXISTE mais INVISIBLE depuis ce compte"
 
@@ -329,6 +359,9 @@ def _lmstudio(desire: str) -> dict:
         return {"service": "lmstudio", "desired": desire, "success": True,
                 "detail": "deja arrete : port 1234 muet, RIEN a liberer"}
 
+    if desire in ("stopped", "restarted") and binaire:
+        # 3/11 : `server stop` coupe le SERVEUR, pas le moteur llmster -- le modele restait (5,42 Go mesures).
+        _jouer(binaire, ["unload", "--all"], "stopped")
     trace = _jouer(binaire, ordre, "running" if desire == "restarted" else desire)
     if trace is None:
         return {"service": "lmstudio", "desired": desire, "success": False,
@@ -361,10 +394,7 @@ def _lmstudio(desire: str) -> dict:
         rendu = round(_ram_libre_go() - libre_avant, 2)
         marquer_pilotage(False)
         return {"service": "lmstudio", "desired": desire, "success": True,
-                "detail": (f"arrete : port 1234 s'est tu, {rendu:+.2f} Go rendus"
-                           if abs(rendu) >= 0.1 else
-                           "arrete : port 1234 s'est tu, RAM inchangee "
-                           "(aucun modele n'etait resident)")}
+                "detail": _verdict_arret_lmstudio(rendu, _rss_llmster_go())}
     ok = _attendre_port(True, 30.0)
     if ok:
         marquer_pilotage(True)
@@ -620,6 +650,15 @@ def _wait_serving(svc: str, secs: int = 40):
     return _serving(svc) is True
 
 
+def _audit_effacement_demande(motif: str) -> None:
+    """Un effacement de docker.wanted laisse une TRACE (10/11 soir : effacement muet, keeper idle, cause illisible)."""
+    try:
+        from nokido_agent.app.forge_docker_audit import record
+        record("want_efface", reason=motif)
+    except Exception:  # noqa: BLE001 - muet-ok : l'impression ci-dessous reste, le journal est un plus
+        pass
+
+
 def _ensure_docker(timeout_s: int = 140) -> bool:
     """Poste docker.wanted via forge_docker_agent (le keeper lance Docker Desktop
     en session user), puis attend le daemon. Réutilise forge_searxng_keeper._docker_daemon_up."""
@@ -644,16 +683,27 @@ def _ensure_docker(timeout_s: int = 140) -> bool:
 
         _flag = ROOT / "sandbox" / "docker.wanted"
         _frais = False
+        _flag_ts = 0.0
         try:
-            _frais = _flag.exists() and (time.time() - _flag.stat().st_mtime) < 900
+            _flag_ts = _flag.stat().st_mtime if _flag.exists() else 0.0
+            _frais = bool(_flag_ts) and (time.time() - _flag_ts) < 900
         except OSError:
             _frais = False
         _hb = _json.loads((ROOT / "sandbox" / "docker_keeper.heartbeat")
                           .read_text(encoding="utf-8", errors="replace"))
         _stats = _hb.get("stats") or {}
-        if _stats.get("monitor_only") and not _stats.get("daemon_up") and _frais:
+        # 10/11 soir : le battement peut dater de 30 s ; ANTERIEUR a la demande, il decrit l'etat d'AVANT (monitor_only
+        # = repos nominal) et ne prouve pas que le keeper ignore le flag. On ne conclut que s'il est POSTERIEUR.
+        try:
+            _hb_ts = float(_hb.get("ts") or 0)
+        except (TypeError, ValueError):
+            _hb_ts = 0.0
+        _vu_apres_demande = _hb_ts > _flag_ts
+        if _stats.get("monitor_only") and not _stats.get("daemon_up") and _frais and _vu_apres_demande:
             try:
                 _flag.unlink(missing_ok=True)
+                _audit_effacement_demande("keeper monitor_only APRES une demande fraiche (battement %.0f s apres)"
+                                          % (_hb_ts - _flag_ts))
             except OSError:
                 __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_ensure_service.py', 640, exc_info=True)
             print("[ensure_docker] REFUS: demande FRAICHE deja posee et keeper "
@@ -814,9 +864,11 @@ def _stop_docker_gouverne(delai_s: float = 20.0, pas_s: float = 2.0) -> dict:
     # que `_maybe_release` du keeper -- on ne duplique pas le critere, on le rejoue).
     try:
         sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_resource_manager import get_active_intents
+        from nokido_agent.app import forge_resource_manager as _rm
 
-        if (get_active_intents() or {}).get("chains_active"):
+        _intents = _rm.get_active_intents()
+        _juge = getattr(_rm, "intention_docker", None)   # 4/11 : par etape (search/crawl), comme le keeper
+        if (_juge(_intents) if _juge else (_intents or {}).get("chains_active")):
             return {"service": "docker", "desired": "stopped", "success": False,
                     "detail": "chaine de travail active -- relache refusee", **detail}
     except Exception as e:  # noqa: BLE001
@@ -1031,6 +1083,11 @@ def ensure(service: str, state: str) -> dict:
             time.sleep(2)
         else:
             print(f"[ensure] {name}: port toujours servi apres 25 s — start quand meme")
+        # service/start ne relit pas services.toml : sans ceci, une env modifiee reste
+        # sans effet malgre `restarted` (5/11, NokidoLogRetention reste en dry-run).
+        brut["relire"] = _supervisor("relire", name)
+        if brut["relire"].get("rc") != 0:
+            print(f"[ensure] {name}: definition NON relue, relance avec l'ancienne")
         r = _supervisor("start", name)
         brut["start"] = r
     else:

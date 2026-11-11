@@ -37,6 +37,10 @@ PATTERNS = [
     ("Private Key Block",   r"-----BEGIN (RSA |DSA |EC |OPENSSH |)PRIVATE KEY-----",    "HIGH"),
     # Patterns contextuels : KEY/SECRET/TOKEN= suivi d'un long hex/base64
     ("HMAC Secret hex",     r"(?:_SECRET|_TOKEN|_KEY)=[a-f0-9]{40,}",                   "MEDIUM"),
+    # Owner 6/11 : copie de forge_secret_guard.MOTS_DE_PASSE_EN_CLAIR, tenue egale par test_mots_de_passe_en_clair_nr.
+    ("Mot de passe de certificat", r"""(?i)\b\w*(?:pfx|p12|pkcs12|cert|sign)\w*(?:pwd|pass(?:word|wd|phrase)?)\w*\s*[:=]\s*['"][^'"\s]{4,}['"]""", "HIGH"),
+    ("Mot de passe nu", r"""\b(?:PWD|PASSWD|PASSWORD|PASSPHRASE)\s*=\s*['"][^'"\s{}<>%$]{6,}['"]""", "HIGH"),
+    ("Mot de passe signtool", r"""(?i)signtool\b[^\n]{0,120}\s/p\s+(?![<$%{"'])\S{4,}""", "HIGH"),
 ]
 
 # Whitelist : ignorer ces paths
@@ -55,10 +59,10 @@ def staged_files() -> list[Path]:
     """Retourne la liste des fichiers stages pour le commit."""
     r = subprocess.run(
         ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-        capture_output=True, text=True, encoding="utf-8"
+        capture_output=True, text=True, encoding="utf-8", errors="replace"
     )
-    if r.returncode != 0:
-        return []
+    if r.returncode != 0:  # 6/11 : rendre une liste vide laissait passer le commit sans aucun scan
+        sys.exit("[pre-commit] liste des fichiers illisible (git rc=%s) : commit refuse, rien n'a ete scanne" % r.returncode)
     return [Path(f) for f in r.stdout.splitlines() if f.strip()]
 
 

@@ -3,8 +3,8 @@ name: forge-code-governance
 description: >-
   À utiliser avant de lire, créer ou modifier du code ou un fichier du dépôt Nokido,
   depuis toute surface : trouver l'existant, lire sans tout charger, réclamer le
-  fichier, écrire par la voie gouvernée, prouver l'effet, committer proprement. Donne
-  l'ordre anti-dup, la lecture fenêtrée, governed_edit et ses pièges, verrous et NR.
+  fichier, écrire par la voie gouvernée, prouver l'effet, committer proprement. Anti-dup,
+  governed_edit, verrous, NR.
 ---
 
 # forge-code-governance — lire, écrire, prouver dans le dépôt Nokido
@@ -85,6 +85,12 @@ l'avaient aussi demandée. Tout ce qui suit a été pratiqué et vérifié le 15
 - CI de référence ou complète : jamais sans le GO de l'owner.
 
 ## 6. Committer
+
+**Un push accepté n'est pas une livraison verte (owner 5/11).** Le pre-push ne couvre que `golden-rules` et `duplication`. Après un
+push, lire le run (`gh run list --branch alpha`) ; une alerte `algedonic:delivery_integrity` s'ouvre dès qu'elle apparaît
+(`forge_delivery_integrity.history`). Un NR neuf entre le jour même dans `PURE_TESTS` ou au socle avec motif, sinon
+`test_suite_pure_ratchet_nr` rougit la CI. Un NR n'importe pas un outil sans vérifier d'abord qu'il n'appelle pas `main()` à l'import.
+
 
 - Tôt et petit : `git add -- <fichiers nommés>`, jamais `git add -A` ni `commit -am`.
 - Message dans un fichier, puis `git commit -F <fichier>` ; jamais de `Co-Authored-By`.

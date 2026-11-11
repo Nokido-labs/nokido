@@ -298,6 +298,121 @@ def _provider_score(provider: str) -> dict[str, Any]:
 # =============================================================================
 # API PUBLIQUE
 # =============================================================================
+# AGY : Quota par modele depuis surfaces_indisponibles.json
+# =============================================================================
+
+
+def _modeles_suivis_agy() -> tuple[str, ...]:
+    """Liste de modeles AGY issus de la table forge_palier_effort."""
+    try:
+        try:
+            from nokido_agent.tools.forge_palier_effort import TABLE, REPLIS
+        except ImportError:
+            from tools.forge_palier_effort import TABLE, REPLIS
+        mods = []
+        for pair in TABLE.get("agy", {}).values():
+            if pair and pair[0] and pair[0] not in mods:
+                mods.append(pair[0])
+        for repli_list in REPLIS.get("agy", {}).values():
+            for pair in repli_list:
+                if pair and pair[0] and pair[0] not in mods:
+                    mods.append(pair[0])
+        if mods:
+            return tuple(mods)
+    except Exception as e:  # noqa: BLE001
+        import logging as _lg
+
+        _lg.getLogger("Nokido.Quota").warning("table des modeles AGY illisible (%s) : liste par defaut", type(e).__name__)
+    return (
+        "gemini-3.8-flash-low",
+        "gemini-3.8-flash-medium",
+        "claude-sonnet-5-5-low",
+        "claude-opus-5-5-medium",
+    )
+
+
+#: Duree de validite d'un `ok` : 6 h = INDISPO_DEFAUT_S de l'executeur (meme borne que la reessai d'un quota sans
+#: echeance) ; au-dela des fenetres « Resets in ~2h » observees, une reussite ancienne ne prouve plus rien.
+OK_TTL_DEFAUT_S = 6 * 3600.0
+
+
+def _ttl_ok_s() -> float:
+    try:
+        return float(os.environ.get("LAFORGE_AGY_OK_TTL_S", ""))
+    except (TypeError, ValueError):
+        return OK_TTL_DEFAUT_S
+
+
+def _ok_frais(entry: dict, now: float) -> bool:
+    """`ok` valide seulement avec un horodatage `marque` lisible et plus jeune que le TTL (sinon : inconnu)."""
+    try:
+        return 0 <= now - float(entry.get("marque")) < _ttl_ok_s()
+    except (TypeError, ValueError):
+        return False
+
+
+def _fetch_agy_models_quota() -> dict[str, Any]:
+    """Lit l'etat de quota des modeles AGY depuis surfaces_indisponibles.json.
+    Liste BLANCHE des modeles suivis issue de la table.
+    Rend:
+      - 'quota_reached' si une indisponibilite non expiree est prouvee en registre.
+      - 'ok' UNIQUEMENT si une preuve explicite de validite existe (ex: entry.status == 'ok').
+      - 'illisible' si le fichier existe mais est corrompu/illisible ou valeur corrompue.
+      - 'inconnu' si aucune marque n'existe (absence de preuve != ok).
+    """
+    indispo_file = ROOT / "sandbox" / "surfaces_indisponibles.json"
+    data = None
+    illisible = False
+    if indispo_file.exists():
+        try:
+            content = indispo_file.read_text(encoding="utf-8", errors="replace")
+            data = json.loads(content)
+            if not isinstance(data, dict):
+                illisible = True
+                data = {}
+        except Exception:
+            illisible = True
+            data = {}
+    else:
+        data = {}
+
+    modeles = _modeles_suivis_agy()
+    now = time.time()
+    out = {}
+    for m in modeles:
+        if illisible:
+            out[m] = {"status": "illisible"}
+            continue
+
+        entry = data.get(f"AGY:{m.upper()}") or data.get(m.upper())
+        if entry and isinstance(entry, dict):
+            try:
+                jusqu_a_raw = entry.get("jusqu_a", 0)
+                jusqu_a = float(jusqu_a_raw)
+            except (TypeError, ValueError):
+                out[m] = {"status": "illisible"}
+                continue
+            if now < jusqu_a:
+                resets_in = max(0, int(jusqu_a - now))
+                h = resets_in // 3600
+                m_rem = (resets_in % 3600) // 60
+                s_rem = resets_in % 60
+                resets_str = f"{h}h{m_rem:02d}m{s_rem:02d}s" if h else f"{m_rem}m{s_rem:02d}s"
+                out[m] = {
+                    "status": "quota_reached",
+                    "jusqu_a": jusqu_a,
+                    "resets_in_s": resets_in,
+                    "resets_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(jusqu_a)),
+                    "resets_in": resets_str,
+                    "motif": entry.get("motif", ""),
+                }
+            elif entry.get("status") == "ok" and _ok_frais(entry, now):
+                out[m] = {"status": "ok", "marque": entry.get("marque")}
+            else:
+                out[m] = {"status": "inconnu"}
+        else:
+            out[m] = {"status": "inconnu"}
+    return out
 
 
 def get_quota(provider: str, fetch_live: bool = False) -> dict[str, Any]:
@@ -321,6 +436,20 @@ def get_quota(provider: str, fetch_live: bool = False) -> dict[str, Any]:
     out["local_24h"] = _local_usage_today(provider_filter=p)
     out["score"] = _provider_score(provider=p)
 
+    if p in ("agy", "antigravity"):
+        out["models"] = _fetch_agy_models_quota()
+        epuises = [m for m, minfo in out["models"].items() if minfo.get("status") == "quota_reached"]
+        illisibles = [m for m, minfo in out["models"].items() if minfo.get("status") == "illisible"]
+        ok_models = [m for m, minfo in out["models"].items() if minfo.get("status") == "ok"]
+        if epuises:
+            out["agy_status"] = {"status": f"quota_reached ({len(epuises)}/{len(out['models'])})", "ok": False}
+        elif illisibles:
+            out["agy_status"] = {"status": "illisible", "ok": False}
+        elif ok_models:
+            out["agy_status"] = {"status": "ok", "ok": True}
+        else:
+            out["agy_status"] = {"status": "inconnu", "ok": False}
+
     # Cache headers HTTP
     cached = _HEADER_CACHE.get(p)
     if cached:
@@ -340,6 +469,8 @@ def get_quota(provider: str, fetch_live: bool = False) -> dict[str, Any]:
             out["live"] = _fetch_gemini_quota_local()
         elif p == "groq":
             out["live"] = _fetch_groq_local_headers()
+        elif p in ("agy", "antigravity"):
+            out["live"] = {"source": "surfaces_indisponibles", "ok": True, "models": _fetch_agy_models_quota()}
         else:
             out["live"] = {"source": "none", "ok": False, "error": f"no live endpoint for {p}"}
 
@@ -360,6 +491,7 @@ def get_all_quotas(fetch_live: bool = False) -> dict[str, Any]:
         "perplexity",
         "ollama",
         "deepseek",
+        "agy",
     ]
     out = {"ts": time.strftime("%Y-%m-%d %H:%M:%S"), "providers": {}}
     for p in providers:
@@ -390,6 +522,18 @@ def quota_summary_text(fetch_live: bool = False) -> str:
             elif "active_account" in live:
                 line += f"  account={live['active_account']}"
         lines.append(line)
+        models = info.get("models")
+        if models:
+            for m_name, m_info in models.items():
+                m_st = m_info.get("status", "inconnu")
+                if m_st == "quota_reached":
+                    lines.append(f"    - {m_name:24s}  status=quota_reached  resets in {m_info.get('resets_in')} ({m_info.get('resets_at')})")
+                elif m_st == "illisible":
+                    lines.append(f"    - {m_name:24s}  status=illisible")
+                elif m_st == "ok":
+                    lines.append(f"    - {m_name:24s}  status=ok")
+                else:
+                    lines.append(f"    - {m_name:24s}  status=inconnu")
     return "\n".join(lines)
 
 
@@ -540,6 +684,94 @@ def capacite_observee(provider: str, maintenant: float | None = None) -> dict:
     return {"provider": provider, "etat": etat, "raison": raison, "age_s": round(age, 1),
             "capture_sur_erreur": bool(rec.get("erreur")), "compteurs": champs,
             "reinitialisation": reinit}
+
+
+# =============================================================================
+# CONSOMMATION PAR SLOT (07/11) : lecture pour le futur plafond par slot
+# =============================================================================
+# Les lignes viennent des proxys API (`forge_llm_format_bridge.tracer_appel_slot`), ecrites par le recorder
+# canonique dans `token_usage` : agent_id = agent du slot, session_id = tache (UNKNOWN si le jeton n'en porte pas),
+# source = SOURCE_SLOT. Pas de nouvelle table ni de second registre. `INDEXED BY` FORCE l'index pose par
+# `forge_token_monitor.migrer` : s'il manque, la requete ECHOUE (ok False, dit) au lieu de balayer la table.
+
+SOURCE_SLOT = "proxy_slot"
+_SQL_SLOT = (
+    "SELECT COUNT(*), SUM(prompt_tokens), SUM(completion_tokens),"
+    " SUM(CASE WHEN prompt_tokens IS NULL OR completion_tokens IS NULL THEN 1 ELSE 0 END),"
+    " SUM(cost_usd), SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END)"
+    " FROM token_usage INDEXED BY idx_token_usage_slot"
+    " WHERE source = ? AND agent_id = ? AND ts >= ? AND ts <= ?"
+)
+
+
+def _base_slot(base: str | None) -> str:
+    if base:
+        return str(base)
+    from nokido_agent.app import forge_token_monitor as _tm  # meme base que l'ecrivain, resolue a chaque appel
+
+    return str(_tm.DB)
+
+
+def _ts_utc(t: float) -> str:
+    # Meme forme que le defaut `datetime('now')` de la colonne `ts` (UTC, texte triable).
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(t))
+
+
+def _connexion_lecture(base: str) -> sqlite3.Connection:
+    # Lecture seule : une base absente est une ERREUR dite, jamais une base vide creee en silence.
+    return sqlite3.connect(Path(base).resolve().as_uri() + "?mode=ro", uri=True, timeout=3)
+
+
+def consommation_slot(agent: str, tache: str | None = None, fenetre_s: float = 86400.0,
+                      maintenant: float | None = None, base: str | None = None) -> dict[str, Any]:
+    """Consommation d'un slot (agent, tache optionnelle) sur [maintenant - fenetre_s, maintenant].
+
+    Rend appels, jetons entree/sortie (sommes des lignes mesurees ; `appels_jetons_inconnus` compte les autres),
+    `cout_connu_usd`, `appels_cout_inconnu`, et `cout_usd` : un nombre SEULEMENT si tous les couts sont connus,
+    sinon "UNKNOWN" -- jamais 0 ni une somme partielle presentee comme totale. Jetons = estimation du pont
+    (len/4) tant que le hub ne remonte pas l'usage reel.
+    """
+    t = time.time() if maintenant is None else float(maintenant)
+    agent_n = str(agent or "").upper()
+    debut, fin = _ts_utc(t - float(fenetre_s)), _ts_utc(t)
+    res: dict[str, Any] = {"agent": agent_n, "tache": tache, "debut_utc": debut, "fin_utc": fin}
+    sql, params = _SQL_SLOT, [SOURCE_SLOT, agent_n, debut, fin]
+    if tache is not None:
+        sql += " AND session_id = ?"
+        params.append(tache)
+    try:
+        conn = _connexion_lecture(_base_slot(base))
+        try:
+            n, p_tok, c_tok, n_tok_inc, cout, n_cout_inc = conn.execute(sql, params).fetchone()
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001 - base/index absent ou illisible : ok False, cause dite
+        res.update({"ok": False, "erreur": "%s: %s" % (type(e).__name__, str(e)[:160])})
+        return res
+    n, n_cout_inc = int(n or 0), int(n_cout_inc or 0)
+    cout_connu = float(cout or 0.0)
+    res.update({
+        "ok": True,
+        "appels": n,
+        "jetons_entree": int(p_tok or 0),
+        "jetons_sortie": int(c_tok or 0),
+        "appels_jetons_inconnus": int(n_tok_inc or 0),
+        "cout_connu_usd": cout_connu,
+        "appels_cout_inconnu": n_cout_inc,
+        "cout_usd": "UNKNOWN" if n_cout_inc else cout_connu,
+    })
+    return res
+
+
+def plan_consommation_slot(base: str | None = None) -> str:
+    """Plan SQLite de la lecture par slot (avec tache) : preuve qu'elle passe par l'index, sans balayage."""
+    conn = _connexion_lecture(_base_slot(base))
+    try:
+        rows = conn.execute("EXPLAIN QUERY PLAN " + _SQL_SLOT + " AND session_id = ?",
+                            [SOURCE_SLOT, "X", "a", "b", "t"]).fetchall()
+    finally:
+        conn.close()
+    return " | ".join(str(r[-1]) for r in rows)
 
 
 if __name__ == "__main__":

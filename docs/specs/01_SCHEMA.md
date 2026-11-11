@@ -1,12 +1,13 @@
 # 01 — Schema : bases et contrats MCP mesures
 
-> Genere par `tools/forge_spec_extractor.py` (introspection, aucune valeur recopiee a la main) -- commit `2e9a0725b`, 2026-10-26 23:05. Ne pas editer : relancer l'extracteur.
+> Genere par `tools/forge_spec_extractor.py` (introspection, aucune valeur recopiee a la main) -- commit `bffa9f1a0`, 2026-11-11 01:34. Ne pas editer : relancer l'extracteur.
 
 
+<!-- nokido:dynamique -->
 ## Bases (organe proprietaire : `forge_db_path`)
 
 ### rag (db_path) = bareme (authority_path) = journal conversation_log
-`%NOKIDO_DATA%\embeddings.db` -- journal `wal`, 130 table(s), 268 objet(s)
+`%NOKIDO_DATA%\embeddings.db` -- journal `wal`, 130 table(s), 269 objet(s)
 
 ```sql
 CREATE INDEX idx_agent_messages_corr ON agent_messages(correlation_id);
@@ -62,6 +63,7 @@ CREATE INDEX idx_evlog_target     ON event_log(target);
 CREATE INDEX idx_evlog_timecode   ON event_log(timecode);
 CREATE INDEX idx_evlog_type       ON event_log(event_type);
 CREATE INDEX idx_evol_method ON motivation_evolution_notes(method);
+CREATE INDEX idx_evol_ts ON motivation_evolution_notes(ts);
 CREATE INDEX idx_ext ON rag_chunks(ext);
 CREATE INDEX idx_feedback_chunk ON synaptic_feedback_log(chunk_id);
 CREATE INDEX idx_feedback_ts ON synaptic_feedback_log(ts);
@@ -1470,19 +1472,23 @@ CREATE TABLE inspector_log (
 ```
 
 ### journal token_usage
-`%NOKIDO_ROOT%\sandbox\journal_token_usage.db` -- journal `wal`, 1 table(s), 1 objet(s)
+`%NOKIDO_ROOT%\sandbox\journal_token_usage.db` -- journal `wal`, 1 table(s), 3 objet(s)
 
 ```sql
+CREATE INDEX idx_token_usage_slot ON token_usage (source, agent_id, ts);
+CREATE INDEX idx_token_usage_ts ON token_usage(ts);
 CREATE TABLE token_usage ( id TEXT PRIMARY KEY, ts TEXT DEFAULT (datetime('now')), agent_id TEXT, provider TEXT, model TEXT, prompt_tokens INTEGER DEFAULT 0, completion_tokens INTEGER DEFAULT 0, total_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0.0, latency_ms REAL DEFAULT 0.0, source TEXT DEFAULT 'broker', session_id TEXT DEFAULT '', meta TEXT DEFAULT '{}', cache_read_tokens INTEGER, cache_write_tokens INTEGER, cost_kind TEXT, cost_source TEXT, execution_id TEXT, execution_mode TEXT, measurement_kind TEXT, measurement_source TEXT, parent_execution_id TEXT, provenance TEXT, reasoning_tokens INTEGER, transport TEXT, writer_component TEXT, attempts INTEGER, served_model TEXT);
 ```
 
+<!-- nokido:statique -->
 ## Outils MCP (`tests/schemas_mcp_structure.json`)
 
-63 outil(s) dans l'instantane de la CI. Ring minimal lu dans `forge_tools` (petit = plus de privilege ; -99 = outil coupe) .
+58 outil(s) dans l'instantane de la CI. Ring minimal lu dans `forge_tools` (petit = plus de privilege ; -99 = outil coupe) .
 
 | Outil | Requis | Parametres | Ring min | Actif |
 |---|---|---|---|---|
 | `absorb_rfc_knowledge` | concept_query | 2 | repli code | ? |
+| `acp` | op | 8 | repli code | ? |
 | `agy_add_dir` | path | 2 | repli code | ? |
 | `agy_config` | action, key | 4 | repli code | ? |
 | `agy_run` | command | 3 | repli code | ? |
@@ -1497,10 +1503,6 @@ CREATE TABLE token_usage ( id TEXT PRIMARY KEY, ts TEXT DEFAULT (datetime('now')
 | `cross_platform_fs` | action, dest, src | 5 | repli code | ? |
 | `delegate_to_local_scout` | path, prompt | 3 | repli code | ? |
 | `docker_action` | argv | 3 | repli code | ? |
-| `dyn_constantes_du_corps` | -- | 2 | repli code | ? |
-| `dyn_metier_dispatch` | -- | 2 | repli code | ? |
-| `dyn_orchestrate` | -- | 2 | repli code | ? |
-| `dyn_skill_forge` | -- | 2 | repli code | ? |
 | `event` | action | 7 | 0 | True |
 | `forge_call_dynamic` | name | 3 | repli code | ? |
 | `forge_deep_explore` | intent | 5 | 4 | True |
@@ -1508,14 +1510,14 @@ CREATE TABLE token_usage ( id TEXT PRIMARY KEY, ts TEXT DEFAULT (datetime('now')
 | `forge_spawn_swarm` | tasks | 4 | repli code | ? |
 | `forge_stats` | -- | 1 | repli code | ? |
 | `forge_trigger_audit` | target_files | 4 | repli code | ? |
-| `get_file_skeleton` | file_path | 2 | repli code | ? |
+| `get_file_skeleton` | file_path | 4 | repli code | ? |
 | `get_function_dependencies` | function_name | 3 | repli code | ? |
 | `github` | repo | 6 | repli code | ? |
 | `governed_edit` | path | 5 | 3 | True |
 | `graph_cve_propagate` | cve_id, entry_module | 4 | repli code | ? |
 | `graph_edge_score` | dst, src | 5 | repli code | ? |
 | `graph_ppr` | seed | 4 | repli code | ? |
-| `hub` | action | 17 | 3 | True |
+| `hub` | action | 18 | 3 | True |
 | `introspect` | query | 3 | repli code | ? |
 | `loop_orchestrate` | -- | 3 | repli code | ? |
 | `manage_forge_lifecycle` | action, organ_name | 4 | 3 | True |
@@ -1524,23 +1526,21 @@ CREATE TABLE token_usage ( id TEXT PRIMARY KEY, ts TEXT DEFAULT (datetime('now')
 | `netcfg` | action | 11 | repli code | ? |
 | `nokido_ensure_service` | service | 3 | 4 | True |
 | `oracle_python_repl` | code | 3 | repli code | ? |
-| `orchestrate` | task | 6 | repli code | ? |
+| `orchestrate` | task | 7 | repli code | ? |
 | `plan` | goal | 4 | repli code | ? |
 | `query` | -- | 5 | 2 | True |
 | `query_documentation` | docset_name, search_query | 3 | repli code | ? |
 | `query_local_json` | key_filter, path | 4 | repli code | ? |
 | `rag` | action | 6 | 3 | True |
-| `react_orchestrate` | task | 3 | repli code | ? |
-| `read` | action | 6 | 3 | True |
-| `read_function_body` | file_path, function_name | 3 | repli code | ? |
+| `read` | action | 10 | 3 | True |
+| `read_function_body` | file_path, function_name | 5 | repli code | ? |
 | `research_agent` | objective | 6 | 3 | True |
-| `route_dt` | prompt | 3 | repli code | ? |
-| `route_task` | payload, task_type | 3 | 3 | True |
+| `route_task` | payload, task_type | 4 | 3 | True |
 | `run` | action | 17 | 3 | True |
 | `search_local_file` | path, pattern | 4 | repli code | ? |
 | `secret` | action | 3 | repli code | ? |
 | `skill` | action | 5 | 3 | True |
-| `task` | action | 9 | 3 | True |
+| `task` | action | 12 | 3 | True |
 | `tool_scope` | action | 4 | repli code | ? |
 | `trigger_autonomous_evolution` | intention | 4 | 1 | True |
 | `web_search` | query | 3 | 3 | True |

@@ -37,6 +37,15 @@ from starlette.routing import Route  # noqa: E402
 AGENT = "ANTHROPIC_INGRESS"
 
 
+TRANSPORT = "anthropic_ingress"
+
+
+def _verifier_authentification(request: Request) -> "tuple[bool, str, dict | None]":
+    """Jeton Bearer -> (ok, motif, slot). Delegue au verificateur UNIQUE du pont (`bridge.verifier_slot`) :
+    le slot (agent, tache) sort du jeton verifie, jamais d'un en-tete. Fail-closed, jeton jamais journalise."""
+    return bridge.verifier_slot(request.headers.get("Authorization", ""))
+
+
 def _model_to_provider(model: str) -> str:
     """Anthropic model name -> provider `ask`. Défaut 'auto' = le SWITCHBOARD décide
     (déport local vs cloud OAuth). Override explicite si le modèle force le local."""
@@ -80,9 +89,17 @@ async def list_models(request: Request) -> JSONResponse:
     return JSONResponse({"data": data, "has_more": False})
 
 
-async def _stream(model: str, prompt: str, provider: str, max_tokens: int, thread_id: str):
-    """SSE Anthropic. `ask` non-streaming -> on slice la réponse en text_delta."""
+async def _ask_trace(slot: dict, model: str, prompt: str, provider: str, max_tokens: int, thread_id: str):
+    """`ask` puis UNE ligne de trace par appel, au nom du slot verifie (succes comme echec)."""
+    t0 = time.perf_counter()
     res = await bridge.ask_via_hub(prompt, provider, max_tokens, thread_id, agent=AGENT, cli_identity="agt_claude")
+    await bridge.tracer_appel_slot(slot, TRANSPORT, model, res, (time.perf_counter() - t0) * 1000.0)
+    return res
+
+
+async def _stream(model: str, prompt: str, provider: str, max_tokens: int, thread_id: str, slot: dict):
+    """SSE Anthropic. `ask` non-streaming -> on slice la réponse en text_delta."""
+    res = await _ask_trace(slot, model, prompt, provider, max_tokens, thread_id)
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
     if not res.ok:
         yield f"event: error\ndata: {json.dumps({'type': 'error', 'error': {'type': 'api_error', 'message': res.error}})}\n\n"
@@ -110,10 +127,21 @@ async def _stream(model: str, prompt: str, provider: str, max_tokens: int, threa
 
 async def messages(request: Request):
     """POST /v1/messages — Anthropic Messages API."""
+    ok_auth, _, slot = _verifier_authentification(request)
+    if not ok_auth or not slot:
+        return _anthropic_error("authentication required or invalid token", status=401, etype="authentication_error")
+
     try:
         body = await request.json()
     except Exception as e:  # noqa: BLE001
         return _anthropic_error(f"invalid JSON: {e}", status=400, etype="invalid_request_error")
+
+    if not isinstance(body, dict):
+        return _anthropic_error("invalid request body: expected JSON object", status=400, etype="invalid_request_error")
+
+    if "tools" in body or "tool_choice" in body:
+        return _anthropic_error("tools and tool_choice are not supported by this ingress", status=400, etype="invalid_request_error")
+
     model = body.get("model", "laforge-auto")
     system = body.get("system")
     msgs = body.get("messages", [])
@@ -125,11 +153,11 @@ async def messages(request: Request):
 
     if stream:
         return StreamingResponse(
-            _stream(model, prompt, provider, max_tokens, thread_id),
+            _stream(model, prompt, provider, max_tokens, thread_id, slot),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
-    res = await bridge.ask_via_hub(prompt, provider, max_tokens, thread_id, agent=AGENT, cli_identity="agt_claude")
+    res = await _ask_trace(slot, model, prompt, provider, max_tokens, thread_id)
     if not res.ok:
         status = 403 if "firewall blocked" in res.error else 502
         return _anthropic_error(res.error, status=status)

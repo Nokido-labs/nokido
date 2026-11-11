@@ -37,7 +37,10 @@ def test_le_nom_de_cle_suit_le_fournisseur_du_modele():
     assert T._env_cle_fournisseur("groq/openai/gpt-oss-120b") == "GROQ_API_KEY"
     assert T._env_cle_fournisseur("openrouter/nvidia/nemotron-3-super-120b-a12b:free") == "OPENROUTER_API_KEY"
     assert T._env_cle_fournisseur("zai/glm-4.7-flash") == "ZHIPU_API_KEY"
-    assert T._env_cle_fournisseur("opencode/big-pickle") is None   # fournisseur sans cle : rien a passer
+    # 9/11 (owner : cle OpenCode Zen au coffre) : sans cle, les gratuits opencode/ partent en ANONYME et tombent sur
+    # « Free usage limit reached » (job_faee6253, cause QUOTA) ; avec OPENCODE_API_KEY ils passent par le compte.
+    assert T._env_cle_fournisseur("opencode/big-pickle") == "OPENCODE_API_KEY"
+    assert T._env_cle_fournisseur("opencode/deepseek-v4.1-flash-free") == "OPENCODE_API_KEY"
 
 
 class SessionQuiGardeLEnv:
@@ -76,7 +79,7 @@ def _deleguer(tmp_path, monkeypatch, inst, cles):
     monkeypatch.setattr(T, "_etat_git", lambda wt_: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, wt_, avant, autorises=None, desc=None: (ok, "commits produits : 1", "OK_DONE"))
+                        lambda ok, detail, wt_, avant, autorises=None, desc=None, **_k: (ok, "commits produits : 1", "OK_DONE"))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda i: "jeton_coffre_%s" % i)
     vus = {}
     monkeypatch.setattr(T, "_clore_delegation", lambda task_id, token, ok, detail, intent=None: vus.setdefault("d", detail))

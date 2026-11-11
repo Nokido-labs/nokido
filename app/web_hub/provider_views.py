@@ -292,10 +292,13 @@ async def api_retirer_cle(provider: str, request: Request) -> JSONResponse:
 # authentifie vers le hub, qui garde la liste blanche et le ring. Sous /api/providers,
 # donc HORS de l'allowlist publique. Jamais la valeur en journal ni en reponse.
 @router.get("/api/providers/acces")
-async def api_etat_acces(request: Request) -> JSONResponse:
+async def api_etat_acces(request: Request = None) -> JSONResponse:
     """Relaie `GET /api/access` du hub : provenance des acces, jamais leur valeur."""
     code, charge = await _vers_hub("GET", "/api/access", sujet=_sujet_de(request))
-    return JSONResponse(charge, status_code=200 if code == 200 else code)
+    if code != 200:
+        return JSONResponse({"ok": False, "error": charge.get("error", "HTTP %d" % code), "acces": []},
+                            status_code=200 if code in (403, 502, 503, 504) else code)
+    return JSONResponse(charge, status_code=200)
 
 
 @router.post("/api/providers/acces/{cle}")

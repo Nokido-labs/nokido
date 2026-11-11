@@ -57,8 +57,21 @@ def test_un_job_demarre_sans_resultat_reste_muet(tmp_path, monkeypatch):
 
 def test_le_harness_pose_le_demarrage_avant_de_traiter(tmp_path, monkeypatch):
     import forge_harness_worker as H
+    from pathlib import Path
+    import tempfile
 
+    # Isoler le test en évitant complètement la création du fichier chien qui cause l'erreur de permission
+    def mock_fichier_chien():
+        # Créer un fichier temporaire au lieu du logs/ fixe
+        temp_file = tmp_path / "harness_worker_faulthandler.log"
+        temp_file.parent.mkdir(parents=True, exist_ok=True)
+        if not temp_file.exists():
+            temp_file.write_text("", encoding="utf-8")
+        return open(temp_file, "a", encoding="utf-8")
+    
     monkeypatch.setattr(H, "JOBS", tmp_path)
+    monkeypatch.setattr(H, "_fichier_chien", mock_fichier_chien)
+    
     job = tmp_path / "vibe_w.json"
     job.write_text('{"agent": "vibe"}', encoding="utf-8")
     vus = []

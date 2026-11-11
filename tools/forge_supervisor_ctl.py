@@ -251,6 +251,58 @@ def _verifier_effet(service: str, port, st: int, body: str) -> int:
     return rc
 
 
+# Maintien apres « running » : un lanceur qui meurt (`exited code=1 after 0s`) quitte l'etat
+# running en quelques secondes ; 15 s couvrent cet echec sans allonger sensiblement un restart
+# (qui expire deja en agissant, cf. RULES_SHARED) : le surcout est borne a MAINTIEN_S.
+MAINTIEN_S = 15
+_PAS_MAINTIEN_S = 3.0
+
+
+def _maintenir(service: str, pid):
+    """(verdict, dernier etat) : True si running au meme pid pendant MAINTIEN_S ; False si
+    statut autre ou pid change ; None si le superviseur est muet 2 lectures d'affilee."""
+    fin = _maintenant() + MAINTIEN_S
+    muets, dernier = 0, None
+    while True:
+        _dormir(_PAS_MAINTIEN_S)
+        s = _etat_service(service)
+        if s is None:
+            muets += 1
+            if muets >= 2:
+                return None, dernier
+        else:
+            muets, dernier = 0, s
+            if s.get("status") != "running" or s.get("pid") != pid:
+                return False, s
+        if _maintenant() >= fin:
+            return True, dernier
+
+
+def _relire_definition(nom: str) -> bool:
+    """Fait relire a ce service SA definition de services.toml, sans le demarrer.
+
+    Mesure 5/11 (NokidoLogRetention) : stop + service/start garde l'env du dernier chargement,
+    car service/start ne relit pas le TOML. Seules les routes restart et wake le relisent ;
+    restart expire en agissant (voir la branche restart de main). wake ne touche pas un service
+    stopped ou running. Sur sleeping ou quarantine il le DEMARRE : on s'abstient et on le dit.
+    Un echec n'empeche jamais la relance : l'ancienne definition reste, et le texte le dit.
+    """
+    try:
+        statut = (_etat_service(nom) or {}).get("status")
+        if statut in (None, "sleeping", "quarantine"):
+            print("[ctl] definition NON relue : statut %s" % statut)
+            return False
+        st, body = _call(f"/supervisor/wake/{nom}", method="POST")
+    except Exception as e:  # noqa: BLE001
+        print(f"[ctl] definition NON relue : {type(e).__name__}: {e}")
+        return False
+    if 200 <= st < 300 and '"def_refreshed":true' in body.replace(" ", ""):
+        print("[ctl] definition relue depuis services.toml")
+        return True
+    print("[ctl] definition NON relue : HTTP %s %s" % (st, body[:200]))
+    return False
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
@@ -318,6 +370,7 @@ def main() -> int:
             print("[ctl] arret %s : %s" % (
                 {True: "CONSTATE", False: "NON CONSTATE apres 30 s", None: "NON MESURABLE"}[ok],
                 (e or {}).get("status", "superviseur illisible")))
+            _relire_definition(args[1])
             st, body = _call(f"/supervisor/service/start/{args[1]}", method="POST")
             print(f"HTTP {st} (start)")
             print(body[:600])
@@ -327,16 +380,35 @@ def main() -> int:
             ok, e = _attendre(args[1], lambda s: s.get("status") == "running"
                               and (not s.get("port") or _port_ouvert(s.get("port"))), 90)
             if ok:
-                print("[ctl] relance ATTEINTE : running, pid %s" % e.get("pid"))
-                return 0
+                # REQUESTED != ACCEPTED != ACHIEVED : « running » vu une fois ne prouve rien
+                # (03:00, lanceur mort 0 s apres). On exige running au MEME pid apres maintien.
+                v, dernier = _maintenir(args[1], e.get("pid"))
+                if v is True:
+                    print("[ctl] relance ATTEINTE : running, pid %s, maintenu %d s"
+                          % (e.get("pid"), MAINTIEN_S))
+                    return 0
+                if v is None:
+                    print("[ctl] relance ILLISIBLE pendant le maintien (superviseur muet) : "
+                          "NON prouvee atteinte")
+                    return 4
+                print("[ctl] relance NON ATTEINTE : %s au bout du maintien (pid vu %s, dernier etat "
+                      "%s/pid %s) -- lire laforge-master.log"
+                      % ("etat instable", e.get("pid"), (dernier or {}).get("status"),
+                         (dernier or {}).get("pid")))
+                return 3
             if ok is None:
-                # Demandee et acceptee, mais l'etat n'a pas pu etre LU : ni succes ni
-                # echec prouve. Code 0 (la commande est passee), le texte le DIT.
-                print("[ctl] relance DEMANDEE, etat NON MESURABLE (superviseur illisible)")
+                # Etat jamais LU : ni succes ni echec prouve. UNKNOWN n'est pas NO : code 0 (la
+                # commande est passee, cf. NR test_ctl_restart_attend_l_arret / sans_boucle_par_le_hub :
+                # forge_ensure_service lit ce rc), et le texte DIT que rien n'est prouve. Le cas
+                # « running vu puis superviseur muet pendant le maintien » reste rc 4 (plus haut).
+                print("[ctl] relance DEMANDEE, etat NON MESURABLE (superviseur illisible) : "
+                      "NON prouvee atteinte")
                 return 0
             print("[ctl] relance NON ATTEINTE apres 90 s : %s -- lire laforge-master.log"
                   % ((e or {}).get("status", "superviseur illisible")))
             return 1
+        elif action == "relire" and len(args) >= 2:
+            return 0 if _relire_definition(args[1]) else 1
         elif action == "sleep" and len(args) >= 2:
             st, body = _call(f"/supervisor/sleep/{args[1]}", method="POST")
             if 200 <= st < 300:
@@ -357,7 +429,7 @@ def main() -> int:
             if 200 <= st < 300:
                 return _verifier_effet(args[1], (port_avant or {}).get("port"), st, body)
         else:
-            print("usage: status | reload | sleep <svc> | wake <svc> | "
+            print("usage: status | reload | sleep <svc> | wake <svc> | relire <svc> | "
                   "restart <svc> | start <svc> | ensure <svc> | stop <svc>")
             return 1
         print(f"HTTP {st}")

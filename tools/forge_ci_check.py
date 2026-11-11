@@ -553,6 +553,24 @@ def declencher(repo: str, workflow: str, ref: str = "alpha", entrees: dict | Non
         return {"ok": False, "error": "%s: %s" % (type(exc).__name__, exc)}
 
 
+def decideur_ci(cible: str, oui: bool, declencher_fn=None, repo: str = DEFAULT_REPO) -> dict | str:
+    """Decision owner au tray pour le lancement de CI (action `ci-lancement`).
+
+    - oui=False : retour textuel refus
+    - oui=True : declenche le workflow specifie dans cible (<workflow>.yml@<ref>)
+    - HTTP 204 : etat ACCEPTE (non prouve reussi ; relire le run)
+    """
+    if not oui:
+        return "lancement CI refuse par l'owner"
+    c = str(cible or "").strip()
+    wf, _, ref = c.partition("@")
+    _fn = declencher_fn or declencher
+    res = _fn(repo, wf, ref=ref or "alpha")
+    if res.get("http") == 204:
+        return {"etat": "ACCEPTE", "detail": "HTTP 204 (accepte, non prouve reussi ; relire le run)", "resultat": res}
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Etat de la CI GitHub apres push")
     ap.add_argument("--repo", default=DEFAULT_REPO)
@@ -582,13 +600,17 @@ def main() -> int:
     a = ap.parse_args()
 
     if a.dispatch:
-        d = declencher(a.repo, a.dispatch, a.branch if a.branch != "ALL" else "alpha")
-        print(json.dumps(d, ensure_ascii=False) if a.json else
-              ("[ci] dispatch %s -> HTTP %s%s" % (a.dispatch, d.get("http"),
-               "" if d.get("ok") else " : " + str(d.get("error"))[:200])))
-        if d.get("ok"):
-            print("      ACCEPTE (204) n'est pas REUSSI : relire le run avec --branch ALL")
-        return 0 if d.get("ok") else 1
+        ref = a.branch if a.branch != "ALL" else "alpha"
+        msg = (
+            "declenchement direct desactive (route gouvernee owner) : "
+            "demander via `hub action=demander_ordre ordre=ci-lancer cible=%s@%s`"
+            % (a.dispatch, ref)
+        )
+        if a.json:
+            print(json.dumps({"ok": False, "refuse": True, "error": msg}, ensure_ascii=False))
+        else:
+            print("[ci] REFUSE : %s" % msg)
+        return 1
     if a.workflows:
         w = inventaire_workflows(a.repo)
         if a.json:

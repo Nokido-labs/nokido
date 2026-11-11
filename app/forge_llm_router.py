@@ -1464,8 +1464,15 @@ class LLMRouter:
         import re
         if re.search(r"\b(gh_run|github|gh api|pull request|pr|issue|pat)\b", prompt, re.IGNORECASE):
             force_local = False
-            _cloud_slots = ("claude_pro", "gemini_pro", "openai_gpt4")
-            chain = [s for s in _cloud_slots if s in chain] + [s for s in chain if s not in _cloud_slots] or ["claude_pro"]
+            _cloud_slots = tuple(
+                s for s, cfg in PROVIDERS.items()
+                if s not in _LOCAL_SLOTS and not (cfg or {}).get("perime")
+            )
+            chain = (
+                [s for s in chain if s in _cloud_slots]
+                + [s for s in chain if s not in _cloud_slots]
+                or list(_cloud_slots[:1])
+            )
             import logging
             logging.getLogger("Nokido.Router").info("[capability] Tâche requiert réseau/PAT -> force_local annulé, escalade vers cloud")
 

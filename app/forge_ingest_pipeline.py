@@ -423,6 +423,10 @@ def store_chunks(chunks: list[RefinedChunk], db_path: Path = DB_PATH, batch_size
         conn.close()
 
     def _commit_batch(b: list) -> None:
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        b = [r for r in b if admis_a_l_ingestion(r[2], r[1])]  # colonnes : id, text, source...
+        if not b:
+            return
         try:
             from nokido_agent.app.forge_db_path import write_retry
 

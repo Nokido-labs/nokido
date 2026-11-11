@@ -41,11 +41,11 @@ def test_catalogue_absent_n_ajoute_rien(monkeypatch):
     assert not [n for n in _noms(reg, 0) if n.startswith("docker_") and n != "docker_action"]
 
 
-def test_catalogue_perime_le_dit(monkeypatch):
+def test_catalogue_perime_ne_liste_aucun_outil(monkeypatch):
+    """07/11 (accord owner) : PERIME = 0 outil docker_* liste (plus de prefixe « [catalogue perime] »)."""
     _catalogue(monkeypatch, "PERIME", [{"name": "fetch", "description": "d"}])
     reg = ToolRegistry()
-    outil = [t for t in reg.get_tool_list(ring=0, agent="TEST_OWNER") if t["name"] == "docker_fetch"]
-    assert outil and "perime" in outil[0]["description"].lower()
+    assert "docker_fetch" not in _noms(reg, 0)
 
 
 def test_docker_action_natif_jamais_double(monkeypatch):

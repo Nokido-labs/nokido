@@ -40,10 +40,13 @@ def environnement(base=None) -> dict:
 
 
 def _cle_mistral() -> str:
-    """Cle Mistral lue au coffre a chaque lancement ; jamais ecrite sur disque ni journalisee."""
+    """Cle Mistral lue au coffre a chaque lancement ; jamais ecrite sur disque ni journalisee.
+
+    9/11 (owner) : les cles Mistral ont une PORTEE -- la cle « Nokido » sert Vibe (MISTRAL_VIBE_API_KEY), la cle
+    « LaForge » sert Studio (MISTRAL_API_KEY, budget epuise : 402). Vibe lit SA cle ; repli Studio si absente."""
     try:
         from nokido_agent.app.forge_secrets import get_secret
-        return get_secret("MISTRAL_API_KEY") or ""
+        return get_secret("MISTRAL_VIBE_API_KEY") or get_secret("MISTRAL_API_KEY") or ""
     except Exception:  # noqa: BLE001
         return ""
 

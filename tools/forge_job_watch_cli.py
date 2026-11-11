@@ -50,12 +50,49 @@ def _mtime(p: Path):
         return None
 
 
+def _sauvegarder_etat_json(etat_dict: dict, chemin_json=None):
+    """Ecrit l'avancement dans sandbox/job_watch_etat.json (ou chemin specifie) pour un terminal voisin."""
+    import json
+    cible = Path(chemin_json) if chemin_json else (ROOT / "sandbox" / "job_watch_etat.json")
+    try:
+        cible.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cible.with_suffix(".tmp")
+        tmp.write_text(json.dumps(etat_dict, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(cible)
+    except OSError as exc:
+        print("[job_watch] etat de veille non ecrit (%s) : avancement non persiste" % type(exc).__name__,
+              file=sys.stderr)
+
+
+def _formater_ligne_barriere(termines: int, echecs: list[str], gels: list[str],
+                             expire: bool, pointeur: str, hub_redemarre=None) -> str:
+    """Produit UNE seule ligne JSON de 500 caracteres au plus."""
+    import json
+    d = {
+        "termines": int(termines),
+        "echecs": [_id_court(x) for x in echecs],
+        "gels": [_id_court(x) for x in gels],
+        "expire": bool(expire),
+        "pointeur": str(pointeur),
+        "hub_redemarre": list(hub_redemarre) if hub_redemarre else [],
+    }
+    ligne = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+    if len(ligne) > 500:
+        d["pointeur"] = d["pointeur"][:100] + "..."
+        ligne = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+    if len(ligne) > 500:
+        d["echecs"] = d["echecs"][:10]
+        d["gels"] = d["gels"][:10]
+        ligne = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+    return ligne[:500]
+
+
 TACHES = ROOT / "sandbox" / "tasks.db"
 _TERMINAUX = ("done", "failed", "error", "cancelled", "timeout")
 
 
 def _etat_tache(task_id: str, db=None):
-    """(status, longueur_du_result) — `(None, 0)` si illisible ou inconnue.
+    """(status, longueur_du_result, cause_echec, result_texte) — `(None, 0, None, None)` si illisible ou inconnue.
 
     `None`, jamais une chaine : une base verrouillee ou une tache absente ne
     doivent pas se lire comme un statut. ILLISIBLE != PAS_LA != EN_COURS.
@@ -63,18 +100,46 @@ def _etat_tache(task_id: str, db=None):
     import sqlite3
     chemin = Path(db) if db else TACHES
     if not chemin.exists():
-        return None, 0
+        return None, 0, None, None
     try:
         c = sqlite3.connect("file:%s?mode=ro" % chemin.as_posix(), uri=True, timeout=3)
         try:
+            colonnes = {r[1] for r in c.execute("PRAGMA table_info(tasks)")}
+            cols = ["status", "COALESCE(LENGTH(result), 0)"]
+            if "cause_echec" in colonnes:
+                cols.append("cause_echec")
+            else:
+                cols.append("NULL")
+            if "result" in colonnes:
+                cols.append("result")
+            else:
+                cols.append("NULL")
             ligne = c.execute(
-                "SELECT status, COALESCE(LENGTH(result), 0) FROM tasks WHERE id = ?",
+                "SELECT %s FROM tasks WHERE id = ?" % ", ".join(cols),
                 (task_id,)).fetchone()
         finally:
             c.close()
     except Exception:  # noqa: BLE001 — muet-ok : l'appelant recoit None et le DIT
-        return None, 0
-    return (ligne[0], ligne[1]) if ligne else (None, 0)
+        return None, 0, None, None
+    return (ligne[0], ligne[1], ligne[2], ligne[3]) if ligne else (None, 0, None, None)
+
+
+def _est_echec_delegue(statut: str | None, cause_echec: str | None = None, result=None) -> bool:
+    """Dit si une delegation doit compter dans echecs :
+    statut en echec, ou done avec cause_echec non nul, ou rendu portant status_code FAILURE, ou [RIEN PRODUIT].
+    """
+    if statut in ("failed", "error", "cancelled", "timeout"):
+        return True
+    if statut == "done":
+        if cause_echec:
+            return True
+        if result:
+            txt = str(result)
+            if "[RIEN PRODUIT]" in txt:
+                return True
+            if _livraison(result, statut) == "FAILURE":
+                return True
+    return False
 
 
 def _progres_tache(task_id: str, db=None):
@@ -124,7 +189,8 @@ def _pouls_executeur(task_id: str, dossier: Path):
 
 
 def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
-                     ecrire=print, db=None, horloge=time.time, dormir=time.sleep, pouls_dir=None) -> int:
+                     ecrire=print, db=None, horloge=time.time, dormir=time.sleep, pouls_dir=None,
+                     barriere: bool = False, etat_json=None) -> int:
     """Surveille une TACHE M2M (`tasks.db`) comme `surveiller` suit un job.
 
     POURQUOI. Une reponse deposee dans l'inbox ne REVEILLE PAS la boucle du
@@ -144,17 +210,17 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
         ACCEPTED DECLARE ACHIEVED — c'est le faux calme qu'on refuse de relayer.
     """
     debut = horloge()
-    vu, _ = _etat_tache(task_id, db)
+    vu, _, _, _ = _etat_tache(task_id, db)
     progres_vu = _progres_tache(task_id, db)
     dernier_changement = debut
     dossier_pouls = Path(pouls_dir) if pouls_dir else (Path(db).parent if db else TACHES.parent)
     dernier_pouls_emis = debut - _POULS_EMISSION_S
-    if vu is not None:
+    if not barriere and vu is not None:
         ecrire("TACHE %s statut=%s — un statut dit ce que l'agent AFFIRME ; "
                "l'effet se lit sur l'ARTEFACT vise" % (task_id, vu))
 
     while True:
-        statut, taille = _etat_tache(task_id, db)
+        statut, taille, cause_echec, result_txt = _etat_tache(task_id, db)
         maintenant = horloge()
 
         progres = _progres_tache(task_id, db)
@@ -164,7 +230,7 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
         pouls = _pouls_executeur(task_id, dossier_pouls)
         if pouls is not None:
             dernier_changement = maintenant   # un executeur DECLARE travailler sur cette tache : pas un gel
-            if maintenant - dernier_pouls_emis >= _POULS_EMISSION_S:
+            if not barriere and maintenant - dernier_pouls_emis >= _POULS_EMISSION_S:
                 dernier_pouls_emis = maintenant
                 ecrire("TACHE %s EN COURS — pouls de l'executeur : travail depuis %d min (statut %s) ; "
                        "un pouls DECLARE, pas un effet" % (task_id, int(pouls / 60), vu if vu is not None
@@ -172,27 +238,68 @@ def surveiller_tache(task_id: str, gel_s: int, max_s: int, intervalle: int,
 
         if statut is not None and statut != vu:
             vu, dernier_changement = statut, maintenant
-            ecrire("TACHE %s -> %s (result %d o) — statut AFFIRME, pas effet "
-                   "constate : relire l'ARTEFACT vise par la tache"
-                   % (task_id, statut, taille))
+            if not barriere:
+                ecrire("TACHE %s -> %s (result %d o) — statut AFFIRME, pas effet "
+                       "constate : relire l'ARTEFACT vise par la tache"
+                       % (task_id, statut, taille))
+
+        if barriere:
+            _sauvegarder_etat_json({
+                "mode": "task",
+                "task_id": task_id,
+                "statut": statut,
+                "depuis_s": int(maintenant - debut),
+            }, chemin_json=etat_json)
 
         if statut in _TERMINAUX:
-            ecrire("TACHE %s TERMINALE statut=%s — ne pas conclure sur OK_DONE : "
-                   "l'ARTEFACT tranche (mesure 2026-09-22 : un done/SUCCESS "
-                   "n'avait rien produit)" % (task_id, statut))
+            if barriere:
+                echecs = [task_id] if _est_echec_delegue(statut, cause_echec, result_txt) else []
+                termines = 0 if echecs else 1
+                ligne = _formater_ligne_barriere(
+                    termines=termines,
+                    echecs=echecs,
+                    gels=[],
+                    expire=False,
+                    pointeur=str(db or TACHES) + "#" + task_id,
+                )
+                ecrire(ligne)
+            else:
+                ecrire("TACHE %s TERMINALE statut=%s — ne pas conclure sur OK_DONE : "
+                       "l'ARTEFACT tranche (mesure 2026-09-22 : un done/SUCCESS "
+                       "n'avait rien produit)" % (task_id, statut))
             return 0
 
         if maintenant - dernier_changement > gel_s:
-            ecrire("TACHE %s FIGEE — statut %s et progres inchanges depuis %d min ; %s"
-                   % (task_id, vu if vu is not None else "ILLISIBLE",
-                      int((maintenant - dernier_changement) / 60),
-                      ("dernier progres declare %s" % progres_vu) if progres_vu
-                      else "progres ILLISIBLE (aucun progress_at lu)"))
+            if barriere:
+                ligne = _formater_ligne_barriere(
+                    termines=0,
+                    echecs=[],
+                    gels=[task_id],
+                    expire=False,
+                    pointeur=str(db or TACHES) + "#" + task_id,
+                )
+                ecrire(ligne)
+            else:
+                ecrire("TACHE %s FIGEE — statut %s et progres inchanges depuis %d min ; %s"
+                       % (task_id, vu if vu is not None else "ILLISIBLE",
+                          int((maintenant - dernier_changement) / 60),
+                          ("dernier progres declare %s" % progres_vu) if progres_vu
+                          else "progres ILLISIBLE (aucun progress_at lu)"))
             return 0
 
         if maintenant - debut > max_s:
-            ecrire("TACHE %s TOUJOURS EN COURS apres %d min — ni fin ni gel"
-                   % (task_id, int((maintenant - debut) / 60)))
+            if barriere:
+                ligne = _formater_ligne_barriere(
+                    termines=0,
+                    echecs=[],
+                    gels=[],
+                    expire=True,
+                    pointeur=str(db or TACHES) + "#" + task_id,
+                )
+                ecrire(ligne)
+            else:
+                ecrire("TACHE %s TOUJOURS EN COURS apres %d min — ni fin ni gel"
+                       % (task_id, int((maintenant - debut) / 60)))
             return 0
 
         dormir(intervalle)
@@ -222,6 +329,9 @@ _BILANS = (_re.compile(r"TOTAL\s+(\d+)\s+chunks"),
 # d'ingestion le premier suffisait. Meme famille que ARRET_GARDE : la sortie d'un test n'est
 # pas la fin du job.
 _DEFAILLANCES_CI = ("echecs", "erreurs", "timeouts")
+# 10/11 : les scripts de verification et de diagnostic finissent par `BILAN ...` / `=== BILAN ...` ;
+# le guet les annoncait « sans ligne de bilan » (job_6841505421b8). Lu comme DECLARE, jamais VERIFIED.
+_BILAN_DECLARE = _re.compile(r"^\s*(?:=+\s*)?BILAN\b")
 _ANSI = _re.compile(r"\x1b\[[0-9;]*m")
 
 # Le bruit TECHNIQUE de l'exportateur OTLP et de la fermeture des clients HTTP n'est pas un
@@ -375,18 +485,26 @@ def lire_bilan(texte: str, rc: str) -> dict:
         return {"etat": "INCONNU", "motif": "rc illisible : %s" % rc[:80]}
     lignes = _sans_bruit_technique((texte or "").splitlines())
     dernier_bilan, n_chunks = -1, None
+    i_declare, ligne_declare = -1, ""
     for i, l in enumerate(lignes):
         for motif in _BILANS:
             m = motif.search(l)
             if m:
                 dernier_bilan, n_chunks = i, int(m.group(1))
+        if _BILAN_DECLARE.match(l):
+            i_declare, ligne_declare = i, l.strip()
     i_preuve, preuve, ligne_preuve = _preuve_ci(lignes)
     non_vides = [l.strip() for l in lignes if l.strip()]
     arret = [l for l in non_vides[-_QUEUE_ARRET:] if "ARRET" in l]
     if arret:
         return {"etat": "ARRET_GARDE", "motif": arret[-1][:240]}
+    # 11/11, job_470dcd142930 : pre-vol VERT annonce « bilan ECHEC ». La trace reseau de pip-audit (gate UNKNOWN,
+    # supplee) est imprimee APRES la ligne [preuve] ; toute trace posterieure valait echec. Le verdict FINAL de
+    # la CI (« Tous les gates bloquants passent »), ecrit apres la trace, la domine. Une trace APRES lui (crash a
+    # la sortie) reste un ECHEC. Le verdict rouge (« N gate(s) bloquant(s) en echec ») passe par rc != 0.
+    i_ci_vert = max((i for i, l in enumerate(lignes) if "Tous les gates bloquants passent" in l), default=-1)
     tb = [i for i, l in enumerate(lignes) if l.startswith("Traceback")]
-    if tb and tb[-1] > max(dernier_bilan, i_preuve):
+    if tb and tb[-1] > max(dernier_bilan, i_preuve, i_declare, i_ci_vert):
         fin = [l.strip() for l in lignes[tb[-1]:] if l.strip()]
         return {"etat": "ECHEC", "motif": (fin[-1] if fin else "Traceback")[:240]}
     if rc != "0":
@@ -411,6 +529,8 @@ def lire_bilan(texte: str, rc: str) -> dict:
     if pyt is not None and n_chunks is None:
         return {"etat": "DECLARE", "motif": "resume pytest du producteur : %d verts sur %d resume(s), NON verifie (JUnit)"
                 % (pyt["passed"], pyt["lignes"])}
+    if n_chunks is None and i_declare >= 0:
+        return {"etat": "DECLARE", "motif": "bilan du producteur, NON verifie : " + ligne_declare[:200]}
     if n_chunks is None:
         return {"etat": "TERMINE_NON_VERIFIE", "motif": "rc=0 sans ligne de bilan : le silence n'est pas un succes"}
     if n_chunks == 0:
@@ -488,8 +608,27 @@ def _pid_du_job(base: Path, job: str):
         return None
 
 
+PLAFOND_RESULTAT = 1500
+
+
+def _lignes_resultat(texte: str, plafond: int = PLAFOND_RESULTAT) -> str:
+    """Lignes RESULTAT du journal, plafonnees. 5/11 (owner, tokens) : la fin de job porte son verdict, sans `job_status`."""
+    garde, total, taille = [], 0, 0
+    for ligne in texte.splitlines():
+        if not ligne.startswith("RESULTAT"):
+            continue
+        total += 1
+        if taille + len(ligne) + 1 <= plafond:
+            garde.append(ligne)
+            taille += len(ligne) + 1
+    if total > len(garde):
+        garde.append("[tronque : %d ligne(s) RESULTAT de plus dans le journal]" % (total - len(garde)))
+    return "\n".join(garde)
+
+
 def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
-               jobs_dir=None, horloge=time.time, dormir=time.sleep, activite=None) -> int:
+               jobs_dir=None, horloge=time.time, dormir=time.sleep, activite=None,
+               barriere: bool = False, etat_json=None) -> int:
     """Surveille un job. `jobs_dir`/`horloge`/`dormir` existent pour le NR.
 
     Une constante figee a l'import ne se redirige pas : sans ce parametre, le
@@ -518,11 +657,26 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
             texte, note = _queue_du_journal(log)
             texte_err, _ = _queue_du_journal(base / ("%s.err" % job))
             b = lire_bilan(texte + "\n" + texte_err, code)
-            ecrire("JOB %s TERMINE rc=%s — le rc est un SIGNAL, le verdict se lit "
-                   "sur l'artefact (JUnit, rapport), jamais sur lui | bilan %s%s : %s%s"
-                   % (job, code, b["etat"],
-                      "(%d)" % b["chunks"] if b.get("chunks") is not None else "",
-                      b["motif"], (" [%s]" % note) if note else ""))
+            resultat = _lignes_resultat(texte)
+            if barriere:
+                echec = (code != "0") or (b.get("etat") in ("ECHEC", "ARRET_GARDE"))
+                echecs = [job] if echec else []
+                termines = 0 if echecs else 1
+                ligne = _formater_ligne_barriere(
+                    termines=termines,
+                    echecs=echecs,
+                    gels=[],
+                    expire=False,
+                    pointeur=str(rc),
+                )
+                ecrire(ligne)
+            else:
+                ecrire("JOB %s TERMINE rc=%s — le rc est un SIGNAL, le verdict se lit "
+                       "sur l'artefact (JUnit, rapport), jamais sur lui | bilan %s%s : %s%s%s"
+                       % (job, code, b["etat"],
+                          "(%d)" % b["chunks"] if b.get("chunks") is not None else "",
+                          b["motif"], (" [%s]" % note) if note else "",
+                          ("\n" + resultat) if resultat else ""))
             return 0
 
         m = _mtime(log)
@@ -538,7 +692,7 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
         # un gel, meme si le journal se tait.
         act = activite(_pid_du_job(base, job))
         if act is not None and act_ref is not None and _arbre_progresse(act, act_ref):
-            if maintenant - dernier_progres > intervalle and not arbre_dit:
+            if not barriere and maintenant - dernier_progres > intervalle and not arbre_dit:
                 ecrire("JOB %s journal muet depuis %d min MAIS son arbre travaille (CPU +%.1f s, I/O +%.1f Mo%s) -- pas FIGE"
                        % (job, int((maintenant - dernier_progres) / 60), act[0] - act_ref[0],
                           (act[1] - act_ref[1]) / 1e6,
@@ -548,19 +702,137 @@ def surveiller(job: str, gel_s: int, max_s: int, intervalle: int, ecrire=print,
         if act is not None:
             act_ref = act
 
+        if barriere:
+            _sauvegarder_etat_json({
+                "mode": "job",
+                "job": job,
+                "depuis_s": int(maintenant - debut),
+            }, chemin_json=etat_json)
+
         if maintenant - dernier_progres > gel_s:
-            ecrire("JOB %s FIGE — journal sans ecriture depuis %d min, aucun .rc, et son arbre %s"
-                   % (job, int((maintenant - dernier_progres) / 60),
-                      "INACTIF (CPU, octets et operations d'E/S stables)" if act is not None
-                      else "ILLISIBLE (activite non lue : verdict tire du seul journal)"))
+            if barriere:
+                ligne = _formater_ligne_barriere(
+                    termines=0,
+                    echecs=[],
+                    gels=[job],
+                    expire=False,
+                    pointeur=str(log),
+                )
+                ecrire(ligne)
+            else:
+                ecrire("JOB %s FIGE — journal sans ecriture depuis %d min, aucun .rc, et son arbre %s"
+                       % (job, int((maintenant - dernier_progres) / 60),
+                          "INACTIF (CPU, octets et operations d'E/S stables)" if act is not None
+                          else "ILLISIBLE (activite non lue : verdict tire du seul journal)"))
             return 0
 
         if maintenant - debut > max_s:
-            ecrire("JOB %s TOUJOURS EN COURS apres %d min — ni fin ni gel detecte"
-                   % (job, int((maintenant - debut) / 60)))
+            if barriere:
+                ligne = _formater_ligne_barriere(
+                    termines=0,
+                    echecs=[],
+                    gels=[],
+                    expire=True,
+                    pointeur=str(log),
+                )
+                ecrire(ligne)
+            else:
+                ecrire("JOB %s TOUJOURS EN COURS apres %d min — ni fin ni gel detecte"
+                       % (job, int((maintenant - debut) / 60)))
             return 0
 
         dormir(intervalle)
+
+
+def _ecouteur_hub(port: int = 8766):
+    """(pid, create_time) du processus en LISTEN sur `port` ; None si personne ; "ILLISIBLE" si refusé."""
+    try:
+        import psutil
+
+        for c in psutil.net_connections(kind="tcp"):
+            if c.status == psutil.CONN_LISTEN and c.laddr and c.laddr.port == port:
+                # Hub sous un autre compte (10/11) : LISTEN visible, pid masque -> ILLISIBLE, jamais « personne ».
+                if not c.pid:
+                    return "ILLISIBLE"
+                return c.pid, psutil.Process(c.pid).create_time()
+        return None
+    except Exception:  # noqa: BLE001 - muet-ok : rendu comme ILLISIBLE, jamais comme absence
+        return "ILLISIBLE"
+
+
+def _hub_sain(port: int = 8766) -> bool:
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen("http://127.0.0.1:%d/health" % port, timeout=5) as r:
+            return r.status == 200 and b'"ok"' in r.read(400)
+    except Exception:  # noqa: BLE001 - muet-ok : un hub qui ne repond pas n'est pas sain, on re-sonde
+        return False
+
+
+JOURNAL_ORDRES = Path(__file__).resolve().parent.parent / "logs" / "ordres_bureau.jsonl"
+_FENETRE_ORDRE_S = 180.0  # un ordre restart vit 120 s au tray ; le moniteur peut etre arme apres le boot
+
+
+def _boot_atteint_journal(t_min: float, t_max: float | None = None):
+    """(pid, boot_ts) du dernier ordre restart(-hub) ATTEINT dont le boot est dans [t_min, t_max], sinon None.
+    Preuve ecrite par le hub NEUF au boot (forge_ordres_bureau.solder_redemarrages). Un boot posterieur a
+    l'horloge de la veille est incoherent (horloge factice, journal d'un autre temps) : il ne prouve rien."""
+    import json
+
+    try:
+        lignes = JOURNAL_ORDRES.read_text(encoding="utf-8", errors="replace").splitlines()[-300:]
+    except OSError:  # muet-ok : journal illisible = pas de preuve ; l'ecouteur et la borne max_s tranchent
+        return None
+    for ligne in reversed(lignes):
+        try:
+            e = json.loads(ligne)
+        except ValueError:  # muet-ok : ligne tronquee ignoree, les autres preuves restent lues
+            continue
+        if e.get("evenement") == "atteint" and e.get("action") in ("restart", "restart-hub"):
+            p = e.get("preuve") or {}
+            boot = float(p.get("boot_hub_ts") or 0)
+            if boot >= t_min and (t_max is None or boot <= t_max):
+                return p.get("pid"), boot
+    return None
+
+
+def surveiller_hub_restart(max_s: int, intervalle: int, port: int = 8766,
+                           _horloge=time.time, _dormir=time.sleep) -> int:
+    """Après `demander_ordre ordre=restart-hub` : rend la main quand un processus NÉ APRÈS le début de
+    la veille écoute `port` ET répond à /health (owner 9/11 : « tu es censé récupérer automatiquement »).
+
+    Une seule ligne finale, toutes issues dites : HUB RELANCE (rc 0), HUB NON_RELANCE (borne atteinte :
+    ordre refusé, expiré, ou hub resté l'ancien ; rc 1), HUB ILLISIBLE (écouteur jamais lisible ; rc 2).
+    REQUESTED != ACHIEVED : seul le nouveau processus sain prouve la relance.
+    """
+    t0 = _horloge()
+    illisible_seul = True
+    while True:
+        vu = _ecouteur_hub(port)
+        if vu != "ILLISIBLE":
+            illisible_seul = False
+        if isinstance(vu, tuple) and vu[1] >= t0 - 2 and _hub_sain(port):
+            print("HUB RELANCE pid=%s ne=%+.0fs apres le debut de la veille : constater l'effet du nouveau code"
+                  % (vu[0], vu[1] - t0), flush=True)
+            return 0
+        # Second observateur (10/11) : ecouteur ILLISIBLE (hub sous un autre compte) -> l'evenement `atteint` du
+        # journal des ordres, ecrit par le hub NEUF, avec /health sain.
+        if not isinstance(vu, tuple):
+            j = _boot_atteint_journal(t0 - _FENETRE_ORDRE_S, _horloge() + 5)
+            if j and _hub_sain(port):
+                print("HUB RELANCE pid=%s (journal des ordres : atteint, boot %+.0fs) : constater l'effet du nouveau "
+                      "code" % (j[0], j[1] - t0), flush=True)
+                return 0
+        if _horloge() - t0 >= max_s:
+            if illisible_seul:
+                print("HUB ILLISIBLE : ecouteur :%d jamais lisible en %ds (droits ?) -- ni relance ni echec prouves"
+                      % (port, max_s), flush=True)
+                return 2
+            print("HUB NON_RELANCE en %ds : ordre refuse, expire, ou ancien processus toujours la (%s)"
+                  % (max_s, vu), flush=True)
+            return 1
+        _dormir(intervalle)
 
 
 def main(argv=None) -> int:
@@ -574,6 +846,8 @@ def main(argv=None) -> int:
                        help="quarantaine des pairs cloud (claude.ai...) : premier depot neuf ; CLIENT optionnel")
     cible.add_argument("--delegations", action="store_true",
                        help="suit les delegations du demandeur (tasks.db) : transitions et gels")
+    cible.add_argument("--hub-restart", action="store_true",
+                       help="apres un ordre restart-hub : rend la main quand un NOUVEAU hub ecoute :8766 et repond")
     ap.add_argument("--gel-s", "--gel", type=int, default=900,
                     help="silence (journal, ou progression d'une delegation) au-dela duquel on declare un GEL")
     ap.add_argument("--max-s", "--max", type=int, default=4800, help="borne dure")
@@ -584,10 +858,20 @@ def main(argv=None) -> int:
                     help="une seule lecture : on imprime la vue et on rend la main")
     ap.add_argument("--db", default=None,
                     help="base des delegations (defaut sandbox/tasks.db)")
+    ap.add_argument("--barriere", action="store_true", default=None,
+                    help="mode barriere : aucun stdout avant la fin ou max-s, avancement dans job_watch_etat.json, 1 ligne JSON finale")
+    ap.add_argument("--flux", action="store_true",
+                    help="mode flux : conserve ou force l'ancien flux d'evenements ligne par ligne")
     a = ap.parse_args(argv)
+    if a.hub_restart:
+        return surveiller_hub_restart(max_s=min(a.max_s, 900), intervalle=min(a.intervalle, 5))
     if a.delegations:
+        mode_barriere = False if a.flux else True
+        if a.barriere is not None:
+            mode_barriere = a.barriere
         return suivre_delegations(db=a.db, de=a.de, gel_s=a.gel_s, max_s=a.max_s,
-                                  intervalle=a.intervalle, une_fois=a.une_fois)
+                                  intervalle=a.intervalle, une_fois=a.une_fois,
+                                  barriere=mode_barriere)
     if a.pair is not None:
         if any(c in a.pair for c in "/\\%_") or ".." in a.pair:
             print("REFUS : --pair attend un identifiant de client, pas un motif")
@@ -597,9 +881,12 @@ def main(argv=None) -> int:
     if "/" in sujet or "\\" in sujet or ".." in sujet:
         print("REFUS : --job/--task est un identifiant, pas un chemin")
         return 2
+    mode_barriere = bool(a.barriere) and not bool(a.flux)
     if a.task:
-        return surveiller_tache(a.task, a.gel_s, a.max_s, a.intervalle, db=a.db)
-    return surveiller(a.job, a.gel_s, a.max_s, a.intervalle)
+        return surveiller_tache(a.task, a.gel_s, a.max_s, a.intervalle, db=a.db,
+                                barriere=mode_barriere)
+    return surveiller(a.job, a.gel_s, a.max_s, a.intervalle,
+                      barriere=mode_barriere)
 
 
 # ── SUIVI DES DELEGATIONS (owner 22/10) ──────────────────────────────────────
@@ -722,7 +1009,7 @@ def _lire_taches(db=None, maintenant=None, de=None, statuts=None, limite=_LIMITE
             return [], "table `tasks` sans `id` (%s)" % chemin
         if de and "from_agent" not in colonnes:
             return [], "colonne `from_agent` absente : filtre `de` inapplicable (%s)" % chemin
-        vues = ("id", "agent", "status", "from_agent", "created_at", "progress_at", "reaffectations", "result")
+        vues = ("id", "agent", "status", "from_agent", "created_at", "progress_at", "reaffectations", "result", "cause_echec")
         dispo = [c for c in vues if c in colonnes]
         requete = "SELECT %s FROM tasks" % ", ".join(dispo)
         params = []
@@ -758,6 +1045,7 @@ def _lire_taches(db=None, maintenant=None, de=None, statuts=None, limite=_LIMITE
             "depuis_progres_s": _age_s(maintenant, d.get("progress_at")),
             "reaffectations": _nb_reaffectations(d.get("reaffectations")),
             "result": d.get("result"),
+            "cause_echec": d.get("cause_echec"),
         })
     return taches, None
 
@@ -824,6 +1112,8 @@ def _livraison(result, statut) -> str:
             from nokido_agent.tools.forge_task_executor import _statut_livraison
         except ImportError:  # repli checkout : le pont nokido_agent n'existe pas
             from forge_task_executor import _statut_livraison
+        # 6/11 (job_2e450653) : `statut == "done"` fait ok=True ; le verdict reel (artefact ABSENT, recopie...) se lit
+        # dans le texte de l'effet, que `_statut_livraison` refuse desormais de promouvoir en SUCCESS.
         return _statut_livraison(statut == "done", str(result)) or "ILLISIBLE"
     except Exception:  # noqa: BLE001 - muet-ok : rendu ILLISIBLE sur la ligne de l'owner, donc dit
         return "ILLISIBLE"
@@ -897,9 +1187,20 @@ def _ligne_vue(t):
     age = t.get("age_s")
     prog = t.get("depuis_progres_s")
     reaff = t.get("reaffectations")
+    agent_brut = t.get("agent") or "?"
+    try:
+        import os
+        import sys
+        repo_root = os.getenv("REPO_ROOT") or str(Path(__file__).resolve().parents[1])
+        if repo_root and repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from nokido_agent.tools.forge_presence import nom_lisible
+        agent_aff = nom_lisible(agent_brut) if agent_brut != "?" else "?"
+    except Exception:  # noqa: BLE001  # muet-ok : repli identifiant brut
+        agent_aff = agent_brut
     return "%s %s %s age=%s progres=%s reaff=%s" % (
         _id_court(t.get("task_id")),
-        t.get("agent") or "?",
+        agent_aff,
         t.get("statut") or "?",
         ("%ds" % age) if age is not None else "INCONNU",
         ("%ds" % prog) if prog is not None else "INCONNU",
@@ -915,8 +1216,39 @@ def _ligne_gel(a):
                a.get("depuis_progres_s") or 0, a.get("statut") or "?")
 
 
+def pid_hub_depuis(services) -> int | None:
+    """Pid du service qui ecoute :8766 ; None si le superviseur ne le dit pas : ILLISIBLE, pas un restart."""
+    if not isinstance(services, dict):
+        return None
+    for sv in services.values():
+        if isinstance(sv, dict) and sv.get("port") == 8766 and sv.get("pid"):
+            return sv["pid"]
+    return None
+
+
+def lire_pid_hub() -> int | None:
+    """Lecture au superviseur :8765. Muet = None ; le hub lui-meme n'est jamais sonde pour ca."""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8765/supervisor/status", timeout=5) as f:
+            d = json.loads(f.read().decode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001  # muet-ok : superviseur muet = pid INCONNU, ligne_hub ne conclut rien
+        return None
+    return pid_hub_depuis(d.get("services", d) if isinstance(d, dict) else None)
+
+
+def ligne_hub(avant, apres) -> str | None:
+    """Une ligne seulement si deux pids LUS different : le silence du superviseur ne prouve aucun restart."""
+    if avant is None or apres is None or avant == apres:
+        return None
+    return "HUB REDEMARRE : pid %s -> %s" % (avant, apres)
+
+
 def suivre_delegations(db=None, de=None, gel_s=900, max_s=4800, intervalle=20,
-                        une_fois=False, ecrire=None, horloge=time.time, dormir=time.sleep):
+                        une_fois=False, ecrire=None, horloge=time.time, dormir=time.sleep,
+                        barriere: bool = True, etat_json=None):
     """Suit les delegations du DEMANDEUR : n'emet que ce qui CHANGE ou ce qui GEL.
 
     A chaque lecture on prend TOUTES les taches du demandeur -- terminees
@@ -951,13 +1283,26 @@ def suivre_delegations(db=None, de=None, gel_s=900, max_s=4800, intervalle=20,
     reference = False
     deja = set()
     illisible = 0
+    pid_hub = None
+    gels_vus = set()
+    echecs_vus = set()
+
+    hub_redemarres = []
     while True:
         maintenant = horloge()
+        lu = lire_pid_hub()
+        ligne = ligne_hub(pid_hub, lu)
+        if ligne:
+            if not barriere:
+                ecrire(ligne)
+            else:
+                hub_redemarres.append(ligne)
+        pid_hub = lu if lu is not None else pid_hub  # un silence garde le dernier pid connu
         vue, motif = _lire_taches(db=db, maintenant=maintenant, de=de, statuts=None,
                                    limite=_LIMITE_DEFAUT)
         if motif:
             illisible += 1
-            if illisible in (1, 10):
+            if not barriere and illisible in (1, 10):
                 ecrire("DELEGATIONS : %s -- une delegation pourrait etre en vol sans etre vue" % motif)
         else:
             illisible = 0
@@ -965,17 +1310,71 @@ def suivre_delegations(db=None, de=None, gel_s=900, max_s=4800, intervalle=20,
                      for t in vue}
             if reference:
                 for e in transitions(etat, apres):
-                    ligne = ligne_evenement(e)
-                    if ligne:
-                        ecrire(ligne)
+                    if not barriere:
+                        l = ligne_evenement(e)
+                        if l:
+                            ecrire(l)
             else:
                 # La premiere lecture POSE la reference : sans elle, tout serait NOUVELLE.
                 reference = True
             etat = apres
-            for a in alertes_gel(vue, gel_s, deja):
-                ecrire(_ligne_gel(a))
+
+            nouvelles_alertes = alertes_gel(vue, gel_s, deja)
+            for a in nouvelles_alertes:
+                gels_vus.add(a["task_id"])
+                if not barriere:
+                    ecrire(_ligne_gel(a))
+
+            # Mise a jour des echecs
+            for t in vue:
+                st = t.get("statut")
+                tid = t.get("task_id")
+                if _est_echec_delegue(st, t.get("cause_echec"), t.get("result")):
+                    echecs_vus.add(tid)
+
+            # Verification de fin de lot en mode barriere
+            if barriere and vue:
+                nb_total = len(vue)
+                nb_term = sum(1 for t in vue if (t.get("statut") or "") in _TERMINAUX)
+                if nb_term == nb_total:
+                    # Tout le lot est termine
+                    # Un job gele ou un echec n'est jamais annonce comme termine
+                    term_succes = sum(1 for t in vue if (t.get("statut") or "") == "done" and t.get("task_id") not in gels_vus and t.get("task_id") not in echecs_vus)
+                    ligne = _formater_ligne_barriere(
+                        termines=term_succes,
+                        echecs=sorted(echecs_vus),
+                        gels=sorted(gels_vus),
+                        expire=False,
+                        pointeur=str(chemin),
+                        hub_redemarre=hub_redemarres,
+                    )
+                    ecrire(ligne)
+                    return 0
+
+        if barriere:
+            _sauvegarder_etat_json({
+                "mode": "delegations",
+                "total": len(vue) if vue else 0,
+                "termines": sum(1 for t in vue if (t.get("statut") or "") in _TERMINAUX) if vue else 0,
+                "echecs": sorted(echecs_vus),
+                "gels": sorted(gels_vus),
+                "depuis_s": int(maintenant - debut),
+            }, chemin_json=etat_json)
+
         if maintenant - debut > max_s:
-            ecrire("DELEGATIONS : fin de veille apres %d s -- a re-armer" % int(maintenant - debut))
+            if barriere:
+                term_succes = sum(1 for t in vue if (t.get("statut") or "") == "done" and t.get("task_id") not in gels_vus and t.get("task_id") not in echecs_vus) if vue else 0
+                ligne = _formater_ligne_barriere(
+                    termines=term_succes,
+                    echecs=sorted(echecs_vus),
+                    gels=sorted(gels_vus),
+                    expire=True,
+                    pointeur=str(chemin),
+                    hub_redemarre=hub_redemarres,
+                )
+                ecrire(ligne)
+            else:
+                ecrire("DELEGATIONS : fin de veille apres %d s -- a re-armer" % int(maintenant - debut))
             return 0
         dormir(intervalle)
 

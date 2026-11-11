@@ -198,7 +198,10 @@ async def _rag_ingest(params: Dict[str, Any]) -> Dict[str, Any]:
 
         conn = sqlite3.connect(str(ROOT / "RAG" / "embeddings.db"))
         n = 0
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
         for ch, v in zip(chunks, vecs):
+            if not admis_a_l_ingestion("trajectory_dispatch", ch):
+                continue
             cid = "traj_" + hashlib.sha256(ch.encode()).hexdigest()[:16]
             blob = struct.pack(f"<{len(v)}f", *v) if v else None
             try:
@@ -251,10 +254,14 @@ async def _crawl(params: Dict[str, Any]) -> Dict[str, Any]:
         return {"content": "", "error": "url required"}
     try:
         body = json.dumps({"urls": [url]}).encode()
+        try:
+            from nokido_agent.app.forge_crawl_tool import entetes_crawl4ai
+        except ImportError:
+            from forge_crawl_tool import entetes_crawl4ai
         req = urllib.request.Request(
             "http://127.0.0.1:11235/crawl",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers=entetes_crawl4ai(),  # Bearer du coffre : Crawl4AI 0.9.0 l'exige
             method="POST",
         )
         loop = asyncio.get_event_loop()

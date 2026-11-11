@@ -71,7 +71,9 @@ def test_armer_le_mode_DEV_est_un_geste_du_panneau_par_l_UAC():
     service), et aucun geste de desarmement : le mode DEV expire seul."""
     src = PANNEAU.read_text(encoding="utf-8")
     corps = src.split("def _action_dev_armer", 1)[1].split("\ndef ", 1)[0]
-    assert "-Verb RunAs" in corps and "forge_dev_mode.py" in corps and '"arm"' in corps, corps[:600]
+    console = src.split("def _console_elevee", 1)[1].split("\ndef ", 1)[0]
+    assert "-Verb RunAs" in console, console[:600]
+    assert "_console_elevee(" in corps and "forge_dev_mode.py" in corps and '"arm"' in corps, corps[:600]
     assert '"dev-armer": lambda: _action_dev_armer()' in src
     bureau = ast.literal_eval(_litteral(PANNEAU, "ACTIONS_BUREAU_SEULEMENT"))
     assert "dev-armer" in bureau, "l'UAC n'apparait que dans la session interactive"

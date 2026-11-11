@@ -22,6 +22,7 @@ ANTI-DUP : n'EXÉCUTE aucun métier — fédère les keepers concrets + l'index 
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 # --- amorce namespace (point d'entree) : `sys.path[0]` vaut le dossier du
@@ -131,19 +132,65 @@ def status_any(name: str) -> dict:
     return k["status"]() if callable(k.get("status")) else {"source": k["source"]}
 
 
-def find(pattern: str, *, limit: int = 8, source_like: str | None = None) -> list:
+def requete_fts_legere(question: str) -> str:
+    """Meme conversion que `forge_rag_engine.requete_fts`, sans charger le moteur : le hook passe a chaque message.
+
+    La source reste celle du moteur, que `banc_rappel_lexical` extrait seule et juge. NR de parite :
+    tests/nr/test_memoire_longue_panne_et_fiches_nr.py ; le banc change l'une, le NR exige l'autre.
+    """
+    import re
+
+    return " OR ".join([w for w in re.split(r"\W+", question or "")
+                        if len(w) > 3 and w not in ["pour", "dans", "quel", "with"]][:15])
+
+
+def _plafonner(con, plafond_s) -> None:
+    """Interrompt la requete au-dela de `plafond_s` : le hook de rappel passe a chaque message de l'owner."""
+    if plafond_s is not None:
+        fin = time.monotonic() + plafond_s
+        con.set_progress_handler(lambda: 1 if time.monotonic() > fin else 0, 10000)
+
+
+def find_fiches(pattern: str, *, limit: int = 8, plafond_s: float | None = None) -> list:
+    """Fiches `memory:*` : `rag_fts` ne les porte pas, `rag_chunks_fts` si (mesure 5/11).
+
+    Le texte vient de `rag_chunks` : lire `text` sur l'index echoue sur une entree fantome (`missing row`).
+    `^` ancre la source : `source:memory` ramene aussi `github:x/mcp-memory-service/...`.
+    """
+    if not _DB.exists():
+        return [{"error": "index absent (RAG/embeddings.db)"}]
+    con = sqlite3.connect(f"file:{_DB}?mode=ro", uri=True)
+    _plafonner(con, plafond_s)
+    try:
+        return [{"source": s, "preview": t} for s, t in con.execute(
+            "SELECT c.source, substr(c.text,1,160) FROM "
+            "(SELECT rowid AS rid, rank FROM rag_chunks_fts WHERE rag_chunks_fts MATCH ? ORDER BY rank LIMIT ?) s "
+            "JOIN rag_chunks c ON c.rowid = s.rid ORDER BY s.rank",
+            ("source : ^memory AND (%s)" % pattern, limit)).fetchall()]
+    except Exception as e:  # noqa: BLE001
+        return [{"error": f"{type(e).__name__}: {e}"}]
+    finally:
+        con.close()
+
+
+def find(pattern: str, *, limit: int = 8, source_like: str | None = None, sources_fiables: bool = False,
+         plafond_s: float | None = None) -> list:
     """Recherche SOUVERAINE via l'index local rapide (RAG FTS5 BM25) — PAS Grep natif.
     `pattern` = expression FTS5 (ex: 'firewall OR pre_flight'). Pour du code/uncommitted
     NON encore indexé, Grep natif reste légitime (l'index suit le commit/ingest)."""
     if not _DB.exists():
         return [{"error": "index absent (RAG/embeddings.db)"}]
     con = sqlite3.connect(f"file:{_DB}?mode=ro", uri=True)
+    _plafonner(con, plafond_s)
     try:
         q = "SELECT source, substr(text,1,160) FROM rag_fts WHERE rag_fts MATCH ?"
         args: list = [pattern]
         if source_like:
             q += " AND source LIKE ?"
             args.append(source_like)
+        if sources_fiables:  # rappel automatique : liste blanche, un contenu de tiers ne s'injecte pas tout seul (owner 5/11)
+            from nokido_agent.app.forge_prompt_guard import filtre_sql_sources_fiables
+            q += " AND " + filtre_sql_sources_fiables()
         q += " ORDER BY bm25(rag_fts) LIMIT ?"
         args.append(limit)
         return [{"source": s, "preview": t} for s, t in con.execute(q, args).fetchall()]

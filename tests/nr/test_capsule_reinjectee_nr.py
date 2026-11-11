@@ -1,4 +1,4 @@
-"""NR 18/10 -- la capsule d'autopsie est REINJECTEE au tour suivant (chantier 2 du takehome, pas 3).
+"""NR 18/10 -- la capsule d'autopsie est REINJECTEE au tour suivant (chantier 2, pas 3).
 
 Le juge rend une capsule (9998e6000) ; sans reinjection, le producteur (MutationCycle.run_cycle) repartait a
 l'aveugle. Contrat : run_cycle accepte `capsule_precedente` et la place dans le prompt, et son resultat

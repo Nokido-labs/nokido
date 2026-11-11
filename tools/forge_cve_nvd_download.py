@@ -17,6 +17,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parent.parent
+import sys as _sys_amorce  # noqa: E402 -- le garde d'ingestion vit sous `nokido_agent`
+if str(ROOT) not in _sys_amorce.path:
+    _sys_amorce.path.insert(0, str(ROOT))
 DATA_DIR = ROOT / "data"
 RAG_DB = ROOT / "RAG" / "embeddings.db"
 
@@ -154,6 +157,9 @@ def ingest_to_rag(entries: list[dict], db_path: Path = RAG_DB) -> int:
     for e in tqdm(entries, desc="Ingest RAG", unit="chunk"):
         source = f"cve/nvd/{e['year']}"
         text = f"{e['cve_id']} [cvss={e['cvss_score']}] {e['description']}"
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(source, text):
+            continue
         chunk_id = sha256((source + text).encode()).hexdigest()[:16]
         cur = con.execute(
             "INSERT OR IGNORE INTO rag_chunks (id, source, text) SELECT ?, ?, ? "

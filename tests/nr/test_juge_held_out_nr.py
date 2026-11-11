@@ -25,7 +25,12 @@ def _depot(tmp_path, n=40):
 
 
 def test_held_out_deterministe_disjoint_et_borne(tmp_path, monkeypatch):
+    import sys
+    import types
+
     monkeypatch.delenv("LAFORGE_HELD_OUT_SEL", raising=False)
+    # Le code retombe sur le coffre : sans ce bouchon, le test depend du coffre de la machine.
+    monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_secrets", types.SimpleNamespace(get_secret=lambda *a, **k: ""))
     r = _depot(tmp_path)
     selection = ["tests/nr/test_x00_nr.py::test_ok", "tests/nr/test_x01_nr.py"]
     a = J.held_out(selection, n=10, racine=r)

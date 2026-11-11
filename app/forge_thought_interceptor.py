@@ -27,6 +27,10 @@ class ForgeThoughtInterceptor:
     """
 
     def __init__(self, bridge: Optional[MultiLLMBridge] = None):
+        # Dependance differee (MultiLLMBridge = None) : sans bridge injecte, l'appel `None()` levait un TypeError
+        # muet de sens (10/11, test_new_tools_nr). L'absence est NOMMEE.
+        if bridge is None and MultiLLMBridge is None:
+            raise RuntimeError("ForgeThoughtInterceptor : aucun bridge LLM injecte (bridge=...) et pas de defaut")
         self.bridge = bridge or MultiLLMBridge()
 
     def call_with_thought(

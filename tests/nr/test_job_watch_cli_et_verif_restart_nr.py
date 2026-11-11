@@ -104,5 +104,33 @@ def test_le_script_de_verif_dit_qu_il_n_est_pas_une_sonde():
     )
 
 
+def test_ligne_bilan_du_producteur_lue_comme_declaree():
+    """NR 10/11 : job_6841505421b8 portait `BILAN verification : archiver prouves=40 | ...` et le guet
+    annoncait « rc=0 sans ligne de bilan » -- un faux silence sur un bilan ecrit."""
+    for ligne in ("BILAN verification : archiver prouves=40 | a instruire=0",
+                  "=== BILAN rc=0 fuites=24"):
+        b = cli.lire_bilan(rc="0", texte="du bruit\n" + ligne + "\n")
+        assert b["etat"] == "DECLARE", b
+        assert "BILAN" in b["motif"]
+    # sans bilan, le silence reste non verifie ; un Traceback apres le bilan reste un ECHEC
+    assert cli.lire_bilan(rc="0", texte="rien\n")["etat"] == "TERMINE_NON_VERIFIE"
+    assert cli.lire_bilan(rc="0", texte="BILAN x\nTraceback (most recent call last):\nE\n")["etat"] == "ECHEC"
+
+
+def test_ci_verte_pas_etiquetee_echec_par_la_trace_d_un_gate_non_mesure():
+    """11/11, job_470dcd142930 : pre-vol VERT (21 953 tests, 0 echec, « Tous les gates bloquants passent ») annonce
+    « bilan ECHEC ». La trace reseau de pip-audit (gate UNKNOWN, supplee) est imprimee APRES la ligne [preuve] ;
+    toute trace posterieure valait echec. Le verdict final de la CI, ecrit APRES la trace, la domine."""
+    preuve = ("  [preuve] sha=455d86f5ead4  executes=21953  skipped=39  echecs=0  erreurs=0  timeouts=0  "
+              "blocs_sans_preuve=0  declares_absents=0  etat=SUITE_COMPLETE")
+    trace = "Traceback (most recent call last):\n  File \"x.py\", line 1, in send\nrequests.exceptions.ConnectionError: pypi"
+    vert = "\x1b[1;32mTous les gates bloquants passent\x1b[0m \x1b[1;33m(1 non mesure(s), tous supplees)\x1b[0m"
+    b = cli.lire_bilan(rc="0", texte="\n".join([preuve, trace, "  → UNKNOWN — le gate n'a pas pu se prononcer", vert]) + "\n")
+    assert b["etat"] == "DECLARE", b
+    # contre-epreuve : une trace APRES le verdict final (crash a la sortie) reste un ECHEC
+    b = cli.lire_bilan(rc="0", texte="\n".join([preuve, vert, trace]) + "\n")
+    assert b["etat"] == "ECHEC", b
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

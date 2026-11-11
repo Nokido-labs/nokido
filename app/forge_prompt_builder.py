@@ -157,6 +157,7 @@ class PromptBuilder:
             conn = sqlite3.connect(str(self._db), timeout=3)
             conn.execute("PRAGMA journal_mode=WAL")
 
+            from nokido_agent.app.forge_prompt_guard import filtre_sql_sources_fiables
             results = []
             for kw in keywords[:4]:
                 # rag_fts (FTS5 indexe) au lieu de `text LIKE '%kw%'` : ce SELECT en
@@ -168,11 +169,11 @@ class PromptBuilder:
                     continue
                 try:
                     rows = conn.execute(
-                        "SELECT text FROM rag_fts WHERE rag_fts MATCH ? LIMIT 2",
+                        "SELECT text FROM rag_fts WHERE rag_fts MATCH ? AND " + filtre_sql_sources_fiables() + " LIMIT 2",
                         ('"' + q + '"',)).fetchall()
                 except sqlite3.OperationalError:  # rag_fts absent -> repli LIKE (lent)
                     rows = conn.execute(
-                        "SELECT text FROM rag_chunks WHERE text LIKE ? LIMIT 2",
+                        "SELECT text FROM rag_chunks WHERE text LIKE ? AND " + filtre_sql_sources_fiables() + " LIMIT 2",
                         (f"%{kw}%",)).fetchall()
                 for (txt,) in rows:
                     if len(txt) > 50 and txt not in results:

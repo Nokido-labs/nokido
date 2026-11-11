@@ -120,6 +120,7 @@ def _vue_dist() -> list[str]:
 # Toute exclusion est NOMMEE, avec sa raison.
 EXCLUS_WHEEL = {
     "app/_attic": "archive : export-ignore (**/_attic/), absent du dist",
+    "tools/_attic": "archive : export-ignore (**/_attic/), absent du dist",
     "app/legacy": "code v13 importe par personne (mesure 2026-09-30), deja exclu des parcours",
     "app/tests": "tests internes, pas du runtime",
     "app/build_cython": "sorties Cython generees ; chemins portant le profil de l'owner, bloque au public",

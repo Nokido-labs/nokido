@@ -7383,11 +7383,6 @@
   "empreinte_vue": "43d2348099242b1a",
   "vu_le": "2026-09-29T15:31:25Z"
  },
- "tools/forge_acp_adapter.py": {
-  "docstring_vue": "PoC : Nokido comme backend AGENT via ACP (Agent Client Protocol), à côté du serveur MCP",
-  "empreinte_vue": "645c017850a5b84d",
-  "vu_le": "2026-09-29T15:31:25Z"
- },
  "tools/forge_acp_client.py": {
   "docstring_vue": "Nokido comme CLIENT/HOST ACP : pilote un agent-CLI externe parlant Agent Client Protocol (ex: `gemini --experimental-acp`)",
   "empreinte_vue": "75504b86cec51397",

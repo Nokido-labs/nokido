@@ -234,3 +234,131 @@ def test_un_bloc_pip_retouche_a_la_main_diverge():
 def test_le_controle_du_bloc_pip_est_cable_dans_l_audit():
     m = _audit()
     assert "bloc pip" in [nom for nom, _ in m.CONTROLES]
+
+
+# --- gestes 1 et 4 audit Z.ai (owner 2026-11-08) : c_env_docker + sample.env ----
+
+_README_DOCKER = """
+```bash
+cp Nokido.env.example Nokido.env
+docker compose -f docker/nokido/docker-compose.yml --profile core up -d
+```
+"""
+
+
+def test_c_env_docker_lit_le_vrai_compose_du_depot():
+    """c_env_docker lit docker/nokido/docker-compose.yml (pas docker/docker-compose.yml)
+    et rend ALIGNE sur le depot corrige, jamais INDETERMINE silencieux."""
+    m = _audit()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    r = m.c_env_docker(readme)
+    assert r["statut"] == m.ALIGNE, r
+    assert "Nokido.env" in r["mesure"]["env_file"]
+    assert "docker/nokido/Dockerfile" in r["mesure"]["dockerfiles"]
+
+
+def test_c_env_docker_aligne_sur_compose_factice_coherent(tmp_path):
+    m = _audit()
+    (tmp_path / "docker" / "nokido").mkdir(parents=True)
+    (tmp_path / "docker" / "nokido" / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    compose = (
+        "x-base: &base\n"
+        "  env_file:\n"
+        "    - ../../Nokido.env\n"
+        "services:\n"
+        "  laforge-hub:\n"
+        "    <<: *base\n"
+        "    build:\n"
+        "      context: ../..\n"
+        "      dockerfile: docker/nokido/Dockerfile\n"
+        "    profiles: [\"core\", \"full\"]\n"
+    )
+    (tmp_path / "docker" / "nokido" / "docker-compose.yml").write_text(compose, encoding="utf-8")
+    r = m.c_env_docker(_README_DOCKER, racine=tmp_path)
+    assert r["statut"] == m.ALIGNE, r
+
+
+def test_c_env_docker_ecart_sur_env_file_faux(tmp_path):
+    m = _audit()
+    (tmp_path / "docker" / "nokido").mkdir(parents=True)
+    (tmp_path / "docker" / "nokido" / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    compose = (
+        "x-base: &base\n"
+        "  env_file:\n"
+        "    - ../../LaForge.env\n"
+        "services:\n"
+        "  laforge-hub:\n"
+        "    <<: *base\n"
+        "    build:\n"
+        "      context: ../..\n"
+        "      dockerfile: docker/nokido/Dockerfile\n"
+        "    profiles: [\"core\"]\n"
+    )
+    (tmp_path / "docker" / "nokido" / "docker-compose.yml").write_text(compose, encoding="utf-8")
+    r = m.c_env_docker(_README_DOCKER, racine=tmp_path)
+    assert r["statut"] == m.DIVERGE
+    assert "LaForge.env" in r["note"]
+
+
+def test_c_env_docker_detecte_dockerfile_absent(tmp_path):
+    m = _audit()
+    (tmp_path / "docker" / "nokido").mkdir(parents=True)
+    (tmp_path / "docker" / "nokido" / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    compose = (
+        "x-base: &base\n"
+        "  env_file:\n"
+        "    - ../../Nokido.env\n"
+        "services:\n"
+        "  laforge-hub:\n"
+        "    build:\n"
+        "      dockerfile: docker/nokido/Dockerfile\n"
+        "    profiles: [\"core\"]\n"
+        "  brain-worker:\n"
+        "    build:\n"
+        "      dockerfile: docker/brain_worker/Dockerfile\n"
+        "    profiles: [\"full\", \"all\"]\n"
+    )
+    (tmp_path / "docker" / "nokido" / "docker-compose.yml").write_text(compose, encoding="utf-8")
+    r = m.c_env_docker(_README_DOCKER, racine=tmp_path)
+    assert r["statut"] == m.DIVERGE
+    assert "docker/brain_worker/Dockerfile" in r["note"]
+
+
+def test_c_env_docker_jamais_indetermine_silencieux_quand_compose_existe(tmp_path):
+    """Si le fichier compose existe mais ne declare aucun .env, c'est un ECART (DIVERGE),
+    jamais un INDETERMINE silencieux."""
+    m = _audit()
+    (tmp_path / "docker" / "nokido").mkdir(parents=True)
+    (tmp_path / "docker" / "nokido" / "docker-compose.yml").write_text(
+        "services:\n  ollama:\n    image: ollama/ollama:latest\n",
+        encoding="utf-8",
+    )
+    r = m.c_env_docker(_README_DOCKER, racine=tmp_path)
+    assert r["statut"] == m.DIVERGE
+
+
+def test_controle_sample_env_detecte_cle_en_clair():
+    m = _audit()
+    faux = (
+        "# Google Gemini\n"
+        "# GEMINI_API_KEY=AIza...\n"
+        "# GROQ_API_KEY=gsk_...\n"
+    )
+    r = m.c_env_examples(fichiers={"sample.env": faux})
+    assert r["statut"] == m.DIVERGE
+    assert "GEMINI_API_KEY" in r["note"]
+    assert "GROQ_API_KEY" in r["note"]
+
+
+def test_controle_sample_env_aligne_sur_le_depot():
+    m = _audit()
+    r = m.c_env_examples()
+    assert r["statut"] == m.ALIGNE, r
+    sample = (ROOT / "sample.env").read_text(encoding="utf-8")
+    assert "nokido-secrets set --key" in sample
+
+
+def test_le_controle_sample_env_est_cable_dans_l_audit():
+    m = _audit()
+    assert "cles en clair dans sample.env" in [nom for nom, _ in m.CONTROLES]
+

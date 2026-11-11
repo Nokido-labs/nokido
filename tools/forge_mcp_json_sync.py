@@ -116,7 +116,7 @@ def _jeton_propre(agent_name: str) -> str | None:
     return vault_get(f"FORGE_TOKEN_{agent_name.upper().strip()}") or None
 
 
-def entetes_agent(agent_name: str, provenance: str | None = None) -> dict | None:
+def entetes_agent(agent_name: str, provenance: str | None = None, tache: str | None = None) -> dict | None:
     """En-tetes d'authentification de `agent_name`, ou None si son jeton propre manque.
 
     `LaForge-Provenance` (RFC 6648, sans X-) dit QUI a lance le sous-processus ; absente, elle est
@@ -126,8 +126,11 @@ def entetes_agent(agent_name: str, provenance: str | None = None) -> dict | None
         return None
     nom = agent_name.upper().strip()
     prov = str(provenance or "").strip().upper() or "INCONNUE"
-    return {"Authorization": f"Bearer {tok}", "X-Agent-Name": nom, "LaForge-Agent-Name": nom,
-            "LaForge-Provenance": prov}
+    h = {"Authorization": f"Bearer {tok}", "X-Agent-Name": nom, "LaForge-Agent-Name": nom,
+         "LaForge-Provenance": prov}
+    if str(tache or "").strip():
+        h["LaForge-Tache"] = str(tache).strip()   # forme courte (court_tache) : lie l'ecriture a SA tache
+    return h
 
 
 def _patch_config(cfg: dict) -> tuple[dict, list[tuple[str, str]]]:
@@ -222,7 +225,138 @@ def _journaliser_appel(agent: str, provenance: str) -> None:
         print(f"[mcp_json_sync] journal headers_helper non ecrit ({type(e).__name__})", file=sys.stderr)
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# AUDITEUR (E6 du plan OAuth MCP, 3/11) : lecture SEULE de toutes les configs clientes, classe d'authentification
+# par serveur, JAMAIS une valeur (ni morceau, ni longueur). Mesure avant/apres de chaque migration E7.
+# NR : tests/nr/test_mcp_json_sync_auditeur_nr.py
+# ---------------------------------------------------------------------------------------------------------------
+CODEX_TOML = OWNER_HOME / ".codex" / "config.toml"
+_CLE_ENV_CODEX = "bearer_token_env_var"
+
+
+def _a_authorization(entetes) -> bool:
+    return isinstance(entetes, dict) and any(str(k).lower() == "authorization" and v for k, v in entetes.items())
+
+
+def classer_serveur(srv: dict) -> str:
+    """OAUTH_URL_SEULE · HEADERS_HELPER · BEARER_EN_CLAIR · ENV_VAR · STDIO · INCONNU (liste blanche : rien n'est
+    « sain » par defaut)."""
+    if not isinstance(srv, dict):
+        return "INCONNU"
+    if srv.get("headersHelper"):
+        return "HEADERS_HELPER"
+    if _a_authorization(srv.get("headers")) or _a_authorization(srv.get("http_headers")):
+        return "BEARER_EN_CLAIR"
+    if srv.get(_CLE_ENV_CODEX):
+        return "ENV_VAR"
+    if srv.get("command"):
+        return "STDIO"
+    if srv.get("url") or srv.get("serverUrl") or srv.get("httpUrl"):
+        return "OAUTH_URL_SEULE"
+    return "INCONNU"
+
+
+def vise_nokido(srv: dict) -> bool:
+    url = str(srv.get("url") or srv.get("serverUrl") or srv.get("httpUrl") or "")
+    if ":8766" in url:
+        return True
+    # Points d'entree du hub, jamais « nokido » dans un chemin (mesure 3/11 : playwright lance depuis le dossier
+    # Nokido etait compte NOKIDO).
+    ligne = " ".join([str(srv.get("command") or "")] + [str(a) for a in (srv.get("args") or [])]).lower()
+    return any(m in ligne for m in ("mcp_stdio_bridge", "nokido_hub.py", "forge_mcp_stdio"))
+
+
+def _serveurs_par_portee(cfg: dict):
+    """(portee, nom, srv) : mcpServers / servers (VS Code) / mcp_servers (codex) + portees projets de ~/.claude.json."""
+    for cle in ("mcpServers", "servers", "mcp_servers"):
+        if isinstance(cfg.get(cle), dict):
+            for nom, srv in cfg[cle].items():
+                yield "utilisateur", nom, srv
+    for projet, pv in (cfg.get("projects") or {}).items():
+        if isinstance(pv, dict) and isinstance(pv.get("mcpServers"), dict):
+            for nom, srv in pv["mcpServers"].items():
+                yield "projet:%s" % projet, nom, srv
+
+
+def _etat_fichier(chemin: Path):
+    """(etat, motif). `Path.exists()` avale l'acces refuse (mesure 3/11 sous LaForgeTrusted : ~/.claude.json lu
+    « ABSENT » alors qu'il existe). ABSENT seulement si le parent est LISTABLE et ne contient pas le fichier."""
+    try:
+        chemin.stat()
+        return "PRESENT", ""
+    except FileNotFoundError:
+        try:
+            os.listdir(chemin.parent)
+        except FileNotFoundError:
+            return "ABSENT", "dossier parent absent"
+        except OSError as exc:
+            return "ILLISIBLE", "parent:" + type(exc).__name__
+        return "ABSENT", ""
+    except OSError as exc:
+        return "ILLISIBLE", type(exc).__name__
+
+
+def auditer(chemins) -> list:
+    lignes = []
+    for chemin in chemins:
+        chemin = Path(chemin)
+        base = {"fichier": str(chemin)}
+        etat, motif = _etat_fichier(chemin)
+        if etat != "PRESENT":
+            lignes.append(dict(base, etat=etat, **({"motif": motif} if motif else {})))
+            continue
+        try:
+            texte = chemin.read_text(encoding="utf-8")
+            if chemin.suffix == ".toml":
+                import tomllib
+                cfg = tomllib.loads(texte)
+            else:
+                cfg = json.loads(texte)
+        except (OSError, PermissionError) as exc:
+            lignes.append(dict(base, etat="ILLISIBLE", motif=type(exc).__name__))
+            continue
+        except Exception as exc:  # noqa: BLE001 - contenu non analysable : DIT, jamais « sain »
+            lignes.append(dict(base, etat="ILLISIBLE", motif="format:" + type(exc).__name__))
+            continue
+        vus = 0
+        for portee, nom, srv in _serveurs_par_portee(cfg if isinstance(cfg, dict) else {}):
+            vus += 1
+            lignes.append(dict(base, etat="LU", portee=portee, serveur=nom, classe=classer_serveur(srv),
+                               nokido=vise_nokido(srv) if isinstance(srv, dict) else False))
+        if not vus:
+            lignes.append(dict(base, etat="LU", portee="-", serveur="(aucun serveur declare)", classe="-",
+                               nokido=False))
+    return lignes
+
+
+def _chemins_audit_defaut() -> list:
+    return list(dict.fromkeys(list(DEFAULT_PATHS) + [CLAUDE_JSON] + list(CLIENTS_HTTP) + [CODEX_TOML]))
+
+
+def _main_auditer(chemins) -> int:
+    lignes = auditer(chemins or _chemins_audit_defaut())
+    for l in lignes:
+        if l["etat"] != "LU":
+            print("  %-10s %s %s" % (l["etat"], l["fichier"], l.get("motif", "")))
+        else:
+            print("  %-16s %-6s %-30s %-24s %s" % (l["classe"], "NOKIDO" if l["nokido"] else "-", l["serveur"][:30],
+                                                  l["portee"][:24], l["fichier"]))
+    defauts = [l for l in lignes if l["etat"] == "LU" and l["nokido"] and l["classe"] == "BEARER_EN_CLAIR"]
+    illisibles = [l for l in lignes if l["etat"] == "ILLISIBLE"]
+    print("[auditer] %d serveur(s) vers Nokido, %d jeton(s) EN CLAIR, %d fichier(s) ILLISIBLE(S) -- rien ecrit"
+          % (sum(1 for l in lignes if l.get("nokido")), len(defauts), len(illisibles)))
+    if illisibles:
+        return 4
+    return 1 if defauts else 0
+
+
 def main() -> int:
+    if "--auditer" in sys.argv:
+        _ap = argparse.ArgumentParser(description="auditeur des configs MCP clientes (lecture seule)")
+        _ap.add_argument("--auditer", action="store_true")
+        _ap.add_argument("--auditer-chemin", type=Path, action="append", default=None)
+        _a, _ = _ap.parse_known_args()
+        return _main_auditer(_a.auditer_chemin)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--path", type=Path, default=None, help="explicit .mcp.json path")
     ap.add_argument("--bootstrap", action="store_true", help="create from template if missing")
@@ -234,6 +368,8 @@ def main() -> int:
     ap.add_argument("--provenance", metavar="P", default=os.environ.get("NOKIDO_PROVENANCE", ""),
                     help="avec --emit-headers : QUI a lance ce sous-processus (en-tete LaForge-Provenance) ; "
                          "absent -> INCONNUE")
+    ap.add_argument("--tache", metavar="T", default="",
+                    help="avec --emit-headers : forme courte de la tache (en-tete LaForge-Tache)")
     ap.add_argument("--verifier", action="store_true",
                     help="avec --emit-headers : n'emet PAS la valeur, dit seulement les cles "
                          "et la longueur du jeton (controle sans exposition)")
@@ -247,7 +383,7 @@ def main() -> int:
     if args.emit_headers:
         _journaliser_appel(args.emit_headers, args.provenance)
         try:
-            entetes = entetes_agent(args.emit_headers, args.provenance) if vault_available() else None
+            entetes = entetes_agent(args.emit_headers, args.provenance, args.tache) if vault_available() else None
         except Exception as e:  # noqa: BLE001
             print(f"[mcp_json_sync] coffre ILLISIBLE ({type(e).__name__}) : aucun en-tete emis",
                   file=sys.stderr)
@@ -281,7 +417,14 @@ def main() -> int:
         target.parent.mkdir(parents=True, exist_ok=True)
         cfg = json.loads(json.dumps(TEMPLATE))
     else:
-        cfg = json.loads(target.read_text(encoding="utf-8"))
+        try:
+            cfg = json.loads(target.read_text(encoding="utf-8"))
+        except PermissionError as exc:
+            # 3/11 : trois etats, jamais deux -- un fichier du profil owner illisible pour ce compte est DIT (code 4),
+            # jamais un plantage ni un « en ordre ». NR : tests/nr/test_mcp_json_sync_illisible_nr.py
+            print(f"[mcp_json_sync] ILLISIBLE ({type(exc).__name__}) : {target} -- relancer sous le compte owner",
+                  file=sys.stderr)
+            return 4
 
     others = [p for p in DEFAULT_PATHS if p.is_file() and p != target]
     if others and args.path is None:

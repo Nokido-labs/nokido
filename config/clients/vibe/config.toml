@@ -33,8 +33,5 @@ permission = "never"
 [tools.edit]
 permission = "never"
 
-[tools.grep]
-permission = "ask"
-
 [tools.read_file]
 permission = "always"

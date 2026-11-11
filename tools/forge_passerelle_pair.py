@@ -18,20 +18,19 @@ from __future__ import annotations
 
 __FORGE_COLOR__ = "membrane/passerelle-pair : habilitations des pairs cloud, mecanique du pont"
 
-import importlib.util
 import pathlib
+import sys
+
+if str(pathlib.Path(__file__).resolve().parents[2]) not in sys.path:
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+from nokido_agent.app.forge_utils import charger_module_par_chemin  # noqa: E402
 
 _CHEMIN_GITHUB = pathlib.Path(__file__).resolve().parent / "forge_github_bridge.py"
 
 
 def _charger_mecanique():
     """Le pont GitHub, charge PAR SON CHEMIN sous un nom propre (jamais un homonyme importe)."""
-    spec = importlib.util.spec_from_file_location("forge_github_bridge_pour_pair", _CHEMIN_GITHUB)
-    if spec is None or spec.loader is None:
-        raise SystemExit("mecanique d'habilitation illisible : %s" % _CHEMIN_GITHUB)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return charger_module_par_chemin("forge_github_bridge_pour_pair", _CHEMIN_GITHUB)
 
 
 _MECANIQUE = _charger_mecanique()

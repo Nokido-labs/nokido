@@ -115,7 +115,6 @@ can use without reading the implementation.
 | `tools/_patch_tray.py` | laforge_tray.py — Icône tray Windows Nokido | — | 5 |
 | `tools/arm_applier.py` | arme l'etage REFLEXE de l'applicateur (owner 2026-08-27) | `main` | 45 |
 | `tools/autotools.py` | Nokido v1.0 ============================================ Package central de tous les outils du projet, exposés comme commandes @ natives | `Tool`, `run_index`, `run_index_continue`, `run_diag_npu` *(+32)* | 938 |
-| `tools/bancs/__init__.py` | Juges deterministes du banc d'amelioration (tools/forge_banc_amelioration.py) | — | 2 |
 | `tools/build_bge_m3_dml.py` | BGE-M3 embeddings via ORT DirectML (Radeon 780M iGPU) | `export_onnx`, `load_session`, `tokenize_batch`, `mean_pool` *(+3)* | 283 |
 | `tools/build_dist.py` | build REPRODUCTIBLE de la distribution propriétaire | `build_pyarmor`, `build_nuitka`, `main` | 122 |
 | `tools/deploy_modal_bge_m3.py` | Deploy BGE-M3 sur Modal serverless A10G GPU | `BgeM3Embedder` | 100 |
@@ -819,9 +818,6 @@ can use without reading the implementation.
 | `forge_desktop/widgets/ring_meter_v2.py` | forge_desktop/widgets/ring_meter_v2.py ======================================= TUI_TO_GUI_DYNAMIC_BRIDGE — Grouped_Ring_Meter_V2 60fps token display + system health groupé | `RingMeterV2` | 384 |
 | `forge_desktop/widgets/ring_o_meter.py` | forge_desktop/widgets/ring_o_meter.py ======================================= Ring-O-Meter — Visualisation circulaire des rings Nokido | `RingDial`, `RingStatusPanel`, `RingOMeterWidget` | 426 |
 | `forge_desktop/widgets/security_shield.py` | forge_desktop/widgets/security_shield.py ========================================= SecurityShield — v17.04-RT Affiche le statut de chaque clé API depuis win32cred | `SecurityShield` | 160 |
-| `tools/bancs/banc_juge_ancrage.py` | JUGE du banc d'amelioration `juge_ancrage_swarm` : F1 de detection des chiffres SANS SOURCE | `mesurer`, `main` | 75 |
-| `tools/bancs/banc_rappel_lexical.py` | JUGE du banc d'amelioration `rappel_lexical` (organe memoire) : rappel@10 du canal LEXICAL du RAG, mesure sur un MINI-INDEX FIGE, avec la fonction `requete_fts` (app/forge_rag_engine.py) de la RACINE donnee (copie du candidat) | `charger_requete_fts`, `verifier_index`, `mesurer`, `main` | 106 |
-| `tools/bancs/banc_redaction_dlp.py` | JUGE du banc d'amelioration `redaction_dlp` (organe immunitaire) : F1 du caviardage de forge_semantic_firewall.redact_text | `instancier`, `mesurer`, `main` | 106 |
 | `tools/bench/banc_modules_chauds.py` | S1 migration bas niveau (item roadmap_p2_rust_wasm_cible_20261016) : MESURER les modules candidats au WASM/Rust avant toute migration | `mesurer`, `texte_sans_secret`, `banc_secret_guard`, `banc_trust_score` | 80 |
 | `tools/bench/forge_dataset_loader.py` | CONTRAINTE: header HD batch | `fetch_url`, `download_tech_docs`, `download_code_pairs`, `download_sysadmin_docs` *(+1)* | 363 |
 | `tools/bench/forge_domain_adapter.py` | Beta Industrialisé : CE auto-adaptation par domaine ============================================================================== Gemini : "Industrialiser le Beta — détecter automatiquement un changement de domaine sémantique et relancer le fine-tuning CE (8 | `tok`, `corpus_fingerprint`, `finetune_ce_background`, `DomainAdapter` | 293 |
@@ -833,8 +829,6 @@ can use without reading the implementation.
 | `tools/bench/forge_snn_bench.py` | Benchmark Neuro-Spin / SNN sur graphes de type malware ============================================================================= Implémente le concept Neuro-Spin de Gemini: | `SpikeFunction`, `SpikingLayer`, `NeuroSpinGNN`, `run_snn_benchmark` *(+1)* | 284 |
 | `tools/bench/mesure_profil_client.py` | tools/bench/mesure_profil_client.py — Protocole de mesure du profil « client + SSoT » | `trouver_port_libre`, `calculer_taille_repertoire_mo`, `creer_venv`, `copier_depot` *(+4)* | 261 |
 | `tools/forge_autophagie_attic.py` | resorption des modules qui ne servent plus | `declared_nature`, `imported_modules`, `plan`, `apply` *(+1)* | 171 |
-| `tools/forge_banc_amelioration.py` | BANC D'AMELIORATION de Nokido (owner 29/10) : la methode du take-home, generalisee et branchee sur le RSI | `charger_bancs`, `generateurs_gratuits`, `parser_patch`, `controler_perimetre` *(+15)* | 776 |
-| `tools/forge_banc_strategies.py` | STRATEGIES DE RECHERCHE enfichables du banc d'amelioration (owner 29/10 : toutes les phases du take-home) | `valider_parametres`, `balayage`, `basin_hopping`, `verifier_bruit` *(+10)* | 267 |
 | `tools/forge_enquete_sans_boucle.py` | Enquête en lecture seule sans boucle d'agent | `extraire_corps_fonction`, `interroger_fts`, `assembler_dossier`, `premier_fournisseur_gratuit` *(+3)* | 457 |
 | `tools/forge_secours_lanceur.py` | Lanceur AUTOMATIQUE du secours de la synthese swarm (ring <= 3, identite du coffre via le client hub existant) | `passer` | 291 |
 | `tools/intel/forge_git_worker.py` | CONTRAINTE: header HD batch | `GitWorker` | 154 |
@@ -1310,7 +1304,6 @@ can use without reading the implementation.
 | `tools/forge_snapshot_janitor.py` | Nokido v18.5 ========================================== Maintenance automatique de rag_snapshots | `drop_rag_triggers`, `recreate_triggers`, `run_janitor`, `trigger_db_maintenance` | 266 |
 | `tools/forge_supervisor_ctl.py` | client minimal du superviseur Nokido | `main` | 373 |
 | `tools/forge_supervisor_reconcile.py` | relance une boucle de waves calée | `main` | 137 |
-| `tools/forge_takehome_evolution.py` | Boucle d'evolution DIRIGEE du take-home Anthropic (decision owner 27/10 : boucle dediee, thymus intact) | `meilleur_prouve`, `extraire_blocs`, `texte_utile`, `classer` *(+2)* | 215 |
 | `tools/forge_tdr_sentinel.py` | TDR sentinel event-driven Win32 (Phase 12 refactor) | `main` | 344 |
 | `tools/forge_test_resource_calibrator.py` | Gestionnaire de ressources pour les tests intensifs Nokido | `ProcessRecord`, `ResourceManager`, `main` | 758 |
 | `tools/forge_vault_purge_backup.py` | purge le backup PLAINTEXT laissé par --finalize | `main` | 101 |
@@ -1495,7 +1488,6 @@ can use without reading the implementation.
 | `tools/forge_bench_rerank.py` | Benchmark retrieval dense vs dense+reranker | `main` | 197 |
 | `tools/forge_bench_sample.py` | Echantillon stratifie du VRAI corpus Nokido | `main` | 85 |
 | `tools/forge_bench_segment.py` | Metriques BEIR segmentees par type de gold | `main` | 125 |
-| `tools/forge_bench_takehome.py` | Juge du banc anthropics/original_performance_takehome (pilote du cycle conseil, GO owner 24/10) | `empreinte_ok`, `juger`, `bornes`, `consigner` *(+2)* | 250 |
 | `tools/forge_bench_traduction.py` | banc MESURE de la traduction FR->EN pour economiser des tokens (GO owner 2026-10-28) | `masquer`, `restaurer`, `taux_intacts`, `compter` *(+9)* | 322 |
 | `tools/forge_bisect.py` | recherche binaire du commit coupable, sur critere REEL | `construire_commande`, `CompositionInstable`, `executer`, `main` | 266 |
 | `tools/forge_capteur_dense_apport_bench.py` | Le flux RESEAU ajoute-t-il ce que les 4 scalaires n'ont pas ? Trois bancs ont montre que rien ne bat le seuil sur les vitals : ni un LIF regle, ni une tete lineaire apprise, ni le SpikingMLP de production entraine (perte finale 0,677 pour ln(2)=0,693 — il conv | `charger_reseau`, `traits_reseau`, `mesurer`, `main` | 192 |
@@ -1962,7 +1954,6 @@ can use without reading the implementation.
 | `tools/fbxwol.py` | demande a la Freebox d'emettre le paquet magique sur le LAN | `main` | 137 |
 | `tools/forge_a2a_card.py` | Agent Card A2A GENEREE depuis l'etat vivant — jamais un fichier statique | `etats`, `carte`, `main` | 202 |
 | `tools/forge_a2a_server.py` | Serveur A2A — Tier 1 : `message/send`, `tasks/get`, `tasks/cancel` | `admission`, `traiter`, `serve`, `main` | 249 |
-| `tools/forge_acp_adapter.py` | PoC : Nokido comme backend AGENT via ACP (Agent Client Protocol), à côté du serveur MCP | `handle`, `main` | 318 |
 | `tools/forge_acp_client.py` | Nokido comme CLIENT/HOST ACP : pilote un agent-CLI externe parlant Agent Client Protocol (ex: `gemini --experimental-acp`) | `SessionBusyError`, `SilenceACP`, `ACPClient`, `ask` *(+1)* | 626 |
 | `tools/forge_acp_parite.py` | releve de parite ACP des CLI (T1, etude interface unifiee §4 bis) | `borner_timeout`, `sonder`, `tableau`, `ecrire_mesure` *(+1)* | 183 |
 | `tools/forge_acp_router.py` | routeur ACP multi-sessions (T2) | `HorsACPError`, `CwdIndisponibleError`, `politique_refus`, `ProfilInconnuError` *(+9)* | 719 |

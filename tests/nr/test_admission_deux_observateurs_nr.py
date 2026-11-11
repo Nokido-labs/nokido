@@ -40,6 +40,19 @@ def test_desaccord_persistant_refus_ram_desaccord_journalise(monkeypatch):
     assert "97.0" in d["motif"] and "69.0" in d["motif"]
 
 
+def test_refus_en_nr_sans_attribution_reelle():
+    """10/11 (pre-vol job_fa2fd1001593) : le refus appelait `_qui_tient(None)` -> attribuer_pression() REEL
+    (11,3 s a froid, mesure job_f8d12ac54be7) -> >30 s sous 5 workers -> pytest-timeout os._exit -> gw1 mort,
+    suite figee. En NR, l'attribution par defaut est neutralisee (tests/nr/conftest.py) ; injectee, elle reste reelle."""
+    import time
+    t0 = time.time()
+    d = la.arbitrer_ram([_o(96.0, 2.0, "sampler"), _o(97.0, 0.0, "psutil")],
+                        remesurer=lambda: _o(96.5, 0.0, "psutil"))
+    assert d["ok"] is False and time.time() - t0 < 2.0
+    assert "neutralisee" in d["motif"]
+    assert la._qui_tient(lambda: {"injecte": 1}) != la._qui_tient()  # pylint: disable=protected-access
+
+
 def test_reserve_absolue_toujours_appliquee_et_refus_porte_source_et_age():
     d = la.arbitrer_ram([_o(70.0, 0.0, "psutil", dispo=3.9)])
     assert d["ok"] is False and d["source"] == "psutil" and d["age_s"] == 0.0

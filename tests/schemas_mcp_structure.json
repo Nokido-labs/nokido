@@ -754,13 +754,17 @@
      "list_providers",
      "search_recent",
      "whoami",
+     "formes",
+     "alertes",
      "emit_telemetry",
      "redemarrer_stack",
      "ordre_bureau",
      "demander_ordre",
      "quota_model",
      "quota_report",
-     "confirmer_owner"
+     "confirmer_owner",
+     "fils",
+     "liberer_ram"
     ],
     "type": "string"
    },
@@ -787,6 +791,9 @@
    },
    "mode": {
     "type": "string"
+   },
+   "needed_ram_gb": {
+    "type": "number"
    },
    "ordre": {
     "type": "string"
@@ -1226,7 +1233,13 @@
    "id": {
     "type": "string"
    },
+   "limit": {
+    "type": "integer"
+   },
    "lines": {
+    "type": "integer"
+   },
+   "offset": {
     "type": "integer"
    },
    "path": {
@@ -1494,6 +1507,29 @@
    },
    "agent": {
     "type": "string"
+   },
+   "allow_critical": {
+    "type": "boolean"
+   },
+   "contrat": {
+    "properties": {
+     "chemins": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "type": {
+      "enum": [
+       "commit",
+       "fichier",
+       "tests_verts",
+       "aucun"
+      ],
+      "type": "string"
+     }
+    },
+    "type": "object"
    },
    "depend_de": {
     "items": {

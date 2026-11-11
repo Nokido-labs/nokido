@@ -31,47 +31,14 @@ if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from forge_jeton_hook import jeton_du_hook  # noqa: E402
+
 HUB = "http://127.0.0.1:8766/mcp"
 
 
 def load_token() -> str:
-    # Le marqueur PROPRE est cherche en TOUT PREMIER. L'ordre n'est pas un
-    # detail : une premiere version placait ce bloc apres la lecture de
-    # `FORGE_TOKEN_CLAUDE` dans l'environnement, et l'effet mesure etait bon --
-    # mais par ACCIDENT, parce que cette variable est absente ici. Le jour ou
-    # elle serait posee, le hook reprendrait le credential d'un autre organe
-    # sans qu'aucun test ne rougisse. Un comportement juste par coincidence
-    # n'est pas un comportement juste.
-    tok = os.environ.get("FORGE_TOKEN_CLAUDE_HOOK", "")
-    if tok:
-        return tok
-    # SON marqueur d'abord, et le COFFRE avant le fichier (regle DPAPI).
-    # Corrige le 2026-09-02 : ce hook portait le credential de CLAUDE (ring 1)
-    # en se declarant CLAUDE_HOOK (ring 4) -- emprunter le marqueur d'un voisin
-    # est ce que la doctrine interdit, et cela faisait circuler un credential
-    # privilegie dans un hook qui n'en a pas besoin.
-    try:
-        sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_secrets import get_secret  # type: ignore
-
-        propre = get_secret("FORGE_TOKEN_CLAUDE_HOOK")
-        if propre:
-            return propre
-    except Exception:  # muet-ok : coffre indisponible -> replis ci-dessous, un hook ne casse jamais la session
-        pass
-    tok = os.environ.get("FORGE_TOKEN_CLAUDE", "")
-    if tok:
-        return tok
-    env = ROOT / "Nokido.env"
-    if env.exists():
-        for line in env.read_text(errors="ignore").splitlines():
-            if line.startswith("FORGE_TOKEN_CLAUDE_HOOK="):
-                return line.split("=", 1)[1].strip()
-            if line.startswith("FORGE_TOKEN_CLAUDE="):
-                return line.split("=", 1)[1].strip()
-            if line.startswith("FORGE_MCP_TOKEN=") and not tok:
-                tok = line.split("=", 1)[1].strip()
-    return tok
+    return jeton_du_hook(ROOT)
 
 
 def main() -> int:

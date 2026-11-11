@@ -18,8 +18,11 @@ import forge_task_executor as T  # noqa: E402
 def test_le_filtre_des_candidats_ne_consomme_aucun_essai():
     src = inspect.getsource(T._reaffecter)
     debut = src.index("vivants = [")
-    filtre = src[debut:src.index("]", src.index('!= "OPEN"', debut)) + 1]
+    filtre = src[debut:src.index("]", debut) + 1]
     assert "autoriser_essai_half_open" not in filtre
+    # 3/11 : le filtre delegue a _candidat_eligible (pre-vol partage) -- lui non plus ne consomme aucun essai
+    assert "_candidat_eligible" in filtre
+    assert "autoriser_essai_half_open" not in inspect.getsource(T._candidat_eligible)
 
 
 def test_l_essai_est_consomme_sur_le_candidat_retenu(tmp_path, monkeypatch):

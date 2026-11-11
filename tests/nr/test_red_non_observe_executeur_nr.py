@@ -51,12 +51,32 @@ def test_indetermine_inchange(tmp_path):
 def test_commit_refuse_par_l_executeur_n_est_jamais_un_succes():
     # 30/10 : job_db32d872 (MISTRAL) a REMPLACE 4 traductions par « ERR: extract requiert text + idea_id » ; le garde
     # a refuse le commit (reecriture destructrice) mais la tache est sortie SUCCESS -- la note etait dans le detail.
-    detail = ("[effet observe] commits produits : 0 (a..a) ; fichiers non commites : 4 | commit executeur REFUSE : "
+    # 7/11 : le detail suit le format REEL des delegations (`detail\n[executeur] <note>`, _delegate_to_vibe/codex/agy/
+    # claude/opencode depuis le 16/10) ; depuis 7aa64ee12 une note SANS cette frontiere est de la prose d'agent et ne
+    # juge plus (un marqueur cite ne vaut pas verdict). Le contrat reste : refus executeur -> jamais SUCCESS.
+    detail = ("[effet observe] commits produits : 0 (a..a) ; fichiers non commites : 4 | ERR: extract requiert text "
+              "+ idea_id\n[executeur] commit executeur REFUSE : "
               "reecriture destructrice de docs/i18n/README.fr.md (plus de la moitie des lignes retirees)")
     assert fte._statut_livraison(True, detail) == "NEEDS_HUMAN"
     assert fte._statut_livraison(True, detail.replace("REFUSE : reecriture destructrice", "REFUSE par le scorecard")) \
         == "NEEDS_HUMAN"
+    # prose vide (« sortie vide ») : la note reste celle de l'executeur
+    assert fte._statut_livraison(True, "[effet observe] commits produits : 0 (a..a) ; fichiers non commites : 4 | "
+                                       "\n[executeur] commit executeur REFUSE rc=1 : hook") == "NEEDS_HUMAN"
     assert fte._statut_livraison(True, "[effet observe] commits produits : 1 (a..b)") == "SUCCESS"
+
+
+def test_commit_refuse_cloture_reelle_emet_needs_human(monkeypatch):
+    emis = []
+    monkeypatch.setattr(fte, "_db", lambda: type("C", (), {"close": lambda self: None})())
+    monkeypatch.setattr(fte, "_mark_done", lambda *a, **k: None)
+    monkeypatch.setattr(fte, "_noter_cause_echec", lambda *a, **k: None)
+    monkeypatch.setattr(fte, "_hub_call", lambda tool, args, token, timeout=30: emis.append(args) or {})
+    effet = "[effet observe] commits produits : 0 (a..a) ; fichiers non commites : 4"
+    prose = "ERR: extract requiert text + idea_id"
+    fte._clore_delegation("t_refus", "x", True, "%s | %s\n[executeur] %s" % (
+        effet, prose, "commit executeur REFUSE : reecriture destructrice de a.md"))
+    assert emis and '"status_code": "NEEDS_HUMAN"' in emis[0]["result"]
 
 
 def test_consigne_claude_rappelle_l_ordre():

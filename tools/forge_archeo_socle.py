@@ -199,9 +199,14 @@ def sortie(res, json_mode, rendu, code=None):
     return int(code(res)) if code else 0
 
 
-def ecrire_json(chemin, obj):
-    """Ecrit un rapport, cree le repertoire, rend le chemin relatif a ROOT."""
+def ecrire_json(chemin, obj, _relpath=None):
+    """Ecrit un rapport, cree le repertoire, rend le chemin relatif a ROOT -- ou ABSOLU si aucun chemin relatif
+    n'existe (autre lecteur : `C:` contre `D:` sur le runner Windows de GitHub, run 42930679070, ou le rapport
+    etait ecrit puis la fonction levait ValueError). `_relpath` injectable pour le NR."""
     os.makedirs(os.path.dirname(chemin), exist_ok=True)
     with open(chemin, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, ensure_ascii=False, indent=1, default=str)
-    return os.path.relpath(chemin, ROOT)
+    try:
+        return (_relpath or os.path.relpath)(chemin, ROOT)
+    except ValueError:  # muet-ok : pas de chemin relatif entre deux lecteurs, l'absolu est la reponse juste
+        return os.path.abspath(chemin)

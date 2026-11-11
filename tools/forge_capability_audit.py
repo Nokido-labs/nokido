@@ -33,6 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 ALIGNE, DIVERGE, INDETERMINE = "ALIGNE", "DIVERGE", "INDETERMINE"
+ECART, ILLISIBLE = DIVERGE, INDETERMINE
 
 
 def _lire(rel: str) -> str | None:
@@ -277,23 +278,140 @@ def c_proprioception(readme: str) -> dict:
               else "la route ne passe pas par l'index AST")
 
 
-def c_env_docker(readme: str) -> dict:
-    """Le fichier prepare par le quick-start doit etre celui que Compose lit."""
-    compose = _lire("docker/docker-compose.yml") or _lire("docker-compose.yml")
+def _services_compose(compose: str) -> list[dict]:
+    """Services declares dans un docker-compose.yml (nom, dockerfile, profiles)."""
+    m = re.search(r"^services:\s*\r?\n(.*?)(?=\r?\n[A-Za-z0-9_-]+:|\Z)", compose, re.M | re.S)
+    corps = m.group(1) if m else compose
+    blocs = re.split(r"(?m)^  ([A-Za-z0-9_.-]+):\s*\r?\n", corps)
+    services = []
+    for i in range(1, len(blocs), 2):
+        nom_svc, contenu = blocs[i], blocs[i + 1]
+        df_m = re.search(r"^\s*dockerfile:\s*([^\s#\"']+)", contenu, re.M)
+        prof_m = re.search(r"^\s*profiles:\s*\[([^\]]*)\]", contenu, re.M)
+        profs = []
+        if prof_m:
+            profs = [p.strip().strip("\"'") for p in prof_m.group(1).split(",") if p.strip()]
+        else:
+            prof_list = re.search(r"^\s*profiles:\s*\r?\n((?:\s*-\s*[^\r\n]+\r?\n?)+)", contenu, re.M)
+            if prof_list:
+                profs = [
+                    re.sub(r"^\s*-\s*", "", l).strip().strip("\"'")
+                    for l in prof_list.group(1).splitlines()
+                    if l.strip()
+                ]
+        services.append({
+            "service": nom_svc,
+            "dockerfile": df_m.group(1).strip() if df_m else None,
+            "profiles": profs,
+        })
+    return services
+
+
+def c_env_docker(
+    readme: str,
+    compose: str | None = None,
+    racine: Path | None = None,
+) -> dict:
+    """Le fichier prepare par le quick-start doit etre celui que Compose lit, et tout dockerfile declare doit exister."""
+    base = racine or ROOT
     if compose is None:
-        return _v("fichier .env Docker", INDETERMINE, None, None,
-                  "docker-compose.yml introuvable")
-    lus = sorted(set(re.findall(r"[-\s]([A-Za-z0-9_.-]+\.env)\b", compose)))
+        cible = base / "docker" / "nokido" / "docker-compose.yml"
+        if not cible.exists():
+            cible = base / "docker-compose.yml"
+        if not cible.exists():
+            return _v("fichier .env Docker", ILLISIBLE, None, None,
+                      "docker/nokido/docker-compose.yml introuvable")
+        try:
+            compose = cible.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return _v("fichier .env Docker", ILLISIBLE, None, None,
+                      "docker-compose.yml illisible : %s" % type(exc).__name__)
+    if not compose or not compose.strip():
+        return _v("fichier .env Docker", ILLISIBLE, None, None,
+                  "docker-compose.yml vide ou illisible")
+    # Fichiers .env lus via env_file (nom de base retenu : ../../Nokido.env -> Nokido.env)
+    lus_bruts = re.findall(r"[-\s:][\"']?([A-Za-z0-9_./-]*[A-Za-z0-9_.-]+\.env)\b", compose)
+    lus = sorted({Path(p).name for p in lus_bruts})
     prepares = sorted(set(re.findall(r"cp\s+([A-Za-z0-9_.-]+)\.env\.example\s+"
                                      r"([A-Za-z0-9_.-]+\.env)", readme)))
-    if not lus or not prepares:
-        return _v("fichier .env Docker", INDETERMINE, prepares or None, lus or None,
-                  "rien a comparer")
-    noms_prepares = {p[1] for p in prepares}
-    manque = [f for f in noms_prepares if f not in lus]
-    return _v("fichier .env Docker", DIVERGE if manque else ALIGNE,
-              sorted(noms_prepares), lus,
-              "prepare %s, Compose lit %s" % (manque, lus) if manque else "")
+    ecarts = []
+    noms_prepares = sorted({p[1] for p in prepares})
+    if not lus:
+        ecarts.append("aucun env_file .env declare dans docker-compose.yml")
+    if not noms_prepares:
+        ecarts.append("aucune commande cp *.env.example *.env dans README.md")
+    if lus and noms_prepares:
+        manque = [f for f in noms_prepares if f not in lus]
+        en_trop = [f for f in lus if f not in noms_prepares]
+        if manque or en_trop:
+            ecarts.append("prepare %s, Compose lit %s" % (noms_prepares, lus))
+    # Verification des Dockerfile declares (hors profil optionnel dedie au seul service)
+    profils_std = {"core", "full", "all", "dev"}
+    dockerfiles_verifies = []
+    for svc in _services_compose(compose):
+        df = svc["dockerfile"]
+        if not df:
+            continue
+        profs = set(svc["profiles"])
+        # Un service retire des profils standards (ex. profiles: [brain-worker]) est optionnel
+        if profs and not (profs & profils_std) and not (base / df).exists():
+            continue
+        dockerfiles_verifies.append(df)
+        if not (base / df).exists():
+            ecarts.append("service %s : dockerfile %s introuvable" % (svc["service"], df))
+    mesure = {"env_file": lus, "dockerfiles": sorted(set(dockerfiles_verifies))}
+    return _v("fichier .env Docker", DIVERGE if ecarts else ALIGNE,
+              noms_prepares, mesure, " ; ".join(ecarts))
+
+
+_RE_CLE_PROVIDER_ENV = re.compile(
+    r"^\s*(?:#\s*)?([A-Z][A-Z0-9_]*(?:_API_KEY|_TOKEN))\s*=\s*(\S.*)$"
+)
+_CLES_PROVIDER_EXEMPTES = frozenset({"FORGE_MCP_TOKEN"})
+
+
+def c_env_examples(
+    readme: str = "",
+    pyproject: str = "",
+    racine: Path | None = None,
+    fichiers: dict[str, str] | None = None,
+) -> dict:
+    """Aucun *.env.example / sample.env ne propose une cle *_API_KEY ou *_TOKEN de provider en clair."""
+    nom = "cles en clair dans sample.env"
+    cibles: dict[str, str] = {}
+    if fichiers is not None:
+        cibles = dict(fichiers)
+    else:
+        base = racine or ROOT
+        candidats = [base / "sample.env", *sorted(base.glob("*.env.example"))]
+        for p in candidats:
+            if not p.exists():
+                continue
+            try:
+                cibles[p.name] = p.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return _v(nom, ILLISIBLE, "0 cle en clair", None,
+                          "%s illisible : %s" % (p.name, type(exc).__name__))
+    if not cibles:
+        return _v(nom, ILLISIBLE, "0 cle en clair", None,
+                  "aucun fichier sample.env ou *.env.example trouve")
+    fuites = []
+    for fname, contenu in sorted(cibles.items()):
+        for num, ligne in enumerate(contenu.splitlines(), 1):
+            m = _RE_CLE_PROVIDER_ENV.match(ligne)
+            if not m:
+                continue
+            cle, val = m.group(1), m.group(2).strip()
+            if cle in _CLES_PROVIDER_EXEMPTES:
+                continue
+            if not val or val.startswith("#"):
+                continue
+            fuites.append("%s:%d (%s)" % (fname, num, cle))
+    if fuites:
+        return _v(nom, DIVERGE, "coffre (nokido-secrets set --key)", fuites,
+                  "invitation(s) a poser une cle en clair : " + ", ".join(fuites))
+    return _v(nom, ALIGNE, "coffre (nokido-secrets set --key)",
+              sorted(cibles.keys()), "")
 
 
 # Un SLOT n'est pas un FOURNISSEUR : `PROVIDER_SPECS` route des couples
@@ -780,6 +898,7 @@ CONTROLES = (
     ("ports arretes dans docs/", lambda r, p: c_ports_docs(r, p)),
     ("tableau de statut", lambda r, p: c_statut(r, p)),
     ("bloc pip", lambda r, p: c_bloc_pip(r, p)),
+    ("cles en clair dans sample.env", lambda r, p: c_env_examples(r, p)),
 )
 
 

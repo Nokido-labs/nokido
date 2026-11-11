@@ -68,9 +68,30 @@ ACTIONS = {
                       "claude.ai et ChatGPT pourront s'y connecter (OAuth + quarantaine restent en place)."),
     "funnel-fermer": ("FERMER le Funnel Tailscale",
                       "Coupe l'acces de claude.ai et ChatGPT au connecteur des pairs."),
+    # 6/11 (owner) : l'audit des processus, gouverne par Nokido. Oui ici, puis UAC : tools/forge_audit_processus.py.
+    "audit-processus": ("ACTIVER l'audit des processus Windows (4688 et 4689)",
+                        "Politique systeme : creations et fins de processus au journal Security, lignes de commande "
+                        "comprises, journal porte a 200 Mo, votre compte ajoute aux lecteurs des journaux. Reversible. "
+                        "Une fenetre UAC suit ce Oui ; l'etat atteint est relu et affiche."),
     # 31/10 (choix owner) : « audio-relancer » RETIRE des ordres deposables -- la fuite d'audiodg venait de l'APO Razer
     # 7.1 (desinstalle ; pente +1,1 handles/min) et le tray ne le porte plus (4ffc52ed2) : un ordre deposable que le
     # tray ignorerait expirerait sans effet. Recours manuel : action du panneau (nokido_launcher, UAC).
+}
+#: 3/11 E4 du plan OAuth MCP (docs/PLAN_OAUTH_MCP_HUB_20261102.md) : DECISIONS de l'owner, pas des actions du panneau.
+#: Deposees par le HUB (a_valider), affichees par le tray, la reponse Oui/Non revient au hub par `decider`, reserve
+#: au consommateur prouve qui a pris l'ordre. Table A PART : `ACTIONS` ne liste que ce que le panneau execute.
+DECISIONS = {
+    "oauth-consentement": ("Autoriser un client OAuth a se connecter au hub Nokido",
+                           "Oui : le client recoit un jeton court (ring 3, portee mcp:hub), revocable. "
+                           "Non : la demande est refusee (access_denied)."),
+    # 3/11 (owner « fais revoquer_client ») : un agent DEMANDE (ordre oauth-revoquer), l'owner DECIDE ici.
+    "oauth-revocation": ("Revoquer un client OAuth du hub Nokido",
+                         "Oui : tous ses jetons sont revoques, son inscription et son entree au registre retirees. "
+                         "Non : rien ne change."),
+    # 6/11 (owner) : route gouvernee de lancement CI -- un agent DEMANDE, l'owner valide au tray, le hub declenche.
+    "ci-lancement": ("Lancer un workflow de CI GitHub",
+                     "Oui : le hub declenche le workflow specifie sur la ref demandee (consomme du quota GitHub Actions). "
+                     "Non : rien n'est lance."),
 }
 #: Ordres deposes SANS question : lecture seule, rien n'est expose ni coupe.
 SANS_CONFIRMATION = frozenset({"tailscale-statut"})
@@ -99,6 +120,11 @@ COMMANDES = ROOT / "logs" / "commandes_owner.jsonl"
 _ORDRES: list = []
 _PREUVES: dict = {}                # preuve -> (ordre, cible, echeance) ; en MEMOIRE du hub seulement
 _VERROU = threading.Lock()
+#: Ordres qui, une fois PRIS, attendent une DECISION du consommateur (et non une action du panneau).
+ORDRES_A_DECISION = frozenset(DECISIONS)
+DUREE_DECISION_S = 600.0           # la fenetre du tray reste ouverte le temps que l'owner lise
+_A_DECIDER: dict = {}              # ordre_id -> (ordre, consommateur, echeance)
+_DECIDEURS: dict = {}              # action -> callable(cible, oui) enregistre par le hub
 
 
 def _consigner(evenement: str, **champs) -> None:
@@ -217,17 +243,22 @@ def solder_redemarrages(boot_ts: float, notifier=None, journal: Path | None = No
 
 
 def deposer(action: str, demandeur: str, raison: str = "", maintenant: float | None = None,
-            a_valider: bool = False) -> dict:
+            a_valider: bool = False, cible: str = "") -> dict:
     """Depose un ordre a usage unique. N'est appele qu'apres un ACCEPTE de l'owner, OU marque `a_valider` : le tray
-    fait alors monter une fenetre de validation et n'execute que sur le Oui de l'owner (owner 30/10)."""
-    if action not in ACTIONS:
-        raise ValueError("action non confirmable : %r (connues : %s)" % (action, ", ".join(ACTIONS)))
+    fait alors monter une fenetre de validation et n'execute que sur le Oui de l'owner (owner 30/10).
+    `cible` (3/11) : objet de la decision (ex. identifiant de demande OAuth), rendu au decideur."""
+    if action not in ACTIONS and action not in DECISIONS:
+        raise ValueError("action non confirmable : %r (connues : %s)" % (action, ", ".join(list(ACTIONS) + list(DECISIONS))))
+    if action in DECISIONS and not a_valider:
+        raise ValueError("une decision (%s) se depose a_valider : rien sans le Oui de l'owner" % action)
     t = time.time() if maintenant is None else maintenant
     ordre = {"id": "ordre-" + uuid.uuid4().hex[:12], "action": action,
              "demandeur": str(demandeur or "?"), "raison": str(raison or "")[:500],
              "depose_a": t, "echeance": t + ECHEANCE_S}
     if a_valider:
         ordre["a_valider"] = True
+    if cible:
+        ordre["cible"] = str(cible)[:200]
     with _VERROU:
         _purger(t)
         _ORDRES.append(ordre)
@@ -359,8 +390,61 @@ def prendre(consommateur: str, maintenant: float | None = None) -> dict:
         if not _ORDRES:
             return {"etat": RIEN}
         ordre = _ORDRES.pop(0)
+        if ordre["action"] in ORDRES_A_DECISION:
+            _A_DECIDER[ordre["id"]] = (ordre, qui, t + DUREE_DECISION_S)
     _consigner("pris", id=ordre["id"], action=ordre["action"], consommateur=qui)
     return {"etat": ORDRE, "ordre": ordre}
+
+
+def enregistrer_decideur(action: str, fonction) -> None:
+    """Le hub enregistre QUI execute la decision d'une action (evite un import circulaire vers les routes OAuth)."""
+    if action not in ORDRES_A_DECISION:
+        raise ValueError("action sans decision : %r" % action)
+    _DECIDEURS[action] = fonction
+
+
+def decider(consommateur: str, ordre_id: str, oui: bool, maintenant: float | None = None,
+            ring: int | None = None) -> dict:
+    """3/11 E4 : decision de l'owner, rapportee par le consommateur PROUVE qui a pris l'ordre -- et lui seul.
+
+    Un agent ne peut pas approuver son propre client OAuth : sans cette restriction le consentement ne protegerait
+    rien. Decision a usage unique, bornee (DUREE_DECISION_S) ; sans decideur enregistre, refus DIT.
+    """
+    qui = str(consommateur or "").upper().strip()
+    t = time.time() if maintenant is None else maintenant
+    # 3/11 (decision owner « ring choisi au tray ») : ring CHOISI par l'owner a la fenetre ; 1..3 seulement, jamais 0
+    if ring is not None and (not isinstance(ring, int) or ring < 1 or ring > 3):
+        _consigner("decision_refusee", id=ordre_id, consommateur=qui or "?", motif="ring hors borne %r" % (ring,))
+        return {"etat": REFUSE, "raison": "ring hors borne [1..3] : %r" % (ring,)}
+    if qui not in CONSOMMATEURS:
+        _consigner("decision_refusee", id=ordre_id, consommateur=qui or "?", motif="consommateur non admis")
+        return {"etat": REFUSE, "raison": "%s ne peut pas decider (admis : %s)"
+                                          % (qui or "identite vide", ", ".join(sorted(CONSOMMATEURS)))}
+    with _VERROU:
+        entree = _A_DECIDER.get(ordre_id)
+        if entree is None or entree[1] != qui or entree[2] < t:
+            motif = ("ordre inconnu, deja decide ou sans decision" if entree is None
+                     else "pris par un autre consommateur" if entree[1] != qui else "decision echue")
+            if entree is not None and entree[2] < t:
+                _A_DECIDER.pop(ordre_id, None)
+            _consigner("decision_refusee", id=ordre_id, consommateur=qui, motif=motif)
+            return {"etat": REFUSE, "raison": motif}
+        _A_DECIDER.pop(ordre_id, None)
+    ordre = entree[0]
+    fonction = _DECIDEURS.get(ordre["action"])
+    if fonction is None:
+        _consigner("decision_refusee", id=ordre_id, consommateur=qui, motif="aucun decideur enregistre")
+        return {"etat": REFUSE, "raison": "aucun decideur enregistre pour %s (hub non arme ?)" % ordre["action"]}
+    try:
+        if ring is None:
+            retour = fonction(ordre.get("cible", ""), bool(oui))               # appel historique, inchange
+        else:
+            retour = fonction(ordre.get("cible", ""), bool(oui), ring=ring)
+    except Exception as exc:  # noqa: BLE001 - dit : la decision n'a pas abouti
+        _consigner("decision_echouee", id=ordre_id, consommateur=qui, erreur=type(exc).__name__)
+        return {"etat": REFUSE, "raison": "decision non appliquee (%s)" % type(exc).__name__}
+    _consigner("decide", id=ordre_id, action=ordre["action"], consommateur=qui, oui=bool(oui), ring=ring)
+    return {"etat": "DECIDE", "oui": bool(oui), "retour": retour if isinstance(retour, (str, dict)) else None}
 
 
 async def redemarrer_stack(demandeur: str, raison: str = "", confirmer=None, demandeur_prouve: bool = False,
@@ -484,6 +568,8 @@ async def demander_ordre(demandeur: str, ordre: str, raison: str = "", cible: st
     if ordre in ("restart", "restart-hub"):
         return await redemarrer_stack(demandeur, raison, confirmer, demandeur_prouve=demandeur_prouve, action=ordre)
     if ordre == "commande-deposer":
+        if not str(texte or "").strip():  # 6/11 : `commande=` au lieu de `texte=` deposait une commande vide, sans rien dire
+            return {"etat": REFUSE, "raison": "commande vide : passer la commande dans texte=<commande>, le motif dans raison=<motif>"}
         # Une commande transite par le tray et le presse-papier : un secret y serait expose. Meme scanner que
         # governed_edit ; FAIL-CLOSED (scanner indisponible = refus dit).
         try:
@@ -500,11 +586,40 @@ async def demander_ordre(demandeur: str, ordre: str, raison: str = "", cible: st
         return {"etat": "LISTE", "commandes": commandes_en_attente()}
     if ordre == "commande-faite":
         return marquer_commande(demandeur, cible, extrait_retour=texte)  # texte = extrait du retour colle par l'owner
+    if ordre == "oauth-revoquer":
+        # 3/11 : DEMANDE de revocation d'un client OAuth (cible = client_id) -> decision owner a la fenetre du tray ;
+        # rien n'est revoque sans le Oui. Le demandeur (agent) ne decide jamais lui-meme.
+        if not cible:
+            return {"etat": REFUSE, "raison": "oauth-revoquer exige `cible` (client_id)"}
+        o = deposer("oauth-revocation", demandeur, "Revoquer le client OAuth %s%s" % (
+            str(cible)[:40], (" : %s" % raison) if raison else ""), a_valider=True, cible=str(cible))
+        return {"etat": DEPOSE, "depose": True, "a_valider": True, "ordre": o["id"], "echeance_s": ECHEANCE_S,
+                "note": "fenetre de validation au tray : rien n'est revoque sans le Oui de l'owner"}
+    if ordre == "ci-lancer":
+        # 6/11 : DEMANDE de lancement CI GitHub -> cible obligatoire de forme <workflow>.yml@<ref>
+        # Validation stricte par regex, puis decision owner a la fenetre du tray ; rien n'est lance sans le Oui.
+        import re
+        c = str(cible or "").strip()
+        if not c or not re.fullmatch(r"[A-Za-z0-9_.-]+\.ya?ml@[A-Za-z0-9_./-]+", c):
+            return {"etat": REFUSE, "raison": "ci-lancer exige `cible` de forme <workflow>.yml@<ref>"}
+        o = deposer("ci-lancement", demandeur, "Lancer le workflow CI %s%s" % (
+            c, (" : %s" % raison) if raison else ""), a_valider=True, cible=c)
+        return {"etat": DEPOSE, "depose": True, "a_valider": True, "ordre": o["id"], "echeance_s": ECHEANCE_S,
+                "note": "fenetre de validation au tray : rien n'est lance sans le Oui de l'owner"}
+    if ordre in ("decision-oui", "decision-non", "decision-oui-ring1"):
+        # 3/11 E4 (plan OAuth MCP) : REPONSE du tray a une DECISION (oauth-consentement), cible = id de l'ordre.
+        # Aucune elicitation : l'owner a deja tranche dans la fenetre du tray. `decider` n'admet QUE le consommateur
+        # prouve qui a pris l'ordre -- un agent qui appelle cette porte est refuse (il ne s'auto-approuve pas).
+        # decision-oui-ring1 (3/11) : l'owner a accorde les droits eleves a la 2e fenetre du tray.
+        if ordre == "decision-oui-ring1":
+            return decider(demandeur, cible, True, ring=1)
+        return decider(demandeur, cible, ordre == "decision-oui")
     if ordre not in ACTIONS and ordre not in ORDRES_HUB:
         # Les ordres de COMMANDE (traites plus haut) sont listes aussi (21/10) : sans eux, la route du tray
         # n'etait connue que de la memoire d'un agent, jamais d'une installation neuve.
-        return {"etat": REFUSE, "raison": "ordre inconnu %r (connus : %s)"
-                % (ordre, ", ".join(sorted(set(ACTIONS) | set(ORDRES_HUB) | set(ORDRES_COMMANDES))))}
+        ordres_speciaux = {"ci-lancer", "oauth-revoquer", *ORDRES_COMMANDES}
+        connus = sorted(set(ACTIONS) | set(ORDRES_HUB) | ordres_speciaux)
+        return {"etat": REFUSE, "raison": "ordre inconnu %r (connus : %s)" % (ordre, ", ".join(connus))}
     if ordre in ORDRES_HUB and not cible:
         return {"etat": REFUSE, "raison": "%s exige `cible` (id du depot, ou client du pair)" % ordre}
     if ordre == "pair-repondre" and not pointeur:

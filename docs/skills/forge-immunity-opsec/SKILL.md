@@ -3,8 +3,8 @@ name: forge-immunity-opsec
 description: >-
   À utiliser avant d'envoyer texte, code ou sortie d'outil à un modèle cloud ou à un
   pair externe, avant de lire ou poser un secret, ou face à un refus de ring, du
-  firewall ou de l'opsec, depuis toute surface. Donne la chaîne pre_flight → appel →
-  post_flight → restore, la membrane, le coffre (get_secret), les rings et les pièges.
+  firewall ou de l'opsec, depuis toute surface. Chaîne pre_flight → post_flight → restore,
+  membrane, coffre (get_secret).
 ---
 
 # forge-immunity-opsec — ce qui sort, ce qui entre, qui a le droit

@@ -244,8 +244,9 @@ def classer_reponse(code: int, detail: str) -> str:
     d = (detail or "").lower()
     if code == 200:
         return "JOIGNABLE"
-    if code == 402 or "1113" in d or "insufficient balance" in d or "payment" in d or "credit" in d:
-        return "SANS_SOLDE"
+    if code == 402 or "1113" in d or "exceededbudget" in d or "budget_exceeded" in d \
+            or "insufficient balance" in d or "payment" in d or "credit" in d:
+        return "SANS_SOLDE"                     # 422 ExceededBudget (budget 0.0) : un refus de SOLDE, pas un 402 seulement
     if "1910" in d or "tier" in d or "subscription" in d or "not allowed" in d:
         return "HORS_PALIER"
     if code == 429 and _quota_journalier(d):
@@ -446,10 +447,36 @@ def reclasser_par_competence(voie: dict) -> dict:
     return voie
 
 
-# CLI : memes taches, par le CHEMIN REEL du routeur (`forge_agent_proxy.ask`). Codex absent par defaut (owner 15/10 :
-# non paye, quota tres limite) ; un CLI qui echoue (OAuth expire, fournisseur inconnu) est NOTE avec sa raison,
-# jamais classe incompetent.
-CLI_PAR_DEFAUT = ("gemini_cli", "opencode")
+# CLI : memes taches, par le CHEMIN REEL du routeur (`forge_agent_proxy.ask`). Un CLI qui echoue (OAuth expire,
+# fournisseur inconnu) est NOTE avec sa raison, jamais classe incompetent.
+# La liste par defaut se DERRIVE du registre du proxy (mesure 2026-10-24 : la constante figee
+# `("gemini_cli", "opencode")` a mesure 0/0 — un client MORT et un nom absent du registre) : disponibles seulement,
+# jamais un exclu du census (`forge_free_tier_census.EXCLUS_PROXY`) ; les abonnements owner (claude/codex/copilot_cli)
+# uniquement sur `inclure_abonnements=True` — un client mort y reste exclu meme avec le drapeau.
+CLI_ABONNEMENTS = ("claude_cli", "codex_cli", "copilot_cli")
+
+
+def cli_par_defaut(registry_fn=None, inclure_abonnements: bool = False) -> tuple[str, ...]:
+    """Clients CLI vivants du registre du proxy, derives (jamais fiques). Registre absent/illisible -> ()."""
+    if registry_fn is None:
+        from nokido_agent.app.forge_agent_proxy import _PROVIDERS
+        registry_fn = lambda: _PROVIDERS  # noqa: E731 - trivial
+    try:
+        from nokido_agent.tools.forge_free_tier_census import EXCLUS_PROXY
+    except ImportError:
+        from forge_free_tier_census import EXCLUS_PROXY  # repli checkout
+    retenus = []
+    for fiche in registry_fn() or []:
+        nom = fiche.get("name") if isinstance(fiche, dict) else getattr(fiche, "name", None)
+        if not isinstance(nom, str) or not nom.endswith("_cli"):
+            continue                          # un fournisseur distant/locaux n'est pas un CLI
+        dispo = fiche.get("available", True) if isinstance(fiche, dict) else getattr(fiche, "available", True)
+        if dispo is False:
+            continue
+        if nom in EXCLUS_PROXY and not (inclure_abonnements and nom in CLI_ABONNEMENTS):
+            continue                          # mort/meta : jamais ; abonnement owner : seulement sur le drapeau
+        retenus.append(nom)
+    return tuple(sorted(retenus))
 
 
 def _texte_de(reponse) -> tuple:
@@ -534,6 +561,12 @@ def construire_matrice(familles=FAMILLES_UTILES, get_secret=None, interroger_fn=
                         "code": c, "latence_ms": lat, "detail": d[:120]}
                 if not 200 <= c < 300:
                     geler_voie(voie, c, d)
+                    # Un INCONNU (ou un refus) sans motif n'est jamais acceptable : le NOM d'un refus de solde,
+                    # d'une indisponibilite 503, etc. correspond a ce que la reponse a dit.
+                    motif = ("budget_epuise" if voie["etat"] == "SANS_SOLDE"
+                             else "service_indisponible_503" if c == 503 else None)
+                    if motif:
+                        voie["motif"] = motif
                     if voie["etat"] in ("DEBIT", "INCONNU"):
                         voie["a_resonder"] = True    # pas un refus : a re-sonder
                 if competence and voie["etat"] == "JOIGNABLE":
@@ -680,7 +713,7 @@ def main() -> int:
         if "--cli" in sys.argv:
             i = sys.argv.index("--cli")
             noms = sys.argv[i + 1].split(",") if i + 1 < len(sys.argv) and not sys.argv[i + 1].startswith("--") \
-                else list(CLI_PAR_DEFAUT)
+                else list(cli_par_defaut())
             m["cli"] = {p.strip(): sonder_competence_cli(p.strip()) for p in noms if p.strip()}
             for p, c in m["cli"].items():
                 print(f"cli {p:12} : {c['reussies']}/{c['mesurees']} mesurees (sur {c['total']}) {c['taches']} "

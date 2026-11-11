@@ -582,6 +582,18 @@ def _llm_round(agent: Agent, messages: list[dict[str, Any]], with_tools: bool) -
     if with_tools and agent.tools and not provider and not _looks_like_ollama_model(agent.model):
         _observer_payload_sans_tools(agent, full)
 
+    # Validation universelle en mode OBSERVATION avant tout envoi. Un agent sans outils n'est pas
+    # inerte : ses messages restent controles, seule la regle agentique lui est epargnee.
+    try:
+        from nokido_agent.app.core.payload_validator import validate_payload_observateur
+        porte_des_outils = bool(with_tools and agent.tools)
+        payload_for_validation = {"messages": full}
+        if porte_des_outils:
+            payload_for_validation["tools"] = [_build_tool_schema(t) for t in agent.tools]
+        validate_payload_observateur(payload_for_validation, "forge_handoff", agent.tools, agentique=porte_des_outils)
+    except Exception:  # noqa: BLE001 - muet-ok : l'observation ne doit JAMAIS bloquer l'envoi
+        pass
+
     # Branch A : explicit local provider — dispatch direct via /api/chat.
     if provider in _LOCAL_PROVIDERS:
         tools_schema = [_build_tool_schema(t) for t in agent.tools] if (with_tools and agent.tools) else None

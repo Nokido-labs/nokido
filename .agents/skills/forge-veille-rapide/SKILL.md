@@ -80,7 +80,9 @@ justifiait la veille. Vérifier ensuite par un terme témoin en `rag_chunks_fts`
      (payé le 15/10 : veille figée 20 min à 17 Mo/s de lecture, `introspect` du hub expiré, job tué).
      Forme qui marche : existence par la clef primaire `SELECT 1 FROM rag_chunks WHERE id = ?` ; si le fragment
      existe déjà, sa présence dans `rag_fts` se vérifie par `rag_fts MATCH '"<mots du texte>"' AND chunk_id = ?`
-     (indexé). Une transaction par source (`BEGIN IMMEDIATE` … `COMMIT`) : un arrêt ne laisse pas de demi-écriture.
+     (indexé). ⚠️ Mots **CONTIGUS** (`re.findall(r"[^\W_]+", t)[:6]`) : une phrase qui saute les mots courts n'est
+     jamais trouvée, le fragment est réinséré, la recherche le sert en DOUBLE (payé le 2/11, veille GitLab ; réparé
+     par rowid : `C:/tmp/laforge_jobs/dedoublonner_rag_fts_gitlab_20261102.py`). Une transaction par source (`BEGIN IMMEDIATE` … `COMMIT`) : un arrêt ne laisse pas de demi-écriture.
      Modèle : `C:/tmp/drafts/rsi/veille_claude_desktop.py`.
 4. **Exécution** : un `run_job` détaché (plusieurs URL = long ; plafond 70 s des appels hub).
    Modèle : `sandbox/workspace/veille_github_bp3.py`.

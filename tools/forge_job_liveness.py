@@ -77,10 +77,26 @@ def _rc(job_id: str):
         return None
 
 
-def _vivant(pid: int) -> bool:
-    """Presence du PID, sans droit particulier (tasklist, jamais wmic)."""
+def _vivant(pid: int, _windows=None, _kill=None) -> bool:
+    """Presence du PID, sans droit particulier (tasklist sous Windows, jamais wmic ; signal 0 ailleurs).
+
+    11/11, CI GitHub run 42930679070 : `tasklist` n'existe que sous Windows -- sur Linux et macOS le processus
+    COURANT etait dit mort. Hors Windows : `os.kill(pid, 0)` ne tue rien, il sonde (ProcessLookupError = absent,
+    PermissionError = present chez un autre compte). JAMAIS `os.kill(pid, 0)` sous Windows : il y TERMINE le
+    processus. `_windows` et `_kill` sont injectables pour le NR (on ne modifie pas le module `os` global)."""
     if not pid:
         return False
+    if not ((os.name == "nt") if _windows is None else _windows):
+        try:
+            (_kill or os.kill)(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except OSError as exc:
+            print("  ! sonde du pid impossible (%s) : vitalite INDETERMINEE" % type(exc).__name__)
+            return False
+        return True
     try:
         out = subprocess.run(
             ["tasklist", "/FI", "PID eq %d" % pid, "/NH"],

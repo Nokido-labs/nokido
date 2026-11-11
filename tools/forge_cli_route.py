@@ -51,11 +51,11 @@ ROOT = Path(__file__).resolve().parent.parent
 STATE = ROOT / "sandbox" / "cli_route.json"
 HUB_HEALTH = os.environ.get("FORGE_HUB_URL", "http://127.0.0.1:8766/mcp").replace("/mcp", "/health")
 
-# cli -> (var d'env base_url, valeur, {env auth dummy})
+# cli -> (var d'env base_url, valeur, {env auth additionnel})
 INGRESS = {
-    "claude": ("ANTHROPIC_BASE_URL", "http://127.0.0.1:7776", {"ANTHROPIC_AUTH_TOKEN": "laforge-local"}),
+    "claude": ("ANTHROPIC_BASE_URL", "http://127.0.0.1:7776", {}),
     "gemini": ("GOOGLE_GEMINI_BASE_URL", "http://127.0.0.1:7778", {}),
-    "cline": ("OPENAI_BASE_URL", "http://127.0.0.1:7777/v1", {"OPENAI_API_KEY": "laforge-local"}),
+    "cline": ("OPENAI_BASE_URL", "http://127.0.0.1:7777/v1", {}),
     # copilot BYOK (cf `copilot help providers`) : COPILOT_PROVIDER_BASE_URL active le mode
     # BYOK -> GitHub auth NON requise = 0 quota GitHub. MODEL_ID well-known = active le
     # tool-support ; WIRE_MODEL = nom envoyé à :7777 (-> tool-passthrough -> ollama).
@@ -65,7 +65,6 @@ INGRESS = {
         "COPILOT_PROVIDER_MODEL_ID": "claude-sonnet-4.5",
         "COPILOT_PROVIDER_WIRE_MODEL": "qwen2.5-coder:latest",
         "COPILOT_PROVIDER_WIRE_API": "completions",
-        "COPILOT_PROVIDER_API_KEY": "laforge-local",
     }),
 }
 # vibe (mistral-vibe) : il n'existe pas d'ingress Mistral, donc `var is None` et
@@ -99,7 +98,8 @@ ALWAYS_ENV = {
 # rend son ring PROUVE et non emprunte.
 SECRET_ENV = {
     "vibe": {
-        "MISTRAL_API_KEY": "MISTRAL_API_KEY",
+        # 9/11 (owner) : cle de PORTEE Vibe (« Nokido ») ; la cle Studio (MISTRAL_API_KEY au coffre) n'est pas pour Vibe.
+        "MISTRAL_API_KEY": "MISTRAL_VIBE_API_KEY",
         "FORGE_TOKEN_VIBE": "FORGE_TOKEN_VIBE",
     },
     # mammouth s'authentifie chez son propre fournisseur ; cote Nokido, seul le token
@@ -141,6 +141,38 @@ def _hub_up() -> bool:
             return r.status == 200
     except Exception:
         return False
+
+
+def _obtenir_jeton_auth(cli: str, tache: str | None = None, tentative: int | None = None) -> str | None:
+    """Obtient un CapabilityToken court pour ce CLI. Fail-closed : sinon None, le routage s'arrete.
+    Jamais de repli sur MASTER_TOKEN ni sur un jeton longue duree : l'environnement de l'enfant est herite par tout ce
+    que le CLI lance (revue du 6/11). Ne journalise JAMAIS la valeur du jeton.
+
+    `tache` (07/11, identite de slot) : la tache du slot part DANS la charge signee (scope `tache`), seul endroit
+    d'ou les proxys API la lisent -- jamais d'un en-tete libre. Le ring et les autres scopes restent ceux d'avant
+    (aucun changement de ring) ; le scope `tache` n'ouvre aucune action, il nomme. Tache illisible -> None."""
+    try:
+        import re as _re
+        from nokido_agent.app.forge_integrity import get_manager, IntegrityRing
+        # Meme forme que `forge_llm_format_bridge._TACHE_RE`, qui fait foi cote proxy (il refuse toute autre forme).
+        # Pas d'import du pont ici : il charge le jeton du hub a l'import, ce process n'en a pas besoin.
+        if tache is not None and not (isinstance(tache, str) and _re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", tache)):
+            print("[route] tache illisible pour le jeton de slot : refus", flush=True)
+            return None
+        mgr = get_manager()
+        agent_id = f"{cli.upper()}_CLI"
+        scopes = None
+        if tache is not None:
+            scopes = dict(IntegrityRing.DEV.default_scopes())
+            scopes["tache"] = [tache]
+            if tentative is not None:  # jeton de garde (7/11) : la tentative signee, lue au claim (`tasks.garde`)
+                scopes["tentative"] = [str(int(tentative))]
+        token = mgr.create_manifest(agent_id=agent_id, ring=IntegrityRing.DEV, scopes=scopes, duration_s=1800)
+        if token:
+            return token
+    except Exception as e:  # noqa: BLE001 - dit sa cause, jamais le jeton : le routage s'arrete ensuite
+        print(f"[route] jeton court indisponible : {type(e).__name__}", flush=True)
+    return None
 
 
 def _routing_active(st: dict, cli: str) -> bool:
@@ -247,9 +279,24 @@ def cmd_launch(cli: str, args: list) -> int:
             print(f"[route] hub :8766 INJOIGNABLE -> {cli} lancé en NATIF (fallback, pas de casse).", flush=True)
             route = False
         else:
+            jeton = _obtenir_jeton_auth(cli)
+            if not jeton:
+                print(f"[route] ERREUR : Jeton d'authentification indisponible pour {cli}. Routage interrompu.", flush=True)
+                return 1
             env[var] = val
             env.update(extra)
-            print(f"[route] {cli} -> Nokido ({var}={val})", flush=True)
+            # Injection sécurisée du jeton propre à chaque client enfant
+            if cli == "claude":
+                env["ANTHROPIC_AUTH_TOKEN"] = jeton
+            elif cli == "gemini":
+                env["GEMINI_API_KEY"] = jeton
+                env["GEMINI_API_KEY_AUTH_MECHANISM"] = "bearer"
+            elif cli == "cline":
+                env["OPENAI_API_KEY"] = jeton
+            elif cli == "copilot":
+                env["COPILOT_PROVIDER_API_KEY"] = jeton
+
+            print(f"[route] {cli} -> Nokido ({var}={val}, auth=ok)", flush=True)
     else:
         print(f"[route] {cli} -> NATIF (toggle off / non routable)", flush=True)
 

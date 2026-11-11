@@ -34,6 +34,14 @@ def test_une_commande_deposee_par_un_agent_est_acceptee(ob):
     assert r["etat"] == ob.DEPOSE, r
 
 
+@pytest.mark.parametrize("texte", ["", "   ", "\n"])
+def test_une_commande_vide_est_refusee_et_nomme_le_parametre(ob, texte):
+    """Paye le 6/11 : `commande=` au lieu de `texte=` deposait une commande vide au tray, DEPOSE sans rien dire."""
+    r = asyncio.run(ob.demander_ordre("CLAUDE", "commande-deposer", "x", texte=texte))
+    assert r["etat"] == ob.REFUSE and "texte=" in r["raison"], r
+    assert ob.commandes_en_attente() == []
+
+
 def test_la_commande_deposee_attend_l_owner_avec_son_auteur(ob):
     asyncio.run(ob.demander_ordre("CLAUDE", "commande-deposer", "armer le mode DEV", texte="cmd x"))
     r = asyncio.run(ob.demander_ordre("TRAY", "commandes-en-attente"))

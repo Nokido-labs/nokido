@@ -20,43 +20,42 @@ _HTML = """<!doctype html>
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg-0); color:var(--text-primary);
          font-family: var(--font-sans); }
-  header { border-bottom:1px solid #1f2937; padding:1rem 1.5rem;
+  /* 1/11 : jetons laforge-ds seulement (plan d'homogeneisation UI, Pole 1) -- aucune couleur en dur */
+  header { border-bottom:1px solid var(--border); padding:1rem 1.5rem;
            display:flex; align-items:center; gap:1rem; }
-  header a { color:#94a3b8; text-decoration:none; font-size:0.85rem; }
+  header a { color:var(--text-secondary); text-decoration:none; font-size:0.85rem; }
   header h1 { margin:0; font-size:1.2rem; font-weight:600; }
   header .spacer { flex:1; }
-  header .info { font-family:ui-monospace,monospace; font-size:0.75rem; color:#475569; }
+  header .info { font-family:var(--font-mono, ui-monospace, monospace); font-size:0.75rem; color:var(--text-dim); }
   main { padding:2rem 1.5rem; max-width:1100px; margin:0 auto; }
-  .warn { background:#78350f; border:1px solid #b45309; color:#fde68a;
+  .warn { background:var(--tint-yellow); border:1px solid var(--warn); color:var(--warn);
           padding:0.8rem 1rem; border-radius:8px; margin-bottom:1.2rem;
           font-size:0.9rem; }
   .grid { display:grid; grid-template-columns:1fr; gap:1rem; }
   @media (min-width:760px){ .grid{ grid-template-columns:1fr 1fr; } }
-  .card { background:#11151c; border:1px solid #1f2937; border-radius:10px;
+  .card { background:var(--surface-card); border:1px solid var(--border); border-radius:10px;
           padding:1.2rem; }
   .card h3 { margin:0 0 0.3rem; font-size:1.05rem; }
-  .card .desc { color:#94a3b8; font-size:0.85rem; margin:0 0 0.8rem; }
+  .card .desc { color:var(--text-secondary); font-size:0.85rem; margin:0 0 0.8rem; }
   .status { display:inline-block; padding:2px 8px; border-radius:10px;
             font-size:0.75rem; font-family:ui-monospace,monospace;
             text-transform:uppercase; letter-spacing:0.05em; }
-  .status.running { background:#064e3b; color:#6ee7b7; }
-  .status.stopped { background:#1f2937; color:#94a3b8; }
-  .status.stale   { background:#7c2d12; color:#fca5a5; }
-  .meta { font-family:ui-monospace,monospace; font-size:0.8rem; color:#64748b;
+  .status.running { background:var(--tint-green); color:var(--ok); }
+  .status.stopped { background:var(--surface-raised); color:var(--text-secondary); }
+  .status.stale   { background:var(--tint-red); color:var(--err); }
+  .meta { font-family:var(--font-mono, ui-monospace, monospace); font-size:0.8rem; color:var(--text-dim);
           margin-top:0.6rem; }
   .actions { margin-top:1rem; display:flex; gap:0.6rem; }
   button { padding:0.55rem 0.9rem; border:0; border-radius:6px;
            font-size:0.85rem; font-weight:500; cursor:pointer; }
-  button.start { background:#059669; color:white; }
-  button.start:hover { background:#047857; }
-  button.stop  { background:#dc2626; color:white; }
-  button.stop:hover  { background:#b91c1c; }
-  button.logs  { background:#1f2937; color:#cbd5e1; }
-  button.logs:hover  { background:#374151; }
-  button.live { background:#7c3aed; color:white; }
-  button.live:hover { background:#6d28d9; }
-  button.live.on { background:#dc2626; }
-  button.live.on:hover { background:#b91c1c; }
+  button.start { background:var(--ok); color:var(--bg-0); }
+  button.stop  { background:var(--err); color:var(--text-primary); }
+  button.start:hover, button.stop:hover, button.live.on:hover, a.open:hover { filter:brightness(0.88); }
+  button.logs  { background:var(--surface-raised); color:var(--text-primary); }
+  button.logs:hover  { background:var(--surface-active); }
+  button.live { background:var(--accent); color:var(--text-primary); }
+  button.live:hover { background:var(--purple-dim); }
+  button.live.on { background:var(--err); }
   button.live.on::before {
     content:"●"; display:inline-block; margin-right:0.3rem;
     animation: pulse 1.4s ease-in-out infinite;
@@ -64,17 +63,16 @@ _HTML = """<!doctype html>
   @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:0.35;} }
   a.open { padding:0.55rem 0.9rem; border-radius:6px;
            font-size:0.85rem; font-weight:500; text-decoration:none;
-           background:#2563eb; color:white; display:inline-block; }
-  a.open:hover { background:#1d4ed8; }
+           background:var(--info); color:var(--bg-0); display:inline-block; }
   .badge-cli { margin-left:0.5rem; padding:1px 6px; border-radius:4px;
-               background:#1f2937; color:#94a3b8; font-size:0.7rem;
-               font-family:ui-monospace,monospace; }
+               background:var(--surface-raised); color:var(--text-secondary); font-size:0.7rem;
+               font-family:var(--font-mono, ui-monospace, monospace); }
   button:disabled { opacity:0.4; cursor:not-allowed; }
-  pre.log { background:#0a0e14; border:1px solid #1f2937;
+  pre.log { background:var(--bg-0); border:1px solid var(--border);
             border-radius:6px; padding:0.75rem; margin-top:0.8rem;
-            font-size:0.75rem; color:#94a3b8; max-height:260px;
+            font-size:0.75rem; color:var(--text-secondary); max-height:260px;
             overflow:auto; white-space:pre-wrap; }
-  .err { color:#fca5a5; font-size:0.85rem; margin-top:0.4rem; }
+  .err { color:var(--err); font-size:0.85rem; margin-top:0.4rem; }
 </style>
 </head><body>
 <header>
@@ -91,7 +89,7 @@ _HTML = """<!doctype html>
   <div class="grid" id="grid"></div>
 
   <h2 style="margin:2.2rem 0 0.3rem;font-size:1.05rem">Services a la demande</h2>
-  <p class="desc" style="margin:0 0 1rem;color:#94a3b8;font-size:0.85rem;max-width:80ch">
+  <p class="desc" style="margin:0 0 1rem;color:var(--text-secondary);font-size:0.85rem;max-width:80ch">
     Ces services sont <b>eteints au demarrage</b>, volontairement : ils coutent de la
     memoire et ne servent qu'a la demande. Les tuiles du portail y renvoient ici au lieu
     de les lancer toutes seules. Le cout est annonce <b>avant</b> le clic.

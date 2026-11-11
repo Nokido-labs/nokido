@@ -120,7 +120,7 @@ def test_deja_en_base_par_phrase_fts_reelle(tmp_path, monkeypatch):
 
 def test_drapeau_cli_traverse_le_point_d_entree():
     r = subprocess.run([sys.executable, str(ROOT / "app" / "forge_rss_watcher.py"), "--rejouer", "mauvais-id"],
-                       capture_output=True, text=True, errors="replace", timeout=60, cwd=str(ROOT))
+                       capture_output=True, text=True, errors="replace", timeout=25, cwd=str(ROOT))
     assert r.returncode == 0, r.stderr[-800:]
     sortie = json.loads(r.stdout[r.stdout.index("{"):])
     assert sortie["mauvais-id"]["action"] == "REFUS_MAL_FORME"

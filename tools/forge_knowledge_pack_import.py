@@ -54,6 +54,8 @@ import numpy as np
 logger = logging.getLogger("forge.knowledge_pack")
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:  # amorce : le garde d'ingestion vit sous `nokido_agent`
+    sys.path.insert(0, str(ROOT))
 DB = ROOT / "RAG" / "embeddings.db"
 DEFAULT_REPO = "Nokido-labs/nokido"  # vitrine publique (ex-nokido-dist) : releases + Knowledge Pack
 
@@ -202,6 +204,11 @@ def _ecrire_lignes(conn, lignes, overwrite_existing: bool, stats: dict, verbose:
         text = str(text)
         source = str(source)
         domain = str(domain)
+
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(source, text):
+            stats["refuses"] = stats.get("refuses", 0) + 1
+            continue
 
         try:
             existing = cur.execute(

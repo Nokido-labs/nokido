@@ -102,6 +102,34 @@ def stamp_line(msg: str) -> str:
     return "%s %s" % (now_iso(), msg)
 
 
+class FluxHorodate:
+    """Enveloppe un flux texte (sys.stdout redirige vers un journal) : chaque LIGNE complete sort prefixee par
+    `stamp_line`. 3/11 (bilan a 100) : les `print("[tray] ...")` du tray tombaient sans date dans logs/tray.log.
+    Une ligne incomplete attend sa fin (pas de date au milieu d'une ligne) ; `flush` la vide telle quelle."""
+
+    def __init__(self, flux):
+        self._flux = flux
+        self._reste = ""
+
+    def write(self, s):
+        if not s:
+            return 0
+        self._reste += s
+        *completes, self._reste = self._reste.split("\n")
+        for ligne in completes:
+            self._flux.write(stamp_line(ligne) + "\n")
+        return len(s)
+
+    def flush(self):
+        if self._reste:
+            self._flux.write(stamp_line(self._reste) + "\n")
+            self._reste = ""
+        self._flux.flush()
+
+    def __getattr__(self, nom):
+        return getattr(self._flux, nom)
+
+
 def stamp_row(row: dict) -> dict:
     """Injecte `ts` dans une ligne JSONL si elle n'en porte pas.
 

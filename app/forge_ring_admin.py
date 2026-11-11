@@ -63,6 +63,65 @@ def set_ring(agent: str, new_ring, caller_ring: int, caller_agent: str = "") -> 
     return {"ok": True, "agent": agent, "old": old, "new": new_ring}
 
 
+def inscrire_client_oauth(identite: str, ring, note: str) -> dict:
+    """3/11 (decision owner « ring choisi au tray + inscrit au registre ») : inscrit/met a jour le ring d'un CLIENT
+    OAuth, decide par l'owner a la fenetre de consentement du tray (forge_ordres_bureau.decider ne l'admet que du
+    consommateur prouve). Appele par le decideur du hub, jamais par une route.
+
+    Bornes, et pourquoi elles sont etroites (set_ring exige le ring 0 pour TOUT agent) : identite OAUTH_* seulement
+    -- aucun organe ni agent existant ne se reecrit par ici ; ring 1..3, jamais 0 ; motif dans l'entree + audit ;
+    ecriture ATOMIQUE (le hub relit le store sur mtime et ne doit jamais lire un fichier tronque).
+    NR : tests/nr/test_ring_client_oauth_au_registre_nr.py
+    """
+    ident = (identite or "").upper().strip()
+    if not ident.startswith("OAUTH_") or len(ident) <= len("OAUTH_"):
+        return {"ok": False, "error": "identite hors espace OAUTH_ : %r" % ident}
+    try:
+        ring = int(ring)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "ring invalide (entier attendu)"}
+    if ring < 1 or ring > 3:
+        return {"ok": False, "error": "ring hors borne [1..3] pour un client OAuth"}
+    data = load()
+    agents = data.setdefault("agents", {})
+    ancien = agents.get(ident, {}).get("ring") if isinstance(agents.get(ident), dict) else None
+    entree = dict(agents.get(ident) or {}) if isinstance(agents.get(ident), dict) else {}
+    entree.update({"ring": ring, "kind": "oauth_client", "actor": ident, "surface": "interactive", "mailbox": ident,
+                   "channel": "HTTP_DIRECT", "transport": "http", "machine": "local",
+                   "_note": str(note or "")[:400]})
+    agents[ident] = entree
+    tmp = _STORE.with_name("%s.%d.tmp" % (_STORE.name, os.getpid()))
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, _STORE)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": "ecriture store: %s" % type(e).__name__}
+    _audit("OAUTH-CONSENTEMENT %s ring %s -> %s (%s)" % (ident, ancien, ring, str(note or "")[:120]))
+    return {"ok": True, "agent": ident, "old": ancien, "new": ring}
+
+
+def retirer_client_oauth(identite: str, motif: str = "") -> dict:
+    """3/11 : retire l'entree d'un CLIENT OAuth du registre (revocation decidee par l'owner au tray). OAUTH_* seulement
+    -- aucun organe ni agent ne se retire par ici ; ecriture atomique ; audit. Sans entree, un jeton restant retombe
+    au ring 3 (verification max(registre, jeton)). NR : tests/nr/test_oauth_revoquer_client_nr.py"""
+    ident = (identite or "").upper().strip()
+    if not ident.startswith("OAUTH_") or len(ident) <= len("OAUTH_"):
+        return {"ok": False, "error": "identite hors espace OAUTH_ : %r" % ident}
+    data = load()
+    agents = data.setdefault("agents", {})
+    if ident not in agents:
+        return {"ok": True, "agent": ident, "retire": False, "note": "absente du registre (rien a retirer)"}
+    ancien = agents.pop(ident)
+    tmp = _STORE.with_name("%s.%d.tmp" % (_STORE.name, os.getpid()))
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, _STORE)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": "ecriture store: %s" % type(e).__name__}
+    _audit("OAUTH-REVOCATION %s retire (ring %s) %s" % (ident, (ancien or {}).get("ring"), str(motif or "")[:120]))
+    return {"ok": True, "agent": ident, "retire": True}
+
+
 def render_page(caller_ring: int = 99) -> str:
     data = load()
     agents = data.get("agents", {})

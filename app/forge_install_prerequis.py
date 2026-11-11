@@ -382,7 +382,7 @@ COMPOSE_FICHIERS = (
 IMAGES_DOCKER_ATTENDUES: tuple[tuple[str, str, str], ...] = (
     ("ollama/ollama:latest", "tierce", "inference locale en conteneur"),
     ("searxng/searxng:latest", "tierce", "recherche web locale — aucun binaire equivalent"),
-    ("unclecode/crawl4ai:latest", "tierce", "crawl web — conteneurise, jamais un binaire"),
+    ("unclecode/crawl4ai:0.9.4", "tierce", "crawl web — conteneurise, jamais un binaire (jeton obligatoire >= 0.9)"),
     ("denoland/deno:alpine", "tierce", "runtime TypeScript en conteneur"),
     ("adminer:latest", "tierce", "inspection de base, profil dev"),
     ("nokido:latest", "construite", "image principale, batie depuis ce depot"),

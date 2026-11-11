@@ -30,7 +30,8 @@ def test_le_redacteur_branche_retire_le_temoin():
 def test_clore_delegation_ne_persiste_ni_n_emet_le_jeton(monkeypatch):
     vus = []
     monkeypatch.setattr(T, "_hub_call", lambda tool, args, token, timeout=30: vus.append(args) or {})
-    monkeypatch.setattr(T, "_mark_done", lambda conn, tid, detail, ok: vus.append({"base": detail}))
+    # 7/11 (7aa64ee12) : `_mark_done` recoit aussi `workdir=` ; la doublure l'accepte (le jeton reste le contrat).
+    monkeypatch.setattr(T, "_mark_done", lambda conn, tid, detail, ok, workdir=None: vus.append({"base": detail}))
     monkeypatch.setattr(T, "_db", lambda: type("C", (), {"close": lambda self: None})())
     T._clore_delegation("job_temoin", "x", False, "erreur ACP (RuntimeError): Authorization: Bearer " + TEMOIN)
     assert vus and all(TEMOIN not in str(v) for v in vus)

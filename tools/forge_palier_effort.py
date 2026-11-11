@@ -54,13 +54,26 @@ TABLE = {
     "claude": {"S": ("claude-haiku-5-5", "low"), "M": ("claude-sonnet-5-5", "low"), "L": ("claude-opus-5-5", "medium")},
     # agy (owner 30/10 « Gemini 4 Argon tres puissant mais vide les tokens ») : modele LEGER pose par taille, jamais le
     # /model de l'owner par defaut ; `agy models` (30/10) : gemini-3.8-flash-{low,medium,high}, gemini-4-argon-* --
-    # Argon reserve a l'escalade verifiee, jamais par defaut.
+    # Argon reserve a l'escalade verifiee, jamais par defaut. 6/11 (owner, `agy models` relu) : le groupe Claude et GPT
+    # d'AGY a son propre quota, 96,8 % le 6/11, quand flash-low rendait « Individual quota reached » et des rendus faux.
+    # 6/11 17:30 (owner) : Claude hors quota jusqu'a ~19:33, Gemini revenu, « argon a tres peu de quota restant, reste sur 3.8 et
+    # en dessous si necessaire ». Retour sur Claude a decider : le choix par modele suivra la lecture du quota.
+    # AGY refuse un suffixe de modele qui contredit --effort : les deux vont ensemble.
     "agy": {"S": ("gemini-3.8-flash-low", "low"), "M": ("gemini-3.8-flash-low", "low"),
             "L": ("gemini-3.8-flash-medium", "medium")},
     "vibe": {t: ("codestral-latest", None) for t in TAILLES},
     # opencode : S local (Ollama, 0 jeton cloud) ; M/L = modele de l'instance (config), non pose par la facade.
     "opencode": {"S": ("qwen2.5-coder:7b", None), "M": (None, None), "L": (None, None)},
     "claude_api": {"S": ("claude-haiku-5-5", "low"), "M": ("claude-sonnet-5-5", "low"), "L": ("claude-opus-5-5", "medium")},
+}
+
+# Replis ordonnes par surface et taille en cas de modele hors quota/epuise.
+REPLIS = {
+    "agy": {
+        "S": (("claude-sonnet-5-5-low", "low"),),
+        "M": (("claude-sonnet-5-5-low", "low"),),
+        "L": (("claude-opus-5-5-medium", "medium"),),
+    },
 }
 
 # Efforts supportes par modele connu sur sa surface.
@@ -70,6 +83,8 @@ EFFORTS_SUPPORTES: dict[tuple[str, str], tuple[str, ...]] = {
     # agy : gemini-3.8-flash-{low,medium,high} supportent low, medium, high selon `agy models`
     ("agy", "gemini-3.8-flash-low"): ("low", "medium", "high"),
     ("agy", "gemini-3.8-flash-medium"): ("low", "medium", "high"),
+    ("agy", "claude-sonnet-5-5-low"): ("low", "medium", "high"),
+    ("agy", "claude-opus-5-5-medium"): ("low", "medium", "high"),
     # claude_api : platform.claude.com specifie low, medium, high pour l'API Messages
     ("claude_api", "claude-haiku-5-5"): ("low", "medium", "high"),
     ("claude_api", "claude-sonnet-5-5"): ("low", "medium", "high"),
@@ -128,9 +143,10 @@ def modele_de(surface: str, taille: str):
     return TABLE[surface][_taille(taille)][0]
 
 
-def resoudre(surface: str, taille="M", effort=None, escalade=None, census=None) -> dict:
+def resoudre(surface: str, taille="M", effort=None, escalade=None, census=None, maintenant: float | None = None) -> dict:
     """Modele + effort retenus pour (surface, taille). ValueError : surface/taille/escalade/effort refuses ;
-    ModeleHorsQuota : census a 0 req/min. `effort` n'est accepte que s'il n'est pas haut (sinon escalade exigee)."""
+    ModeleHorsQuota : census a 0 req/min ou quota epuise. Si le modele de la table est epuise, bascule sur les
+    replis declares par la table. `effort` n'est accepte que s'il n'est pas haut (sinon escalade exigee)."""
     if surface not in TABLE:
         raise ValueError("surface refusee : %r (attendu : %s)" % (surface, "|".join(SURFACES)))
     t = _taille(taille)
@@ -138,7 +154,33 @@ def resoudre(surface: str, taille="M", effort=None, escalade=None, census=None) 
         raise ValueError("escalade refusee : %r (preuve attendue : %s)" % (escalade, "|".join(ESCALADES)))
     if effort in EFFORTS_HAUTS and escalade is None:
         raise ValueError("effort %r refuse sans escalade verifiee (%s)" % (effort, "|".join(ESCALADES)))
-    modele, effort_table = TABLE[surface][t]
+    modele_initial, effort_table = TABLE[surface][t]
+    candidats = [(modele_initial, effort_table)] + list(REPLIS.get(surface, {}).get(t, ()))
+
+    modele = None
+    effort_retenu = None
+    dernier_motif = None
+
+    import forge_task_executor
+    for cand_modele, cand_effort in candidats:
+        if cand_modele:
+            if "argon" in cand_modele.lower():
+                continue
+            motif = forge_task_executor.surface_est_indisponible(cand_modele, maintenant)
+            if not motif:
+                motif = forge_task_executor._modele_hors_quota(FOURNISSEUR[surface], cand_modele, census, maintenant=maintenant)
+            if motif:
+                dernier_motif = motif
+                continue
+        modele = cand_modele
+        effort_retenu = cand_effort
+        break
+
+    if modele is None and dernier_motif:
+        raise ModeleHorsQuota(dernier_motif)
+    if effort_retenu is None:
+        effort_retenu = effort_table
+
     drap = DRAPEAUX_LUS[surface]
     inconnu = None
     if drap["drapeau"] is None:
@@ -148,16 +190,11 @@ def resoudre(surface: str, taille="M", effort=None, escalade=None, census=None) 
         _LOG.warning(inconnu)
         retenu = None
     elif escalade is not None:
-        retenu = EFFORT_ESCALADE if EFFORT_ESCALADE in drap["niveaux_aide"] else effort_table
+        retenu = EFFORT_ESCALADE if EFFORT_ESCALADE in drap["niveaux_aide"] else effort_retenu
     else:
-        retenu = effort if effort is not None else effort_table
+        retenu = effort if effort is not None else effort_retenu
         if retenu is not None and retenu not in drap["niveaux_aide"]:
             raise ValueError("effort %r absent de l'aide de %s" % (retenu, surface))
-    if modele:
-        import forge_task_executor
-        motif = forge_task_executor._modele_hors_quota(FOURNISSEUR[surface], modele, census)
-        if motif:
-            raise ModeleHorsQuota(motif)
     retenu, motif_borne = borner_effort(surface, modele, retenu)
     if motif_borne:
         _LOG.info(motif_borne)

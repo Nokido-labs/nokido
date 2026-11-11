@@ -16,6 +16,7 @@ prothese INSTABLE. La relancer sans fin consomme la machine et masque la cause.
 Trois proprietes, et la troisieme est aussi importante que les deux autres :
 la reprise doit rester possible, sinon le garde devient une panne de plus.
 """
+# pylint: disable=protected-access,unused-argument  # NR de l'interne du keeper (anti-boucle), fixture monkeypatch
 import sys
 from pathlib import Path
 
@@ -28,7 +29,10 @@ k = pytest.importorskip("forge_docker_keeper")
 
 
 @pytest.fixture(autouse=True)
-def _etat_propre():
+def _etat_propre(monkeypatch, tmp_path):
+    # Isolation (10/11 soir) : la trace docker.arret_volontaire (cd553f996) se lit a cote de WANT_FLAG ; sans
+    # redirection, un VRAI arret volontaire recent du keeper rendait ces tests rouges selon l'etat de la machine.
+    monkeypatch.setattr(k, "WANT_FLAG", tmp_path / "docker.wanted")
     k._vies_courtes.clear()
     k._STATE["last_boot_ok_ts"] = 0.0
     yield

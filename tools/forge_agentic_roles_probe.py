@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-for _p in (ROOT / "app", ROOT / "tools"):
+for _p in (ROOT, ROOT / "app", ROOT / "tools"):  # ROOT : amorce du namespace nokido_agent, sinon lancement impossible
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 

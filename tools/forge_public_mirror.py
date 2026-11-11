@@ -320,10 +320,14 @@ def _audit_du_tree(tree, profil=None, eg=None):
         return {"etat": "vert", "findings": [], "blobs": 0,
                 "hors_borne": [], "depassent_le_cap": trop_gros}
     trouves, non_lus, exemptes = [], 0, []
+    mots_prives = [re.compile(m.encode("utf-8"), re.IGNORECASE) for m in (profil or {}).get("mots_prives") or []]
     for sha, data, _taille in lire_blobs(list(cibles)):
         if data is None:
             non_lus += 1
             continue
+        nom_blob = cibles.get(sha, "?")
+        if any(m.search(data) or m.search(nom_blob.encode("utf-8")) for m in mots_prives):
+            trouves.append({"fichier": nom_blob, "type": "sujet_prive"})
         if cibles.get(sha) in EXCEPTIONS:
             exemptes.append(cibles[sha])
             continue

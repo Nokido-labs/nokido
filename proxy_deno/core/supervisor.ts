@@ -807,9 +807,123 @@ interface ServiceState {
   // Phase 6 reflexe spinal — compteur d exits rapides consecutifs (reset
   // sur un run > QUICK_FAIL_THRESHOLD_MS).
   quickFailCount: number;
+  // REGISTRE PUBLIE PAR LE SUPERVISEUR (2026-11-08, consigne owner : LE SUPERVISEUR PUBLIE).
+  // Traces exactes publiees a chaque lancement et a chaque fin de service.
+  ppid?: number | null;
+  cmdline?: string | null;
+  compte?: string | null;
+  heure?: string | null;
 }
 
 const states = new Map<string, ServiceState>();
+const REGISTRE_FICHIER = join(ROOT, "sandbox", "health.json");
+let _aclRegistrePosee = false;
+let _dernierHubHealthy = true;
+let _dernierHubHealthFails = 0;
+
+function _compteService(def: ServiceDef): string {
+  if (def.runAs === "sandbox-online") return "LaForgeSbxOnline";
+  if (def.runAs === "sandbox-offline") return "LaForgeSbxOffline";
+  if (def.runAs === "interactive") {
+    return Deno.env.get("LAFORGE_INTERACTIVE_USER") || "interactive";
+  }
+  return Deno.env.get("USERNAME") || "SYSTEM";
+}
+
+function construireRegistreServices(): Record<string, Record<string, unknown>> {
+  const result: Record<string, Record<string, unknown>> = {};
+  for (const [name, state] of states) {
+    const cmdDefaut = [state.def.cmd, ...(state.def.args ?? [])].filter(Boolean).join(" ") || null;
+    const entry: Record<string, unknown> = {
+      status: state.status,
+      wave: state.def.wave ?? 1,
+      pid: state.pid,
+      ppid: state.ppid ?? (state.pid ? Deno.pid : null),
+      cmdline: state.cmdline ?? cmdDefaut,
+      service: name,
+      intention: state.def.intention ?? null,
+      objectif: state.def.objectif ?? null,
+      compte: state.compte ?? _compteService(state.def),
+      heure: state.heure ?? null,
+      restarts: state.restartCount ?? 0,
+      port: state.def.port ?? null,
+      essential: !!state.def.essential,
+      uptime_s: state.lastStartMs > 0
+        ? Math.round((Date.now() - state.lastStartMs) / 1000)
+        : null,
+    };
+    if (state.def.heartbeat) {
+      entry.heartbeat_path = state.def.heartbeat;
+      if (state.heartbeat) {
+        entry.heartbeat = {
+          ts: state.heartbeat.ts,
+          stale_s: state.heartbeat.stale_s,
+          health: state.heartbeat.health,
+          raw: state.heartbeat.raw,
+        };
+      } else {
+        entry.heartbeat = { health: "never_read" };
+      }
+    }
+    result[name] = entry;
+  }
+  return result;
+}
+
+function _assurerAclLectureRegistre(chemin: string) {
+  if (_aclRegistrePosee || Deno.build.os !== "windows") return;
+  _aclRegistrePosee = true;
+  try {
+    new Deno.Command("icacls", {
+      args: [
+        chemin,
+        "/grant:r",
+        "LaForgeTrusted:(R)",
+        "/grant:r",
+        "LaForgeSbxOffline:(R)",
+        "/grant:r",
+        "LaForgeSbxOnline:(R)",
+      ],
+      stdout: "null",
+      stderr: "null",
+    }).spawn();
+  } catch {
+    /* best-effort : sandbox/ porte deja les ACLs heritees pour LaForgeTrusted et le sandbox */
+  }
+}
+
+/**
+ * Publie de facon atomique le registre vivant du superviseur dans sandbox/health.json
+ * (meme structure que /supervisor/status lu par forge_port_reconcile._supervisor_ports).
+ * Appele a chaque lancement et a chaque fin de service (startService) ainsi qu'au tick de sante.
+ */
+function publierRegistreSuperviseur() {
+  try {
+    const svc = construireRegistreServices();
+    const degradedEssential: string[] = [];
+    for (const [name, st] of states) {
+      if (st.def.essential && st.status !== "running") degradedEssential.push(name);
+    }
+    const snap = {
+      ts: Math.floor(Date.now() / 1000),
+      heure: ts(),
+      supervisor_pid: Deno.pid,
+      hub_healthy: _dernierHubHealthy,
+      hub_health_fails: _dernierHubHealthFails,
+      degraded_essential: degradedEssential,
+      degraded_count: [...states.values()].filter(
+        (s) => s.status !== "running" && s.status !== "sleeping" && !s.def.disabled,
+      ).length,
+      services: svc,
+    };
+    const tmp = `${REGISTRE_FICHIER}.${Deno.pid}.tmp`;
+    Deno.writeTextFileSync(tmp, JSON.stringify(snap, null, 2));
+    Deno.renameSync(tmp, REGISTRE_FICHIER);
+    _assurerAclLectureRegistre(REGISTRE_FICHIER);
+  } catch (e) {
+    log(`publierRegistreSuperviseur write error: ${e}`);
+  }
+}
 
 // Reveil A LA DEMANDE d'un service DECLARE mais absent de `states` (disabled=true dans
 // services.toml : la boucle de chargement du boot le saute). Le def vient de SERVICES et
@@ -1346,7 +1460,13 @@ async function startService(state: ServiceState) {
             `MESUREE (la declarer dans services.toml pour qu'elle soit jugee)`,
         );
       }
+      state.pid = holder ?? state.pid;
+      state.ppid = Deno.pid;
+      state.cmdline = [def.cmd, ...def.args].filter(Boolean).join(" ");
+      state.compte = _compteService(def);
+      state.heure = ts();
       state.status = "running";
+      publierRegistreSuperviseur();
       return;
     }
   }
@@ -1463,16 +1583,25 @@ async function startService(state: ServiceState) {
       const up = def.port ? await waitForPort(def.port, 15_000) : true;
       if (up) {
         state.status = "running";
-        state.pid = null;
+        state.pid = def.port ? await _portHolderPid(def.port) : null;
+        state.ppid = Deno.pid;
+        state.cmdline = (def.startCmd ?? []).join(" ");
+        state.compte = _compteService(def);
+        state.heure = ts();
+        publierRegistreSuperviseur();
         log(`${def.name}: provider UP :${def.port}`);
       } else {
         log(`${def.name}: provider start timeout`);
         state.status = "stopped";
+        state.heure = ts();
+        publierRegistreSuperviseur();
         scheduleRestart(state);
       }
     } catch (e) {
       log(`${def.name}: provider startCmd failed — ${e}`);
       state.status = "stopped";
+      state.heure = ts();
+      publierRegistreSuperviseur();
       scheduleRestart(state);
     }
     return;
@@ -1516,7 +1645,12 @@ async function startService(state: ServiceState) {
     }).spawn();
     state.proc = proc;
     state.pid = proc.pid;
+    state.ppid = Deno.pid;
+    state.cmdline = [spawnCmd, ...spawnArgs].join(" ");
+    state.compte = _compteService(def);
+    state.heure = ts();
     state.status = "running";
+    publierRegistreSuperviseur();
     log(`${def.name}: started PID ${proc.pid}`);
 
     // UN SPAWN REUSSI N'EST PAS UN DEMARRAGE REUSSI (2026-09-11). On confirme
@@ -1600,6 +1734,9 @@ async function startService(state: ServiceState) {
       state.logFile = null;
       state.proc = null;
       state.pid = null;
+      state.ppid = Deno.pid;
+      state.heure = ts();
+      publierRegistreSuperviseur();
 
       const classification = classerSortie(
         s.code,
@@ -2831,35 +2968,8 @@ async function handleCtrl(req: Request): Promise<Response> {
   }
 
   if (p === "/supervisor/status") {
-    const result: Record<string, unknown> = {};
-    for (const [name, state] of states) {
-      const entry: Record<string, unknown> = {
-        status: state.status,
-        wave: state.def.wave,
-        pid: state.pid,
-        restarts: state.restartCount,
-        port: state.def.port,
-        essential: state.def.essential,
-        uptime_s: state.lastStartMs > 0
-          ? Math.round((Date.now() - state.lastStartMs) / 1000)
-          : null,
-      };
-      if (state.def.heartbeat) {
-        entry.heartbeat_path = state.def.heartbeat;
-        if (state.heartbeat) {
-          entry.heartbeat = {
-            ts: state.heartbeat.ts,
-            stale_s: state.heartbeat.stale_s,
-            health: state.heartbeat.health,
-            raw: state.heartbeat.raw,
-          };
-        } else {
-          entry.heartbeat = { health: "never_read" };
-        }
-      }
-      result[name] = entry;
-    }
-    return jsonResp({ ts: ts(), services: result });
+    const result = construireRegistreServices();
+    return jsonResp({ ts: ts(), supervisor_pid: Deno.pid, services: result });
   }
 
   // Phase 2 patch 1+2 (2026-05-29) : re-read services.toml BEFORE every
@@ -3461,18 +3571,13 @@ async function healthSurfaceLoop() {
     } catch (e) {
       log(`healthSurfaceLoop contrat applicatif: ${e}`);
     }
-    // P1.3 — surface santé hub-indépendante.
+    // P1.3 — surface santé hub-indépendante + registre complet (meme structure que /supervisor/status).
     try {
-      const svc: Record<string, unknown> = {};
+      _dernierHubHealthy = hubHealthy;
+      _dernierHubHealthFails = _hubHealthFails;
+      const svc = construireRegistreServices();
       const degradedEssential: string[] = [];
       for (const [name, st] of states) {
-        svc[name] = {
-          status: st.status,
-          wave: st.def.wave ?? 1,
-          port: st.def.port ?? null,
-          essential: !!st.def.essential,
-          restarts: st.restartCount ?? 0,
-        };
         if (st.def.essential && st.status !== "running") degradedEssential.push(name);
       }
       // Alerte PUSH sur TRANSITION (les 18 down de l'incident etaient invisibles

@@ -112,7 +112,8 @@ def _rejouer(journal, **seuils):
     (reprise_budget=0) -- la fidelite se juge contre le journal de ce jour-la, pas contre la politique d'aujourd'hui."""
     rp = _rp()
     fen = rp.lire_fenetre(journal, _t("08:51:00"), _t("08:59:00"))
-    seuils = {"reprise_budget": 0.0, **seuils}
+    # 7/11 : ni duree minimale de sommeil, ni lot de reprise, ni plancher de gain ce jour-la (politique d'alors)
+    seuils = {"reprise_budget": 0.0, "sommeil_min_s": 0.0, "reprise_lot": 1e9, "gain_min_mb": 0.0, **seuils}
     return rp, fen, rp.rejouer(fen, toml=journal / "services.toml", seuils=seuils,
                                phase_ts=fen["phase_journal"])
 

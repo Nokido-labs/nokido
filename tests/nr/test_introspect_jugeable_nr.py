@@ -144,12 +144,45 @@ def test_les_enquetes_tombent_AVANT_les_procedures(banc, monkeypatch):
              "pieges": [{"ligne": n, "extrait": "x" * 200, "jetons": []}
                         for n in range(6)]} for _ in range(3)]
     monkeypatch.setattr(intro, "_enquetes", lambda q, nc, p: list(gros))
+    # Corps neutralise : il lit les reglages reels du compte qui lance le test. Mesure 5/11 :
+    # sous le compte d'un job, 3 reglages absents = 123 tokens dans non_consulte, section non
+    # tronquable, soit de quoi evincer la procedure a 300 tokens. Sa place dans l'ordre est
+    # verrouillee par test_introspect_corps_nr.py.
+    monkeypatch.setattr(intro, "_corps", lambda *a, **k: {})
+    # Neutralisation des sources dependantes de l'environnement (git grep litteraux, base RAG veille)
+    # pour eviter que non_consulte ne gonfle selon la machine/CI et n'evince la procedure.
+    monkeypatch.setattr(intro, "_litteraux", lambda *a, **k: [])
+    monkeypatch.setattr(intro, "_veille", lambda *a, **k: [])
     r = _intro(banc, budget_tokens=300)
     assert r["budget"]["tronque"] is True, "le banc ne declenche aucun rognage"
     # Les enquetes ont ete sacrifiees ; la procedure a survecu.
     assert r["budget"]["retire"].get("enquetes_anterieures") == 3
     assert "procedures_connues" not in r["budget"]["retire"]
     assert r["procedures_connues"], "la procedure a saute avant les enquetes"
+
+
+def test_verdict_resiste_a_un_non_consulte_gonfle(banc, monkeypatch):
+    """Prouver que l'ordre de sacrifice tient meme si non_consulte est gonfle."""
+    _oplog(banc / "oplog.jsonl", [_ENTREE])
+    gros = [{"terme": "muet", "session": "aaaa1111", "date": "2026-08-01",
+             "pieges": [{"ligne": n, "extrait": "x" * 200, "jetons": []}
+                        for n in range(6)]} for _ in range(3)]
+    monkeypatch.setattr(intro, "_enquetes", lambda q, nc, p: list(gros))
+    monkeypatch.setattr(intro, "_corps", lambda *a, **k: {})
+    # Simuler un non_consulte gonfle par des pannes ou elements de l'environnement
+    def _veille_polluee(q, nc, *a, **k):
+        nc.append({"organe": "veille_et_lecons", "raison": "base RAG absente"})
+        nc.append({"organe": "litteraux (git grep)", "raison": "timeout"})
+        return []
+    monkeypatch.setattr(intro, "_veille", _veille_polluee)
+    monkeypatch.setattr(intro, "_litteraux", lambda *a, **k: [])
+
+    # Avec un budget ajuste pour absorber le non_consulte tout en obligeant le rognage
+    r = _intro(banc, budget_tokens=450)
+    assert r["budget"]["tronque"] is True
+    assert r["budget"]["retire"].get("enquetes_anterieures") == 3
+    assert "procedures_connues" not in r["budget"]["retire"]
+    assert r["procedures_connues"]
 
 
 # ── niveau 3 : la REUTILISATION, avec son denominateur honnete ───────────────

@@ -24,6 +24,9 @@ except ImportError:
 
 LAFORGE_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = LAFORGE_ROOT / "RAG" / "embeddings.db"
+import sys as _sys_amorce  # noqa: E402 -- le garde d'ingestion vit sous `nokido_agent`
+if str(Path(__file__).resolve().parent.parent) not in _sys_amorce.path:
+    _sys_amorce.path.insert(0, str(Path(__file__).resolve().parent.parent))
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen2.5-coder:7b"
 CHUNK_SIZE = 1500
@@ -155,6 +158,11 @@ def process_documents():
                 chunks_skipped += 1
                 continue
 
+            # Avant le modele aussi : un fragment suspect ne part pas au LLM d'enrichissement.
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion(source, chunk):
+                chunks_skipped += 1
+                continue
             meta = _llm_metadata(chunk)
             domain = meta.get("domain", "doc")
 

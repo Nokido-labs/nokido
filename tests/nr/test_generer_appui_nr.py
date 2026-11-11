@@ -97,8 +97,11 @@ def test_dry_run_n_ecrit_rien(tmp_path):
 def test_applique_ecrit_un_fichier_valide(tmp_path):
     (tmp_path / "app").mkdir(parents=True)
     (tmp_path / "app" / "forge_x.py").write_text("x = 1\n", encoding="utf-8")
+    # `valider` INJECTE (10/11, pre-vol job_6817e87ef260) : le vrai lance un pytest enfant dans tmp_path ; en CI
+    # tmp_path est SOUS le depot (sandbox/workspace/tmp/...) -> config Nokido -> validation rouge -> fichier
+    # supprime. Passait seul. La validite Python est prouvee ici par compile(), pas par un sous-processus.
     r = generer(["app/forge_x.py"], racine=tmp_path, sonde=lambda rel, racine: (True, ""),
-                appliquer=True)
+                appliquer=True, valider=lambda chemin, racine: (True, ""))
     p = tmp_path / "tests" / "nr" / "test_appui_forge_x_nr.py"
     assert p.exists()
     compile(p.read_text(encoding="utf-8"), str(p), "exec")  # le fichier doit etre du Python valide

@@ -63,6 +63,21 @@ def _module(monkeypatch, etat_init, stop_effectif, illisible=False):
 VIVANT = {"pid": 4242, "restarts": 3, "status": "running"}
 
 
+def test_restart_relit_la_definition_entre_stop_et_start(monkeypatch):
+    """5/11, NokidoLogRetention : `restarted` relancait avec l'env du TOML d'avant."""
+    m = _module(monkeypatch, VIVANT, stop_effectif=True)
+    reel = m._supervisor
+    appels = []
+
+    def espion(action, name, timeout=90):
+        appels.append(action)
+        return reel(action, name, timeout)
+
+    monkeypatch.setattr(m, "_supervisor", espion)
+    m.ensure("webhub", "restarted")
+    assert appels.index("stop") < appels.index("relire") < appels.index("start"), appels
+
+
 def test_stop_sans_effet_donne_echec_mesure(monkeypatch):
     m = _module(monkeypatch, VIVANT, stop_effectif=False)
     r = m.ensure("webhub", "restarted")

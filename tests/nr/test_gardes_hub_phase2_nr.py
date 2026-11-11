@@ -84,7 +84,8 @@ def test_le_dispatch_compte_la_lecture_de_code_par_run():
 
 
 def test_governed_edit_juge_le_domaine_avant_d_ecrire():
-    i = _REG.index("_cog = _vcog(agent, str(path), content)")
+    # 2026-11-08 : le verdict tourne hors de la boucle (alerte embolie event_loop) ; l'ordre reste l'invariant.
+    i = _REG.index("_cog = await _aio_cog.to_thread(_vcog, agent, str(path), content)")
     assert i < _REG.index("verdict = governed_write(str(path), content", i), "juge AVANT l'ecriture"
 
 

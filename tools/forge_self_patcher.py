@@ -27,6 +27,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# Homologue biologique (owner 3/11, lu par le census -> la soif en mesure la couverture au corpus de physiologie).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "consolidation mnesique pendant le sommeil",
+    "termes": "sleep memory consolidation hippocampal",
+    "sources": ["PMC7046449", "Wilson McNaughton 1994 Science 265:676"],
+    "invariant": "a l'eveil aucun candidat n'atteint le juge ; en NREM la file est consolidee, un candidat perime ecarte",
+    "nr": "tests/nr/test_rsi_ecrit_au_repos_nr.py",
+}
+
 try:
     from tqdm import tqdm
 except ImportError:
@@ -90,11 +99,57 @@ def _dire_identite() -> None:
 _HUB_CLIENT = None
 _PROVENANCE_JETON = "non resolue"
 HUB_TOKEN = _resolve_hub_token()
-LAFORGE_PY = __import__("os").path.expanduser(r"~/miniforge3/python.exe")
+def _interpreteur() -> str:
+    """Interpreteur des rejeux de tests, qui EXISTE quel que soit le compte du service. 3/11 : expanduser("~/...") se
+    resolvait dans le profil du compte EXECUTANT -> FileNotFoundError a chaque rejeu F2P, 5 propositions « illisibles »
+    a chaque cycle, 0 patch (NR tests/nr/test_rsi_interpreteur_existe_nr.py). Ordre : reference du depot
+    (forge_python_bin), profil courant, puis l'interpreteur qui fait tourner CE processus."""
+    import os as _os
+    import sys as _sys
+    existants = [c for c in _candidats_interpreteur() if c and _os.path.exists(c)]
+    # 3/11 23 h 30 : exister ne suffit pas -- un python SANS pytest rendait rc=1 en ~40 ms, lu « rouge ». Le premier
+    # candidat qui sait IMPORTER pytest gagne ; aucun -> le premier existant (le rejeu le dira illisible).
+    return next((c for c in existants if _a_pytest(c)), existants[0] if existants else _sys.executable)
+
+
+def _candidats_interpreteur() -> list:
+    """Reference du depot (forge_python_bin), profil courant, puis l'interpreteur de CE processus."""
+    import os as _os
+    import sys as _sys
+    out = []
+    try:
+        from forge_python_bin import LAFORGE_PYTHON as _ref
+        out.append(str(_ref))
+    except Exception:  # noqa: BLE001 - muet-ok : reference absente, on tente les suivants
+        pass
+    # 3/11 23 h 41 (cycle 0 prouve) : sous le compte du SERVICE, forge_python_bin et sys.executable designent
+    # envs\nokido_services (sans pytest) et ~ n'est pas le profil owner. Le python de BASE de miniforge est derive de
+    # l'emplacement du depot (ROOT = <dossier utilisateur>/Script python IA/Nokido), sans chemin en dur.
+    _base = str(ROOT.parents[1] / "miniforge3" / "python.exe")
+    return out + [_os.path.expanduser(r"~/miniforge3/python.exe"), _base, _sys.executable]
+
+
+def _a_pytest(exe: str) -> bool:
+    """L'interpreteur `exe` sait-il importer pytest ? (une sonde, au demarrage du demon)."""
+    try:
+        return subprocess.run([exe, "-c", "import pytest"], capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+LAFORGE_PY = _interpreteur()
 
 PROPOSALS_DIR = ROOT / "sandbox"
 APPLIED_DIR = ROOT / "sandbox" / "patch_applied"
 HEARTBEAT = ROOT / "sandbox" / "self_patcher.heartbeat"
+# RSI au repos (owner 3/11, option 1 « genere tout le temps, ecrit au repos »). Le juge ecrit le candidat dans l'arbre
+# VIVANT partage : hors sommeil, le candidat attend ici. Consolidation = phases NREM (Wilson & McNaughton 1994 ;
+# PMC7046449, veille au RAG). Transe de guerison = cytokine a TTL, lue par la soif (lethargie) et par le RSI.
+FILE_REPOS = ROOT / "sandbox" / "self_patcher_file_repos.jsonl"
+FILE_REPOS_MAX = 50
+CYTOKINE_RSI = "CYTOKINE_RSI"
+TRANSE_TTL_S = int(os.environ.get("LAFORGE_RSI_TRANSE_TTL_S", "1800"))
+PHASES_CONSOLIDATION = ("NREM1", "NREM3")
 STATE_FILE = ROOT / "sandbox" / "self_patcher_state.json"
 INTERVAL_S = 3600  # 1h daemon cycle
 
@@ -356,6 +411,35 @@ def _test_du_rel(rel: dict) -> str | None:
     return None
 
 
+def _localiser_par_imports(test_f2p) -> dict | None:
+    """3/11 (owner, « par les imports du test ») : un REL dont la trace ne passe par aucun fichier app/tools (l'assertion
+    tombe DANS le test) est localise par le module forge_* que le test IMPORTE -- s'il est UNIQUE et existe dans app/ ou
+    tools/. Plusieurs candidats, aucun, test illisible : None (la proposition reste en attente, c'est dit).
+    NR tests/nr/test_rsi_localisation_par_imports_nr.py."""
+    try:
+        chemin = str(test_f2p or "").split("::", 1)[0]
+        if not chemin:
+            return None
+        arbre = ast.parse((ROOT / chemin).read_text(encoding="utf-8", errors="replace"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    noms = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Import):
+            noms.update(a.name.rsplit(".", 1)[-1] for a in n.names)
+        elif isinstance(n, ast.ImportFrom) and n.module:
+            noms.add(n.module.rsplit(".", 1)[-1])
+    candidats = []
+    for m in sorted(noms):
+        if not m.startswith("forge_"):
+            continue
+        for d in ("app", "tools"):
+            if (ROOT / d / ("%s.py" % m)).is_file():
+                candidats.append("%s/%s.py" % (d, m))
+                break
+    return {"file": candidats[0], "par": "imports du test"} if len(candidats) == 1 else None
+
+
 def _rel_deja_vert(nodeid: str) -> bool | None:
     """Le test du REL passe-t-il DEJA ? True vert, False rouge, None illisible (collecte, delai, interruption)."""
     try:
@@ -365,13 +449,29 @@ def _rel_deja_vert(nodeid: str) -> bool | None:
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning(f"[patcher] test du REL {nodeid} non rejoue ({type(e).__name__}) : illisible")
         return None
-    return {0: True, 1: False}.get(r.returncode)
+    # 3/11 23 h 30 : rc=1 n'est « rouge » que si un test a REELLEMENT echoue. pytest absent, erreur de collecte,
+    # aucun test lance -> illisible (UNKNOWN != NO), jamais rouge. NR tests/nr/test_rsi_rejeu_illisible_nr.py.
+    sortie = (r.stdout or "") + (r.stderr or "")
+    if r.returncode == 0:
+        return True
+    fin = " | ".join(sortie.strip().splitlines()[-2:])[:200]
+    if r.returncode == 1 and re.search(r"\b\d+ failed\b|^FAILED ", sortie, re.M) \
+            and not re.search(r"No module named pytest|error(s)? in|ImportError while loading|no tests ran", sortie):
+        logger.info(f"[patcher] test du REL {nodeid} ROUGE (rc=1) : {fin}")
+        return False
+    logger.warning(f"[patcher] test du REL {nodeid} ILLISIBLE (rc={r.returncode}, rien d'execute) : {fin}")
+    return None
 
 
 # GENERATION du correctif (owner 26/10 : « si laforge-qwen est trop bete, un modele fort ») : cascade de fournisseurs,
 # le fort GRATUIT d'abord (groq = gpt-oss-120b, ~200 000 jetons/jour), le local en repli. Le JUGE, lui, reste le
 # thymus deterministe (tests, import reel, gain) : aucun modele ne vote sur la survie d'un correctif.
-_PATCHER_PROVIDERS_DEFAUT = "groq,ollama"
+# 3/11 (owner « reparer Nemotron Super ») : le fort gratuit PROUVE en tete -- nemotron-3.5-super-vl-120b (NVIDIA NIM,
+# code correct en 1,8 s, accepte par `ask`, job_87516ee25c57 ; quota libre 40 RPM / ~1000 appels par mois). Avec
+# « groq,ollama » seuls, la relance des bancs du 3/11 a rendu 0 amelioration sur 4 bancs.
+# 3/11 (owner « utilise lmstudio pour tes appels aussi ») : LM Studio (local, ttl de dechargement) AVANT Ollama, dont le
+# moteur est absent ce jour (HTTP 500 « llama-server binary not found »).
+_PATCHER_PROVIDERS_DEFAUT = "nvidia_nemotron_super,groq,lmstudio,ollama"
 
 
 def _ask_cascade(prompt: str) -> tuple:
@@ -432,9 +532,14 @@ def _safe_check(rel: str) -> str | None:
     return None
 
 
-def _apply_search_replace(fp: Path, search: str, replace: str) -> tuple[bool, str]:
-    """Search/replace in file. Return (ok, original_text_or_error)."""
-    if len(replace.splitlines()) > MAX_PATCH_LINES:
+def _apply_search_replace(fp: Path, search: str, replace: str,
+                          max_lines: int = MAX_PATCH_LINES) -> tuple[bool, str]:
+    """Search/replace in file. Return (ok, original_text_or_error).
+
+    `max_lines` (2/11) : le plafond par defaut (30) garde les AUTO-modifications du depot ; un banc d'amelioration sur
+    une copie isolee de code EXTERNE peut declarer le sien (`max_lignes_patch`). NR test_banc_goulot_conjoint_plafond_nr.
+    """
+    if len(replace.splitlines()) > max_lines:
         return False, f"patch too large ({len(replace.splitlines())} lines)"
     try:
         original = fp.read_text(encoding="utf-8", errors="replace")
@@ -565,6 +670,144 @@ def _submit_to_judge(ref: str, rel: str, new_text: str, desc: str, test_f2p: str
     return out
 
 
+def _phase_courante() -> str:
+    from nokido_agent.app.forge_circadian import current_phase
+
+    return current_phase().value
+
+
+def _ram_en_satiete() -> bool:
+    """Le predicat de satiete du CORPS (celui des chaines de veille et de la soif) : un seul seuil."""
+    from nokido_agent.app.forge_chain_executor import _ram_en_satiete as _sat
+
+    return bool(_sat())
+
+
+def _cytokine_active() -> bool:
+    try:
+        import importlib as _il
+
+        return float(_il.import_module("nokido_agent.app.forge_endocrine").read(CYTOKINE_RSI) or 0.0) > 0.0
+    except Exception as e:  # noqa: BLE001 - illisible = pas de transe : la regle de phase s'applique (fail-closed)
+        logger.warning(f"[patcher] cytokine {CYTOKINE_RSI} illisible ({type(e).__name__}) : regle de phase seule")
+        return False
+
+
+def _mutation_autorisee() -> tuple:
+    """(autorise, raison). Muter l'arbre : transe declaree, OU sommeil NREM hors satiete RAM. Phase ou RAM illisible =
+    pas de mutation : muter au mauvais moment coute plus qu'attendre un cycle (couts asymetriques)."""
+    if _cytokine_active():
+        return True, "transe de guerison (%s active)" % CYTOKINE_RSI
+    try:
+        phase = _phase_courante()
+    except Exception as e:  # noqa: BLE001 - dit dans la raison
+        return False, "phase circadienne illisible (%s) : pas de mutation" % type(e).__name__
+    if phase not in PHASES_CONSOLIDATION:
+        return False, "eveil (phase %s) : consolidation en %s" % (phase, "/".join(PHASES_CONSOLIDATION))
+    try:
+        if _ram_en_satiete():
+            return False, "sommeil (phase %s) mais RAM en satiete" % phase
+    except Exception as e:  # noqa: BLE001 - dit dans la raison
+        return False, "satiete RAM illisible (%s) : pas de mutation" % type(e).__name__
+    return True, "sommeil (phase %s)" % phase
+
+
+def _sha_fichier(rel: str):
+    import hashlib
+
+    try:
+        return hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _lire_file_repos() -> list:
+    try:
+        return [json.loads(l) for l in FILE_REPOS.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except FileNotFoundError:  # muet-ok : pas de file = rien en attente
+        return []
+    except (OSError, ValueError) as e:
+        logger.warning(f"[patcher] file de repos illisible ({type(e).__name__}) : consideree vide, NON ecrasee")
+        raise
+
+
+def _ecrire_file_repos(entrees: list) -> None:
+    FILE_REPOS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = FILE_REPOS.with_suffix(".tmp")
+    tmp.write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entrees), encoding="utf-8")
+    os.replace(tmp, FILE_REPOS)
+
+
+def _soumettre_ou_differer(ref: str, rel: str, new_text: str, desc: str, test_f2p: str | None = None) -> dict:
+    """Seul passage vers le juge depuis le cycle : au repos il juge, a l'eveil le candidat attend (DIFFERE_REPOS),
+    arbre intact. Un meme (ref, rel) remplace son ancien candidat ; file bornee."""
+    ok, raison = _mutation_autorisee()
+    if ok:
+        return _submit_to_judge(ref, rel, new_text, desc, test_f2p)
+    try:
+        entrees = [e for e in _lire_file_repos() if not (e.get("ref") == ref and e.get("rel") == rel)]
+    except (OSError, ValueError):
+        return {"status": "BLOCKED", "verdict": "REFUSE", "pourquoi": "file de repos illisible : candidat non range"}
+    entrees.append({"ts": time.time(), "ref": ref, "rel": rel, "desc": desc, "test_f2p": test_f2p,
+                    "sha_source": _sha_fichier(rel), "new_text": new_text})
+    _ecrire_file_repos(entrees[-FILE_REPOS_MAX:])
+    logger.info(f"[patcher] candidat {rel} DIFFERE au repos ({raison}) -- {len(entrees)} en file")
+    return {"status": "DIFFERE_REPOS", "verdict": "DIFFERE", "pourquoi": raison}
+
+
+def consolider() -> dict:
+    """Sommeil (ou transe) : la file passe au juge. Un candidat dont le fichier a change depuis sa generation est
+    PERIME (la consolidation integre au cadre EXISTANT, arXiv 2602.04095) : jamais applique sur un autre texte."""
+    r = {"jugees": 0, "survit": 0, "perimees": 0, "restantes": 0}
+    try:
+        entrees = _lire_file_repos()
+    except (OSError, ValueError):
+        r["motif"] = "file de repos illisible"
+        return r
+    if not entrees:
+        return r
+    ok, raison = _mutation_autorisee()
+    if not ok:
+        r.update(restantes=len(entrees), motif=raison)
+        return r
+    for e in entrees:
+        if _sha_fichier(e.get("rel", "")) != e.get("sha_source"):
+            r["perimees"] += 1
+            logger.info(f"[patcher] candidat {e.get('rel')} PERIME : fichier modifie depuis sa generation")
+            continue
+        out = _submit_to_judge(e["ref"], e["rel"], e["new_text"], e.get("desc", ""), e.get("test_f2p"))
+        r["jugees"] += 1
+        if out.get("verdict") in VERDICTS_RETENUS:
+            r["survit"] += 1
+    _ecrire_file_repos([])
+    logger.info(f"[patcher] consolidation ({raison}) : {r}")
+    return r
+
+
+def transe_de_guerison(dry_run: bool = False, attente_max_s: int = 600, pas_s: int = 10, _dormir=time.sleep) -> dict:
+    """Declenchement a la demande (owner 3/11) : cytokine a TTL (lethargie de la soif, mutation autorisee), attente
+    que la RAM sorte de satiete (sans tuer quoi que ce soit), consolidation + un cycle, cytokine TOUJOURS eteinte."""
+    import importlib as _il
+
+    _en = _il.import_module("nokido_agent.app.forge_endocrine")
+    _en.release(CYTOKINE_RSI, 1.0, ttl_s=TRANSE_TTL_S, source="self_patcher:transe",
+                reason="transe de guerison a la demande : soif en lethargie, mutation autorisee")
+    try:
+        attendu = 0
+        while _ram_en_satiete() and attendu < attente_max_s:
+            _dormir(pas_s)
+            attendu += pas_s
+        if _ram_en_satiete():
+            return {"transe": "ABANDONNEE", "motif": "RAM restee en satiete %d s : aucune mutation" % attendu}
+        cons = consolider()
+        stats = run_once(dry_run=dry_run)
+        stats["consolidation"] = cons
+        stats["transe"] = "FAITE"
+        return stats
+    finally:
+        _en.release(CYTOKINE_RSI, 0.0, source="self_patcher:transe", reason="fin de transe")
+
+
 def _batch_deterministic(rule_fn, rule_name: str, dry_run: bool) -> list[str]:
     """Apply a deterministic rule across all safe Python files. Return list of patched rels."""
     patched = []
@@ -583,7 +826,7 @@ def _batch_deterministic(rule_fn, rule_name: str, dry_run: bool) -> list[str]:
             continue
         # Thymus : le judge porte AST, gates, tests et restauration — plus
         # d'écriture directe depuis le patcher.
-        out = _submit_to_judge(f"rule:{rule_name}", rel, new_text, rule_name)
+        out = _soumettre_ou_differer(f"rule:{rule_name}", rel, new_text, rule_name)
         if out.get("verdict") in VERDICTS_RETENUS:
             logger.info(f"[patcher] SURVIT {rel} ({rule_name}) — promotion = commit owner")
             patched.append(rel)
@@ -648,7 +891,7 @@ def _essayer_patch(patch_spec, prop, rel, test_f2p, dry_run, stats, applied_file
         stats["patches_failed"] += 1
         return None
     candidate = src_txt.replace(search, replace_str, 1)
-    out = _submit_to_judge(f"proposal:{prop.stem}", target, candidate, desc, test_f2p)
+    out = _soumettre_ou_differer(f"proposal:{prop.stem}", target, candidate, desc, test_f2p)
     if out.get("verdict") in VERDICTS_RETENUS:
         applied_files.append(target)
         stats["patches_applied"] += 1
@@ -663,6 +906,8 @@ def _essayer_patch(patch_spec, prop, rel, test_f2p, dry_run, stats, applied_file
             )
         except Exception as e:
             logger.debug(f"[patcher] anchor_solution non persisté ({e})")
+    elif out.get("verdict") == "DIFFERE":
+        stats["patches_differes"] = stats.get("patches_differes", 0) + 1
     else:
         stats["patches_failed"] += 1
     return out
@@ -699,6 +944,12 @@ def run_once(dry_run: bool = False) -> dict:
         text = prop.read_text(encoding="utf-8", errors="replace")
         rel = _extraire_rel(text)
         test_f2p = _test_du_rel(rel) if rel is not None else None
+        if (rel is not None and test_f2p
+                and not (isinstance(rel.get("pointer_ref"), dict) and rel["pointer_ref"].get("file"))):
+            _loc = _localiser_par_imports(test_f2p)   # 3/11 : localisation par les imports du test rouge
+            if _loc:
+                rel = dict(rel, pointer_ref=_loc)
+                logger.info(f"[patcher] {prop.name} : REL localise par les imports du test -> {_loc['file']}")
         if rel is not None and not (isinstance(rel.get("pointer_ref"), dict) and rel["pointer_ref"].get("file")):
             # REL sans localisation : rien a viser, le modele ne peut que deviner -> NON consommee. SAUF si son
             # test est deja VERT : il n'y a plus rien a reparer, et l'ecarter ici le faisait relire a chaque
@@ -841,8 +1092,14 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     parser.add_argument("--daemon", action="store_true", help="Run as daemon (1h cycle)")
     parser.add_argument("--dry-run", action="store_true", help="Simulate without writing")
+    parser.add_argument("--transe", action="store_true",
+                        help="Transe de guerison : soif en lethargie, consolidation + un cycle avec mutation, reveil")
     args = parser.parse_args()
     _dire_identite()
+
+    if args.transe:
+        logger.info(f"[patcher] transe: {transe_de_guerison(dry_run=args.dry_run)}")
+        return
 
     if args.daemon:
         cycle = 0
@@ -851,6 +1108,8 @@ def main():
             _write_heartbeat(cycle)
             logger.info(f"[patcher] cycle {cycle} start")
             try:
+                if not args.dry_run:
+                    logger.info(f"[patcher] consolidation: {consolider()}")
                 stats = run_once(dry_run=args.dry_run)
                 logger.info(f"[patcher] cycle {cycle}: {stats}")
             except Exception as e:

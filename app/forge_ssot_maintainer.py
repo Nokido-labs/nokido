@@ -162,7 +162,7 @@ def etat_roadmap(texte) -> str:
     if not texte or not isinstance(texte, str):
         return "OUVERT"
     m = _re.match(
-        r"^\s*(?:P[012]|BLOCKER|CURRENT|NEXT|FACT)\s*[:\-]\s*\[\s*([A-Za-zÉÀÈÊÎÔÛéàèêîôû_]+)",
+        r"^\s*(?:(?:P[012]|BLOCKER|CURRENT|NEXT|FACT)\s*[:\-]\s*)?\[\s*([A-Za-zÉÀÈÊÎÔÛéàèêîôû_]+)",
         texte.strip(),
     )
     if not m:
@@ -192,6 +192,124 @@ def _choisir_jalon(cands) -> str:
     if credibles:
         return max(credibles, key=lambda c: c[1])[2]
     return max(cands, key=lambda c: (c[0], c[1]))[2]
+
+
+_ETATS_ROADMAP = ("CLOS", "PARTIEL", "OUVERT", "OWNER_PLANIFIE", "DECISION", "EN_COURS", "A_FAIRE",
+                  "SANS_MARQUEUR")
+_RM_CLE = r"^(?:P[0-3]|roadmap|bug|chantier)[_\-]"
+_ROADMAP_ALIAS_PATH = ROOT / "config" / "roadmap_alias.json"
+# RETRACTE : entree retiree, plus rien a faire. MESURE / INSTRUIT / A INSTRUIRE / CORRIGE... restent
+# SANS_MARQUEUR : le tri du 7/11 les classe tetes inconnues (notes, instruction en cours, correctif non verifie).
+_ROADMAP_CLOS_EXTRA = frozenset({"RETRACTE"})
+
+
+def _marqueur_roadmap(texte) -> str:
+    """Mot de tete normalise (`[EN COURS ...]` -> `EN_COURS`), '' sans marqueur.
+    Valeur JSON : le champ `etat` fait office de marqueur. `[ETAT X` : le mot ETAT est ignore."""
+    import re as _re
+    import unicodedata as _ud
+
+    if not texte or not isinstance(texte, str):
+        return ""
+    texte = texte.strip()
+    if texte.startswith("{"):
+        try:
+            obj = json.loads(texte)
+        except Exception:  # noqa: BLE001
+            return ""
+        etat = obj.get("etat") if isinstance(obj, dict) else None
+        texte = f"[{etat}]" if isinstance(etat, str) and etat.strip() else ""
+    m = _re.match(r"^\s*(?:(?:P[0-3]|BLOCKER|CURRENT|NEXT|FACT)\s*[:\-]\s*)?\[\s*([^\]]*)", texte)
+    if not m:
+        return ""
+    brut = _ud.normalize("NFD", m.group(1)).encode("ascii", "ignore").decode().upper()
+    brut = _re.sub(r"^\s*ETAT\s+", "", brut)
+    return _re.sub(r"[^A-Z0-9]+", "_", brut).strip("_")
+
+
+def _alias_roadmap() -> tuple:
+    """(dict cle -> priorite, erreur). Fichier absent = vide sans erreur ; illisible = erreur DITE."""
+    try:
+        if not _ROADMAP_ALIAS_PATH.exists():
+            return {}, ""
+        al = json.loads(_ROADMAP_ALIAS_PATH.read_text(encoding="utf-8")).get("alias") or {}
+        return {str(k): str((v or {}).get("priorite", "")) if isinstance(v, dict) else "" for k, v in al.items()}, ""
+    except Exception as exc:  # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+
+
+def etat_roadmap_fin(texte) -> str:
+    """Etat DISTINCT, jamais ecrase. Marqueur inconnu ou absent : SANS_MARQUEUR (jamais OUVERT ni CLOS)."""
+    mk = _marqueur_roadmap(texte)
+    if not mk:
+        return "SANS_MARQUEUR"
+    if mk.startswith("OWNER_PLANIFIE"):
+        return "OWNER_PLANIFIE"
+    if mk.startswith("DECISION"):
+        return "DECISION"
+    if mk.startswith("EN_COURS"):
+        return "EN_COURS"
+    if mk.startswith("A_FAIRE"):
+        return "A_FAIRE"
+    tete = mk.split("_")[0]
+    if tete == "PARTIEL":
+        return "PARTIEL"
+    if tete == "OUVERT":
+        return "OUVERT"
+    if tete in _ROADMAP_CLOTURE or tete in _ROADMAP_CLOS_EXTRA:
+        return "CLOS"
+    return "SANS_MARQUEUR"
+
+
+def decompte_roadmap() -> dict:
+    """Compte TOUTE la roadmap du tableau noir (lecture seule, zones sans filtre de categorie).
+
+    Cause des 70 : l'ancien filtre ne lisait que architecture_rules category='roadmap' (limit 200) puis
+    exigeait `P[012]:` en tete ou une cle `roadmap_p[012]` ; les zones roadmap/active_bugs et les cles
+    P*_/bug_/chantier_ etaient ignorees, et l'inconnu etait range OUVERT.
+    """
+    import re as _re
+    from nokido_agent.app.forge_swarm_blackboard import read_zone as _rz
+
+    par_etat = {e: 0 for e in _ETATS_ROADMAP}
+    par_zone: dict = {}
+    exclus = {"tree_locks": 0, "scratch": 0, "permanent": 0}
+    sans, hors = [], []
+    alias, alias_err = _alias_roadmap()
+    alias_comptees: dict = {}
+    for z in ("tree_locks", "scratch"):
+        exclus[z] = len(_rz(z, limit=100000) or [])
+    for zone in ("architecture_rules", "roadmap", "active_bugs"):
+        for f in _rz(zone, limit=100000) or []:
+            if not isinstance(f, dict):
+                continue
+            key = f.get("key") or ""
+            txt = f.get("value") or f.get("fact") or ""
+            if not isinstance(txt, str):
+                txt = str(txt)
+            if _marqueur_roadmap(txt).startswith("PERMANENT"):
+                exclus["permanent"] += 1
+                continue
+            motif = (bool(_re.match(_RM_CLE, key, _re.I)) or bool(_re.match(r"^\s*P[0-3]\s*[:\-]", txt))
+                     or key in alias)
+            if key in alias and zone == "architecture_rules":
+                alias_comptees[key] = alias[key]
+            if zone == "architecture_rules" and not motif:
+                if etat_roadmap_fin(txt) != "SANS_MARQUEUR":
+                    hors.append(key)
+                continue
+            etat = etat_roadmap_fin(txt)
+            par_etat[etat] += 1
+            par_zone[zone] = par_zone.get(zone, 0) + 1
+            if etat == "SANS_MARQUEUR":
+                sans.append({"cle": key, "zone": zone, "texte": " ".join(txt.split())[:80]})
+    return {
+        "total": sum(par_etat.values()), "par_etat": par_etat, "par_zone": par_zone,
+        "exclus": exclus, "hors_motif_cle": len(hors), "hors_motif_cles": sorted(hors),
+        "sans_marqueur": sans,
+        "alias_roadmap": {"fichier": "config/roadmap_alias.json", "lues": len(alias),
+                          "comptees": alias_comptees, "erreur": alias_err},
+    }
 
 
 def _roadmap_build_doc() -> dict:
@@ -359,6 +477,10 @@ def _roadmap_build_doc() -> dict:
         # PAS muet : un echec ici laisse current/next/blockers aux valeurs de
         # l'ancien doc — donc un jalon PERIME passe pour l'etat courant.
         _LOG.warning("roadmap: derivation jalons/blockers ECHOUEE (%r) -> valeurs precedentes conservees", exc)
+    try:
+        doc["roadmap_decompte"] = decompte_roadmap()
+    except Exception as exc:  # noqa: BLE001
+        _LOG.warning("roadmap: decompte complet ECHOUE (%r)", exc)
     doc["generated_ts"] = int(time.time())
     doc["generated_by"] = "forge_ssot_maintainer.refresh_state"
     return doc

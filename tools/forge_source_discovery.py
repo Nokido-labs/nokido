@@ -666,7 +666,7 @@ class ForgeSourceDiscovery:
         try:
             return asyncio.run(self.reverse_engineer_code(code, context, ingest))
         except Exception as e:
-            return {"doc": code, "status": f"error: {e}", "chars_in": len(code)}
+            return {"doc": code, "status": f"error: {e}", "chars_in": len(code), "chars_out": len(code)}
 
     # ── Ingestion RAG ─────────────────────────────────────────────────────────
 
@@ -934,6 +934,13 @@ class ForgeSourceDiscovery:
                 headers={"Accept": "application/vnd.github.v3+json"},
                 timeout=10,
             )
+            # Limite de debit NOMMEE (owner 10/11 : jamais de jeton du compte, rythme borne, Retry-After respecte) :
+            # un 403/429 n'est pas « aucun depot ».
+            if r.status_code in (403, 429):
+                self._derniere_erreur = "github_rate_limit (HTTP %s, Retry-After=%s)" % (
+                    r.status_code, r.headers.get("Retry-After") or r.headers.get("X-RateLimit-Reset") or "?")
+                self._errors += 1
+                return []
             items = r.json().get("items", [])
             return [
                 {

@@ -43,8 +43,21 @@
       "audience": "http://127.0.0.1:8766/mcp",
       "aliases": [
         "agt_claude_cli",
-        "claude_cli"
+        "claude_cli",
+        "agt_oauth_nkc_nb_cvtqrbw29x1netsqlr_-o"
       ]
+    },
+    "OAUTH_NKC_R5DSJIBYE1HZMOWEZZWVWTON": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_R5DSJIBYE1HZMOWEZZWVWTON",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_R5DSJIBYE1HZMOWEZZWVWTON",
+      "audience": "http://127.0.0.1:8766/mcp",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "2026-11-03 DECISION OWNER (« declarer CE client ring 1 au registre ») : client OAuth Claude Code, client_id nkc_R5dsJIbyE1hzmOweZZWvwTOn (identifiant COMPLET, 28 car. -- la 1re entree portait un id TRONQUE a 16 par l'affichage d'un script de verification, d'ou ring 3 au lieu de 1) (inscrit 1793666862, redirect http://localhost:45995/callback, consentement accorde au tray). Ring lie a l'IDENTIFIANT, jamais au nom (n'importe qui peut s'inscrire « Claude Code »). Retrait = supprimer l'entree (retour ring 3 au prochain jeton) ; coupure immediate = revocation."
     },
     "CLAUDE": {
       "ring": 1,
@@ -1733,7 +1746,10 @@
       "surface": "internal",
       "mailbox": "GOAP",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_goap", "goap"],
+      "aliases": [
+        "agt_goap",
+        "goap"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1746,7 +1762,10 @@
       "surface": "backend",
       "mailbox": "A2A",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_a2a", "a2a"],
+      "aliases": [
+        "agt_a2a",
+        "a2a"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1759,7 +1778,10 @@
       "surface": "backend",
       "mailbox": "ACP",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_acp", "acp"],
+      "aliases": [
+        "agt_acp",
+        "acp"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1772,7 +1794,10 @@
       "surface": "internal",
       "mailbox": "ORCHESTRATE",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_orchestrate", "orchestrate"],
+      "aliases": [
+        "agt_orchestrate",
+        "orchestrate"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1801,7 +1826,10 @@
       "surface": "internal",
       "mailbox": "SELF_PATCHER",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_self_patcher", "self_patcher"],
+      "aliases": [
+        "agt_self_patcher",
+        "self_patcher"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1814,7 +1842,10 @@
       "surface": "internal",
       "mailbox": "MULTI_LLM",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_multi_llm", "multi_llm"],
+      "aliases": [
+        "agt_multi_llm",
+        "multi_llm"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -1827,7 +1858,10 @@
       "surface": "internal",
       "mailbox": "WATCHDOG",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_watchdog", "watchdog"],
+      "aliases": [
+        "agt_watchdog",
+        "watchdog"
+      ],
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local",
@@ -2374,13 +2408,19 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_GPTOSS",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_gptoss", "opencode_gptoss"],
+      "aliases": [
+        "agt_opencode_gptoss",
+        "opencode_gptoss"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
     },
     "OPENCODE_NEMOTRON": {
-      "suspendu": {"depuis": "2026-10-22", "motif": "modele indisponible : « [Nvidia] Function ... Not found for account » (-32603, job_9500c296) ; le repli lui envoyait encore des taches (job_260f64bf). Lever la suspension apres changement de modele dans config/opencode_instances.json et un essai reussi."},
+      "suspendu": {
+        "depuis": "2026-10-22",
+        "motif": "modele indisponible : « [Nvidia] Function ... Not found for account » (-32603, job_9500c296) ; le repli lui envoyait encore des taches (job_260f64bf). Lever la suspension apres changement de modele dans config/opencode_instances.json et un essai reussi."
+      },
       "ring": 1,
       "_note": "owner 17/10, meme protocole que OPENCODE_GPTOSS ; modele openrouter/nvidia/nemotron-3-super-120b-a12b:free, worktree nokido_worktrees/opencode_nemotron, jeton FORGE_TOKEN_OPENCODE_NEMOTRON.",
       "kind": "daemon",
@@ -2388,7 +2428,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_NEMOTRON",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_nemotron", "opencode_nemotron"],
+      "aliases": [
+        "agt_opencode_nemotron",
+        "opencode_nemotron"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2401,7 +2444,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_DEFAUT2",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_defaut2", "opencode_defaut2"],
+      "aliases": [
+        "agt_opencode_defaut2",
+        "opencode_defaut2"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2414,7 +2460,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_DEFAUT3",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_defaut3", "opencode_defaut3"],
+      "aliases": [
+        "agt_opencode_defaut3",
+        "opencode_defaut3"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2427,7 +2476,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_DEFAUT4",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_defaut4", "opencode_defaut4"],
+      "aliases": [
+        "agt_opencode_defaut4",
+        "opencode_defaut4"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2440,7 +2492,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_DEFAUT5",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_defaut5", "opencode_defaut5"],
+      "aliases": [
+        "agt_opencode_defaut5",
+        "opencode_defaut5"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2453,7 +2508,10 @@
       "surface": "autonomous",
       "mailbox": "OPENCODE_GLM",
       "audience": "http://127.0.0.1:8766/mcp",
-      "aliases": ["agt_opencode_glm", "opencode_glm"],
+      "aliases": [
+        "agt_opencode_glm",
+        "opencode_glm"
+      ],
       "channel": "OPENCODE_MCP",
       "transport": "mcp",
       "machine": "local"
@@ -2723,6 +2781,116 @@
       "channel": "HTTP_DIRECT",
       "transport": "http",
       "machine": "local"
+    },
+    "OAUTH_NKC_NB_CVTQRBW29X1NETSQLR_-O": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_NB_CVTQRBW29X1NETSQLR_-O",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_NB_CVTQRBW29X1NETSQLR_-O",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 02:14 : client 'Claude Code (nokido-oauth)', redirection http://localhost:40183/callback"
+    },
+    "OAUTH_NKC_QCRYXTKEXYXF1NIYYZT_CRSJ": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_QCRYXTKEXYXF1NIYYZT_CRSJ",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_QCRYXTKEXYXF1NIYYZT_CRSJ",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 05:47 : client 'Codex', redirection http://127.0.0.1:61633/callback"
+    },
+    "OAUTH_NKC_I_6BR0TYQRAEOEVGQX-VE052": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_I_6BR0TYQRAEOEVGQX-VE052",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_I_6BR0TYQRAEOEVGQX-VE052",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 06:46 : client 'Google Antigravity', redirection https://antigravity.google/oauth-callback"
+    },
+    "OAUTH_NKC_DELUKKMIJWQLREI6T-HMEQMC": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_DELUKKMIJWQLREI6T-HMEQMC",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_DELUKKMIJWQLREI6T-HMEQMC",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 12:23 : client 'LM Studio', redirection http://127.0.0.1:33389/mcp-oauth-callback"
+    },
+    "OAUTH_NKC_KMEKBGJVKTY--HZM4L5N8VRO": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_KMEKBGJVKTY--HZM4L5N8VRO",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_KMEKBGJVKTY--HZM4L5N8VRO",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 12:35 : client 'Visual Studio Code', redirection http://127.0.0.1:33418/"
+    },
+    "OAUTH_NKC_WVMEFZPTJN7IT-FL0AALRVJN": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_WVMEFZPTJN7IT-FL0AALRVJN",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_WVMEFZPTJN7IT-FL0AALRVJN",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 13:02 : client 'Cline', redirection http://127.0.0.1:1456/mcp/oauth/callback"
+    },
+    "OAUTH_NKC_JAA_BD3AOBQ_S1L69NFNHKZK": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_JAA_BD3AOBQ_S1L69NFNHKZK",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_JAA_BD3AOBQ_S1L69NFNHKZK",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-03 13:44 : client 'OpenCode', redirection http://127.0.0.1:19876/mcp/oauth/callback"
+    },
+    "OAUTH_NKC_LDVV8CMGQNRUPWNWLIFCK6MP": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_LDVV8CMGQNRUPWNWLIFCK6MP",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_LDVV8CMGQNRUPWNWLIFCK6MP",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-06 15:12 : client 'Google Antigravity', redirection https://antigravity.google/oauth-callback"
+    },
+    "OAUTH_NKC_1E5ISR-FDYG6XHXB0LNASAHW": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_1E5ISR-FDYG6XHXB0LNASAHW",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_1E5ISR-FDYG6XHXB0LNASAHW",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-07 00:25 : client 'Google Antigravity', redirection https://antigravity.google/oauth-callback"
+    },
+    "OAUTH_NKC_09IVF69FLS_Z7Q-VSANYEHI7": {
+      "ring": 1,
+      "kind": "oauth_client",
+      "actor": "OAUTH_NKC_09IVF69FLS_Z7Q-VSANYEHI7",
+      "surface": "interactive",
+      "mailbox": "OAUTH_NKC_09IVF69FLS_Z7Q-VSANYEHI7",
+      "channel": "HTTP_DIRECT",
+      "transport": "http",
+      "machine": "local",
+      "_note": "consentement owner au tray 2026-11-07 00:27 : client 'Google Antigravity', redirection https://antigravity.google/oauth-callback"
     }
   },
   "schema_version": 3,

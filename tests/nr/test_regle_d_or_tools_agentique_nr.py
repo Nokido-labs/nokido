@@ -64,6 +64,38 @@ def test_handoff_agent_sans_outils_ne_journalise_pas(monkeypatch, caplog):
     assert "agent inerte" not in caplog.text
 
 
+def _appels_observateur(monkeypatch):
+    import nokido_agent.app.core.payload_validator as pv
+
+    appels = []
+    monkeypatch.setattr(pv, "validate_payload_observateur", lambda payload, emetteur, outils=None, **kw: appels.append(kw))
+    monkeypatch.setattr(fh, "_call_router_provider", lambda flat, provider=None: {"message": {"content": "x"}})
+    return appels
+
+
+def test_handoff_sans_outils_reste_observe_hors_regle_agentique(monkeypatch):
+    """Un agent sans outils n'est pas inerte, mais ses messages restent controles : se taire ne corrige rien."""
+    appels = _appels_observateur(monkeypatch)
+    fh._llm_round(_agent("groq", with_tools=False), [{"role": "user", "content": "hi"}], True)
+    assert appels == [{"agentique": False}]
+
+
+def test_observateur_hors_agentique_signale_encore_un_message_invalide(caplog):
+    import nokido_agent.app.core.payload_validator as pv
+
+    with caplog.at_level(logging.WARNING):
+        pv.validate_payload_observateur({"messages": [{"role": "user"}]}, "nr_observateur", [], agentique=False)
+    assert "role/content manquants" in caplog.text
+
+
+def test_observateur_hors_agentique_ne_crie_pas_a_l_agent_inerte(caplog):
+    import nokido_agent.app.core.payload_validator as pv
+
+    with caplog.at_level(logging.WARNING):
+        pv.validate_payload_observateur({"messages": [{"role": "user", "content": "hi"}]}, "nr_observateur", [], agentique=False)
+    assert "agent inerte" not in caplog.text
+
+
 class _Prov:
     model = "m"
     display_name = "P"

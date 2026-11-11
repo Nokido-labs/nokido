@@ -28,12 +28,59 @@ import hashlib
 import os
 from typing import Optional
 
+# Homologue biologique (owner 3/11, lu par le census -> la soif en mesure la couverture au corpus de physiologie).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "comportement de maladie : cytokines et inhibition de l'exploration",
+    "termes": "sickness behavior cytokines lethargy",
+    "sources": ["openstax:m46058", "doi:10.1186/1742-2094-5-15"],
+    "invariant": "sous cytokine ou satiete RAM, une piste est differee sans consommer budget ni refractaire",
+    "nr": "tests/nr/test_soif_garde_metabolique_nr.py",
+}
+
 # Seuils (env-overridable). score = meilleur match RRF/BM25 ; proxy de profondeur de savoir.
 GAP_SCORE_FLOOR = float(os.environ.get("LAFORGE_EPISTEMIC_SCORE_FLOOR", "8.0"))
 GAP_MIN_RESULTS = int(os.environ.get("LAFORGE_EPISTEMIC_MIN_RESULTS", "3"))
 VEILLE_TTL_S = int(os.environ.get("LAFORGE_EPISTEMIC_TTL_S", str(6 * 3600)))  # anti-spam domaine
 
 _HORMONE = "CORTISOL_EPISTEMIC"
+
+
+# Friction observee -> primitive d'ingenierie : chercher ce qui existe plutot que resoudre a l'aveugle (owner 6/11).
+# Table et non LLM : stable, gratuite, sans nom interne. Une friction inconnue se compte, elle ne se devine pas.
+# Termes techniques de 2-3 mots : banc du 6/11 (job_b0d3bcb4758a), `github` 0/0 en phrase de 10 mots, 41/56 ainsi, et des
+# depots du sujet (qwed-verification, flaky-test). Tronquer une phrase ne vaut pas (job_c4a6c6d4225e) : c'est le terme qui compte.
+_TRADUCTIONS_FRICTION = {
+    "fausse_livraison": (("attestation_commit_anterieur", "attestation_contredite", "pointeur_spec_recopie"),
+                         ("agent output verification", "llm hallucination detection")),
+    "ci_rouge": (("ci_en_echec",), ("flaky test detection", "test failure triage")),
+    "tempete_redemarrages": (("flap", "uptime_recule"), ("crash loop backoff", "process supervisor")),
+    "debit_fournisseur": (("quota", "rate_limit"), ("rate limit handling", "retry after backoff")),
+}
+# Un choix de l'owner n'est pas une faiblesse a corriger par la veille.
+_FRICTIONS_DECISION_OWNER = {"commits_non_pousses", "submodule_non_bumpe"}
+
+
+def frictions_vers_requetes(evenements) -> dict:
+    """Mode OMBRE : liste des requetes generales tirees des frictions. N'ouvre aucune lacune, ne lance aucune veille."""
+    if not isinstance(evenements, (list, tuple)):
+        return {"etat": "ILLISIBLE", "mode": "OMBRE", "requetes": [], "non_traduites": {}, "ecartees_decision_owner": 0}
+    par_kind = {k: f for f, (kinds, _r) in _TRADUCTIONS_FRICTION.items() for k in kinds}
+    comptes: dict = {}
+    non_traduites: dict = {}
+    ecartees = 0
+    for ev in evenements:
+        kind = str((ev or {}).get("kind") or "") if isinstance(ev, dict) else ""
+        if kind in _FRICTIONS_DECISION_OWNER:
+            ecartees += 1
+        elif kind in par_kind:
+            comptes[par_kind[kind]] = comptes.get(par_kind[kind], 0) + 1
+        else:
+            non_traduites[kind or "?"] = non_traduites.get(kind or "?", 0) + 1
+    requetes = [{"famille": f, "n": n, "requete": _TRADUCTIONS_FRICTION[f][1][0],
+                 "variantes": list(_TRADUCTIONS_FRICTION[f][1][1:])}
+                for f, n in sorted(comptes.items(), key=lambda x: -x[1])]
+    return {"etat": "OK", "mode": "OMBRE", "requetes": requetes, "non_traduites": non_traduites,
+            "ecartees_decision_owner": ecartees}
 
 
 def _is_gap(n_results: int, score: float) -> bool:
@@ -555,7 +602,8 @@ def _noter(lac: dict, evenement: str, **detail) -> None:
     del h[:-_HISTORIQUE_MAX]
 
 
-def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain", critere: dict | None = None) -> dict:
+def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain", critere: dict | None = None,
+                  pistes: list | None = None) -> dict:
     """Ouvre (ou rouvre) la lacune d'un manque MESURE.
 
     `motif="gap_certain"` exige `gap is True`. `motif="rang_intention"` (le moins couvert de
@@ -587,6 +635,8 @@ def ouvrir_lacune(question: str, cov: dict, motif: str = "gap_certain", critere:
                irresolution_proposee=False)
     if critere:
         lac["critere"] = dict(critere)  # l'instrument de remesure le relit (mesurer_selon_instrument)
+    if pistes:
+        lac["pistes"] = [str(p) for p in pistes if p]   # 3/11 : themes EXPLICITES (lacune externe de physiologie)
     _noter(lac, "ouverte", score=cov.get("score"), verdict=cov.get("verdict"))
     d[k] = lac
     _ecrire_lacunes(d)
@@ -606,55 +656,17 @@ def debuter_enquete(cle: str, traitement: str) -> dict:
     return {"ok": True, "cle": cle, "etat": EN_ENQUETE}
 
 
-# INSTRUMENTS PAR NOM (27/10, decision owner : soif branchee sur le take-home). `remesurer_lacune` refuse
+# INSTRUMENTS PAR NOM (27/10, decision owner). `remesurer_lacune` refuse
 # tout instrument different de celui qui a OUVERT la lacune ; le demon remesurait pourtant TOUT par
 # coverage_dense -> une lacune ouverte par un autre instrument ne pouvait jamais fermer.
-_DEFI_TAKEHOME = _Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / "defi_anthropic"
+# Instruments prives (config/sujets_prives.txt) : absents de la distribution publique.
+try:
+    from nokido_agent.app import forge_soif_instruments_prives as _prives
+except ImportError:  # muet-ok : distribution publique, ces instruments et leur liste noire n'y ont pas d'objet
+    _prives = None
 
 
-def _instrument_banc_takehome(lac: dict) -> dict:
-    """Meilleur score EXACT du registre de preuves chaine vs `critere.seuil_cycles` (un score faux ne compte pas)."""
-    seuil = int((lac.get("critere") or {})["seuil_cycles"])
-    reg = _DEFI_TAKEHOME / "registre_preuves.jsonl"
-    if not reg.is_file():
-        return {"ok": False, "instrument": "banc_takehome", "error": "registre de preuves absent"}
-    best, preuve = None, None
-    for l in reg.read_text(encoding="utf-8").splitlines():
-        if l.strip():
-            d = _json.loads(l)
-            if d.get("statut") == "VALEUR" and d.get("correct") and isinstance(d.get("cycles"), int):
-                if best is None or d["cycles"] < best:
-                    best, preuve = d["cycles"], d.get("empreinte")
-    if best is None:
-        return {"ok": False, "instrument": "banc_takehome", "error": "aucun verdict exact au registre"}
-    return {"ok": True, "instrument": "banc_takehome", "score": best, "gap": best >= seuil,
-            "verdict": "gap" if best >= seuil else "couvert", "preuve": preuve}
-
-
-def _instrument_z3_superopt(lac: dict) -> dict:
-    """Fenetre du hash TRANCHEE (TROUVE ou IMPOSSIBLE) = question close ; INCONNU = encore ouverte."""
-    fen = (lac.get("critere") or {})["fenetre"]
-    # Preuve COMPLEMENTAIRE tranchee (ex. differences finies, 27/10 : (madd, madd) hors de portee de z3) :
-    # elle prime sur un INCONNU du solveur, jamais l'inverse (seul TROUVE/IMPOSSIBLE est lu ici).
-    for p in sorted(_DEFI_TAKEHOME.glob("preuve_*.json")):
-        try:
-            pr = _json.loads(p.read_text(encoding="utf-8"))
-        except ValueError:
-            __import__("logging").getLogger(__name__).warning(
-                "preuve complementaire ILLISIBLE ignoree : %s", p.name)
-            continue
-        if isinstance(pr, dict) and pr.get("fenetre") == fen and pr.get("verdict") in ("TROUVE", "IMPOSSIBLE"):
-            return {"ok": True, "instrument": "z3_superopt", "score": pr["verdict"], "gap": False,
-                    "verdict": "couvert", "preuve": p.name}
-    for nom in ("superopt_enum.json", "superopt_hash.json"):
-        p = _DEFI_TAKEHOME / nom
-        if p.is_file():
-            for r in _json.loads(p.read_text(encoding="utf-8")):
-                if r.get("fenetre") == fen:
-                    tranche = r.get("verdict") in ("TROUVE", "IMPOSSIBLE")
-                    return {"ok": True, "instrument": "z3_superopt", "score": r.get("verdict"),
-                            "gap": not tranche, "verdict": "couvert" if tranche else "gap"}
-    return {"ok": False, "instrument": "z3_superopt", "error": "fenetre %r absente des verdicts z3" % fen}
+# Les autres instruments vivent dans le module prive ci-dessus.
 
 
 _BANCS = _Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / "bancs"
@@ -665,7 +677,9 @@ def _instrument_banc_amelioration(lac: dict) -> dict:
     cible (maillons REFERENCE/AMELIORE, mesures par le juge deterministe) vs `critere.seuil` (+ `sens`). Une lacune
     « metrique sous la cible » ne se ferme que par un maillon AMELIORE atteignant le seuil, ou par une impossibilite
     MESUREE : `critere.n_impossible` essais consecutifs sans gain, dits (score IMPOSSIBLE_MESURE)."""
-    nom = "banc_amelioration"
+    # 2/11 : le NOM COMPLET (famille:cible) -- « banc_amelioration » seul faisait refuser toute remesure (instrument
+    # different de celui de la lacune) : une lacune de banc n'aurait jamais pu se fermer.
+    nom = str(lac.get("instrument") or "banc_amelioration")
     cible = str(lac.get("instrument", "")).split(":", 1)[1]
     crit = lac.get("critere") or {}
     seuil, sens = float(crit["seuil"]), crit.get("sens", "max")
@@ -699,8 +713,246 @@ def _instrument_banc_amelioration(lac: dict) -> dict:
             "essais_sans_gain": sans_gain}
 
 
-INSTRUMENTS = {"banc_takehome": _instrument_banc_takehome, "z3_superopt": _instrument_z3_superopt,
-               "banc_amelioration": _instrument_banc_amelioration}
+INSTRUMENTS = {"banc_amelioration": _instrument_banc_amelioration}
+if _prives is not None:
+    INSTRUMENTS.update(_prives.INSTRUMENTS)
+
+
+def _executer_nr(chemin: str):
+    """rc de pytest sur un fichier NR du depot (0 = vert) ; None si illisible (delai, absent)."""
+    import subprocess as _sp
+    import sys as _sys
+    if not (_RACINE / chemin).is_file():
+        return None
+    try:
+        p = _sp.run([_sys.executable, "-m", "pytest", chemin, "-q", "-x", "--no-header", "-p", "no:cacheprovider",
+                     "-o", "addopts="], cwd=str(_RACINE), capture_output=True, text=True, errors="replace", timeout=25,
+                    env=dict(os.environ, PYTHONNOUSERSITE="1"))
+        return p.returncode
+    except Exception:  # noqa: BLE001 - delai ou lancement impossible : ILLISIBLE, jamais « vert »
+        return None
+
+
+def _instrument_nr(lac: dict) -> dict:
+    """Instrument `nr:<tests/nr/...py>` (2/11) : la lacune d'une dette se ferme quand SON NR passe vert."""
+    nom = str(lac.get("instrument"))
+    chemin = nom.split(":", 1)[1]
+    rc = _executer_nr(chemin)
+    if rc is None:
+        return {"ok": False, "instrument": nom, "error": "NR illisible (absent ou delai) : %s" % chemin}
+    return {"ok": True, "instrument": nom, "score": rc, "gap": rc != 0, "verdict": "gap" if rc else "couvert"}
+
+
+INSTRUMENTS["nr"] = _instrument_nr
+
+
+# --- PHYSIOLOGIE (owner 3/11, debat Claude x AGY : docs/debats/SYNTHESE_DEBATS_SOIF_AUTOREGULATION_20261103.md) ----
+# Le corpus de physiologie guide la conception des organes (owner 20/10). La soif mesure la couverture de chaque
+# homologue DECLARE dans un module (census -> sandbox/workspace/homologues.json) ; un trou ouvre une lacune EXTERNE dont
+# la piste est la veille. « Couvert » = DIVERSITE ET PROFONDEUR : mesure 3/11, 5 resumes DOI (1-2 chunks) sur les
+# cytokines ne couvrent rien, et une source unique de 65 chunks non plus. Le nombre de chunks seul ne decide jamais.
+import re as _re_physio  # noqa: E402 -- le module n'importe re que localement
+
+_PHYSIO_REFERENCE = _re_physio.compile(r"openstax|pmc\.ncbi|ncbi\.nlm|pubmed|doi\.org|europepmc|biorxiv|nature\.com|"
+                                       r"sciencedirect|frontiersin|springer|wiley|cell\.com", _re_physio.I)
+_PHYSIO_DOCUMENT = ("github:openstax", "http://", "https://", "watch")   # le code et les resultats d'outils ne comptent pas
+PHYSIO_SOURCES_MIN = 2
+PHYSIO_PROFONDEUR_MIN = 5     # chunks d'une source de reference : un resume n'est pas un texte
+# 3/11 (debat 1 tour 2) : arXiv est une reference pour un homologue de CONTROLE (boucle, regulateur), jamais de BIOLOGIE.
+_PHYSIO_REFERENCE_CONTROLE = _re_physio.compile(r"arxiv\.org", _re_physio.I)
+# Texte INTEGRAL en acces libre : mesure 3/11, la veille par theme ne ramenait que des resumes DOI (1-2 chunks).
+EUROPEPMC_RECHERCHE = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+TEXTE_INTEGRAL_MAX = 5
+PISTES_AVANT_ESCALADE = 2     # pistes lancees sans fermeture -> escalade (irresolution_proposee), pas une 3e veille
+
+
+def _get_json(url: str):
+    import json as _json
+    import urllib.request as _ur
+    req = _ur.Request(url, headers={"User-Agent": "Nokido-soif/1.0", "Accept": "application/json"})
+    with _ur.urlopen(req, timeout=15) as r:
+        return _json.loads(r.read().decode("utf-8", "replace"))
+
+
+def urls_texte_integral(termes: str, _get=None, maximum: int = TEXTE_INTEGRAL_MAX) -> list:
+    """URL PMC de textes integraux en acces libre (EuropePMC) pour ces termes. Injoignable ou illisible -> [] (la
+    piste repart alors par theme) ; jamais d'exception."""
+    from urllib.parse import quote
+    q = "(%s) AND OPEN_ACCESS:y" % " ".join(str(termes or "").split())
+    url = "%s?query=%s&format=json&pageSize=%d&resultType=lite" % (EUROPEPMC_RECHERCHE, quote(q), maximum * 2)
+    try:
+        res = (((_get or _get_json)(url) or {}).get("resultList") or {}).get("result") or []
+    except Exception:  # noqa: BLE001 - EuropePMC injoignable (bac hors ligne, delai) : aucune URL, la piste reste
+        return []
+    out = []
+    for r in res:
+        pmc = str((r or {}).get("pmcid") or "").strip()
+        if pmc.upper().startswith("PMC") and str(r.get("isOpenAccess") or "").upper() == "Y":
+            u = "https://pmc.ncbi.nlm.nih.gov/articles/%s/" % pmc.upper()
+            if u not in out:
+                out.append(u)
+    return out[:maximum]
+
+
+def verdict_couverture_physio(compte: dict, nature: str | None = None) -> dict:
+    """{gap, verdict, sources_distinctes, references_profondes, score} d'apres {source: nb de chunks trouves}.
+    `nature` de l'homologue : `controle` admet arXiv comme reference ; `biologie` (defaut) non."""
+    docs = {str(s): int(n) for s, n in (compte or {}).items() if str(s).startswith(_PHYSIO_DOCUMENT)}
+    controle = str(nature or "biologie").lower() == "controle"
+    profondes = [s for s, n in docs.items() if n >= PHYSIO_PROFONDEUR_MIN and (
+        _PHYSIO_REFERENCE.search(s) or (controle and _PHYSIO_REFERENCE_CONTROLE.search(s)))]
+    couvert = len(docs) >= PHYSIO_SOURCES_MIN and bool(profondes)
+    return {"gap": not couvert, "verdict": "couvert" if couvert else "gap", "sources_distinctes": len(docs),
+            "references_profondes": len(profondes), "score": len(docs)}
+
+
+def _fts_de_termes(termes: str) -> str:
+    mots = [m for m in _re_physio.findall(r"[A-Za-z0-9-]{3,}", termes or "")][:3]
+    return " AND ".join('"%s"' % m for m in mots)
+
+
+def _sources_physio(fts: str):
+    """{source: nb de chunks} par FTS INDEXE (plan verifie AVANT ; jamais de balayage de rag_chunks). None = illisible."""
+    import logging as _lg
+    import sqlite3 as _sq
+    from nokido_agent.app.forge_db_path import db_path
+
+    sql = "SELECT source FROM rag_fts WHERE rag_fts MATCH ? LIMIT 2000"
+    try:
+        con = _sq.connect(f"file:{db_path()}?mode=ro", uri=True, timeout=30)
+        try:
+            plan = " ".join(str(r[-1]) for r in con.execute("EXPLAIN QUERY PLAN " + sql, (fts,)))
+            if "VIRTUAL TABLE" not in plan:
+                _lg.getLogger(__name__).warning("physiologie_fts : plan sans index (%s) -- NON execute", plan[:120])
+                return None
+            compte: dict = {}
+            for (s,) in con.execute(sql, (fts,)):
+                compte[s] = compte.get(s, 0) + 1
+            return compte
+        finally:
+            con.close()
+    except Exception as e:  # noqa: BLE001 - base illisible : mesure IMPOSSIBLE, jamais « pas couvert »
+        _lg.getLogger(__name__).warning("physiologie_fts illisible : %s", type(e).__name__)
+        return None
+
+
+def mesurer_physiologie(termes: str, fts: str | None = None, cle: str | None = None,
+                        instrument: str | None = None, nature: str | None = None) -> dict:
+    """Mesure remesurable de la couverture d'un homologue. FTS illisible -> ok=False (ni gap ni couvert)."""
+    nom = instrument or "physiologie_fts:" + str(cle or termes)[:60]
+    compte = _sources_physio(fts or _fts_de_termes(termes))
+    if compte is None:
+        return {"ok": False, "instrument": nom, "error": "FTS illisible ou plan sans index"}
+    return dict(verdict_couverture_physio(compte, nature=nature), ok=True, instrument=nom)
+
+
+def _instrument_physiologie_fts(lac: dict) -> dict:
+    crit = lac.get("critere") or {}
+    return mesurer_physiologie(crit.get("termes") or lac.get("question", ""), crit.get("fts"),
+                               instrument=lac.get("instrument"), nature=crit.get("nature"))
+
+
+INSTRUMENTS["physiologie_fts"] = _instrument_physiologie_fts
+
+_RE_NR_CITE = __import__("re").compile(r"tests/nr/test_\w+\.py")
+
+
+def collecter_bancs(bancs: dict) -> dict:
+    """Bancs d'amelioration -> lacune « depasser le meilleur prouve » (instrument banc, nom complet), pistes = axes.
+    Liste blanche : un banc sans mesure au registre est DIT, jamais ouvert."""
+    out = {"ouvertes": [], "deja": [], "refus": []}
+    for nom, b in (bancs or {}).items():
+        sens = (b.get("juge") or {}).get("sens", "max")
+        inst = "banc_amelioration:%s" % nom
+        sonde = _instrument_banc_amelioration({"instrument": inst, "critere": {
+            "seuil": float("inf") if sens == "max" else float("-inf"), "sens": sens}})
+        if not sonde.get("ok") or not isinstance(sonde.get("score"), (int, float)):
+            out["refus"].append("%s : %s" % (nom, sonde.get("error") or "aucune mesure exploitable"))
+            continue
+        best = float(sonde["score"])
+        seuil = best + max(0.01, 0.02 * abs(best)) if sens == "max" else best - max(1.0, 0.005 * abs(best))
+        crit = {"seuil": round(seuil, 4), "sens": sens, "n_impossible": 10}
+        cov = _instrument_banc_amelioration({"instrument": inst, "critere": crit})
+        q = "Banc %s : la metrique %s peut-elle depasser son meilleur prouve %s (seuil %s, sens %s) ?" % (
+            nom, (b.get("juge") or {}).get("metrique", "?"), best, crit["seuil"], sens)
+        r = ouvrir_lacune(q, cov, critere=crit)
+        if not r.get("ok"):
+            out["refus"].append("%s : %s" % (nom, r.get("refus")))
+            continue
+        if r.get("deja"):
+            out["deja"].append(nom)
+            continue
+        d = lire_lacunes()
+        d[r["cle"]]["pistes"] = [a.get("description") or a.get("nom") for a in b.get("axes") or () if a]
+        d[r["cle"]]["source"] = "banc_amelioration"
+        _ecrire_lacunes(d)
+        out["ouvertes"].append(nom)
+    return out
+
+
+def collecter_dettes(dettes, nr_rouge=None) -> dict:
+    """Dettes ouvertes -> lacune SEULEMENT si un NR cite est MESURE ROUGE (instrument nr:, ferme au vert).
+    Sans NR cite, ou NR vert/illisible : DIT dans le rapport, jamais ouvert (liste blanche)."""
+    if nr_rouge is None:
+        def nr_rouge(p):
+            rc = _executer_nr(p)
+            return None if rc is None else rc != 0
+    out = {"ouvertes": [], "deja": [], "refus": []}
+    for dt in dettes or ():
+        cle, texte = str(dt.get("cle")), str(dt.get("texte") or "")
+        cites = list(dict.fromkeys(_RE_NR_CITE.findall(texte)))
+        if not cites:
+            out["refus"].append({"cle": cle, "motif": "sans instrument : aucun NR cite"})
+            continue
+        etats = {p: nr_rouge(p) for p in cites}
+        rouges = [p for p, e in etats.items() if e is True]
+        if not rouges:
+            out["refus"].append({"cle": cle, "motif": "NR cite(s) vert(s) ou illisible(s) : %s" % etats})
+            continue
+        cov = {"ok": True, "instrument": "nr:%s" % rouges[0], "score": 1, "gap": True, "verdict": "gap"}
+        r = ouvrir_lacune("Dette %s : %s" % (cle, texte[:200]), cov)
+        if r.get("deja"):
+            out["deja"].append(cle)
+        elif r.get("ok"):
+            d = lire_lacunes()
+            d[r["cle"]]["source"] = "dette:%s" % cle
+            _ecrire_lacunes(d)
+            out["ouvertes"].append(cle)
+        else:
+            out["refus"].append({"cle": cle, "motif": r.get("refus")})
+    return out
+
+
+COLLECTEUR_ETAT = _RACINE / "sandbox" / "soif_collecteur.json"
+COLLECTEUR_PERIODES_S = {"bancs": 6 * 3600.0, "dettes": 24 * 3600.0}
+
+
+def collecter_sources(maintenant: float, charger_bancs, charger_dettes, nr_rouge=None) -> dict:
+    """Collecteur de manques (owner 2/11) : chaque source a sa periode (bancs 6 h ; dettes 24 h, ses NR coutent a
+    mesurer). Etat persistant ; une source en panne est DITE, les autres passent."""
+    try:
+        etat = _json.loads(COLLECTEUR_ETAT.read_text(encoding="utf-8")) if COLLECTEUR_ETAT.is_file() else {}
+    except (OSError, ValueError):
+        etat = {}
+    out = {}
+    for src, periode in COLLECTEUR_PERIODES_S.items():
+        dernier = etat.get(src)   # jamais collectee -> a faire (pas « collectee au temps 0 »)
+        # un dernier passage DANS LE FUTUR est une trace corrompue (paye le 2/11 : 1e10 ecrit par un test) -> a refaire
+        if dernier is not None and 0 <= maintenant - float(dernier) < periode:
+            out[src] = "refractaire"
+            continue
+        try:
+            out[src] = (collecter_bancs(charger_bancs()) if src == "bancs"
+                        else collecter_dettes(charger_dettes(), nr_rouge=nr_rouge))
+            etat[src] = maintenant
+        except Exception as e:  # noqa: BLE001 - une source en panne n'arrete pas les autres, et c'est DIT
+            out[src] = {"erreur": "%s: %s" % (type(e).__name__, str(e)[:160])}
+    try:
+        COLLECTEUR_ETAT.parent.mkdir(parents=True, exist_ok=True)
+        COLLECTEUR_ETAT.write_text(_json.dumps(etat), encoding="utf-8")
+    except OSError as e:   # etat non persiste : la prochaine collecte recommencera trop tot, et c'est DIT
+        out["etat_non_persiste"] = "%s: %s" % (type(e).__name__, str(e)[:120])
+    return out
 
 
 def mesurer_selon_instrument(lac: dict) -> dict:
@@ -714,6 +966,147 @@ def mesurer_selon_instrument(lac: dict) -> dict:
         return f(lac)
     except Exception as e:  # noqa: BLE001 -- instrument en panne : remesure IMPOSSIBLE, jamais « fermee »
         return {"ok": False, "instrument": lac.get("instrument"), "error": "%s: %s" % (type(e).__name__, e)}
+
+
+# --- Pistes de METHODE sur lacune qui stagne (owner 2/11) -----------------------------------------------------------
+# Constat : une lacune OUVERTE, 0 veille -- branchee « mesure seulement » le 27/10 en traduisant mal
+# l'interdit owner : les SOLUTIONS PUBLIQUES du defi sont interdites, pas la litterature de methodes. La soif derive
+# desormais des themes de son DIAGNOSTIC (tags mesures) et les lance par le workflow officiel ; la liste noire porte
+# l'interdit exact. Stagnation = remesures_sans_effet (compteur existant), refractaire 24 h, tout est note.
+_LISTE_NOIRE_SOLUTIONS = tuple(_prives.LISTE_NOIRE_SOLUTIONS) if _prives is not None else ()
+THEMES_METHODES = dict(_prives.THEMES_METHODES) if _prives is not None else {}
+_PISTES_GENERIQUES = dict(_prives.PISTES_GENERIQUES) if _prives is not None else {}
+PISTES_SEUIL_STAGNATION = int(os.environ.get("LAFORGE_SOIF_PISTES_SEUIL", "3"))
+PISTES_REFRACTAIRE_S = 86400.0
+# Budget de pistes sur 24 h glissantes, toutes lacunes confondues : 19 lacunes de couverture qui stagnent ensemble ne
+# doivent pas reveiller 19 veilles d'un coup (owner : reveil pilote par l'utilite, budget RAM projete).
+PISTES_MAX_JOUR = int(os.environ.get("LAFORGE_SOIF_PISTES_MAX_JOUR", "4"))
+# Instruments dont la piste naturelle est la QUESTION de la lacune elle-meme : une lacune de couverture dit « le RAG
+# ne couvre pas ceci » ; la veille a lancer porte donc sur ce sujet (mesure 3/11 : 19 lacunes sans aucune piste).
+_PISTES_PAR_QUESTION = ("coverage_dense",)
+# Question INTERNE = texte de roadmap / d'artefact Nokido (mesure 3/11 : « Nokido P1 : [OUVERT 2026-10-21] ATLAS DES
+# DONNEES... ») : une veille web ne peut que ramener du bruit -> pas de piste (« aucune piste », rien note).
+import re as _re_q  # noqa: E402 -- le module n'importe re que localement
+
+_QUESTION_INTERNE = _re_q.compile(
+    r"^\s*Nokido\b|\[(OUVERT|PARTIEL|CLOS|MESURE|ATTEINT|OWNER|DECISION)\b|\bbb:|\b[0-9a-f]{9}\b", _re_q.I)
+
+
+def theme_autorise(theme: str) -> tuple:
+    """(permis ?, motif) -- interdit owner 27/10 : aucune veille sur les SOLUTIONS PUBLIQUES du defi."""
+    import re as _re
+    for motif in _LISTE_NOIRE_SOLUTIONS:
+        if _re.search(motif, theme or "", _re.I):
+            return False, "liste noire : solutions publiques du defi interdites (motif %r)" % motif
+    return True, "methode permise"
+
+
+def pistes_pour_lacune(lac: dict) -> list:
+    """Themes de methode derives du DIAGNOSTIC mesure de la lacune (tags), sinon generiques de son instrument."""
+    out = [str(p) for p in lac.get("pistes") or () if p]   # pistes explicites (ex. axes d'un banc)
+    for tag in lac.get("diagnostic") or ():
+        for t in THEMES_METHODES.get(tag, ()):
+            if t not in out:
+                out.append(t)
+    # L'instrument porte ses parametres (`coverage_dense|floor=-5.0|ceil=1.0`) : chercher aussi par son NOM de base.
+    base = str(lac.get("instrument") or "").split("|", 1)[0]
+    if not out:
+        out = list(_PISTES_GENERIQUES.get(lac.get("instrument")) or _PISTES_GENERIQUES.get(base, ()))
+    if (not out and base in _PISTES_PAR_QUESTION and str(lac.get("question") or "").strip()
+            and not _QUESTION_INTERNE.search(str(lac["question"]))):
+        out = [" ".join(str(lac["question"]).split())[:160]]
+    return out
+
+
+def corps_sous_tension() -> tuple:
+    """(sous_tension, raison). Arbitre de saillance de la soif (owner 3/11) : la soif lit l'etat du corps AVANT
+    d'agir. UN seul predicat de satiete pour tout le corps -- celui qui retient deja les chaines de veille
+    (forge_chain_executor._ram_en_satiete, seuil du superviseur) : pas de second seuil qui divergerait.
+    Mesure illisible -> (False, raison) : meme repli que le predicat (fail-open), DIT dans la raison."""
+    # Transe de guerison du RSI (cytokine, owner 3/11) : la soif entre en lethargie AVANT tout predicat RAM -- le corps
+    # se repare, il ne chasse pas. On LIT le taux publie par l'autre organe, on ne le re-mesure pas.
+    try:
+        import importlib as _il
+
+        if float(_il.import_module("nokido_agent.app.forge_endocrine").read("CYTOKINE_RSI") or 0.0) > 0.0:
+            return True, "transe de guerison RSI en cours (CYTOKINE_RSI) : lethargie de la soif"
+    except Exception:  # noqa: BLE001  # muet-ok : cytokine illisible -> on passe au predicat de satiete RAM ci-dessous
+        pass
+    try:
+        from nokido_agent.app import forge_chain_executor as _ce
+
+        if _ce._ram_en_satiete():
+            return True, "RAM systeme en satiete (forge_chain_executor._ram_en_satiete)"
+        return False, "RAM systeme sous le seuil de satiete"
+    except Exception as e:  # noqa: BLE001 - predicat illisible : la soif n'est pas bloquee, la raison le dit
+        return False, "predicat de satiete illisible (%s) : non differe" % type(e).__name__
+
+
+def lancer_pistes(cle: str, creer, maintenant: float | None = None) -> dict:
+    """Lance (par `creer(theme) -> chain_id`, le workflow officiel) les pistes d'une lacune ACTIVE qui STAGNE.
+
+    Refractaire 24 h ; les themes en liste noire sont refuses et DITS ; chaque lancement est note dans l'historique
+    de la lacune (lien lacune -> veilles), pour en mesurer ensuite la pertinence."""
+    t = _time.time() if maintenant is None else float(maintenant)
+    d = lire_lacunes()
+    lac = d.get(cle)
+    if not lac or lac.get("etat") not in ACTIVES:
+        return {"lancees": 0, "motif": "lacune inactive ou absente"}
+    if int(lac.get("remesures_sans_effet") or 0) < PISTES_SEUIL_STAGNATION:
+        return {"lancees": 0, "motif": "pas de stagnation (%s remesure(s) sans effet)" % lac.get("remesures_sans_effet")}
+    # Seul un lancement qui a LANCE quelque chose arme le refractaire : les 8 evenements vides du 2/11 (chaines=[])
+    # bloquaient 24 h les vraies pistes (NR test_un_lancement_vide_passe_n_arme_pas_le_refractaire).
+    lances = [float(h.get("t") or 0) for h in lac.get("historique") or ()
+              if h.get("evenement") == "pistes_lancees" and h.get("chaines")]
+    dernier = max(lances) if lances else None
+    if dernier is not None and t - dernier < PISTES_REFRACTAIRE_S:
+        return {"lancees": 0, "motif": "refractaire (%.0f s < %.0f s)" % (t - dernier, PISTES_REFRACTAIRE_S)}
+    # 3/11 (debat 1 tour 2) : N pistes lancees et la lacune toujours ouverte -> la veille ne la fermera pas ; on
+    # ESCALADE (irresolution proposee, a trancher) au lieu de relancer indefiniment une veille sterile.
+    if len(lances) >= PISTES_AVANT_ESCALADE:
+        if not lac.get("irresolution_proposee"):
+            lac["irresolution_proposee"] = True
+            _noter(lac, "escalade", t=t, motif="%d piste(s) lancee(s) sans fermeture" % len(lances))
+            _ecrire_lacunes(d)
+        return {"lancees": 0, "escalade": True,
+                "motif": "%d piste(s) sans fermeture : irresolution proposee, plus de veille" % len(lances)}
+    physio = str(lac.get("instrument") or "").startswith("physiologie_fts")
+    pistes = pistes_pour_lacune(lac)
+    if not pistes:
+        # 3/11 : on notait `pistes_lancees` avec 0 theme -- faux signal d'action, et refractaire de 24 h arme pour rien.
+        return {"lancees": 0, "motif": "aucune piste derivable (instrument %r, ni pistes ni diagnostic) : rien note, "
+                                       "refractaire non arme" % lac.get("instrument")}
+    deja = sum(len(h.get("chaines") or ()) for v in d.values() if isinstance(v, dict)
+               for h in v.get("historique") or () if isinstance(h, dict)
+               and h.get("evenement") == "pistes_lancees" and t - float(h.get("t") or 0) < 86400.0)
+    if deja >= PISTES_MAX_JOUR:
+        return {"lancees": 0, "motif": "budget jour atteint (%d/%d piste(s) en 24 h)" % (deja, PISTES_MAX_JOUR)}
+    # 3/11 (owner, arbitre de saillance) : sous tension metabolique la piste est DIFFEREE -- ni budget du jour ni
+    # refractaire consommes (la chaine aurait attendu en aval en comptant comme lancee : REQUESTED != ACHIEVED).
+    # La lacune reste active : elle repart au cycle suivant. Noter une fois par episode, pas a chaque cycle.
+    tendu, raison = corps_sous_tension()
+    if tendu:
+        hist = lac.get("historique") or []
+        if not hist or not isinstance(hist[-1], dict) or hist[-1].get("evenement") != "pistes_differees":
+            _noter(lac, "pistes_differees", t=t, motif="DIFFERE_METABOLIQUE", raison=raison)
+            _ecrire_lacunes(d)
+        return {"lancees": 0, "differe": "DIFFERE_METABOLIQUE", "motif": raison}
+    permis, refusees, chaines, erreurs = [], [], [], []
+    for theme in pistes[:PISTES_MAX_JOUR - deja]:
+        ok, motif = theme_autorise(theme)
+        if not ok:
+            refusees.append({"theme": theme, "motif": motif})
+            continue
+        try:
+            # 3/11 : une lacune physiologique cherche du TEXTE INTEGRAL (EuropePMC) ; sans URL, la piste part par theme
+            chaines.append(creer(theme, urls=urls_texte_integral(theme) or None) if physio else creer(theme))
+            permis.append(theme)
+        except Exception as e:  # noqa: BLE001 - une piste qui ne part pas est DITE, les autres partent
+            erreurs.append({"theme": theme, "erreur": "%s: %s" % (type(e).__name__, str(e)[:120])})
+    _noter(lac, "pistes_lancees", t=t, themes=permis, chaines=chaines, refusees=refusees, erreurs=erreurs)
+    _ecrire_lacunes(d)
+    return {"lancees": len(chaines), "chaines": chaines, "refusees": refusees, "erreurs": erreurs,
+            "motif": "lacune stagnante : %d piste(s) lancee(s)" % len(chaines)}
 
 
 def remesurer_lacune(cle: str, cov: dict) -> dict:

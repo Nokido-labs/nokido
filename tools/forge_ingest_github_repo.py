@@ -65,7 +65,8 @@ for _p in (ROOT, ROOT / "app", ROOT / "tools"):
         sys.path.insert(0, str(_p))
 
 from nokido_agent.app.forge_db_path import write_retry  # noqa: E402
-from nokido_agent.tools.forge_gitingest_sdk_ingest import _chunks  # noqa: E402
+from nokido_agent.tools.forge_gitingest_sdk_ingest import _chunks
+from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion, analyser_contenu_tiers  # noqa: E402
 
 # Cible par defaut : run_job IGNORE les args (gotcha mesure le 25-07), donc un
 # lancement detache retombe ici.
@@ -78,6 +79,11 @@ KEEP_SUFFIXES = {
 }
 SKIP_PARTS = {"node_modules", ".git", "dist", "build", "__pycache__", ".venv"}
 SKIP_NAMES = {"package-lock.json", "uv.lock", "poetry.lock", "yarn.lock"}
+# Fichiers ecrits pour COMMANDER un agent (owner 5/11, mesure : `forge_keeper_base.find`, source du rappel des hooks, rendait des
+# fragments `.agents/skills` d'un tiers). Ecartes et comptes ; `--avec-instructions` les garde pour une etude voulue.
+INSTRUCTIONS_PARTS = {".claude", ".agents", ".codex", ".cursor", ".gemini", ".windsurf", ".clinerules", ".roo"}
+INSTRUCTIONS_NOMS = {"CLAUDE.md", "AGENTS.md", "GEMINI.md", "SKILL.md", "copilot-instructions.md", ".cursorrules", ".windsurfrules"}
+MAX_DETAIL_ECARTES = 50
 MAX_FILE_SIZE = 200_000
 MAX_TOTAL = 20_000_000  # au-dela on refuse plutot que d'avaler le depot
 
@@ -93,7 +99,13 @@ def parse_slug(url: str) -> tuple[str, str]:
     return m.group(1), repo
 
 
-def _garder(nom: str, prefixe: str | None = None) -> bool:
+def est_instruction_agent(nom: str) -> bool:
+    """Ce fichier est-il ecrit pour commander un agent ? Le nom exact compte : `guide/core/claude.md` est de la documentation."""
+    p = Path(nom.replace("\\", "/"))
+    return bool(INSTRUCTIONS_PARTS & set(p.parts)) or p.name in INSTRUCTIONS_NOMS
+
+
+def _garder(nom: str, prefixe: str | None = None, avec_instructions: bool = False) -> bool:
     p = Path(nom)
     # FILTRE DE SOUS-DOSSIER (2026-08-20) : sans lui, ingerer la doc d'un gros
     # depot (ex: ggml-org/llama.cpp -> `docs/`) obligeait a avaler TOUT le code
@@ -103,6 +115,8 @@ def _garder(nom: str, prefixe: str | None = None) -> bool:
     if SKIP_PARTS & set(p.parts):
         return False
     if p.name in SKIP_NAMES:
+        return False
+    if not avec_instructions and est_instruction_agent(nom):
         return False
     return p.suffix.lower() in KEEP_SUFFIXES
 
@@ -217,8 +231,23 @@ def lignes_a_indexer(fichiers, slug: str) -> list[tuple[str, str, str]]:
     return lignes
 
 
+def filtrer_injections(lignes: list) -> tuple[list, list]:
+    """(lignes gardees, ecartes cites par source et motif). Contenu de tiers : un fragment suspect n'entre pas dans le RAG, par le
+    garde commun d'ingestion. Un document qui DECRIT une injection est ecarte aussi : perte assumee, et dite par le rapport."""
+    gardees, ecartes = [], []
+    for ligne in lignes:
+        verdict = analyser_contenu_tiers(ligne[2])
+        if verdict["ok"]:
+            gardees.append(ligne)
+        else:
+            # Meme journal que les autres voies, par le meme point de passage ; le rapport cite en plus le motif.
+            admis_a_l_ingestion(ligne[1], ligne[2])
+            ecartes.append({"source": ligne[1], "motif": str(verdict["motif"])[:80]})
+    return gardees, ecartes
+
+
 def fetch(owner: str, repo: str, ref: str | None, prefixe: str | None = None, openstax: bool = False,
-          tmpdir=None) -> tuple[list[tuple[str, str]], dict]:
+          tmpdir=None, avec_instructions: bool = False) -> tuple[list[tuple[str, str]], dict]:
     """Rend [(chemin_dans_le_depot, contenu), ...] + un rapport de collecte.
 
     Le rapport DIT ce qui a ete ecarte et pourquoi : un collecteur qui rend
@@ -249,7 +278,7 @@ def fetch(owner: str, repo: str, ref: str | None, prefixe: str | None = None, op
         raise SystemExit(f"[ingest_repo] telechargement impossible ({last_err})")
 
     fichiers: list[tuple[str, str]] = []
-    ecartes: dict[str, int] = {"extension_ou_dossier": 0, "trop_gros": 0, "illisible": 0}
+    ecartes: dict[str, int] = {"extension_ou_dossier": 0, "instructions_agents": 0, "trop_gros": 0, "illisible": 0}
     total = 0
     source_tar = {"name": str(blob)} if isinstance(blob, Path) else {"fileobj": io.BytesIO(blob)}
     # Un manuel n'est pas un depot de code : sections plus longues (MathML), volume plus grand -- bornes DITES.
@@ -262,8 +291,9 @@ def fetch(owner: str, repo: str, ref: str | None, prefixe: str | None = None, op
                     continue
                 # le tarball GitHub prefixe tout par "<repo>-<ref>/"
                 interne = membre.name.split("/", 1)[1] if "/" in membre.name else membre.name
-                if not (_garder_openstax(interne) if openstax else _garder(interne, prefixe)):
-                    ecartes["extension_ou_dossier"] += 1
+                if not (_garder_openstax(interne) if openstax else _garder(interne, prefixe, avec_instructions)):
+                    instruction = not openstax and not avec_instructions and _garder(interne, prefixe, True)
+                    ecartes["instructions_agents" if instruction else "extension_ou_dossier"] += 1
                     continue
                 if membre.size > max_fichier:
                     ecartes["trop_gros"] += 1
@@ -294,7 +324,7 @@ def fetch(owner: str, repo: str, ref: str | None, prefixe: str | None = None, op
 
 def index(fichiers: list, slug: str, domain: str) -> dict:
     now = int(time.time())
-    lignes = lignes_a_indexer(fichiers, slug)
+    lignes, ecartes = filtrer_injections(lignes_a_indexer(fichiers, slug))
 
     def _op(conn):
         inserted = skipped = 0
@@ -334,7 +364,9 @@ def index(fichiers: list, slug: str, domain: str) -> dict:
     # positionnel (mesure 2026-08-04 : « Error binding parameter 1: type
     # sqlite3.Connection is not supported »). Une seule reprise couvre TOUTE la
     # boucle, rejouable sans degat (id deterministe + INSERT OR IGNORE).
-    return write_retry(_op)
+    rapport = write_retry(_op)
+    rapport.update(ecartes_injection=len(ecartes), ecartes_detail=ecartes[:MAX_DETAIL_ECARTES])
+    return rapport
 
 
 def main() -> int:
@@ -350,11 +382,15 @@ def main() -> int:
     ap.add_argument("--openstax", action="store_true",
                     help="manuel OpenStax en CNXML : sections citees au chapitre, licence de la collection en tete "
                          "de chaque fragment, tarball recu en flux (owner 20/10)")
+    ap.add_argument("--avec-instructions", action="store_true",
+                    help="garde aussi les fichiers ecrits pour commander un agent (.claude, .agents, CLAUDE.md, SKILL.md...), "
+                         "pour une etude voulue : ils atteignent alors le rappel des hooks")
     args = ap.parse_args()
 
     owner, repo = parse_slug(args.url)
     slug = f"{owner}/{repo}"
-    fichiers, collecte = fetch(owner, repo, args.ref, args.prefixe, openstax=args.openstax)
+    fichiers, collecte = fetch(owner, repo, args.ref, args.prefixe, openstax=args.openstax,
+                               avec_instructions=args.avec_instructions)
     if args.openstax:
         fichiers = preparer_openstax(fichiers)
         collecte["sections"] = len(fichiers)
@@ -364,6 +400,9 @@ def main() -> int:
                      "fichiers": [f[0] for f in fichiers][:60]}
     rapport["index"] = ("DRY-RUN — aucune ecriture" if args.dry_run
                         else index(fichiers, slug, args.domain))
+    if args.dry_run:
+        _gardees, ecartes = filtrer_injections(lignes_a_indexer(fichiers, slug))
+        rapport.update(ecartes_injection=len(ecartes), ecartes_detail=ecartes[:MAX_DETAIL_ECARTES])
     print(json.dumps(rapport, ensure_ascii=False, indent=2))
     return 0
 

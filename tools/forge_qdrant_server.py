@@ -35,6 +35,26 @@ def env_sans_config() -> dict:
             "QDRANT__STORAGE__STORAGE_PATH": str(racine / "sandbox" / "qdrant_storage")}
 
 
+def _lier_au_lanceur(pid: int):
+    """Job Object KILL_ON_JOB_CLOSE : l'enfant meurt avec ce lanceur. 6/11 : le superviseur tuait le lanceur, qdrant.exe
+    restait orphelin et tenait le port (pid 20368). Le handle rendu doit rester vivant ; None si impossible, sans bloquer."""
+    try:
+        import win32api
+        import win32con
+        import win32job
+
+        job = win32job.CreateJobObject(None, "")
+        info = win32job.QueryInformationJobObject(job, win32job.JobObjectExtendedLimitInformation)
+        info["BasicLimitInformation"]["LimitFlags"] |= win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
+        droits = win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE
+        win32job.AssignProcessToJobObject(job, win32api.OpenProcess(droits, False, int(pid)))
+        return job
+    except Exception as e:  # noqa: BLE001 - dit : Qdrant demarre quand meme, sans lien au lanceur
+        sys.stderr.write("[qdrant] enfant NON lie au lanceur, orphelin possible : %s: %s\n" % (type(e).__name__, e))
+        return None
+
+
 def main() -> int:
     if not EXE.exists():
         sys.stderr.write(f"[qdrant] binaire absent: {EXE} (set LAFORGE_QDRANT_BIN)\n")
@@ -51,7 +71,9 @@ def main() -> int:
         if env is not None:
             log.write("[qdrant] sans config.yaml : loopback, telemetrie coupee, stockage %s\n"
                       % env["QDRANT__STORAGE__STORAGE_PATH"])
-        proc = subprocess.run(args, stdout=log, stderr=log, cwd=str(BIN_DIR), env=env)
+        proc = subprocess.Popen(args, stdout=log, stderr=log, cwd=str(BIN_DIR), env=env)
+        job = _lier_au_lanceur(proc.pid)  # noqa: F841 - le handle doit vivre autant que le lanceur
+        proc.wait()
         log.write(f"\n=== {EXE.name} exited rc={proc.returncode} ===\n")
         return proc.returncode
 

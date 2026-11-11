@@ -42,9 +42,13 @@ ROOT = Path(__file__).resolve().parent.parent
 _HMAC_KEY_FILE = ROOT / "sandbox" / ".persona_sig_key"
 
 
-def _key_flags() -> int:
+def _key_flags(machine=None) -> int:
+    """Drapeaux NCrypt. `machine=None` : FORGE_TPM_MACHINE decide (comportement HISTORIQUE) ; True/False : l'appel
+    decide (3/11 : la variable est GLOBALE au processus -- dans le hub multitache, la poser pour une cle basculerait
+    les autres ; NR tests/nr/test_tpm_magasin_machine_explicite_nr.py)."""
     base = NCRYPT_SILENT_FLAG
-    if os.environ.get("FORGE_TPM_MACHINE") == "1":
+    veut = (os.environ.get("FORGE_TPM_MACHINE") == "1") if machine is None else bool(machine)
+    if veut:
         base |= NCRYPT_MACHINE_KEY_FLAG
     return base
 
@@ -101,7 +105,7 @@ def tpm_available() -> bool:
         return False
 
 
-def _open_key(nc, ctypes, wintypes, hprov, create=False, nom=None):
+def _open_key(nc, ctypes, wintypes, hprov, create=False, nom=None, machine=None):
     """Ouvre (ou cree) une cle NCrypt par NOM.
 
     `nom=None` garde la cle historique `_KEY_NAME` : tous les appelants
@@ -110,7 +114,7 @@ def _open_key(nc, ctypes, wintypes, hprov, create=False, nom=None):
     celle qui empeche toute attribution entre agents.
     """
     hkey = wintypes.HANDLE()
-    flags = _key_flags()
+    flags = _key_flags(machine)
     cle = nom or _KEY_NAME
     if nc.NCryptOpenKey(hprov, ctypes.byref(hkey), cle, 0, flags) == 0:
         return hkey
@@ -553,7 +557,7 @@ def _b64u(octets: bytes) -> str:
     return base64.urlsafe_b64encode(octets).rstrip(b"=").decode("ascii")
 
 
-def cle_publique_jwk(nom: str | None = None) -> tuple:
+def cle_publique_jwk(nom: str | None = None, machine=None) -> tuple:
     """-> (jwk | None, raison). JWK EC P-256 de la cle `nom`, sans aucune partie privee.
 
     Trois issues distinctes, jamais fondues : cle exportee, cle absente ou non ouvrable
@@ -573,7 +577,7 @@ def cle_publique_jwk(nom: str | None = None) -> tuple:
         h = _open_provider(nc, ctypes, wintypes)
         if not h:
             return None, "fournisseur TPM non ouvrable depuis ce compte"
-        hkey = _open_key(nc, ctypes, wintypes, h, create=False, nom=nom)
+        hkey = _open_key(nc, ctypes, wintypes, h, create=False, nom=nom, machine=machine)
         if not hkey:
             return None, "cle TPM absente ou non ouvrable depuis ce compte"
         cb = wintypes.DWORD(0)
@@ -609,7 +613,7 @@ def cle_publique_jwk_agent(agent_id) -> tuple:
         return None, str(exc)[:120]
 
 
-def sign(payload: bytes, nom: str | None = None, creer: bool = True):
+def sign(payload: bytes, nom: str | None = None, creer: bool = True, machine=None):
     """Signe SHA-256(payload) avec la clé TPM (ECDSA P-256). None si indispo.
 
     `nom`/`creer` par defaut = comportement historique inchange (cle unique,
@@ -621,7 +625,7 @@ def sign(payload: bytes, nom: str | None = None, creer: bool = True):
         h = _open_provider(nc, ctypes, wintypes)
         if not h:
             return None
-        hkey = _open_key(nc, ctypes, wintypes, h, create=creer, nom=nom)
+        hkey = _open_key(nc, ctypes, wintypes, h, create=creer, nom=nom, machine=machine)
         if not hkey:
             nc.NCryptFreeObject(h)
             return None

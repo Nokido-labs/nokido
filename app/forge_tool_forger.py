@@ -449,6 +449,25 @@ def _wasm_arme() -> bool:
         return False
 
 
+def _donnees_hote_constantes_du_corps() -> dict:
+    """LECTURE SEULE cote hote pour `constantes_du_corps` : WASM ne monte ni le depot ni le magasin L1, l'outil ne peut
+    donc rien lire lui-meme. L'hote (code du depot, pas celui de l'outil) lit et passe des DONNEES ; l'isolation WASM
+    de l'outil reste intacte. Illisible = INCONNU, jamais un defaut."""
+    try:
+        from nokido_agent.app import forge_proposal_applier as fpa
+        try:
+            magasin, etat = fpa._lire_l1(), "LU"
+        except Exception as exc:  # noqa: BLE001 - magasin illisible DIT
+            magasin, etat = {}, "ILLISIBLE (%s)" % type(exc).__name__
+        return {"params": {k: dict(v) for k, v in fpa.PARAMS_L1.items()}, "magasin": magasin, "etat_magasin": etat,
+                "fichier": fpa.PARAMS_L1_FICHIER.name}
+    except Exception as exc:  # noqa: BLE001
+        return {"etat": "INCONNU", "raison": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
+
+
+_DONNEES_HOTE = {"constantes_du_corps": ("_donnees_hote", _donnees_hote_constantes_du_corps)}
+
+
 def _call_wasm(name: str, kwargs: dict) -> dict:
     """Outil dynamique en WASM (dossier copie seul monte). Tout echec = REFUS motive, jamais de repli in-process."""
     import json as _json
@@ -461,6 +480,9 @@ def _call_wasm(name: str, kwargs: dict) -> dict:
     if not _sx.wasm_pret():
         return {"error": "WASM indisponible (wasmtime ou python.wasm absent) : refus, aucun repli in-process "
                          "(pilote S19)", "tool": name}
+    if name in _DONNEES_HOTE:
+        _cle, _lecteur = _DONNEES_HOTE[name]
+        kwargs = {**kwargs, _cle: _lecteur()}
     d = Path(tempfile.mkdtemp(prefix="wasm_outil_"))
     try:
         shutil.copy(src, d / "outil.py")

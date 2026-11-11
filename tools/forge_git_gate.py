@@ -701,6 +701,23 @@ def _bloquant_ou_derogation(controle: str, rc: int, files: list[str]) -> int:
     return rc
 
 
+def _critical_warn(files: list[str]) -> None:
+    """7/11 : avertissement NON bloquant (l'owner et l'integrateur committent legitimement ces fichiers) ;
+    le bruit se mesure avant tout durcissement. Liste unique : CRITICAL_FILES de forge_mcp_security."""
+    try:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import forge_critical_gate as _cg  # type: ignore
+
+        crit = _cg.fichiers_critiques(files)
+        if crit:
+            print("[gate][critical][warn] commit touchant un CRITICAL_FILE (derogation owner requise hors "
+                  "owner/integrateur) :")
+            for f in crit:
+                print(f"  ! {f}")
+    except Exception as e:  # noqa: BLE001 - le gate ne casse jamais sur son propre outil
+        print(f"[gate][critical] skip: {str(e)[:80]}")
+
+
 def _precommit() -> int:
     files = _staged_files()
     if not files:
@@ -722,6 +739,7 @@ def _precommit() -> int:
     except Exception as e:
         print(f"[gate] firehose skip: {str(e)[:80]}")
     _jetons_caviardage_warn(files)
+    _critical_warn(files)
     try:
         _syntax_warn(files)
     except Exception as e:
@@ -786,8 +804,12 @@ def _strip_agent_signatures(txt: str) -> str:
 _UNTESTED = re.compile(r"\b(wip|untested|not tested|non[ -]?test[eé]{1,2}s?)\b", re.IGNORECASE)
 
 
-def _untested_gate(txt: str) -> int:
-    """REFUSE un commit qui s'annonce LUI-MÊME non testé, sauf aveu explicite.
+def _untested_gate(txt: str) -> "str | None":
+    """AVERTIT d'un commit qui s'annonce LUI-MÊME non testé, sauf aveu explicite (choix owner 9/11).
+
+    Rend la ligne `Untested-Warn: <mot> (avertissement du gate, non assume)` que `_prepare_msg` ajoute au message,
+    ou None. 9/11 : il disait « REFUS » mais `prepare-commit-msg` sort toujours en 0 (seuls les secrets bloquent,
+    jamais empecher de SAUVER) -- 565458754 est passe ; l'avertissement vit desormais DANS l'historique.
 
     Mesuré : `wip(docker): pivot Docker Desktop -> dockerd natif WSL (AGY, UNTESTED)` est
     entré sur `alpha` le 01/08. Il a coûté une session entière — searxng injoignable, cinq
@@ -804,15 +826,16 @@ def _untested_gate(txt: str) -> int:
     sujet = next((ln for ln in lignes if ln.strip()), "")
     m = _UNTESTED.search(sujet)
     if not m:
-        return 0
+        return None
     if os.environ.get("NOKIDO_ALLOW_UNTESTED") == "1":
         print(f"[gate][untested] « {m.group(0)} » dans le sujet — laisse passer (NOKIDO_ALLOW_UNTESTED=1)")
-        return 0
+        return None
     if any(ln.strip().lower().startswith("untested-ack:") for ln in lignes):
         print(f"[gate][untested] « {m.group(0)} » assume par Untested-Ack — OK")
-        return 0
+        return None
     print(
-        f"[gate][untested] REFUS — le sujet annonce « {m.group(0)} ».\n"
+        f"[gate][untested] AVERTISSEMENT (non bloquant) — le sujet annonce « {m.group(0)} » ;"
+        f" une ligne Untested-Warn est ajoutee au message.\n"
         f"  Sujet : {sujet[:100]}\n"
         f"  Mesure : un commit tague UNTESTED a coute une session entiere le 01-02/08\n"
         f"  (pivot Docker -> WSL, searxng injoignable, revert final 3aec1500).\n"
@@ -823,7 +846,7 @@ def _untested_gate(txt: str) -> int:
         f"    3. NOKIDO_ALLOW_UNTESTED=1 pour cette commande (echappatoire de derniere main).",
         file=sys.stderr,
     )
-    return 1
+    return f"Untested-Warn: {m.group(0).lower()} (avertissement du gate, non assume)"
 
 
 def _prepare_msg(msg_path: str) -> int:
@@ -832,11 +855,12 @@ def _prepare_msg(msg_path: str) -> int:
         txt = p.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return 0
-    rc = _untested_gate(txt)
-    if rc:
-        return rc
-    # Strip signatures Claude/IA AVANT tout (s'applique même si X-Agent déjà présent).
+    avert = _untested_gate(txt)
+    # Strip signatures Claude/IA AVANT tout (s'applique même si X-Agent déjà présent). 9/11 : n'est plus saute
+    # quand le sujet annonce « wip » (le retour anticipe sur le faux refus le contournait).
     stripped = _strip_agent_signatures(txt)
+    if avert:
+        stripped = stripped.rstrip("\n") + "\n\n" + avert
     if stripped != txt:
         txt = stripped
         try:

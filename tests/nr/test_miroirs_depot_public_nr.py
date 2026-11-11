@@ -188,7 +188,8 @@ def test_fiche_conforme_topics_en_ensemble_insensible_a_la_casse():
 def test_un_miroir_renvoie_a_la_source_et_ferme_ce_qui_n_y_a_pas_de_sens():
     gl, cb = P.FICHE_GITLAB, P.FICHE_CODEBERG
     assert gl["auto_devops_enabled"] is False, "une pipeline que personne n'a ecrite"
-    assert gl["builds_access_level"] == "enabled" and gl["restrict_user_defined_variables"] is True
+    # 2/11 (owner) : builds DESACTIVES -- la CI du miroir doublonnait GitHub (voir test_le_miroir_gitlab_n_a_pas_de_ci)
+    assert gl["builds_access_level"] == "disabled" and gl["restrict_user_defined_variables"] is True
     assert gl["issues_access_level"] == gl["merge_requests_access_level"] == "disabled"
     # les tickets de chaque miroir RENVOIENT vers GitHub : un seul support, la source
     assert P.TRACKER_GITLAB["project_url"] == P.TICKETS_GITHUB == "https://github.com/Nokido-labs/nokido/issues"
@@ -276,13 +277,12 @@ def test_une_release_miroir_identique_n_est_pas_reecrite(monkeypatch):
     assert out["verdict"] == "ALIGNE" and f.ecritures == [], "identique (aux fins de ligne pres) : aucune ecriture"
 
 
-def test_ci_du_miroir_gitlab_verifie_seulement():
-    """La CI de reference et toute publication restent sur GitHub : le miroir rejoue le parcours paquet, rien d'autre."""
-    ci = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
-    assert "forge_install_acceptance.py" in ci and "--paquet=" in ci
-    for interdit in ("twine", "upload", "deploy", "environment:", "secrets", "CI_JOB_TOKEN", "TOKEN", "PASSWORD",
-                     "release:"):
-        assert interdit not in ci, interdit
+def test_le_miroir_gitlab_n_a_pas_de_ci():
+    """Owner 2/11 : le job GitLab parcours-paquet DOUBLONNAIT le run GitHub (meme acceptation ; GitHub prouve deja le
+    chiffrement sur VM), rouge 13/13 depuis le 14/10 faute de runner privilegie. GitLab redevient un PUR miroir : pas
+    de .gitlab-ci.yml, builds desactives sur le projet (sinon une pipeline repartirait au moindre fichier CI)."""
+    assert not (ROOT / ".gitlab-ci.yml").exists(), ".gitlab-ci.yml retire (decision owner 2/11)"
+    assert P.FICHE_GITLAB["builds_access_level"] == "disabled"
 
 
 def test_surface_du_miroir_gitlab_fermee_et_tags_proteges():

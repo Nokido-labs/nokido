@@ -58,6 +58,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# Amorce namespace (point d'entree) : le garde d'ingestion vit sous `nokido_agent`.
+if str(Path(__file__).resolve().parent.parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # ===================== Config =====================
 
 # Le RAG Nokido est dans RAG/embeddings.db
@@ -315,6 +319,9 @@ def ingest_to_sqlite(
                 # source, meta, ingested_at) -> la source est en [4], le texte en [0].
                 from nokido_agent.app.forge_db_path import chunk_id as _cid  # type: ignore
 
+                from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+                if not admis_a_l_ingestion(row[4], row[0]):
+                    continue
                 _id = _cid(row[4], row[0])
                 if has_meta_col:
                     conn.execute(

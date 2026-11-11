@@ -1,4 +1,4 @@
-"""NR 18/10 -- L1 sait juger une dimension a MINIMISER (chantier 1 du takehome, pas 2).
+"""NR 18/10 -- L1 sait juger une dimension a MINIMISER (chantier 1, pas 2).
 
 Carto AGY (job_53f21306) : ecarts_hors_bande et le test « sans gain » de mesurer_apres supposent « plus haut =
 mieux » (d = m - r) -- inapplicable a des cycles, une duree, une RAM. `orientation={dimension: "MIN"|"MAX"}`

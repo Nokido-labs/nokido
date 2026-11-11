@@ -454,7 +454,7 @@ def display_summary() -> str:
 # 1.5B Vulkan prompt 107 tok/s vs 347 CPU (3x plus lent) -> num_gpu 0 ; 6.7B Vulkan 18,8-19,6 vs CPU 15,2 tok/s.
 SEUIL_PETIT_MODELE_GO = 2.0
 # Modeles effectivement BANCES le 29/10 : seul leur motif dit « mesure » ; les autres petits modeles recoivent le meme
-# reglage (statu quo CPU, aucun risque de regression) mais le motif dit « extrapole, non mesure » (methode du takehome).
+# reglage (statu quo CPU, aucun risque de regression) mais le motif dit « extrapole, non mesure » (methode du banc).
 MODELES_BANCES = frozenset({"qwen2.5-coder:1.5b", "laforge-qwen:latest"})
 IGPU_RESERVE_MIN_GO = 4.0
 GPU_OVERHEAD_OCTETS = 1024**3

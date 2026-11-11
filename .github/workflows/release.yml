@@ -85,6 +85,7 @@ jobs:
     # et une garde par nom ferait publier la SOURCE pendant la fenetre. La variable
     # suit le depot quand on le renomme.
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     # UNE SEULE CONSTRUCTION, et ce qu'elle a produit voyage vers les jobs de
     # preuve. Ceux-ci ne relisent JAMAIS `pyproject.toml` : ils valideraient
     # alors l'arbre source au lieu de l'artefact. La version est derivee du NOM
@@ -212,6 +213,7 @@ jobs:
     # 21/10 (0.20.13 grillee) : televerser EST publier, et TestPyPI interdit tout re-televersement -- l'audit d'abord.
     needs: [build, audit-deps]
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     environment: testpypi
     permissions:
       id-token: write        # OIDC TestPyPI — pending publisher separe (voir en-tete)
@@ -238,6 +240,7 @@ jobs:
     name: Preuve ${{ matrix.name }}
     needs: [build, publish-testpypi]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     # `fail-fast: false` est OBLIGATOIRE : un echec sur un OS ne doit pas
     # annuler les preuves des deux autres. Trois VM neuves, aucun etat partage —
     # seul moyen de distinguer « le paquet est casse » de « cet OS-la est casse ».
@@ -667,6 +670,7 @@ jobs:
     # reelle validee depuis l'index.
     needs: [verify-testpypi, audit-deps]
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     environment: pypi
     permissions:
       id-token: write        # requis pour l'OIDC PyPI — pas de token stocké
@@ -687,6 +691,7 @@ jobs:
   # tout si la publication echoue. `needs: publish` l'impose.
   create-release:
     name: GitHub Release (apres PyPI seulement)
+    timeout-minutes: 20
     if: github.event_name == 'push'
     needs: [build, publish]
     runs-on: ubuntu-24.04
@@ -789,6 +794,7 @@ jobs:
     # Il ne publie RIEN (pas d'id-token) et n'ecrit que le bloc genere
     # <!-- PIP:BEGIN --> (tools/forge_readme_pip.py). Job SEPARE : un echec (branche
     # protegee, course avec une promotion) reste visible ici sans rougir la Release.
+    timeout-minutes: 20
     if: github.event_name == 'push'
     needs: [create-release]
     runs-on: ubuntu-24.04
@@ -829,6 +835,7 @@ jobs:
   # verdict lu sur ses rapports (connaissances, premiere requete CLI), jamais sur ce job-ci qui ne fait que lancer.
   livrables-publies:
     name: Test des livrables publies (3 OS)
+    timeout-minutes: 90
     if: github.event_name == 'push'
     needs: [create-release]
     runs-on: ubuntu-24.04

@@ -22,6 +22,8 @@ STRICTEMENT READ-ONLY : il LIT (tasks.db + git) et EMET des findings. Il ne comm
 ne pousse pas, ne requalifie aucune task — agir appartient a l'owner ou a l'organe
 proprietaire. Meme doctrine que forge_metric_integrity : la microglie signale
 l'inflammation, elle ne recable pas le neurone.
+Seule ecriture : `ack` (l'enregistrement reste). Depuis le 7/11, `remesurer` relit le fait PRESENT d'un constat ;
+c'est forge_remediation.check_delivery_integrity qui acquitte et depose, sous `armed`.
 
 Anti-dup (rag_fts + lecture des modules) : forge_scalable_oversight fait juger une sortie
 par un PANEL LLM (verdict semantique, couteux) ; forge_metric_integrity traque le Goodhart
@@ -270,6 +272,68 @@ def _sha_atteste(result) -> str | None:
     return m.group(1) if m else None
 
 
+_RE_HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
+# Constat de l'EXECUTEUR (tools/forge_task_executor.py `_effet_observe`, stocke en tete par `_mark_done` sous la forme
+# « <effet> | <reponse de l'agent> »). Meme forme stricte que `_statut_artefact`.
+_RE_EFFET_OBSERVE = re.compile(r"\[effet observe\]\s*commits produits\s*:\s*(\d+|ILLISIBLE)\s*\([^)]*\)\s*;"
+                               r"\s*fichiers non commites\s*:\s*\d+")
+
+
+def _sha_dans_consigne(sha: str, description) -> bool:
+    """Le sha figure-t-il dans la consigne, SOUS QUELQUE FORME QUE CE SOIT ? 7/11 : « CI de reference 50221f9ca »
+    (en clair) etait lu comme une fausse attestation, seule la forme `commit:<sha>` etait reconnue. Prefixe dans les
+    deux sens : la consigne et l'attestation n'abregent pas le sha a la meme longueur."""
+    s = str(sha or "").lower()
+    if len(s) < 7:
+        return False
+    return any(t.startswith(s) or s.startswith(t) for t in _RE_HEX.findall(str(description or "").lower()))
+
+
+def _commits_observes(result) -> int | None:
+    """Commits produits selon l'EXECUTEUR, None si non dit (UNKNOWN != NO).
+
+    Seule la TETE fait foi : le texte avant le premier « | », que l'executeur ecrit avant la reponse de l'agent. Un
+    marqueur recopie dans la prose de l'agent (sans tete d'executeur, ou apres elle) ne vaut rien. Limite connue,
+    la meme que `_constat_executeur` : une prose qui imprimerait la forme exacte suivie d'un « | » serait
+    indiscernable -- elle ne peut qu'ADOUCIR un constat, jamais en fabriquer un."""
+    tete, sep, _ = str(result or "").partition(" | ")
+    if not sep:
+        return None
+    m = _RE_EFFET_OBSERVE.search(tete)
+    if not m or not m.group(1).isdigit():
+        return None
+    return int(m.group(1))
+
+
+def _juger_attestation(description, result, sha: str, created) -> dict:
+    """Juge une attestation `commit:<sha>` -> {"verdict", "motif", "commits"}. Partage par le scan et le soin.
+
+    RECOPIE   : sha dans la consigne (toute forme) ou livrable reel observe par l'executeur -> pas d'accusation ;
+    ANTERIEUR : commit anterieur a la creation, hors consigne ou 0 commit observe -> accusation `high` ;
+    POSTERIEUR: le commit peut etre le livrable ;
+    INCONNU   : git muet ou date illisible -> on s'abstient (cout asymetrique).
+    Le texte de l'executeur PRIME : 0 commit observe garde l'accusation meme si le sha est dans la consigne (forme
+    job_af6dbf75). Marqueur absent : on ne conclut pas, le jugement est celui d'avant (ni adouci ni aggrave)."""
+    n = _commits_observes(result)
+    if n is not None and n > 0:
+        return {"verdict": "RECOPIE", "commits": n,
+                "motif": "livrable reel observe par l'executeur (%d commit(s)), l'attestation designe un autre sha" % n}
+    if n != 0 and _sha_dans_consigne(sha, description):
+        return {"verdict": "RECOPIE", "commits": n, "motif": "sha %s present dans la consigne" % sha}
+    raw = _git(ROOT, "show", "-s", "--format=%cI", sha)
+    created_dt = _creation_au_plus_tot(created)
+    commit_dt = _as_utc(raw) if raw is not None else None
+    if commit_dt is None or created_dt is None:
+        return {"verdict": "INCONNU", "commits": n,
+                "motif": "git muet ou date illisible : ni accusation ni acquittement"}
+    if commit_dt >= created_dt:
+        return {"verdict": "POSTERIEUR", "commits": n, "motif": "commit %s posterieur a la creation" % sha}
+    return {"verdict": "ANTERIEUR", "commits": n,
+            "minutes": int((created_dt - commit_dt).total_seconds() // 60),
+            "motif": ("0 commit observe par l'executeur" if n == 0 else
+                      "marqueur de l'executeur absent : non conclu, signal garde")}
+
+
 def _scan_false_attestations() -> list[dict]:
     """Une preuve doit etre POSTERIEURE a ce qu'elle prouve.
 
@@ -277,6 +341,7 @@ def _scan_false_attestations() -> list[dict]:
     pas en etre le livrable : le code existait avant que le travail soit demande.
     La creation se lit au plus TOT (`_creation_au_plus_tot`) : une date naive est ambigue, et le cout des deux
     erreurs n'est pas symetrique -- accuser a tort un agent coute plus que rater un cas douteux.
+    7/11 : le jugement vit dans `_juger_attestation`, partage avec le soin (`remesurer`).
     """
     out: list[dict] = []
     if not TASKS_DB.exists():
@@ -298,35 +363,25 @@ def _scan_false_attestations() -> list[dict]:
         sha = _sha_atteste(result)
         if not sha:
             continue
-        m_spec = _RE_PTR_COMMIT.search(description or "")
-        if m_spec and m_spec.group(1) == sha:
+        j = _juger_attestation(description, result, sha, created)
+        if j["verdict"] == "RECOPIE":
             out.append({
                 "kind": "pointeur_spec_recopie",
                 "target": f"{tid}:{sha}",
                 "severity": "low",
-                "detail": (f"task {tid} (agent {agent}) marquee done en recopiant le pointeur de sa consigne "
-                           f"({sha}) : defaut de forme de l'attestation, son livrable n'est pas designe"),
+                "detail": (f"task {tid} (agent {agent}) marquee done en citant {sha} ({j['motif']}) : "
+                           f"defaut de forme de l'attestation, son livrable n'est pas designe"),
             })
-            continue
-        created_dt = _creation_au_plus_tot(created)
-        raw = _git(ROOT, "show", "-s", "--format=%cI", sha)
-        if raw is None:
-            # git muet : on ne peut pas distinguer « sha absent » de « git indisponible ».
-            # Cout des deux erreurs asymetrique -> on s'abstient d'accuser.
-            continue
-        commit_dt = _as_utc(raw)
-        if commit_dt is None or created_dt is None:
-            continue
-        if commit_dt < created_dt:
-            delta = created_dt - commit_dt
+        elif j["verdict"] == "ANTERIEUR":
             out.append({
                 "kind": "attestation_commit_anterieur",
                 "target": f"{tid}:{sha}",
                 "severity": "high",
                 "detail": (f"task {tid} (agent {agent}) marquee done en citant {sha}, "
-                           f"commit anterieur de {int(delta.total_seconds() // 60)} min "
-                           f"a la creation de la task — ne peut pas etre son livrable"),
+                           f"commit anterieur de {j['minutes']} min "
+                           f"a la creation de la task — ne peut pas etre son livrable ({j['motif']})"),
             })
+        # POSTERIEUR : peut etre le livrable ; INCONNU : git muet, on s'abstient d'accuser.
     return out
 
 
@@ -417,14 +472,16 @@ def _gh_env() -> dict:
     return env
 
 
-def _gh(*args: str) -> str | None:
+def _gh(*args: str, coffre: bool = True) -> str | None:
     """GitHub CLI en lecture seule. None si `gh` est absent, non authentifie ou
-    injoignable — l'organe se tait alors sur la dimension CI plutot que d'accuser."""
+    injoignable — l'organe se tait alors sur la dimension CI plutot que d'accuser.
+    `coffre=False` (le soin, 7/11) : environnement herite SEUL, jamais de lecture de secret ; non authentifie ->
+    None -> INCONNU, donc aucun acquittement."""
     try:
         r = subprocess.run(
             ["gh", *args, "--repo", GH_REPO],
             capture_output=True, text=True, timeout=45,
-            encoding="utf-8", errors="replace", env=_gh_env(),
+            encoding="utf-8", errors="replace", env=_gh_env() if coffre else dict(os.environ),
         )
         return r.stdout.strip() if r.returncode == 0 else None
     except Exception:
@@ -675,6 +732,174 @@ def ack(kind: str, target: str, motif: str = "") -> bool:
         return cur.rowcount > 0
     finally:
         con.close()
+
+
+# ── SOIN (7/11) : re-mesurer le fait PRESENT d'un constat ouvert ─────────────────────────────────────────────
+# Owner 7/11 : « si le corps recoit des signaux il doit savoir les traiter de facon autonome ». Ces fonctions LISENT
+# (tasks.db, git, gh sans coffre) et rendent un etat ; acquitter (`ack`) et deposer une tache appartiennent a
+# forge_remediation.check_delivery_integrity, sous le drapeau `armed`.
+#   RESOLU    : le fait n'existe plus            -> acquittable
+#   CONTREDIT : le constat etait faux             -> acquittable
+#   SUSPECT   : accusation confirmee par l'executeur (0 commit observe) -> tache de reverification
+#   PERSISTE  : le fait tient, ou non conclu      -> garde
+#   INCONNU   : illisible                         -> garde, JAMAIS acquitte
+
+# Requete de la SEULE table des constats (la base est partagee : jamais de balayage d'une autre table).
+# EXPLAIN QUERY PLAN prouve par tests/nr/test_coagulation_soin_integrite_nr.py.
+_SQL_OUVERTS = ("SELECT id, kind, target, severity, created_at FROM delivery_integrity_findings "
+                "WHERE acked_at IS NULL ORDER BY created_at LIMIT ?")
+
+
+def findings_ouverts(limit: int = 60) -> list[dict] | None:
+    """Constats non acquittes, plus anciens d'abord, en LECTURE SEULE ; None si la table est illisible."""
+    try:
+        con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=30)
+    except sqlite3.Error:
+        return None
+    try:
+        rows = con.execute(_SQL_OUVERTS, (int(limit),)).fetchall()
+    except sqlite3.Error:
+        return None
+    finally:
+        con.close()
+    return [{"id": a, "kind": b, "target": c, "severity": d, "created_at": e} for a, b, c, d, e in rows]
+
+
+def _etat(etat: str, motif: str, **extra) -> dict:
+    return dict(extra, etat=etat, motif=str(motif)[:240])
+
+
+def _remesurer_attestation(target: str) -> dict:
+    tid, _, sha = str(target).rpartition(":")
+    if not tid or not sha:
+        return _etat("INCONNU", "cible illisible")
+    if not TASKS_DB.exists():
+        return _etat("INCONNU", "tasks.db absente")
+    try:
+        con = sqlite3.connect(f"file:{TASKS_DB}?mode=ro", uri=True, timeout=30)
+        try:
+            cols = {r[1] for r in con.execute("PRAGMA table_info(tasks)")}
+            desc_col = "description" if "description" in cols else "NULL"
+            stat_col = "status" if "status" in cols else "NULL"
+            row = con.execute(f"SELECT agent, created_at, {desc_col}, result, {stat_col} FROM tasks WHERE id=?",
+                              (tid,)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return _etat("INCONNU", "tasks.db illisible (%s)" % type(exc).__name__)
+    if row is None:
+        return _etat("INCONNU", "tache %s absente de tasks.db" % tid)
+    agent, created, description, result, status = row
+    # 9/11 (choix owner « requalifier ») : une tache sortie de done/completed n'atteste plus rien ; sans ce chemin,
+    # job_af6dbf75 etait re-emise en high a chaque tick (SUSPECT perpetuel). Statut illisible (NULL) : on continue.
+    if status is not None and status not in ("done", "completed"):
+        return _etat("RESOLU", "tache %s requalifiee (status=%s) : elle n'atteste plus %s" % (tid, status, sha),
+                     agent=agent)
+    if _sha_atteste(result) != sha:
+        return _etat("RESOLU", "l'attestation de %s ne cite plus %s" % (tid, sha), agent=agent)
+    j = _juger_attestation(description, result, sha, created)
+    if j["verdict"] in ("RECOPIE", "POSTERIEUR"):
+        return _etat("CONTREDIT", j["motif"], agent=agent)
+    if j["verdict"] == "ANTERIEUR" and j["commits"] == 0:
+        return _etat("SUSPECT", "sha %s anterieur de %s min, %s" % (sha, j["minutes"], j["motif"]),
+                     agent=agent, tache=tid, sha=sha, consigne=str(description or "")[:600])
+    if j["verdict"] == "ANTERIEUR":
+        return _etat("PERSISTE", j["motif"], agent=agent)
+    return _etat("INCONNU", j["motif"], agent=agent)
+
+
+def _remesurer_travail_non_commite(target: str) -> dict:
+    changed = _git(ROOT, "diff", "--name-only", "--ignore-submodules=all")
+    staged = _git(ROOT, "diff", "--cached", "--name-only", "--ignore-submodules=all")
+    if changed is None or staged is None:
+        return _etat("INCONNU", "git diff illisible")
+    present = _scan_uncommitted()
+    if not present:
+        return _etat("RESOLU", "plus aucun fichier tracke modifie depuis %d j" % STALE_DAYS)
+    if present[0]["target"] == target:
+        return _etat("PERSISTE", "chemin encore sale : %s" % target)
+    return _etat("RESOLU", "remplace par le constat present (%s)" % present[0]["target"])
+
+
+def _remesurer_file_non_drainee(target: str) -> dict:
+    agent, _, status = str(target).rpartition(":")
+    if not agent or not status:
+        return _etat("INCONNU", "cible illisible")
+    if not TASKS_DB.exists():
+        return _etat("INCONNU", "tasks.db absente")
+    try:
+        con = sqlite3.connect(f"file:{TASKS_DB}?mode=ro", uri=True, timeout=30)
+        try:
+            n, oldest = con.execute("SELECT COUNT(*), MIN(created_at) FROM tasks WHERE agent=? AND status=?",
+                                    (agent, status)).fetchone()
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        return _etat("INCONNU", "tasks.db illisible (%s)" % type(exc).__name__)
+    if not n:
+        return _etat("RESOLU", "file %s videe" % target)
+    oldest_dt = _as_utc(oldest)
+    if oldest_dt is None:
+        return _etat("INCONNU", "date de la plus ancienne tache illisible")
+    if oldest_dt > datetime.now(tz=timezone.utc) - timedelta(days=STALE_DAYS):
+        return _etat("RESOLU", "%d tache(s) %s, toutes de moins de %d j" % (n, target, STALE_DAYS))
+    return _etat("PERSISTE", "%d tache(s) %s, la plus ancienne du %s" % (n, target, oldest))
+
+
+def _remesurer_submodule(target: str) -> dict:
+    recorded = _git(SUPERREPO, "ls-tree", "HEAD", target)
+    real = _git(SUPERREPO / target, "rev-parse", "HEAD")
+    if not recorded or not real:
+        return _etat("INCONNU", "pointeur ou HEAD du submodule illisible")
+    m = re.search(r"\b([0-9a-f]{40})\b", recorded)
+    if not m:
+        return _etat("INCONNU", "pointeur du superrepo illisible")
+    if m.group(1) == real:
+        return _etat("RESOLU", "superrepo a jour sur %s" % real[:8])
+    return _etat("PERSISTE", "superrepo sur %s, submodule sur %s" % (m.group(1)[:8], real[:8]))
+
+
+def _remesurer_ci(target: str) -> dict:
+    branch = _git(ROOT, "rev-parse", "--abbrev-ref", "HEAD")
+    if not branch:
+        return _etat("INCONNU", "branche illisible")
+    raw = _gh("run", "list", "--branch", branch, "--limit", "30", "--json", "conclusion,status,name,headSha",
+              coffre=False)
+    if not raw:
+        return _etat("INCONNU", "runs GitHub illisibles (gh absent ou non authentifie, coffre non lu)")
+    try:
+        runs = json.loads(raw)
+    except ValueError:
+        return _etat("INCONNU", "sortie gh illisible")
+    rs = [r for r in runs if r.get("status") == "completed" and (r.get("name") or "?") == target]
+    if not rs:
+        return _etat("INCONNU", "aucun run termine du workflow %s sur %s" % (target, branch))
+    if rs[0].get("conclusion") == "failure":
+        # workflow + commit : la tache d'analyse du soin est dedupliquee sur ce couple. Sha absent -> pas de couple,
+        # donc pas de tache (le soin ne cree rien sur une lecture incomplete).
+        return _etat("PERSISTE", "dernier run de %s sur %s en echec" % (target, branch),
+                     workflow=target, commit=str(rs[0].get("headSha") or "")[:40], branche=branch)
+    return _etat("RESOLU", "dernier run de %s sur %s : %s" % (target, branch, rs[0].get("conclusion")))
+
+
+_REMESURES = {
+    "attestation_commit_anterieur": _remesurer_attestation,
+    "travail_non_commite": _remesurer_travail_non_commite,
+    "file_non_drainee": _remesurer_file_non_drainee,
+    "submodule_non_bumpe": _remesurer_submodule,
+    "ci_en_echec": _remesurer_ci,
+}
+
+
+def remesurer(kind: str, target: str) -> dict:
+    """Etat PRESENT d'un constat -> {"etat", "motif", ...}. Lecture seule ; ne leve jamais."""
+    f = _REMESURES.get(str(kind))
+    if f is None:
+        return _etat("INCONNU", "type %s sans re-mesure" % kind)
+    try:
+        return f(str(target))
+    except Exception as exc:  # noqa: BLE001 - une re-mesure qui casse vaut INCONNU, jamais RESOLU
+        return _etat("INCONNU", "re-mesure en echec (%s: %s)" % (type(exc).__name__, str(exc)[:80]))
 
 
 def _ensure_schema(con: sqlite3.Connection) -> None:

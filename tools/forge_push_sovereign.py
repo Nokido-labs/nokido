@@ -28,6 +28,7 @@ API ajoutee depuis le 2026-09-22 (premiere ligne de la docstring de chaque symbo
 
 __FORGE_COLOR__ = "infra/deploy : push souverain vers GitHub et Codeberg, jetons du coffre"  # organe declare le 2026-09-06 (audit de raccordement)
 import argparse
+import ast
 import os
 import re
 import subprocess
@@ -167,6 +168,137 @@ def _ci_github_rouges(br: str, sha: str) -> None:
     print()
 
 
+def extraire_pure_tests(contenu_ci_local: str) -> tuple[list[str] | None, str | None]:
+    """Extrait la liste PURE_TESTS du contenu d'un fichier ci_local.py par analyse AST.
+
+    Rend (tests, None) si succes, ou (None, motif_erreur) si la liste est introuvable
+    ou non litterale. Jamais d'eval() non securise ni d'import runtime.
+    """
+    if not contenu_ci_local or not contenu_ci_local.strip():
+        return None, "contenu ci_local.py vide"
+    try:
+        arbre = ast.parse(contenu_ci_local)
+    except Exception as exc:
+        return None, "ast.parse echoue : %s" % exc
+
+    for node in arbre.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "PURE_TESTS":
+                    try:
+                        val = ast.literal_eval(node.value)
+                        if isinstance(val, (list, tuple)):
+                            return [str(x) for x in val], None
+                        return None, "PURE_TESTS n'est pas une liste ou un tuple"
+                    except Exception as exc:
+                        return None, "ast.literal_eval(PURE_TESTS) echoue : %s" % exc
+    return None, "assignation PURE_TESTS introuvable dans l'arbre AST"
+
+
+def _charger_pure_tests_sha(sha: str) -> tuple[list[str] | None, str | None]:
+    """Lit PURE_TESTS depuis git show <sha>:tools/ci_local.py via AST.
+
+    Echec de git show ou extraction impossible = ILLISIBLE.
+    Suppression du repli import runtime (qui lisait l'arbre courant et non sha).
+    """
+    r = git("show", "%s:tools/ci_local.py" % sha)
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        return None, "git show %s:tools/ci_local.py echoue (rc=%d) : %s" % (sha[:12], r.returncode, err[:120])
+    return extraire_pure_tests(r.stdout)
+
+
+def verifier_pure_tests_ajoutes(br: str, sha_cible: str) -> dict:
+    """Verifie que tout test tests/nr/*.py ajoute entre origin/<br> et sha_cible est dans PURE_TESTS.
+
+    Retourne un dict:
+      {
+        "etat": "OK" | "RED" | "ILLISIBLE",
+        "ajoutes": [...],
+        "manquants": [...],
+        "pure_tests": [...],
+        "motif": str | None
+      }
+    """
+    # 1. Identifier la base distante
+    base_distante = "origin/%s" % br
+    r_rev = git("rev-parse", "--verify", "--quiet", base_distante)
+    if r_rev.returncode != 0:
+        # Tenter sans prefixe origin/ si introuvable
+        return {
+            "etat": "ILLISIBLE",
+            "ajoutes": [],
+            "manquants": [],
+            "pure_tests": [],
+            "motif": "base distante '%s' introuvable dans le depot local" % base_distante,
+        }
+
+    # 2. Fichiers ajoutes (diff-filter=A) dans tests/nr/
+    r_diff = git("diff", "--name-only", "--diff-filter=A", "%s..%s" % (base_distante, sha_cible), "--", "tests/nr/")
+    if r_diff.returncode != 0:
+        return {
+            "etat": "ILLISIBLE",
+            "ajoutes": [],
+            "manquants": [],
+            "pure_tests": [],
+            "motif": "git diff --diff-filter=A echoue : %s" % (r_diff.stderr or r_diff.stdout or "")[:120],
+        }
+
+    ajoutes = [ligne.strip().replace("\\", "/") for ligne in r_diff.stdout.splitlines() if ligne.strip()]
+    ajoutes_nr = [f for f in ajoutes if f.startswith("tests/nr/") and f.endswith(".py")]
+
+    # 3. Charger PURE_TESTS au sha_cible via AST
+    pure_tests, err = _charger_pure_tests_sha(sha_cible)
+    if err or pure_tests is None:
+        return {
+            "etat": "ILLISIBLE",
+            "ajoutes": ajoutes_nr,
+            "manquants": [],
+            "pure_tests": [],
+            "motif": "lecture AST de PURE_TESTS dans tools/ci_local.py a %s impossible : %s" % (sha_cible[:12], err),
+        }
+
+    pure_set = {f.replace("\\", "/") for f in pure_tests}
+    manquants = [f for f in ajoutes_nr if f not in pure_set]
+
+    if manquants:
+        return {
+            "etat": "RED",
+            "ajoutes": ajoutes_nr,
+            "manquants": manquants,
+            "pure_tests": pure_tests,
+            "motif": "%d fichier(s) tests/nr/*.py ajoute(s) non declare(s) dans PURE_TESTS : %s"
+                     % (len(manquants), ", ".join(manquants)),
+        }
+
+    return {
+        "etat": "OK",
+        "ajoutes": ajoutes_nr,
+        "manquants": [],
+        "pure_tests": pure_tests,
+        "motif": None,
+    }
+
+
+def rejouer_selection_pure(sha_cible: str, tests_a_rejouer: list[str] | None = None) -> tuple[int, str]:
+    """Rejoue localement la selection pytest-pur des tests indiques (ou des ajoutes/modifies)."""
+    pure_tests, err = _charger_pure_tests_sha(sha_cible)
+    if err or pure_tests is None:
+        return 2, "ILLISIBLE : impossible d'extraire PURE_TESTS a %s : %s" % (sha_cible[:12], err)
+
+    retenus = [t for t in (tests_a_rejouer or pure_tests) if t in set(pure_tests)]
+    if not retenus:
+        return 0, "aucun test pur a rejouer"
+
+    cmd = [sys.executable, "-m", "pytest", "-q", "--tb=short", "-p", "no:cacheprovider"] + retenus
+    try:
+        p = subprocess.run(cmd, cwd=str(_REPO), capture_output=True, text=True, errors="replace", timeout=300)
+        out = (p.stdout or "") + (p.stderr or "")
+        return p.returncode, out
+    except Exception as exc:
+        return 2, "erreur rejouer_selection_pure : %s" % exc
+
+
 def refspec(br: str, sha=None):
     """Rend (refspec, None) ou (None, motif). Sans `sha` : `<br>:<br>`, historique.
 
@@ -195,6 +327,8 @@ def main() -> int:
     ap.add_argument("--push", action="store_true", help="pousser reellement (sinon dry-run)")
     ap.add_argument("--repo", default=None,
                     help="depot a pousser (defaut : celui qui porte ce script)")
+    ap.add_argument("--rejouer-pur", action="store_true",
+                    help="rejoue localement la selection pytest-pur des NR ajoutes/modifies avant push")
     args = ap.parse_args()
     # Les deux `global` sont declares ICI, avant toute affectation. Les placer
     # plus bas donnerait « name '_REPO' is assigned to before global
@@ -263,6 +397,27 @@ def main() -> int:
         say("[FATAL] '%s' illisible dans %s -- droits insuffisants sur le .git ?"
             % (br, _REPO))
         return 3
+
+    # Garde anti-recidive CI GitHub : verifier que tout tests/nr/*.py ajoute est dans PURE_TESTS
+    sha_verif = spec.split(":")[0] if spec else head
+    verif = verifier_pure_tests_ajoutes(br, sha_verif)
+    if verif["etat"] == "ILLISIBLE":
+        say("[garde-pure] ILLISIBLE : %s" % verif["motif"])
+        return 6
+    elif verif["etat"] == "RED":
+        say("[garde-pure] RED : %s" % verif["motif"])
+        return 7
+    else:
+        say("[garde-pure] OK (%d ajoutes, tous dans PURE_TESTS)" % len(verif["ajoutes"]))
+
+    if args.rejouer_pur and verif["ajoutes"]:
+        say("[rejouer-pur] rejeu de %d test(s)..." % len(verif["ajoutes"]))
+        rc_rejeu, sortie_rejeu = rejouer_selection_pure(sha_verif, verif["ajoutes"])
+        if rc_rejeu != 0:
+            say("[rejouer-pur] ECHEC (rc=%d) :\n%s" % (rc_rejeu, sortie_rejeu[:500]))
+            return rc_rejeu
+        say("[rejouer-pur] SUCCES (tous verts)")
+
     print()
     if not args.push:
         _ci_github_rouges(br, spec.split(":")[0])

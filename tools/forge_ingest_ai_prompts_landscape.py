@@ -28,6 +28,8 @@ except ImportError:  # pragma: no cover
 
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:  # amorce : le garde d'ingestion vit sous `nokido_agent`
+    sys.path.insert(0, str(ROOT))
 DB = ROOT / "RAG" / "embeddings.db"
 REPO = Path("C:/tmp/system-prompts-ai-tools")
 DOMAIN = "ai_prompts_landscape"
@@ -267,6 +269,9 @@ def ingest(dry_run: bool = False) -> dict:
                 # Use source as PK with suffix.
                 keys = [k for k in payload if k in cols and k != "id"]
 
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion(source, chunk):
+                continue
             if dry_run:
                 n_inserted += 1
                 per_source[source] = per_source.get(source, 0) + 1

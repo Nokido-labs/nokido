@@ -62,7 +62,10 @@ def test_sous_le_seuil_rien_de_neuf_et_reprise_apres_calme():
     t_calme = 1010.0 + rm._HAMILTON_CALME_MIN_S + 1
     r = _regler(_plan(), 70.0, etat=r["etat"], t=t_calme)
     assert r["gestes"].get("Gros") == "MAINTENIR_PAUSE" and "Gros" in r["etat"]
+    # 7/11 (oscillation sommeil/reveil) : jamais repris avant la duree minimale de sommeil depuis la cession (t=1000)
     r = _regler(_plan(), 50.0, etat=r["etat"], t=t_calme + 60)
+    assert r["gestes"].get("Gros") == "MAINTENIR_PAUSE"
+    r = _regler(_plan(), 50.0, etat=r["etat"], t=1000.0 + rm._HAMILTON_SOMMEIL_MIN_S + 1)
     assert r["gestes"].get("Gros") == "REPRENDRE"
 
 

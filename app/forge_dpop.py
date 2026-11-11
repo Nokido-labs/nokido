@@ -227,20 +227,30 @@ class CleTpm:
     (`sign(donnees, algo) -> DER`, `public_key()`). Construite SEULEMENT pour le porteur
     du credential propre de l'agent."""
 
-    def __init__(self, agent_id: str, jeton_acces: Optional[str]):
+    def __init__(self, agent_id: str, jeton_acces: Optional[str], machine: Optional[bool] = None):
+        # `machine` (3/11) : magasin TPM choisi par APPEL (None = FORGE_TPM_MACHINE, historique) -- la variable est
+        # globale au processus et basculerait les autres cles du hub. NR test_tpm_magasin_machine_explicite_nr.
         if not _porteur_autorise(agent_id, jeton_acces):
             raise PermissionError(
                 "signature TPM refusee : l'appelant ne porte pas le credential PROPRE "
                 "de %s" % str(agent_id)[:40])
         from nokido_agent.app import forge_persona_tpm as _tpm
 
-        jwk, raison = _tpm.cle_publique_jwk_agent(agent_id)
+        if machine is None:
+            jwk, raison = _tpm.cle_publique_jwk_agent(agent_id)           # chemin historique, inchange
+        else:
+            jwk, raison = _tpm.cle_publique_jwk(nom=_tpm.nom_cle_agent(agent_id), machine=machine)
         if not jwk:
             raise RuntimeError("cle TPM de %s inutilisable : %s" % (agent_id, raison))
-        self.agent_id, self._jwk, self._tpm = agent_id, jwk, _tpm
+        self.agent_id, self._jwk, self._tpm, self._machine = agent_id, jwk, _tpm, machine
 
     def sign(self, donnees: bytes, _algo=None) -> bytes:
-        brut = self._tpm.sign_as(self.agent_id, donnees)
+        # autorisation faite dans __init__ (porteur du credential propre) ; `machine` choisit seulement le magasin
+        if self._machine is None:
+            brut = self._tpm.sign_as(self.agent_id, donnees)
+        else:
+            brut = self._tpm.sign(donnees, nom=self._tpm.nom_cle_agent(self.agent_id), creer=False,
+                                  machine=self._machine)
         if not brut or len(brut) != 64:
             raise RuntimeError("signature TPM refusee ou de forme inattendue")
         return _jws_vers_der(brut)

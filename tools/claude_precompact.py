@@ -558,6 +558,24 @@ def _store_summary(summary: dict, session_id: str) -> None:
             SUMMARY, type(e).__name__, str(e)[:90])
 
 
+def _jeton_hook() -> str:
+    """Jeton du hook : coffre (FORGE_TOKEN_CLAUDE_HOOK), puis variable du PROCESSUS du meme nom, sinon vide.
+
+    2/11 : plus de FORGE_TOKEN_CLAUDE (ring 1 du voisin) ni de Nokido.env. Un hook ne casse jamais la session :
+    sans jeton, il ne journalise pas au hub. NR tests/nr/test_hooks_claude_jeton_coffre_seul_nr.py
+    """
+    try:
+        sys.path.insert(0, str(ROOT))
+        from nokido_agent.app.forge_secrets import get_secret  # type: ignore
+
+        tok = get_secret("FORGE_TOKEN_CLAUDE_HOOK") or ""
+        if tok:
+            return tok
+    except Exception:  # muet-ok : coffre indisponible -> repli ci-dessous, un hook ne casse jamais la session
+        pass
+    return os.environ.get("FORGE_TOKEN_CLAUDE_HOOK", "")
+
+
 def main() -> int:
     _load_env()
 
@@ -616,26 +634,7 @@ def main() -> int:
         # (ring 1) en se declarant CLAUDE_HOOK (ring 4). Emprunter le marqueur
         # d'un voisin est ce que la doctrine interdit, et cela faisait circuler
         # un credential privilegie dans un hook qui n'en a pas besoin.
-        tok = ""
-        try:
-            sys.path.insert(0, str(ROOT))
-            from nokido_agent.app.forge_secrets import get_secret  # type: ignore
-
-            tok = get_secret("FORGE_TOKEN_CLAUDE_HOOK") or ""
-        except Exception:  # muet-ok : coffre indisponible -> replis ci-dessous, un hook ne casse jamais la session
-            tok = ""
-        if not tok:
-            tok = os.environ.get("FORGE_TOKEN_CLAUDE_HOOK", "") or os.environ.get(
-                "FORGE_TOKEN_CLAUDE", "")
-        if not tok:
-            env = ROOT / "Nokido.env"
-            if env.exists():
-                for line in env.read_text(errors="ignore").splitlines():
-                    if line.startswith("FORGE_TOKEN_CLAUDE_HOOK="):
-                        tok = line.split("=", 1)[1].strip()
-                        break
-                    if line.startswith("FORGE_TOKEN_CLAUDE="):
-                        tok = line.split("=", 1)[1].strip()
+        tok = _jeton_hook()
         if tok:
             body = json.dumps(
                 {

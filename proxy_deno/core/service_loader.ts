@@ -89,6 +89,12 @@ export interface ServiceDef {
    * dans le journal du superviseur -- pour une commande non Python.
    */
   logboot?: boolean;
+  /**
+   * REGISTRE D'IDENTITE ET D'INTENTION (2026-11-08, consigne owner : LE SUPERVISEUR PUBLIE).
+   * Chaque service porte son intention et son objectif declares dans services.toml.
+   */
+  intention?: string;
+  objectif?: string;
 }
 
 function resolveVars(s: string, vars: Record<string, string>): string {
@@ -297,6 +303,12 @@ export function loadServices(
       }
       if (typeof s.heartbeat_max_s === "number" && Number.isFinite(s.heartbeat_max_s) && s.heartbeat_max_s > 0) {
         svc.heartbeat_max_s = s.heartbeat_max_s;
+      }
+      if (typeof s.intention === "string" && s.intention.trim().length > 0) {
+        svc.intention = s.intention.trim();
+      }
+      if (typeof s.objectif === "string" && s.objectif.trim().length > 0) {
+        svc.objectif = s.objectif.trim();
       }
 
       if (!svc.name || !Number.isFinite(svc.wave)) {

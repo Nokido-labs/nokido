@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Simulateur de REJEU de la regulation RAM de Nokido (GO owner 28/10) -- prealable a l'optimisation des seuils.
 
-Transposition du takehome : il avait un simulateur exact ; Nokido n'en a pas. Ce module rejoue une FENETRE de
+Un banc d'ordonnancement avait un simulateur exact ; Nokido n'en a pas. Ce module rejoue une FENETRE de
 journal (vitaux, ordres au superviseur, audit du cycle de vie) en appelant le CODE EXISTANT de la regulation :
 
   * le tick Hamilton REEL (`forge_resource_manager._regulation_hamilton_tick`), qui appelle lui-meme
@@ -68,6 +68,10 @@ SEUILS = {
     "reprise_budget": ("env", "NOKIDO_HAMILTON_REPRISE_BUDGET"),
     "marge_reprise_pct": ("attr", "_HAMILTON_MARGE_REPRISE_PCT"),
     "poids_inconnu_mb": ("attr", "_HAMILTON_POIDS_INCONNU_MB"),
+    # 7/11 : gardes anti-oscillation (0 / tres grand = politique d'avant, pour rejouer une fenetre passee fidelement)
+    "gain_min_mb": ("attr", "_HAMILTON_GAIN_MIN_MB"),
+    "reprise_lot": ("attr", "_HAMILTON_REPRISE_LOT"),
+    "sommeil_min_s": ("attr", "_HAMILTON_SOMMEIL_MIN_S"),
 }
 GESTES_ORDONNES = ("SUSPENDRE", "REPRENDRE")
 _RE_VERDICT = re.compile(r"pression (SOI|NON_SOI|NOYAU|INCERTAIN)\b")
@@ -360,6 +364,10 @@ def rejouer(fen: dict, toml=None, seuils: dict | None = None, phase_ts: float | 
         "attribuer_pression": lambda *a, **k: {"verdict": verdict_courant[0], "raison": "rejeu"},
         "vetos_sommeil_actifs": lambda maintenant=None: dict(vetos),
         "_demande_du_service": lambda svc: demandes.get(svc),
+        # 7/11 : plan_hamilton epargne un executeur dont la file est en vol en lisant le tasks.db VIVANT -- une
+        # fenetre passee jugee avec la file d'aujourd'hui (mesure : le rejeu du 28/10 n'endormait plus que
+        # l'executeur generique des qu'une tache tournait). Le travail en vol n'est pas journalise : oisif.
+        "_travail_en_vol": lambda svc: [],
         "publier_palier_pression": lambda palier: capture["paliers"].append(palier) or True,
         "_ordre_superviseur": lambda svc, geste: capture["ordres"].append((svc, geste)),
         "_audit_lifecycle": lambda action, domain, reason="", **extra: capture["audits"].append(reason),

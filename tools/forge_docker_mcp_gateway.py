@@ -64,6 +64,11 @@ def argv_gateway() -> list:
     a = ["docker", "mcp", "gateway", "run"]
     if profil:
         a += ["--profile", profil]
+    # 2/11 : doc gateway_run -- `--memory` vaut 2Gb PAR DEFAUT par conteneur serveur (et --cpus 1) ; la VM WSL a
+    # 5 Go (.wslconfig). Plafond reglable ; NR tests/nr/test_passerelle_mcp_plafond_memoire_nr.py.
+    a += ["--memory", os.environ.get("LAFORGE_DOCKER_MCP_MEMOIRE", "512Mb").strip(),
+          "--cpus", os.environ.get("LAFORGE_DOCKER_MCP_CPUS", "1").strip()]
+    # le port reste le DERNIER argument (relu par argv_gateway()[-1])
     return a + ["--transport", "streaming", "--host", HOTE, "--port", str(port)]
 
 

@@ -162,7 +162,7 @@ def _delta_oriente(m: float, r: float, dim: str, orientation: dict | None):
 def ecarts_hors_bande(reference: dict, mesure: dict | None, bruit: dict,
                       sens: str = "recul", orientation: dict | None = None) -> list[dict]:
     """Dimensions de `reference` sorties de la bande. Plus haut = mieux, sauf `orientation[dim] == "MIN"`
-    (cycles, duree, RAM : chantier 1 du takehome, 18/10) ; une orientation inconnue compte comme ecart.
+    (cycles, duree, RAM : chantier 1, 18/10) ; une orientation inconnue compte comme ecart.
 
     `sens="recul"` : regression seulement (delta < -bruit) -- le critere pour REVERTER.
     `sens="ecart"` : tout ecart (|delta| > bruit) -- le critere « REVENU dans la bande ».

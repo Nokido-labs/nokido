@@ -121,10 +121,35 @@ def _check_event_loop() -> tuple:
         return CLEAR, f"dernier lag il y a {age/60:.0f}min"
     try:
         import re
-        tail = LAG_LOG.read_text("utf-8", "ignore")[-4000:]
-        lags = [int(x) for x in re.findall(r"lag=(\d+)ms", tail)]
-        mx = max(lags) if lags else 0
-        return (EMBOLIE if mx >= LAG_MS else WARN if mx else CLEAR), f"lag max récent={mx}ms"
+        # 11/11 (alerte owner #687) : UN pic a 1841 ms (seuil 1800), resorbe seul, partait en alerte high au tray
+        # sans aucune decision possible. Gradue : les pics sont DATES (lignes `=== AAAA-MM-JJ HH:MM:SS lag=`) et
+        # comptes sur la fenetre recente. Isole -> WARN + coupable pointe ; repete (>= 2) ou massif (>= 2x le
+        # seuil) -> EMBOLIE. Un debit se compte sur une fenetre, jamais sur un maximum seul.
+        with open(LAG_LOG, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - 400_000))
+            tail = fh.read().decode("utf-8", "ignore")
+        now = time.time()
+        dates = []
+        for jour, lag in re.findall(r"=== (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d) lag=(\d+)ms", tail):
+            try:
+                t = time.mktime(time.strptime(jour, "%Y-%m-%d %H:%M:%S"))
+            except ValueError:  # muet-ok : ligne de date illisible, ignoree (le repli sur la queue reste)
+                continue
+            if now - t <= LAG_RECENT_S:
+                dates.append(int(lag))
+        if not dates:  # format non date (ancien journal) : repli sur le maximum de la queue
+            lags = [int(x) for x in re.findall(r"lag=(\d+)ms", tail[-4000:])]
+            mx = max(lags) if lags else 0
+            return (EMBOLIE if mx >= LAG_MS else WARN if mx else CLEAR), f"lag max récent={mx}ms"
+        mx = max(dates)
+        graves = [x for x in dates if x >= LAG_MS]
+        if len(graves) >= 2 or mx >= 2 * LAG_MS:
+            return EMBOLIE, f"lag max récent={mx}ms ({len(graves)} pic(s) >= {LAG_MS}ms en {LAG_RECENT_S // 60}min)"
+        if graves:
+            return WARN, (f"pic isolé {mx}ms (seuil {LAG_MS}ms), résorbé — coupable : pile au-dessus du marqueur "
+                          f"dans {LAG_LOG.name}")
+        return WARN, f"lag max récent={mx}ms"
     except Exception as e:  # noqa: BLE001
         return WARN, f"lecture KO: {e}"
 
@@ -275,7 +300,9 @@ def _body_phase() -> str:
 
 def _check_daemon_heartbeats() -> tuple:
     """Heartbeats des daemons SUPERVISÉS DÉCLARÉS (services.toml) trop vieux = organe MORT.
-    Ne flagge QUE les daemons attendus (pas les .heartbeat résiduels = bruit)."""
+    Ne flagge QUE les daemons attendus (pas les .heartbeat résiduels = bruit).
+    Un daemon périmé n'est retiré du compte des morts que si le superviseur PROUVE
+    que son service est endormi par délestage (sleeping)."""
     sup = _supervised_heartbeats()
     if not sup:
         return CLEAR, "services.toml illisible"
@@ -287,28 +314,83 @@ def _check_daemon_heartbeats() -> tuple:
                  or now - (hb_dir / f"{n}.heartbeat").stat().st_mtime > limit]
         parked = sorted(set(stale) & PARKED_DAEMONS)
         stale = [n for n in stale if n not in PARKED_DAEMONS]
-        _extra = f" | parked({len(parked)}): {parked}" if parked else ""
-        n_stale, n_tot = len(stale), len(sup)
+
+        # Distinction vivants / dormeurs / morts :
+        # On interroge GET /supervisor/status pour vérifier si des services associés
+        # aux heartbeats périmés sont prouvés "sleeping".
+        # Mapping heartbeat_name -> service_name depuis services.toml
+        hb_to_service = {}
+        try:
+            toml = ROOT / "proxy_deno" / "core" / "services.toml"
+            if toml.exists():
+                txt = toml.read_text("utf-8", "ignore")
+                import re as _re
+                for block in _re.split(r"\n(?=\[)", txt):
+                    m_hb = _re.search(r'heartbeat\s*=\s*"sandbox/([\w.]+)\.heartbeat"', block)
+                    m_name = _re.search(r'name\s*=\s*"([^"]+)"', block)
+                    if m_hb and m_name:
+                        hb_to_service[m_hb.group(1)] = m_name.group(1)
+        except Exception:  # noqa: BLE001
+            __import__("logging").getLogger(__name__).debug(
+                "services.toml illisible pour mapping sleeping (%s:%d)",
+                'tools/forge_organ_pulse.py', 305, exc_info=True,
+            )
+
+        sleeping_daemons = []
+        try:
+            with urllib.request.urlopen(_SUPERVISOR_STATUS, timeout=3) as _r:
+                _data = json.loads(_r.read().decode("utf-8", "replace")) or {}
+                _services_st = _data.get("services") or {}
+                if isinstance(_services_st, dict):
+                    for hb_name in list(stale):
+                        svc_name = hb_to_service.get(hb_name, hb_name)
+                        svc_info = _services_st.get(svc_name)
+                        if isinstance(svc_info, dict) and svc_info.get("status") == "sleeping":
+                            sleeping_daemons.append(hb_name)
+        except Exception:  # noqa: BLE001
+            # Superviseur muet, reponse illisible ou erreur : liste blanche stricte,
+            # aucun dormeur n'est soustrait (dormeurs INCONNUS, ils restent comptes perimes).
+            __import__("logging").getLogger(__name__).debug(
+                "superviseur injoignable pour statut sleeping (%s:%d)",
+                'tools/forge_organ_pulse.py', 324, exc_info=True,
+            )
+            sleeping_daemons = []
+
+        sleeping_set = set(sleeping_daemons)
+        dead = [n for n in stale if n not in sleeping_set]
+        sleeping_sorted = sorted(sleeping_set)
+
+        _extra_parked = f" | parked({len(parked)}): {parked}" if parked else ""
+        _extra_sleep = f" | {len(sleeping_sorted)} endormi(s): {sleeping_sorted}" if sleeping_sorted else ""
+        n_dead, n_tot = len(dead), len(sup)
         phase = _body_phase()
         # PRÉDICTIF : on apprend l'attendu de CETTE phase, et la surprise se lit sur le
         # modèle qui avait cours (observe_signal calcule z AVANT sa propre mise à jour).
         z = None
         try:
             from nokido_agent.app import forge_active_inference as _ai
-            z = _ai.observe_signal("daemons_stale", phase, float(n_stale)).get("z")
+            z = _ai.observe_signal("daemons_stale", phase, float(n_dead)).get("z")
         except Exception:  # noqa: BLE001 — le pouls ne casse jamais sur son modèle
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 299, exc_info=True)
         _ctx = f" | phase={phase}" + (f" z={z}" if z is not None else " (modèle immature)")
-        _detail = f"{n_stale}/{n_tot} daemons déclarés stale: {sorted(stale)[:6]}{_extra}{_ctx}"
+        _detail = f"{n_dead}/{n_tot} daemons déclarés stale: {sorted(dead)[:6]}{_extra_parked}{_extra_sleep}{_ctx}"
         if phase.startswith("boot"):
             # Pendant le réveil, l'absence EST l'état normal. Escalader ici arme le
             # cortisol, qui fait refuser les spawns, qui perpétue l'absence — la boucle
             # mesurée le 29-07 (19/29 stale à T+70 s, 471 spawns refusés). On alerte
             # donc au plus en WARN, jamais en EMBOLIE, et l'attendu appris tranche.
             if z is not None and z <= BOOT_Z_TOLERANCE:
-                return CLEAR, _detail
-            return (WARN if n_stale else CLEAR), _detail
-        return (EMBOLIE if n_stale >= 5 else WARN if stale else CLEAR), _detail
+                return (WARN if sleeping_sorted else CLEAR), _detail
+            return (WARN if (n_dead or sleeping_sorted) else CLEAR), _detail
+
+        # Des dormeurs seuls donnent WARN, jamais EMBOLIE ni CLEAR.
+        if n_dead >= 5:
+            verdict = EMBOLIE
+        elif n_dead > 0 or sleeping_sorted:
+            verdict = WARN
+        else:
+            verdict = CLEAR
+        return verdict, _detail
     except Exception as e:  # noqa: BLE001
         return WARN, f"KO: {e}"
 
@@ -329,20 +411,55 @@ def _check_db_locks() -> tuple:
     return (EMBOLIE if locked else CLEAR), (f"verrouillées: {locked}" if locked else "aucun lock DB")
 
 
+def _soigner_wal(wal: Path) -> str:
+    """wal_checkpoint(TRUNCATE) sur la base du -wal : rend 'soigne', 'retenu' ou 'illisible'.
+
+    SQLite ne TRONQUE jamais le fichier -wal apres un checkpoint ordinaire : une rafale passee
+    laisse un fichier enorme mais VIDE de trames en attente (mesure 2026-11-08 :
+    execution_traces.db-wal 0,81 Go pour 1008 trames toutes fusionnees). Le soigner = le tronquer.
+    busy_timeout court : on n'attend jamais un ecrivain, un lecteur actif = 'retenu' (vraie embolie)."""
+    import sqlite3
+
+    db = wal.with_name(wal.name[: -len("-wal")])
+    try:
+        conn = sqlite3.connect(str(db), timeout=2)
+        try:
+            busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).debug("soin WAL illisible %s", wal.name, exc_info=True)
+        return "illisible"
+    try:
+        reste = wal.stat().st_size / 1e9 if wal.exists() else 0.0
+    except OSError:
+        return "illisible"
+    return "soigne" if (not busy and reste < WAL_BLOAT_GB) else "retenu"
+
+
 def _check_wal_bloat() -> tuple:
-    """Fichier -wal qui enfle = WAL non checkpointé (l'écriture s'accumule sans fusion)."""
-    big = []
+    """Fichier -wal surdimensionne : le corps le SOIGNE (checkpoint TRUNCATE) ; seul un WAL que
+    le soin ne peut pas reduire (lecteur qui le retient) ou illisible reste une embolie.
+    Alerte owner 2026-11-08 ; verrouille par tests/nr/test_organ_pulse_wal_soigne_nr.py."""
+    big, soignes = [], []
     for d in (RAG_DB.parent, ROOT / "sandbox"):
         if not d.exists():
             continue
         try:
             for wal in d.glob("*.db-wal"):
                 gb = wal.stat().st_size / 1e9
-                if gb >= WAL_BLOAT_GB:
-                    big.append(f"{wal.name}={gb:.1f}Go")
+                if gb < WAL_BLOAT_GB:
+                    continue
+                verdict = _soigner_wal(wal)
+                if verdict == "soigne":
+                    soignes.append(f"{wal.name}={gb:.2f}Go")
+                else:
+                    big.append(f"{wal.name}={gb:.2f}Go ({verdict})")
         except Exception:  # noqa: BLE001
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_organ_pulse.py', 343, exc_info=True)
-    return (EMBOLIE if big else CLEAR), (f"WAL enflés: {big}" if big else "WAL sains")
+    if big:
+        return EMBOLIE, f"WAL enflés non résorbables: {big}" + (f" ; soignés: {soignes}" if soignes else "")
+    return CLEAR, (f"WAL soignés (tronqués): {soignes}" if soignes else "WAL sains")
 
 
 def _check_embed_backlog() -> tuple:
@@ -858,24 +975,20 @@ def _alert(p: dict) -> None:
         _app = str(ROOT / "app")
         if _app not in _sys.path:
             _sys.path.insert(0, _app)
-        from nokido_agent.app.forge_hub_client import HubClient  # client GOUVERNE (identite + coffre)
+        from nokido_agent.app.forge_critical_events import persist
 
-        _rep = HubClient(agent="ORGAN_PULSE").notify(json.dumps({
-            "intent": "NEED_HUMAN_APPROVAL",
-            "pointer_ref": "organ_pulse:heartbeat",
-            "confidence": 1.0,
-            "detail": msg,
-        }, ensure_ascii=False))
-        if _rep is None:
-            _jlog.error("[ORGAN_PULSE] ALERTE NON DELIVREE (hub injoignable) : %s "
-                        "| consequence: ce pouls anormal n'a alerte PERSONNE", msg)
-        elif isinstance(_rep, str) and ("GATE_DENIED" in _rep or "Erreur" in _rep):
-            _jlog.error("[ORGAN_PULSE] ALERTE REFUSEE par le hub : %s | message: %s "
-                        "| remede: verifier le ring d'ORGAN_PULSE dans "
-                        "config/agent_identities.json (notify exige ring <= 3)",
-                        _rep, msg)
+        # Embolie d'absence seule : pas d'alerte owner ; signal pour la coagulation.
+        if _absence_seule:
+            persist("organ_pulse:heartbeat", "high", {"embolies": p["embolies"], "msg": msg})
+            _jlog.info("[ORGAN_PULSE] signal absence emis (coagulation) : %s", msg)
         else:
-            _jlog.info("[ORGAN_PULSE] alerte delivree au hub : %s", msg)
+            from nokido_agent.app.forge_critical_events import alerter_owner
+            _rep = alerter_owner("organ_pulse:heartbeat", "high", msg, "ORGAN_PULSE")
+            if _rep == "echec":
+                _jlog.error("[ORGAN_PULSE] ALERTE NON REMISE au registre : %s | consequence: "
+                            "ce pouls anormal n'a alerte PERSONNE", msg)
+            else:
+                _jlog.info("[ORGAN_PULSE] alerte au registre owner (%s) : %s", _rep, msg)
     except Exception as _e:  # noqa: BLE001
         _jlog.error("[ORGAN_PULSE] ALERTE IMPOSSIBLE (%s: %s) : %s | consequence: "
                     "ce pouls anormal n'a alerte PERSONNE",

@@ -30,7 +30,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 # app/ AVANT tools/ : l'inverse ferait resoudre les homonymes vers les outils.
-sys.path.insert(0, str(ROOT))
+# 8/11 : le smoke poussait ROOT en double et jamais app/ — les modules vivent tous
+# dans app/ (forge_active_inference, forge_delivery_integrity...), donc l'import
+# "nu" echouait en ModuleNotFoundError hors paquet nokido_agent installe
+# (smoke audit KO du 8/11, forge_feature_checklist « Organes »). Le smoke lui ne
+# touchait plus ce bug depuis sa creation ; le chemin est la cause, pas les modules.
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "app"))
 sys.path.insert(0, str(ROOT))
 
 FINDINGS: list[dict] = []

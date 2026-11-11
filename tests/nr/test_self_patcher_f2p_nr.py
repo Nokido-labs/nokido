@@ -18,6 +18,16 @@ for _p in (str(_R), str(_R / "tools"), str(_R / "app")):
 
 import forge_self_patcher as sp  # noqa: E402
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _file_repos_isolee(monkeypatch, tmp_path):
+    """3/11 23 h : depuis le RSI « ecrit au repos » (17bf6b2d0), une soumission hors repos va dans sp.FILE_REPOS. Ce
+    module ne l'isolait pas : la VRAIE file du RSI a recu « tools/forge_x.py : def f(): return 2 » (proposition de
+    test), qu'une consolidation nocturne aurait tente d'appliquer. Chaque test ecrit desormais dans tmp_path."""
+    monkeypatch.setattr(sp, "FILE_REPOS", tmp_path / "file_repos_test.jsonl")
+
 
 def test_error_id_junit_devient_un_nodeid(monkeypatch, tmp_path):
     (tmp_path / "tests" / "nr").mkdir(parents=True)
@@ -57,6 +67,9 @@ def _deux_passes(monkeypatch, tmp_path, verdicts):
     monkeypatch.setattr(sp, "_rel_deja_vert", lambda nodeid: False)
     monkeypatch.setattr(sp, "_safe_check", lambda target: None)
     monkeypatch.setattr(sp, "_pertinence", lambda: {"statut": "MESURE", "taux": 1.0, "n": 9})
+    # 3/11 (owner, RSI au repos) : le juge n'est appele qu'au sommeil ou en transe ; ce test porte sur les DEUX PASSES
+    # du juge, pas sur la phase -> on simule une mutation autorisee (la phase a son NR : test_rsi_ecrit_au_repos_nr).
+    monkeypatch.setattr(sp, "_mutation_autorisee", lambda: (True, "test : mutation autorisee"))
     contextes = []
 
     def generer(patterns, rag_ctx, rel_ctx=""):
@@ -112,6 +125,7 @@ def test_un_candidat_ameliore_compte_comme_applique(monkeypatch, tmp_path):
         "description": "corrige f"})
     monkeypatch.setattr(sp, "_submit_to_judge", lambda *a, **k: {"verdict": "AMELIORE",
                                                                  "status": "AWAITING_OWNER_COMMIT"})
+    monkeypatch.setattr(sp, "_mutation_autorisee", lambda: (True, "test : mutation autorisee"))  # 3/11 RSI au repos
     monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_self_correction",
                         types.SimpleNamespace(anchor_solution=lambda **k: None))
     stats = sp.run_once(dry_run=False)

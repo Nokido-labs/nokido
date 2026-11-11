@@ -790,6 +790,14 @@ def ecrire_chunk(conn, source: str, domain: str, texte: str, *,
             import sys as _s
             print(msg, file=_s.stderr, flush=True)
 
+    # Garde d'ingestion, commun a toutes les voies qui passent ici (owner 5/11). Beaucoup de scripts n'ont que app/ dans leur chemin.
+    import sys as _s
+    if str(_ROOT) not in _s.path:
+        _s.path.append(str(_ROOT))
+    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+    if not admis_a_l_ingestion(source, texte):
+        return {"id": None, "longueur": 0, "ecarte": complet, "refuse": True}
+
     cid = chunk_id(source, texte)
     conn.execute(
         "INSERT OR REPLACE INTO rag_chunks(id, source, domain, text) VALUES(?,?,?,?)",

@@ -48,16 +48,34 @@ def _termes(expr):
     return [t.strip().strip('"').rstrip("*") for t in expr.split(" OR ")] if expr else []
 
 
-def contrat_viole(f, question):
-    """Motif de la premiere violation du contrat de requete_fts sur `question`, None si le contrat tient."""
+def lexique_declare(noeud):
+    """4/11 (owner, levier RSI « lexique ») : mots admis HORS de la question = ceux des VALEURS des dictionnaires
+    LITTERAUX ecrits dans requete_fts (ex. {"plante": "exception error"}). Une chaine quelconque ne suffit pas : sinon
+    tout mot invente passerait. Le lexique est du code visible, juge par la lockbox et le banc rappel_lexical."""
+    mots = set()
+    for n in ast.walk(noeud) if noeud is not None else []:
+        if isinstance(n, ast.Dict):
+            for v in n.values:
+                vals = v.elts if isinstance(v, (ast.List, ast.Tuple, ast.Set)) else [v]
+                for e in vals:
+                    if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                        mots |= {m.lower() for m in re.split(r"[\W_]+", e.value) if m}
+    return mots
+
+
+def contrat_viole(f, question, vocabulaire=frozenset()):
+    """Motif de la premiere violation du contrat de requete_fts sur `question`, None si le contrat tient.
+    `vocabulaire` : mots du lexique DECLARE dans la fonction (lexique_declare), admis en plus de la question."""
     expr = f(question)
     if not isinstance(expr, str):
         return "pas une chaine"
     termes = _termes(expr)
     if len(termes) > 15:
         return "plus de 15 termes"
-    mots = {m.lower() for m in re.split(r"\W+", question) if m}
-    if any(t.lower() not in mots for t in termes if t):
+    # 4/11 (owner) : sous-mots d'un snake_case ([\W_]+) et phrases "a b" admis, chaque mot venant de la question
+    mots = ({m.lower() for m in re.split(r"\W+", question) if m}
+            | {m.lower() for m in re.split(r"[\W_]+", question) if m} | set(vocabulaire))
+    if any(any(w.lower() not in mots for w in t.split()) for t in termes if t):
         return "terme absent de la question"
     if expr:
         con = sqlite3.connect(":memory:")
@@ -69,21 +87,72 @@ def contrat_viole(f, question):
     return None
 
 
+def test_contrat_accepte_sous_mots_et_phrases():
+    """Owner 4/11 (series localisation_code) : le contrat interdisait ce que les axes du banc demandent -- `_` est dans
+    \\w, donc `_scores_lexicaux` restait UN mot et ses sous-mots (scores, lexicaux) etaient « absents de la question » ;
+    une phrase FTS5 "a b" (axe ponderation) l'etait aussi. Sous-mots et phrases tires de la question sont admis ; un
+    mot INVENTE reste refuse."""
+    q = "forge_rag_engine.py et _scores_lexicaux"
+    assert contrat_viole(lambda s: '"scores lexicaux" OR forge OR engine*', q) is None
+    assert contrat_viole(lambda s: "inexistant OR forge", q) == "terme absent de la question"
+    assert contrat_viole(lambda s: '"scores inventes"', q) == "terme absent de la question"
+
+
+LEXIQUE_SRC = ('def requete_fts(question):\n'
+               '    import re\n'
+               '    LEXIQUE = {"plante": "exception error", "pouls": ["heartbeat"]}\n'
+               '    mots = [w.lower() for w in re.split(r"\\W+", question or "") if len(w) > 3]\n'
+               '    extra = []\n'
+               '    for w in mots:\n'
+               '        v = LEXIQUE.get(w, [])\n'
+               '        extra += v.split() if isinstance(v, str) else list(v)\n'
+               '    return " OR ".join((mots + extra)[:15])\n')
+
+
+def test_contrat_admet_un_lexique_declare(tmp_path):
+    fic = tmp_path / "lexique_essai.py"
+    fic.write_text(LEXIQUE_SRC, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("lexique_essai", fic)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    vocab = lexique_declare(ast.parse(LEXIQUE_SRC).body[0])
+    assert {"exception", "error", "heartbeat"} <= vocab
+    assert contrat_viole(mod.requete_fts, "le service plante sans pouls", vocab) is None
+    assert contrat_viole(mod.requete_fts, "le service plante sans pouls") == "terme absent de la question"
+    assert lexique_declare(ast.parse('def g(q):\n    return "invente OR " + q\n').body[0]) == set()
+
+
 def test_contrat(tmp_path):
     f = _charger(tmp_path)
+    vocab = lexique_declare(_fonction("requete_fts"))   # 4/11 : lexique declare dans la fonction, admis
     for q in QUESTIONS:
-        assert contrat_viole(f, q) is None, (q, contrat_viole(f, q))
+        assert contrat_viole(f, q, vocab) is None, (q, contrat_viole(f, q, vocab))
     assert f("") == ""
     assert f("a bc") == "" or contrat_viole(f, "a bc") is None
+
+
+GAIN_Q = "Quel est le role du port dans le hub pour les clients with tokens"
+
+
+def gain_rsi_tenu(f):
+    """Le gain du 30/10 tient-il ? Lu comme FTS5 (guillemets et * retires, phrases decoupees) : owner 4/11 -- la forme
+    (`port*`, `"role port"`) n'est pas le gain ; la PRESENCE des mots porteurs et l'ABSENCE des mots vides le sont."""
+    mots = {w for t in _termes(f(GAIN_Q)) for w in t.split()}
+    # mots vides compares A LA CASSE, comme le test d'origine (alpha garde « Quel » capitalise -- limite connue, pas
+    # le contrat de ce gain) ; mots porteurs sans casse
+    return not ({"pour", "dans", "quel", "with"} & mots) and {"port", "clients", "tokens"} <= {m.lower() for m in mots}
 
 
 def test_le_gain_rsi_prouve_est_garde(tmp_path):
     """Candidat AMELIORE du banc rappel_lexical (29/10, rappel@10 0,609 -> 0,630 sur le mini-index fige), integre le
     30/10 apres jugement : les mots vides pour/dans/quel/with ne partent plus dans l'expression FTS."""
-    f = _charger(tmp_path)
-    termes = f("Quel est le role du port dans le hub pour les clients with tokens").split(" OR ")
-    assert not {"pour", "dans", "quel", "with"} & set(termes)
-    assert {"port", "clients", "tokens"} <= set(termes)  # les mots porteurs restent
+    assert gain_rsi_tenu(_charger(tmp_path))
+
+
+def test_gain_rsi_lit_la_forme_fts5():
+    assert gain_rsi_tenu(lambda q: '"role port" OR clients* OR tokens')       # serie 3 : refuse a tort
+    assert not gain_rsi_tenu(lambda q: "pour OR port OR clients OR tokens")    # mot vide revenu
+    assert not gain_rsi_tenu(lambda q: "port OR clients")                      # mot porteur perdu
 
 
 def test_le_contrat_rejette_ce_qu_il_doit():

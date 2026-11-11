@@ -1473,6 +1473,18 @@ async def responses(request: Request) -> JSONResponse:
                                     "max_tokens": max_tokens, "thread_id": body.get("user", "codex_anon")}
         if model_override:
             ask_args["model"] = model_override
+        
+        # Validation en mode OBSERVATION (ne bloque jamais, seulement log)
+        try:
+            from nokido_agent.app.core.payload_validator import validate_payload_observateur
+            payload_for_validation = {
+                "messages": [{"role": "user", "content": prompt}],
+                "tools": []  # Le proxy OpenAI ne gère pas les tools function-calling
+            }
+            validate_payload_observateur(payload_for_validation, "forge_openai_proxy")
+        except Exception:  # noqa: BLE001 - muet-ok : l'observation ne doit JAMAIS bloquer l'envoi
+            pass
+        
         try:
             r = await hub_call("ask", ask_args, timeout=180)
         except httpx.TimeoutException as e:

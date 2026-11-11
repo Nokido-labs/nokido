@@ -76,6 +76,9 @@ def main():
             if len(chunk.strip()) < 50:
                 continue
             src = f"gitingest/{repo}"
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion("gitingest:" + str(src), chunk):
+                continue
             cid = sha256_id(src, chunk)
             con.execute(
                 "INSERT OR IGNORE INTO rag_chunks(id,text,source,domain,role_hint,ingested_at) SELECT ?,?,?,?,?,? "
@@ -103,4 +106,6 @@ def main():
     print(f"[batch] DONE — {total} chunks, {len(files)} repos, {time.time() - t0:.1f}s")
 
 
-main()
+# Garde (5/11) : un simple import lancait toute l'ingestion et le `rebuild` de rag_fts sur la base vivante.
+if __name__ == "__main__":
+    main()

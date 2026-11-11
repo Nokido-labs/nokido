@@ -196,6 +196,9 @@ def ingerer(pages: list[tuple[str, str]], domain: str, pause: float,
                 # sur base jetable aux triggers de prod). Tester l'existence par la cle
                 # primaire evite d'armer le trigger. Marqueur du cliquet golden rules :
                 # existence-verifiee
+                from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+                if not admis_a_l_ingestion(source, chunk):
+                    continue
                 if conn.execute("SELECT 1 FROM rag_chunks WHERE id = ?", (cid,)).fetchone():
                     continue
                 cur = conn.execute(

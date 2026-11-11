@@ -27,6 +27,7 @@ def _brancher(monkeypatch, snap):
 
     monkeypatch.setattr(R.sqlite3, "connect", interdit)
     signaux = []
+    monkeypatch.setattr(R, "_INCONNU_DERNIER_SIGNAL", {})
     monkeypatch.setattr(R, "_signal", lambda nom, *a, **k: signaux.append(nom) or 1)
     import forge_memory_availability as MA
     monkeypatch.setattr(MA, "snapshot", lambda *a, **k: dict(snap))
@@ -50,5 +51,25 @@ def test_snapshot_perime_rend_inconnu_sans_balayage_ni_signal(monkeypatch):
     signaux = _brancher(monkeypatch, {"frais": False, "vector_pending": None, "age_s": 50000,
                                       "raison": "snapshot perime"})
     out = R.check_embed_backlog(False)
-    assert out["etat"] == "INCONNU" and out["vector_pending"] is None and not signaux, out
+    assert out["etat"] == "INCONNU" and out["vector_pending"] is None, out
+    assert set(signaux) <= {"embed_debt_unmeasured"}, "jamais le signal de panne"
     assert "perime" in out.get("raison", "")
+
+
+def test_instantane_vieux_de_23h_mais_frais_selon_ttl_est_inconnu_sans_signal(monkeypatch):
+    signaux = _brancher(monkeypatch, {"frais": True, "vector_pending": 21774, "age_s": 82600})
+    out = R.check_embed_backlog(False)
+    assert out["etat"] == "INCONNU" and out["vector_pending"] is None, out
+    assert set(signaux) <= {"embed_debt_unmeasured"}, "jamais le signal de panne"
+    assert out["age_s"] == 82600 and out.get("vector_pending_ancien") == 21774
+
+
+def test_remede_dit_age_et_pouls_sans_affirmer_panne(monkeypatch):
+    charges = []
+    _brancher(monkeypatch, {"frais": True, "vector_pending": R.EMBED_BACKLOG_ALERT + 1, "age_s": 600})
+    monkeypatch.setattr(R, "_signal", lambda nom, sev, p: charges.append(p) or 1)
+    monkeypatch.setattr(R, "_pouls_drain_embed", lambda: {"progresse": True, "age_s": 30.0})
+    R.check_embed_backlog(False)
+    remede = charges[-1]["remedy"]
+    assert "mort" not in remede and "retard" not in remede, remede
+    assert charges[-1]["mesure_age_s"] == 600 and "progresse" in remede

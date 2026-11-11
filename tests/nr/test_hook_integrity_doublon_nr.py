@@ -84,6 +84,9 @@ def test_le_rapport_NOMME_le_doublon_et_son_cout(tmp_path, capsys):
     b = _settings(tmp_path / "b.json", "PreToolUse", "Bash", cible)
 
     assert hic.main(["--settings", a, "--settings", b]) == 0
+    assert "1 doublon(s)" in capsys.readouterr().out, "la ligne unique du demarrage doit compter les doublons"
+
+    assert hic.main(["--detail", "--settings", a, "--settings", b]) == 0
     sortie = capsys.readouterr().out
 
     assert "DOUBLON" in sortie, "un doublon silencieux se lit comme un cablage sain"
@@ -140,7 +143,7 @@ def test_matchers_qui_se_recouvrent_sont_signales_A_INSTRUIRE(tmp_path, capsys):
     assert event == "PreToolUse" and vue.endswith("garde_temoin.py")
     assert len(paires) == 2 and {m for _, m in paires} != {""}
 
-    assert hic.main(["--settings", a, "--settings", b]) == 0
+    assert hic.main(["--detail", "--settings", a, "--settings", b]) == 0
     sortie = capsys.readouterr().out
     assert "RECOUVREMENT A INSTRUIRE" in sortie
     assert "matchers DIFFERENTS" in sortie

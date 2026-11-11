@@ -84,6 +84,240 @@ EXCLUDE = "Nokido.py,legacy,_attic,sandbox,inspirations,_mcp_repos,tmp_*.py"
 # L'ecart est sans effet tant que ci.yml reste manuel, mais la phrase, elle, envoyait
 # chercher la liste au mauvais endroit. Un commentaire perime coute une enquete.
 PURE_TESTS = [
+    # 11/11 : 3 defauts de portabilite vus par la SEULE CI GitHub (requests, tasklist, relpath) -- run 42930679070.
+    "tests/nr/test_portabilite_ci_github_nr.py",
+    # 11/11 : gate anatomie rouge sur le runner, vert en local (classe par imports seuls) -- run 42929942758.
+    "tests/nr/test_anatomie_sans_filet_imports_nr.py",
+    # 11/11 : ajoute sans etre declare, refuse au push (garde-pure RED) ; vert seul hors ligne (job_6b0d6935348c).
+    "tests/nr/test_search_guard_plage_bornee_nr.py",
+    # 10/11 nuit-2 : suite figee par un worker xdist mort -> arretee et coupable nomme.
+    "tests/nr/test_ci_local_suite_figee_worker_mort_nr.py",
+    # 10/11 nuit-2 : faux agents faux.py tues au teardown (24 fuites, job_b486a06b80ae).
+    "tests/nr/test_conftest_faux_orphelins_nr.py",
+    # 10/11 nuit : 13 NR orphelins (cliquet suite pure rouge), verts seuls en bac HORS LIGNE ~1,5 s chacun (job_e9e497026456).
+    "tests/nr/test_borne_socket_tests_nr.py",
+    "tests/nr/test_docker_arret_volontaire_pas_vie_courte_nr.py",
+    "tests/nr/test_docker_relache_respecte_demande_anonyme_nr.py",
+    "tests/nr/test_ensure_docker_garde_battement_perime_nr.py",
+    "tests/nr/test_impacte_moteur_testmon_nr.py",
+    "tests/nr/test_opencode_acp_config_option_nr.py",
+    "tests/nr/test_searxng_reveil_par_capacite_servie_nr.py",
+    "tests/nr/test_t2b_aggregate_facade_nr.py",
+    "tests/nr/test_watch_hub_restart_journal_nr.py",
+    "tests/nr/test_web_it_sans_bruit_docker_hub_nr.py",
+    "tests/nr/test_web_reveil_froid_en_fond_nr.py",
+    "tests/nr/test_web_reveil_searxng_nr.py",
+    "tests/nr/test_web_search_rendu_repli_nr.py",
+    "tests/nr/test_stop_decision_owner_en_attente_nr.py",   # 10/11 : 4e recidive decisions owner en prose
+    # 10/11 : 21 NR purs (processus, delegation, bus, RAM, post-commit, reconcilier, repli, rotation, vibe). Purs : mocks, unitaires.
+    "tests/nr/test_audit_processus_etat_hors_paquet_nr.py",
+    "tests/nr/test_avertissement_executeur_desactive_nr.py",
+    "tests/nr/test_bash_guard_monitor_hub_restart_nr.py",
+    "tests/nr/test_bus_resume_caviarde_nr.py",
+    "tests/nr/test_consigne_longue_jamais_coupee_en_silence_nr.py",
+    "tests/nr/test_delegation_sert_documents_cites_nr.py",
+    "tests/nr/test_documents_servis_prives_caviardes_nr.py",
+    "tests/nr/test_formulaires_index_suivis_nr.py",
+    "tests/nr/test_garde_livraison_contexte_modele_nr.py",
+    "tests/nr/test_inventaire_doublons_par_service_nr.py",
+    "tests/nr/test_liberer_ram_hub_nr.py",
+    "tests/nr/test_mint_sans_empreinte_nr.py",
+    "tests/nr/test_orphelin_prouve_par_battement_nr.py",
+    "tests/nr/test_post_commit_worktree_lie_nr.py",
+    "tests/nr/test_reconcilier_livraison_entiere_nr.py",
+    "tests/nr/test_refus_ram_nomme_les_organes_nr.py",
+    "tests/nr/test_repli_opencode_jamais_payant_nr.py",
+    "tests/nr/test_reprise_procedure_ecrite_nr.py",
+    "tests/nr/test_rotation_402_budget_epuise_nr.py",
+    "tests/nr/test_veille_restart_hub_nr.py",
+    "tests/nr/test_vibe_cle_de_portee_vibe_nr.py",
+    # 9/11 : refus des pointeurs de consigne sans empreinte a l'assignation. Pur : monkeypatch, tmp_path.
+    "tests/nr/test_pointeur_consigne_sans_empreinte_nr.py",
+    # 9/11 : git diff/show nus refuses, formes bornees permises (brique partagee hub + bash_guard). Pur : chaines.
+    "tests/nr/test_git_diff_borne_nr.py",
+    # 9/11 : CLI par defaut derives du registre (jamais gemini_cli), refus de solde nommes. Pur : registre injecte.
+    "tests/nr/test_matrice_cli_et_mammouth_nr.py",
+    # 9/11 : profil public bloque les journaux d'agents de tout role, skills publies. Pur : manifeste du depot.
+    "tests/nr/test_export_public_journaux_agents_nr.py",
+    # (test_search_guard_plage_bornee_nr reste LOCAL : chemins Windows C:/tmp et detection /nokido/ du poste.)
+    # 8/11 : context ledger (pointeurs sans copie, rejeu, confinement des URI, purge). Pur : tmp_path, git local.
+    "tests/nr/test_context_ledger_nr.py",
+    # 8/11 : phase 1, le ledger observe CCR et borner (interrupteur, panne sans effet). Pur : NOKIDO_DATA_DIR en tmp.
+    "tests/nr/test_context_ledger_observation_nr.py",
+    # 8/11 : P1 -- essence enrichie caviardee (fail-closed), arcs, FTS5 + PPR x scorecard. Pur : tmp_path.
+    "tests/nr/test_context_ledger_p1_nr.py",
+    # 8/11 : essence CCR = outil + args de l'appel, rc/statut jamais tronques, fail-closed. Pur : tmp_path.
+    "tests/nr/test_context_ledger_essence_appel_nr.py",
+    # 8/11 : garde CRITICAL_FILE a l'entree dans alpha, commit refuse jamais reaffecte. Pur : depots jetables.
+    "tests/nr/test_critical_file_garde_a_l_integration_nr.py",
+    # 9/11 : gate [untested] honnete (avertit, trace, strip jamais saute) ; constat d'attestation resolu par
+    # requalification. Purs : tmp_path, monkeypatch.
+    "tests/nr/test_gate_untested_honnete_nr.py",
+    "tests/nr/test_delivery_integrity_requalifiee_nr.py",
+    # 8/11 : run shell filtre git push / gh hors lecture / injection ; verdict cognitif hors boucle ; WAL soigne. Purs.
+    "tests/nr/test_run_shell_git_gh_souverain_nr.py",
+    "tests/nr/test_governed_edit_verdict_hors_boucle_nr.py",
+    "tests/nr/test_organ_pulse_wal_soigne_nr.py",
+    # 9/11 nuit : NR des 4 livraisons securite integrees (d408aec8e c673ec57d 085b234a9 38d71129f).
+    "tests/nr/test_embolie_absence_soignee_nr.py",
+    "tests/nr/test_llm_dashboard_acces_ssh_nr.py",
+    "tests/nr/test_hamilton_detresse_non_soi_nr.py",
+    "tests/nr/test_prompt_guard_mode_developpeur_nr.py",
+    # 9/11 nuit : golden_rappel, FileLock + refus de balayage par defaut (e9f63f69a). Pur : tmp_path, sqlite bloque.
+    "tests/nr/test_golden_rappel_verrou_nr.py",
+    # 9/11 nuit : depot long du pair, scanner de secrets (casse mixte, document invalide). Fixtures factices.
+    "tests/nr/test_pair_depot_secrets_nr.py",
+    "tests/nr/test_gate_assign_arme_monitor_nr.py",
+    # 8/11 : P2 -- le reconciliateur clot a mort PROUVEE (STALE != DEAD), scorecard de livraison. Pur : tasks.db en tmp.
+    "tests/nr/test_reconciliateur_cloture_mort_prouvee_nr.py",
+    # 8/11 : trace SESSION_PERDUE dans la charge emise ; manifeste non-dict saute sans casser le balayage. Purs (tmp).
+    "tests/nr/test_reconciliateur_emission_garde_trace_nr.py",
+    "tests/nr/test_reconciliateur_manifeste_non_dict_nr.py",
+    # 8/11 : git/gh par run shell -- le gate rappelle la forme souveraine (safe.directory, push souverain). Pur.
+    "tests/nr/test_gate_git_gh_par_le_hub_nr.py",
+    # 8/11 : debat -- panel frais (repli sonder_panel), reponse vide = echec, passeport en repli sandbox. Purs.
+    "tests/nr/test_debat_panel_frais_nr.py",
+    "tests/nr/test_swarm_debate_sujet_et_vides_nr.py",
+    "tests/nr/test_passeport_compte_job_nr.py",
+    # 8/11 : modele AGY force indisponible (quota Argon) -> repli auto gemini-3.8-flash au meme niveau. Pur.
+    "tests/nr/test_agy_repli_modele_force_indisponible_nr.py",
+    # 8/11 : geste Z3 (audit Z.ai) -- forge_provider_watcher passe par forge_db_path. Pur : monkeypatch, :memory:.
+    "tests/nr/test_provider_watcher_db_path_nr.py",
+    # 8/11 : geste 3 (revues externes) -- unicite des pipelines d'ingestion et audit des organes candidats. Pur.
+    "tests/nr/test_unicite_pipelines_et_organes_nr.py",
+    # 8/11 : geste neuf 2 audit Z.AI — pre_flight fail-closed vers cloud (is_network_kill / detect_injection)
+    # et _cloud_slots de call_cascade filtres sur PROVIDERS. Pur : monkeypatch.
+    "tests/nr/test_firewall_preflight_fail_closed_nr.py",
+    # 8/11 : geste owner 1, dist public sans journaux d'agents ni brouillons (vraies regles, vrai _path_blocked). Pur.
+    "tests/nr/test_hygiene_publique_blocked_paths_nr.py",
+    # 8/11 : Ollama Cloud epuise -> plus de repli silencieux sur qwen3:8b LOCAL (GPU) ; opt-in explicite. Pur.
+    "tests/nr/test_repli_local_opencode_gpu_nr.py",
+    # 8/11 : la sauvegarde couvre swarm.db et _memory_ledger.db ; cmd_status ne dit jamais saine
+    # une source illisible ou sans generation < 7 j. Pur : tmp_path, diskpart mocke.
+    "tests/nr/test_backup_sources_cognition_nr.py",
+    # 8/11 : geste 2b cognition — introspect porte memoire_active (projeter/rendre) et
+    # lit les fiches memory: via find_fiches (rag_chunks_fts). Pur : monkeypatch, base RAG jetable.
+    "tests/nr/test_introspect_memoire_active_nr.py",
+    # 8/11 : generateurs deterministes des specs 03_APPFLOW, 04_PRD, 05_UX_AX (statique/dynamique, ILLISIBLE). Pur.
+    "tests/nr/test_spec_extractor_generateurs_nr.py",
+    # 8/11 : --ecrire garde un doc complet face a un rendu ILLISIBLE ; --verifier dit ILLISIBLE, pas PERIME. Pur.
+    "tests/nr/test_spec_extractor_ecrire_illisible_nr.py",
+    # 8/11 : gate separe statique/dynamique (DYNAMIQUE_BOUGE rc=0), CHIFFRE_DYNAMIQUE_NU et _premiere_phrase. Pur.
+    "tests/nr/test_spec_extractor_statique_dynamique_nr.py",
+    # 8/11 : la tache deleguee recoit la memoire de travail (geste 2a cognition), bornee a 1200 car. Pur : faux
+    # modules projeter/rendre injectes dans sys.modules, worktree factice tmp_path.
+    "tests/nr/test_memoire_active_tache_deleguee_nr.py",
+    # 8/11 : la checklist lit genere_le ISO (age -1.0 h fabrique par une sentinelle). Pur : fonction pure.
+    "tests/nr/test_checklist_age_iso_nr.py",
+    # 8/11 : effort AGY = niveau du modele force (argon-medium refusait --effort=low). Pur : env monkeypatch.
+    "tests/nr/test_agy_effort_suit_niveau_modele_force_nr.py",
+    # 8/11 : `nokido --help` rc=1 hors paquet : import forge_secrets en double forme (paquet / repli checkout).
+    "tests/nr/test_llama_cli_import_nr.py",
+    # 8/11 : Fausse alerte RAM dans memoire proprioceptive : relire en direct, detecter bilan stale post-reboot.
+    "tests/nr/test_ram_bilan_stale_proprioception_nr.py",
+    # 7/11 : garde anti-recidive CI GitHub au push : NR ajoutes dans PURE_TESTS. Pur : AST et mocks git.
+    "tests/nr/test_garde_pure_tests_push_nr.py",
+    # 7/11 : safe.directory et diagnostic dubious ownership dans forge_git_egress. Pur : mocks subprocess/sys.
+    "tests/nr/test_git_egress_proprietaire_nr.py",
+    # 7/11 : mode barriere job_watch_cli : pas de stdout avant la fin, 1 ligne JSON finale
+    "tests/nr/test_job_watch_barriere_nr.py",
+    # 7/11 : trois breches de tokens du client Claude (hook stop barriere/geste owner, alarme contexte, ventilation cout).
+    "tests/nr/test_breches_tokens_client_nr.py",
+    # 7/11 : sauvegarde coherente de sandbox/tasks.db (API backup mode=ro, verification avant
+    # rotation a 7, motif trop parle jamais retire, rc 2 nomme). Pur : bases factices tmp_path.
+    "tests/nr/test_tasks_sauvegarde_nr.py",
+    "tests/nr/test_critical_file_executoire_commit_nr.py",
+    # 7/11 : sortie harness `error_max_turns`/`is_error` jamais SUCCESS (job_342863a9) : A_REVOIR si commits,
+    # FAILURE nomme sinon, cause LIMITE_TOURS. Pur : depot git jetable, harness et base simules.
+    "tests/nr/test_limite_tours_jamais_success_nr.py",
+    # 7/11 : migration d'un secret .env vers le coffre : guillemets retires, relecture au coffre SEUL,
+    # PermissionError nommee (rc 4). Pur : fichier temporaire et coffre factice mockes.
+    "tests/nr/test_forge_migrate_env_secret_nr.py",
+    "tests/nr/test_armement_limite_integrite_et_query_lectures_nr.py",
+    "tests/nr/test_decompte_roadmap_complet_nr.py",
+    "tests/nr/test_juge_livraison_worktree_et_marqueurs_nr.py",
+    # 7/11 : NR des lots de la nuit, commites sans inscription (cliquet test_suite_pure_ratchet rouge en CI
+    # job_d9e2c3a3500b). Tous purs : superviseur, horloge, git et bases simules ou jetables ; 61/61 verts.
+    "tests/nr/test_ctl_relance_atteinte_nr.py",
+    "tests/nr/test_embed_pouls_et_inconnu_nr.py",
+    "tests/nr/test_garde_ragengine_chargement_complet_nr.py",
+    "tests/nr/test_health_pouls_orphelin_nr.py",
+    "tests/nr/test_identite_slot_api_nr.py",
+    "tests/nr/test_nom_lisible_agent_nr.py",
+    "tests/nr/test_oscillation_sommeil_reveil_nr.py",
+    "tests/nr/test_repli_quota_ollama_cloud_connu_nr.py",
+    "tests/nr/test_repli_respecte_registre_nr.py",
+    "tests/nr/test_reprise_commit_et_faux_signal_nr.py",
+    "tests/nr/test_rien_produit_jamais_success_nr.py",
+    "tests/nr/test_sales_avant_reprise_nr.py",
+    # 6/11 : Quota AGY par modele, lecture resets in et repli intelligent de la table
+    "tests/nr/test_quota_agy_par_modele_nr.py",
+    # 7/11 : prechargement des corps de fonctions dans la consigne deleguee. Pur.
+    "tests/nr/test_prechargement_corps_consigne_nr.py",
+    # 7/11 : boucle du reconciliateur, coupee par defaut ; agent a plusieurs mots et capteur expire. Pur : git jetable.
+    "tests/nr/test_reconciliateur_boucle_nr.py",
+    "tests/nr/test_reconciliateur_nom_et_capteur_nr.py",
+    # 7/11 : census en Mesure typee, point d'entree script et sortie JSON prouves. Pur.
+    "tests/nr/test_savoir_census_primitive_mesure_nr.py",
+    # 7/11 : governed_edit d'un executeur va au worktree de sa tache. Pur : base et arbres jetables.
+    "tests/nr/test_cible_ecriture_worktree_de_tache_nr.py",
+    # 7/11 : forge_spawn_swarm d'un appelant lie a une tache reste dans son worktree (job_36d79edd). Pur : depot jetable.
+    "tests/nr/test_spawn_swarm_confinement_tache_nr.py",
+    # 7/11 : le controle du profil agy lit .gemini/antigravity-cli, l'ancienne forme reste acceptee. Pur.
+    "tests/nr/test_peut_lancer_agy_profil_nr.py",
+    # 7/11 : isolation du profil AGY de l'executeur via LAFORGE_AGY_HOME (SECURITE / CORRECTION lot 02). Pur.
+    "tests/nr/test_agy_profil_executeur_distinct_nr.py",
+    # 7/11 : vidage de Qdrant sans refractaire au-dela de 85 %, voie sterile exclue. Pur.
+    "tests/nr/test_keeper_vidage_urgence_qdrant_nr.py",
+    # 6/11 : worker harness endormi nomme, pas de reaffectation vers une voie au pouls non prouve. Pur.
+    "tests/nr/test_harness_endormi_cause_et_reaffectation_nr.py",
+    # 6/11 : le cwd de CLAUDE_HEADLESS atteint le lanceur, sans option CLI. Pur.
+    "tests/nr/test_claude_headless_worktree_de_tache_nr.py",
+    # 6/11 : claude-lf et gemini-lf presentent un jeton court, jamais laforge-local ni MASTER_TOKEN. Pur.
+    "tests/nr/test_cli_route_jeton_reel_nr.py",
+    "tests/nr/test_cli_route_sans_master_nr.py",
+    # 6/11 : garde des decisions owner en prose, vouvoiement compris. Pur.
+    "tests/nr/test_stop_decision_owner_vouvoiement_nr.py",
+    # 6/11 : ACL de traversee des worktrees, sans recursion, tracee. Pur : icacls simule.
+    "tests/nr/test_worktree_acl_tracee_nr.py",
+    # 6/11 : proxys Anthropic et Gemini, jeton obligatoire, refus explicite de tools. Pur : TestClient, sans reseau.
+    "tests/nr/test_ingress_auth_tools_nr.py",
+    # 6/11 : un daemon endormi par delestage n'est pas mort ; superviseur illisible = reste perime. Pur : simule.
+    "tests/nr/test_pulse_dormeurs_ne_sont_pas_morts_nr.py",
+    # 6/11 : rejeu RED de l'executeur, crash distingue du rouge et stderr garde. Pur : depot git jetable.
+    "tests/nr/test_rejeu_red_crash_ou_rouge_nr.py",
+    # 6/11 : observateur de payload aux 3 sorties LLM ; n'empeche jamais l'envoi. Pur.
+    "tests/nr/test_validate_payload_observateurs_nr.py",
+    # 6/11 : Qdrant meurt avec son lanceur (Job Object), plus d'orphelin. Pur : simule.
+    "tests/nr/test_qdrant_meurt_avec_son_lanceur_nr.py",
+    # 6/11 : migration des capteurs de ports vers ecouteurs_tcp (listeners purs, pas de faux LISTEN). Pur : simule.
+    "tests/nr/test_ports_ecoute_migration_nr.py",
+    # 6/11 : audit des processus gouverne ; etat atteint relu, tueur nomme ou dit INCONNU. Pur.
+    "tests/nr/test_audit_processus_nr.py",
+    # 6/11 : alerte lisible, sans ancien crash re-emis ni panne deja disparue ; sondes simulees.
+    "tests/nr/test_coagulation_alerte_lisible_nr.py",
+    # 6/11 : route gouvernee de lancement CI (demande par agent, validation tray, hub declenche). Pur : simule.
+    "tests/nr/test_ordre_ci_lancer_nr.py",
+    # 6/11 : un port absent de netstat n'est pas DOWN ; l'inspecteur relancait nssm sur un hub vivant.
+    "tests/nr/test_inspector_sonde_port_nr.py",
+    # 6/11 : une consigne qui nomme son fichier ne sort pas SUCCESS sans effet. Pur : fonction seule.
+    "tests/nr/test_juge_artefact_exige_par_consigne_nr.py",
+    # 6/11 : un nom d'executeur reste lisible, une charge base64 reste masquee. Pur : regex seule.
+    "tests/nr/test_firewall_nom_executeur_nr.py",
+    # 6/11 : git push direct, --no-verify et gh hors lecture sont refuses. Pur : hook lance seul.
+    "tests/nr/test_bash_guard_git_gh_central_nr.py",
+    # 6/11 : un refus de l'executeur ne renouvelle pas un blocage de quota. Pur : registre simule.
+    "tests/nr/test_blocage_quota_non_renouvele_nr.py",
+    # 6/11 : repli cloud du rerank sous membrane et par provenance ; vectorisation Modal non bloquee. Pur : reseau simule.
+    "tests/nr/test_rerank_cloud_par_membrane_nr.py",
+    # 6/11 : un mot de passe en clair ne passe plus, une definition pour tous les points de sortie. Pur : valeurs fictives.
+    "tests/nr/test_mots_de_passe_en_clair_nr.py",
+    # 6/11 : le prive ne sort pas vers les agents exposes, par la membrane. Pur : sujets fictifs, base tmp.
+    "tests/nr/test_membrane_sujets_prives_nr.py",
+    # 6/11 : une perte du hub par un agent se voit (alerte a la revocation, marque [HUB ABSENT]). Pur : magasin OAuth tmp.
+    "tests/nr/test_hub_absent_signale_nr.py",
+    # 6/11 : faux succes de livraison (artefact ABSENT, recopie de la consigne, vrai succes inchange). Pur : depot git tmp.
+    "tests/nr/test_faux_succes_livraison_nr.py",
     "tests/nr/test_rel_depuis_junit_nr.py",
     # Lot du 24-25/10 (cliquet suite pure, CI de reference 50221f9ca) : regulation RAM a 4 paliers, veto de sommeil
     # pendant la delegation, juge [COMMIT REFUSE], bail rafraichi a la reclamation, rotation (Copilot/Cline), README
@@ -132,6 +366,9 @@ PURE_TESTS = [
     "tests/nr/test_humaneval_canari_nr.py",
     "tests/nr/test_spec_extractor_nr.py",
     "tests/nr/test_firehose_ignore_markdown_nr.py",
+    "tests/nr/test_firehose_tables_purgees_ailleurs_nr.py",
+    "tests/nr/test_comm_watch_serveur_nomme_nr.py",
+    "tests/nr/test_contexte_facture_segments_nr.py",
     "tests/nr/test_regle_d_or_tools_agentique_nr.py",
     "tests/nr/test_census_couvre_tous_les_fournisseurs_nr.py",
     "tests/nr/test_commercial_archive_liens_nr.py",
@@ -164,7 +401,6 @@ PURE_TESTS = [
     "tests/nr/test_colonnes_tasks_trace_nr.py",
     # Census : dimensions specialite/force/effort distinctes, OBSERVE|DECLARE|UNKNOWN (23/10). Pur : aucun reseau.
     "tests/nr/test_census_dimensions_nr.py",
-    "tests/nr/test_bench_takehome_juge_nr.py",
     # Quality gate CLOS cote serveur : pas de CLOS sans sha existant + NR/livrable (24/10). Pur : depot git tmp.
     "tests/nr/test_roadmap_clos_exige_preuve_nr.py",
     "tests/nr/test_blackboard_roadmap_clos_observation_nr.py",
@@ -223,6 +459,7 @@ PURE_TESTS = [
     "tests/nr/test_essaim_par_force_nr.py",
     "tests/nr/test_mesure_prequalifier_nr.py",
     "tests/nr/test_juge_contrat_livrable_mutants_nr.py",
+    "tests/nr/test_reverification_sans_ecriture_nr.py",
     "tests/nr/test_classer_espace_invisible_nr.py",
     "tests/nr/test_guetteur_vraie_panne_connexion_nr.py",
     "tests/nr/test_otlp_sans_collecteur_nr.py",
@@ -391,6 +628,15 @@ PURE_TESTS = [
     "tests/nr/test_rescue_ne_se_notifie_pas_lui_meme_nr.py",
     "tests/nr/test_dependabot_verdict_nr.py",
     "tests/nr/test_reprise_preuve_suite_pure_nr.py",
+    "tests/nr/test_reprise_preuve_par_arbre_nr.py",
+    "tests/nr/test_gordon_conseiller_lecture_nr.py",
+    "tests/nr/test_gordon_operateur_lecture_nr.py",
+    "tests/nr/test_docker_desktop_reglages_nr.py",
+    "tests/nr/test_crawl4ai_jeton_bearer_nr.py",
+    "tests/nr/test_crawl4ai_jeton_et_compose_nr.py",
+    "tests/nr/test_crawl4ai_keeper_cible_compose_nr.py",
+    "tests/nr/test_keeper_vidage_non_journalise_nr.py",
+    "tests/nr/test_organe_recherche_cascade_nr.py",
     # Verse le 2026-09-20 EN MEME TEMPS que le test : un NR commite mais non
     # declare ici ne tourne dans AUCUNE des deux CI (defaut paye le 19/09). Il
     # est pur : quatre racines de skills factices sous `tmp_path`, aucun service.
@@ -443,6 +689,12 @@ PURE_TESTS = [
     # ici plutot que corrige a chaud : on ne modifie pas une preuve pour un
     # risque non realise -- si la CI mord la-dessus, la cause est deja nommee.
     "tests/nr/test_gate_forme_m2m_et_cles_nr.py",
+    "tests/nr/test_gate_grep_memoire_sans_glob_nr.py",
+    "tests/nr/test_memory_audit_index_nr.py",
+    "tests/nr/test_rag_places_reservees_memoire_nr.py",
+    "tests/nr/test_memory_reingestion_fiches_changees_nr.py",
+    "tests/nr/test_memoire_active_format_compact_nr.py",
+    "tests/nr/test_memoire_longue_panne_et_fiches_nr.py",
     "tests/nr/test_transient_gen1_observation_nr.py",
     "tests/nr/test_transient_gen2_cablage_nr.py",
     "tests/nr/test_transient_gen3_admission_nr.py",
@@ -546,6 +798,8 @@ PURE_TESTS = [
     "tests/nr/test_outils_publication_effet_nr.py",
     "tests/nr/test_ui_campaign_classes_boutons_nr.py",
     "tests/nr/test_rbac_creation_entite_nr.py",
+    "tests/nr/test_rbac_alias_registre_nr.py",  # 10/11 : garde RBAC suit l'alias -> cle du registre (72f412e20)
+    "tests/nr/test_veille_bloque_par_dependance_nr.py",  # 10/11 : P1 veille, plus de faux vert academique
     "tests/nr/test_provider_admin_ring_nr.py",
     "tests/nr/test_provider_views_auth_nr.py",
     "tests/nr/test_proxy_delie_ressources_tierces_nr.py",
@@ -673,6 +927,7 @@ PURE_TESTS = [
     "tests/nr/test_mcp_json_sync_clients_http_nr.py",
     "tests/nr/test_oauth_par_passerelle_nr.py",
     "tests/nr/test_pair_mcp_nr.py",
+    "tests/nr/test_pair_liste_blanche_huggingchat_nr.py",
     "tests/nr/test_pair_quarantaine_nr.py",
     "tests/nr/test_lanceur_profil_pair_nr.py",
     "tests/nr/test_pair_mcp_hote_public_nr.py",
@@ -1094,6 +1349,7 @@ PURE_TESTS = [
     "tests/nr/test_trust_domains_acl_mesuree_nr.py",
     "tests/nr/test_acp_toolcallid_canonique_nr.py",
     "tests/nr/test_acp_authenticate_sans_ceremonie_nr.py",
+    "tests/nr/test_acp_selftest_sans_adaptateur_nr.py",
     "tests/nr/test_ui_campaign_login_non_juge_nr.py",  #      (forge_ui_campaign)
     # RETIRE du candidat le 2026-09-13 -- et le motif compte plus que le retrait :
     # ce NR importe `forge_effect_surface`, module PRESENT dans tools/ de l'arbre
@@ -1382,12 +1638,117 @@ PURE_TESTS = [
     # en memoire ou dans tmp_path, aucun port ouvert, aucune base du depot lue.
     "tests/nr/test_lot_20260820_outils_nr.py",
     "tests/nr/test_memory_compactor_datation_nr.py",
-    "tests/nr/test_capability_audit_nr.py",
+    "tests/nr/test_capability_audit_nr.py",   # 8/11 : gestes 1 et 4 audit Z.ai (c_env_docker compose reel + dockerfiles, c_env_examples sample.env sans cles en clair)
     "tests/nr/test_readme_pip_nr.py",
     "tests/nr/test_readme_conformite_nr.py",   # owner 1/11 : README conformes en tous points (bloquant)
+    "tests/nr/test_miroirs_propagation_pypi_nr.py",   # 1/11 : propagation PyPI, sonde SSH SF, jeton HF
+    "tests/nr/test_acceptance_luks_junit_nr.py",      # owner 2/11 : motif LUKS lisible + rapport JUnit de l'acceptation
+    "tests/nr/test_keeper_vidage_cache_wsl_nr.py",    # owner 2/11 : levier 1, vidage du cache de la VM Docker
+    "tests/nr/test_veille_par_urls_nr.py",            # owner 2/11 : veille sur URL connues par le workflow officiel
+    "tests/nr/test_crawl_attend_crawl4ai_nr.py",      # owner 2/11 : l'etape crawl attend crawl4ai (plus de vide aveugle)
+    "tests/nr/test_soif_collecteur_manques_nr.py",    # owner 2/11 : la soif se nourrit des manques (bancs, dettes NR)
+    "tests/nr/test_refine_ancres_discriminantes_nr.py",  # 2/11 : veto d'ancrage sur les seules ancres du lot
+    "tests/nr/test_hot_ingest_garde_injection_nr.py",    # owner 2/11 : depots analyses (injection), ring externe
+    "tests/nr/test_ingest_depot_tiers_filtre_nr.py",     # owner 5/11 : depot de tiers filtre avant le RAG
+    "tests/nr/test_rappel_sans_contenu_tiers_nr.py",     # owner 5/11 : garde commun, rappel en liste blanche, marquage de la recherche
+    "tests/nr/test_voies_ingestion_gardees_nr.py",       # owner 5/11 : toute voie d'ecriture vers le RAG est classee
+    "tests/nr/test_sujets_prives_publication_nr.py",     # owner 4/11 : sujets prives bloques sur toutes les sorties publiques
+    # 5/11 : 78 NR orphelins depuis le 31/10, chacun vert seul et sans reseau (alerte algedonique : CI rouge depuis 88190d11f).
+    "tests/nr/test_admission_critere_disque_nr.py",
+    "tests/nr/test_agy_relais_session_nr.py",
+    "tests/nr/test_alertes_owner_nr.py",
+    "tests/nr/test_autoregulation_effecteur_substrat_nr.py",
+    "tests/nr/test_cause_echec_et_faux_vert_nr.py",
+    "tests/nr/test_crawl_ponctuel_sans_docker_nr.py",
+    "tests/nr/test_debit_disque_emetteur_nr.py",
+    "tests/nr/test_deep_explore_contrat_nr.py",
+    "tests/nr/test_delegation_prevol_lmstudio_nr.py",
+    "tests/nr/test_demarrage_une_ligne_nr.py",
+    "tests/nr/test_docker_coupure_sans_intention_nr.py",
+    "tests/nr/test_docker_relache_retentee_apres_tiers_nr.py",
+    "tests/nr/test_fils_hub_nr.py",
+    "tests/nr/test_fils_hub_lectures_nr.py",
+    "tests/nr/test_gardien_maj_ollama_nr.py",
+    "tests/nr/test_generateurs_clients_sans_jeton_nr.py",
+    "tests/nr/test_githooks_sans_fenetre_nr.py",
+    "tests/nr/test_gpu_pct_sans_powershell_nr.py",
+    "tests/nr/test_hamilton_auxiliaire_trace_nr.py",
+    "tests/nr/test_hamilton_delestage_auxiliaire_detresse_nr.py",
+    "tests/nr/test_held_out_sel_du_coffre_nr.py",
+    "tests/nr/test_hook_integrity_args_nr.py",
+    "tests/nr/test_hub_io_par_requete_nr.py",
+    "tests/nr/test_hub_io_probe_nr.py",
+    "tests/nr/test_inbox_demarrage_sans_presence_nr.py",
+    "tests/nr/test_inbox_sans_parcours_nr.py",
+    "tests/nr/test_inbox_tick_maj_cli_nr.py",
+    "tests/nr/test_intention_par_etape_nr.py",
+    "tests/nr/test_journaux_dates_bilan_100_nr.py",
+    "tests/nr/test_job_watch_resultat_nr.py",
+    "tests/nr/test_contexte_volume_par_demande_nr.py",
+    "tests/nr/test_budget_volume_par_demande_nr.py",
+    "tests/nr/test_keeper_carcasse_sans_intention_nr.py",
+    "tests/nr/test_keeper_journal_pas_a_l_import_nr.py",
+    "tests/nr/test_lmstudio_arret_verite_nr.py",
+    "tests/nr/test_lmstudio_ttl_nr.py",
+    "tests/nr/test_mcp_json_sync_auditeur_nr.py",
+    "tests/nr/test_oauth_identite_prouvee_nr.py",
+    "tests/nr/test_oauth_p1_redirection_https_ressources_nr.py",
+    "tests/nr/test_pair_outils_annotes_nr.py",
+    "tests/nr/test_patcher_generateur_fort_nr.py",
+    "tests/nr/test_physiologie_tour2_nr.py",
+    "tests/nr/test_presence_sans_agent_anonyme_nr.py",
+    "tests/nr/test_rag_bm25_sans_vecteur_nr.py",
+    "tests/nr/test_refractaire_substrat_partage_nr.py",
+    "tests/nr/test_regulation_disque_jobs_nr.py",
+    "tests/nr/test_rejet_held_out_statut_nr.py",
+    "tests/nr/test_routage_capacite_auto_nr.py",
+    "tests/nr/test_rsi_ecrit_au_repos_nr.py",
+    "tests/nr/test_rsi_interpreteur_existe_nr.py",
+    "tests/nr/test_rsi_localisation_par_imports_nr.py",
+    "tests/nr/test_rsi_rejeu_illisible_nr.py",
+    "tests/nr/test_sante_politique_et_sorties_de_run_nr.py",
+    "tests/nr/test_soif_garde_metabolique_nr.py",
+    "tests/nr/test_soif_lacune_interne_enquete_code_nr.py",
+    "tests/nr/test_soif_physiologie_nr.py",
+    "tests/nr/test_statusline_causes_echec_nr.py",
+    "tests/nr/test_statusline_delegations_oauth_nr.py",
+    "tests/nr/test_swarm_debate_panel_sonde_nr.py",
+    "tests/nr/test_symbiose_scout_reparee_nr.py",
+    "tests/nr/test_tasks_index_status_nr.py",
+    "tests/nr/test_token_monitor_cout_inconnu_nr.py",
+    "tests/nr/test_veille_en_file_admissible_nr.py",
+    "tests/nr/test_vitals_gpu_npu_nr.py",
+    "tests/nr/test_chaine_non_demarree_ne_retient_pas_docker_nr.py",    # 2/11 : satiete RAM x relache Docker
+    "tests/nr/test_searxng_disjoncteur_referme_sur_preuve_nr.py",    # 2/11 : veilles du jour sans SearXNG (CB)
+    "tests/nr/test_chaine_soldee_relache_docker_nr.py",    # 2/11 : reclamations Docker orphelines (29/10)
+    "tests/nr/test_hot_ingest_ocr_repli_nr.py",    # 2/11 : PDF image -> OCR -> memes gardes anti-injection
+    "tests/nr/test_depot_surveille_ingere_sans_moteur_nr.py",    # 2/11 : depot muet hors TUI
+    "tests/nr/test_depot_surveille_reprise_nr.py",    # 2/11 : depot pendant l'arret, memoire isolee des tests
+    "tests/nr/test_service_depot_surveille_nr.py",    # 2/11 : NokidoHotFolder (pouls, OCR annonce)
+    "tests/nr/test_keeper_release_at_respecte_chaines_nr.py",    # 2/11 : Docker coupe pendant les veilles
+    "tests/nr/test_keeper_vidage_ws_qdrant_nr.py",    # 2/11 : levier working set Qdrant (6,34 -> 0 Go)
+    "tests/nr/test_mcp_json_sync_illisible_nr.py",    # 2/11 : PermissionError = ILLISIBLE, jamais « en ordre »
+    "tests/nr/test_passerelle_mcp_plafond_memoire_nr.py",  # 2/11 : --memory par serveur MCP (defaut Docker 2 Go)
+    "tests/nr/test_hooks_claude_jeton_coffre_seul_nr.py",  # 2/11 : coffre d'abord, jamais le jeton du voisin ni .env
+    "tests/nr/test_passerelle_hub_oauth_nr.py",       # 2/11 : E1 OAuth, passerelle du hub (RFC 8707, cloisonnement)
+    "tests/nr/test_docker_broker_mcp_limite_nr.py",   # 2/11 : broker docker mcp limite (catalogue nokido, profil laforge)
+    "tests/nr/test_oauth_metadonnees_hub_nr.py",      # 2/11 : E2 OAuth, metadonnees RFC 9728/8414 du hub
+    "tests/nr/test_signature_hub_es256_nr.py",        # 2/11 : E9 jetons JWS ES256 (TPM ou coffre), alg strict
+    "tests/nr/test_oauth_e3_validateurs_nr.py",       # 3/11 : E3 inscription/autorisation/PKCE (RFC 7591/8252/6749/7636/8707)
+    "tests/nr/test_oauth_e3_autorite_nr.py",          # 3/11 : E3 autorite clients (code unique, rotation, RFC 7009/9207)
+    "tests/nr/test_oauth_e3_http_nr.py",              # 3/11 : E3 routes OAuth (interrupteur, consentement, no-store)
+    "tests/nr/test_oauth_routes_montees_dans_le_hub_nr.py",  # 3/11 : montage avant l'attrape-tout /.well-known
+    "tests/nr/test_ordre_consentement_oauth_nr.py",   # 3/11 : E4 consentement decide par le tray seul
+    "tests/nr/test_tray_consentement_oauth_nr.py",    # 3/11 : E4 fenetre du tray, decision renvoyee au hub
+    "tests/nr/test_oauth_e5_jeton_sur_mcp_nr.py",     # 3/11 : E5 jeton RFC 9068 sur /mcp, ring plafonne registre
+    "tests/nr/test_oauth_e5_defi_401_nr.py",          # 3/11 : E5 defi WWW-Authenticate RFC 9728 du 401 /mcp
+    "tests/nr/test_tpm_magasin_machine_explicite_nr.py",  # 3/11 : magasin TPM machine par appel (sign_as fige)
+    "tests/nr/test_ring_client_oauth_au_registre_nr.py",  # 3/11 : ring OAuth choisi au tray, inscrit au registre
+    "tests/nr/test_oauth_revoquer_client_nr.py",  # 3/11 : revocation d'un client OAuth (familles + registre)
     "tests/nr/test_pack_cache_paresseux_nr.py",   # owner 1/11 : le pack reprend ses vecteurs, embedder si neuf
     "tests/nr/test_release_sdist_propagation_nr.py",   # 1/11 : preuve sdist attend la propagation TestPyPI
     "tests/nr/test_pack_sans_traductions_nr.py",   # 1/11 : docs/i18n hors du Knowledge Pack (rag_direct)
+    "tests/nr/test_ui_couleurs_en_dur_nr.py",   # 1/11 : cliquet couleurs en dur du web_hub (plan UI)
     "tests/nr/test_doctor_vivant_nr.py",
     # Ingestion de doc (01/10) : version courante seule a la re-ingestion, agregats
     # `llms-full.txt` ecartes, entree lexicale gardee pour un chunk inchange. Base
@@ -2187,6 +2548,19 @@ PURE_TESTS = [
     "tests/nr/test_ordres_bureau_cli_pilote_nr.py",
     "tests/nr/test_registre_transmet_la_preuve_au_bureau_nr.py",
     "tests/nr/test_golden_rappel_nr.py",
+    "tests/nr/test_golden_rappel_verrou_balayage_nr.py",
+    "tests/nr/test_hub_formes_nr.py",
+    "tests/nr/test_hub_formes_compact_nr.py",
+    "tests/nr/test_whoami_etats_nr.py",
+    "tests/nr/test_alerte_cause_et_lecture_nr.py",
+    "tests/nr/test_watch_hub_restart_nr.py",
+    "tests/nr/test_frictions_vers_requetes_nr.py",
+    "tests/nr/test_veille_par_termes_nr.py",
+    "tests/nr/test_parite_ring_nr.py",
+    "tests/nr/test_parite_ring_vrai_garde_nr.py",
+    "tests/nr/test_hook_recon_first_v2_nr.py",
+    "tests/nr/test_nr_worktree_nr.py",
+    "tests/nr/test_quota_debit_vs_epuisement_nr.py",
     "tests/nr/test_golden_rappel_chemin_du_corps_nr.py",
     "tests/nr/test_tmp_path_sans_balayage_nr.py",
     "tests/nr/test_golden_rappel_point_d_entree_nr.py",
@@ -2298,6 +2672,7 @@ PURE_TESTS = [
     # Un depot de pair coupe a la borne le DIT ; outils pairs : borne + format POINTEURS (owner 19/10).
     "tests/nr/test_pair_depot_tronque_dit_nr.py",
     "tests/nr/test_inventaire_protheses_nr.py",
+    "tests/nr/test_inventaire_registre_superviseur_nr.py",
     "tests/nr/test_lanceurs_superviseur_identifies_nr.py",
     "tests/nr/test_keeper_drain_sans_rafale_d_arrets_nr.py",
     "tests/nr/test_tests_du_garde_isolent_son_journal_nr.py",
@@ -2428,6 +2803,12 @@ PURE_TESTS = [
     "tests/nr/test_merge_gate_reconciliation_nr.py",
     "tests/nr/test_ctl_wake_route_existante_nr.py",
     "tests/nr/test_panorama_cache_disque_nr.py",
+    "tests/nr/test_panorama_imports_qualifies_nr.py",
+    "tests/nr/test_presence_nom_reel_client_oauth_nr.py",
+    "tests/nr/test_run_python_bac_reel_nr.py",
+    "tests/nr/test_purge_laforge_jobs_rotation_nr.py",
+    "tests/nr/test_tronque_journaux_registre_nr.py",
+    "tests/nr/test_comm_watch_mcp_seul_nr.py",
     "tests/nr/test_migration_ecrivains_rag_lot1_nr.py",
     "tests/nr/test_migration_ecrivains_rag_lot2_nr.py",
     # roadmaps : arbre d'evolution `--arbre` en liste blanche (marqueur en tete, sans marqueur jamais CLOS ; NEMOTRON).
@@ -2444,14 +2825,10 @@ PURE_TESTS = [
     "tests/nr/test_veille_pypi_texte_enrichi_nr.py",
     # audit RAM : une entree absente de la derniere passe du capteur de derive est PERIMEE (18/10).
     "tests/nr/test_rss_watch_entree_perimee_nr.py",
-    # juge : contrat de metrique {nom, valeur, bruit, sens MIN|MAX}, correction eliminatoire (takehome, chantier 1).
     "tests/nr/test_juge_metrique_contrat_nr.py",
-    # L1 : orientation MIN/MAX par dimension (cycles, duree, RAM), inconnue = ecart (takehome, chantier 1 pas 2).
     "tests/nr/test_l1_orientation_min_nr.py",
-    # juge : capsule d'autopsie tracable et bornee + extrait des echecs garde par mesurer (takehome, chantier 2).
     "tests/nr/test_capsule_autopsie_nr.py",
     "tests/nr/test_capsule_reinjectee_nr.py",
-    # merge gate : oracle gele (worktree isole au SHA, tests proteges, PASS/FAIL/INVALID/UNKNOWN), takehome chantier 5.
     "tests/nr/test_oracle_gele_nr.py",
     # executeur : le travail d'une session en echec est preserve (commit INACHEVE, pas de reaffectation) -- 2
     # livraisons NEMOTRON perdues le 18/10.
@@ -2543,6 +2920,12 @@ PURE_TESTS = [
     "tests/nr/test_callgraph_ambiguite_nr.py",
     # Etape 2 : verbe unique d introspection, borne et declarant ses angles morts.
     "tests/nr/test_introspect_verbe_unique_nr.py",
+    "tests/nr/test_introspect_corps_nr.py",
+    "tests/nr/test_contexte_pondere_cache_nr.py",
+    "tests/nr/test_contexte_reinjections_nr.py",
+    "tests/nr/test_tool_gate_doc_cli_ingeree_nr.py",
+    "tests/nr/test_sense_info_pas_une_alerte_nr.py",
+    "tests/nr/test_contexte_sorties_par_outil_nr.py",
     "tests/nr/test_introspect_jugeable_nr.py",
     # Etape 3 : memoire des corrections (faits dates, jamais une preuve non mesuree).
     "tests/nr/test_success_oplog_nr.py",
@@ -2809,6 +3192,25 @@ PURE_TESTS = [
     # Un item de roadmap declare son ETAT, et l'absence de marqueur vaut OUVERT.
     # Liste BLANCHE : `[MESURE le ...]` ou `[DIRECTIVE OWNER]` qualifient sans clore.
     "tests/nr/test_roadmap_statut_declare_nr.py",
+    # Service d'un harness endormi : la tache attend (pending), elle n'echoue pas.
+    "tests/nr/test_harness_dependance_nr.py",
+    # ACP : lecture bornee a la session, plus de repli sur le jeton MCP, sessions cloisonnees.
+    "tests/nr/test_acp_lecture_bornee_jeton_sessions_nr.py",
+    # L'applicateur de roadmap ecrit dans la zone ou vit la cle, valeurs JSON comprises.
+    "tests/nr/test_roadmap_verif_appliquer_zones_nr.py",
+    # Contrat de livrable a l'assignation ; offset et limit sur read action=file.
+    "tests/nr/test_contrat_assign_et_read_fenetre_nr.py",
+    # Une entree echouee ne compte plus comme livree pour depend_de.
+    "tests/nr/test_dependances_entree_echouee_nr.py",
+    # Le corps verifie et soigne ses signaux d'integrite ; l'owner ne recoit que les decisions.
+    "tests/nr/test_integrite_attestation_effet_observe_nr.py",
+    "tests/nr/test_coagulation_soin_integrite_nr.py",
+    # Jeton par tentative et cloture conditionnee : un zombie n'ecrit ni ne clot apres reprise.
+    "tests/nr/test_jeton_garde_tentative_nr.py",
+    # tests_verts se juge par rejeu reel dans le worktree, plus sur la prose de l'agent.
+    "tests/nr/test_juge_tests_verts_rejeu_nr.py",
+    # [CLOS ...] nu (sans P0/P1/P2) se lit CLOS ; le prefixe de priorite devient optionnel.
+    "tests/nr/test_etat_roadmap_clos_sans_prefixe_nr.py",
     # Finding E1 : la cle Gemini passe par le coffre, a chaque appel, et ne reste
     # pas dans l'environnement du processus apres l'appel.
     "tests/nr/test_cle_gemini_passe_par_le_coffre_nr.py",
@@ -2939,6 +3341,8 @@ PURE_TESTS = [
     "tests/nr/test_registre_contrats_15_10_nr.py",
     # Worktrees de preuve : purge SANS PERTE dans toutes les racines inscrites (owner 15/10).
     "tests/nr/test_worktrees_preuve_sans_perte_nr.py",
+    # capacites-cliquet MESURE en CI de reference : matrice partagee transmise par NOKIDO_REGMATRIX (owner 9/11).
+    "tests/nr/test_capacites_cliquet_matrice_partagee_nr.py",
     # Matrice modele x fournisseur mesuree par generation, et bascule de la meme famille (owner 15/10).
     "tests/nr/test_matrice_modele_fournisseur_nr.py",
     "tests/nr/test_bascule_par_matrice_nr.py",
@@ -2949,7 +3353,6 @@ PURE_TESTS = [
     # Repli LLM local : une reponse VIDE fait passer au fournisseur suivant (curiosite 0 theme, 15/10).
     "tests/nr/test_llm_local_reponse_vide_nr.py",
     # Banc collectif : equipe contre modele seul a budget egal, gain seulement au-dela du bruit (15/10).
-    "tests/nr/test_banc_collectif_nr.py",
     # Decision owner 15/10 : le modele Gemini vient de l'APPELANT ; un GEMINI_MODEL global ne l'ecrase plus.
     "tests/nr/test_gemini_modele_de_l_appelant_nr.py",
     # Owner 16/10 : garde TDD « rouge d'abord » (registre des rouges du conftest + avertissement de governed_edit).
@@ -3288,6 +3691,8 @@ PURE_TESTS = [
     "tests/nr/test_veille_gel_et_pertinence_nr.py",
     # 2026-09-26 : la suite pure passe sa liste par fichier @ (815 tests = 34 714 car. > 32 767, WinError 206).
     "tests/nr/test_ci_suite_pure_ligne_de_commande_nr.py",
+    # 2026-11-05 : un worker mort dit quel test et, si c'est os._exit, quelle pile.
+    "tests/nr/test_vol_worker_ci_nr.py",
     # 2026-09-26 : une duree (`_S`/`_MS`/`_SECONDS`) n'est pas un secret pour la regle secret-from-env.
     "tests/nr/test_golden_secret_env_duree_nr.py",
     # 2026-09-26 (owner) : les cliquets golden-rules + duplication sont joues au PRE-PUSH, sur le SHA pousse.
@@ -3529,23 +3934,13 @@ PURE_TESTS = [
     "tests/nr/test_agy_sortie_brute_conservee_nr.py",
     "tests/nr/test_arene_dossier_vu_apres_succes_nr.py",
     "tests/nr/test_assign_agent_sans_executeur_nr.py",
-    "tests/nr/test_banc_amelioration_nr.py",
-    "tests/nr/test_banc_appliquer_indentation_nr.py",
-    "tests/nr/test_banc_decision_owner_nr.py",
-    "tests/nr/test_banc_evolution_lignee_nr.py",
-    "tests/nr/test_banc_juge_ancrage_corpus_v2_nr.py",
-    "tests/nr/test_banc_prompt_annonce_plafond_nr.py",
-    "tests/nr/test_banc_prompt_fonctions_seules_nr.py",
-    "tests/nr/test_banc_rapport_juge_courant_nr.py",
-    "tests/nr/test_banc_redaction_dlp_nr.py",
-    "tests/nr/test_banc_reference_suit_le_juge_nr.py",
-    "tests/nr/test_banc_strategies_nr.py",
-    "tests/nr/test_bench_takehome_bornes_nr.py",
-    "tests/nr/test_bench_takehome_registre_nr.py",
     "tests/nr/test_bench_traduction_corpus_borne_nr.py",
     "tests/nr/test_bench_traduction_decodage_borne_nr.py",
     "tests/nr/test_bench_traduction_nr.py",
     "tests/nr/test_budget_epuise_est_un_quota_nr.py",
+    "tests/nr/test_budget_epuise_marque_surface_nr.py",
+    "tests/nr/test_coupe_circuit_essai_perime_nr.py",
+    "tests/nr/test_consentement_demande_recente_nr.py",
     "tests/nr/test_cadence_reprend_apres_reveil_nr.py",
     "tests/nr/test_canal_claude_code_http_nr.py",
     "tests/nr/test_census_surfaces_free_tier_completes_nr.py",
@@ -3649,7 +4044,6 @@ PURE_TESTS = [
     "tests/nr/test_secours_texte_complet_nr.py",
     "tests/nr/test_service_jeton_injecte_sans_coffre_nr.py",
     "tests/nr/test_skill_enricher_bat_pendant_le_sommeil_nr.py",
-    "tests/nr/test_soif_instruments_takehome_nr.py",
     "tests/nr/test_spec_extractor_verifier_nr.py",
     "tests/nr/test_suites_pointeur_pool_nr.py",
     "tests/nr/test_supervisor_ctl_status_un_service_nr.py",
@@ -3670,7 +4064,6 @@ PURE_TESTS = [
     "tests/nr/test_swarm_synthese_cascade_nr.py",
     "tests/nr/test_swarm_synthese_garde_nr.py",
     "tests/nr/test_swarm_synthese_substance_nr.py",
-    "tests/nr/test_takehome_evolution_nr.py",
     "tests/nr/test_task_status_reel_nr.py",
     "tests/nr/test_token_cache_nr.py",
     "tests/nr/test_tray_panneau_se_ferme_nr.py",
@@ -3689,7 +4082,6 @@ PURE_TESTS = [
     "tests/nr/test_worktree_alias_headless_nr.py",
     "tests/nr/test_worktree_reliquat_retire_nr.py",
     # 31/10 : 3 NR rouges des orphelins, REPARES (CORPUS[0], sys.path tools, chien -> tmp_path) + temoin forge_utils
-    "tests/nr/test_banc_juge_ancrage_nr.py",
     "tests/nr/test_executeur_mode_enquete_nr.py",
     "tests/nr/test_harness_worker_parle_nr.py",
     "tests/nr/test_forge_utils_partages_nr.py",
@@ -3741,6 +4133,24 @@ def _has(mod: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def _args_selection_impacte(a, has) -> tuple:
+    """(args pytest, env, moteur) de la selection ``--impacte`` -- testmon en est le MOTEUR (choix owner 10/11 ;
+    livrable OPENCODE_GPTOSS 8d6f77dfa). 1) ``--impacte`` + testmon -> ``-p testmon.pytest_testmon --testmon`` +
+    TESTMON_DATAFILE=<racine>/sandbox/ci/.testmondata ; 2) sans testmon -> heuristique par fichiers actuelle ;
+    3) sans ``--impacte`` -> JAMAIS testmon (la CI de reference reste complete et certifiante).
+    `-p` explicite (verificateur, 10/11) : la suite pure tourne sous PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, ou
+    `--testmon` seul est rejete (« unrecognized arguments: --testmon », mesure)."""
+    def _get(key, default=False):
+        return a.get(key, default) if isinstance(a, dict) else getattr(a, key, default)
+
+    if not bool(_get("impacte", False)):
+        return [], {}, None
+    if callable(has) and bool(has("testmon")):
+        datafile = ROOT / "sandbox" / "ci" / ".testmondata"
+        return ["-p", "testmon.pytest_testmon", "--testmon"], {"TESTMON_DATAFILE": str(datafile)}, "testmon"
+    return [], {}, "fichiers (testmon absent)"
 
 
 # ── TROIS ETATS, PAS DEUX ────────────────────────────────────────────────────
@@ -4657,6 +5067,102 @@ def _args_suite_pure(tests, fichier, turbo: bool) -> tuple:
 _PALIERS_TURBO = ((4.8, 4), (3.6, 3))
 
 
+def _ranger_vols_precedents(dossier) -> int:
+    """Deplace dans `<dossier>/precedents/<horodatage>/` les vol_*.log et faulthandler_*.log deja presents ;
+    rend leur nombre. JAMAIS de suppression (post-mortem possible). 11/11, pre-vol job_0d40c2f333e5 : 72 des
+    81 journaux venaient d'anciens runs et le veilleur a nomme un coupable PERIME. Muet sur toute erreur."""
+    try:
+        d = Path(dossier)
+        vieux = [p for motif in ("vol_*.log", "faulthandler_*.log") for p in d.glob(motif) if p.is_file()]
+        if not vieux:
+            return 0
+        cible = d / "precedents" / time.strftime("%Y%m%d_%H%M%S")
+        cible.mkdir(parents=True, exist_ok=True)
+        n = 0
+        for p in vieux:
+            try:
+                p.replace(cible / p.name)
+                n += 1
+            except OSError:  # muet-ok : tenu par un processus vivant, laisse en place, range au prochain run
+                continue
+        return n
+    except Exception:  # noqa: BLE001 — muet-ok : un rangement ne casse jamais la CI
+        return 0
+
+
+def _suite_avec_reprise(lancer, cmd, lire_dernier, avant=None, max_reprises: int = 3,
+                        diag_mort=None) -> tuple:
+    """Lance la suite ; si elle finit FIGEE (worker mort), la RELANCE sans le fichier coupable, jusqu'a une
+    passe complete ou `max_reprises`. Rend (nom, ok, coupables) ; ok est False des qu'il y a un coupable.
+
+    11/11 : `--dist=loadfile` fige le controleur xdist a CHAQUE mort de worker (mini-suite hors depot,
+    job_90b120a4b6a7 ; `--max-worker-restart` n'y change rien). Cinq pre-vols de 50 min ont nomme UN coupable
+    chacun. Ici un seul run les nomme tous. `lancer(cmd) -> (nom, ok)` ; `lire_dernier()` rend le depot de
+    `_run` (cle `suite_figee`) ; `avant()` range les journaux de vol avant CHAQUE passe.
+    Un diagnostic sans fichier lisible n'est jamais devine : on s'arrete, verdict FAIL."""
+    import re as _re  # noqa: PLC0415
+
+    coupables: list = []
+    courant = list(cmd)
+    while True:
+        if avant is not None:
+            avant()
+        nom, ok = lancer(courant)
+        _der = lire_dernier() or {}
+        fige = _der.get("suite_figee")
+        if not fige and diag_mort is not None and _der.get("rc") not in (0, 1):
+            # Autre forme du meme bogue (epreuve reelle job_56f59932a8d5) : xdist ne se fige pas, il PLANTE
+            # (INTERNALERROR, rc=3) en replanifiant apres la mort du worker. rc 0/1 = pytest a conclu : jamais
+            # de reprise sur un simple rouge. Le coupable vient des journaux de vol du run courant.
+            try:
+                fige = diag_mort()
+            except Exception:  # noqa: BLE001 — muet-ok : diagnostic illisible = pas de reprise
+                fige = None
+        if not fige:
+            break
+        m = _re.search(r"(tests[\\/][^\s:]+\.py)", str(fige))
+        fichier = m.group(1).replace("\\", "/") if m else None
+        if fichier is None:
+            print("  ⚠ REPRISE impossible : coupable sans fichier lisible (%s)" % str(fige)[:160], flush=True)
+            ok = False
+            break
+        nouveau = fichier not in coupables
+        if nouveau:
+            coupables.append(fichier)
+        if not nouveau or len(coupables) > max_reprises:
+            print("  ⚠ REPRISE arretee apres %d coupable(s) : %s" % (len(coupables), ", ".join(coupables)), flush=True)
+            break
+        print("  ↻ REPRISE %d/%d de la suite SANS %s (worker mort : %s)"
+              % (len(coupables), max_reprises, fichier, str(fige)[:160]), flush=True)
+        courant = courant + ["--deselect", fichier]
+    if coupables:
+        ok = False
+        print("  ❌ SUITE : %d fichier(s) ont tue leur worker (exclus des passes suivantes, a corriger) : %s"
+              % (len(coupables), ", ".join(coupables)), flush=True)
+    return nom, ok, coupables
+
+
+def _diag_worker_mort(dossier) -> str | None:
+    """Pour le veilleur de `_run` : nomme le 1er worker xdist arrete en plein test d'apres l'enregistreur
+    de vol (`forge_vol_worker.rapporter`), un os._exit en priorite ; None si aucun. MUET (appele toutes
+    les 30 s pendant une immobilite) ; toute exception -> None : un diagnostic ne decide jamais seul."""
+    try:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        import forge_vol_worker as _vol  # noqa: PLC0415
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            morts = _vol.rapporter(dossier)
+        morts = sorted(morts, key=lambda d: (not d.get("os_exit"), d.get("heure", "")))
+        if not morts:
+            return None
+        d = morts[0]
+        return "%s %s (%s)" % (d.get("worker"), d.get("test"), "os._exit" if d.get("os_exit") else "sans os._exit")
+    except Exception:  # noqa: BLE001 — muet-ok : diagnostic illisible = on continue d'attendre
+        return None
+
+
 def _rapporter_faulthandler(dossier) -> list:
     """Montre les traces de plantage NATIF laissees par les processus pytest (tests/conftest.py les ecrit quand
     NOKIDO_FAULTHANDLER_DIR est pose). Rend [(fichier, lignes)] des fichiers NON VIDES ; un fichier vide = processus
@@ -4946,7 +5452,8 @@ def resume_ruff(sortie: str) -> str | None:
 
 def _run(name: str, cmd: list[str], blocking: bool, env: dict | None = None,
          rc_non_mesure: tuple = (), motifs_non_mesure: tuple = (),
-         timeout_s: float | None = None) -> tuple[str, bool]:
+         timeout_s: float | None = None, veilleur: tuple | None = None,
+         veille_periode_s: float = 30.0) -> tuple[str, bool]:
     """`rc_non_mesure` : codes par lesquels CE gate dit « je n'ai pas pu lire ».
 
     `motifs_non_mesure` : marqueurs de SORTIE disant la meme chose, pour les outils
@@ -5058,6 +5565,14 @@ def _run(name: str, cmd: list[str], blocking: bool, env: dict | None = None,
     queue: list[str] = []
     _borne_atteinte = {"v": False}
     _minuteur = None
+    # VEILLEUR DE SUITE FIGEE (10/11). Mesure : gw2 tue par pytest-timeout (os._exit), le controleur
+    # xdist attend ses tests perdus A VIE (« 99 % ») ; aucune borne ne mord, le pre-vol est tue a la
+    # main sans verdict. `veilleur=(immobile_s, diagnostic)` : sortie immobile depuis immobile_s ET
+    # diagnostic() nomme un worker mort -> processus tue, verdict FAIL (echec MESURE, pas UNKNOWN).
+    # diagnostic() qui rend None ou leve -> on continue d'attendre.
+    _fige: dict = {"diag": None, "immobile": 0.0}
+    _derniere = {"t": time.time()}
+    _stop_veille = None
     try:
         proc = subprocess.Popen(cmd, cwd=str(ROOT), env=e, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, errors="replace",
@@ -5074,7 +5589,31 @@ def _run(name: str, cmd: list[str], blocking: bool, env: dict | None = None,
             _minuteur = threading.Timer(float(timeout_s), _couper)
             _minuteur.daemon = True
             _minuteur.start()
+        if veilleur:
+            import threading  # noqa: PLC0415
+
+            _stop_veille = threading.Event()
+            _immobile_s, _diagnostic = float(veilleur[0]), veilleur[1]
+
+            def _veiller() -> None:
+                while not _stop_veille.wait(float(veille_periode_s)):
+                    _calme = time.time() - _derniere["t"]
+                    if _calme < _immobile_s:
+                        continue
+                    try:
+                        _d = _diagnostic()
+                    except Exception:  # noqa: BLE001 — muet-ok : diagnostic illisible = on attend
+                        _d = None
+                    if _d:
+                        _fige["diag"], _fige["immobile"] = str(_d), _calme
+                        try:
+                            proc.kill()
+                        except Exception:  # noqa: BLE001 — muet-ok : deja mort
+                            pass  # muet-ok
+                        return
+            threading.Thread(target=_veiller, daemon=True, name="veilleur-suite").start()
         for ligne in proc.stdout or ():
+            _derniere["t"] = time.time()
             print(ligne.rstrip("\n"), flush=True)
             queue.append(ligne.rstrip("\n"))
             if len(queue) > 80:
@@ -5092,8 +5631,17 @@ def _run(name: str, cmd: list[str], blocking: bool, env: dict | None = None,
     finally:
         if _minuteur is not None:
             _minuteur.cancel()
+        if _stop_veille is not None:
+            _stop_veille.set()
     _dt = time.time() - _t0
     _CHRONO.append((name, _dt))
+    if _fige["diag"]:
+        _run.__dict__["dernier"] = {"rc": rc, "sortie": "\n".join(queue), "motif_non_mesure": None,
+                                    "suite_figee": _fige["diag"]}
+        print("  ⚠ SUITE FIGEE : worker mort pendant %s -- run arrete apres %.0f s d'immobilite"
+              % (_fige["diag"], _fige["immobile"]), flush=True)
+        print(f"  → {'FAIL' if blocking else 'WARN'} (suite figee, {_dt:.1f} s)", flush=True)
+        return name, not blocking
     _motif_nm = next((m for m in motifs_non_mesure if m in "\n".join(queue)), None)
     if _borne_atteinte["v"]:
         _motif_nm = ("borne de %g s atteinte -- gate NON MESURE, pas en echec"
@@ -6052,6 +6600,12 @@ def _reprendre_preuve_suite_pure():
     attendu = {"plan": hash_plan(PURE_TESTS, BLOCS_ISOLES),
                "contrat": hash_contrat([ROOT / c for c in _CONTRAT_CI], racine=ROOT)[0],
                "substrat": empreinte_substrat(), "lock": None, "match": "ILLISIBLE"}
+    # Verdict PAR ARBRE (owner 2026-11-10) : la CI locale certifie souvent un AUTRE sha au contenu identique
+    # (mesure : job_pytest_pur_42547794727.log l.152). Arbre illisible -> None : reprise par le sha seul.
+    _rc_t, _out_t, _err_t = _git_reference(["rev-parse", "HEAD^{tree}"])
+    attendu["tree"] = _out_t.split()[0] if _rc_t == 0 and _out_t else None
+    if not attendu["tree"]:
+        print("\033[33m[reprise] arbre HEAD illisible (rc=%s) : reprise par le sha seul\033[0m" % _rc_t)
     try:
         from forge_ci_lock import fermeture, hash_lock, lire_lock, reconcilier
         _lock, _motif = lire_lock(ROOT / "requirements-ci.lock")
@@ -6067,8 +6621,10 @@ def _reprendre_preuve_suite_pure():
         return None
     print("\033[1;32m[reprise] suite pure CERTIFIEE par un autre observateur (%s), REPRISE par ce runner : NON "
           "rejouee.\033[0m" % m.get("execution_id"))
-    print("  [preuve-reprise] sha=%s etat=%s origine=%s env_origine=%s lock=%s axes_non_remesures=%s"
-          % (sha[:12], m.get("certification_state"), chemin, str(m.get("environment_fingerprint"))[:12],
+    _par = "sha" if (m.get("observed_head") or "") == sha else "arbre (sha certifie %s)" % str(
+        m.get("observed_head"))[:12]
+    print("  [preuve-reprise] sha=%s par=%s etat=%s origine=%s env_origine=%s lock=%s axes_non_remesures=%s"
+          % (sha[:12], _par, m.get("certification_state"), chemin, str(m.get("environment_fingerprint"))[:12],
              str(m.get("dependency_lock_hash"))[:12], ",".join(AXES_NON_REMESURES)))
     return 0
 
@@ -6156,8 +6712,15 @@ def _main_impl() -> int:
               "pas executes\033[0m" % ", ".join(_ONLY))
     # Option A (owner 14/10) : AVANT toute bascule de worktree, une preuve d'un autre observateur pour ce sha
     # dispense de rejouer la suite pure. Seulement si l'appel ne demande QUE la suite pure.
-    if getattr(a, "reprendre_preuve", False) and _ONLY and set(_ONLY) == {"pytest"}:
+    # Etape 3 (owner 2026-11-10) : le job `gates` (`--no-tests`, tous gates) reprend la MEME preuve. Sur : `_summary`
+    # n'ecrit CAPTURED qu'avec TOUS les gates verts (echec, critique non mesure, anergie -> NO_CAPTURE), et
+    # `reprenable` exige CAPTURED/SUITE_COMPLETE, meme contrat (ce fichier compris) et meme machine.
+    _gates_seuls = bool(getattr(a, "no_tests", False)) and not _ONLY and not getattr(a, "fast", False)
+    if getattr(a, "reprendre_preuve", False) and (_gates_seuls or (_ONLY and set(_ONLY) == {"pytest"})):
         if _reprendre_preuve_suite_pure() == 0:
+            if _gates_seuls:
+                print("\033[1;32m[reprise] gates CERTIFIES par cette preuve (CAPTURED = tous gates verts) : NON "
+                      "rejoues.\033[0m")
             return 0
 
     # T0 : bascule vers le worktree de reference AVANT tout gate, pour qu'aucun
@@ -6203,6 +6766,10 @@ def _main_impl() -> int:
         _env["NOKIDO_TARGET_SHA"] = str(_ref["sha"])
         _env["NOKIDO_EXECUTION_ID"] = _exec_id
         _env["NOKIDO_PROOF_DIR"] = str(_proof_dir)
+        # La matrice de capacites est une DONNEE d'usage (network_log), jamais versionnee : le worktree ne la
+        # porte pas. On transmet celle de l'arbre partage ; le registre d'outils reste lu au sha juge (9/11).
+        _env["NOKIDO_REGMATRIX"] = str(_os.environ.get("NOKIDO_REGMATRIX")
+                                       or (ROOT / "sandbox" / "regression_matrix.json"))
 
         print("\033[1;36m[reference] worktree detache %s @ %s (%s) — l'arbre partage "
               "n'entre plus dans le verdict\033[0m"
@@ -6468,7 +7035,7 @@ def _main_impl() -> int:
     # en echec -- et il tourne pour de vrai sur l'arbre partage, ou la matrice
     # existe. Un `[skip]` qui se tait serait un vert ; celui-ci nomme ce qui
     # manque et comment le produire.
-    _matrice_cap = ROOT / "sandbox" / "regression_matrix.json"
+    _matrice_cap = Path(os.environ.get("NOKIDO_REGMATRIX") or (ROOT / "sandbox" / "regression_matrix.json"))
     if (ROOT / "tools" / "forge_capability_ratchet.py").exists() and _matrice_cap.exists():
         results.append(_run("capacites-cliquet (formes de reponse) [OBSERVATION]",
                             [PY, "tools/forge_capability_ratchet.py", "--check"],
@@ -6697,18 +7264,29 @@ def _main_impl() -> int:
                 _mods, _etat_diff = fichiers_modifies(ROOT)
         except Exception as _ediff:
             _mods, _etat_diff = [], "ILLISIBLE(%s)" % type(_ediff).__name__
+        # Selection --impacte (testmon = moteur, 10/11). Sans --impacte : JAMAIS de --testmon.
+        _impacte_args, _impacte_env, _moteur_impacte = [], {}, None
         if getattr(a, "impacte", False):
-            try:
-                from forge_ci_selection import TOUT, resume, selectionner
-            except ImportError as _esel:
-                print("  [selection] INDISPONIBLE (%s) — suite COMPLETE jouee. "
-                      "Un selecteur absent ne doit jamais REDUIRE le perimetre."
-                      % type(_esel).__name__, flush=True)
+            if not _has("testmon"):
+                try:
+                    from forge_ci_selection import TOUT, resume, selectionner
+                except ImportError as _esel:
+                    print("  [selection] INDISPONIBLE (%s) — suite COMPLETE jouee. "
+                          "Un selecteur absent ne doit jamais REDUIRE le perimetre."
+                          % type(_esel).__name__, flush=True)
+                else:
+                    _selection = selectionner(present, _mods, etat_diff=_etat_diff)
+                    print("  " + resume(_selection), flush=True)
+                    if _selection["mode"] != TOUT:
+                        present = _selection["retenus"]
             else:
-                _selection = selectionner(present, _mods, etat_diff=_etat_diff)
-                print("  " + resume(_selection), flush=True)
-                if _selection["mode"] != TOUT:
-                    present = _selection["retenus"]
+                print("  [selection] moteur=testmon — heuristique par fichiers non appliquee", flush=True)
+            _impacte_args, _impacte_env, _moteur_impacte = _args_selection_impacte(a, _has)
+            try:  # dossier du TESTMON_DATAFILE ; sans droit, testmon le dira lui-meme
+                Path(_impacte_env["TESTMON_DATAFILE"]).parent.mkdir(parents=True, exist_ok=True)
+            except (KeyError, OSError):  # muet-ok : pas de testmon (KeyError) ou erreur dite par testmon
+                pass
+            print("  [impacte] moteur=%s" % _moteur_impacte, flush=True)
         _profil_infra = profil_precontrole(_mods, turbo=getattr(a, "turbo", False),
                                            compte=os.environ.get("USERNAME"), racine=ROOT,
                                            etat_diff=_etat_diff)
@@ -6870,7 +7448,7 @@ def _main_impl() -> int:
                 print("  [pytest] liste @ non inscriptible (%s) -- arguments en ligne"
                       % type(_eliste).__name__, flush=True)
                 _args_tests = list(_paralleles)
-            _cmd = [PY, "-m", "pytest", *_args_tests, "-q", "--tb=short",
+            _cmd = [PY, "-m", "pytest", *_args_tests, *_impacte_args, "-q", "--tb=short",
                     "-p", "no:cacheprovider", "--basetemp=%s" % _btmp,
                     "--junitxml=%s" % _xml, *plug]
             if _turbo:
@@ -6922,15 +7500,32 @@ def _main_impl() -> int:
                 _verdict, _nom = True, ""
             else:
                 _telemetrie("avant: suite pure")
-                _nom, _verdict = _run(
+                _n_vieux = _ranger_vols_precedents(_fh_dir)
+                if _n_vieux:
+                    print("  [vol] %d journal(aux) de runs precedents ranges dans %s"
+                          % (_n_vieux, _fh_dir / "precedents"), flush=True)
+                _nom, _verdict, _coupables_figes = _suite_avec_reprise(lambda _c: _run(
                     "pytest (suite pure)%s" % (" [turbo]" if _turbo else ""),
-                    _cmd, blocking=True,
+                    _c, blocking=True,
                     env={"PYTHONPATH": str(ROOT / "app"),
                          "LAFORGE_SQLITE_BUSY_MS": "9000",
                          "NOKIDO_FAULTHANDLER_DIR": str(_fh_dir),
-                         "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", **_env_liste})
+                         "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", **_env_liste, **_impacte_env},
+                    # 10/11 : un worker mort fige le controleur xdist A VIE -> arreter et NOMMER.
+                    veilleur=(300, lambda _d=_fh_dir: _diag_worker_mort(_d))),
+                    _cmd, lambda: _run.__dict__.get("dernier"),
+                    avant=lambda: _ranger_vols_precedents(_fh_dir),
+                    # seul un os._exit PROUVE compte ici : quand xdist plante, il arrete ses autres workers en
+                    # plein test (« sans os._exit ») -- les accuser fabriquerait de faux coupables.
+                    diag_mort=lambda: (lambda _d: _d if _d and "(os._exit)" in _d else None)(
+                        _diag_worker_mort(_fh_dir)))
                 _telemetrie("apres: suite pure")
                 _rapporter_faulthandler(_fh_dir)
+                try:
+                    import forge_vol_worker as _vol
+                    _vol.rapporter(_fh_dir)
+                except Exception as _evol:  # noqa: BLE001 - un rapport ne decide jamais du verdict
+                    print("  [vol] rapport impossible (%s)" % type(_evol).__name__)
                 _dernier_principal = dict(_run.__dict__.get("dernier") or {})
                 if _turbo and _a_part:
                     # Second processus, sequentiel et SANS capture : les fichiers que
@@ -7706,6 +8301,10 @@ def capture_depuis_worktree(proof_root, target_sha=None, execution_id=None) -> t
         return False, ("worktree de preuve illisible par git : %s"
                        % (tete.stderr or "").strip()[:160]), ctx
     ctx["head"] = tete.stdout.strip()
+    # L'arbre voyage avec la preuve : un autre sha du MEME contenu pourra la reprendre (owner 2026-11-10).
+    # Illisible -> None, et la reprise ne se fera alors que par le sha.
+    _arbre = _g(["rev-parse", "HEAD^{tree}"])
+    ctx["tree"] = _arbre.stdout.strip() if _arbre.returncode == 0 else None
     ctx["detached"] = _g(["symbolic-ref", "-q", "HEAD"]).returncode != 0
 
     if target_sha and not ctx["head"].startswith(str(target_sha).strip()):
@@ -7846,6 +8445,7 @@ def _ecrire_ci_proof(process_state, failure_stage=None, ctx=None,
     m = manifeste(
         target_sha=target_sha,
         observed_head=ctx.get("head"),
+        observed_tree=ctx.get("tree"),
         process_state=process_state,
         certification_state=_cert_state,
         failure_stage=failure_stage,

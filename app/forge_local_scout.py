@@ -13,6 +13,7 @@ from pathlib import Path
 import json
 import asyncio
 import logging
+import os
 
 # Assuming forge_ollama.py is in the same 'app' directory
 from nokido_agent.app.forge_ollama import ollama_call
@@ -22,7 +23,9 @@ logger = logging.getLogger("Nokido.LocalScout")
 async def ask_local_scout(
     file_path: str,
     question: str,
-    model: str = "qwen2:7b", # Default local scout model
+    # 4/11 (mesure job_ea0c3fd3c918) : `qwen2:7b` n'est PAS installe -> 3 x 404 (qwen2:7b, mistral:7b, mistral:latest)
+    # avant chaque reponse. Modele installe par defaut, reglable (NOKIDO_SCOUT_MODEL). NR test_symbiose_scout_reparee_nr.
+    model: str = os.environ.get("NOKIDO_SCOUT_MODEL", "qwen2.5-coder:7b"),
     max_tokens: int = 500,
     system_prompt: str = "You are a concise AI assistant. Summarize the provided document in response to the user's question."
 ) -> dict:

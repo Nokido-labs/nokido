@@ -12,8 +12,8 @@ _QUI_CHANGE_L1 = ("owner : cle sandbox/evolution.armed (portee l1) puis forge_pr
                   "le frein sandbox/evolution.halt gagne toujours")
 
 
-def _reglages_declares() -> dict:
-    """PARAMS_L1 + valeur courante du magasin. Magasin illisible = ILLISIBLE, jamais « defaut »."""
+def _lire_hote_direct() -> dict:
+    """Hors WASM : lecture directe (meme forme que la donnee passee par l'hote sous WASM)."""
     import sys
     from pathlib import Path
 
@@ -23,18 +23,28 @@ def _reglages_declares() -> dict:
     from nokido_agent.app import forge_proposal_applier as fpa
 
     try:
-        magasin, etat_magasin = fpa._lire_l1(), "LU"
+        magasin, etat = fpa._lire_l1(), "LU"
     except Exception as exc:  # noqa: BLE001 - un magasin illisible se DIT, il ne retombe pas sur le defaut
-        magasin, etat_magasin = {}, "ILLISIBLE (%s)" % type(exc).__name__
+        magasin, etat = {}, "ILLISIBLE (%s)" % type(exc).__name__
+    return {"params": fpa.PARAMS_L1, "magasin": magasin, "etat_magasin": etat, "fichier": fpa.PARAMS_L1_FICHIER.name}
+
+
+def _reglages_declares(donnees_hote=None) -> dict:
+    """PARAMS_L1 + valeur courante du magasin. Magasin illisible = ILLISIBLE, jamais « defaut ».
+    Sous WASM l'outil ne peut rien lire : l'hote passe les donnees ; sans elles = INCONNU (via l'exception)."""
+    d = donnees_hote if donnees_hote is not None else _lire_hote_direct()
+    if "params" not in d:
+        raise RuntimeError(d.get("raison", "donnees hote absentes"))
+    magasin, etat_magasin = d["magasin"], d["etat_magasin"]
     out = {}
-    for nom, decl in fpa.PARAMS_L1.items():
+    for nom, decl in d["params"].items():
         entree = magasin.get(nom)
         courante = entree.get("valeur") if isinstance(entree, dict) else entree
         out[nom] = {
             "defaut": decl.get("defaut"), "min": decl.get("min"), "max": decl.get("max"), "type": decl.get("type"),
             "valeur_magasin": courante,
             "effective": (courante if courante is not None else decl.get("defaut")) if etat_magasin == "LU" else None,
-            "source": "app/forge_proposal_applier.py PARAMS_L1 + %s" % fpa.PARAMS_L1_FICHIER.name,
+            "source": "app/forge_proposal_applier.py PARAMS_L1 + %s" % d["fichier"],
             "magasin": etat_magasin,
             "mesure": decl.get("mesure"),
             "qui_change": _QUI_CHANGE_L1,
@@ -60,7 +70,7 @@ def _constantes_observees() -> dict:
         return {"etat": "INCONNU", "raison": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
 
 
-def constantes_du_corps(section: str = "tout") -> dict:
+def constantes_du_corps(section: str = "tout", _donnees_hote=None) -> dict:
     """Vue LECTURE SEULE des constantes du corps : `declare`, `observe` ou `tout`. N'ecrit rien, nulle part."""
     section = (section or "tout").strip().lower()
     if section not in ("tout", "declare", "observe"):
@@ -69,7 +79,7 @@ def constantes_du_corps(section: str = "tout") -> dict:
            "ecriture": "aucune par cet outil -- " + _QUI_CHANGE_L1}
     if section in ("tout", "declare"):
         try:
-            vue["declare"] = _reglages_declares()
+            vue["declare"] = _reglages_declares(_donnees_hote)
         except Exception as exc:  # noqa: BLE001
             vue["declare"] = {"etat": "INCONNU", "raison": "%s: %s" % (type(exc).__name__, str(exc)[:160])}
     if section in ("tout", "observe"):

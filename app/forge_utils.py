@@ -69,6 +69,42 @@ def contient_un_mot(texte: str | None, mots) -> bool:
     return any(m in t for m in mots)
 
 
+def lire_json_dict(chemin) -> dict:
+    """Dict JSON d'un fichier ; absent, illisible ou d'une autre forme -> {} (l'appelant n'ecarte alors personne)."""
+    import json
+
+    try:
+        with open(chemin, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):   # muet-ok : registre optionnel, l'absence est une valeur prevue du contrat
+        return {}
+
+
+def repondre_json(handler, code: int, corps, type_contenu: str = "application/json") -> None:
+    """Reponse JSON complete sur un BaseHTTPRequestHandler."""
+    import json
+
+    brut = json.dumps(corps, ensure_ascii=False).encode("utf-8")
+    handler.send_response(code)
+    handler.send_header("Content-Type", type_contenu)
+    handler.send_header("Content-Length", str(len(brut)))
+    handler.end_headers()
+    handler.wfile.write(brut)
+
+
+def charger_module_par_chemin(nom: str, chemin):
+    """Module charge PAR SON CHEMIN sous un nom propre (jamais un homonyme importe). Illisible -> SystemExit."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(nom, chemin)
+    if spec is None or spec.loader is None:
+        raise SystemExit("mecanique d'habilitation illisible : %s" % chemin)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def sha256_fichier(chemin) -> str:
     """Empreinte SHA-256 d'un fichier, lu par blocs de 1 Mio (un fichier de plusieurs Go ne charge pas la RAM).
 

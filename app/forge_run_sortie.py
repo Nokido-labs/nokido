@@ -82,6 +82,28 @@ def borner(texte, agent, args=None, dossier=None):
                                  hashlib.sha1(texte.encode("utf-8", "replace")).hexdigest()[:8])
         chemin = d / nom
         chemin.write_text(complet, encoding="utf-8")
+        try:
+            try:
+                from nokido_agent.app.forge_context_ledger import observer
+            except ImportError:
+                try:
+                    from app.forge_context_ledger import observer
+                except ImportError:
+                    from forge_context_ledger import observer
+            essence = ""
+            for l in complet.splitlines():
+                s = l.strip()
+                if s:
+                    essence = s[:150]
+                    break
+            racine_obs = (
+                chemin.parent.parent.parent
+                if chemin.parent.name == "run_sorties" and chemin.parent.parent.name == "sandbox"
+                else None
+            )
+            observer("run_sortie://" + nom, essence=essence, racine=racine_obs)
+        except Exception:  # noqa: BLE001 -- observation seule : jamais casser le bornage
+            __import__("logging").getLogger(__name__).debug("observation context_ledger impossible", exc_info=True)
     except Exception:  # noqa: BLE001 -- muet-ok : ecriture impossible = rien de deverse, la sortie est rendue entiere
         return texte
     tete, fin = _tete(texte, TETE_CAR), _fin(texte, FIN_CAR)

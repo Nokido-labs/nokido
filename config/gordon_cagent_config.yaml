@@ -1,0 +1,49 @@
+# Politique Nokido pour Gordon (`docker ai`) lance par tools/forge_gordon.py sous HOME redirige
+# (C:\tmp\gordon_home) : installee a chaque lancement dans <HOME>/.config/cagent/config.yaml.
+# Choix owner 2026-11-10 : OPERATEUR EN LECTURE, abonnement Personal (conversations gardees 30 j).
+#
+# Doc docker agent (configuration/permissions) : ordre deny > allow > ask > mode de surete ; `allow`
+# auto-approuve ; glob `*` avale tout, espaces compris ; insensible a la casse ; permissions appliquees
+# cote CLIENT (pas une frontiere de securite) -> verifiee par `forge_gordon.py --canari-politique`.
+# Ce qui n'est pas autorise tombe en `ask`, refuse hors console (mesure job_725007121c7b).
+# JAMAIS de mode autonome (YOLO) ici : tout ce qui n'est pas refuse s'executerait.
+# Aucune regle allow ne finit par un joker nu apres la commande (`docker ps*` laisserait `docker ps; rm`).
+settings:
+  permissions:
+    deny:
+      - "shell:cmd=*;*"
+      - "shell:cmd=*&*"
+      - "shell:cmd=*|*"
+      - "shell:cmd=*>*"
+      - "shell:cmd=*<*"
+      - "shell:cmd=*$*"
+      - "shell:cmd=*`*"
+      - "shell:cmd=*inspect*"
+      - "shell:cmd=*config*"
+      - "shell:cmd=*logs*"
+      - "shell:cmd=*exec*"
+      - "shell:cmd=*json*"
+      - "shell:cmd=*.Labels*"
+      - "shell:cmd=*.Mounts*"
+      - "read_*"
+      - "write_*"
+      - "edit_*"
+      - "fetch"
+    allow:
+      - "shell:cmd=docker ps"
+      - "shell:cmd=docker ps -a"
+      - "shell:cmd=docker ps --format *"
+      - "shell:cmd=docker images"
+      - "shell:cmd=docker images --format *"
+      - "shell:cmd=docker image ls"
+      - "shell:cmd=docker image ls --format *"
+      - "shell:cmd=docker compose ps"
+      - "shell:cmd=docker compose ls"
+      - "shell:cmd=docker version"
+      - "shell:cmd=docker version --format *"
+      # Choix owner 10/11 soir (debogage SearXNG muet) : etat + ressources du SEUL conteneur searxng, sans journaux
+      # (ils portent les requetes de recherche, la sortie d'outil n'est pas filtree avant Docker AI) ni inspect.
+      - "shell:cmd=docker stats --no-stream searxng-laforge"
+      - "shell:cmd=docker ps -a --filter name=searxng-laforge --format *"
+      - "knowledge_base"
+      - "search_memories"

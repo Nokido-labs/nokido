@@ -737,6 +737,9 @@ def submit_candidate_to_judge(ref_exp: str, rel: str, nouveau: str,
     status = {"AMELIORE": "AWAITING_OWNER_COMMIT",
               "GAIN_INDECIDABLE": "PERIMETRE_MANQUANT",
               "SURVIT_SANS_GAIN": "REJECTED",
+              # 4/11 : rejet PROUVE par le jeu jamais vu (sur-ajustement) -- lu INDECIDABLE jusqu'ici (un NON lu
+              # INCONNU). NR tests/nr/test_rejet_held_out_statut_nr.py.
+              "REJETE_HELD_OUT": "REJECTED",
               "MEURT": "REJECTED",
               "REFUSE": "BLOCKED"}.get(verdict.get("verdict"), "INDECIDABLE")
     exp_id = record_evolution_experience({

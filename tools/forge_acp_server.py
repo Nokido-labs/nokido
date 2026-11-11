@@ -379,7 +379,7 @@ class ACPServer:
             })
         elif method == "session/new":
             self._sid_seq += 1
-            sid = f"nokido-{self._sid_seq}"
+            sid = f"nokido-{__import__('secrets').token_hex(8)}"
             self._sessions[sid] = _Session(sid, params.get("cwd", ""))
             self._reply(rid, {"sessionId": sid})
         elif method == "session/load":
@@ -539,14 +539,13 @@ def _acp_secret_attendu():
         from nokido_agent.app.forge_secrets import get_secret
     except Exception as e:  # noqa: BLE001
         return None, "coffre indisponible (%s)" % type(e).__name__
-    for cle in ("FORGE_ACP_TOKEN", "FORGE_MCP_TOKEN"):
-        try:
-            v = get_secret(cle)
-        except Exception:  # noqa: BLE001  # muet-ok : on essaie la clef suivante
-            continue
-        if v and v.strip():
-            return v.strip(), cle
-    return None, "aucun jeton au coffre (FORGE_ACP_TOKEN / FORGE_MCP_TOKEN)"
+    try:
+        v = get_secret("FORGE_ACP_TOKEN")
+    except Exception:  # noqa: BLE001
+        v = None
+    if v and v.strip():
+        return v.strip(), "FORGE_ACP_TOKEN"
+    return None, "aucun jeton au coffre (FORGE_ACP_TOKEN)"
 
 
 def _acp_admission(request):

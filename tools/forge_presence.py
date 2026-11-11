@@ -66,6 +66,91 @@ def mark_seen(agent: str, meta: dict | None = None) -> None:
         __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/forge_presence.py', 65, exc_info=True)
 
 
+def _registre_clients() -> Path:
+    """Registre OAuth du hub : meme racine que `forge_oauth_clients.dossier_defaut`, sans charger sa cryptographie."""
+    from nokido_agent.app.forge_db_path import racine_donnees
+
+    return racine_donnees() / "sandbox" / "oauth_clients" / "clients.json"
+
+
+def _clients_oauth() -> dict:
+    try:
+        d = json.loads(_registre_clients().read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001  # muet-ok : illisible = pas de nom, l'identifiant reste affiche, rien n'est devine
+        return {}
+
+
+def _opencode_instances() -> dict:
+    p = ROOT / "config" / "opencode_instances.json"
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001  # muet-ok : configuration illisible ou absente, rien n'est devine
+        return {}
+
+
+def _opencode_modele(agent: str, instances: dict | None = None) -> str | None:
+    """Modele d'une instance OpenCode lu dans config/opencode_instances.json. None si vide, non trouve ou illisible."""
+    a = str(agent or "").strip().upper()
+    if not (a == "OPENCODE" or a.startswith("OPENCODE_")):
+        return None
+    table = _opencode_instances() if instances is None else instances
+    spec = table.get(a)
+    if isinstance(spec, dict):
+        mod = str(spec.get("modele") or "").strip()
+        return mod or None
+    return None
+
+
+def nom_reel(agent: str, clients: dict | None = None) -> str | None:
+    """`OAUTH_NKC_...` -> nom inscrit par le client (owner 5/11). None si inconnu, ambigu ou illisible.
+
+    Le nom est DECLARE par le client a son inscription (RFC 7591) : il ne prouve rien et passe dans des alertes lues
+    par des agents, donc une seule ligne bornee, et toujours affiche a cote de l'identifiant (`_libelle`). Le sujet du
+    jeton est en majuscules et tronque a 40 (`nokido_hub`), d'ou la comparaison."""
+    a = str(agent or "").upper()
+    if not a.startswith("OAUTH_") or len(a) <= len("OAUTH_"):
+        return None
+    cible = a[len("OAUTH_"):].casefold()
+    reg = _clients_oauth() if clients is None else clients
+    noms = {" ".join(str(c.get("client_name") or "").split())[:60] for cid, c in reg.items()
+            if isinstance(c, dict) and str(cid).casefold()[:40] == cible}
+    return noms.pop() or None if len(noms) == 1 else None
+
+
+def _libelle(agent: str) -> str:
+    nom = nom_reel(agent)
+    return f"{nom} ({agent})" if nom else agent
+
+
+def nom_lisible(agent: str, clients: dict | None = None, instances: dict | None = None) -> str:
+    """Libelle lisible d'un agent pour affichage humain (surfaces, barres d'etat, alertes).
+
+    - OAuth declare : `Claude Code [nkc_nB_c]` (nom declare + code borne, jamais de jeton)
+    - OpenCode avec modele : `OpenCode (fournisseur/modele)` ou `<Instance> (fournisseur/modele)`
+    - Non prouve / inconnu / ordinaire : identifiant brut
+    Borne a une seule ligne, sans saut de ligne.
+    """
+    a = str(agent or "").strip()
+    if not a:
+        return ""
+    u = a.upper()
+    if u.startswith("OAUTH_") and len(u) > len("OAUTH_"):
+        nom = nom_reel(a, clients=clients)
+        if nom:
+            sujet = a[len("OAUTH_"):]
+            code = sujet[:8] if len(sujet) > 8 else sujet
+            return f"{nom} [{code}]"
+        return a
+    if u == "OPENCODE" or u.startswith("OPENCODE_"):
+        mod = _opencode_modele(a, instances=instances)
+        base = "OpenCode" if u == "OPENCODE" else a
+        return f"{base} ({mod})" if mod else a
+    return a
+
+
+
 def _emit_arrival(agent: str) -> None:
     """Transition absent->present : enclenche la boucle ecoute/reponse (best-effort).
     Emet un critical_event 'cli_present' + un fait blackboard que les listeners
@@ -84,7 +169,7 @@ def _emit_arrival(agent: str) -> None:
 
         def _ecrire() -> None:
             if not _persist("cli_present", "info", {
-                    "detail": f"{agent} entre dans la piece (presence inter-CLI)",
+                    "detail": f"{_libelle(agent)} entre dans la piece (presence inter-CLI)",
                     "source": "forge_presence"}):
                 print(f"[presence] evenement cli_present de {agent} NON persiste",
                       file=_sys.stderr, flush=True)
@@ -98,7 +183,7 @@ def _emit_arrival(agent: str) -> None:
         # `propose_fact` n'a jamais existe et le `pass` ci-dessous taisait l'ImportError :
         # AUCUNE arrivee n'a atteint le tableau noir. Appele depuis la boucle du hub
         # (forge_hub_gate.resolve) : apply_fact_sync y pose une tache, sans bloquer.
-        r = apply_fact_sync("discovered_facts", f"{agent} present (arrived)",
+        r = apply_fact_sync("discovered_facts", f"{_libelle(agent)} present (arrived)",
                             category="presence", trust=0.6, key=f"presence_arrival_{agent}",
                             source="forge_presence", ring=2)
         if r.get("ok") is False or r.get("error"):
@@ -144,6 +229,9 @@ IDENTITES = ROOT / "config" / "agent_identities.json"
 FRAICHEUR_META_S = 300   # meta du hub admise si son empreinte a <= 5 min d'ecart avec la plus recente de l'agent
 # Interlocuteurs (ceux qui parlent AU corps) contre organes (le corps qui se parle a lui-meme) : `kind` du store.
 KINDS_INTERLOCUTEURS = frozenset({"cli_agent", "surface", "relay", "hook"})
+# Libelles que le hub (`_resolve_ring`, tools/nokido_hub.py) donne a une requete SANS identite prouvee : ce ne sont
+# pas des agents (owner 3/11 : `no_auth` listait en « Agents actifs »). Meme ensemble que forge_health_diagnostic.
+LIBELLES_ANONYMES = frozenset({"NO_AUTH", "BAD_TOKEN", "NO_TOKEN", "EXPIRED_OR_INVALID_CAPABILITY_TOKEN"})
 
 
 def _ts_iso(v) -> float | None:
@@ -156,7 +244,7 @@ def _ts_iso(v) -> float | None:
 
 
 def etat_presence(fenetre_s: int = 900, maintenant: float | None = None, identites: dict | None = None,
-                  dossier: Path | None = None) -> list:
+                  dossier: Path | None = None, clients: dict | None = None) -> list:
     """Qui est dans la piece, AVEC sa provenance (demande owner 15/10 : « dynamique avec leur provenance exacte »).
 
     Fusion des DEUX empreintes : celle de la porte (`sandbox/presence/<AGENT>.seen`, chaque appel gouverne) et celle
@@ -200,19 +288,31 @@ def etat_presence(fenetre_s: int = 900, maintenant: float | None = None, identit
     alias = {str(x).upper(): k.upper() for k, v in identites.items() if isinstance(v, dict)
              for x in (v.get("aliases") or [])}
     ids = {k.upper(): v for k, v in identites.items() if isinstance(v, dict)}
+    clients = _clients_oauth() if clients is None else clients
     out = []
     for a, e in vus.items():
         age = now - e.get("ts", 0)
         if not e.get("ts") or age > fenetre_s:
             continue
         i = ids.get(a) or ids.get(alias.get(a, ""), {})
-        out.append({"agent": a, "age_s": round(max(0.0, age), 1), "ring": e.get("ring", i.get("ring")),
+        anonyme = a in LIBELLES_ANONYMES
+        out.append({"agent": a, "nom_reel": nom_reel(a, clients=clients), "age_s": round(max(0.0, age), 1), "ring": e.get("ring", i.get("ring")),
                     "dernier_outil": e.get("last_tool"), "declare": bool(i), "kind": i.get("kind"),
                     "surface": i.get("surface"), "canal": i.get("channel"), "transport": i.get("transport"),
                     "machine": i.get("machine"), "client": e.get("client"), "reseau": e.get("reseau"),
-                    "meta_hub_perimee": bool(e.get("meta_hub_perimee")),
-                    "interlocuteur": (i.get("kind") in KINDS_INTERLOCUTEURS) if i else True})
+                    "meta_hub_perimee": bool(e.get("meta_hub_perimee")), "anonyme": anonyme,
+                    "interlocuteur": False if anonyme else ((i.get("kind") in KINDS_INTERLOCUTEURS) if i else True)})
     return sorted(out, key=lambda x: x["age_s"])
+
+
+def repartir(presence: list) -> tuple:
+    """(interlocuteurs, organes, anonymes) : les libelles anonymes du hub ne sont ni des agents ni des organes.
+
+    Owner 3/11 : `no_auth` s'affichait en « Agents actifs » du tray. Ces entrees restent rendues (rien n'est
+    cache : le compte des requetes sans jeton refusees est un signal), mais dans leur propre colonne."""
+    anonymes = [e for e in presence if e.get("anonyme")]
+    autres = [e for e in presence if not e.get("anonyme")]
+    return ([e for e in autres if e.get("interlocuteur")], [e for e in autres if not e.get("interlocuteur")], anonymes)
 
 
 def last_seen(agent: str) -> float | None:

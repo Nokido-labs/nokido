@@ -327,8 +327,9 @@ def _ingest(url, title, text, domain, role):
                   "en silence)" % (str(url)[:80], geles), file=_s.stderr, flush=True)
             return False
         words = text.split()
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
         for i, chunk in enumerate([" ".join(words[j : j + 700]) for j in range(0, len(words), 700)][:8]):
-            if len(chunk) > 100:
+            if len(chunk) > 100 and admis_a_l_ingestion(url, chunk):
                 conn.execute(
                     "INSERT OR REPLACE INTO rag_chunks (id,text,source,domain,role_hint,author,ingested_at) VALUES (?,?,?,?,?,?,?)",
                     # 2026-09-12 : `[:4000]` sur le TEXTE amputait en silence

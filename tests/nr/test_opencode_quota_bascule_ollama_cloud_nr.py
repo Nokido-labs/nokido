@@ -63,7 +63,8 @@ def test_quota_bascule_ollama_cloud(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "ACPClient", Doublure)
     monkeypatch.setattr(T, "_etat_git", lambda w: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "ok")
-    monkeypatch.setattr(T, "_juger_livraison", lambda ok, d, w, a, autorises=None, desc=None: (ok, "c", None))
+    # **_k : la signature reelle a gagne `consigne_servie` (contexte servi, 9/11) ; un double fige casse a chaque ajout.
+    monkeypatch.setattr(T, "_juger_livraison", lambda ok, d, w, a, autorises=None, desc=None, **_k: (ok, "c", None))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda i: "j")
     monkeypatch.setattr(T, "_lire_cle_fournisseur", lambda n: "cle_fabriquee")
     monkeypatch.setattr(T, "_battement_delegation", lambda a, t: __import__("contextlib").nullcontext())

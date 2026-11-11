@@ -49,3 +49,43 @@ def test_catalogue_illisible_refuse(monkeypatch):
 def test_les_outils_statiques_inchanges():
     assert hm.validate_tool_name("introspect")[0] is True
     assert hm.validate_tool_name("pas_un_outil")[0] is False
+
+
+# --- 07/11 (accord owner) : catalogue PERIME = aucun outil docker_* liste dans tools/list ---
+# docker_action reste present (natif) ; le dispatch _handle_docker_proxy reste en place.
+from app.forge_mcp_registry import ToolRegistry  # noqa: E402
+
+
+def _registre_avec_catalogue(monkeypatch, etat, noms):
+    monkeypatch.setattr(fds, "catalogue_en_cache", lambda path=None: {
+        "etat": etat, "outils": [{"name": n, "description": "d", "inputSchema": {"type": "object"}} for n in noms]})
+
+    def boom(*a, **k):
+        raise AssertionError("tools/list a tente de reveiller Docker")
+    monkeypatch.setattr(fds.DockerSupervisor, "ensure_daemon", boom)
+    monkeypatch.setattr(fds.DockerSupervisor, "spawn_gateway_stdio", boom)
+    return ToolRegistry()
+
+
+def _noms_liste(reg, ring=0):
+    return {t["name"] for t in reg.get_tool_list(ring=ring, agent="TEST_OWNER")}
+
+
+def test_catalogue_perime_ne_liste_aucun_outil_docker(monkeypatch):
+    reg = _registre_avec_catalogue(monkeypatch, "PERIME", ["mcp-find", "code-mode"])
+    assert not [n for n in _noms_liste(reg) if n.startswith("docker_") and n != "docker_action"]
+
+
+def test_catalogue_frais_liste_les_outils_docker(monkeypatch):
+    reg = _registre_avec_catalogue(monkeypatch, "FRAIS", ["mcp-find", "code-mode"])
+    noms = _noms_liste(reg)
+    assert "docker_mcp-find" in noms and "docker_code-mode" in noms
+
+
+def test_docker_action_toujours_present_si_perime(monkeypatch):
+    reg = _registre_avec_catalogue(monkeypatch, "PERIME", ["mcp-find"])
+    assert "docker_action" in _noms_liste(reg)
+
+
+def test_dispatch_docker_proxy_toujours_en_place():
+    assert hasattr(ToolRegistry, "_handle_docker_proxy")

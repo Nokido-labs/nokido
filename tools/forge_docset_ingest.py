@@ -195,7 +195,8 @@ def ingest(docset_name: str, max_workers: int = 0) -> dict:
             ids = [r[0] for r in lot]
             deja = {r[0] for r in wcon.execute(
                 "SELECT id FROM rag_chunks WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)}
-            neufs = [r for r in lot if r[0] not in deja]
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            neufs = [r for r in lot if r[0] not in deja and admis_a_l_ingestion(r[1], r[2])]
             if not neufs:
                 return 0
             cur = wcon.executemany(

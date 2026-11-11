@@ -509,6 +509,11 @@ def mark_http(env_base: str, key: str, http_status, detail: str = "") -> None:
                 pass
             return
         mark(env_base, key, "bad", f"http{http_status}")
+    elif http_status == 402:
+        # 9/11 : 402 = budget / paiement EPUISE (Mistral Studio : billing_api_budget_exhausted, code 2303, sur tous
+        # les modeles). Ce n'est pas un quota temporaire : la cle sort de la rotation jusqu'a un succes ou une
+        # nouvelle cle (set_key remet la sante a zero). Avant : 402 n'avait AUCUNE branche, la cle restait servie.
+        mark(env_base, key, "bad", "http402 budget epuise")
     elif http_status == 429:
         mark(env_base, key, "quota", "http429")
 

@@ -1,5 +1,6 @@
 # Nokido — normalize line endings to LF everywhere
 * text=auto eol=lf
+.githooks/* text eol=lf
 
 # Force binary for non-text files
 *.png binary

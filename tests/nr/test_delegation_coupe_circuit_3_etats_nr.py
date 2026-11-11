@@ -46,6 +46,13 @@ from app.forge_mcp_registry import ToolRegistry  # noqa: E402
 T0 = time.time()
 
 
+@pytest.fixture(autouse=True)
+def _fraicheur_t0():
+    """Rafraichit T0 a chaque test pour que le cooldown (900 s) ne soit pas perime si la suite a tourne > 15 min."""
+    global T0
+    T0 = time.time()
+
+
 def test_nr_b_deux_echecs_menent_a_open_et_quatrieme_appel_saute(tmp_path, monkeypatch):
     """(b) 2 echecs / sorties vide consecutives -> OPEN, 4e appel saute."""
     f_cc = tmp_path / "coupe_circuit.json"
@@ -152,6 +159,18 @@ def test_nr_d_reaffectation_ne_vise_pas_un_open(tmp_path, monkeypatch):
 
 def test_nr_a_assignation_executeur_open_ou_hors_quota_avertit_et_propose(tmp_path, monkeypatch):
     """(a) assignation a un executeur OPEN ou hors quota -> avertissement rendu + proposition d'eligible."""
+    # 8/11 (CI lot p1) : `_avertissement_agent` essaie D'ABORD `from nokido_agent.tools import
+    # forge_task_executor`. Quand un autre fichier de la suite (xdist, tronc partage) a deja rendu
+    # `nokido_agent` importable, l'alias importe une SECONDE copie du module : le monkeypatch ci-dessous
+    # sur T n'y touche pas, et ce sont l'etat REEL du census/du coupe-circuit qui repondent (avert_quota None).
+    # On fige la couture : nokido_agent importable -> ImportError forcee, repli sur le meme module que T.
+    for m in ("nokido_agent", "nokido_agent.tools", "nokido_agent.tools.forge_task_executor"):
+        monkeypatch.setitem(sys.modules, m, None)
+    # 8/11 (CI lot p1, apres f2891002f) : le repli `import forge_task_executor` (forge_mcp_registry.py:6463) peut rendre
+    # une AUTRE copie que T quand un fichier voisin l'a charge sous un autre nom (tools.forge_task_executor, chemin) :
+    # le monkeypatch de T.* n'y touche pas. On epingle le nom nu sur l'objet du test.
+    monkeypatch.setitem(sys.modules, "forge_task_executor", T)
+
     f_cc = tmp_path / "coupe_circuit.json"
     monkeypatch.setenv("LAFORGE_OPENCODE_COUPE_CIRCUIT_FILE", str(f_cc))
 

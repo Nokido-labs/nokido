@@ -3,8 +3,7 @@ name: forge-database-state
 description: >-
   À utiliser avant de lire ou d'écrire une base SQLite de Nokido (RAG, messages, tâches,
   journaux), ou face à « database is locked », une colonne absente, un compteur
-  incohérent, une requête lente, depuis toute surface. Donne quelle base porte quel
-  état, les primitives d'accès, les interrupteurs et les pièges de mesure payés.
+  incohérent, une requête lente, depuis toute surface.
 ---
 
 # forge-database-state — les bases de Nokido : qui porte quoi, comment y toucher

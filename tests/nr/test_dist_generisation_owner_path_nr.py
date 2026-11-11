@@ -256,6 +256,17 @@ def test_un_fichier_non_utf8_ne_passe_pas_la_defense_en_silence(tmp_path):
         D._generiser_chemins_owner(dist)
 
 
+def test_le_manifeste_ne_porte_pas_le_chemin_de_la_certification(tmp_path):
+    """1/11 : dist-manifest.json est ecrit APRES la generisation et HORS de l'arbre du dist -- il lui echappait.
+    v0.20.15 publiee portait `certification.dossier` = chemin local complet de la preuve ; v0.20.17 a ete refusee par la
+    garde des assets. Le manifeste ne garde que le nom relatif de la preuve."""
+    d = tmp_path / "nokido_proof" / "ci-reference-0123abcd" / "artefacts"
+    d.mkdir(parents=True)
+    cert = D._lire_certification(d, "0" * 40)
+    assert cert["dossier"] == "ci-reference-0123abcd/artefacts"
+    assert str(tmp_path) not in str(cert)
+
+
 def test_les_remplacants_tailnet_et_ddns_passent_la_defense(tmp_path):
     dist = tmp_path / "dist"
     dist.mkdir()

@@ -91,6 +91,12 @@ jobs:
           printf '%s\n' "$K" | tr -d '\r' > ~/.ssh/sf && chmod 600 ~/.ssh/sf
           ssh-keygen -lf ~/.ssh/sf || echo "::error::SF_DEPLOY_KEY illisible comme cle privee (format)"
           ssh-keyscan git.code.sf.net >> ~/.ssh/known_hosts 2>/dev/null
+          # 1/11 (v0.20.17) : bonne cle (empreinte attendue) mais « Could not read from remote repository » SANS trace
+          # d'authentification au journal. La sonde DIT l'issue : authentifie (utilisateur/chemin faux) ou refuse
+          # (cle non enregistree cote SourceForge) -- jamais la cle, seulement les lignes d'issue.
+          ssh -vv -T -i ~/.ssh/sf -o IdentitiesOnly=yes -o BatchMode=yes "$SF_USER@git.code.sf.net" 2>&1 \
+            | grep -E 'Authenticated|Permission denied|Offering public key|Server accepts key|Connection closed|Authentications that can continue' \
+            || echo "::warning::sonde SSH SourceForge muette (aucune ligne d'issue)"
           rc=0
           GIT_SSH_COMMAND="ssh -i $HOME/.ssh/sf -o IdentitiesOnly=yes -o LogLevel=VERBOSE" \
             git -C src.git push "ssh://$SF_USER@git.code.sf.net/p/nokido/code" \
@@ -109,10 +115,19 @@ jobs:
           if [ ! -d depot/vitrine/hf_space ]; then echo "::error::vitrine/hf_space absente du depot public"; echo hf >> manquants; exit 0; fi
           # 1/11 : push refuse avec deux jetons en Bearer (« could not read Username »). On DIT le compte et le ROLE
           # du jeton (jamais le jeton), puis on pousse en Basic identifiant:jeton -- toujours par en-tete, masque.
-          I=$(curl -s -H "Authorization: Bearer $T" https://huggingface.co/api/whoami-v2)
+          # 1/11 (v0.20.17) : whoami sans compte puis « could not read Username ». Jeton nettoye des fins de ligne
+          # Windows ; code HTTP de whoami affiche (jamais le jeton) ; compte illisible = arret AVANT clone/push.
+          T=$(printf '%s' "$T" | tr -d '\r\n')
+          echo "::add-mask::$T"
+          CODE=$(curl -s -o whoami.json -w '%{http_code}' -H "Authorization: Bearer $T" https://huggingface.co/api/whoami-v2)
+          I=$(cat whoami.json 2>/dev/null); rm -f whoami.json
           HF_USER=$(printf '%s' "$I" | python3 -c "import json,sys;print(json.load(sys.stdin).get('name',''))" 2>/dev/null)
           ROLE=$(printf '%s' "$I" | python3 -c "import json,sys;d=json.load(sys.stdin);print(((d.get('auth') or {}).get('accessToken') or {}).get('role','?'))" 2>/dev/null)
-          echo "compte HF : ${HF_USER:-ILLISIBLE} | role du jeton : ${ROLE:-ILLISIBLE}"
+          echo "whoami HTTP $CODE | compte HF : ${HF_USER:-ILLISIBLE} | role du jeton : ${ROLE:-ILLISIBLE}"
+          if [ -z "$HF_USER" ]; then
+            echo "::error::jeton HF refuse par whoami (HTTP $CODE) : secret HF_TOKEN invalide ou revoque -- Space HF NON PUBLIE"
+            echo hf >> manquants; exit 1
+          fi
           B=$(printf '%s:%s' "$HF_USER" "$T" | base64 -w0)
           echo "::add-mask::$B"
           H="Authorization: Basic $B"

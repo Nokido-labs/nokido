@@ -34,6 +34,7 @@ import datetime as _dt
 import hashlib
 import json
 import numpy as np
+import os
 import re
 import uuid
 
@@ -855,6 +856,8 @@ class RAGEngine:
             chunks = self._chunk_markdown(text, source)
         else:
             chunks = self.chunk_text(text, source)
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        chunks = [c for c in chunks if admis_a_l_ingestion(source, c["text"])]
         # Préfixer chaque chunk avec le nom du fichier source → meilleure récupération
         for c in chunks:
             c["text"] = f"[Doc: {source}] " + c["text"]
@@ -1025,6 +1028,8 @@ class RAGEngine:
         # ── 2. Chunking ───────────────────────────────────────────────────────
         source = f"disco:{session_name}"
         chunks = self.chunk_text(clean, source)  # 120 mots max, overlap
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        chunks = [c for c in chunks if admis_a_l_ingestion(source, c["text"])]
         if not chunks:
             return 0
 
@@ -1256,6 +1261,22 @@ class RAGEngine:
         """Charge les chunks RAG depuis embeddings.db (table rag_chunks, WAL)."""
         # 3.14t safety: full reload swap behind _chunks_lock to avoid readers
         # seeing a half-populated list (slice rebind not atomic without GIL).
+        # GARDE (faute 7/11 : script -> RAGEngine() -> 1,3 M chunks, 6,28 Go). Le
+        # chargement complet exige une autorisation explicite du processus.
+        import os as _os_g
+
+        self._degraded = False
+        if not (_os_g.environ.get("LAFORGE_RAG_FULL_LOAD")
+                or _os_g.environ.get("LAFORGE_VEC_SIDECAR_PORT")):
+            # Mode degrade : pas d'exception (l'objet reste instanciable), aucun SELECT.
+            self._degraded = True
+            with self._chunks_lock:
+                self.chunks = []
+            logger.warning(
+                "RAGEngine: chargement de rag_chunks NON AUTORISE -> mode degrade, "
+                "0 chunk, search() levera une erreur. Utiliser l'outil `rag` du hub, "
+                "`POST :8098/search`, ou poser LAFORGE_RAG_FULL_LOAD=1 (banc/outil).")
+            return
         # -- 1. SQLite WAL (nouveau format) --
         try:
             import os as _os
@@ -1580,12 +1601,17 @@ class RAGEngine:
                     _cohere_key = _gs("COHERE_API_KEY")
                 except Exception:
                     __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_rag_engine.py', 1566, exc_info=True)
+            # Choix owner 6/11 : le repli cloud passe par la membrane ; provenance non publique = classement local.
+            _cloud = None
             if _cohere_key:
+                from nokido_agent.app.forge_sovereign_membrane import preparer_pour_cloud
+                _cloud = preparer_pour_cloud(query, docs, [(d.get("content", "") or "")[:1000] for d in docs])
+            if _cloud:
                 _c_payload = _j.dumps(
                     {
                         "model": "rerank-v3.5",
-                        "query": query,
-                        "documents": [(d.get("content", "") or "")[:1000] for d in docs],
+                        "query": _cloud[0],
+                        "documents": _cloud[1],
                         "top_n": top_n,
                     }
                 ).encode()
@@ -1883,9 +1909,39 @@ class RAGEngine:
                     _min_r = min(r[1] for r in _rows)
                     for _cid, _rank in _rows:
                         _hits[_cid] = _rank / _min_r if _min_r != 0 else 1.0
+
+                # Canal reserve aux fiches `memory:*`, COUPE par defaut : mandat owner du 1/9, le
+                # classement effectif ne change pas tant que la baseline n'est pas battue (forge_retrieval_router).
+                # `^` ancre en debut de colonne : `source:memory` ramenait `mcp-memory-service` (mesure 5/11).
+                try:
+                    _raw_lim = os.environ.get("LAFORGE_RAG_PLACES_MEMOIRE", "0")
+                    try:
+                        _lim_mem = int(_raw_lim)
+                    except (ValueError, TypeError):
+                        _lim_mem = 0
+                    if _lim_mem > 0:
+                        _q_mem = f"source : ^memory AND ({_q_fts})"
+                        _rows_mem = _conn.execute(
+                            "SELECT c.id, s.rank FROM "
+                            "(SELECT rowid AS rid, rank FROM rag_chunks_fts "
+                            " WHERE rag_chunks_fts MATCH ? ORDER BY rank LIMIT ?) s "
+                            "JOIN rag_chunks c ON c.rowid = s.rid",
+                            (_q_mem, _lim_mem),
+                        ).fetchall()
+                        if _rows_mem:
+                            _min_mem = min(r[1] for r in _rows_mem)
+                            for _cid, _rank in _rows_mem:
+                                _score_mem = _rank / _min_mem if _min_mem != 0 else 1.0
+                                if _cid in _hits:
+                                    _hits[_cid] = max(_hits[_cid], _score_mem)
+                                else:
+                                    _hits[_cid] = _score_mem
+                except Exception as _mem_e:
+                    logger.warning(f"FTS5 canal memoire reserve: {_mem_e}")
+
             _conn.close()
         except Exception as _fts_e:
-            logger.debug(f"FTS5 fallback BM25: {_fts_e}")
+            logger.warning(f"FTS5 fallback BM25: {_fts_e}")
             if HAS_BM25 and self.bm25_index:
                 _bm = self.bm25_index.get_scores(query.lower().split()).tolist()
         # `rowid == position dans self.chunks` etait FAUX : les suppressions cumulees
@@ -1927,6 +1983,14 @@ class RAGEngine:
 
             settings = _gs()
             k = settings.rag_docs_topk
+
+        if getattr(self, "_degraded", False):
+            # Le canal FTS rattache ses scores a self.chunks (_lex_map) : sans chunks il
+            # ne peut rien rendre. Un [] ressemblerait a « rien trouve » : on leve.
+            raise RuntimeError(
+                "RAGEngine en mode degrade (chargement non autorise) : search() "
+                "indisponible. Utiliser l'outil `rag` du hub, `POST :8098/search`, "
+                "ou LAFORGE_RAG_FULL_LOAD=1.")
 
         if not self.chunks:
             return []
@@ -2326,7 +2390,10 @@ class RAGEngine:
             _head, _tail = docs[0::2], docs[1::2]
             docs = _head + _tail[::-1]
         self._bump_access([d.get("id") for d in docs if d.get("id")])
-        return docs
+        # Apres la compression, qui reecrit `content`. Marque sans retirer : mesure du 5/11, 17 resultats lexicaux sur 170 viennent de
+        # sources de la liste blanche, filtrer viderait les reponses des agents.
+        from nokido_agent.app.forge_prompt_guard import marquer_documents_tiers
+        return marquer_documents_tiers(docs)
 
     def _bump_access(self, ids: list) -> None:
         """Incrémente access_count des chunks RETOURNÉS = signal hot-par-usage

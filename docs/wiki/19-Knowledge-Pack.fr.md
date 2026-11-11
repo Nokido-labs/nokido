@@ -196,8 +196,11 @@ bien le fichier signé par le mainteneur.
 
 > Non. Le filtre d'export écarte explicitement `agent_messages`, `conversation_log`,
 > `shared_prompt_log` et tout chunk qui correspond aux heuristiques de données
-> personnelles. Seuls les domaines `nokido_code`, `nokido_docs`, `curated_skills` et
-> `policy_rules` sont exportés — l'équivalent du code source.
+> personnelles. Seuls les domaines `nokido_doc`, `doctrine`, `forge_core`,
+> `nokido_code`, `docs`, `policy_rules`, `policy_roles` et `policy_security`
+> sont exportés — l'équivalent du code source (liste figée par `DOMAINES`
+> dans `forge_knowledge_pack_export.py`, vérifiée le 2026-11-08 ; l'ancienne
+> liste `nokido_docs`/`curated_skills` était périmée).
 
 ### Q. Et si la version du modèle BGE-M3 change en amont ?
 

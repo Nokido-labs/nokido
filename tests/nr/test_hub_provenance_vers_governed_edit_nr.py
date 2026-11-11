@@ -43,6 +43,18 @@ def test_l_argument_du_client_ne_fait_jamais_foi():
     assert "_provenance" not in b and b["action"] == "shell"
 
 
+def test_tache_vient_de_l_entete_pour_governed_edit_seul():
+    hub = _hub()
+    req = SimpleNamespace(headers={"LaForge-Tache": "aaaaaaaa1234"}, client=None)
+    assert hub._args_avec_provenance("governed_edit", {}, req)["_tache"] == "aaaaaaaa1234"
+    assert "_tache" not in hub._args_avec_provenance("run", {}, req)
+    # fourni par le client : retire
+    assert hub._args_avec_provenance("governed_edit", {"_tache": "evil"}, _req())["_tache"] == ""
+    assert "_tache" not in hub._args_avec_provenance("run", {"_tache": "evil"}, _req())
+    bad = SimpleNamespace(headers={"LaForge-Tache": "a b;"}, client=None)
+    assert hub._args_avec_provenance("governed_edit", {}, bad)["_tache"] == "INVALIDE"
+
+
 def test_entete_invalide_et_arguments_non_dict():
     hub = _hub()
     assert hub._args_avec_provenance("governed_edit", {}, _req("pas valide!"))["_provenance"] == "INVALIDE"

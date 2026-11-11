@@ -57,6 +57,10 @@ def acl_refuse(monkeypatch, tmp_path):
     attente = tmp_path / "attente"
     cible.mkdir()
     monkeypatch.setattr(fg, "DOSSIER", cible, raising=False)
+    # 11/11 (pre-vol job_0d40c2f333e5, vol_gw0_20800) : capturer() lancait de VRAIS `git` sur le depot (30 s de
+    # borne chacun) ; sous 5 workers, > 120 s -> pytest-timeout os._exit -> worker mort, suite figee.
+    # Ce fichier prouve le depot differe, pas git : _git neutralise (patron test_generation_et_agy_bin_nr).
+    monkeypatch.setattr(fg, "_git", lambda *a, **k: "shafixe123" if a[:1] == ("rev-parse",) else "")
     monkeypatch.setattr(fg, "DOSSIER_ATTENTE", attente, raising=False)
     monkeypatch.setattr(fg, "DOSSIER_SEQUENCE", attente, raising=False)
 

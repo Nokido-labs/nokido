@@ -14,11 +14,13 @@ La premiere forme PRESERVE LA CAPACITE en reduisant le contexte ; la seconde
 economise des tokens en detruisant le moyen de travailler. Le `deny` reste
 pour les vraies boucles et les appels absurdes -- pas pour les grosses sorties.
 
-Mecanisme MESURE dans ce runtime avant d'etre employe : `updatedToolOutput`
-est present dans le binaire (sonde findstr, 4 temoins negatifs muets), il vaut
-pour TOUS les outils, et sa forme est
-`{"hookSpecificOutput": {"hookEventName": "PostToolUse",
-  "updatedToolOutput": {"text": ..., "isError": ...}}}`.
+Mecanisme CONSTATE le 5/11 sur une commande reelle (100 -> 60 lignes) : pour Bash,
+`updatedToolOutput` prend la forme de sortie de l'outil, `{stdout, stderr, ...}`.
+La forme `{"text", "isError"}` affirmee ici jusqu'au 5/11 sur la foi d'un findstr est
+IGNOREE sans erreur : le hook emettait, rien ne changeait. Elle ne reste que pour un
+evenement `tool_output` que ce runtime n'envoie pas. Pour MCP, `updatedMCPToolOutput` :
+EFFET NON CONSTATE (test refuse par le budget de volume). Un echec Bash ne declenche
+pas PostToolUse (mesure) : il n'est donc jamais reecrit ici.
 
 LE DANGER EST LE MECANISME LUI-MEME. Un firewall qui coupe la ligne qui
 comptait fabrique du faux calme -- et le faux calme ne se detecte pas. Trois
@@ -182,7 +184,7 @@ def reduire(tool_name, tool_output, tool_succeeded):
             "avec son contexte. Rien n'est perdu, seulement deporte."
             % (len(lignes), len(gardes), retirees,
                (len(tool_output) - sum(len(m) for m in morceaux)) // 1024,
-               archive.name))
+               archive))
         return bandeau + "\n\n" + "\n".join(morceaux)
     except Exception:  # noqa: BLE001 - muet-ok
         # muet-ok : FAIL-CLOSED sur la reecriture. En cas de doute on ne touche
@@ -211,6 +213,58 @@ def _rappel_skills(ev):
         return ""
 
 
+def _sortie_texte(ev):
+    """Texte de la sortie, ou None si sa forme n'est pas sure a reecrire.
+
+    Formes MESUREES le 5/11 par sonde dans le hook vivant : Bash `tool_response` =
+    {stdout, stderr, ...}, MCP `tool_response` = liste de blocs. Aucune `tool_output`, aucun
+    `tool_succeeded` : ce firewall lisait une forme que le runtime n'envoie pas, donc n'agissait jamais.
+    Un bloc non texte (image) : None, on ne reecrit pas ce qu'on ne sait pas restituer."""
+    ev = ev or {}
+    sortie = ev.get("tool_output")
+    if sortie is None:
+        sortie = ev.get("tool_response")
+    if isinstance(sortie, dict) and ("stdout" in sortie or "stderr" in sortie):
+        return "\n".join(str(sortie[k]) for k in ("stdout", "stderr") if sortie.get(k))
+    if isinstance(sortie, list) and sortie and all(
+            isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str) for b in sortie):
+        return "\n".join(b["text"] for b in sortie)
+    return sortie if isinstance(sortie, str) else None
+
+
+# Lire un fichier a une revision, lire un diff : le CONTENU est la demande, pas un journal. Garder tete, fin et
+# erreurs y detruit ce qu'on est venu chercher (5/11 : conclusions d'un document de 111 lignes perdues).
+_CONTENU_DEMANDE = re.compile(r'^git\s+(-C\s+(?:"[^"]*"|\S+)\s+)?(show\s+\S+:\S+|diff\b)')
+
+
+def _contenu_demande(ev):
+    ev = ev or {}
+    return ev.get("tool_name") == "Bash" and bool(
+        _CONTENU_DEMANDE.search(str((ev.get("tool_input") or {}).get("command") or "").strip()))
+
+
+def _compacter_bash(ev):
+    """Filtre de forge_cmd_compactor APRES execution (owner 5/11) : aucune reecriture, donc aucun renvoi au modele."""
+    try:
+        commande = str(((ev or {}).get("tool_input") or {}).get("command") or "").strip()
+        sortie = _sortie_texte(ev)
+        if (ev or {}).get("tool_name") != "Bash" or (ev or {}).get("tool_succeeded") is False:
+            return None
+        if not isinstance(sortie, str) or not commande or "|" in commande:
+            return None
+        # Memes verbes exclus que hook_bash_compact : on ne resume ni une mutation ni un etat.
+        if any(v in commande.lower() for v in ("commit", "push", "rebase", "reset", "checkout", "status", "diff", " rm ")):
+            return None
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import forge_cmd_compactor as compacteur
+        res = compacteur.compact(commande, sortie, compacteur.load_filters())
+        if not res.get("name") or res.get("kept_chars", 0) >= res.get("raw_chars", 0):
+            return None
+        return res.get("filtered")
+    except Exception:  # noqa: BLE001 - muet-ok
+        return None  # FAIL-CLOSED sur la reecriture, comme `reduire`
+
+
 def traiter(ev):
     """N'ecrit QUE s'il y a une reduction ou un rappel de skill a proposer."""
     try:
@@ -221,18 +275,31 @@ def traiter(ev):
             global DOSSIER_ARCHIVE
             DOSSIER_ARCHIVE = Path(scratch) / "sorties_outils"
         succes = (ev or {}).get("tool_succeeded")
-        reduit = reduire((ev or {}).get("tool_name") or "",
-                         (ev or {}).get("tool_output"), succes)
+        if _contenu_demande(ev):
+            reduit = None
+        else:
+            compacte = _compacter_bash(ev)
+            reduit = reduire((ev or {}).get("tool_name") or "",
+                             compacte if compacte is not None else _sortie_texte(ev), succes)
+            if reduit is None:
+                reduit = compacte
         rappel = _rappel_skills(ev)
         if reduit is None and not rappel:
             return 0  # cas normal : rien, pas un mot
         specifique = {"hookEventName": "PostToolUse"}
         if reduit is not None:
-            specifique["updatedToolOutput"] = {
-                "text": reduit,
-                # Un firewall ne transforme JAMAIS un echec en succes.
-                "isError": succes is False,
-            }
+            reponse = (ev or {}).get("tool_response")
+            if isinstance(reponse, dict) and "stdout" in reponse:
+                # stderr deja fondu dans `reduit` par _sortie_texte.
+                specifique["updatedToolOutput"] = dict(reponse, stdout=reduit, stderr="")
+            elif isinstance(reponse, list):
+                specifique["updatedMCPToolOutput"] = [{"type": "text", "text": reduit}]
+            else:
+                specifique["updatedToolOutput"] = {
+                    "text": reduit,
+                    # Un firewall ne transforme JAMAIS un echec en succes.
+                    "isError": succes is False,
+                }
         if rappel:
             specifique["additionalContext"] = rappel
         print(json.dumps({"hookSpecificOutput": specifique}))
@@ -243,7 +310,9 @@ def traiter(ev):
 
 def main():
     try:
-        ev = json.load(sys.stdin)
+        # En OCTETS : sous Windows, stdin decode en cp1252 et corromprait tout accent de la sortie reecrite.
+        flux = getattr(sys.stdin, "buffer", None)
+        ev = json.loads(flux.read().decode("utf-8", "replace")) if flux is not None else json.load(sys.stdin)
     except Exception:  # noqa: BLE001 - muet-ok
         return 0
     return traiter(ev)

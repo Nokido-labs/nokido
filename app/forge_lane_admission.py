@@ -21,6 +21,16 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 __FORGE_COLOR__ = "vegetatif/resource : admission control souverain, prevention d'embolie (lanes)"  # organe declare le 2026-09-06 (audit de raccordement)
 
+# Homologue biologique (owner 3/11, debat 1 tour 2, proposition Q3).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "autoregulation renale (tubuloglomerular feedback)",
+    "nature": "controle",
+    "termes": "renal autoregulation tubuloglomerular feedback myogenic mechanism",
+    "sources": ["openstax:m46597"],
+    "invariant": "l'admission exclusive refuse une allocation concurrente et protege les ressources",
+    "nr": "tests/nr/test_lane_admission_ip007_nr.py",
+}
+
 import sqlite3
 import os
 import time
@@ -119,9 +129,19 @@ def _get_system_health() -> dict:
         _age = time.time() - float(_s.get("ts") or 0.0)
         if _s.get("cpu_pct") is not None and 0.0 <= _age <= CPU_SAMPLER_MAX_AGE_S:
             _vm = _ps.virtual_memory()
-            return {"cpu_pct": float(_s["cpu_pct"]), "ram_pct": _vm.percent,
-                    "ram_dispo_gb": _vm.available / 1e9, "source": "sampler",
-                    "fenetre_s": "tick du sampler", "cpu_age_s": round(_age, 1)}
+            _h = {"cpu_pct": float(_s["cpu_pct"]), "ram_pct": _vm.percent,
+                  "ram_dispo_gb": _vm.available / 1e9, "source": "sampler",
+                  "fenetre_s": "tick du sampler", "cpu_age_s": round(_age, 1)}
+            # 3/11 : debit disque (ior + iow, Mo/s). Le snapshot NE le porte PAS (preuve 22:47, io_mo_s null) :
+            # emetteur reel = dernier_debit_disque, publie a l'ecriture de l'historique des vitaux. Perime : cle absente.
+            try:
+                from nokido_agent.app.forge_resource_manager import dernier_debit_disque as _debit
+                _io = _debit(90.0)
+                if _io is not None:
+                    _h["io_mo_s"] = float(_io)
+            except Exception:  # noqa: BLE001 - muet-ok : debit illisible -> decision_disque le dit ILLISIBLE
+                pass
+            return _h
     except Exception:  # noqa: BLE001  # muet-ok : repli sur la mesure directe juste dessous
         pass
     # forge_inspector : except LARGE (pas seulement ImportError) — une erreur runtime
@@ -284,6 +304,11 @@ def _try_reserve(needed_gb: float = RESERVE_GB) -> dict:
     voulu (cf. doctrine : interrompre un travail en cours = destructif).
 
     Ne leve jamais. Retourne le plan d'eviction (diagnostic) ou {} si indispo.
+
+    3/11 (debat 2) : l'effecteur MESURE ce qu'il a rendu (`gain_mesure_go`), et si la RAM reste sous le besoin, il appelle
+    l'effecteur de SUBSTRAT (Docker vivant sans intention), en arriere-plan : un `docker desktop stop` ne doit jamais
+    geler le hub. Mesure 3/11 : request_resources ne connait que les modeles et rendait 0 Go pendant qu'une carcasse
+    Docker/WSL tenait ~5,5 Go.
     """
     try:
         from nokido_agent.app.forge_resource_manager import request_resources
@@ -292,10 +317,50 @@ def _try_reserve(needed_gb: float = RESERVE_GB) -> dict:
             from app.forge_resource_manager import request_resources  # type: ignore
         except ImportError:
             return {}
+    avant = _ram_dispo_go()
     try:
-        return request_resources(needed_ram_gb=needed_gb, allow_evict=True) or {}
+        out = dict(request_resources(needed_ram_gb=needed_gb, allow_evict=True) or {})
     except Exception:  # noqa: BLE001 - la reservation ne doit jamais casser l'admission
-        return {}
+        out = {}
+    apres = _ram_dispo_go()
+    if None not in (avant, apres):
+        out["gain_mesure_go"] = round(apres - avant, 2)
+    if apres is None or apres < needed_gb:
+        out.update(_relacher_substrat_async())
+    return out
+
+
+def _ram_dispo_go():
+    """RAM reellement disponible (Go) ; None si illisible (jamais 0)."""
+    try:
+        import psutil
+
+        return psutil.virtual_memory().available / 1e9
+    except Exception:  # noqa: BLE001  # muet-ok : illisible -> None, traite comme INCONNU par l'appelant
+        return None
+
+
+def _relacher_substrat_async() -> dict:
+    """Effecteur de substrat (forge_docker_keeper.relacher_substrat_sans_intention) dans un fil d'arriere-plan. Le refus
+    courant reste un refus ; la place rendue profite a l'admission suivante."""
+    import threading
+    import time as _t
+
+    def _faire():
+        try:
+            from nokido_agent.tools.forge_docker_keeper import relacher_substrat_sans_intention
+
+            relacher_substrat_sans_intention(_t.monotonic())
+        except Exception as e:  # noqa: BLE001 - un effecteur en panne ne casse pas l'admission ; journalise
+            import logging as _lg
+
+            _lg.getLogger(__name__).warning("effecteur de substrat en echec : %s", type(e).__name__)
+
+    try:
+        threading.Thread(target=_faire, name="relache-substrat", daemon=True).start()
+        return {"substrat": "relache_demandee"}
+    except RuntimeError as e:
+        return {"substrat": "non_demandee (%s)" % type(e).__name__}
 
 
 def _ram_saturee(h: dict) -> bool:
@@ -339,7 +404,19 @@ def _mesure_directe_ram() -> dict | None:
         return None
 
 
-def arbitrer_ram(observations: list, remesurer=_mesure_directe_ram) -> dict:
+def _qui_tient(attribuer=None) -> str:
+    """9/11 (owner « visibilite parfaite, sinon pas d'autoregulation ») : QUI tient la memoire, en une ligne
+    (attribution SOI/NON_SOI par organe, cache 60 s). Illisible -> DIT, jamais tu."""
+    try:
+        from nokido_agent.app.forge_resource_manager import resume_attribution
+        if attribuer is None:
+            from nokido_agent.app.forge_resource_manager import attribuer_pression as attribuer
+        return resume_attribution(attribuer())
+    except Exception as e:  # noqa: BLE001 - muet-ok : l'echec est rendu dans le motif, jamais avale
+        return "attribution ILLISIBLE (%s)" % type(e).__name__
+
+
+def arbitrer_ram(observations: list, remesurer=_mesure_directe_ram, attribuer=None) -> dict:
     """Politique a deux observateurs. Jamais relachee : une lecture FRAICHE saturee refuse.
     -> {ok, ram_desaccord, observations, retry_after, source, age_s, motif}"""
     obs = [o for o in observations if o]
@@ -360,6 +437,7 @@ def arbitrer_ram(observations: list, remesurer=_mesure_directe_ram) -> dict:
         out["motif"] = ("RISQUE EMBOLIE RAM (%s%% > %s%% ou dispo %s Go < reserve %s Go ; source %s, age %s s)"
                         % (w["ram_pct"], MAX_RAM_PCT, w.get("ram_dispo_gb"), RESERVE_GB,
                            w.get("source"), out["age_s"]))
+        out["motif"] += " ; tient : " + _qui_tient(attribuer)
         if out["ram_desaccord"]:
             out["motif"] += " ; ram_desaccord " + ", ".join(
                 "%s=%s%%@%ss" % (o.get("source"), o["ram_pct"], round(o.get("age_s", 0.0), 1)) for o in obs)
@@ -467,6 +545,41 @@ def check_ressources(heavy: bool = True, lane: str | None = None) -> dict:
     return res
 
 
+# 3/11 (owner « des garde-fous E/S sur le disque avaient ete mis en place, pourquoi ca a ete contourne ? ») : l'admission
+# ne regardait que RAM et CPU ; quatre jobs ont parcouru plus d'un million de fichiers sur C: sans qu'aucun garde les voie
+# (regulation_disque ne couvre que les services supervises). Debit du sampler (ior + iow) : OBSERVE d'abord, BLOQUANT sur
+# LAFORGE_ADMISSION_DISQUE=bloquant. Seuil PROVISOIRE (pics mesures 50-135 Mo/s le 3/11) : a calibrer sur l'observation.
+MAX_IO_MO_S = _envf("LAFORGE_ADMISSION_IO_MAX_MO_S", 60.0)
+MODE_DISQUE = os.environ.get("LAFORGE_ADMISSION_DISQUE", "observer").strip().lower()
+_FICHIER_OBSERVATION_DISQUE = str(Path(__file__).resolve().parent.parent / "sandbox" / "workspace"
+                                  / "admission_disque_observation.jsonl")
+
+
+def decision_disque(health: dict) -> dict:
+    """Decision PURE : {ok: True|False|None, io_mo_s, motif}. None = debit illisible (jamais un refus)."""
+    io = (health or {}).get("io_mo_s")
+    if not isinstance(io, (int, float)) or isinstance(io, bool):
+        return {"ok": None, "io_mo_s": None, "motif": "debit disque ILLISIBLE (sampler muet ou perime)"}
+    ok = float(io) <= MAX_IO_MO_S
+    return {"ok": ok, "io_mo_s": round(float(io), 2),
+            "motif": "debit disque %.1f Mo/s %s %.0f Mo/s" % (io, "<=" if ok else ">", MAX_IO_MO_S)}
+
+
+def _observer_disque(d: dict, mode: str) -> None:
+    """Journalise la decision disque (une ligne par admission lourde). Ne leve JAMAIS."""
+    try:
+        f = Path(_FICHIER_OBSERVATION_DISQUE)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        if f.exists() and f.stat().st_size > 5 * 2 ** 20:
+            f.replace(f.with_suffix(".jsonl.1"))
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode,
+                                 "decision_disque": d.get("ok"), "io_mo_s": d.get("io_mo_s"),
+                                 "seuil_mo_s": MAX_IO_MO_S}) + "\n")
+    except Exception as e:  # noqa: BLE001 -- un observateur ne casse jamais le verdict qu'il observe
+        logging.getLogger(__name__).debug("[admission-disque] observation non ecrite (%s)", type(e).__name__)
+
+
 def _check_ressources_brut(heavy: bool = True) -> dict:
     """Verdict d'embolie SEUL, sans toucher aux baux de lane. {ok, reason, ...}
 
@@ -519,7 +632,13 @@ def _check_ressources_brut(heavy: bool = True) -> dict:
         _journaliser_refus(motif, health)
         return {"ok": False, "reason": motif, "alt": ALT_CLOUD,
                 "source": health.get("source")}
-    return {"ok": True, "ram_pct": health.get("ram_pct"), "cpu_pct": health.get("cpu_pct")}
+    d = decision_disque(health)
+    _observer_disque(d, MODE_DISQUE)
+    if d["ok"] is False and MODE_DISQUE == "bloquant":
+        motif = "RISQUE EMBOLIE DISQUE (%s, source %s)" % (d["motif"], health.get("source"))
+        _journaliser_refus(motif, health)
+        return {"ok": False, "reason": motif, "alt": ALT_CLOUD, "source": health.get("source")}
+    return {"ok": True, "ram_pct": health.get("ram_pct"), "cpu_pct": health.get("cpu_pct"), "disque_observe": d}
 
 
 def admit(lane: str, holder: str, *, heavy: bool = True, ttl: float = DEFAULT_TTL) -> dict:

@@ -411,6 +411,16 @@ def migrer(conn) -> list:
             # ne se verrait qu'au tri ou a la comparaison.
             conn.execute("ALTER TABLE token_usage ADD COLUMN %s %s" % (col, typ))
             ajoutees.append(col)
+    # Lecture par slot SANS balayage (07/11) : `forge_quota_tracker.consommation_slot` filtre sur
+    # (source, agent_id, ts). Idempotent ; sur la base de production, la PREMIERE ecriture apres deploiement
+    # construit l'index (une passe, une fois).
+    # Une base ANCIENNE peut ne pas porter `ts` (ni `source`) : la migration ne cree que les colonnes de
+    # COLONNES_AJOUTEES, jamais les historiques. Indexer une colonne absente leverait `no such column` et
+    # casserait toute la migration (NR test_llm_usage_adapters) : sans ces colonnes, pas d'index -- la
+    # lecture par slot n'a de toute facon rien a filtrer.
+    if {"source", "agent_id", "ts"} <= (presentes | set(ajoutees)):
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_token_usage_slot ON token_usage (source, agent_id, ts)")
     conn.commit()
     return ajoutees
 
@@ -442,6 +452,7 @@ def log_call(
     attempts: int = None,
     principal: str = None,
     declared: str = None,
+    tarifer_modele: bool = True,
 ) -> float:
     """Enregistre un appel LLM dans token_usage. RECORDER CANONIQUE.
 
@@ -485,7 +496,10 @@ def log_call(
         cost, cost_kind = 0.0, "FREE"
         cost_source = cost_source or "palier_free"
     else:
-        tarife = _price(model, prompt_tokens, completion_tokens) if mesure else None
+        # `tarifer_modele=False` (07/11, proxys de slot) : le `model` nomme ce que le client a DEMANDE, pas ce qui a
+        # servi ; le tarifer fabriquerait un cout credible et faux. Reste UNKNOWN_PRICING, la gratuite se prouvant
+        # toujours par le provider ci-dessus.
+        tarife = _price(model, prompt_tokens, completion_tokens) if (mesure and tarifer_modele) else None
         if tarife is None:
             cost, cost_kind, cost_source = None, "UNKNOWN_PRICING", None
         else:
@@ -625,12 +639,18 @@ def daily_report() -> dict:
         GROUP BY provider, model
         ORDER BY cost_usd DESC
     """).fetchall()
-    daily_cost = sum(r[6] for r in rows)
+    # 3/11 : SUM(cost_usd) vaut NULL pour un fournisseur au cout non renseigne -> sum()/round(None) levaient TypeError
+    # et l'alerte de budget cloud ne partait plus. Un cout INCONNU n'est pas un cout NUL : on somme le connu et on DIT
+    # combien d'appels n'ont pas de cout (cout_partiel).
+    daily_cost = sum(r[6] for r in rows if r[6] is not None)
+    sans_cout = sum(int(r[2] or 0) for r in rows if r[6] is None)
     conn.close()
 
     report = {
         "date": time.strftime("%Y-%m-%d"),
         "daily_cost_usd": round(daily_cost, 6),
+        "cout_partiel": sans_cout > 0,
+        "appels_sans_cout": sans_cout,
         "alert": daily_cost > ALERT_DAILY_BUDGET_USD,
         "breakdown": [
             {
@@ -640,7 +660,7 @@ def daily_report() -> dict:
                 "prompt_tok": r[3],
                 "comp_tok": r[4],
                 "total_tok": r[5],
-                "cost_usd": round(r[6], 6),
+                "cost_usd": round(r[6], 6) if r[6] is not None else None,
                 "avg_ms": round(r[7] or 0, 0),
                 "max_ms": round(r[8] or 0, 0),
             }

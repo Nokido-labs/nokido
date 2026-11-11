@@ -455,6 +455,66 @@ def _profile_dispatch(fn):
     return _wrapper
 
 
+_TYPES_CONTRAT = ("commit", "fichier", "tests_verts", "aucun")
+
+
+def _poser_derogation_critique(conn, tid, args, ring) -> bool:
+    """Choix owner 7/11 : la derogation CRITICAL_FILE d'une tache se pose a l'assignation, ring <= 1 seul, et l'executeur
+    la relit en base (`tasks.allow_critical`). Ring superieur : rien n'est ecrit, le commit critique sera refuse."""
+    if not args.get("allow_critical") or ring > 1:
+        return False
+    import sqlite3 as _sq3
+
+    try:
+        conn.execute("ALTER TABLE tasks ADD COLUMN allow_critical INTEGER")
+    except _sq3.OperationalError:
+        pass  # muet-ok : colonne deja presente
+    conn.execute("UPDATE tasks SET allow_critical=1 WHERE id=?", (tid,))
+    return True
+
+
+def _poser_contrat_livrable(desc: str, args: dict, intent: str) -> tuple:
+    """(desc, avertissement|None). `contrat` (ou `livrable`, historique) : dict {type, chemins} ou type seul ->
+    marqueur [LIVRABLE_CONTRAT] ajoute a la consigne. Absent sur une tache de code : AVERTIT, ne refuse jamais."""
+    import json as _j
+    import re as _re
+    liv = (args or {}).get("contrat")
+    if liv is None:
+        liv = (args or {}).get("livrable")
+    if isinstance(liv, str) and liv.strip():
+        liv = {"type": liv.strip()}
+    if liv is not None:
+        if isinstance(liv, dict) and liv.get("type") in _TYPES_CONTRAT:
+            if desc and "[LIVRABLE_CONTRAT]" not in desc:
+                desc = desc + "\n[LIVRABLE_CONTRAT] " + _j.dumps({"livrable": liv}, ensure_ascii=False)
+            return desc, None
+        return desc, ("contrat de livrable ILLISIBLE, non ecrit : attendu {type: %s, chemins: [...]}"
+                      % "|".join(_TYPES_CONTRAT))
+    if "[LIVRABLE_CONTRAT]" in (desc or ""):
+        return desc, None
+    if intent == "code" or _re.search(r"(?:app|tools|tests)/\S+\.py", desc or ""):
+        return desc, ("tache de code sans `contrat` de livrable (commit|fichier|tests_verts|aucun) : "
+                      "le juge se rabat sur l'heuristique textuelle")
+    return desc, None
+
+
+def _fenetre_lignes(texte: str, offset, limit) -> str:
+    """Fenetre de lignes 1-indexees ; hors bornes = message explicite (jamais vide)."""
+    lignes = texte.splitlines()
+    n = len(lignes)
+    try:
+        o = int(offset) if offset not in (None, "") else 1
+        lim = int(limit) if limit not in (None, "") else None
+    except (TypeError, ValueError):
+        return "ERR: `offset` et `limit` doivent etre des entiers (lignes, offset 1-indexe)"
+    if o < 1 or (lim is not None and lim < 1):
+        return "ERR: `offset` >= 1 et `limit` >= 1 requis (lignes, offset 1-indexe)"
+    if o > n:
+        return f"[offset {o} hors bornes : le fichier fait {n} lignes]"
+    fin = n if lim is None else min(n, o - 1 + lim)
+    return f"[lignes {o}-{fin} sur {n}]\n" + "\n".join(lignes[o - 1:fin])
+
+
 def _chemin_lecture(args: dict, root) -> tuple:
     """(chemin, None) ou (None, erreur NOMMEE) pour `read action=file`. Accepte `path` ET `file_path` (comme le squelette).
 
@@ -530,6 +590,125 @@ _CHAMPS_DEDOUBLONNABLES = ("avertissement_reflexe", "note")
 _DEJA_DIT_TTL_S = 3600.0
 
 
+# 3/11 (owner « des garde-fous E/S sur le disque avaient ete mis en place, pourquoi ca a ete contourne ? ») : le hub lisait
+# 70 Mo/s pendant une requete `rag` qui a expire, et rien ne savait QUELLE requete lisait. Chaque appel d'outil mesure
+# les octets lus par le processus pendant son execution ; au-dela du seuil, une ligne est journalisee. OBSERVATION :
+# aucun appel coupe (le budget bloquant viendra sur mesure). NR tests/nr/test_hub_io_par_requete_nr.py.
+_IO_REQUETE_SEUIL_MO = float(__import__("os").environ.get("LAFORGE_HUB_IO_SEUIL_MO", "50") or 50)
+_REQUETES_EN_VOL = [0]
+
+
+def _io_lus_processus():
+    """Octets lus par le processus du hub depuis son demarrage, ou None (illisible)."""
+    try:
+        import psutil as _ps
+        return int(_ps.Process().io_counters().read_bytes)
+    except Exception:  # noqa: BLE001 - compteur illisible : None, jamais 0
+        return None
+
+
+def _noter_io_requete(outil, agent, avant, apres, duree_ms, concurrents, chemin=None, seuil_mo=None) -> None:
+    """Journalise une requete qui a lu plus que le seuil. Ne leve JAMAIS (le dispatch ne casse pas pour un capteur)."""
+    try:
+        import json as _json
+        import time as _time
+        from pathlib import Path as _Path
+
+        if avant is None or apres is None or apres < avant:
+            return
+        lus_mo = (apres - avant) / 2 ** 20
+        if lus_mo < (_IO_REQUETE_SEUIL_MO if seuil_mo is None else float(seuil_mo)):
+            return
+        f = _Path(chemin) if chemin else (_Path(__file__).resolve().parent.parent / "sandbox" / "workspace"
+                                          / "hub_io_par_requete.jsonl")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        if f.exists() and f.stat().st_size > 5 * 2 ** 20:
+            f.replace(f.with_suffix(".jsonl.1"))
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(_json.dumps({"ts": _time.strftime("%Y-%m-%dT%H:%M:%S"), "outil": str(outil), "agent": str(agent),
+                                  "lus_mo": round(lus_mo, 1), "duree_ms": duree_ms, "concurrents": int(concurrents),
+                                  "attribution": "SURE" if not concurrents else "INCERTAINE"}) + "\n")
+    except Exception:  # noqa: BLE001 - muet-ok : capteur best-effort, jamais un dispatch casse
+        pass
+
+
+def _resume_pour_bus(texte, outil: str, borne: int = 200) -> str:
+    """Resume publie sur le bus (event_history, UI) : CAVIARDE, jamais brut (9/11, trou vise par stash@{3}).
+    Caviardage indisponible -> resume RETENU (fail-closed), jamais de repli sur le texte brut."""
+    cav, cav_ok, _san_ok = _caviarder_essence(str(texte)[:4000], outil)
+    if not cav_ok:
+        return "[resume retenu : caviardage indisponible]"
+    return cav[:borne]
+
+
+def _caviarder_essence(texte: str, outil: str) -> "tuple[str, bool, bool]":
+    """Caviarde une essence d'index (redact_tool_output puis _redact). Rend (texte, cav_ok, san_ok) :
+    l'appelant decide du FAIL-CLOSED. Une seule cascade d'imports (avant : copiee deux fois)."""
+    # __import__ (pas importlib.import_module) : les NR fail-closed simulent l'absence par builtins.__import__.
+    cav_ok = san_ok = False
+    for mod in ("nokido_agent.app.forge_semantic_firewall", "app.forge_semantic_firewall", "forge_semantic_firewall"):
+        try:
+            texte, _ = __import__(mod, fromlist=["redact_tool_output"]).redact_tool_output(
+                texte, outil=outil, journal=False)
+            cav_ok = True
+            break
+        except Exception as e:
+            logger.debug("essence : %s indisponible (%s)", mod, type(e).__name__)
+    for mod in ("nokido_agent.app.forge_conv_sanitizer", "app.forge_conv_sanitizer", "forge_conv_sanitizer"):
+        try:
+            texte = __import__(mod, fromlist=["_redact"])._redact(texte)
+            san_ok = True
+            break
+        except Exception as e:
+            logger.debug("essence : %s indisponible (%s)", mod, type(e).__name__)
+    return texte, cav_ok, san_ok
+
+
+def _essence_appel(name: str, args: Optional[dict], rc: Any, echec: bool) -> str:
+    """Construit l'essence d'un appel d'outil (nom, action, commande, rc, statut)
+    caviardee et bornee a 150 caracteres. FAIL-CLOSED si le caviardeur est indisponible."""
+    try:
+        if not isinstance(args, dict):
+            args = {}
+
+        action = args.get("action", "")
+        debut = f"{name}:{action}" if action else str(name)
+
+        commande = ""
+        if args.get("code") is not None and args.get("code") != "":
+            commande = str(args["code"])
+        elif args.get("commands"):
+            cmds = args["commands"]
+            if isinstance(cmds, (list, tuple)):
+                commande = " ; ".join(str(c) for c in cmds)
+            else:
+                commande = str(cmds)
+        elif args.get("script") or args.get("path"):
+            target = args.get("script") or args.get("path") or ""
+            s_args = args.get("script_args") or args.get("args") or ""
+            if isinstance(s_args, (list, tuple)):
+                s_args = " ".join(str(x) for x in s_args)
+            else:
+                s_args = str(s_args).strip()
+            commande = f"{target} {s_args}".strip() if s_args else str(target).strip()
+
+        corps = f"{debut} {commande}".strip() if commande else debut
+        rc_str = "?" if rc is None else str(rc)
+        statut = "echec" if echec else "succes"
+        # Le suffixe (rc, statut) ne porte pas de secret et ne se tronque JAMAIS : c'est lui qui
+        # distingue deux appels de meme commande ; seul le corps caviarde est coupe.
+        suffixe = f" rc={rc_str} {statut}"
+
+        caviardee, cav_ok, san_ok = _caviarder_essence(corps, "essence_appel")
+        if not cav_ok or not san_ok:
+            return str(name)[:150]  # FAIL-CLOSED : sans caviardage prouve, le nom seul
+
+        return caviardee[:max(0, 150 - len(suffixe))] + suffixe
+    except Exception as e:
+        logger.debug("essence d'appel : repli sur le nom (%s)", type(e).__name__)
+        return str(name)[:150]
+
+
 class ToolRegistry:
     """Registre unifie des outils MCP pour Nokido (HTTP & STDIO)."""
 
@@ -599,7 +778,7 @@ class ToolRegistry:
     _MOTIF_ECHEC_SORTIE = (r"Traceback \(most recent call last\)|\bFAILED\b|\b[1-9]\d* (?:failed|errors?)\b"
                            r"|^ERR[: ]|ÉCHEC|exit_code\": [1-9]")
 
-    def _plafonner_sortie(self, result: str, name: str, agent: str) -> str:
+    def _plafonner_sortie(self, result: str, name: str, agent: str, args: Optional[dict] = None) -> str:
         """Plafond des sorties BRUTES (run/browser/netcfg) selon le code de sortie (owner 1/11, etape 1 du plan
         d'economie, reglage « succes 6k, echec 12k »). Tete 35 % / queue 60 % : le bilan (pytest, rc) vit en QUEUE.
         Le COMPLET est archive (CCR, read action=archived). JSON de `commands=[...]` : plafond PAR ENTREE selon son
@@ -623,7 +802,8 @@ class ToolRegistry:
             cap = cap_echec if echec else cap_succes
             if len(texte) <= cap:
                 return texte
-            ccr = self._archive_blob(texte, agent, f"tool.{name}.output")
+            essence_appel = _essence_appel(name, args, rc, echec) if args else None
+            ccr = self._archive_blob(texte, agent, f"tool.{name}.output", essence_appel=essence_appel)
             ptr = (f"\n\n[… SORTIE TRONQUÉE par le hub : {len(texte)} chars ({name}, "
                    f"{'echec' if echec else 'succes'}). "
                    + (f"COMPLET récupérable : read(action='archived', id='{ccr}'). …]\n\n"
@@ -649,7 +829,7 @@ class ToolRegistry:
             return json.dumps(data, ensure_ascii=False) if change else result
         return _cap(result, None)
 
-    def _archive_blob(self, text: str, agent: str, label: str) -> "Optional[str]":
+    def _archive_blob(self, text: str, agent: str, label: str, essence_appel: Optional[str] = None) -> "Optional[str]":
         """Stashe un blob TEXTE complet sous sandbox/ccr/<id>.txt, récupérable via
         read(action='archived', id=...). None si échec.
 
@@ -664,6 +844,32 @@ class ToolRegistry:
             d.mkdir(parents=True, exist_ok=True)
             mid = "ccr_" + hashlib.sha256(f"{agent}{label}{len(text)}{_time.time()}".encode()).hexdigest()[:16]
             (d / f"{mid}.txt").write_text(text, encoding="utf-8")
+            try:
+                try:
+                    from nokido_agent.app.forge_context_ledger import observer
+                except ImportError:
+                    try:
+                        from app.forge_context_ledger import observer
+                    except ImportError:
+                        from forge_context_ledger import observer
+
+                if essence_appel:
+                    essence_archive = str(essence_appel)[:150]
+                else:
+                    # Essence enrichie et caviardee (premiere ligne non vide, <= 150 car.)
+                    premiere = ""
+                    for line in (text or "").splitlines():
+                        l_strip = line.strip()
+                        if l_strip:
+                            premiere = l_strip
+                            break
+
+                    # FAIL-CLOSED : sans redact_tool_output prouve, seule l'etiquette est indexee
+                    caviardee, _cav_ok, _san_ok = _caviarder_essence(premiere, "archive_blob")
+                    essence_archive = f"{label}:{caviardee}"[:150] if (_cav_ok and caviardee) else str(label)[:150]
+                observer("ccr://" + mid, essence=essence_archive, racine=self.root, agent=agent)
+            except Exception as _e_obs:
+                logger.debug(f"CCR observer failed: {_e_obs}")
             return mid
         except Exception as _e:
             logger.debug(f"CCR archive failed: {_e}")
@@ -786,6 +992,43 @@ class ToolRegistry:
             return {"success": False, "detail": (out[-300:] or "no output"),
                     "exit": (r.get("exit_code") if isinstance(r, dict) else None)}
 
+    # Mots longs trop communs pour servir de cle de recherche quand l'intention est une phrase.
+    _MOTS_VIDES_EXPLORE = frozenset({
+        "comment", "fonction", "fonctions", "fichier", "fichiers", "quelle", "quelles", "module", "modules",
+        "pourquoi", "comprendre", "cartographier", "chercher", "trouver", "lister", "donner", "nokido",
+        "understand", "function", "functions", "where", "which", "explain", "please",
+    })
+
+    @staticmethod
+    def _requete_deep_explore(intent: str, target: Any = None) -> str:
+        """Regex de recherche de forge_deep_explore. `target` fourni = pris tel quel (regex de l'appelant).
+
+        Sans `target`, l'INTENTION entiere servait de regex litterale : une phrase ne correspond jamais a du code,
+        d'ou 0 hit en silence (diagnostic owner 3/11, job_32c95d214473). On en tire les mots-cles, ECHAPPES, en OU :
+        identifiants FORTS (`_`, `.`, `/`, casse mixte, chiffres) s'il y en a -- seuls, car les mots communs diluaient
+        le classement (400 hits, la definition cherchee hors des 20 extraits, mesure apres restart) ; sinon les
+        FAIBLES (sigles, mots d'au moins 7 lettres hors mots vides)."""
+        import re as _r
+
+        if target:
+            return str(target)
+        forts: list = []
+        faibles: list = []
+        for j in _r.findall(r"[^\W\d][\w./\-]{2,}", intent or ""):
+            j = j.strip(".-/")
+            if not j or j.lower() in ToolRegistry._MOTS_VIDES_EXPLORE:
+                continue
+            if any(c in j for c in "_./") or _r.search(r"[a-z][A-Z]|\d", j):
+                cible = forts
+            elif _r.search(r"[A-Z]{2,}", j) or len(j) >= 7:
+                cible = faibles
+            else:
+                continue
+            if j not in cible:
+                cible.append(j)
+        garde = (forts or faibles)[:12]
+        return "|".join(_r.escape(j) for j in garde) if garde else _r.escape((intent or "")[:60])
+
     async def _handle_deep_explore(self, args: Dict[str, Any], agent: str, ring: int) -> Dict[str, Any]:
         """Honeypot de delegation : recon LOCALE souveraine (0 token cloud).
 
@@ -798,8 +1041,10 @@ class ToolRegistry:
         intent = str(args.get("intent") or "").strip()
         if not intent:
             return {"error": "intent requis", "hint": "forge_deep_explore{intent, target?, globs?, breadth?}"}
-        query = str(args.get("target") or intent)
-        globs = str(args.get("globs") or "app/forge_*.py,tools/*.py")
+        query = ToolRegistry._requete_deep_explore(intent, args.get("target"))
+        # Une LISTE de globs devenait str(list) -> motifs invalides -> 0 hit (mesure 3/11) : on l'accepte.
+        _g = args.get("globs")
+        globs = ",".join(str(x) for x in _g) if isinstance(_g, (list, tuple)) else str(_g or "app/forge_*.py,tools/*.py")
         breadth = str(args.get("breadth") or "medium")
         # Budgets DISTINCTS (mesure 2026-08-02) : borner la COLLECTE revenait a ne
         # jamais voir le module cherche -- a 90 hits, 0 extrait des modules vises ;
@@ -855,6 +1100,10 @@ class ToolRegistry:
             "hits_montres": len(montres),
             "digest": digest,
             "note": "recon LOCALE déterministe (0 token cloud, file:line + extraits). Affine via {target, globs, breadth}.",
+            "requete": query,
+            # 0 hit n'est pas « rien n'existe » (UNKNOWN != NO) : on dit avec QUOI on a cherche.
+            **({"raison": "aucune correspondance pour la regex %r sur les globs %s ; affiner `target` (mots-cles "
+                          "separes par |) ou `globs` (chaine, virgules)" % (query[:200], globs[:200])} if not hits else {}),
         }
 
     @_profile_dispatch
@@ -1285,8 +1534,18 @@ class ToolRegistry:
 
             handler = getattr(self, method_name)
             t0 = time.monotonic()
+            _io0 = _io_lus_processus()   # 3/11 : octets lus par CETTE requete (observation)
             try:
-                result = await handler(args, agent, ring)
+                _REQUETES_EN_VOL[0] += 1
+                try:
+                    result = await handler(args, agent, ring)
+                finally:
+                    _REQUETES_EN_VOL[0] -= 1
+                    _noter_io_requete(name, agent, _io0, _io_lus_processus(),
+                                      round((time.monotonic() - t0) * 1000, 1), _REQUETES_EN_VOL[0])
+                # Choix owner 6/11 : point d'envoi unique, le prive reste retenu pour les agents exposes (membrane).
+                from nokido_agent.app.forge_sovereign_membrane import filtrer_sortie_agent
+                result = filtrer_sortie_agent(result, agent, args, ring)
                 elapsed_ms = round((time.monotonic() - t0) * 1000, 1)
 
                 if name not in ("event_publish", "event_history") and hasattr(self, "_event_bus"):
@@ -1298,7 +1557,7 @@ class ToolRegistry:
                             data={
                                 "ok": not result_str.startswith(("ERR", "SECURITY", "Erreur", "FAIL", "SECRET GUARD")),
                                 "latency_ms": elapsed_ms,
-                                "result_summary": result_str[:200],
+                                "result_summary": _resume_pour_bus(result_str, name),
                             },
                             agent="HUB",
                             corr_id=corr_id,
@@ -1320,7 +1579,7 @@ class ToolRegistry:
                 if isinstance(result, str) and name in _CAP_TOOLS:
                     if result.lstrip()[:1] not in ("{", "["):  # JSON laissé intact
                         result = self._strip_output_noise(result)
-                    result = self._plafonner_sortie(result, name, agent)
+                    result = self._plafonner_sortie(result, name, agent, args=args)
                 # -- ENVELOPPE M2M -- auto-surface postal, UNIVERSEL (ce dispatcher = toutes les
                 # surfaces MCP : HTTP CLI + desktop via bridge). Flag OFF par defaut + fail-open :
                 # ne casse JAMAIS un tool call. Anti-spoof (identite forte) : ring < 4 = token-
@@ -1387,7 +1646,7 @@ class ToolRegistry:
                         self._event_bus.publish(
                             topic=f"tool.{name}.end",
                             kind="tool_result",
-                            data={"ok": False, "latency_ms": elapsed_ms, "error": f"SecretGuardViolation: {e}"[:200]},
+                            data={"ok": False, "latency_ms": elapsed_ms, "error": _resume_pour_bus(f"SecretGuardViolation: {e}", name)},
                             agent="HUB",
                             corr_id=corr_id,
                             parent_id=start_evt_id if isinstance(start_evt_id, str) else None,
@@ -1405,7 +1664,7 @@ class ToolRegistry:
                         self._event_bus.publish(
                             topic=f"tool.{name}.end",
                             kind="tool_result",
-                            data={"ok": False, "latency_ms": elapsed_ms, "error": f"{type(e).__name__}: {e}"[:200]},
+                            data={"ok": False, "latency_ms": elapsed_ms, "error": _resume_pour_bus(f"{type(e).__name__}: {e}", name)},
                             agent="HUB",
                             corr_id=corr_id,
                             parent_id=start_evt_id if isinstance(start_evt_id, str) else None,
@@ -1840,6 +2099,10 @@ class ToolRegistry:
             return []
         if cat.get("etat") not in ("FRAIS", "PERIME"):
             return []
+        # 07/11 (accord owner) : catalogue PERIME = 0 outil liste (economie ~800 jetons/session, audit AGY).
+        # Un catalogue frais continue de les lister ; docker_action (natif) n'est pas touche.
+        if cat.get("etat") == "PERIME":
+            return []
         out: List[Dict[str, Any]] = []
         for t in cat.get("outils") or []:
             natif = (t or {}).get("name") if isinstance(t, dict) else None
@@ -1849,8 +2112,6 @@ class ToolRegistry:
             if hasattr(self, f"handle_{nom}") or ring > self._TOOL_MIN_RING.get(nom, _DOCKER_PROXY_MIN_RING):
                 continue
             desc = t.get("description") or f"Docker MCP gateway tool: {natif}"
-            if cat["etat"] == "PERIME":
-                desc = "[catalogue perime] " + desc
             out.append({"name": nom, "description": desc,
                         "inputSchema": t.get("inputSchema") or {"type": "object", "properties": {}}})
         return out
@@ -2144,11 +2405,11 @@ class ToolRegistry:
             {
                 "name": "forge_deep_explore",
                 "description": (
-                    "USE THIS FIRST for ANY codebase exploration, deep read, multi-file "
-                    "recon, or 'understand how X works' on Nokido. Do NOT use native "
-                    "search/read or Agent(Explore) for this. Pass your GOAL; the LOCAL "
-                    "Nokido network runs the heavy reconnaissance for FREE (0 cloud "
-                    "token) and returns a condensed summary with file:line references."
+                    "Recon multi-fichiers du code Nokido, en local (0 token cloud). "
+                    "intent = l'objectif ; target = regex qui resserre ; globs et breadth = "
+                    "le perimetre. Rend un digest d'extraits file:line limite aux meilleurs "
+                    "resultats : une cible trop large le noie (4/11 : 1 200 resultats, 30 "
+                    "montres). Pour une fonction connue : read_function_body."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -2278,7 +2539,10 @@ class ToolRegistry:
             {
                 "name": "read",
                 "description": (
-                    "file : fichier ENTIER (lines/pattern ignores ; fonction -> read_function_body, structure -> "
+                    "file : fichier ENTIER, ou fenetre `offset` (ligne, 1-indexe) + `limit` (nb de lignes) ; hors "
+                    "bornes = message explicite. Un resultat de tache deja tronque a 8000 car. par l'executeur "
+                    "reste tronque (marqueur [TRONQUE]) : offset/limit ne le recupere pas. "
+                    "(lines/pattern ignores ; fonction -> read_function_body, structure -> "
                     "get_file_skeleton). tail_logs : `lines` dernieres lignes (defaut 100) de `path`, ou du .log "
                     "d'organe resolu et filtre par `pattern`. archived : sortie mise de cote par le garde (id=ccr_...)."
                 ),
@@ -2294,6 +2558,8 @@ class ToolRegistry:
                         "id": {"type": "string", "description": "CCR blob id (action=archived) — récupère une sortie stashée par le guard"},
                         "si_etag": {"type": "string", "description": "ETag reçu (If-None-Match) : INCHANGE si identique"},
                         "depuis_etag": {"type": "string", "description": "ETag de base : rend le diff"},
+                        "offset": {"type": "integer", "description": "file : premiere ligne (1-indexee)"},
+                        "limit": {"type": "integer", "description": "file : nombre de lignes"},
                     },
                     "required": ["action"],
                 },
@@ -2561,6 +2827,8 @@ class ToolRegistry:
                                 "list_providers",
                                 "search_recent",
                                 "whoami",
+                                "formes",
+                                "alertes",
                                 "emit_telemetry",
                                 "redemarrer_stack",
                                 "ordre_bureau",
@@ -2568,8 +2836,11 @@ class ToolRegistry:
                                 "quota_model",
                                 "quota_report",
                                 "confirmer_owner",
+                                "fils",
+                                "liberer_ram",
                             ],
                         },
+                        "needed_ram_gb": {"type": "number"},
                         "mode": {"type": "string"},
                         "message": {"type": "string"},
                         "to": {
@@ -2608,8 +2879,17 @@ class ToolRegistry:
                         "intent": {"type": "string"},
                         "priority": {"type": "integer"},
                         "result": {"type": "string"},
+                        "allow_critical": {"type": "boolean", "description": "Derogation CRITICAL_FILE pour cette tache (ring <= 1 seul)."},
                         "depend_de": {"type": "array", "items": {"type": "string"},
                                       "description": "assign : ids des taches dont celle-ci consomme les livrables"},
+                        "contrat": {"type": "object",
+                                    "description": ("assign, optionnel : contrat de livrable {type: commit|fichier|"
+                                                    "tests_verts|aucun, chemins: [...]} ecrit en [LIVRABLE_CONTRAT] "
+                                                    "dans la consigne. Absent sur une tache de code : avertissement, "
+                                                    "jamais un refus."),
+                                    "properties": {"type": {"type": "string",
+                                                            "enum": ["commit", "fichier", "tests_verts", "aucun"]},
+                                                   "chemins": {"type": "array", "items": {"type": "string"}}}},
                     },
                     "required": ["action"],
                 },
@@ -3205,6 +3485,33 @@ class ToolRegistry:
 
         root = args.get("root") or str(getattr(self, "root", "."))
 
+        # 7/11 (job_36d79edd) : un delegue confine a ecrit dans l'ARBRE PRINCIPAL en omettant `root`. Meme resolveur que
+        # governed_edit, pas de garde parallele : l'IDENTITE decide, avec ou sans en-tete LaForge-Tache.
+        # PARTAGE (owner, inconnu) : inchange. WORKTREE (executeur) : `root` absent = ce worktree, hors de lui = refus.
+        # REFUS, ou resolution impossible : refus, jamais la racine.
+        _tache_liee = str(args.get("_tache", "") or "").strip()
+        try:
+            from nokido_agent.tools.forge_worktree import cible_ecriture as _cible_ecriture
+
+            _cible = _cible_ecriture(agent, args.get("_provenance", ""),
+                                     self.root.parent / "nokido_worktrees", tache=_tache_liee)
+        except Exception as _e_wt:  # noqa: BLE001 - fail-closed : jamais la racine
+            _cible = {"cible": "REFUS", "racine": None,
+                      "raison": "resolution du worktree impossible (%s)" % type(_e_wt).__name__}
+        if _cible["cible"] == "REFUS":
+            return ("GOVERNED EDIT BLOCKED (REFUS worktree_introuvable): forge_spawn_swarm de %s : %s"
+                    % (agent, _cible.get("raison") or "worktree non resolu"))
+        if _cible["cible"] == "WORKTREE":
+            _wt = _P(_cible["racine"]).resolve()
+            if args.get("root"):
+                try:
+                    _P(root).resolve().relative_to(_wt)
+                except ValueError:
+                    return ("SECURITY: forge_spawn_swarm root hors worktree de %s refuse: %s (worktree: %s)"
+                            % (agent, root, _wt))
+            else:
+                root = str(_cible["racine"])
+
         def _emit(kind, data):  # events live -> bus topic=swarm -> /forge/swarm
             try:
                 from nokido_agent.app.forge_swarm_bus import publish
@@ -3637,7 +3944,19 @@ class ToolRegistry:
             _p = self.root / "sandbox" / "ccr" / f"{_mid}.txt"
             if not _p.is_file():
                 return f"CCR: aucun blob id={_mid} (expiré ou inexistant)."
-            return _p.read_text(encoding="utf-8", errors="replace")
+            _contenu = _p.read_text(encoding="utf-8", errors="replace")
+            try:
+                try:
+                    from nokido_agent.app.forge_context_ledger import observer_relecture
+                except ImportError:
+                    try:
+                        from app.forge_context_ledger import observer_relecture
+                    except ImportError:
+                        from forge_context_ledger import observer_relecture
+                observer_relecture("ccr://" + _mid, agent, racine=self.root)
+            except Exception as _e_obs:
+                logger.debug(f"CCR observer_relecture failed: {_e_obs}")
+            return _contenu
 
         path_str = args.get("path", "") or args.get("file_path", "")
         path = self.root / path_str
@@ -3716,6 +4035,8 @@ class ToolRegistry:
             return (f"[tail_logs {_shown} — {len(lines)} lignes, tail {_budget // 1024} Ko]\n"
                     + "\n".join(lines[-_lines:]))
         contenu = path.read_text(encoding="utf-8", errors="replace")
+        if args.get("offset") not in (None, "") or args.get("limit") not in (None, ""):
+            contenu = _fenetre_lignes(contenu, args.get("offset"), args.get("limit"))
         return self._appliquer_cache_conditionnel(
             chemin_abs=str(path.resolve()),
             texte_rendu=contenu,
@@ -3838,7 +4159,8 @@ class ToolRegistry:
         try:
             from nokido_agent.tools.forge_worktree import cible_ecriture as _cible_ecriture
 
-            _cible = _cible_ecriture(agent, args.get("_provenance", ""), self.root.parent / "nokido_worktrees")
+            _cible = _cible_ecriture(agent, args.get("_provenance", ""), self.root.parent / "nokido_worktrees",
+                                    tache=args.get("_tache", ""))
         except Exception as _e_wt:  # noqa: BLE001 - fail-closed pour un executeur, inchange pour l'owner
             _nom_wt = str(agent or "").strip().upper()
             _exec_wt = (_nom_wt in ("CLAUDE_HEADLESS", "ANTIGRAVITY", "MISTRAL") or _nom_wt.startswith("OPENCODE_")
@@ -3900,7 +4222,11 @@ class ToolRegistry:
         try:
             from nokido_agent.app.forge_introspect import mode_gardes_hub as _mode_gh, verdict_cognitif as _vcog
 
-            _cog = _vcog(agent, str(path), content)
+            # HORS de la boucle : en synchrone il gelait tout le hub 1,7 a 5,6 s par ecriture
+            # (alerte owner ANTI-EMBOLIE event_loop 2026-11-08, logs/loop_lag.log).
+            import asyncio as _aio_cog
+
+            _cog = await _aio_cog.to_thread(_vcog, agent, str(path), content)
             if _cog and _cog.startswith("COGNITIF :") and _mode_gh() == "refus":
                 return f"GOVERNED EDIT BLOCKED (cognitif): {_cog}"
         except Exception as _e:  # noqa: BLE001 - le gate ne casse jamais l'edition
@@ -4116,7 +4442,8 @@ class ToolRegistry:
                     "candidat, ou un LIMIT sur une table connue petite. Budget "
                     "ajustable via LAFORGE_QUERY_BUDGET_S." % _budget_s
                 )
-            if sql.strip().upper().startswith("SELECT"):
+            if cur.description is not None:
+                # Toute requete qui produit des lignes (SELECT, WITH, EXPLAIN, PRAGMA de lecture, RETURNING).
                 # Cap lignes (frugalité) : fetchmany au lieu de fetchall — PLUS SÛR
                 # qu'injecter LIMIT dans le SQL (ne casse ni subquery/UNION ni un
                 # LIMIT déjà présent ni les agrégats). Le json.dumps n'est PAS
@@ -4125,6 +4452,8 @@ class ToolRegistry:
                 rows = cur.fetchmany(_cap + 1)
                 _over = len(rows) > _cap
                 rows = rows[:_cap]
+                if not sql.strip().upper().startswith(("SELECT", "EXPLAIN", "PRAGMA")):
+                    conn.commit()   # WITH ... INSERT/UPDATE ... RETURNING : l'ecriture doit etre validee
                 res = json.dumps(rows, indent=2, ensure_ascii=False)
                 if _over:
                     res += (
@@ -4175,6 +4504,26 @@ class ToolRegistry:
             "Egress : network=true. Script git-tracke privilegie : action=trusted_script."
             % (str(sandbox)[:40], ", ".join(t for t in self._SANDBOX_TYPES if t))
         )
+
+    def _run_python_wasm(self, code: str, timeout: int) -> str:
+        """Code python dans CPython WASI (`forge_sandbox_exec.executer_wasm`) : aucun reseau, aucun disque de
+        l'hote, dossier monte purge au retour. Tout echec est un REFUS, jamais un repli natif."""
+        import tempfile
+        from nokido_agent.app import forge_sandbox_exec as _sx
+
+        if not _sx.wasm_pret():
+            return "ERR: sandbox=wasm indisponible (wasmtime ou python.wasm absent) : aucun repli natif."
+        try:
+            with tempfile.TemporaryDirectory(prefix="wasm_run_", ignore_cleanup_errors=True) as dossier:
+                with open(os.path.join(dossier, "entree.py"), "w", encoding="utf-8") as f:
+                    f.write(code)
+                rc, out, err = _sx.executer_wasm(
+                    dossier, "import runpy; runpy.run_path('/outil/entree.py', run_name='__main__')",
+                    delai_s=timeout)
+        except Exception as e:  # noqa: BLE001 : le motif part a l'appelant, le code n'a pas tourne en natif
+            return "ERR: sandbox=wasm en echec (%s: %s) : aucun repli natif." % (type(e).__name__, str(e)[:300])
+        sortie = (out or "") + (err or "")
+        return sortie if rc == 0 else "[wasm rc=%s]\n%s" % (rc, sortie)
 
     def _sandbox_decision(self, args: dict, agent: str) -> tuple:
         """(use_sandbox, online, reason). Gated by env SANDBOX_EXEC; off by
@@ -4608,6 +4957,26 @@ class ToolRegistry:
             if violation:
                 return violation
 
+            # LE BAC DEMANDE EST TENU, OU REFUSE (owner 2026-11-05). Mesure : sandbox=wasm rendait
+            # sys.platform=win32, lancait git et listait C:\ ; cette branche ne lisait `sandbox` que
+            # pour gvisor, et toute autre valeur, meme inconnue, finissait dans l'interpreteur du hub.
+            # NR : tests/nr/test_run_python_bac_reel_nr.py
+            _bac_py = str(args.get("sandbox") or "")
+            _refus_bac_py = self._sandbox_valide(_bac_py)
+            if _refus_bac_py:
+                return _refus_bac_py
+            if _bac_py == "wasm":
+                if args.get("network"):
+                    return ("ERR: sandbox=wasm n'a aucun reseau : network=true refuse. "
+                            "Pour de l'egress : run_job online=true.")
+                import asyncio as _aio_wasm
+                _t_wasm = int(min(float(args.get("timeout", 30)), 300.0))
+                return await _aio_wasm.get_event_loop().run_in_executor(
+                    None, lambda: self._run_python_wasm(code, _t_wasm))
+            if _bac_py not in ("", "local", "gvisor"):
+                return ("ERR: sandbox=%s n'est pas porte par action=python : aucun repli natif. "
+                        "Bacs de python : local, wasm, gvisor. Ce bac-ci : action=shell." % _bac_py)
+
             # WorkspaceGuard — confine TOUT agent à une zone fs via audit hook
             # injecté en sous-processus. Superviseur -> arbre projet (ROOT) ;
             # agent zoné -> sous-dossiers AGENT_WRITE_PATHS. Ferme le trou :
@@ -4673,6 +5042,34 @@ class ToolRegistry:
 
             if not cmd_str and not commands:
                 return "ERR: shell: code ou commands requis"
+
+            # Controle souverain git/gh et anti-injection AVANT toute execution
+            try:
+                try:
+                    from nokido_agent.app.forge_git_shell_guard import refus_commande_shell
+                except ImportError:
+                    from app.forge_git_shell_guard import refus_commande_shell
+            except Exception:
+                refus_commande_shell = None
+
+            import re as _re_guard
+            _candidats = []
+            if cmd_str:
+                _candidats.append(cmd_str)
+            if isinstance(commands, list):
+                _candidats.extend(commands)
+            elif commands:
+                _candidats.append(commands)
+
+            for _c in _candidats:
+                _c_str = str(_c)
+                if refus_commande_shell is None:
+                    if _re_guard.search(r"\b(git|gh)(?:\.exe)?\b", _c_str, _re_guard.I):
+                        return "ERR: shell: module forge_git_shell_guard indisponible et commande git/gh detectee (fail-closed)"
+                else:
+                    _motif = refus_commande_shell(_c_str)
+                    if _motif:
+                        return f"ERR: shell: {_motif}"
 
             # FAIL-CLOSED sur le type de bac, AVANT tout aiguillage (P0 2026-09-01).
             _refus_sbx = self._sandbox_valide(sandbox)
@@ -4888,18 +5285,12 @@ class ToolRegistry:
         import sys as _sys
 
         _sys.path.insert(0, str(self.root / "app"))
-        from nokido_agent.app.forge_web_fallback import format_results, web_search_diag
+        from nokido_agent.app.forge_web_fallback import rendre_diag, web_search_diag
 
         query = args.get("query", "")
         max_res = int(args.get("max_results", 5))
-        d = await web_search_diag(query, max_results=max_res)
-        results, erreurs = d.get("results") or [], d.get("erreurs") or []
-        if results:
-            return format_results(results)
-        if erreurs:
-            return ("RECHERCHE NON FAITE (ce n'est PAS « aucun resultat ») : SearXNG injoignable ou en "
-                    "erreur -- %s. Reveil : nokido_ensure_service service=searxng" % " ; ".join(erreurs)[:600])
-        return "Aucun resultat (SearXNG a repondu sans rien trouver)."
+        # Rendu dans l'organe (rendre_diag, NR test_web_search_rendu_repli_nr) : un repli qui rend le DIT.
+        return rendre_diag(await web_search_diag(query, max_results=max_res))
 
     async def handle_absorb_rfc_knowledge(self, args: dict, agent: str, ring: int) -> str:
         import sys as _sys
@@ -5016,6 +5407,9 @@ class ToolRegistry:
         conn = sqlite3.connect(str(self.db_path), timeout=10)
         now = datetime.now(timezone.utc).isoformat()
         for r in results:
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion(r["url"], r["title"] + " " + r["content"]):
+                continue
             uid = "ws_" + str(abs(hash(r["url"])) % 10**9)
             text = r["title"] + "\n" + r["content"][:2000] + "\n" + r["url"]
             conn.execute(
@@ -5434,85 +5828,131 @@ class ToolRegistry:
         _db = str(_P(__file__).resolve().parent.parent / "RAG" / "embeddings.db")
         _now = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        _unread = []
+        _jobs = []
+        _nodes = []
+        _biblio = []
+        _last = None
+        _providers = []
+        _providers_ecartes = {}
+        _tools = []
+        _domains = "ILLISIBLE (base RAG inaccessible)"
+        _m2m_etat = "OK"
+        _tools_etat = "OK"
+
         try:
-            _conn = _sq.connect(_db, timeout=5)
-            _conn.row_factory = _sq.Row
-            _conn.execute("PRAGMA journal_mode=WAL")
             # Scission M2M : agent_messages vit dans la base M2M (interrupteur
             # sandbox/m2m.switch) ; _conn reste la base du RAG pour les autres tables.
             from nokido_agent.app.forge_db_path import m2m_path as _m2m_path
-            _m2m = _sq.connect(_m2m_path(), timeout=5)
-            _m2m.row_factory = _sq.Row
-
-            # 1. Messages non lus pour cet agent
-            _unread = _m2m.execute(
-                "SELECT id, from_agent, created_at, payload FROM agent_messages "
-                "WHERE to_agent=? AND status='unread' ORDER BY rowid DESC LIMIT 5",
-                (f"agt_{agent.lower()}",),
-            ).fetchall()
-
-            # 2. Jobs interrompus (failed/running/pending)
-            _jobs = _conn.execute(
-                "SELECT id, theme, step, status FROM watch_jobs "
-                "WHERE status IN ('pending','running','error') "
-                "ORDER BY rowid DESC LIMIT 5"
-            ).fetchall()
-
-            # 3. Chain nodes bloqués pour cet agent
-            _nodes = _conn.execute(
-                "SELECT chain_id, step_name, status, error FROM agent_chain_nodes "
-                "WHERE status IN ('failed','running') ORDER BY rowid DESC LIMIT 5"
-            ).fetchall()
-
-            # 4. Biblio unverified
-            _biblio = _conn.execute("SELECT id, title FROM biblio_raw WHERE status='unverified' LIMIT 5").fetchall()
-
-            # 5. Derniere action de cet agent
-            _last = _m2m.execute(
-                "SELECT created_at, payload FROM agent_messages WHERE from_agent IN (?,?) ORDER BY rowid DESC LIMIT 1",
-                (agent, f"agt_{agent.lower()}"),
-            ).fetchone()
-
-            # 6. Resource Discovery — providers, tools, RAG domains
-            # 17/10 (dette whoami_classe_vivant_un_modele_mort, derogation owner) : seuls les PROUVES vivants -- mesure
-            # de moins de 7 j, slot non perime, modele non prouve mort ; chaque ecarte est DIT dans la reponse.
             try:
-                import time as _t_wh
-                from nokido_agent.app.forge_llm_router import scores_vivants as _scores_vivants
-                _providers, _providers_ecartes = _scores_vivants(
-                    [dict(r) for r in _conn.execute(
-                        "SELECT provider, ttft_ms, grade, measured_at FROM provider_scores WHERE status='ok' "
-                        "ORDER BY ttft_ms ASC LIMIT 50").fetchall()], _t_wh.time())
-                _providers = _providers[:5]
-            except Exception as _e_wh:  # noqa: BLE001
-                _providers, _providers_ecartes = [], {"_filtre": "ILLISIBLE (%s) : aucun vivant prouve" % type(_e_wh).__name__}
-            # `_conn` lit legitimement la base RAG (biblio, scores, chunks) ; seule
-            # la table d'AUTORITE en sort. Connexion dediee, fermee aussitot.
-            from nokido_agent.app.forge_db_path import (
-                authority_path as _autorite,
-                authority_switch_actif as _bascule,
-            )
+                _m2m = _sq.connect(_m2m_path(), timeout=5)
+                _m2m.row_factory = _sq.Row
 
-            _sql_tools = ("SELECT tool_name FROM forge_tools WHERE is_active=1 "
-                          "AND min_ring<=? ORDER BY min_ring")
-            if _bascule():
-                _ac = sqlite3.connect(_autorite(), timeout=3)
+                # 1. Messages non lus pour cet agent
+                _unread = _m2m.execute(
+                    "SELECT id, from_agent, created_at, payload FROM agent_messages "
+                    "WHERE to_agent=? AND status='unread' ORDER BY rowid DESC LIMIT 5",
+                    (f"agt_{agent.lower()}",),
+                ).fetchall()
+
+                # 5. Derniere action de cet agent
+                _last = _m2m.execute(
+                    "SELECT created_at, payload FROM agent_messages WHERE from_agent IN (?,?) ORDER BY rowid DESC LIMIT 1",
+                    (agent, f"agt_{agent.lower()}"),
+                ).fetchone()
+
+                # 6.bis Présence — agents ayant émis un message < 15 min (proxy d'activité ;
+                # Phase 1b = présence par-appel via post_dispatch pour du live exact).
+                _online = _m2m.execute(
+                    "SELECT from_agent, MAX(created_at) as last, COUNT(*) as n FROM agent_messages "
+                    "WHERE created_at > datetime('now','-15 minutes') AND from_agent != '' "
+                    "GROUP BY from_agent ORDER BY last DESC LIMIT 12"
+                ).fetchall()
+                _m2m.close()
+            except Exception as _e_m2m:
+                _online = []
+                _m2m_etat = "ILLISIBLE (%s)" % type(_e_m2m).__name__
+                logging.getLogger("Nokido.MCP.Registry").warning("M2M illisible (%s)", type(_e_m2m).__name__, exc_info=True)
+
+            # Connexion RAG
+            try:
+                _conn = _sq.connect(_db, timeout=5)
+                _conn.row_factory = _sq.Row
+                _conn.execute("PRAGMA journal_mode=WAL")
+
+                # 2. Jobs interrompus (failed/running/pending)
+                _jobs = _conn.execute(
+                    "SELECT id, theme, step, status FROM watch_jobs "
+                    "WHERE status IN ('pending','running','error') "
+                    "ORDER BY rowid DESC LIMIT 5"
+                ).fetchall()
+
+                # 3. Chain nodes bloqués pour cet agent
+                _nodes = _conn.execute(
+                    "SELECT chain_id, step_name, status, error FROM agent_chain_nodes "
+                    "WHERE status IN ('failed','running') ORDER BY rowid DESC LIMIT 5"
+                ).fetchall()
+
+                # 4. Biblio unverified
+                _biblio = _conn.execute("SELECT id, title FROM biblio_raw WHERE status='unverified' LIMIT 5").fetchall()
+
+                # 6. Resource Discovery — providers, tools, RAG domains
+                # 17/10 (dette whoami_classe_vivant_un_modele_mort, derogation owner) : seuls les PROUVES vivants -- mesure
+                # de moins de 7 j, slot non perime, modele non prouve mort ; chaque ecarte est DIT dans la reponse.
                 try:
-                    _tools = _ac.execute(_sql_tools, (ring,)).fetchall()
-                finally:
-                    _ac.close()
-            else:
-                _tools = _conn.execute(_sql_tools, (ring,)).fetchall()
-            _domains = self._whoami_domaines(_conn)
-            # 6.bis Présence — agents ayant émis un message < 15 min (proxy d'activité ;
-            # Phase 1b = présence par-appel via post_dispatch pour du live exact).
-            _online = _m2m.execute(
-                "SELECT from_agent, MAX(created_at) as last, COUNT(*) as n FROM agent_messages "
-                "WHERE created_at > datetime('now','-15 minutes') AND from_agent != '' "
-                "GROUP BY from_agent ORDER BY last DESC LIMIT 12"
-            ).fetchall()
-            _m2m.close()
-            _conn.close()
+                    import time as _t_wh
+                    from nokido_agent.app.forge_llm_router import scores_vivants as _scores_vivants
+                    _providers, _providers_ecartes = _scores_vivants(
+                        [dict(r) for r in _conn.execute(
+                            "SELECT provider, ttft_ms, grade, measured_at FROM provider_scores WHERE status='ok' "
+                            "ORDER BY ttft_ms ASC LIMIT 50").fetchall()], _t_wh.time())
+                    _providers = _providers[:5]
+                except Exception as _e_wh:  # noqa: BLE001
+                    _providers, _providers_ecartes = [], {"_filtre": "ILLISIBLE (%s) : aucun vivant prouve" % type(_e_wh).__name__}
+
+                from nokido_agent.app.forge_db_path import (
+                    authority_path as _autorite,
+                    authority_switch_actif as _bascule,
+                )
+
+                _tools_etat = "ILLISIBLE"
+                _sql_tools = ("SELECT tool_name FROM forge_tools WHERE is_active=1 "
+                              "AND min_ring<=? ORDER BY min_ring")
+                if _bascule():
+                    _ac = _sq.connect(_autorite(), timeout=3)
+                    try:
+                        _tools = _ac.execute(_sql_tools, (ring,)).fetchall()
+                        _tools_etat = "OK"
+                    finally:
+                        _ac.close()
+                else:
+                    _tools = _conn.execute(_sql_tools, (ring,)).fetchall()
+                    _tools_etat = "OK"
+                _domains = self._whoami_domaines(_conn)
+                _conn.close()
+            except Exception as _e_rag:
+                logging.getLogger("Nokido.MCP.Registry").warning("RAG illisible (%s)", type(_e_rag).__name__, exc_info=True)
+                _domains = "ILLISIBLE (%s)" % type(_e_rag).__name__
+                if not _providers_ecartes:
+                    _providers_ecartes = {"_filtre": "ILLISIBLE (%s)" % type(_e_rag).__name__}
+                from nokido_agent.app.forge_db_path import (
+                    authority_path as _autorite,
+                    authority_switch_actif as _bascule,
+                )
+                try:
+                    if _bascule():
+                        _ac = _sq.connect(_autorite(), timeout=3)
+                        try:
+                            _tools = _ac.execute("SELECT tool_name FROM forge_tools WHERE is_active=1 AND min_ring<=? ORDER BY min_ring", (ring,)).fetchall()
+                            _tools_etat = "OK"
+                        finally:
+                            _ac.close()
+                    else:
+                        _tools = []
+                        _tools_etat = "ILLISIBLE (%s)" % type(_e_rag).__name__
+                except Exception as _e_tools:
+                    _tools = []
+                    _tools_etat = "ILLISIBLE (%s)" % type(_e_tools).__name__
 
             # 6.ter Token usage pour cet agent (Forge Token Meter)
             _tok_usage = {}
@@ -5535,6 +5975,7 @@ class ToolRegistry:
             # les chains avaient expiré → "rien à reprendre" trompeur.
             _degraded = []
             _piliers_endormis = []
+            _svcs = None
             try:
                 import urllib.request as _u
 
@@ -5560,6 +6001,9 @@ class ToolRegistry:
             except Exception:
                 _degraded = []
             _health_actions = whoami_health_actions(_degraded)
+
+            from nokido_agent.app.forge_whoami_etats import etats_whoami
+            _status_etats = etats_whoami(_providers, _providers_ecartes, _online, _svcs, m2m_etat=_m2m_etat)
 
             # 8. Taches DEPOSEES mais jamais RECLAMEES (2026-07-26). Une tache
             # adressee a un CLI interactif lui est RESERVEE : l'executor autonome
@@ -5636,6 +6080,8 @@ class ToolRegistry:
                 "piliers_endormis": _piliers_endormis,
                 "hub_pid": os.getpid(),
                 "hub_demarre_a": _hub_demarre_a,
+                "status_etats": _status_etats,
+                "m2m_etat": _m2m_etat,
                 "last_action": _last["created_at"] if _last else None,
                 # Resource Discovery — ce que Gemini Ultra appellait check_privileges()
                 "resources": {
@@ -5645,11 +6091,13 @@ class ToolRegistry:
                     ],
                     "tools_available": [t["tool_name"] for t in _tools],
                     "rag_domains": _domains,
+                    "tools_etat": _tools_etat,
                     "rag_domains_age_s": (round(time.time() - ToolRegistry._WHOAMI_DOMAINES["ts"])
                                           if ToolRegistry._WHOAMI_DOMAINES["ts"] else None),
                     "ring": ring,
                 },
                 "next_actions": _health_actions
+                + [{"cmd": "hub action=formes", "why": "connaitre les formes acceptees avant d'etre refuse"}]
                 + ([{"cmd": "hub action=poll", "why": "messages non lus"}] if _unread else [])
                 + (
                     [
@@ -5731,6 +6179,26 @@ class ToolRegistry:
         except Exception as e:
             return _j.dumps({"ok": False, "error": str(e)})
 
+    async def handle_alertes(self, args: dict, agent: str, ring: int) -> str:
+        """Alertes recentes pour toute session : lecture sans effet de bord, bornee, source injoignable = ILLISIBLE."""
+        try:
+            limit = int(args.get("limit") or 10)
+        except (TypeError, ValueError):
+            return json.dumps({"etat": "ILLISIBLE", "raison": "limit invalide"}, ensure_ascii=False)
+        from nokido_agent.app.forge_critical_events import alertes_recentes
+
+        return json.dumps(await asyncio.to_thread(alertes_recentes, limit), ensure_ascii=False)
+
+    async def handle_formes(self, args: dict, agent: str, ring: int) -> str:
+        """Formes acceptees par les gardes, lues sans executer leurs scripts. Bornee a 20 par defaut, ce qui est coupe se compte."""
+        try:
+            limit = int(args.get("limit") or 20)
+        except (TypeError, ValueError):
+            return json.dumps({"ok": False, "error": "limit invalide"}, ensure_ascii=False)
+        from nokido_agent.app.forge_formes import build_formes_liste
+
+        return await asyncio.to_thread(build_formes_liste, limit, str(args.get("mode") or "") == "detail")
+
     async def handle_poll(self, args: dict, agent: str, ring: int) -> str:
         s = self.state_mgr.read_state()
         notifs = s.pop("pending_notifications", [])
@@ -5767,6 +6235,9 @@ class ToolRegistry:
         result = args.get("result", "")
         src = f"mcp_result:{agent}:{task_id}:{int(time.time())}"
         complet = f"[AGENT:{agent}] [TASK:{task_id}]\n{result}"
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(src, complet):
+            return f"Refus index: contenu suspect, non indexe, voir sandbox/ingestion_refus.jsonl ({src})"
         text = complet[:4000]
         cid = f"idx_{agent}_{task_id}_{int(time.time())}"
         try:
@@ -6101,6 +6572,9 @@ class ToolRegistry:
             # INVERIFIABLE. Migration additive, au meme patron que les deux
             # precedentes. Lecture par `_ring_delegant` UNIQUEMENT.
             conn.execute("ALTER TABLE tasks ADD COLUMN from_ring INTEGER")
+        # La regulation compte les taches en vol par service toutes les 60 s : sans index, chaque COUNT lisait toute la
+        # table, ~100 Mo par cycle (mesure 4/11, 263 Mo en 130 s avant, 89 apres). NR test_tasks_index_status_nr.
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)")
         conn.commit()
         return conn
 
@@ -6119,11 +6593,32 @@ class ToolRegistry:
             return None
         _servis = {a.upper() for a in _re_ag.findall(r'"--agent",\s*"([^"]+)"', _toml)}
         _proches = sorted(a for a in _servis if a.split("_")[0] == ag_raw.split("_")[0] and a != ag_raw)
+        # Politique par agent : liste des `disabled` de chacun de ses services (7/11, job_23ad5b22 orpheline).
+        _etat_pol: dict = {}
+        _actifs = set(_servis)
+        try:
+            import tomllib as _tl
+            for _svc in (_tl.loads(_toml).get("service") or []):
+                _args = [str(x) for x in (_svc.get("args") or [])]
+                if "--agent" in _args and _args.index("--agent") + 1 < len(_args):
+                    _a = _args[_args.index("--agent") + 1].upper()
+                    _etat_pol.setdefault(_a, []).append(bool(_svc.get("disabled", False)))
+            _actifs = {a for a in _servis if not (_etat_pol.get(a) and all(_etat_pol[a]))}
+        except Exception:  # noqa: BLE001 - muet-ok : TOML illisible = politique INCONNUE, jamais lue « desactive »
+            _etat_pol = {}
 
         # 1. Agent non servi dans services.toml
         if _servis and ag_raw not in _servis:
             return ("aucun executeur ne porte --agent %s : la tache attendra qu'une surface la reclame (task claim)%s"
                     % (ag_raw, (" ; executeurs proches : %s" % ", ".join(_proches)) if _proches else ""))
+
+        # 1bis. Tous ses services portent disabled = true : un CHOIX (DISABLED_BY_POLICY), pas une panne.
+        if _etat_pol.get(ag_raw) and all(_etat_pol[ag_raw]):
+            _prop = (sorted(a for a in _actifs if a.split("_")[0] == ag_raw.split("_")[0] and a != ag_raw)
+                     or sorted(a for a in _actifs if a != ag_raw))
+            return ("executeur %s DISABLED_BY_POLICY : ses services sont desactives (disabled = true dans "
+                    "services.toml), un choix et non une panne ; la tache attendra sa reactivation%s"
+                    % (ag_raw, (" ; executeurs actifs proches : %s" % ", ".join(_prop)) if _prop else ""))
 
         # 2. Agent servi mais hors quota ou en coupe-circuit OPEN
         try:
@@ -6135,7 +6630,7 @@ class ToolRegistry:
             st_cc, motif_cc = _fte.statut_coupe_circuit(ag_raw)
             if st_cc == "OPEN":
                 # Trouver un eligible parmi les proches ou servis
-                eligibles = [a for a in _servis if a != ag_raw and _fte.statut_coupe_circuit(a)[0] != "OPEN" and not _fte._opencode_hors_quota(a)]
+                eligibles = [a for a in _actifs if a != ag_raw and _fte.statut_coupe_circuit(a)[0] != "OPEN" and not _fte._opencode_hors_quota(a)]
                 prop = (sorted([a for a in eligibles if a.split("_")[0] == ag_raw.split("_")[0]]) or sorted(eligibles))
                 prop_str = f" ; executeurs proches eligibles : {', '.join(prop)}" if prop else ""
                 return f"executeur {ag_raw} en coupe-circuit OPEN ({motif_cc}){prop_str}"
@@ -6143,7 +6638,7 @@ class ToolRegistry:
             # Verification hors quota
             motif_quota = _fte._opencode_hors_quota(ag_raw)
             if motif_quota:
-                eligibles = [a for a in _servis if a != ag_raw and not _fte._opencode_hors_quota(a) and _fte.statut_coupe_circuit(a)[0] != "OPEN"]
+                eligibles = [a for a in _actifs if a != ag_raw and not _fte._opencode_hors_quota(a) and _fte.statut_coupe_circuit(a)[0] != "OPEN"]
                 prop = (sorted([a for a in eligibles if a.split("_")[0] == ag_raw.split("_")[0]]) or sorted(eligibles))
                 prop_str = f" ; executeurs proches eligibles : {', '.join(prop)}" if prop else ""
                 return f"executeur {ag_raw} hors quota ({motif_quota}){prop_str}"
@@ -6228,12 +6723,20 @@ class ToolRegistry:
         # revient quand meme OK_DONE). On accepte les trois noms rencontres, en
         # commencant par celui que le schema annonce.
         desc = (args.get("task") or args.get("description") or args.get("message") or "").strip()
+        # 9/11 (choix owner) : une consigne longue DEPOSEE (sandbox/consignes, pointeur epingle) est servie ICI, a
+        # toutes les surfaces ; le client n'en recopie jamais le contenu. Inresolue -> l'assignation est refusee.
+        if "consigne:" in desc:
+            try:
+                from nokido_agent.tools.forge_task_executor import servir_consignes_a_l_assignation as _servir
+            except ImportError:
+                from forge_task_executor import servir_consignes_a_l_assignation as _servir
+            desc, _err_consigne = _servir(desc)
+            if _err_consigne:
+                return _j.dumps({"ok": False, "error": _err_consigne})
         intent = args.get("intent", "task_assign")
         priority = int(args.get("priority", 5))
         # Contrat de livrable STRUCTURE, pose par l'appelant (hors bande) : le juge le lit en priorite.
-        _liv = args.get("livrable")
-        if isinstance(_liv, dict) and desc:
-            desc = desc + "\n[LIVRABLE_CONTRAT] " + _j.dumps({"livrable": _liv}, ensure_ascii=False)
+        desc, _avert_contrat = _poser_contrat_livrable(desc, args, intent)
 
         # Inject file context: detect py file paths in description, prepend content
         if intent == "code" and desc:
@@ -6290,6 +6793,7 @@ class ToolRegistry:
             (tid, desc, ag_raw, "pending", None, now, now, job_id, from_agt,
              self._ring_delegant(ring)),
         )
+        _poser_derogation_critique(conn, tid, args, ring)
         if _entrees:
             try:
                 conn.execute("ALTER TABLE tasks ADD COLUMN depend_de TEXT")
@@ -6352,6 +6856,7 @@ class ToolRegistry:
                 **({"depend_de": _entrees,
                     "note": "servie quand ses entrees sont done (BLOQUE_PAR_DEPENDANCE d'ici la)"} if _entrees else {}),
                 **({"avertissement": _avert_agent} if _avert_agent else {}),
+                **({"avertissement_contrat": _avert_contrat} if _avert_contrat else {}),
             },
             ensure_ascii=False,
         )
@@ -7304,6 +7809,28 @@ class ToolRegistry:
             return await self.handle_search_recent(args, agent, ring)
         if action == "whoami":
             return await self.handle_whoami(args, agent, ring)
+        if action == "fils":
+            # 4/11 (owner « introspection dans le hub ») : le hub lit SES fils -- rafales de lecture toutes les ~10 s
+            # hors regulation et hors requetes, processus inaccessible de l'exterieur. app/forge_fils_hub.py.
+            import asyncio as _aio
+            import json as _json
+            from nokido_agent.app.forge_fils_hub import autorise, echantillonner_fils
+
+            if not autorise(ring):
+                return _json.dumps({"error": "fils : reserve aux rings 0-1 (ring %s)" % ring})
+            n = min(int(args.get("limit") or 5), 20)
+            r = await _aio.to_thread(echantillonner_fils, n, 1.0, 8)
+            if args.get("topic") != "complet":
+                # par defaut : seulement les fils DANS SQLite et ceux qui changent de pile (pas les 30 fils au repos)
+                vus = r.pop("echantillons")
+                actifs = {}
+                for e in vus:
+                    for f in e["fils"]:
+                        actifs.setdefault(f["nom"], set()).add(f["pile"][0] if f["pile"] else "")
+                r["fils_qui_bougent"] = {k: sorted(v)[:4] for k, v in actifs.items() if len(v) > 1}
+                r["piles_sqlite"] = [{"t": e["t"], "nom": f["nom"], "pile": f["pile"]} for e in vus for f in e["fils"]
+                                     if f["nom"] in r["dans_sqlite"]][:12]
+            return _json.dumps(r, ensure_ascii=False, default=str)
         if action == "confirmer_owner":
             # Elicitation MCP : le dialogue s'affiche chez l'owner, le modele ne le remplit
             # pas. Seul etat qui autorise : ACCEPTE (app/forge_mcp_elicitation.py).
@@ -7312,6 +7839,20 @@ class ToolRegistry:
 
             r = await confirmer_owner(str(args.get("message") or ""), str(args.get("detail") or ""))
             return _json.dumps(r, ensure_ascii=False)
+        if action == "liberer_ram":
+            # Choix owner 9/11 : endormissement par utilite (request_resources) DANS le hub, sans jeton
+            # du coffre cote client ; identite prouvee exigee (forge_resource_manager.liberer_ram_pour_hub).
+            import asyncio as _aio
+            import json as _json
+            from nokido_agent.app.forge_resource_manager import liberer_ram_pour_hub
+
+            try:
+                from nokido_agent.tools.forge_recon_breaker import IDENTITE_PROUVEE as _idp
+                _prouve_ram = _idp.get() is True
+            except Exception:  # noqa: BLE001 - preuve illisible = non prouve : refus
+                _prouve_ram = False
+            r = await _aio.to_thread(liberer_ram_pour_hub, args.get("needed_ram_gb", 4.5), _prouve_ram)
+            return _json.dumps(r, ensure_ascii=False, default=str)
         if action in ("redemarrer_stack", "ordre_bureau", "demander_ordre"):
             # Ordres confies a la session de l'owner (app/forge_ordres_bureau.py, 2026-09-26) :
             # redemarrer_stack questionne l'owner par elicitation et ne depose l'ordre que
@@ -7345,6 +7886,10 @@ class ToolRegistry:
             return await self.handle_agent_send(args, agent, ring)
         if action == "recv":
             return await self.handle_agent_recv(args, agent, ring)
+        if action == "formes":
+            return await self.handle_formes(args, agent, ring)
+        if action == "alertes":
+            return await self.handle_alertes(args, agent, ring)
         if action == "quota_status":
             return await self.handle_quota_status(args, agent, ring)
         if action == "quota_model":
@@ -7737,14 +8282,20 @@ class ToolRegistry:
             # rendait quand meme. `COALESCE(...,1)` : un chunk ancien SANS valeur n'a
             # jamais ete retire (UNKNOWN != NO) — seul `active=0` explicite l'exclut.
             # NR : tests/nr/test_rag_lexical_exclut_inactifs_nr.py
+            # LA FTS CLASSE SEULE, ON NE JOINT QUE LES N MEILLEURS (owner 5/11). La jointure lisait `rag_chunks` et son texte pour
+            # CHAQUE ligne du MATCH avant de trier : avec des mots frequents, 75 Mo/s sur le NVMe sans fin, et l'expiration cote
+            # client n'arrete rien. Limite assumee : le bonus et le filtre `active` ne jouent que dans cette fenetre.
+            # `rowid` et non `chunk_id` dans le tri : lire chunk_id irait chercher la table de contenu pour chaque ligne du MATCH.
+            # Mesure sur base factice de 60 000 lignes, mots frequents : 240,8 Mo lus avant, 9,2 Mo par chunk_id, 4,8 Mo par rowid.
             "SELECT c.id AS id, c.source AS source, c.domain AS domain, c.text AS text, "
-            "bm25(rag_fts) - (CASE WHEN c.embedding IS NULL THEN ? ELSE 0 END) AS rank "
-            "FROM rag_fts JOIN rag_chunks c "
-            "ON c.id = rag_fts.chunk_id "
-            "WHERE rag_fts MATCH ? AND COALESCE(c.active, 1) = 1 "
+            "t.score - (CASE WHEN c.embedding IS NULL THEN ? ELSE 0 END) AS rank "
+            "FROM (SELECT rowid AS rid, bm25(rag_fts) AS score FROM rag_fts WHERE rag_fts MATCH ? "
+            "ORDER BY score LIMIT ?) t JOIN rag_fts f ON f.rowid = t.rid JOIN rag_chunks c "
+            "ON c.id = f.chunk_id "
+            "WHERE COALESCE(c.active, 1) = 1 "
             "ORDER BY rank LIMIT ?",
             (float(os.environ.get("LAFORGE_LEXICAL_BONUS_NON_VECTORISE", "2.0")),
-             match, limit),
+             match, max(200, int(limit) * 20), limit),
         ).fetchall()
         try:
             _ids = [r["id"] for r in rows if r["id"]]
@@ -7774,8 +8325,10 @@ class ToolRegistry:
         # import LOCAL : cette fonction s'execute aussi hors des globales du module (NR test_rag_lexical_exclut_inactifs)
         from nokido_agent.app.forge_mcp_registry import ToolRegistry as _TR
         _pied = _TR._noter_rag_citable(topic, [r["id"] for r in rows if r["id"]], None, "bm25")
+        from nokido_agent.app.forge_prompt_guard import MARQUE_TIERS, est_source_fiable
         return "\n\n".join(
-            f"[{r['source']}] ({r['domain']}, bm25={r['rank']:.1f}) [chunk:{r['id']}]\n{(r['text'] or '')[:400]}"
+            f"[{r['source']}] ({r['domain']}, bm25={r['rank']:.1f}) [chunk:{r['id']}]\n"
+            f"{'' if est_source_fiable(r['source']) else MARQUE_TIERS + chr(10)}{(r['text'] or '')[:400]}"
             for r in rows
         ) + _pied
 
@@ -8377,15 +8930,14 @@ class ToolRegistry:
             if terms:
                 mq = " OR ".join(f'"{w}"' for w in terms[:24])
                 cx = _sq.connect(str(self.db_path), timeout=8)
-                rows = cx.execute(
-                    "SELECT c.id FROM rag_chunks_fts JOIN rag_chunks c "
-                    "ON c.rowid = rag_chunks_fts.rowid "
-                    "WHERE rag_chunks_fts MATCH ? AND c.embedding IS NOT NULL "
-                    "ORDER BY bm25(rag_chunks_fts, 1.2, 0.5) LIMIT 50",
-                    (mq,),
-                ).fetchall()
-                cx.close()
-                bm_cand = [idpos[r[0]] for r in rows if r[0] in idpos]
+                # 4/11 (owner, saturation E/S de C) : l'ancienne jointure + `c.embedding IS NOT NULL` lisait le vecteur
+                # de CHAQUE correspondance (~35 Mo par recherche) ; filtre redondant avec `in idpos` ci-dessous.
+                from nokido_agent.app.forge_rag_sql import candidats_bm25 as _cand_bm25
+                try:
+                    rows = _cand_bm25(cx, mq, 50)
+                finally:
+                    cx.close()
+                bm_cand = [idpos[r] for r in rows if r in idpos]
         except Exception as e:
             logger.debug("[rag_dense] recuperation candidats bm25 impossible (%s) | consequence: recherche hybride degradee en recherche purement dense", type(e).__name__, exc_info=True)
             pass
@@ -9293,7 +9845,8 @@ class ToolRegistry:
             return "ERR: url requise"
         timeout = int(args.get("timeout", 15))
         # deporte hors event-loop : I/O reseau bloquante (RCA hub mort 2026-08-15)
-        md = await asyncio.to_thread(crawl_url, url, timeout)
+        # Ponctuel : ne reveille pas Docker (4/11 -- un crawl rate allumait Docker ~30 min pour rien)
+        md = await asyncio.to_thread(crawl_url, url, timeout, reveiller_docker=False)
         # ~10k chars ≈ 2500 tokens : au-delà, on indexe au lieu de dumper.
         if md and not md.startswith("ERR") and len(md) > 10000:
             try:

@@ -81,7 +81,8 @@ def test_le_worktree_vibe_travaille_sur_codestral_par_notre_cle(tmp_path):
 
 
 def test_le_harness_donne_a_vibe_la_cle_mistral_du_coffre_et_pas_au_lanceur(monkeypatch):
-    _coffre(monkeypatch, {JETON: "jeton-de-test", "MISTRAL_API_KEY": "cle-mistral-de-test"})
+    # 9/11 (owner) : Vibe recoit la cle de PORTEE Vibe (MISTRAL_VIBE_API_KEY), plus la cle Studio.
+    _coffre(monkeypatch, {JETON: "jeton-de-test", "MISTRAL_VIBE_API_KEY": "cle-mistral-de-test"})
     assert _env(H.harness_for("vibe", args=[])).get("NOKIDO_MISTRAL_API_KEY") == "cle-mistral-de-test"
     assert "NOKIDO_MISTRAL_API_KEY" not in H.jeton_mcp("vibe_cli")
 
@@ -118,7 +119,7 @@ def test_aucun_secret_injecte_n_atteint_le_journal_ni_n_est_vide(monkeypatch, ca
     jeton, cle = "jeton-identite-a1b2c3d4e5f6", "cle-mistral-0f9e8d7c6b5a"
 
     def coffre_bavard(nom):
-        if nom == "MISTRAL_API_KEY":
+        if nom == "MISTRAL_VIBE_API_KEY":
             raise RuntimeError("backend en erreur sur la valeur %s" % cle)
         return {JETON: jeton}.get(nom, "")
 
@@ -128,5 +129,5 @@ def test_aucun_secret_injecte_n_atteint_le_journal_ni_n_est_vide(monkeypatch, ca
     assert env.get(JETON) == jeton and "NOKIDO_MISTRAL_API_KEY" not in env
     assert all(v for k, v in H.jeton_mcp("vibe").items()), "aucune valeur vide injectee"
     journal = caplog.text + "".join(str(r.args) for r in caplog.records)
-    assert "MISTRAL_API_KEY illisible" in journal, "le journal doit etre OBSERVE : sinon ce test ne prouve rien"
+    assert "MISTRAL_VIBE_API_KEY illisible" in journal, "le journal doit etre OBSERVE : sinon ce test ne prouve rien"
     assert jeton not in journal and cle not in journal, "un secret injecte a atteint le journal"

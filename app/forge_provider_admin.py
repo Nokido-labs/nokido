@@ -856,11 +856,11 @@ async def api_test_provider(request):
 
 
 async def api_list_access(request):
-    """GET /api/access → provenance des acces SSH (jamais leur valeur). Ring <= 1."""
+    """GET /api/access → provenance des acces SSH (jamais leur valeur). Ring <= 2 (WEBHUB inclus)."""
     from starlette.responses import JSONResponse  # noqa: PLC0415
 
-    if _resolve_request_ring(request) > 1:
-        return JSONResponse({"error": "ring <= 1 required"}, status_code=403)
+    if _resolve_request_ring(request) > 2:
+        return JSONResponse({"error": "ring <= 2 required"}, status_code=403)
     return JSONResponse({"ok": True, "acces": etat_des_acces()})
 
 

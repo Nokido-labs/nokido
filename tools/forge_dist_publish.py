@@ -25,6 +25,8 @@ Usage :
 from __future__ import annotations
 
 import argparse
+import ast
+import json
 import os
 import re
 import shutil
@@ -570,6 +572,120 @@ def _embarquer_workflows_dist(rev: str, dist: Path) -> None:
         print(f"[sync] workflow embarque : {rel}")
 
 
+def _fichiers_portant(dist: Path, motifs, autorises=frozenset(), binaires=False) -> list:
+    """Fichiers du dist dont le nom ou le contenu porte un motif. Un fichier illisible est rendu : non regarde n'est pas propre.
+
+    `binaires=True` lit aussi les binaires comme du texte : voit l'ASCII en clair, pas un contenu compresse."""
+    trouves = []
+    for racine, dossiers, fichiers in os.walk(dist):
+        if ".git" in dossiers:
+            dossiers.remove(".git")
+        for nom in fichiers:
+            ap = Path(racine) / nom
+            rel = ap.relative_to(dist).as_posix()
+            if rel in autorises:
+                continue
+            if any(m.search(rel) for m in motifs):
+                trouves.append(rel + " (nom de fichier)")
+                continue
+            if not binaires and ap.suffix.lower() in _GEN_BIN_EXT:
+                continue
+            try:
+                txt = ap.read_bytes().decode("utf-8", "replace")
+            except OSError:
+                trouves.append(rel + " (illisible)")
+                continue
+            if any(m.search(txt) for m in motifs):
+                trouves.append(rel)
+    return trouves
+
+
+def _sans_motifs(valeur, motifs):
+    """JSON sans ce qui porte un motif. Cle : l'entree part. Valeur texte : tout l'objet part (None). Texte d'une liste : il part."""
+    def touche(texte) -> bool:
+        return any(m.search(str(texte)) for m in motifs)
+    if isinstance(valeur, dict):
+        sortie = {}
+        for k, v in valeur.items():
+            if touche(k):
+                continue
+            if isinstance(v, str) and touche(v):
+                return None
+            w = _sans_motifs(v, motifs)
+            if w is not None or v is None:
+                sortie[k] = w
+        return sortie
+    if isinstance(valeur, list):
+        sortie = []
+        for v in valeur:
+            if isinstance(v, str) and touche(v):
+                continue
+            w = _sans_motifs(v, motifs)
+            if w is not None or v is None:
+                sortie.append(w)
+        return sortie
+    return valeur
+
+
+def _caviarder_sujets(dist: Path) -> None:
+    """Nettoie les documents GENERES nommes par `caviarder` : les corriger a la source serait ecrase a la generation suivante.
+
+    Texte : les lignes portant un motif partent. JSON : voir `_sans_motifs`. Un Python qui ne compile plus, ou un JSON
+    entierement retire, refuse la publication. Le controle `_verifier_sujets_prives` passe ensuite sur tout l'arbre."""
+    try:
+        from nokido_agent.app import forge_git_egress as _eg
+    except Exception:
+        sys.path.insert(0, str(ROOT / "app"))
+        import forge_git_egress as _eg  # type: ignore[no-redef]
+    sujets = _eg.sujets_prives()
+    motifs = [re.compile(m, re.IGNORECASE) for m in sujets["mots"] + sujets["retirer"]]
+    touches = 0
+    for racine, dossiers, fichiers in os.walk(dist):
+        if ".git" in dossiers:
+            dossiers.remove(".git")
+        for nom in fichiers:
+            ap = Path(racine) / nom
+            rel = ap.relative_to(dist).as_posix()
+            if not _eg._path_blocked(rel, sujets["caviarder"]):
+                continue
+            texte = ap.read_text(encoding="utf-8")
+            if not any(m.search(texte) for m in motifs):
+                continue
+            if ap.suffix.lower() == ".json":
+                obj = _sans_motifs(json.loads(texte), motifs)
+                if obj is None:
+                    raise RuntimeError("[sujets] caviardage : tout %s serait retire" % rel)
+                nouveau = json.dumps(obj, ensure_ascii=False, indent=2) + "\n"
+            else:
+                nouveau = "".join(l for l in texte.splitlines(keepends=True) if not any(m.search(l) for m in motifs))
+            if ap.suffix.lower() == ".py":
+                try:
+                    ast.parse(nouveau)
+                except SyntaxError as e:
+                    raise RuntimeError("[sujets] caviardage : %s ne compile plus (%s)" % (rel, e)) from e
+            ap.write_text(nouveau, encoding="utf-8", newline="")
+            touches += 1
+    print(f"[sujets] {touches} document(s) genere(s) caviarde(s)")
+
+
+def _verifier_sujets_prives(dist: Path) -> None:
+    """Fail-closed : un mot de `config/sujets_prives.txt` dans l'arbre a publier refuse la publication -- contenus, noms,
+    binaires. Liste absente, incomplete ou invalide : refus aussi, sans elle rien ne garantit que le sujet ne part pas."""
+    try:
+        from nokido_agent.app import forge_git_egress as _eg
+    except Exception:
+        sys.path.insert(0, str(ROOT / "app"))
+        import forge_git_egress as _eg  # type: ignore[no-redef]
+    sujets = _eg.sujets_prives()
+    if sujets["erreurs"] or not sujets["chemins"] or not sujets["mots"]:
+        raise RuntimeError("[sujets] liste privee absente, incomplete ou invalide (config/sujets_prives.txt) "
+                           ": publication refusee %s" % sujets["erreurs"][:5])
+    trouves = _fichiers_portant(dist, [re.compile(m, re.IGNORECASE) for m in sujets["mots"]], binaires=True)
+    print(f"[sujets] {len(trouves)} fichier(s) portant un sujet prive")
+    if trouves:
+        raise RuntimeError("sujet prive dans l'arbre a publier (%d) : %s" % (len(trouves), trouves[:15]))
+
+
 def _verifier_identite_civile(dist: Path, motifs=None) -> None:
     """Fail-closed : l'identite civile de l'owner hors `IDENTITE_AUTORISEE` refuse
     la publication -- contenus ET noms de fichiers.
@@ -590,26 +706,7 @@ def _verifier_identite_civile(dist: Path, motifs=None) -> None:
         if not motifs:
             raise RuntimeError("[identite] liste privee vide ou illisible (config/identites_privees.txt) "
                                ": publication refusee")
-    trouves = []
-    for racine, dossiers, fichiers in os.walk(dist):
-        if ".git" in dossiers:
-            dossiers.remove(".git")
-        for nom in fichiers:
-            ap = Path(racine) / nom
-            rel = ap.relative_to(dist).as_posix()
-            if rel in IDENTITE_AUTORISEE:
-                continue
-            if any(m.search(rel) for m in motifs):
-                trouves.append(rel + " (nom de fichier)")
-                continue
-            if ap.suffix.lower() in _GEN_BIN_EXT:
-                continue
-            try:
-                txt = ap.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):  # muet-ok : non-texte, deja couvert par le cap et les binaires
-                continue
-            if any(m.search(txt) for m in motifs):
-                trouves.append(rel)
+    trouves = _fichiers_portant(dist, motifs, IDENTITE_AUTORISEE)
     print(f"[identite] {len(trouves)} fichier(s) portant l'identite civile hors documents juridiques")
     if trouves:
         raise RuntimeError("identite civile hors documents juridiques : %s" % trouves[:15])
@@ -689,6 +786,8 @@ def sync_snapshot(branch: str, dist: Path) -> None:
     _appliquer_politique_publique(dist)
     _generiser_chemins_owner(dist)
     _verifier_identite_civile(dist)
+    _caviarder_sujets(dist)
+    _verifier_sujets_prives(dist)
     _scanner_secrets(dist)
 
 
@@ -860,7 +959,9 @@ def _lire_certification(dossier, source_sha: str, herite_de=None, depot=None) ->
                  "PORTEE": "comptes de tests de CE run ; ne dit rien des gates "
                            "non-test"}
     return {"etat": "LUE" if (gen or junit) else "ABSENTE", "heritage": heritage,
-            "dossier": str(d), "generation_proof": gen, "junit_proof": junit,
+            # 1/11 : le manifeste part avec la vitrine publique et echappe a la generisation (ecrit hors de l'arbre) --
+            # nom RELATIF de la preuve seulement (v0.20.15 publiee portait le chemin local complet).
+            "dossier": "/".join(Path(d).parts[-2:]), "generation_proof": gen, "junit_proof": junit,
             "registres_lus": len(registres),
             "registres_illisibles": registres_illisibles,
             "registres_correspondants": correspondants,

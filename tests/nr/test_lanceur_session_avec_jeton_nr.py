@@ -66,6 +66,26 @@ def test_une_session_connectee_sert_quand_aucune_active_n_a_de_jeton():
     assert S._session_avec_jeton(ts) == (4, "jeton4")
 
 
+def test_session_owner_deconnectee_retenue_quand_la_console_est_vide():
+    """7/11 : relance des executeurs a 03:00, poste sans l'owner : console 3 au nom VIDE, seule candidate ; « 3:
+    proprietaire illisible » ; 8 executeurs en quarantaine, plus aucun slot. Une session deconnectee du compte owner a
+    toujours un jeton (etat reel ILLISIBLE depuis le compte de job : hypothese, pas mesure)."""
+    ts = FauxTS(sessions=[(3, 0), (1, 4)], jetons={1: "jeton1"}, console=3, comptes={3: "", 1: S._compte_owner()})
+    assert S._session_avec_jeton(ts) == (1, "jeton1")
+
+
+def test_session_deconnectee_d_un_autre_compte_jamais_retenue():
+    ts = FauxTS(sessions=[(3, 0), (1, 4)], jetons={1: "jeton1"}, console=3, comptes={3: "", 1: "autre"})
+    with pytest.raises(S.SandboxError) as e:
+        S._session_avec_jeton(ts)
+    assert "1: autre compte" in str(e.value)
+
+
+def test_une_session_active_de_l_owner_passe_avant_une_deconnectee():
+    ts = FauxTS(sessions=[(1, 4), (3, 0)], jetons={1: "jeton1", 3: "jeton3"})
+    assert S._session_avec_jeton(ts) == (3, "jeton3")
+
+
 def test_la_console_reste_le_dernier_recours():
     ts = FauxTS(sessions=[(0, 4)], jetons={2: "jeton2"}, console=2)  # session 0 = services, deconnectee
     assert S._session_avec_jeton(ts) == (2, "jeton2")

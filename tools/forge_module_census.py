@@ -423,6 +423,53 @@ def check() -> int:
     return 1 if unc else 0
 
 
+# 3/11 (owner + debat Claude x AGY, docs/debats/SYNTHESE_DEBATS_SOIF_AUTOREGULATION_20261103.md) : l'homologue biologique
+# d'un module est DECLARE dans le module (comme __FORGE_COLOR__), jamais dans un registre a part qui divergerait.
+# Lu par AST + literal_eval : une declaration qui n'est pas un litteral n'est JAMAIS executee.
+_RE_HOMOLOGUE = re.compile(r"^__FORGE_HOMOLOGUE__\s*=", re.M)
+
+
+def homologue_de_texte(texte):
+    """dict declare (`mecanisme`, `termes` obligatoires ; `sources`, `invariant`, `nr`, `fts` facultatifs) ou None."""
+    m = _RE_HOMOLOGUE.search(texte or "")
+    if not m:
+        return None
+    lignes = texte[m.start():].splitlines()
+    for n in range(1, min(len(lignes), 40) + 1):
+        try:
+            arbre = ast.parse("\n".join(lignes[:n]))
+        except SyntaxError:  # muet-ok : declaration sur plusieurs lignes, on essaie la ligne suivante
+            continue
+        if not (arbre.body and isinstance(arbre.body[0], ast.Assign)):
+            return None
+        try:
+            v = ast.literal_eval(arbre.body[0].value)
+        except (ValueError, SyntaxError, TypeError):  # muet-ok : declaration non litterale = ignoree, jamais executee
+            return None
+        return v if isinstance(v, dict) and v.get("mecanisme") and v.get("termes") else None
+    return None
+
+
+def homologues_sans_nr(homologues):
+    """Un homologue sans NR est du VOCABULAIRE (owner 20/10) : liste observee, gate a promouvoir sur mesure."""
+    return [h.get("module") for h in homologues if not h.get("nr")]
+
+
+def _ecrire_homologues(ws):
+    homs = []
+    for d, f in _modules():
+        h = homologue_de_texte(_read_head(f.name, f"{d}/{f.name}"))
+        if h:
+            homs.append(dict(h, module=f"{d}/{f.name}"))
+    sans = homologues_sans_nr(homs)
+    try:
+        (ws / "homologues.json").write_text(_json.dumps({"homologues": homs, "sans_nr": sans}, ensure_ascii=False,
+                                                        indent=1), encoding="utf-8")
+        print(f"[carte] homologues.json : {len(homs)} homologue(s), {len(sans)} SANS NR (observation)")
+    except OSError as _e:
+        print(f"[carte] homologues.json NON ecrit ({type(_e).__name__}: {_e})")
+
+
 def main():
     rows = []
     for d, f in _modules():
@@ -458,6 +505,7 @@ def main():
     s10.append(f"| Core/legacy + longue traîne (non-forge) | {sum(1 for r in rows if r[1].startswith('?'))} | {sum(r[2] for r in rows if r[1].startswith('?'))//1000}k | " + " · ".join(f"`{r[0].split('/')[-1]}`" for r in core) + " |")
     (ws / "section10.md").write_text("\n".join(s10), encoding="utf-8")
     _maj_carte(rows, ws)
+    _ecrire_homologues(ws)
 
     print("\n".join(s10))
     print("\n=== STATS ===")

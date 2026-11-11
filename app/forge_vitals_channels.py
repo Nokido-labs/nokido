@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -76,6 +77,11 @@ SCHEMA = {
     "ns": "net.envoye_kb_s",
     "swp": "mem.swap_pct",
     "dbsy": "disque.occupation_pct",
+    "g3d": "gpu.moteur_3d_pct",
+    "gcp": "gpu.moteur_compute_pct",
+    "gded": "gpu.memoire_dediee_mo",
+    "gsha": "gpu.memoire_partagee_mo",
+    "acc": "accelerateur.compute_pct",
     "dq": "disque.file_attente",
     "emax": "endo.niveau_max",
     "esum": "endo.niveau_somme",
@@ -314,6 +320,140 @@ def grp_disque(prev: dict) -> tuple[dict, str]:
     if not vals:
         return {}, "compteurs ajoutes mais aucune valeur formatable"
     return vals, "pdh.dll PdhAddEnglishCounterW (PhysicalDisk _Total)"
+
+
+# GPU et accelerateur (owner 4/11, « sans zone d'ombre »). Pre-vol job_b4188e7f3b58 : joker PDH en memoire, ~1,3 ms pour
+# 350 instances, lisible sous le compte sandbox, contre un PowerShell plafonne a 2 s qui ne lit que le moteur 3D.
+_PDH_GPU: dict = {"query": None, "compteurs": {}, "amorce": False, "panne": "", "pdh": None}
+_PDH_GPU_COMPTEURS = (
+    ("moteur", r"\GPU Engine(*)\Utilization Percentage"),
+    ("ded", r"\GPU Adapter Memory(*)\Dedicated Usage"),
+    ("sha", r"\GPU Adapter Memory(*)\Shared Usage"),
+)
+_RX_MOTEUR = re.compile(r"luid_(0x\w+?_0x\w+?)_phys_\d+_eng_\d+_engtype_(\w*)", re.I)
+_RX_ADAPTATEUR = re.compile(r"luid_(0x\w+?_0x\w+?)_phys", re.I)
+
+
+def agreger_gpu(moteurs, ded, sha) -> dict:
+    """Moteurs et memoires par adaptateur -> canaux. GPU principal = l'adaptateur a moteur 3D qui a le plus de memoire
+    dediee (le rendu de base en a 0). Accelerateur = moteur compute sans moteur 3D : classe par forme, que ce soit le NPU
+    reste a prouver sous charge. Un canal sans objet est ABSENT, jamais nul."""
+    charge: dict = {}
+    for nom, v in moteurs:
+        m = _RX_MOTEUR.search(nom or "")
+        if m:
+            cle = (m.group(1).lower(), m.group(2).lower())
+            charge[cle] = charge.get(cle, 0.0) + float(v)
+    memoire = {"ded": {}, "sha": {}}
+    for sorte, lignes in (("ded", ded), ("sha", sha)):
+        for nom, v in lignes:
+            m = _RX_ADAPTATEUR.search(nom or "")
+            if m:
+                memoire[sorte][m.group(1).lower()] = float(v)
+    types: dict = {}
+    for luid, typ in charge:
+        types.setdefault(luid, set()).add(typ)
+    a_3d = [l for l, t in types.items() if "3d" in t]
+    out: dict = {}
+    if a_3d:
+        principal = max(a_3d, key=lambda l: memoire["ded"].get(l, 0.0))
+        out["g3d"] = round(charge.get((principal, "3d"), 0.0), 1)
+        out["gcp"] = round(charge.get((principal, "compute"), 0.0), 1)
+        if principal in memoire["ded"]:
+            out["gded"] = round(memoire["ded"][principal] / 2**20)
+        if principal in memoire["sha"]:
+            out["gsha"] = round(memoire["sha"][principal] / 2**20)
+    accel = [l for l, t in types.items() if "compute" in t and "3d" not in t]
+    if accel:
+        out["acc"] = round(sum(charge[(l, "compute")] for l in accel), 1)
+    return out
+
+
+def _pdh_gpu_ouvrir() -> str:
+    """Ouvre la requete une seule fois. Rend "" si prete, sinon la RAISON (cachee : pas de reessai a chaque tick)."""
+    if _PDH_GPU["query"] is not None or _PDH_GPU["panne"]:
+        return _PDH_GPU["panne"]
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+
+        pdh = ctypes.WinDLL("pdh.dll")
+        pdh.PdhGetFormattedCounterArrayW.argtypes = [wt.HANDLE, wt.DWORD, ctypes.POINTER(wt.DWORD),
+                                                     ctypes.POINTER(wt.DWORD), ctypes.c_void_p]
+        q = wt.HANDLE()
+        rc = pdh.PdhOpenQueryW(None, 0, ctypes.byref(q)) & 0xFFFFFFFF
+        if rc:
+            _PDH_GPU["panne"] = "PdhOpenQueryW rc=0x%08x" % rc
+            return _PDH_GPU["panne"]
+        for cle, chemin in _PDH_GPU_COMPTEURS:
+            h = wt.HANDLE()
+            if (pdh.PdhAddEnglishCounterW(q, chemin, 0, ctypes.byref(h)) & 0xFFFFFFFF) == 0:
+                _PDH_GPU["compteurs"][cle] = h
+        if "moteur" not in _PDH_GPU["compteurs"]:
+            _PDH_GPU["panne"] = "compteur GPU Engine refuse ou absent A CE COMPTE ; ce n'est pas un GPU au repos"
+            return _PDH_GPU["panne"]
+        _PDH_GPU["pdh"], _PDH_GPU["query"] = pdh, q
+        return ""
+    except Exception as e:  # noqa: BLE001
+        _PDH_GPU["panne"] = "%s: %s" % (type(e).__name__, str(e)[:90])
+        return _PDH_GPU["panne"]
+
+
+def _pdh_gpu_collecter() -> bool:
+    return (_PDH_GPU["pdh"].PdhCollectQueryData(_PDH_GPU["query"]) & 0xFFFFFFFF) == 0
+
+
+def _pdh_gpu_tableau(cle: str) -> list:
+    """[(instance, valeur)] du compteur a joker ; [] si absent ou illisible (l'appelant ne publie alors pas ce canal)."""
+    import ctypes
+    import ctypes.wintypes as wt
+
+    h = _PDH_GPU["compteurs"].get(cle)
+    if h is None:
+        return []
+
+    class _Val(ctypes.Structure):
+        _fields_ = [("CStatus", wt.DWORD), ("doubleValue", ctypes.c_double)]
+
+    class _Item(ctypes.Structure):
+        _fields_ = [("szName", wt.LPWSTR), ("FmtValue", _Val)]
+
+    pdh, taille, n = _PDH_GPU["pdh"], wt.DWORD(0), wt.DWORD(0)
+    # 0x200 double, 0x8000 pas de plafond a 100. PDH_MORE_DATA attendu au premier appel.
+    if (pdh.PdhGetFormattedCounterArrayW(h, 0x8200, ctypes.byref(taille), ctypes.byref(n), None) & 0xFFFFFFFF) != 0x800007D2:
+        return []
+    tampon = ctypes.create_string_buffer(taille.value)
+    if pdh.PdhGetFormattedCounterArrayW(h, 0x8200, ctypes.byref(taille), ctypes.byref(n), tampon) & 0xFFFFFFFF:
+        return []
+    items = ctypes.cast(tampon, ctypes.POINTER(_Item))
+    return [(items[i].szName, items[i].FmtValue.doubleValue) for i in range(n.value) if items[i].FmtValue.CStatus in (0, 1)]
+
+
+def lire_gpu_pct() -> float | None:
+    """Charge du GPU principal pour les gardes : le moteur le plus charge, 3D ou compute, plafonne a 100.
+    None si la mesure n'existe pas (compteur refuse, premiere collecte) : UNKNOWN n'est pas 0."""
+    if _pdh_gpu_ouvrir() or not _pdh_gpu_collecter():
+        return None
+    if not _PDH_GPU["amorce"]:
+        _PDH_GPU["amorce"] = True
+        return None
+    vals = agreger_gpu(_pdh_gpu_tableau("moteur"), _pdh_gpu_tableau("ded"), _pdh_gpu_tableau("sha"))
+    if "g3d" not in vals:
+        return None
+    return min(max(vals["g3d"], vals.get("gcp", 0.0)), 100.0)
+
+
+def grp_gpu(prev: dict) -> tuple[dict, str]:
+    panne = _pdh_gpu_ouvrir()
+    if panne:
+        return {}, "GPU ILLISIBLE (%s)" % panne
+    if not _pdh_gpu_collecter():
+        return {}, "PdhCollectQueryData GPU a echoue"
+    if not _PDH_GPU["amorce"]:
+        _PDH_GPU["amorce"] = True
+        return {}, "premiere collecte (un pourcentage n'a pas de valeur sans reference)"
+    vals = agreger_gpu(_pdh_gpu_tableau("moteur"), _pdh_gpu_tableau("ded"), _pdh_gpu_tableau("sha"))
+    return vals, "pdh.dll joker GPU Engine et GPU Adapter Memory" if vals else "aucune instance GPU lue"
 
 
 def grp_endocrine(prev: dict) -> tuple[dict, str]:
@@ -969,6 +1109,7 @@ GROUPES = {
     "cpu": (grp_cpu, "serie"),
     "io": (grp_io, "serie"),
     "disque": (grp_disque, "serie"),
+    "gpu": (grp_gpu, "serie"),   # 1,3 ms mesurees (pre-vol job_b4188e7f3b58), comme le disque : requete PDH gardee ouverte
     "endocrine": (grp_endocrine, "serie"),
     "services": (grp_services, "serie"),
     "appels": (grp_appels, "serie"),

@@ -1,0 +1,40 @@
+{
+  "description": "Profil de reference Ring 1 (parite agents Nokido)",
+  "version": "1.0.0",
+  "dimensions": {
+    "supervisor_service": {
+      "source": "proxy_deno/core/services.toml",
+      "description": "Declaration de l'agent ou executeur dans services.toml"
+    },
+    "bash_guard_ast": {
+      "source": "tools/bash_guard.py",
+      "description": "Passthroughs et regles analyses par AST"
+    },
+    "token_vault": {
+      "source": "config/agent_identities.json",
+      "description": "Jeton dedie resolu au coffre"
+    },
+    "workspace_confinement": {
+      "source": "config/agent_identities.json",
+      "description": "Confinement arborescence autorisee"
+    },
+    "audit_logging": {
+      "source": "logs/mcp_audit.log",
+      "description": "Journalisation systematique des appels"
+    }
+  },
+  "exceptions": {
+    "agy_sandbox": {
+      "agent": "antigravity",
+      "motif": "AGY --sandbox gere par forge_task_executor",
+      "source": "tools/forge_task_executor.py:1688",
+      "statut": "EXCEPTION_VALIDEE"
+    },
+    "cline_yolo": {
+      "agent": "cline",
+      "motif": "Cline --yolo execution libre",
+      "source": "tools/forge_task_executor.py",
+      "statut": "A_CONFIRMER_OWNER"
+    }
+  }
+}

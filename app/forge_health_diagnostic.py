@@ -783,6 +783,14 @@ def audit_workers_heartbeat() -> dict:
                 # FINI (20/10) : l'organe DIT au dernier pouls qu'il a termine sa tache (modal_campagne, 67935/67935,
                 # 01/10) -- ni panne ni silence : sans ce champ il restait « cense tourner » 13 cycles d'affilee.
                 "fini": data.get("fini") is True,
+                # ORPHELIN (07/11) : aucun service declare ET agent joker « * ». Mesure : `hb.heartbeat`, ecrit
+                # par un test (`_hb_file` remplace par tmp_path/"hb"), rapporte 17 cycles comme organe « cense
+                # tourner ». Registre illisible (None) -> on n'affirme rien. Un pouls d'agent nomme ou sans
+                # agent reste une panne : seul le joker sans service est range a part.
+                "agent": data.get("agent") if isinstance(data, dict) else None,
+                "orphelin": (name in _decouverts and _noms_declares
+                             and p.name not in _noms_declares
+                             and str(data.get("agent")) == "*") is True,
             }
         except Exception as e:
             # `alive: None` et non False : un heartbeat ILLISIBLE n'est pas un worker
@@ -808,6 +816,46 @@ def audit_workers_heartbeat() -> dict:
 # du MEME rapport rangeait NokidoWebHub en « sain ». Un critique qui echoue se re-sonde une fois.
 _CRITIQUES_HTTP = ("hub_mcp", "ollama", "web_hub")
 _RESONDE_DELAI_S = 3.0
+
+
+_PORTS_DESACTIVES: set | None = None
+
+
+def _ports_desactives() -> set:
+    """Ports tenus par des services `disabled = true` (services.toml) ET par aucun service actif.
+
+    3/11 (owner « bilan a 100 », sans maquiller) : llamacpp_python (:8090) = NokidoLlamaPython desactive -- compte en
+    panne. DISABLED_BY_POLICY != RESOURCE_UNAVAILABLE. Registre illisible = ensemble VIDE : on n'excuse rien."""
+    global _PORTS_DESACTIVES
+    if _PORTS_DESACTIVES is None:
+        import re as _re  # noqa: PLC0415
+
+        def _ports(bloc):
+            out = {int(m) for m in _re.findall(r"^\s*port\s*=\s*(\d+)", bloc, _re.M)}
+            out |= {int(m) for m in _re.findall(r'"--port"\s*,\s*"(\d+)"', bloc)}
+            return out
+        off, on = set(), set()
+        try:
+            _txt = (ROOT / "proxy_deno" / "core" / "services.toml").read_text(encoding="utf-8", errors="replace")
+            for _bloc in _txt.split("[[service]]")[1:]:
+                (off if _re.search(r"^\s*disabled\s*=\s*true\b", _bloc, _re.M) else on).update(_ports(_bloc))
+        except OSError:
+            off = set()
+        _PORTS_DESACTIVES = off - on
+    return _PORTS_DESACTIVES
+
+
+def _penalite_services_http(svcs: dict) -> dict:
+    """Pur sur le resultat de la sonde. Un service DESACTIVE par politique est liste a part, sans penalite ; au repos
+    (on-demand) idem ; une vraie panne reste penalisee (15 critique, 3 sinon)."""
+    _off = [n for n, s in svcs.items() if not s.get("up")]
+    desactives = [n for n in _off if svcs[n].get("desactive")]
+    reste = [n for n in _off if n not in desactives]
+    idle = [n for n in reste if _on_demand_idle(n)]
+    down = [n for n in reste if n not in idle]
+    critical_down = [n for n in down if n in _CRITIQUES_HTTP]
+    points = 15 * len(critical_down) if critical_down else 3 * len(down)
+    return {"points": points, "down": down, "critical_down": critical_down, "idle": idle, "desactives": desactives}
 
 
 def audit_services_http() -> dict:
@@ -858,7 +906,15 @@ def audit_services_http() -> dict:
         return r2
 
     with ThreadPoolExecutor(max_workers=len(targets), thread_name_prefix="health_http") as ex:
-        return dict(zip(targets, ex.map(_sonder_deux_fois_si_critique, targets.items())))
+        res = dict(zip(targets, ex.map(_sonder_deux_fois_si_critique, targets.items())))
+    # 3/11 : un service muet dont le port appartient a un service `disabled = true` est DESACTIVE, pas en panne.
+    import re as _re  # noqa: PLC0415
+    _desact = _ports_desactives()
+    for _nom, _url in targets.items():
+        _m = _re.search(r":(\d+)/", _url)
+        if not (res.get(_nom) or {}).get("up") and _m and int(_m.group(1)) in _desact:
+            res[_nom]["desactive"] = True
+    return res
 
 
 def audit_supervised_fleet() -> dict:
@@ -1307,6 +1363,18 @@ def audit_import_resolvability() -> dict:
 # la FIN du fichier signale 116 fautifs au lieu de 8 — et un chiffre faux décrédibilise
 # le garde qui le produit.
 _JOURNAL_DATE_IN_NAME = ("nokido_start_", "laforge-master-", "_sbx_", "watchdog.std")
+# 3/11 (bilan a 100, mesure) : journaux DECLARES dont la date existe mais que la regle « une ligne sur deux datee »
+# ne peut pas voir. Liste BLANCHE nominative, chaque entree porte sa preuve ; ils restent COMPTES a part.
+# - chiffre : le `ts` est DANS le blob DPAPI (forge_videur.capture) -- illisible par construction, pas sans date.
+_JOURNAUX_CHIFFRES_DATES_DEDANS = {
+    "sandbox/videur_identity.log": "forge_videur.capture pose `ts` avant chiffrement DPAPI + chainage HMAC",
+}
+# - par blocs : dumps faulthandler ecrits en C (non prefixables) suivis d'un marqueur date (forge_loop_sentinel
+#   ._mark_dump). Date si un marqueur existe et que le bloc en cours apres le dernier marqueur reste court.
+_JOURNAUX_PAR_BLOCS_MARQUES = {
+    "logs/loop_lag.log": "forge_loop_sentinel._mark_dump date chaque dump",
+}
+_BLOC_NON_MARQUE_MAX = 200
 
 
 def audit_journal_timestamps(root: Path | None = None) -> dict:
@@ -1327,10 +1395,17 @@ def audit_journal_timestamps(root: Path | None = None) -> dict:
 
     pats = [
         _re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}"),   # ISO (avec ou sans ms)
-        _re.compile(r'"ts"\s*:\s*("?\d{4}-\d{2}-\d{2}|\d{9,})'),  # JSONL ts ISO ou epoch
+        # JSONL : ts ISO ou epoch. 3/11 : les cles de date reellement ecrites par les organes (observed_at du
+        # transient, horodatage du cache de jetons, generated_ts du maintainer SSoT) etaient lues « sans date ».
+        _re.compile(r'"(?:ts|horodatage|observed_at|generated_ts|timestamp)"\s*:\s*("?\d{4}-\d{2}-\d{2}|\d{9,})'),
     ]
     root = root or Path(__file__).resolve().parent.parent
     undated, scanned, elagues, illisibles = [], 0, 0, 0
+    # 3/11 (owner « bilan a 100 », mesure) : 1 831 des 1 848 « journaux sans date » etaient des SORTIES DE RUN
+    # (sandbox/jobs 1 607, ci_* 109, workspace 88, harness_jobs 27), datees par leur nom ou leurs metadonnees (.json,
+    # .fin) -- pas des journaux d'organes. Ecartees ET COMPTEES (un filtre qui ecarte le DIT).
+    sorties = 0
+    chiffres = 0
     for sub in ("logs", "sandbox"):
         d = root / sub
         if not d.is_dir():
@@ -1347,11 +1422,24 @@ def audit_journal_timestamps(root: Path | None = None) -> dict:
                 elagues += 1
                 dirs[:] = []
                 continue
+            _rel = Path(racine).relative_to(root).as_posix() + "/"
+            _sortie = (_rel.startswith(("sandbox/jobs/", "sandbox/harness_jobs/", "sandbox/workspace/"))
+                       or _rel.startswith("sandbox/ci_"))
             for nom in fichiers:
                 p = Path(racine) / nom
                 if p.suffix not in (".log", ".jsonl", ".err"):
                     continue
                 if any(k in p.name for k in _JOURNAL_DATE_IN_NAME):
+                    continue
+                # 3/11 : un journal par lancement nomme AAAAMMJJ_HHMMSS (nokido_20261031_141145.log) est date par son nom.
+                if _re.search(r"(?<!\d)20\d{6}[_-]\d{4,6}(?!\d)", p.name):
+                    continue
+                if _sortie:
+                    sorties += 1
+                    continue
+                _rel_p = _rel + nom
+                if _rel_p in _JOURNAUX_CHIFFRES_DATES_DEDANS:
+                    chiffres += 1
                     continue
                 try:
                     st = p.stat()
@@ -1361,20 +1449,27 @@ def audit_journal_timestamps(root: Path | None = None) -> dict:
                         if st.st_size > 120_000:
                             f.seek(st.st_size - 120_000)
                             f.readline()
-                        lines = [x for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()][-20:]
+                        _toutes = [x for x in f.read().decode("utf-8", "replace").splitlines() if x.strip()]
+                        lines = _toutes[-20:]
                 except OSError:
                     illisibles += 1   # un journal qu'on n'a pas pu lire n'est ni date ni sain : COMPTE
                     continue
                 if not lines:
                     continue
                 scanned += 1
+                if _rel_p in _JOURNAUX_PAR_BLOCS_MARQUES:
+                    _dates = [i for i, l in enumerate(_toutes) if pats[0].search(l)]
+                    if not (_dates and len(_toutes) - 1 - _dates[-1] <= _BLOC_NON_MARQUE_MAX):
+                        undated.append({"path": _rel_p, "size_mb": round(st.st_size / 1e6, 2)})
+                    continue
                 hit = sum(1 for l in lines if any(rx.search(l) for rx in pats))
                 if hit < max(1, len(lines) // 2):
                     undated.append({"path": str(p.relative_to(root)).replace("\\", "/"),
                                     "size_mb": round(st.st_size / 1e6, 2)})
     undated.sort(key=lambda r: -r["size_mb"])
     return {"scanned": scanned, "undated": undated[:20], "undated_count": len(undated),
-            "copies_de_depot_elaguees": elagues, "illisibles": illisibles}
+            "copies_de_depot_elaguees": elagues, "illisibles": illisibles, "sorties_de_run_ecartees": sorties,
+            "chiffres_dates_dedans": chiffres}
 
 
 def audit_host_vitals() -> dict:
@@ -1834,9 +1929,14 @@ def compute_score_and_gaps(audit: dict) -> tuple[int, list[str]]:
     _tus = sorted(n for n, h in workers.items()
                   if h.get("alive") is False and h.get("eteint_par_decision") is True)
     _finis = sorted(n for n, h in workers.items() if h.get("alive") is False and h.get("fini") is True)
+    _orphelins = sorted(n for n, h in workers.items()
+                        if h.get("alive") is False and h.get("orphelin") is True)
     _muets = sorted(n for n, h in workers.items()
                     if h.get("alive") is False and h.get("eteint_par_decision") is not True
-                    and h.get("fini") is not True)
+                    and h.get("fini") is not True and h.get("orphelin") is not True)
+    if _orphelins:
+        gaps.append("· Pouls ORPHELIN(S) (aucun service declare, agent « * » : residu, pas un organe "
+                    "cense tourner) : %s" % _orphelins[:12])
     if _finis:
         gaps.append("· Tache TERMINEE (fini=true au dernier pouls, pas une panne) : %s" % _finis[:12])
     if _tus:
@@ -1898,16 +1998,15 @@ def compute_score_and_gaps(audit: dict) -> tuple[int, list[str]]:
 
     # Services HTTP DOWN
     svcs = audit["services_http"]
-    _off = [n for n, s in svcs.items() if not s.get("up")]
-    idle = [n for n in _off if _on_demand_idle(n)]
-    down = [n for n in _off if n not in idle]
-    critical_down = [n for n in down if n in _CRITIQUES_HTTP]
+    _pen = _penalite_services_http(svcs)
+    idle, down, critical_down = _pen["idle"], _pen["down"], _pen["critical_down"]
+    score -= _pen["points"]
     if critical_down:
-        score -= 15 * len(critical_down)
         gaps.append(f"❌ Services CRITIQUES DOWN : {critical_down}")
     elif down:
-        score -= 3 * len(down)
         gaps.append(f"~ Services DOWN (non-critiques) : {down}")
+    if _pen["desactives"]:
+        gaps.append(f"· Services DESACTIVES par politique (disabled=true, pas une panne) : {_pen['desactives']}")
     if idle:
         gaps.append(
             f"· Services au repos (on-demand, aucune intention fraîche) : {idle} "
@@ -2432,7 +2531,14 @@ def _release_hormones_from_audit(audit: dict) -> list[dict]:
             )
     except Exception as e:  # noqa: BLE001 -- alerte de budget non emise : dite
         import logging as _lg
-        _lg.getLogger(__name__).warning("[diagnostic] alerte de budget quotidien NON EMISE (%s)", type(e).__name__)
+        import traceback as _tb
+
+        # 3/11 : le TYPE seul (« TypeError ») ne localisait rien -- intermittent, irreproductible apres coup. Le lieu
+        # (dernier cadre) et le message rendent la prochaine occurrence lisible.
+        _cadre = (_tb.extract_tb(e.__traceback__) or [None])[-1]
+        _lieu = "%s:%s" % (Path(_cadre.filename).name, _cadre.lineno) if _cadre else "?"
+        _lg.getLogger(__name__).warning("[diagnostic] alerte de budget quotidien NON EMISE (%s a %s : %s)",
+                                        type(e).__name__, _lieu, str(e)[:160])
 
     return released
 

@@ -189,6 +189,430 @@ def _purge_workspace_tmp(dry: bool) -> dict:
         return {"tmp_error": str(e)[:120]}
 
 
+# Rotation de C:/tmp/laforge_jobs (owner 2026-11-05) : sorties 7 jours, scripts 30 jours SANS USAGE.
+# Essai a blanc tant que LAFORGE_JOBS_PURGE ne vaut pas "applique" : le daemon appelle dry=False, et un script
+# supprime ici n'a aucune autre copie. Ce qu'on ne peut pas lire ne vaut jamais "sans usage".
+# NR : tests/nr/test_purge_laforge_jobs_rotation_nr.py
+JOBS_TMP_DIR = Path(os.environ.get("LAFORGE_JOBS_TMP_DIR", "C:/tmp/laforge_jobs"))
+JOBS_REGISTRE_DIR = ROOT / "sandbox" / "jobs"
+JOBS_REGISTRE_DAYS = 30
+JOBS_REGISTRE_QUEUE = 64 * 1024
+_REGISTRE_RE_JOB = r"job_[0-9a-f]{12}"
+MEMOIRE_AGENT_DIR = ROOT.parents[1] / ".claude" / "projects" / "C--Users-user-Script-python-IA" / "memory"
+JOBS_SORTIES_DAYS = 7
+JOBS_SCRIPTS_DAYS = 30
+_JOBS_SUFFIXES_SORTIE = {".out", ".xml"}
+# Extension du meme jour : bt_*, fouille_*, essai_* et .log, .txt apres 30 jours, sauf cites. Les autres dossiers
+# (invsqrt, ctx_kickmix, wheels_bm25 : tenus par un chantier en pause) restent hors decision.
+JOBS_JETABLES_DAYS = 30
+_JOBS_SUFFIXES_JOURNAL = {".log", ".txt"}
+_JOBS_PREFIXES_JETABLES = ("bt_", "fouille_", "essai_")
+_JOBS_RE_CITE = r"laforge_jobs[/\\]+([\w.-]*\w)"
+
+
+def _jobs_citations_memoire() -> set | None:
+    """Fichiers de laforge_jobs cites par les fiches memoire. None si illisible : un compte sans acces voit
+    un dossier vide sans erreur, donc zero fiche ne vaut pas zero citation."""
+    import re
+
+    try:
+        fiches = list(MEMOIRE_AGENT_DIR.glob("*.md"))
+        if not fiches:
+            return None
+        noms = set()
+        for fiche in fiches:
+            noms.update(re.findall(_JOBS_RE_CITE, fiche.read_text(encoding="utf-8", errors="replace")))
+        return {n.casefold() for n in noms}
+    except OSError:
+        return None
+
+
+def _jobs_citations_depot() -> set | None:
+    """Fichiers de laforge_jobs cites dans le depot, par un seul git grep. None si git ne repond pas."""
+    import re
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["git", "-c", "safe.directory=*", "grep", "-hoIE", r"laforge_jobs[/\\]+[A-Za-z0-9_.-]+"],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return {n.casefold() for n in re.findall(_JOBS_RE_CITE, r.stdout)}
+
+
+def _jobs_usages(limite: float) -> set | None:
+    """Scripts lances par un job dont le dossier date d'apres `limite`. None si le registre est muet ou si un
+    dossier recent est illisible : l'usage de ce job-la est inconnu, pas absent."""
+    import re
+
+    try:
+        vus = 0
+        noms = set()
+        for dossier in JOBS_REGISTRE_DIR.glob("job_*.json"):
+            vus += 1
+            if dossier.stat().st_mtime < limite:
+                continue
+            script = json.loads(dossier.read_text(encoding="utf-8", errors="replace")).get("script")
+            noms.add(re.split(r"[\\/]", str(script or ""))[-1].casefold())
+        return noms if vus else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _jobs_references(texte: str) -> set:
+    """Scripts qu'un script appelle ou importe, par leur nom."""
+    import re
+
+    noms = {n.casefold() for n in re.findall(r"[\w.-]+\.py\b", texte)}
+    noms.update(n.casefold() + ".py" for n in re.findall(r"^\s*(?:from|import)\s+(\w+)", texte, re.M))
+    return noms
+
+
+def _jobs_poids_dossier(racine: Path) -> tuple:
+    """(mtime le plus recent de l'arbre, octets). Leve OSError sur une partie illisible : un dossier qu'on ne lit
+    pas en entier n'a pas d'age connu. Ni lien ni jonction suivis : le retrait ne les traverse pas non plus."""
+    recent = racine.stat().st_mtime
+    octets = 0
+    pile = [racine]
+    while pile:
+        with os.scandir(pile.pop()) as entrees:
+            for entree in entrees:
+                stat = entree.stat(follow_symlinks=False)
+                recent = max(recent, stat.st_mtime)
+                if entree.is_dir(follow_symlinks=False) and not entree.is_junction():
+                    pile.append(entree.path)
+                else:
+                    octets += stat.st_size
+    return recent, octets
+
+
+def _registre_citations_memoire() -> set | None:
+    """job_id cites par les fiches memoire. None si illisible : un compte sans acces voit un dossier vide."""
+    import re
+
+    try:
+        fiches = list(MEMOIRE_AGENT_DIR.glob("*.md"))
+        if not fiches:
+            return None
+        ids = set()
+        for fiche in fiches:
+            ids.update(re.findall(_REGISTRE_RE_JOB, fiche.read_text(encoding="utf-8", errors="replace")))
+        return ids
+    except OSError:
+        return None
+
+
+def _registre_citations_depot() -> set | None:
+    """job_id cites dans le depot, par un seul git grep. None si git ne repond pas."""
+    import subprocess
+
+    try:
+        r = subprocess.run(
+            ["git", "-c", "safe.directory=*", "grep", "-hoIE", _REGISTRE_RE_JOB],
+            cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return set(r.stdout.split()) if r.returncode == 0 else None
+
+
+def _couper_un_journal(journal: Path, mtime: float, taille: int) -> int:
+    """Remplace le journal par sa fin, en coupant a une ligne entiere et en gardant sa date. Rend la taille finale.
+    Entete + fin tiennent dans JOBS_REGISTRE_QUEUE : la passe suivante le voit court et n'y revient pas."""
+    entete = (f"[coupe par forge_log_retention le {time.strftime('%Y-%m-%d')} : {taille} octets, "
+              "fin conservee]\n").encode("utf-8")
+    with open(journal, "rb") as f:
+        f.seek(taille - (JOBS_REGISTRE_QUEUE - len(entete)))
+        fin = f.read()
+    saut = fin.find(b"\n")
+    if saut != -1 and saut + 1 < len(fin):
+        fin = fin[saut + 1:]
+    provisoire = journal.with_name(journal.name + ".coupe")
+    try:
+        provisoire.write_bytes(entete + fin)
+        os.utime(provisoire, (mtime, mtime))
+        os.replace(provisoire, journal)
+    except OSError:
+        try:
+            provisoire.unlink(missing_ok=True)
+        except OSError as e:
+            log.warning("registre: provisoire %s reste: %s", provisoire.name, type(e).__name__)
+        raise
+    return len(entete) + len(fin)
+
+
+def _couper_journaux_registre(dry: bool) -> dict:
+    """sandbox/jobs : un job termine depuis plus de 30 jours et non cite ne garde que la fin de son journal.
+
+    Decision owner 2026-11-05. job_status lit la fin, le verdict y est. Fiche, .rc et .err ne bougent jamais.
+    Termine = .rc present et fiche lisible qui ne dit pas running. A blanc tant que
+    LAFORGE_JOBS_REGISTRE_PURGE n'est pas a `applique`. Citations illisibles = tout garde, et dit.
+    """
+    a_blanc = dry or os.environ.get("LAFORGE_JOBS_REGISTRE_PURGE") != "applique"
+    res = {
+        "registre_mode": "dry-run" if a_blanc else "applique",
+        "registre_zone": "presente",
+        "registre_vus": 0,
+        "registre_recents": 0,
+        "registre_courts": 0,
+        "registre_gardes_vivants": 0,
+        "registre_gardes_cites": 0,
+        "registre_gardes_illisibles": 0,
+        "registre_eligibles": 0,
+        "registre_octets_liberables": 0,
+        "registre_coupes": 0,
+        "registre_octets_liberes": 0,
+        "registre_echecs": 0,
+        "registre_illisible": [],
+    }
+    if not JOBS_REGISTRE_DIR.is_dir():
+        res["registre_zone"] = "absente"
+        return res
+    memoire = _registre_citations_memoire()
+    depot = _registre_citations_depot()
+    if memoire is None or depot is None:
+        res["registre_illisible"].append(
+            "citations " + ("memoire" if memoire is None else "depot") + " illisibles : tout garde")
+        return res
+    cites = memoire | depot
+    limite = time.time() - JOBS_REGISTRE_DAYS * 86400
+
+    def _nommer(motif: str) -> None:
+        if len(res["registre_illisible"]) < 20:
+            res["registre_illisible"].append(motif)
+
+    for journal in JOBS_REGISTRE_DIR.glob("job_*.log"):
+        res["registre_vus"] += 1
+        jid = journal.stem
+        try:
+            st = journal.stat()
+        except OSError as e:
+            res["registre_gardes_illisibles"] += 1
+            _nommer(f"{jid}: {type(e).__name__}")
+            continue
+        if st.st_mtime >= limite:
+            res["registre_recents"] += 1
+            continue
+        if st.st_size <= JOBS_REGISTRE_QUEUE:
+            res["registre_courts"] += 1
+            continue
+        if not (JOBS_REGISTRE_DIR / f"{jid}.rc").exists():
+            res["registre_gardes_vivants"] += 1
+            continue
+        try:
+            fiche = json.loads((JOBS_REGISTRE_DIR / f"{jid}.json").read_text(encoding="utf-8", errors="replace"))
+            statut = fiche["status"] if "status" in fiche else None
+        except (OSError, ValueError, TypeError) as e:
+            res["registre_gardes_illisibles"] += 1
+            _nommer(f"{jid}: fiche {type(e).__name__}")
+            continue
+        if statut == "running":
+            res["registre_gardes_vivants"] += 1
+            continue
+        if jid in cites:
+            res["registre_gardes_cites"] += 1
+            continue
+        res["registre_eligibles"] += 1
+        res["registre_octets_liberables"] += st.st_size - JOBS_REGISTRE_QUEUE
+        if a_blanc:
+            continue
+        try:
+            res["registre_octets_liberes"] += st.st_size - _couper_un_journal(journal, st.st_mtime, st.st_size)
+            res["registre_coupes"] += 1
+        except OSError as e:
+            res["registre_echecs"] += 1
+            _nommer(f"coupe {jid}: {type(e).__name__}")
+    return res
+
+
+def _purge_laforge_jobs(dry: bool) -> dict:
+    """Rotation par age de la racine de C:/tmp/laforge_jobs. Hors decision de l'owner (autres suffixes, autres
+    dossiers) : compte, jamais touche. Citations illisibles : tout est garde. Usage illisible : scripts, journaux
+    et dossiers jetables sont gardes."""
+    try:
+        base = JOBS_TMP_DIR
+        if not base.is_dir():
+            return {"jobs_zone": "absente", "jobs_chemin": str(base)}
+
+        a_blanc = dry or os.environ.get("LAFORGE_JOBS_PURGE") != "applique"
+        maintenant = time.time()
+        limite_sorties = maintenant - JOBS_SORTIES_DAYS * 86400
+        limite_scripts = maintenant - JOBS_SCRIPTS_DAYS * 86400
+        limite_jetables = maintenant - JOBS_JETABLES_DAYS * 86400
+
+        illisible = []
+        memoire = _jobs_citations_memoire()
+        if memoire is None:
+            illisible.append("memoire: fiches illisibles, tout est garde")
+        depot = _jobs_citations_depot()
+        if depot is None:
+            illisible.append("depot: git grep sans reponse, tout est garde")
+        cites = None if memoire is None or depot is None else memoire | depot
+        usages = _jobs_usages(limite_scripts)
+        if usages is None:
+            illisible.append("registre: jobs illisibles, scripts gardes")
+
+        fichiers, scripts, dossiers, jetables, journaux = [], {}, [], [], []
+        hors_fichiers = hors_octets = illisibles = 0
+        for chemin in base.iterdir():
+            try:
+                if chemin.is_symlink() or chemin.is_junction():
+                    hors_fichiers += 1
+                elif chemin.is_dir():
+                    if chemin.name.casefold().startswith(_JOBS_PREFIXES_JETABLES):
+                        jetables.append(chemin)
+                    else:
+                        dossiers.append(chemin.name)
+                elif chemin.suffix.lower() in _JOBS_SUFFIXES_SORTIE:
+                    fichiers.append((chemin, chemin.stat(), limite_sorties))
+                elif chemin.suffix.lower() in _JOBS_SUFFIXES_JOURNAL:
+                    journaux.append((chemin, chemin.stat()))
+                elif chemin.suffix.lower() == ".py":
+                    stat = chemin.stat()
+                    fichiers.append((chemin, stat, limite_scripts))
+                    scripts[chemin.name.casefold()] = (chemin, stat)
+                else:
+                    hors_fichiers += 1
+                    hors_octets += chemin.stat().st_size
+            except OSError:
+                illisibles += 1
+
+        # Un script garde protege ceux qu'il appelle : les graines, puis leurs references, de proche en proche.
+        utiles = set()
+        textes_utiles = []
+        if usages is not None:
+            a_lire = [nom for nom, (_, stat) in scripts.items()
+                      if stat.st_mtime >= limite_scripts or nom in usages or nom in (cites or ())]
+            while a_lire and usages is not None:
+                nom = a_lire.pop()
+                if nom in utiles or nom not in scripts:
+                    continue
+                utiles.add(nom)
+                try:
+                    texte = scripts[nom][0].read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    usages = None
+                    illisible.append("registre: script %s illisible, scripts gardes" % nom)
+                    break
+                textes_utiles.append(texte)
+                a_lire.extend(_jobs_references(texte) - utiles)
+        # Un script garde qui nomme un dossier ou un journal s'en sert peut-etre : garde, meme vieux.
+        nomme = "\n".join(textes_utiles).casefold()
+
+        eligibles = purges = recents = gardes_cites = gardes_usage = gardes_illisibles = 0
+        octets_eligibles = octets_liberes = 0
+        exemples = []
+        for chemin, stat, limite in fichiers:
+            nom = chemin.name.casefold()
+            if stat.st_mtime >= limite:
+                recents += 1
+            elif cites is None:
+                gardes_illisibles += 1
+            elif nom in cites:
+                gardes_cites += 1
+            elif limite == limite_scripts and usages is None:
+                gardes_illisibles += 1
+            elif limite == limite_scripts and nom in utiles:
+                gardes_usage += 1
+            else:
+                eligibles += 1
+                octets_eligibles += stat.st_size
+                if len(exemples) < 25:
+                    exemples.append(chemin.name)
+                if not a_blanc:
+                    try:
+                        chemin.unlink()
+                        purges += 1
+                        octets_liberes += stat.st_size
+                    except OSError:
+                        illisibles += 1
+
+        def _sort_jetable(nom: str, mtime: float) -> str:
+            if mtime >= limite_jetables:
+                return "recent"
+            if cites is None or usages is None:
+                return "illisible"
+            if nom in cites:
+                return "cite"
+            return "usage" if nom in nomme else "eligible"
+
+        for chemin, stat in journaux:
+            nom = chemin.name.casefold()
+            sort = _sort_jetable(nom, stat.st_mtime)
+            recents += sort == "recent"
+            gardes_illisibles += sort == "illisible"
+            gardes_cites += sort == "cite"
+            gardes_usage += sort == "usage"
+            if sort == "eligible":
+                eligibles += 1
+                octets_eligibles += stat.st_size
+                if len(exemples) < 25:
+                    exemples.append(chemin.name)
+                if not a_blanc:
+                    try:
+                        chemin.unlink()
+                        purges += 1
+                        octets_liberes += stat.st_size
+                    except OSError:
+                        illisibles += 1
+
+        dossiers_eligibles = dossiers_purges = 0
+        for chemin in jetables:
+            try:
+                recent, octets = _jobs_poids_dossier(chemin)
+            except OSError as e:
+                illisibles += 1
+                illisible.append("dossier %s: %s, garde" % (chemin.name, type(e).__name__))
+                continue
+            sort = _sort_jetable(chemin.name.casefold(), recent)
+            recents += sort == "recent"
+            gardes_illisibles += sort == "illisible"
+            gardes_cites += sort == "cite"
+            gardes_usage += sort == "usage"
+            if sort == "eligible":
+                dossiers_eligibles += 1
+                octets_eligibles += octets
+                if len(exemples) < 25:
+                    exemples.append(chemin.name + "/")
+                if not a_blanc:
+                    try:
+                        _supprimer_arbre(chemin)
+                    except OSError as e:
+                        illisible.append("retrait %s: %s" % (chemin.name, type(e).__name__))
+                    if chemin.exists():
+                        illisibles += 1
+                    else:
+                        dossiers_purges += 1
+                        octets_liberes += octets
+
+        return {
+            "jobs_chemin": str(base),
+            "jobs_mode": "dry-run" if a_blanc else "applique",
+            "jobs_fichiers_vus": len(fichiers) + len(journaux),
+            "jobs_fichiers_eligibles": eligibles,
+            "jobs_fichiers_purges": purges,
+            "jobs_dossiers_vus": len(jetables),
+            "jobs_dossiers_eligibles": dossiers_eligibles,
+            "jobs_dossiers_purges": dossiers_purges,
+            "jobs_octets_eligibles": octets_eligibles,
+            "jobs_octets_liberes": octets_liberes,
+            "jobs_gardes_recents": recents,
+            "jobs_gardes_cites": gardes_cites,
+            "jobs_gardes_usage": gardes_usage,
+            "jobs_gardes_illisibles": gardes_illisibles,
+            "jobs_illisibles": illisibles,
+            "jobs_illisible": illisible,
+            "jobs_hors_decision_fichiers": hors_fichiers,
+            "jobs_hors_decision_octets": hors_octets,
+            "jobs_hors_decision_dossiers": sorted(dossiers),
+            "jobs_exemples": exemples,
+        }
+    except Exception as e:
+        return {"jobs_error": str(e)[:120]}
+
+
 def _purge_audit(dry: bool) -> dict:
     """Réutilise forge_audit_log.purge_older_than (audit.db http-level)."""
     if dry:
@@ -1100,6 +1524,24 @@ def _purge_qdrant_sync_pending(dry: bool) -> dict:
         con.close()
 
 
+def _purge_context_ledger(dry: bool) -> dict:
+    """context_ledger (sandbox/context_ledger.db, app/forge_context_ledger.py) : index de pointeurs,
+    une ligne par URI. Les pointeurs ccr/run_sortie dont la cible a disparu partent
+    (ContextLedger.purger_pointeurs_morts) ; base absente = rien a faire."""
+    try:
+        from nokido_agent.app.forge_db_path import racine_donnees
+        racine = racine_donnees()
+        if not (racine / "sandbox" / "context_ledger.db").exists():
+            return {"skipped": "pas de context_ledger.db"}
+        from nokido_agent.app.forge_context_ledger import ContextLedger
+        led = ContextLedger(db_path=racine / "sandbox" / "context_ledger.db", racine=racine)
+        # Purge EN CASCADE : context_arcs et context_fts d'un pointeur mort partent avec lui
+        # (P1 2026-11-08) ; les arcs sont en outre bornes a ARCS_MEME_TACHE par pointeur.
+        return led.purger_pointeurs_morts(dry=dry)
+    except Exception as e:  # noqa: BLE001 -- une purge en echec ne bloque pas les autres
+        return {"skipped": str(e)[:80]}
+
+
 def _purge_loop_lag(dry: bool) -> dict:
     """logs/loop_lag.log (LoopSentinel) : dumps de stacks a chaque blocage de
     l'event-loop du hub. Chaque entree fait des DIZAINES de lignes (toutes les
@@ -1854,6 +2296,17 @@ def _surveiller_conversation_log(dry: bool) -> dict:
         con.close()
 
 
+# Tables purgees hors d'ici : {table: (module, appel qui la purge)}. Le garde firehose ne cherche que leur nom dans ce
+# fichier, d'ou cette declaration ; test_firehose_tables_purgees_ailleurs_nr verifie que chaque appel cite existe.
+# Mesure du 5/11 : critical_events.db 2,02 Mo, evenements traites de 7,0 j au plus, flaps du seul jour courant.
+PURGEES_AILLEURS = {
+    "forge_critical_events": ("app/forge_glymphatic_gc.py", "purge_older_than(days=7)"),
+    "alertes_owner": ("app/forge_glymphatic_gc.py", "purger_alertes(jours=30)"),
+    "alertes_etat": ("app/forge_glymphatic_gc.py", "purger_alertes(jours=30)"),
+    "alertes_flaps": ("app/forge_critical_events.py", "DELETE FROM alertes_flaps WHERE jour = ?"),
+}
+
+
 def run_retention(dry: bool = False) -> dict:
     t0 = time.monotonic()
     res = {
@@ -1868,6 +2321,7 @@ def run_retention(dry: bool = False) -> dict:
         "core_memory": _purge_core_memory(dry),
         "veille_url_morte": _purge_veille_url_morte(dry),
         "loop_lag": _purge_loop_lag(dry),
+        "context_ledger": _purge_context_ledger(dry),
         "autonomous_loops": _purge_autonomous_loops(dry),
         "proprioception_snapshots": _purge_proprioception_snapshots(dry),
         "edges": _purge_edges(dry),
@@ -1899,6 +2353,8 @@ def run_retention(dry: bool = False) -> dict:
         "bridge_logs": _purge_bridge_logs(dry),
         "inspector_log": _purge_inspector_log(dry),
         "workspace_tmp": _purge_workspace_tmp(dry),
+        "laforge_jobs": _purge_laforge_jobs(dry),
+        "jobs_registre": _couper_journaux_registre(dry),
         "vacuum": _vacuum(dry),
         "elapsed_s": None,
     }

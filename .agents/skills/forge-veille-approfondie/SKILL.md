@@ -63,8 +63,13 @@ Méthode A — direct Python (recommandé, contourne bug 500 sur /api/watch/jobs
 
 ```python
 import os, sys
-sys.path.insert(0, os.path.expanduser(r"~\Script python IA\Nokido\app"))
+# RACINE du depot ET app/ : forge_watch_agent importe `nokido_agent.app.*` -- avec app/ seul, le job meurt en
+# « No module named 'nokido_agent' » (paye le 2/11 : 4 veilles jamais creees, rc=1 non verifie).
+_R = os.path.expanduser(r"~\Script python IA\Nokido")
+sys.path[:0] = [_R, os.path.join(_R, "app")]
 from forge_watch_agent import create_job
+# URL CONNUES (owner 2/11, 724498394) : create_job(theme, urls=[...]) -> chaine courte crawl4ai -> ingest -> store,
+# par le MEME workflow officiel (http(s) seulement). Jamais un script maison pour « gagner du temps ».
 
 chain_id = create_job(
     theme="Spin Fermyon WebAssembly framework SpinKube WASI components 2026",

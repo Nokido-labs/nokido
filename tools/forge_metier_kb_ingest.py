@@ -109,7 +109,10 @@ def ingest(slug: str, url: str, max_chunks: int = 40) -> dict:
     inseres = 0
     try:
         with open_writer() as con:
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
             for i, m in enumerate(morceaux):
+                if not admis_a_l_ingestion(url, m):
+                    continue
                 cid = "kbdoc_" + hashlib.sha256((kb_domain + dom_url + str(i)).encode()).hexdigest()[:16]
                 con.execute(
                     "INSERT OR REPLACE INTO rag_chunks(id, text, source, domain) VALUES(?,?,?,?)",

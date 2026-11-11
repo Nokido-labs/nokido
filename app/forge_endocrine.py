@@ -191,6 +191,16 @@ DEFAULT_HALF_LIVES = {
 # NEUF declare son organe — le code nourrit le corps »).
 __FORGE_COLOR__ = "vegetatif/endocrine"
 
+# Homologue biologique (owner 3/11, debat 1 tour 2, proposition Q3).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "demi-vie et clairance hormonale",
+    "nature": "biologie",
+    "termes": "hormone half-life clearance receptor saturation",
+    "sources": ["openstax:m46665"],
+    "invariant": "un signal hormonal multi-source sature a son plafond et s'efface a l'extinction active",
+    "nr": "tests/nr/test_endocrine_multisource_nr.py",
+}
+
 SATURATION_CEILING = 1.0
 
 RECEPTORS: dict[str, tuple[str, ...]] = {
@@ -203,6 +213,9 @@ RECEPTORS: dict[str, tuple[str, ...]] = {
     "ADRENALINE_HUB_PRESSURE": (),
     "DIALOGUE_SATISFACTION": (),
     "NORADRENALINE_PRESSION_RAM": ("tools/forge_task_executor.py",),
+    # 3/11 (owner) : transe de guerison du RSI. Emise a TTL par forge_self_patcher.transe_de_guerison (clairance : une
+    # transe qui plante ne reste pas active), eteinte en sortie ; lue par la soif (lethargie) et par le RSI (mutation).
+    "CYTOKINE_RSI": ("app/forge_epistemic_veille.py", "tools/forge_self_patcher.py"),
 }
 
 # Une absence de récepteur ASSUMÉE doit être motivée, sinon on ne distingue pas

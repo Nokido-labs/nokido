@@ -30,6 +30,8 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
+TOOLS_DIR = ROOT / "tools"
+_RACINES_IMPORT = {"nokido_agent", "app", "tools"}
 
 # Racines virtuelles : fichiers qui importent forge_* sans etre des forge_*.py
 # C'est crucial pour ne pas compter Nokido.py et mcp_server_tools.py comme orphelins
@@ -50,7 +52,7 @@ _IMPORTS_CACHE: Dict[str, tuple] = {}
 # L'IMPORTS_CACHE SUR DISQUE (integre de 85cc404d9, NEMOTRON, GREEN de 9356d4517 ; mesure : scan 4 091 ms a froid ->
 # 39 ms) : la memoire meurt avec le processus, ce cache lui survit. Le premier _extract_imports du processus relit
 # _CACHE_DISQUE ; un fichier dont (mtime_ns, taille) n'a pas bouge n'est pas re-parse au demarrage suivant.
-_CACHE_DISQUE: Path = ROOT / "sandbox" / "cache" / "panorama_imports.json"
+_CACHE_DISQUE: Path = ROOT / "sandbox" / "cache" / "panorama_imports_v3.json"  # v2 : extraction corrigee le 2026-11-05
 _CACHE_CHARGE = False           # le disque a-t-il ete consulte (y compris "fichier absent") ?
 _CACHE_MODIFIES: set = set()    # fichiers recalcules depuis le dernier chargement/ecriture
 
@@ -123,6 +125,13 @@ def _extract_imports(py_path: Path) -> Set[str]:
     return set(mods)
 
 
+def _segments_internes(segments: List[str]) -> Set[str]:
+    """Modules nommes par un chemin d'import : tout segment d'un chemin interne, ou tout `forge_*`."""
+    if segments[0] in _RACINES_IMPORT:
+        return {s for s in segments if s not in _RACINES_IMPORT}
+    return {s for s in segments if s.startswith("forge_")}
+
+
 def _extract_imports_brut(py_path: Path) -> Set[str]:
     """Parse reel (sans cache) : modules importes par py_path."""
     try:
@@ -131,23 +140,36 @@ def _extract_imports_brut(py_path: Path) -> Set[str]:
     except (SyntaxError, OSError):
         return set()
 
+    # Le premier segment seul perdait 1 967 imports sur 2 004 (mesure 2026-11-05) : `nokido_agent.app.forge_x` donnait
+    # `nokido_agent`, et le graphe tombait a 34 aretes. Les segments forge_* et les modules importes depuis un paquet
+    # s'ajoutent ; un symbole importe DEPUIS un forge_x reste un symbole, meme s'il porte le nom d'un module.
     mods: Set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 mods.add(alias.name.split(".")[0])
+                mods.update(_segments_internes(alias.name.split(".")))
         elif isinstance(node, ast.ImportFrom):
+            segments = (node.module or "").split(".")
             if node.module:
-                mods.add(node.module.split(".")[0])
+                mods.add(segments[0])
+                mods.update(_segments_internes(segments))
+            if not segments[-1].startswith("forge_"):
+                paquet = segments[-1] in ("app", "tools")
+                mods.update(a.name for a in node.names if paquet or a.name.startswith("forge_"))
     return mods
 
 
-def scan_forge_modules(include_virtual_roots: bool = True) -> Dict[str, Set[str]]:
+def scan_forge_modules(include_virtual_roots: bool = True, include_tools: bool = False) -> Dict[str, Set[str]]:
     """Scanne app/forge_*.py et retourne {module: set(imports_internes)}.
 
     Si include_virtual_roots=True, ajoute aussi Nokido.py, mcp_server_tools.py
     et bootstrap.py comme racines virtuelles (ils importent forge_* sans etre
     eux-memes des forge_*.py). Crucial pour eviter les faux orphelins.
+
+    Si include_tools=True, ajoute tools/*.py : un outil qui importe un module fait partie de ce qu'une
+    modification casse. Un homonyme app/tools fusionne ses imports. Explicite : les lecteurs du panorama
+    et du schema d'architecture gardent leur perimetre.
     """
     graph: Dict[str, Set[str]] = {}
     if not APP_DIR.is_dir():
@@ -155,6 +177,8 @@ def scan_forge_modules(include_virtual_roots: bool = True) -> Dict[str, Set[str]
 
     # Modules Nokido internes detectables
     internal_names = {p.stem for p in APP_DIR.glob("forge_*.py")}
+    outils = [p for p in TOOLS_DIR.glob("*.py") if not p.stem.startswith("_")] if include_tools else []
+    internal_names |= {p.stem for p in outils}
 
     for py_path in APP_DIR.glob("forge_*.py"):
         mod_name = py_path.stem
@@ -172,6 +196,11 @@ def scan_forge_modules(include_virtual_roots: bool = True) -> Dict[str, Set[str]
             all_imports = _extract_imports(vroot)
             internal_deps = all_imports & internal_names
             graph[mod_name] = internal_deps
+
+    for py_path in outils:
+        internal_deps = _extract_imports(py_path) & internal_names
+        internal_deps.discard(py_path.stem)
+        graph.setdefault(py_path.stem, set()).update(internal_deps)
 
     # Persistance : seulement si au moins une entree a ete recalculee ; un echec est dit, jamais leve.
     _persister_imports()

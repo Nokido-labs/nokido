@@ -123,8 +123,10 @@ def test_incrementale_ne_rend_que_les_tours_fermes(tmp_path):
     assert g4 == []
 
 
-def test_la_porte_differe_si_ci_vivante_ou_pression(tmp_path):
+def test_la_porte_differe_si_ci_vivante_ou_pression(tmp_path, monkeypatch):
     import os
+    from nokido_agent.app import forge_resource_manager as rm
+    monkeypatch.setattr(rm, "_lire_baux", lambda: [])
     jobs = tmp_path / "jobs"
     jobs.mkdir()
     (jobs / "job_x.json").write_text(json.dumps({"job_id": "job_x", "script": "tools/ci_local.py", "pid": os.getpid()}))

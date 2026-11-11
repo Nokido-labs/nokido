@@ -748,25 +748,311 @@ def _action_funnel(ouvrir: bool) -> None:
     _action_tailscale_statut()
 
 
-def _action_dev_armer() -> None:
-    """Owner 2026-10-16 : « simplifier la bascule mode dev direct dans la tray ». forge_dev_mode EXIGE un
-    ADMINISTRATEUR (le jeton doit etre illisible par les comptes sandbox) : on ouvre une console ELEVEE (UAC) qui arme
-    puis reste ouverte sur son issue. Valider l'UAC EST le geste owner ; rien n'est contourne. Le mode DEV expire seul
-    au bout de 30 min (pas de geste de desarmement a proposer)."""
+# ---------------------------------------------------------------------------
+# Gardien du Funnel (owner 2026-11-03 : « une prothese qui devrait etre auto geree a la
+# demande »). Mesure du 3/11 04:17 : claude.ai Nokido en 502, pont 8793 SAIN (OAuth compris),
+# requete jamais arrivee -- Tailscale n'etait pas lance et rien ne le surveillait. Un appelant
+# exterieur ne peut pas reveiller un tunnel absent (meme lecon que neverSleep du 01/10) : la
+# DEMANDE est donc le connecteur des pairs DECLARE actif, et le tray (session owner, seule a
+# laquelle l'API Tailscale repond) lance `--action funnel-garder` a sa cadence.
+# NR : tests/nr/test_gardien_funnel_tray_nr.py
+# ---------------------------------------------------------------------------
+SERVICES_TOML = ROOT / "proxy_deno" / "core" / "services.toml"
+SERVICE_PAIRS = "NokidoPairMCP"
+JOURNAL_GARDIEN_FUNNEL = ROOT / "logs" / "gardien_funnel.jsonl"
+TAILSCALE_GUI = TAILSCALE_EXE.with_name("tailscale-ipn.exe")
+_GESTES_FUNNEL = ("lancer_gui", "tailscale_up", "ouvrir_funnel")
+
+
+def demande_funnel(texte_toml: str | None = None) -> bool:
+    """Le connecteur des pairs est-il DECLARE actif ? Illisible -> False : dans le doute le
+    gardien S'ABSTIENT (ne jamais ouvrir une exposition publique sur une lecture ratee)."""
+    try:
+        import tomllib
+        if texte_toml is None:
+            texte_toml = SERVICES_TOML.read_text(encoding="utf-8")
+        services = tomllib.loads(texte_toml).get("service", [])
+    except Exception:  # muet-ok : abstention, l'action le journalise (demande=False)
+        return False
+    return any(isinstance(s, dict) and s.get("name") == SERVICE_PAIRS and not s.get("disabled", False)
+               for s in services)
+
+
+def _funnel_vers_pairs(funnel) -> bool:
+    """Vrai seulement si un hote :443 PUBLIC (AllowFunnel) proxifie vers PORT_PAIRS."""
+    if not isinstance(funnel, dict):
+        return False
+    publics = {h for h, v in (funnel.get("AllowFunnel") or {}).items() if v}
+    for hote, web in (funnel.get("Web") or {}).items():
+        if hote not in publics or not str(hote).endswith(":443"):
+            continue
+        for h in ((web or {}).get("Handlers") or {}).values():
+            if re.search(r":%d/?$" % PORT_PAIRS, str((h or {}).get("Proxy", ""))):
+                return True
+    return False
+
+
+def verdict_funnel(demande: bool, backend: str | None, funnel) -> str:
+    """Pur. Liste BLANCHE : seul Running + Funnel 443 -> 8793 public est `ok` ; tout etat
+    inattendu `attendre` (jamais range du cote sain, jamais un geste a l'aveugle)."""
+    if not demande:
+        return "rien"
+    # NoState (6/11) : tailscaled tourne apres le boot, aucune GUI ne l'a pris en main.
+    if backend is None or backend == "NoState":
+        return "lancer_gui"
+    if backend == "Stopped":
+        return "tailscale_up"
+    if backend == "NeedsLogin":
+        return "geste_owner"
+    if backend != "Running":
+        return "attendre"
+    return "ok" if _funnel_vers_pairs(funnel) else "ouvrir_funnel"
+
+
+def _lire_tailscale() -> tuple:
+    """(backend|None, funnel|None, detail). backend None = CLI injoignable (GUI absente) ;
+    « already in use » = autre session : etat `AutreSession`, qui fait attendre."""
+    r = _tailscale("status", "--json")
+    sortie = (r.stdout or "") + (r.stderr or "")
+    backend = None
+    try:
+        backend = json.loads(r.stdout or "").get("BackendState") or None
+    except (ValueError, AttributeError):
+        if "already in use" in sortie:
+            backend = "AutreSession"
+    funnel = None
+    if backend == "Running":
+        f = _tailscale("funnel", "status", "--json")
+        if f.returncode == 0:
+            try:
+                funnel = json.loads(f.stdout or "{}")
+            except ValueError:
+                funnel = None
+    return backend, funnel, sortie.strip()[:200]
+
+
+# ── Gardien de mise a jour d'Ollama (owner 3/11 : « Nokido pilote les mises a jour ») ──────────────────────────────
+# Cause PROUVEE (upgrade.log, 17:08) : l'app Ollama lance son installateur pendant que NokidoOllama (deno <- nssm <-
+# services, session 0) tient ollama.exe -> RestartManager « Permission Denied + Session Mismatch », DeleteFile 5,
+# Abort, retour arriere = moteurs supprimes. Le gardien installe AU BON MOMENT, dans la session de l'owner
+# (installation par utilisateur), service arrete et tenu ; l'app ne demarre plus seule (son auto-installation est la
+# cause) et le gardien cherche lui-meme les nouvelles versions, une fois par jour. NR test_gardien_maj_ollama_nr.
+_LOCAL = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+OLLAMA_DIR = _LOCAL / "Programs" / "Ollama"
+OLLAMA_SETUP = _LOCAL / "Ollama" / "OllamaSetup.exe"
+DEMARRAGE_OLLAMA = (Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")) / "Microsoft" / "Windows"
+                    / "Start Menu" / "Programs" / "Startup" / "Ollama.lnk")
+JOURNAL_GARDIEN_OLLAMA = ROOT / "logs" / "gardien_maj_ollama.jsonl"
+_VERIF_VERSION_OLLAMA = ROOT / "sandbox" / "gardien_ollama_version.json"
+
+
+def verdict_maj_ollama(setup_mtime, exe_mtime, moteur_present) -> str:
+    """Pur. Rien sans installateur ; « reparer » si le moteur manque, « installer » si l'installateur est plus recent."""
+    if not moteur_present:
+        return "reparer" if setup_mtime else "geste_owner"
+    if setup_mtime and exe_mtime and setup_mtime > exe_mtime + 60:
+        return "installer"
+    return "rien"
+
+
+def version_plus_recente(publiee, installee) -> bool:
+    """Pur. Une version illisible rend False : jamais un telechargement a l'aveugle."""
+    def _t(v):
+        try:
+            return tuple(int(x) for x in str(v).lstrip("v").split("-")[0].split("."))
+        except (TypeError, ValueError):
+            return None
+    a, b = _t(publiee), _t(installee)
+    return bool(a and b and a > b)
+
+
+def _verifier_version_ollama():
+    """Une fois par jour : telecharge l'installateur si une version publiee depasse l'installee. Trace, ou None."""
+    import re as _re
+    import urllib.request as _ur
+    try:
+        if time.time() - float(json.loads(_VERIF_VERSION_OLLAMA.read_text(encoding="utf-8")).get("ts", 0)) < 86400:
+            return None
+    except (OSError, ValueError):  # muet-ok : pas encore de trace = verification due
+        pass
+    trace = {"ts": time.time()}
+    try:
+        r = subprocess.run([str(OLLAMA_DIR / "ollama.exe"), "--version"], capture_output=True, text=True,
+                           errors="replace", timeout=20,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        m = _re.search(r"(\d+\.\d+\.\d+)", (r.stdout or "") + (r.stderr or ""))
+        trace["installee"] = m.group(1) if m else None
+        rel = json.loads(_ur.urlopen(_ur.Request("https://api.github.com/repos/ollama/ollama/releases/latest",
+                                                 headers={"User-Agent": "Nokido"}), timeout=20).read())
+        trace["publiee"] = str(rel.get("tag_name") or "").lstrip("v") or None
+        if version_plus_recente(trace["publiee"], trace["installee"]):
+            OLLAMA_SETUP.parent.mkdir(parents=True, exist_ok=True)
+            _ur.urlretrieve("https://github.com/ollama/ollama/releases/download/v%s/OllamaSetup.exe" % trace["publiee"],
+                            str(OLLAMA_SETUP))
+            trace["telecharge"] = True
+    except Exception as e:  # noqa: BLE001 -- verification impossible : DITE dans la trace, aucun geste
+        trace["erreur"] = type(e).__name__
+    try:
+        _VERIF_VERSION_OLLAMA.parent.mkdir(parents=True, exist_ok=True)
+        _VERIF_VERSION_OLLAMA.write_text(json.dumps(trace), encoding="utf-8")
+    except OSError as e:
+        trace["trace_non_ecrite"] = type(e).__name__
+    return trace
+
+
+def _telecharger_installateur_ollama() -> bool:
+    """Installateur OFFICIEL (ollama.com -> GitHub) vers OLLAMA_SETUP. 3/11 18 h : l'app avait retire le sien apres
+    son echec, et le gardien renvoyait la panne a l'owner. True si le fichier est la apres coup."""
+    import urllib.request as _ur
+    try:
+        OLLAMA_SETUP.parent.mkdir(parents=True, exist_ok=True)
+        _ur.urlretrieve("https://ollama.com/download/OllamaSetup.exe", str(OLLAMA_SETUP))
+    except Exception as e:  # noqa: BLE001 -- telechargement impossible : DIT au journal par l'appelant
+        print("[gardien-ollama] installateur NON telecharge (%s)" % type(e).__name__)
+    return OLLAMA_SETUP.is_file()
+
+
+def _journal_gardien_ollama(entree: dict) -> None:
+    try:
+        JOURNAL_GARDIEN_OLLAMA.parent.mkdir(parents=True, exist_ok=True)
+        with open(JOURNAL_GARDIEN_OLLAMA, "a", encoding="utf-8") as h:
+            h.write(json.dumps(entree, ensure_ascii=False, default=str) + "\n")
+    except OSError as exc:
+        print("[gardien-ollama] journal NON ecrit (%s)" % type(exc).__name__)
+
+
+def _action_ollama_maj() -> bool:
+    """Agit puis RELIT (REQUESTED != ACHIEVED). True = moteur present (ou rien a faire)."""
+    entree = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "gestes": []}
+    try:
+        entree["version"] = _verifier_version_ollama()
+    except Exception as e:  # noqa: BLE001
+        entree["version"] = {"erreur": type(e).__name__}
+
+    def _mt(p):
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return None
+    v = verdict_maj_ollama(_mt(OLLAMA_SETUP), _mt(OLLAMA_DIR / "ollama.exe"), (OLLAMA_DIR / "lib" / "ollama").is_dir())
+    if v == "geste_owner" and _telecharger_installateur_ollama():
+        entree["gestes"].append("installateur telecharge")
+        v = verdict_maj_ollama(_mt(OLLAMA_SETUP), _mt(OLLAMA_DIR / "ollama.exe"),
+                               (OLLAMA_DIR / "lib" / "ollama").is_dir())
+    entree["verdict"] = v
+    # A CHAQUE passage (3/11 18 h) : toute installation recree le raccourci de demarrage de l'app Ollama, dont
+    # l'auto-installation pendant que NokidoOllama tient ollama.exe est la cause de la casse.
+    try:
+        if DEMARRAGE_OLLAMA.exists():
+            DEMARRAGE_OLLAMA.replace(DEMARRAGE_OLLAMA.with_name(DEMARRAGE_OLLAMA.name + ".nokido_off"))
+            entree["demarrage_auto"] = "retire"
+    except OSError as e:
+        entree["demarrage_auto"] = "NON retire (%s)" % type(e).__name__
+    if v not in ("reparer", "installer"):
+        entree["verdict_final"] = v
+        _journal_gardien_ollama(entree)
+        return v == "rien"
+    sans = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    ctl = [sys.executable, str(ROOT / "tools" / "forge_supervisor_ctl.py")]
+    subprocess.run(ctl + ["stop", "NokidoOllama"], capture_output=True, text=True, errors="replace", timeout=180,
+                   creationflags=sans)
+    entree["gestes"].append("stop NokidoOllama (tenu)")
+    subprocess.run([str(OLLAMA_SETUP), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], timeout=900,
+                   creationflags=sans)
+    entree["gestes"].append("installation silencieuse")
+    subprocess.run(["taskkill", "/IM", "ollama app.exe", "/F"], capture_output=True, text=True, errors="replace",
+                   timeout=30,
+                   creationflags=sans)
+    try:
+        if DEMARRAGE_OLLAMA.exists():
+            DEMARRAGE_OLLAMA.replace(DEMARRAGE_OLLAMA.with_name(DEMARRAGE_OLLAMA.name + ".nokido_off"))
+            entree["gestes"].append("demarrage automatique de l'app retire")
+    except OSError as e:
+        entree["demarrage_auto"] = "NON retire (%s)" % type(e).__name__
+    ok = (OLLAMA_DIR / "lib" / "ollama").is_dir()
+    if ok:
+        try:   # sinon l'installateur, plus recent que les fichiers datés de l'archive, serait rejoue a chaque passage
+            OLLAMA_SETUP.replace(OLLAMA_SETUP.with_name(OLLAMA_SETUP.name + ".installe"))
+        except OSError as e:
+            entree["installateur"] = "NON archive (%s)" % type(e).__name__
+    subprocess.run(ctl + ["start", "NokidoOllama"], capture_output=True, text=True, errors="replace", timeout=180,
+                   creationflags=sans)
+    entree["gestes"].append("start NokidoOllama")
+    entree["verdict_final"] = "ok" if ok else "echec_moteur_absent"
+    _journal_gardien_ollama(entree)
+    return ok
+
+
+def _journal_gardien(entree: dict) -> None:
+    try:
+        JOURNAL_GARDIEN_FUNNEL.parent.mkdir(parents=True, exist_ok=True)
+        with open(JOURNAL_GARDIEN_FUNNEL, "a", encoding="utf-8") as h:
+            h.write(json.dumps(entree, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print("[gardien-funnel] journal NON ecrit (%s)" % type(exc).__name__)
+
+
+def _action_funnel_garder() -> bool:
+    """Agit puis RELIT (REQUESTED != ACHIEVED). True = Funnel ok, ou aucune demande."""
+    entree = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "demande": demande_funnel(), "gestes": []}
+    if not entree["demande"]:
+        entree["verdict_final"] = "rien"
+        _journal_gardien(entree)
+        return True
+    if not TAILSCALE_EXE.exists():
+        entree.update(verdict_final="tailscale_absent", detail=str(TAILSCALE_EXE))
+        _journal_gardien(entree)
+        print("[gardien-funnel] tailscale.exe ABSENT : %s" % TAILSCALE_EXE)
+        return False
+    backend, funnel, detail = _lire_tailscale()
+    verdict = entree["verdict_initial"] = verdict_funnel(True, backend, funnel)
+    for _ in range(3):  # au plus GUI -> up -> funnel, chaque geste suivi d'une relecture
+        if verdict not in _GESTES_FUNNEL or verdict in entree["gestes"]:
+            break
+        entree["gestes"].append(verdict)
+        if verdict == "lancer_gui":
+            if TAILSCALE_GUI.exists():
+                subprocess.Popen([str(TAILSCALE_GUI)], creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+            time.sleep(15)
+        elif verdict == "tailscale_up":
+            _tailscale("up")
+            time.sleep(10)
+        else:
+            _tailscale("funnel", "--bg", str(PORT_PAIRS))
+        backend, funnel, detail = _lire_tailscale()
+        verdict = verdict_funnel(True, backend, funnel)
+    entree.update(verdict_final=verdict, backend=backend, detail=detail if verdict != "ok" else "")
+    _journal_gardien(entree)
+    if entree["gestes"]:
+        _action_tailscale_statut()
+    print("[gardien-funnel] %s -> %s (gestes : %s)" % (entree["verdict_initial"], verdict,
+                                                      ", ".join(entree["gestes"]) or "aucun"))
+    return verdict == "ok"
+
+
+def _console_elevee(etiquette: str, script: str, *arguments: str) -> bool:
+    """Console ELEVEE (UAC) qui lance un outil et reste ouverte sur son issue. Valider l'UAC EST le geste owner."""
     try:
         from nokido_agent.app.forge_python_bin import LAFORGE_PYTHON as py
     except Exception:  # noqa: BLE001 - repli dit : le python du panneau, en console
         py = str(Path(sys.executable).with_name("python.exe"))
-    script = ROOT / "tools" / "forge_dev_mode.py"
-    args = subprocess.list2cmdline(["/k", str(py), str(script), "arm"]).replace("'", "''")
+    args = subprocess.list2cmdline(["/k", str(py), str(ROOT / "tools" / script), *arguments]).replace("'", "''")
     r = subprocess.run(["powershell.exe", "-NoProfile", "-Command",
                         "Start-Process -FilePath cmd.exe -Verb RunAs -ArgumentList '%s'" % args],
                        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
-        print("[dev] console administrateur NON ouverte (rc=%s) : %s -- UAC refusee ?"
-              % (r.returncode, (r.stderr or r.stdout).strip()[:300]))
-        return
-    print("[dev] console administrateur ouverte : elle arme le mode DEV (30 min) et affiche l'issue")
+        print("[%s] console administrateur NON ouverte (rc=%s) : %s -- UAC refusee ?"
+              % (etiquette, r.returncode, (r.stderr or r.stdout).strip()[:300]))
+        return False
+    return True
+
+
+def _action_dev_armer() -> None:
+    """Owner 2026-10-16 : « simplifier la bascule mode dev direct dans la tray ». forge_dev_mode EXIGE un
+    ADMINISTRATEUR (le jeton doit etre illisible par les comptes sandbox). Le mode DEV expire seul au bout de 30 min
+    (pas de geste de desarmement a proposer)."""
+    if _console_elevee("dev", "forge_dev_mode.py", "arm"):
+        print("[dev] console administrateur ouverte : elle arme le mode DEV (30 min) et affiche l'issue")
 
 
 def _action_audio_relancer() -> bool:
@@ -777,6 +1063,13 @@ def _action_audio_relancer() -> bool:
         timeout=60,
     )
     return r.returncode == 0
+
+
+def _action_audit_processus() -> None:
+    """Owner 6/11 : « active l'audit d'evenements, gouverne par nokido ». auditpol exige un ADMINISTRATEUR : la console
+    applique et relit l'etat atteint."""
+    if _console_elevee("audit", "forge_audit_processus.py", "--activer"):
+        print("[audit] console administrateur ouverte : elle active l'audit, relit l'etat et affiche l'issue")
 
 
 # Actions exposees au mode CLI. start/stop/restart lancent les .ps1 du Bureau, qui
@@ -793,11 +1086,15 @@ ACTIONS = {
     "tailscale-statut": lambda: _action_tailscale_statut(),
     "funnel-ouvrir": lambda: _action_funnel(True),
     "funnel-fermer": lambda: _action_funnel(False),
+    "funnel-garder": lambda: _action_funnel_garder(),
+    "ollama-maj": lambda: _action_ollama_maj(),
     "dev-armer": lambda: _action_dev_armer(),
     "audio-relancer": lambda: _action_audio_relancer(),
+    "audit-processus": lambda: _action_audit_processus(),
 }
 # dev-armer : l'UAC n'apparait que dans la session interactive de l'owner.
-ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart", "lancer", "dev-armer", "audio-relancer")
+ACTIONS_BUREAU_SEULEMENT = ("start", "stop", "restart", "lancer", "dev-armer", "audio-relancer", "ollama-maj",
+                            "audit-processus")
 
 
 def _cli(action: str) -> int:

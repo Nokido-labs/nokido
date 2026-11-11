@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """forge_wasm_sandbox.py — tier d'exécution WASM RÉEL (« tend enfin vers le wasm »).
 
-ÉTAT (mesuré) : `run sandbox=wasm` est aujourd'hui NATIF-labellé (forge_sandbox_exec n'a aucun backend
-wasm). MAIS le substrat wasm RÉEL existe déjà (forge_wasm_cervelet) : wasmtime-py (isolation locale) +
+ÉTAT (2026-11-05) : `run action=python sandbox=wasm` tourne en CPython WASI (`forge_sandbox_exec.executer_wasm`,
+refus sans repli natif) ; `run action=shell sandbox=wasm` attend un module .wasm ou une URL.
+Le substrat wasm RÉEL existe aussi côté modules (forge_wasm_cervelet) : wasmtime-py (isolation locale) +
 Deno wasm `:7401/api/wasm/run` + wasmedge Docker (WSL). Il sert l'embedder cervelet, PAS l'isolation
 d'exécution. Ici on l'EXPOSE comme un VRAI tier sandbox — on n'écrit pas un interpréteur, on câble l'existant.
 

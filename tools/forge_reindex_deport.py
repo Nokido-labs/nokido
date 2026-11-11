@@ -161,6 +161,27 @@ def _apply_vault_keys_to_fre(fre) -> list:
          "enabled": bool(fre.CF_ACCOUNT and fre.CF_KEY)},
         {"name": "Nvidia", "fn": fre.nvidia_embed, "enabled": bool(fre.NVIDIA)},
     ]
+    # MODAL (2026-11-07) : bge-m3 deploye (forge_embed_router._modal_call), absent de ce
+    # drain alors que le routeur l'a. DERRIERE UN INTERRUPTEUR : l'espace commun avec le
+    # local n'est prouve que sur 12 phrases (cos >= 0,9990, 05/11) ; tant que le protocole
+    # rendu_drain_modal_cloudflare_20261107.md (section protocole) n'a pas conclu, aucun vecteur Modal en base.
+    # Le demarrage a froid (~66 s) impose une tolerance d'election > 25 s.
+    if os.environ.get("LAFORGE_EMBED_MODAL_VALIDE", "").strip() == "1":
+        try:
+            from nokido_agent.app.forge_embed_router import _modal_call as _appel_modal
+
+            def _embed_modal(textes: list) -> list:
+                vecs = _appel_modal(textes, timeout=float(
+                    os.environ.get("LAFORGE_EMBED_MODAL_TIMEOUT_S", "150")))
+                if (not vecs or len(vecs) != len(textes)
+                        or any(len(v) != 1024 for v in vecs)):
+                    raise RuntimeError("modal sans reponse exploitable (cause: journal [embed:modal])")
+                return vecs
+
+            fre.PROVIDERS.append({"name": "Modal", "fn": _embed_modal, "enabled": True,
+                                  "duree_max": 150.0})
+        except Exception as exc:  # noqa: BLE001
+            log("  Modal non cable (%s)" % type(exc).__name__)
     try:
         _app = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app")
         if _app not in sys.path:
@@ -292,6 +313,30 @@ def predicat_a_vectoriser(conn) -> str:
     return "%s AND embedding IS NULL" % hot_tier_clause(conn)
 
 
+def _elire_provider(candidats: list, B: int, now=None):
+    """Premier provider qui REPOND, dans l'ordre. Un essai par provider, jamais de reprise :
+    un 429 (Cloudflare) l'ecarte et on passe au suivant ; la vague suivante (horaire) retentera.
+    `duree_max` (defaut 25 s) est la tolerance propre au provider : Modal a froid met ~66 s."""
+    import time as _tm
+    now = now or _tm.monotonic
+    for cand in candidats:
+        t_essai = now()
+        try:
+            cand["fn"](["ping"] * B)
+            duree = now() - t_essai
+            if duree > cand.get("duree_max", 25):
+                log(f"  provider {cand['name']} ecarte : trop lent ({duree:.1f}s pour {B} textes)")
+                continue
+            log(f"  provider retenu = {cand['name']} ({duree:.1f}s pour {B} textes)")
+            return cand
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)[:90]
+            if "429" in msg:
+                msg += " [quota/cadence : ecarte sans reessai]"
+            log(f"  provider {cand['name']} ecarte : {type(exc).__name__}: {msg}")
+    return None
+
+
 def phase_b_embed(limit: int = 0) -> None:
     """Embed les chunks HOT **NULL uniquement** via provider cloud bge-m3.
     Réutilise fre.hf_embed + resource gate, MAIS query NULL-only (pas le cursor de
@@ -319,7 +364,7 @@ def phase_b_embed(limit: int = 0) -> None:
     # declaration : Cloudflare a traite 300 chunks en 7 s la ou HF PEND sur un
     # batch (cold start de l'Inference API : le ping passe, la charge reelle non).
     B = 20  # taille de lot, definie AVANT l'election : le test l'utilise
-    _PREF = {"Cloudflare": 0, "Nvidia": 1, "DeepInfra": 2, "HF": 3, "local": 9}
+    _PREF = {"Modal": -1, "Cloudflare": 0, "Nvidia": 1, "DeepInfra": 2, "HF": 3, "local": 9}
     # LOCAL EN DERNIER RECOURS (decision owner 2026-08-03). Il etait exclu de
     # l'election, si bien qu'une fois les quatre providers cloud a sec le job
     # ABANDONNAIT alors qu'un embedder :8099 vivant tournait sur la machine.
@@ -330,20 +375,7 @@ def phase_b_embed(limit: int = 0) -> None:
 
     # Test REPRESENTATIF : un batch de 20, la taille reelle des lots. Un ping d'un
     # seul texte elisait un provider qui se bloquait ensuite indefiniment.
-    prov = None
-    for cand in candidats:
-        t_essai = __import__("time").monotonic()
-        try:
-            cand["fn"](["ping"] * B)
-            duree = __import__("time").monotonic() - t_essai
-            if duree > 25:
-                log(f"  provider {cand['name']} ecarte : trop lent ({duree:.1f}s pour {B} textes)")
-                continue
-            prov = cand
-            log(f"  provider retenu = {cand['name']} ({duree:.1f}s pour {B} textes)")
-            break
-        except Exception as exc:  # noqa: BLE001
-            log(f"  provider {cand['name']} ecarte : {type(exc).__name__}: {str(exc)[:90]}")
+    prov = _elire_provider(candidats, B)
     if prov is None:
         log("  ABORT : aucun provider ne repond assez vite.")
         return

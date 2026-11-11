@@ -29,7 +29,7 @@ def _coffre(monkeypatch, valeurs):
 
 
 def test_env_du_seul_process_vibe_porte_la_cle_sans_toucher_os_environ(monkeypatch):
-    _coffre(monkeypatch, {"MISTRAL_API_KEY": FAUX})
+    _coffre(monkeypatch, {"MISTRAL_VIBE_API_KEY": FAUX})  # 9/11 (owner) : cle de PORTEE Vibe
     monkeypatch.delenv(VAR, raising=False)
     avant = dict(os.environ)
     env = H.jeton_mcp("vibe")

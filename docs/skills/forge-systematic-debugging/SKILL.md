@@ -229,6 +229,17 @@ Tu dois compléter chaque phase **avant** la suivante.
    anchor_error(error_msg="...", context="...", solution="leçon", domain="...")
    ```
 
+## CI rouge : l'ordre (owner 2026-11-05, six runs rouges traités symptôme par symptôme)
+
+1. **Historique avant le dernier run.** Tabuler les N derniers runs : quels tests, quelles signatures, quelles heures. Une signature identique sur N runs n'est pas de l'instabilité : c'est un défaut déterministe dans ce contexte.
+2. **Chercher par NOM avant de mesurer.** `tools/forge_retrieval_sweep.py <symptome>` lit les noms des fiches mémoire ; `forge_symptom_index` ne couvre qu'une partie des sessions : son « terrain neuf » ne prouve rien. Payé le 5/11 : tout le plantage était déjà dans `gotcha_pyarrow_plantage_natif_xdist_2026-11-01`.
+3. **Une cause par signature.** Deux morts de workers dans un même run sont deux hypothèses tant qu'un fait ne les relie pas. Classer chacune : déterministe (reproduire, bisecter), transitoire (répétition, épuisement de ressource), configuration (marche ici, pas là).
+4. **Reproduire avec les réglages EXACTS de la CI :** `--timeout=30` (méthode thread : `os._exit`, aucun crash Windows), `--dist=loadfile`, même nombre de workers, même ordre, **même compte**. La CI tourne sous le compte owner, un `run_job` sous `LaForgeSbxOffline` : un test qui passe en job ne réfute rien. `PURE_TESTS` ne donne pas l'ordre réel. Un essai local à `--timeout=120` ou en `loadscope` ne réfute rien non plus.
+5. **Lire les bons événements.** Windows : l'id 1000 est le crash, l'id 1001 le traitement différé du rapport. Rapprocher le pid (`faulthandler_<worker>_<pid>.log`) avant d'attribuer. **Un journal « PLANTAGE NATIF » ne prouve pas la mort du processus :** vérifier qu'il a cessé d'exécuter des tests. Payé le 5/11 : `arrow.dll` accusé pendant trois semaines, alors que le worker a continué des milliers de tests.
+6. **Pas de push pour voir.** Un push lance la CI du poste. Chaque correctif vise une signature nommée, avec sa prédiction ; les cliquets pre-push ne couvrent pas la suite pure.
+7. **Trois runs rouges après correctif : STOP,** on remet le diagnostic à plat avec l'owner.
+8. **À la clôture :** cause prouvée, NR, pourquoi ce n'a pas été attrapé plus tôt, garde contre la récidive.
+
 ## Red flags — STOP et reprendre le process
 
 Si tu te surprends à penser :

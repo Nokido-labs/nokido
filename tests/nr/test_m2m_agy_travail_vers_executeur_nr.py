@@ -215,4 +215,6 @@ def test_l_executeur_ne_coupe_plus_une_demande_longue_a_3000():
     ex = _charger("forge_task_executor")
     longue = "consigne " * 700
     assert len(ex._extract_message(longue)) == len(longue) > 3000
-    assert len(ex._extract_message("x" * 40000)) == 30000
+    # 9/11 : plus aucune coupe dans _extract_message (elle bridait OpenCode) ; la borne d'argv d'agy vit dans
+    # _borne_dite, appelee par _delegate_to_agy, et elle est DITE (test_consigne_longue_jamais_coupee_en_silence_nr).
+    assert len(ex._extract_message("x" * 40000)) == 40000

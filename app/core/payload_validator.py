@@ -82,3 +82,37 @@ class PayloadValidator:
                 return False, err
 
         return True, ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Observation mode (OBSERVATION) - never blocks, only logs
+# ─────────────────────────────────────────────────────────────────────────────
+
+def validate_payload_observateur(payload: Dict[str, Any], emetteur: str, outils_disponibles: list = None, agentique: bool = True) -> None:
+    """
+    Mode OBSERVATION : valide un payload en mode observateur (ne bloque JAMAIS l'envoi).
+    
+    Args:
+        payload: Le payload à valider
+        emetteur: Nom de l'émetteur pour le log (ex: "forge_handoff", "forge_orchestrate_react")
+        outils_disponibles: Liste d'outils disponibles (optionnel, pour logging)
+        agentique: False pour un appel qui n'a pas a agir : les messages restent controles, seule
+            la regle « agent inerte » ne s'applique pas
+    
+    Returns:
+        None (jamais de blocage, seulement des logs d'anomalie)
+    """
+    try:
+        validator = PayloadValidator()
+        ok, err = validator.validate_payload(payload, agentique=agentique)
+        
+        if not ok:
+            import logging
+            logger = logging.getLogger(emetteur)
+            outils_count = len(outils_disponibles) if outils_disponibles else 0
+            logger.warning(f"[validate_payload_observateur] {emetteur} : {err} (outils_disponibles: {outils_count})")
+        
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(emetteur)
+        logger.debug(f"[validate_payload_observateur] {emetteur} : observation muette ({e})", exc_info=True)

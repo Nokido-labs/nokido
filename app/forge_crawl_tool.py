@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # --- amorce namespace (point d'entree) : `sys.path[0]` vaut le dossier du
@@ -46,6 +47,30 @@ except Exception as _exc_robots:  # pragma: no cover - chemin de degradation
 # avertir a chaque URL noierait le journal (une veille en traite des centaines)
 # et ferait desarmer la garde. Un avertissement, puis du debug.
 _CRAWL4AI_KO_SIGNALE = False
+
+
+def _jeton_crawl4ai() -> str:
+    """CRAWL4AI_API_TOKEN au COFFRE (jamais un fichier versionne : le compose portait « demo-token-if-needed »)."""
+    try:
+        from nokido_agent.app.forge_secrets import get_secret
+    except ImportError:
+        from forge_secrets import get_secret
+    return get_secret("CRAWL4AI_API_TOKEN") or ""
+
+
+def entetes_crawl4ai() -> dict:
+    """En-tetes de TOUT appel Crawl4AI hors GET /health. CHANGELOG 0.9.0 : « set CRAWL4AI_API_TOKEN and send
+    Authorization: Bearer <token> on every request except GET /health ». Sans jeton au coffre : pas d'Authorization
+    (un serveur 0.8.x l'ignore) ; coffre illisible : idem, jamais un jeton invente."""
+    h = {"Content-Type": "application/json"}
+    try:
+        jeton = _jeton_crawl4ai()
+    except Exception as e:  # muet-ok : journalise ; le serveur 0.9 repondra 401, nomme par l'appelant
+        logger.warning("[crawl] jeton Crawl4AI illisible (%s) : appel sans Authorization", type(e).__name__)
+        jeton = ""
+    if jeton:
+        h["Authorization"] = "Bearer " + jeton
+    return h
 
 
 def html_to_markdown(html: str) -> str:
@@ -185,13 +210,13 @@ def _rendu(texte: str, backend: str, qualite: str) -> dict:
             "chars": len(texte or ""), "variante": "origine"}
 
 
-def crawl_url(url: str, timeout: int = 15, _fulltext_tried: bool = False) -> str:
+def crawl_url(url: str, timeout: int = 15, _fulltext_tried: bool = False, reveiller_docker: bool = True) -> str:
     """Crawl une URL -> markdown épuré + firewallé (injection indirecte).
 
     Enveloppe MINCE de `crawl_url_detail`, gardee telle quelle : cinq appelants en
-    dependent et n'ont pas besoin du detail.
+    dependent et n'ont pas besoin du detail. `reveiller_docker` : voir crawl_url_detail.
     """
-    return crawl_url_detail(url, timeout, _fulltext_tried)["text"]
+    return crawl_url_detail(url, timeout, _fulltext_tried, reveiller_docker=reveiller_docker)["text"]
 
 
 def _url_interdite(url: str) -> str:
@@ -220,7 +245,12 @@ def _url_interdite(url: str) -> str:
         return ""
 
 
-def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False) -> dict:
+# Pages qui exigent une session : les crawler rend une page de connexion (ou un 400), jamais le contenu.
+_HOTES_CONNEXION = ("claude.ai",)
+
+
+def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False,
+                     reveiller_docker: bool = True) -> dict:
     """Comme `crawl_url`, mais DIT par quel chemin le texte a ete obtenu.
 
     Mesure 2026-08-30 : `crawl_url` ne rendait qu'une chaine, si bien que « Crawl4AI
@@ -239,6 +269,10 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
     `refus` n'est pas `erreur` : le crawl n'a pas echoue, il n'a pas eu le DROIT
     (RFC 9309). Confondre les deux ferait chercher une panne la ou il y a une
     regle, et pousserait a « reparer » un refus legitime.
+
+    `reveiller_docker` (owner 4/11) : crawl4ai absent, le crawl RECLAME Docker pour les crawls SUIVANTS et bascule
+    aussitot sur le repli -- il ne l'attend jamais. Juste pour une veille (des dizaines de pages) ; pour un crawl
+    PONCTUEL (outil hub `crawl`) c'est Docker allume ~30 min (TTL + grace) pour rien. Le ponctuel passe False.
     """
     # RFC 9309 — le droit de recuperer se verifie AVANT la recuperation.
     # Audit NPSC du 2026-09-04 : ce garde n'existait nulle part alors que
@@ -261,6 +295,15 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
         logger.warning("[crawl] refus SSRF sur %s — %s", url, _refus_ssrf)
         return _rendu("ERR adresse interdite : %s" % _refus_ssrf, "aucun", "refus")
 
+    _urlparse = urllib.parse.urlparse
+
+    _hote = (_urlparse(url).hostname or "").lower()
+    if any(_hote == h or _hote.endswith("." + h) for h in _HOTES_CONNEXION):
+        # Avant robots.txt et crawl4ai : aucun reseau, aucun reveil de Docker (4/11 : un crawl d'AGY sur une page
+        # claude.ai privee a allume Docker 30 min pour un « Bad Request »).
+        logger.info("[crawl] refus : %s exige une session (page de connexion, pas le contenu)", url)
+        return _rendu("ERR page derriere une connexion (%s) : non crawlable, la lire par son proprietaire" % _hote,
+                      "aucun", "refus")
     _permis = _robots_decision(url)
     if not _permis["autorise"]:
         logger.warning("[crawl] refus RFC 9309 sur %s — %s", url, _permis["motif"])
@@ -276,7 +319,7 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
     if not _fulltext_tried:
         _alt = _fulltext_url(url)
         if _alt != url:
-            _det = crawl_url_detail(_alt, timeout, _fulltext_tried=True)
+            _det = crawl_url_detail(_alt, timeout, _fulltext_tried=True, reveiller_docker=reveiller_docker)
             _out = _det["text"]
             if not _out.startswith("ERR") and len(_out) > 2000:
                 logger.info(f"[crawl] texte integral via {_alt} ({len(_out)} chars)")
@@ -290,9 +333,7 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
         # `{"urls": [...]}` — une LISTE. L'ancien `{"url": ..., "priority": 10}`
         # rendait `HTTP 422 Unprocessable Entity`, donc repli systematique.
         payload = json.dumps({"urls": [url]}).encode("utf-8")
-        req = urllib.request.Request(
-            f"{crawl4ai_url}/crawl", data=payload, headers={"Content-Type": "application/json"}
-        )
+        req = urllib.request.Request(f"{crawl4ai_url}/crawl", data=payload, headers=entetes_crawl4ai())
         with urllib.request.urlopen(req, timeout=timeout) as response:
             res_data = json.loads(response.read().decode("utf-8"))
             md = ""
@@ -336,9 +377,10 @@ def crawl_url_detail(url: str, timeout: int = 15, _fulltext_tried: bool = False)
         # qui se lit comme un succes est pire qu'une panne franche.
         global _CRAWL4AI_KO_SIGNALE
         try:  # 19/10 : crawl4ai demarre a la demande -- le reclamer (le keeper le leve au prochain tick)
-            from nokido_agent.app.forge_docker_agent import demander_crawl4ai
+            if reveiller_docker:   # 4/11 : jamais pour un crawl ponctuel (il n'attend pas Docker)
+                from nokido_agent.app.forge_docker_agent import demander_crawl4ai
 
-            demander_crawl4ai("forge_crawl_tool", lancer=True)
+                demander_crawl4ai("forge_crawl_tool", lancer=True)
         except Exception:  # noqa: BLE001 - muet-ok: le repli continue
             pass
         if not _CRAWL4AI_KO_SIGNALE:

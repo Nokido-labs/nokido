@@ -82,7 +82,9 @@ _DOIT_ETRE_BLOQUE = [
 # promoteur ; identite civile refusee ; secrets scannes fail-closed.
 _DOIT_PARTIR = [
     ".agents/skills/forge-core/SKILL.md",
-    ".agents/orchestrator/BRIEFING.md",
+    # `.agents/orchestrator/BRIEFING.md` RETIRE le 10/11 : journal d'agent -> PRIVE (decision owner (10) du
+    # 8/11, NR test_export_public_journaux_agents_nr) ET sentinelle « telemetrie » du gate de release
+    # (tools/forge_release_gate.py) ; aucun code ne le lit pour tourner. La liste du 30/09 est depassee.
     "seed/trajectories.jsonl",
     "config/pca_64.npz",
     "tools/forge_embed_bridge.npz",

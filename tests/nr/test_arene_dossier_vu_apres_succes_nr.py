@@ -1,6 +1,6 @@
 """NR du 27/10 : l'arene ne marque le dossier « vu » qu'apres un tour REUSSI.
 
-Mesure (debat takehome, 18 tours) : groq echoue au tour aveugle (reponse vide), le dossier etait pourtant
+Mesure (debat d'arene, 18 tours) : groq echoue au tour aveugle (reponse vide), le dossier etait pourtant
 marque vu ; au round 2 il ne recevait que l'etat partage et a repondu HORS SUJET (« securite des
 pipelines »). Un dossier jamais lu n'a pas ete transmis.
 """

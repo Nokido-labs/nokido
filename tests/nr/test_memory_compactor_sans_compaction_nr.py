@@ -62,7 +62,7 @@ if str(ROOT) not in sys.path:
 from nokido_agent.tools import forge_memory_compactor as mc  # noqa: E402
 
 
-def _index_qui_deborde(dossier: Path, cible_ko: float = 20.0) -> Path:
+def _index_qui_deborde(dossier: Path, cible_ko: float = mc._SEUIL_DEFAUT_KB + 1.0) -> Path:
     """Index au-dessus du seuil, aux entrees DATEES et anciennes — donc compactables.
 
     Les deux proprietes sont necessaires : sous le seuil `--auto` sort tout de suite,

@@ -19,6 +19,7 @@ NoiseGuardian, forge_parity_gate (registre signaux + agrégation conservatrice).
 from __future__ import annotations
 __FORGE_COLOR__ = "GREEN"
 
+import copy
 import hashlib
 import json
 import os
@@ -42,6 +43,10 @@ MANIFEST_PATH = ROOT / ".git-publish-rules.json"
 # promoteur (refus de publier), forge_dist_storage et l'export du Knowledge Pack
 # (caviardage). Absent -- dist, wheel installee -- : liste vide.
 IDENTITES_PRIVEES = ROOT / "config" / "identites_privees.txt"
+# Sujets PRIVES (decision owner 2026-11-04) : chemins et mots qu'aucune sortie publique ne porte. Meme statut que la
+# liste d'identites : suivi dans la source, bloque au profil public, exclu de MANIFEST.in. Le manifeste part au public
+# et ne doit pas nommer ce qu'il cache : `load_manifest` fusionne donc cette liste au chargement.
+SUJETS_PRIVES = ROOT / "config" / "sujets_prives.txt"
 
 
 def identites_privees(chemin: Path | None = None) -> list[re.Pattern]:
@@ -52,6 +57,44 @@ def identites_privees(chemin: Path | None = None) -> list[re.Pattern]:
         return []
     return [re.compile(l.strip(), re.IGNORECASE) for l in lignes
             if l.strip() and not l.lstrip().startswith("#")]
+
+
+def sujets_prives(chemin: Path | None = None) -> dict:
+    """Lit `chemin <glob>`, `mot <expression>`, `caviarder <glob>` et `retirer <expression>`.
+
+    `chemin` : le fichier ne part pas. `mot` : sa presence dans l'arbre a publier refuse la publication. `caviarder` : document
+    genere nettoye a l'assemblage, par `mot` et `retirer`. `retirer` : ne vaut que dans ces fichiers, jamais un refus.
+    Absente (dist, wheel installee) : tout est vide, sans erreur. Une ligne invalide va dans `erreurs` au lieu de lever :
+    un push prive ne doit pas casser pour une coquille, mais le promoteur refuse de publier tant qu'il y en a une.
+    """
+    sortie = {"chemins": [], "mots": [], "caviarder": [], "retirer": [], "erreurs": []}
+    try:
+        lignes = Path(chemin or SUJETS_PRIVES).read_text(encoding="utf-8").splitlines()
+    except OSError:  # muet-ok : absent hors du depot source = aucun sujet a proteger ; le promoteur refuse une liste vide
+        return sortie
+    except UnicodeDecodeError:
+        sortie["erreurs"].append("liste non UTF-8")
+        return sortie
+    for numero, brute in enumerate(lignes, 1):
+        ligne = brute.strip()
+        if not ligne or ligne.startswith("#"):
+            continue
+        genre, _, valeur = ligne.partition(" ")
+        valeur = valeur.strip()
+        if genre == "chemin" and valeur:
+            sortie["chemins"].append(valeur)
+        elif genre == "caviarder" and valeur:
+            sortie["caviarder"].append(valeur)
+        elif genre in ("mot", "retirer") and valeur:
+            try:
+                re.compile(valeur)
+            except re.error:
+                sortie["erreurs"].append("ligne %d : expression invalide" % numero)
+                continue
+            sortie["mots" if genre == "mot" else "retirer"].append(valeur)
+        else:
+            sortie["erreurs"].append("ligne %d : entree invalide" % numero)
+    return sortie
 # Verrou WinDivert v2 : le gate y écrit son PID pendant un push autorisé
 # (gate-as-executor) -> forge_git_egress_lock autorise SES git/ssh enfants.
 ALLOW_PIDFILE = Path(os.environ.get("LAFORGE_EGRESS_ALLOW_PIDFILE", r"C:\tmp\forge_git_egress.allow"))
@@ -137,6 +180,9 @@ def _sig_manifest(ctx) -> pg.Finding | None:
     hit = _path_blocked(path, prof.get("blocked_paths", []))
     if hit:
         return pg.red(f"chemin interdit par manifeste ({hit}) : {path}", path=path)
+    for mot in prof.get("mots_prives") or []:
+        if re.search(mot, path, re.IGNORECASE) or re.search(mot, ctx.get("content", ""), re.IGNORECASE):
+            return pg.red(f"sujet prive dans le chemin ou le contenu : {path}", path=path)
     mx = prof.get("max_file_bytes")
     if mx and len(ctx.get("content", "").encode("utf-8", "ignore")) > mx:
         return pg.red(f"fichier > max {mx} o : {path}", path=path)
@@ -196,7 +242,8 @@ def _sig_host_leak(ctx) -> pg.Finding | None:
 
 # ── Git helpers ──────────────────────────────────────────────────────────────
 def _git(args: list[str], timeout: int = 30) -> tuple[int, str, str]:
-    r = subprocess.run(["git", *args], cwd=str(ROOT), capture_output=True,
+    r = subprocess.run(["git", "-c", f"safe.directory={ROOT.as_posix()}", *args],
+                       cwd=str(ROOT), capture_output=True,
                        text=True, encoding="utf-8", errors="replace", timeout=timeout)
     return r.returncode, r.stdout, r.stderr
 
@@ -276,7 +323,9 @@ def reconstruct(local_sha: str, remote_sha: str, local_ref: str = "") -> dict[st
         if len(parts) < 2:
             continue
         path = parts[-1].strip()
-        crc, content, _ = _git(["show", f"{local_sha}:{path}"])
+        crc, content, cerr = _git(["show", f"{local_sha}:{path}"])
+        if crc != 0 and "dubious ownership" in cerr:
+            raise RuntimeError(f"git show KO: {cerr.strip()[:200]}")
         if crc == 0:
             files[path] = content
     return files
@@ -300,20 +349,32 @@ _DEFAULT_MANIFEST = {
 }
 
 
+def _avec_sujets_prives(manifeste: dict) -> dict:
+    """Copie du manifeste dont le seul profil public porte aussi les sujets prives : un seul juge pour toutes les sorties."""
+    sujets = sujets_prives()
+    if not (manifeste.get("profiles") or {}).get("public") or not (sujets["chemins"] or sujets["mots"]):
+        return manifeste
+    m = copy.deepcopy(manifeste)
+    public = m["profiles"]["public"]
+    public["blocked_paths"] = list(public.get("blocked_paths") or []) + sujets["chemins"]
+    public["mots_prives"] = sujets["mots"]
+    return m
+
+
 def load_manifest() -> dict:
     if MANIFEST_PATH.exists():
         try:
             m = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
             for k, v in _DEFAULT_MANIFEST.items():
                 m.setdefault(k, v)
-            return m
+            return _avec_sujets_prives(m)
         except Exception as e:  # noqa: BLE001 -- manifeste illisible : repli sur le DEFAUT, et c'est DIT
             # Silence du 13/10 et avant : un `.git-publish-rules.json` casse etait remplace sans un mot par la politique
             # par defaut -- exceptions, chemins bloques et profils du depot ignores, sans que personne le sache.
             import logging as _lg
             _lg.getLogger(__name__).warning("[egress] manifeste ILLISIBLE (%s : %s) -> politique PAR DEFAUT appliquee",
                                             type(e).__name__, str(e)[:120])
-    return _DEFAULT_MANIFEST
+    return _avec_sujets_prives(_DEFAULT_MANIFEST)
 
 
 # Une cle `owner/nom` (proprietaire GitHub : ni point ni slash) designe UN depot.
@@ -399,8 +460,13 @@ def gate(local_sha: str, remote_sha: str, remote_url: str = "", local_ref: str =
     try:
         files = reconstruct(local_sha, remote_sha, local_ref)
     except Exception as e:  # fail-closed : si on ne peut pas reconstruire, on bloque
+        msg = str(e)
+        if "dubious ownership" in msg:
+            reason = "PROPRIETE : depot illisible sous ce compte"
+        else:
+            reason = f"reconstruction impossible (fail-closed): {e}"
         return {"ok": False, "profile": prof_name, "status": "RED",
-                "reasons": [f"reconstruction impossible (fail-closed): {e}"], "files": 0}
+                "reasons": [reason], "files": 0}
     worst, findings = scan_files(files, profile)
     reds = [f"{f.signal}: {f.reason}" for f in findings if f.level is pg.Severity.RED]
     align_reds = _alignment_degraded_hard()  # F3 : invariant HARD DEGRADED = regression de garde
@@ -467,6 +533,7 @@ def main(argv: list[str] | None = None) -> int:
         print("[egress] aucun ref sur stdin, rien à scanner")
         return 0
     blocked = False
+    all_reasons = []
     for ln in lines:
         p = ln.split()
         if len(p) < 4:
@@ -479,6 +546,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[egress] {remote_ref} BRANCHE PROTEGEE -> BLOCK")
             print(f"   RED  {prot}")
             blocked = True
+            all_reasons.append(prot)
             continue
         if set(local_sha) == {"0"}:  # suppression de ref (branche non protegee)
             continue
@@ -488,12 +556,16 @@ def main(argv: list[str] | None = None) -> int:
               f"({v['files']} fichiers) -> {tag}")
         for r in v.get("reasons", []):
             print(f"   RED  {r}")
+            all_reasons.append(r)
         for w in v.get("warnings", [])[:10]:
             print(f"   warn {w}")
         if not v["ok"]:
             blocked = True
     if blocked:
-        print("[egress] PUSH BLOQUÉ par le gate souverain (secrets/chemin interdit).")
+        if all_reasons:
+            print(f"[egress] PUSH BLOQUÉ par le gate souverain : {'; '.join(all_reasons)}")
+        else:
+            print("[egress] PUSH BLOQUÉ par le gate souverain.")
         return 1
     # Verrou WinDivert (enforce 24/7) : autoriser le git APPELANT à sortir. Le hook
     # tourne PRÉ-connexion ; git est un ANCÊTRE du hook (git -> sh -> python) -> on

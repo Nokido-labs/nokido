@@ -457,12 +457,11 @@ class SidecarHTTPRequestHandler(BaseHTTPRequestHandler):
     server: SidecarHTTPServer
 
     def _send_json(self, status: int, data: Any) -> None:
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        if str(ROOT_DIR / "app") not in sys.path:
+            sys.path.append(str(ROOT_DIR / "app"))
+        from forge_utils import repondre_json
+
+        repondre_json(self, status, data, "application/json; charset=utf-8")
 
     def do_GET(self) -> None:
         if self.path == "/health":

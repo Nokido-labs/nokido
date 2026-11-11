@@ -212,7 +212,7 @@ _NODE_CASSE = ("failed", "stalled", "retry_pending")
 _NODE_EN_COURS = ("pending", "running")
 
 
-def verdict_chaine(nodes, n_stored: int, dedup: bool = False) -> str:
+def verdict_chaine(nodes, n_stored: int, dedup: bool = False, degrade: Optional[str] = None) -> str:
     """Verdict METIER d'une veille, deduit des etapes ET du resultat.
 
     `nodes` = iterable de couples (step_name, status). Une chaine ABSENTE (chemin
@@ -246,9 +246,16 @@ def verdict_chaine(nodes, n_stored: int, dedup: bool = False) -> str:
     etats = {str(s or ""): str(st or "") for s, st in nodes}
     if any(st in _NODE_EN_COURS for st in etats.values()):
         return "en_cours"
+    # P1 (10/11, NR test_veille_bloque_par_dependance_nr) : `degrade` = motif CONNU de l'executeur quand la
+    # recherche web n'a pas eu lieu (SearXNG muet, repli academique). Sans lui, 5 veilles du 10/11 finissaient
+    # `completed` sur des abstracts hors sujet, ou `completed_empty` lu « le sujet n'existe pas ».
     casses = [s for s, st in etats.items() if st in _NODE_CASSE]
     if casses and int(n_stored or 0) <= 0 and any(s in _STEPS_OBLIGATOIRES for s in casses):
         return "failed"
+    # (place APRES `failed` : une etape obligatoire CASSEE reste `failed`, contrat de
+    # test_veille_fin_libere_docker_et_zero_resultat_nr ; `degrade` ne vise que la recherche DEGRADEE.)
+    if degrade:
+        return "completed_partial" if int(n_stored or 0) > 0 else "bloque_par_dependance"
     if casses:
         return "completed_partial"
     if int(n_stored or 0) > 0:
@@ -715,7 +722,11 @@ def _engine_open(name: str) -> bool:
 def _engine_record(name: str, ok: bool):
     st = _ENGINE_CB.setdefault(name, {"fails": 0, "opened_until_ts": 0})
     if ok:
+        # 2/11 : un succes REFERME aussi le circuit. Avant, seul `fails` retombait a 0 : un circuit ouvert pendant le
+        # boot restait ouvert 15 min apres une preuve de vie -- veilles du 2/11 toutes en academic seul.
+        # NR : tests/nr/test_searxng_disjoncteur_referme_sur_preuve_nr.py
         st["fails"] = 0
+        st["opened_until_ts"] = 0
     else:
         st["fails"] += 1
         if st["fails"] >= _ENGINE_CB_THRESHOLD:
@@ -735,7 +746,7 @@ def _relacher_docker(chain_id: str) -> "dict | None":
     try:
         from nokido_agent.tools.forge_docker_keeper import release_claim
 
-        return release_claim(chain_id)
+        return release_claim(chain_id, immediat=True)   # owner 3/11 : fin de chaine sans intention = coupure
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[watch] relache Docker de {chain_id} KO: {e}")
         return None
@@ -800,6 +811,9 @@ def _ensure_searxng(wait_s: "int | None" = None, owner: "str | None" = None) -> 
         logger.warning(f"[watch] claim Docker KO: {e}")
 
     if _up():
+        # Preuve de vie APPLICATIVE (requete JSON, HTTP 200) : elle referme le disjoncteur global, sinon la recherche
+        # qui suit saute SearXNG sur la foi d'echecs anterieurs a son reveil (2/11).
+        _engine_record("searxng", ok=True)
         return _fin(True)
 
     tools_dir =str(_Path(__file__).resolve().parent.parent / "tools")
@@ -817,15 +831,28 @@ def _ensure_searxng(wait_s: "int | None" = None, owner: "str | None" = None) -> 
             # (il regarde alors le daemon mourir sans droit d'agir). Si la demande
             # echoue ici, plus rien au monde ne reveillera Docker -> veille a sec.
             logger.warning(f"[watch] ensure_docker KO -> keeper non sollicite: {e}")
-        # Niveau service : réveil on-demand idempotent via le superviseur (:8765).
+        # Niveau service, CAPACITE SERVIE d'abord (10/11 soir, Gordon job_5f24411eeb1e : searxng-laforge Exited
+        # 42 min sous les reveils du superviseur, qui lance le PROCESSUS keeper sans relever le conteneur) :
+        # forge_ensure_service.ensure = _ensure_docker + forge_searxng_keeper._ensure_running, voie prouvee.
+        servi = False
         try:
-            from nokido_agent.tools.forge_supervisor_ctl import _call as _sup_call
+            from nokido_agent.tools.forge_ensure_service import ensure as _ensure_servi
 
-            st, _ = _sup_call("/supervisor/service/start/NokidoSearxng", method="POST")
-            logger.info(f"[watch] SearXNG ensure via superviseur -> HTTP {st}")
-        except Exception as e:
-            logger.warning(f"[watch] SearXNG ensure KO (superviseur injoignable): {e}")
-            return _fin(False)
+            r = _ensure_servi("searxng", "running") or {}
+            servi = bool(r.get("success"))
+            logger.info(f"[watch] SearXNG ensure servi -> success={servi} ({str(r.get('detail', ''))[:100]})")
+        except Exception as e:  # noqa: BLE001 - nomme ; le superviseur prend le relais
+            logger.warning(f"[watch] SearXNG ensure servi KO ({type(e).__name__}: {e}) -> superviseur")
+        if not servi:
+            # Repli : réveil on-demand idempotent via le superviseur (:8765).
+            try:
+                from nokido_agent.tools.forge_supervisor_ctl import _call as _sup_call
+
+                st, _ = _sup_call("/supervisor/service/start/NokidoSearxng", method="POST")
+                logger.info(f"[watch] SearXNG ensure via superviseur -> HTTP {st}")
+            except Exception as e:
+                logger.warning(f"[watch] SearXNG ensure KO (superviseur injoignable): {e}")
+                return _fin(False)
     else:
         logger.debug(
             "[watch] SearXNG ensure deja sollicite <%.0fs -> attente readiness",
@@ -863,6 +890,7 @@ def _ensure_searxng(wait_s: "int | None" = None, owner: "str | None" = None) -> 
     while _t.time() < deadline:
         if _up():
             logger.info("[watch] SearXNG prêt")
+            _engine_record("searxng", ok=True)
             return _fin(True)
         _t.sleep(3)
     logger.warning(f"[watch] SearXNG pas prêt après {wait_s}s -> dégrade academic")
@@ -1544,6 +1572,9 @@ def _step_ingest(conn, job_id: str, theme: str, refined: list[dict]) -> int:
             # reconciliation d'infrastructure, pas 2 M lignes de scan par chunk.
             # L'ANCIEN texte est lu ici, avant l'INSERT OR REPLACE : c'est lui qui permet
             # de purger `rag_fts` par MATCH (`_purger_fts`) au lieu d'un balayage complet.
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion(r["url"], text_chunk):
+                continue
             _ancien = conn.execute(
                 "SELECT text FROM rag_chunks WHERE id=? LIMIT 1", (cid,)).fetchone()
             _existait = _ancien is not None
@@ -1891,8 +1922,12 @@ def _reveiller_consommateur() -> str:
     return "DEMANDE"
 
 
-def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM") -> str:
-    """Crée un nouveau job via agent_chain_nodes."""
+def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM", urls=None, termes=None) -> str:
+    """Crée un nouveau job via agent_chain_nodes.
+
+    `urls` (owner 2/11) : veille sur des URL CONNUES par le workflow officiel -- les URL sont semees dans le contexte
+    (cle « refined », lue par l'etape crawl) et la chaine se reduit a crawl -> ingest -> store (crawl4ai + ingestion
+    + stockage inchanges). Seules des URL http(s) sont admises : le crawler ne lit jamais un fichier local."""
     import secrets
 
     chain_id = "wj_" + secrets.token_hex(5)
@@ -1909,6 +1944,23 @@ def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM"
         ("ingest", "IngestAgent", "native", "n_ingested"),
         ("store", "StoreAgent", "native", "n_stored"),
     ]
+    contexte = {"theme": theme, "idea_id": idea_id}
+    if urls is not None:
+        urls = [str(u).strip() for u in urls]
+        mauvaises = [u for u in urls if not re.match(r"^https?://[^\s/]+", u)]
+        if mauvaises or not urls:
+            raise ValueError("veille par URL : seules des URL http(s) sont admises (refusees : %r)" % mauvaises)
+        nodes = [n for n in nodes if n[0] in ("crawl", "ingest", "store")]
+        # 2/11 : la chaine courte saute `refine`, qui note la pertinence ; sans note, l'ingestion ecarte tout
+        # (relevance 0 < _MIN_RELEVANCE_INGEST : 7 URL crawlees, 0 ingeree). Une URL designee est pertinente.
+        contexte["refined"] = [{"url": u, "title": u, "source": "owner", "relevance": 10} for u in urls]
+    if termes is not None:
+        # 6/11 : termes experts donnes, sans etape LLM. Banc : le LLM local les rend vagues, les bons termes trouvent.
+        termes = [str(t).strip() for t in termes]
+        if not termes or not all(termes):
+            raise ValueError("veille par termes : au moins un terme non vide (recus : %r)" % termes)
+        nodes = [n for n in nodes if n[0] not in ("keywords", "verify_kw")]
+        contexte["keywords"] = contexte["keywords_verified"] = termes
 
     def _tx(conn):
         # Transaction EXPLICITE sur la connexion AUTOCOMMIT d'open_writer : l'atomicite
@@ -1922,11 +1974,11 @@ def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM"
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "INSERT INTO watch_jobs(id,theme,idea_id,step,status,agent,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-            (chain_id, theme, idea_id, "keywords", "pending", agent, now, now),
+            (chain_id, theme, idea_id, nodes[0][0], "pending", agent, now, now),
         )
         conn.execute(
             "INSERT INTO agent_chain_context (chain_id, global_vars, updated_at) VALUES (?, ?, ?)",
-            (chain_id, json.dumps({"theme": theme, "idea_id": idea_id}, ensure_ascii=False), now),
+            (chain_id, json.dumps(contexte, ensure_ascii=False), now),
         )
         for i, (name, role, llm, out_key) in enumerate(nodes):
             node_id = f"node_{chain_id[:8]}_{name}"
@@ -1939,7 +1991,7 @@ def create_job(theme: str, idea_id: str = "veille_active", agent: str = "SYSTEM"
 
     write_retry(_tx)
 
-    print(f"[WATCH] Chain lancée: {chain_id} — {theme[:50]} (7 nodes créés)", flush=True)
+    print(f"[WATCH] Chain lancée: {chain_id} — {theme[:50]} ({len(nodes)} nodes créés)", flush=True)
     try:
         _reveiller_consommateur()
     except Exception as e:  # noqa: BLE001 - la chaine est ecrite ; seul le reveil a echoue, et on le DIT

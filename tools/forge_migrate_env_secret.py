@@ -23,6 +23,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from nokido_agent.app.forge_secrets import set_secret, _sonder
+
 
 def _cle_valeur(corps: str) -> tuple:
     """(nom, valeur) d'une ligne `CLE=VALEUR` ou `Libelle: valeur` ; (None, None) sinon.
@@ -36,7 +38,13 @@ def _cle_valeur(corps: str) -> tuple:
         nom, _, v = corps.partition(":")
     else:
         return None, None
-    return nom.strip(), v.strip()
+    
+    # Retirer une paire de guillemets englobants (simples ou doubles)
+    v = v.strip()
+    if len(v) >= 2 and ((v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'"))):
+        v = v[1:-1]
+    
+    return nom.strip(), v
 
 
 def lire_source(env: Path, src: str, commentee_ok: bool = False) -> tuple:
@@ -104,25 +112,29 @@ def _ecrire(env: Path, initial: bytes, nouveau: bytes) -> None:
             tmp.unlink()
         except FileNotFoundError:  # muet-ok : jamais cree, rien a effacer
             pass
-    with open(env, "r+b") as f:
-        f.write(nouveau)
-        f.truncate()
-    if env.read_bytes() != nouveau:
+    try:
         with open(env, "r+b") as f:
-            f.write(initial)
+            f.write(nouveau)
             f.truncate()
-        raise OSError("reecriture en place non conforme -- contenu d'origine remis, rien n'est retire")
-    print("[env] ecriture atomique refusee (droit de creation) -- reecrit EN PLACE puis relu conforme")
+        if env.read_bytes() != nouveau:
+            with open(env, "r+b") as f:
+                f.write(initial)
+                f.truncate()
+            raise OSError("reecriture en place non conforme -- contenu d'origine remis, rien n'est retire")
+        print("[env] ecriture atomique refusee (droit de creation) -- reecrit EN PLACE puis relu conforme")
+    except PermissionError as e:
+        print("[env] Erreur d'acces au fichier d'environnement : permission refusee -- le secret a ete stocke dans le coffre.")
+        raise PermissionError(f"ecriture du fichier d'environnement refusee : {e}") from e
 
 
-def main(argv=None) -> int:
+def main(argv=None, env=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if len(argv) < 2:
         print("usage: forge_migrate_env_secret.py '<source_name>' <TARGET_NAME> [--commentee]")
         return 2
     src, tgt = argv[0], argv[1]
     commentee_ok = "--commentee" in argv[2:]
-    env = ROOT / "Nokido.env"
+    env = Path(env) if env is not None else ROOT / "Nokido.env"
     val, provenance = lire_source(env, src, commentee_ok)
     if not val:
         print(f"source '{src}' introuvable dans Nokido.env"
@@ -130,15 +142,18 @@ def main(argv=None) -> int:
         return 1
     print(f"[source] {src} <- {provenance}, longueur {len(val)} (valeur jamais affichee)")
 
-    from nokido_agent.app.forge_secrets import get_secret, set_secret
-
     set_secret(tgt, val)
-    chk = get_secret(tgt) or ""
+    chk, _ = _sonder("coffre", tgt) or ("", True)
+    chk = chk or ""
     print(f"[vault] {tgt} stocke (len={len(chk)} match={chk == val}) -- valeur jamais affichee")
     if chk != val:
         print("[env] ligne en clair CONSERVEE : la relecture du coffre ne correspond pas -- a instruire")
         return 3
-    n = retirer_du_clair(env, src, val, tgt, commentee_ok)
+    try:
+        n = retirer_du_clair(env, src, val, tgt, commentee_ok)
+    except PermissionError as e:
+        print(f"[env] retrait du clair IMPOSSIBLE ({e}) -- la ligne est conservee ; le secret est bien stocke dans le coffre")
+        return 4
     print(f"[env] {n} ligne(s) en clair retiree(s) de Nokido.env (remplacee(s) par un commentaire sans valeur)")
     return 0
 

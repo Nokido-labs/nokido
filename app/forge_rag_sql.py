@@ -44,6 +44,22 @@ def ids_avec_embedding(conn):
     return [r[0] for r in conn.execute(SQL_IDS_TOUS) if r[0] and r[0] not in sans]
 
 
+# 4/11 (owner « le disque C sature en E/S ») : l'ancienne requete du hub (_rag_dense_search) joignait rag_chunks pour
+# CHAQUE correspondance FTS et filtrait `c.embedding IS NOT NULL` -> lecture du vecteur (4 Ko) de chaque correspondance,
+# ~15 000 lectures de 4 Ko/s, ~35 Mo par recherche (vidages logs/loop_lag.log 18:32-18:33). Le filtre etait redondant
+# (l'appelant ne garde que les ids du cache vectorise). Ici : classement bm25 dans l'index FTS SEUL, puis jointure
+# limitee aux `limite` lignes retenues, sans jamais toucher `embedding`. NR tests/nr/test_rag_bm25_sans_vecteur_nr.py.
+SQL_CANDIDATS_BM25 = (
+    "SELECT c.id FROM (SELECT rowid AS r, bm25(rag_chunks_fts, 1.2, 0.5) AS s FROM rag_chunks_fts "
+    "WHERE rag_chunks_fts MATCH ? ORDER BY s LIMIT ?) f JOIN rag_chunks c ON c.rowid = f.r ORDER BY f.s"
+)
+
+
+def candidats_bm25(conn, requete_fts, limite=50):
+    """[id] des `limite` meilleurs chunks lexicaux (bm25 code-tune k1=1.2 b=0.5), sans lire les vecteurs."""
+    return [r[0] for r in conn.execute(SQL_CANDIDATS_BM25, (requete_fts, int(limite))).fetchall()]
+
+
 def ext_par_ids(conn, ids):
     """{id: ext} des seuls ids demandes (lecture par cle PK)."""
     voulus = [i for i in dict.fromkeys(ids or []) if i]

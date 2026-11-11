@@ -80,3 +80,31 @@ def test_ci_selfhosted_declenche_bien_sur_alpha():
     assert wf.exists(), "ci-selfhosted.yml absent"
     doc = yaml.safe_load(wf.read_text(encoding="utf-8"))
     assert "alpha" in _push_branches(_on_block(doc)), "ci-selfhosted ne se declenche plus sur alpha"
+
+
+def test_chaque_workflow_declare_ses_permissions_a_la_racine():
+    """Audit du 10/11 (job_cebf7cfa5bc9) : ci, docker-publish, eco-shield, gitleaks sans `permissions` racine --
+    le GITHUB_TOKEN y prenait les droits par defaut du depot. Moindre privilege declare, elevation au job."""
+    sans = [wf.name for wf in _workflows()
+            if "permissions" not in (yaml.safe_load(wf.read_text(encoding="utf-8")) or {})]
+    assert not sans, "workflows sans `permissions` a la racine : %s" % sans
+
+
+def test_la_borne_du_job_pytest_pur_laisse_finir_la_reprise():
+    """11/11 : une passe saine de la suite pure dure ~15 min (873 s, job_470dcd142930), une passe FIGEE ~20 min
+    avant d'etre arretee (1210 s, job_fa2fd1001593). A 25 min, GitHub annulait le job en pleine reprise
+    automatique -- un `cancelled` sans coupable nomme. La borne couvre une passe figee + une passe complete."""
+    doc = yaml.safe_load((WF_DIR / "ci-selfhosted.yml").read_text(encoding="utf-8"))
+    assert doc["jobs"]["pytest-pur"]["timeout-minutes"] >= 45
+
+
+def test_chaque_job_porte_une_borne_de_duree():
+    """Sans `timeout-minutes`, un job fige consomme jusqu'a 360 min (defaut GitHub) et occupe le runner
+    self-hosted. Un job qui appelle un workflow reutilisable (`uses:`) herite de la borne de celui-ci."""
+    sans = []
+    for wf in _workflows():
+        doc = yaml.safe_load(wf.read_text(encoding="utf-8")) or {}
+        for nom, job in (doc.get("jobs") or {}).items():
+            if isinstance(job, dict) and "uses" not in job and "timeout-minutes" not in job:
+                sans.append("%s:%s" % (wf.name, nom))
+    assert not sans, "jobs sans timeout-minutes : %s" % sans

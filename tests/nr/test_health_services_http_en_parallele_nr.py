@@ -60,5 +60,7 @@ def test_audit_services_http_en_parallele_et_meme_sens(monkeypatch):
         "audit_services_http a dure %.2f s pour %d cibles a %.1f s : encore en SERIE" % (duree, n, LENT))
     assert out["hub_mcp"] == {"up": True, "status": 200}
     assert out["netcfg_mcp"] == {"up": True, "status": 401, "auth_protected": True}
-    assert out["llamacpp_python"] == {"up": False, "err": "TimeoutError"}
+    # 3/11 : :8090 = NokidoLlamaPython `disabled = true` -> la sonde est la MEME, le resultat porte en plus la marque
+    # « desactive » (DISABLED_BY_POLICY != panne, test_sante_politique_et_sorties_de_run_nr).
+    assert out["llamacpp_python"] == {"up": False, "err": "TimeoutError", "desactive": True}
     assert list(out)[:2] == ["hub_mcp", "web_hub"], "l'ordre declare des cibles est perdu"

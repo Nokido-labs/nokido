@@ -151,6 +151,116 @@ class AskResult:
         self.output_tokens = ot
 
 
+# --- Identite de slot (07/11, demande owner : une identite par slot) ----------------------------------------------
+# Le slot d'un appel proxy = (agent, tache). Il ne vient QUE du jeton verifie : `sub` du CapabilityToken court et son
+# scope signe `tache` (pose par `forge_cli_route._obtenir_jeton_auth`). Aucun en-tete, aucun champ du corps n'est lu
+# pour l'identite : un client les fabrique a volonte. Un seul verificateur pour les deux ingress (il etait copie dans
+# chacun), et il ne connait aucun second registre : agent connu = `forge_auth_tokens._agents_connus()`.
+_TACHE_RE = __import__("re").compile(r"[A-Za-z0-9_.:-]{1,128}")
+TACHE_INCONNUE = "UNKNOWN"
+
+
+def tache_valide(tache) -> bool:
+    return isinstance(tache, str) and _TACHE_RE.fullmatch(tache) is not None
+
+
+def verifier_slot(authorization: str) -> "tuple[bool, str, dict | None]":
+    """En-tete Authorization -> (ok, motif, slot). slot = {agent, tache (None si le jeton n'en porte pas), voie}.
+
+    Fail-closed : jeton absent, invalide, expire, d'un agent inconnu ou a tache illisible -> (False, motif, None).
+    Le jeton du hub (`FORGE_MCP_TOKEN`) et `MASTER_TOKEN` ne sont PLUS acceptes ici (07/11) : ils ne designent aucun
+    slot, et `MASTER_TOKEN` comme repli est proscrit. Ne journalise JAMAIS la valeur du jeton. La detection de rejeu
+    n'est ni ajoutee ni relachee : ces proxys n'en avaient pas, un client presente le meme jeton court a chaque appel.
+    """
+    auth = authorization or ""
+    if not auth.lower().startswith("bearer "):
+        return False, "missing_or_invalid_auth_header", None
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        return False, "empty_token", None
+    try:
+        from nokido_agent.app.forge_auth_tokens import _agents_connus
+        connus = [str(a).upper() for a in _agents_connus()]
+    except Exception:  # noqa: BLE001 - registre illisible : aucun slot ne se prouve, donc refus
+        return False, "registre_illisible", None
+
+    # 1. CapabilityToken court : le slot est DANS la charge signee.
+    if len(token.split(".")) in (2, 3):
+        cap = None
+        try:
+            from nokido_agent.app.forge_integrity import CapabilityToken, TokenExpiredError, get_manager
+            try:
+                cap = CapabilityToken.decode(token, get_manager()._secret)
+            except TokenExpiredError:
+                return False, "token_expired", None
+        except Exception:  # noqa: BLE001 - muet-ok : non decodable, voie suivante ; a la fin, refus
+            cap = None
+        if cap is not None:
+            agent = str(cap.sub or "").upper()
+            if agent not in connus:
+                return False, "slot_inconnu", None
+            taches = (cap.scopes or {}).get("tache")
+            if taches is None:
+                tache = None
+            elif isinstance(taches, list) and len(taches) == 1 and tache_valide(taches[0]):
+                tache = taches[0]
+            else:
+                return False, "tache_illisible", None
+            return True, "", {"agent": agent, "tache": tache, "voie": "jeton_court"}
+
+    # 2. Jeton agent direct (longue duree) : l'agent est prouve, la tache ne l'est pas.
+    try:
+        import hmac
+        from nokido_agent.app import forge_secrets as _fs
+        for ag in connus:
+            sec = _fs.get_secret(f"FORGE_TOKEN_{ag}")
+            if sec and hmac.compare_digest(token.encode(), str(sec).encode()):
+                return True, "", {"agent": ag, "tache": None, "voie": "jeton_agent"}
+    except Exception:  # noqa: BLE001 - muet-ok : coffre illisible = jeton non prouve, donc refus (fail-closed)
+        pass
+    return False, "invalid_or_unrecognized_token", None
+
+
+def _tracer_sync(slot: dict, transport: str, modele: str, res: "AskResult", latence_ms: float) -> None:
+    from nokido_agent.app import forge_token_monitor as _tm
+
+    ok = bool(getattr(res, "ok", False))
+    meta = {"voie": slot.get("voie"), "ok": ok}
+    if not ok:
+        meta["erreur"] = str(getattr(res, "error", ""))[:200]
+    _tm.log_call(
+        agent_id=slot["agent"],
+        provider=getattr(res, "provider", None) or "UNKNOWN",
+        model=modele or "UNKNOWN",
+        # Echec : rien n'a ete mesure -> NULL, pas 0. Succes : estimation len/4 du pont, DITE comme telle.
+        prompt_tokens=res.input_tokens if ok else None,
+        completion_tokens=res.output_tokens if ok else None,
+        latency_ms=latence_ms,
+        source="proxy_slot",
+        session_id=slot.get("tache") or TACHE_INCONNUE,
+        meta=meta,
+        provenance="proxy_slot",
+        transport=transport,
+        measurement_kind="ESTIMATED" if ok else None,
+        measurement_source="pont_len_div_4" if ok else None,
+        principal=slot["agent"],
+        declared="slot_verifie:%s" % slot.get("voie"),
+        # Le modele DEMANDE n'est pas transmis a `ask` : le servi est inconnu, le tarifer serait inventer un cout.
+        tarifer_modele=False,
+    )
+
+
+async def tracer_appel_slot(slot: dict, transport: str, modele: str, res: "AskResult", latence_ms: float) -> None:
+    """Une ligne par appel proxy dans `token_usage` (recorder canonique), hors de la boucle d'evenements.
+    Un echec de trace ne casse pas la reponse, mais se DIT (journal ERROR) : une trace avalee ressemble a un calme."""
+    try:
+        await asyncio.to_thread(_tracer_sync, slot, transport, modele, res, latence_ms)
+    except Exception as exc:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).error(
+            "[slot] trace NON ecrite pour %s/%s (%s) : %s", slot.get("agent"), slot.get("tache"), transport,
+            type(exc).__name__)
+
+
 async def ask_via_hub(prompt: str, provider: str, max_tokens: int, thread_id: str, agent: str, ring: int = 3, cli_identity: str = "") -> AskResult:
     """firewall pre -> hub `ask` (SWITCHBOARD local/cloud) -> firewall post + restore.
 

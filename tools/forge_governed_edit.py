@@ -50,6 +50,13 @@ _SECRET_PATTERNS = [
 ]
 
 
+try:  # owner 6/11 : la definition commune des mots de passe en clair
+    from nokido_agent.app.forge_secret_guard import MOTS_DE_PASSE_EN_CLAIR as _MDP
+    _SECRET_PATTERNS += [re.compile(_motif) for _nom, _motif in _MDP]
+except Exception as _exc:  # noqa: BLE001 - garde amoindri : dit, le crochet de commit reste
+    print("[governed_edit] motifs de mots de passe indisponibles (%s)" % type(_exc).__name__, file=__import__("sys").stderr)
+
+
 def _scan_secrets(content: str) -> list[str]:
     hits = []
     for pat in _SECRET_PATTERNS:

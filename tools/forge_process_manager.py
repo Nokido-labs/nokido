@@ -54,6 +54,22 @@ def _is_alive(pid: int) -> bool:
 # --- PORT UTILS ---
 def port_pid(port: int) -> int | None:
     """Retourne le PID qui ecoute sur le port, ou None."""
+    try:
+        from nokido_agent.app.forge_ports_ecoute import ecouteurs_tcp
+    except ImportError:
+        try:
+            from app.forge_ports_ecoute import ecouteurs_tcp
+        except ImportError:
+            from forge_ports_ecoute import ecouteurs_tcp
+
+    ecoute = ecouteurs_tcp()
+    if ecoute is not None:
+        pids = ecoute.get(port) or ()
+        if len(pids) > 1:  # deux processus ecoutent : en designer un au hasard ferait viser le mauvais par kill_port
+            print("[port_pid] :%s ambigu, plusieurs PID %s : aucun rendu" % (port, sorted(pids)))
+            return None
+        return next(iter(pids), None)
+
     r = subprocess.run(
         [
             "powershell",

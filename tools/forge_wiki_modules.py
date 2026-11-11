@@ -118,10 +118,30 @@ def _premiere_phrase(doc: str, nom: str = "") -> str:
                 doc = doc[len(prefixe):].lstrip(" —-:·|").strip()
                 break
     for sep in (". ", " — ", " - "):
-        if sep in doc:
-            doc = doc.split(sep)[0]
+        pos = 0
+        coupe = False
+        while True:
+            idx = doc.find(sep, pos)
+            if idx < 0:
+                break
+            if doc[:idx].count("(") <= doc[:idx].count(")"):
+                doc = doc[:idx]
+                coupe = True
+                break
+            pos = idx + len(sep)
+        if coupe:
             break
-    return doc[:260].rstrip(" .")
+    tronque = doc[:260]
+    while tronque.count("(") > tronque.count(")"):
+        ouv = tronque.rfind("(")
+        avant = tronque[:ouv].rstrip()
+        if avant:
+            tronque = avant
+        else:
+            ferm = doc.find(")", len(tronque))
+            tronque = doc[:ferm + 1] if ferm != -1 else tronque[ouv + 1:]
+            break
+    return tronque.rstrip(" .")
 
 
 def _lire(p: Path) -> dict:

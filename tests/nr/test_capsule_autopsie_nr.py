@@ -1,4 +1,4 @@
-"""NR 18/10 -- capsule d'autopsie du juge, pas 1 (chantier 2 de bb P1_preparation_takehome_anthropic_20261018).
+"""NR 18/10 -- capsule d'autopsie du juge, pas 1 (chantier 2).
 
 Owner : ~200 tokens reinjectes au tour suivant, faits de pieces TRACABLES (candidat, assertion, instruction
 fautive ou goulot observe, prochaine experience) -- jamais un diagnostic invente. Constat : mesurer() capturait

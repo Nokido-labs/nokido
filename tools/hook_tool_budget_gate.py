@@ -38,6 +38,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -208,8 +209,147 @@ def noter_echec(tool_name, tool_input, erreur=""):
         pass
 
 
+# 5/11 (owner, tokens) : budget de volume par demande, BLOQUANT quel que soit MODE. Calcule depuis la transcription :
+# elle dit la verite sur tous les outils, sans compteur a tenir ni remise a zero a cabler.
+PLAFOND_VOLUME_DEFAUT = 50000
+_QUEUE_TRANSCRIPTION = 4_000_000
+_HORS_BUDGET = {"AskUserQuestion", "Monitor", "ToolSearch", "TaskStop", "task"}
+SEUIL_ETAT_VOLUME = 0.7  # a partir d'ici, une ligne d'etat : la route se choisit AVANT le refus
+# Balises qui portent la parole de l'owner. Toute autre balise (notification, sortie de commande) n'est pas une demande.
+_DEMANDE_BALISEE = ("<pasted_content", "<command-name", "<command-message")
+_MESURE_VOLUME = None
+_ENTRE_GUILLEMETS = re.compile(r'"[^"]*"|\'[^\']*\'')
+_GIT_LECTURE = re.compile(r"(?:^|\s)(?:show|diff|grep|blame|cat-file)(?:\s|$)|(?:^|\s)log\s(?:.*\s)?(?:-p|--patch)(?:\s|$)")
+_GIT_GREP = re.compile(r"^git\s(?:.*\s)?grep(?:\s|$)")
+_SURVEILLANCE_JOB = re.compile(r"forge_job_watch_cli\.py[\"']?\s+--(?:job|task|pair|delegations)\b")
+
+
+def _commande_nue(entree):
+    return _ENTRE_GUILLEMETS.sub("''", str((entree or {}).get("command") or "")).strip().lower()
+
+
+def _hors_budget(nom, entree):
+    """Memoire, git courant, gh, question a l'owner, depot de tache, lancement de job. Les lectures git comptent."""
+    court = _court(nom)
+    entree = entree if isinstance(entree, dict) else {}
+    if court in _HORS_BUDGET:
+        return True
+    if court == "run":
+        # job_status : sortie bornee, et seule lecture du resultat du deport que le refus impose.
+        return entree.get("action") in ("run_job", "job_kill", "job_status")
+    if court in ("Read", "Edit", "Write"):
+        chemin = str(entree.get("file_path") or "").replace("\\", "/").lower()
+        return "/.claude/projects/" in chemin and "/memory/" in chemin
+    if court == "Bash":
+        if _SURVEILLANCE_JOB.search(str(entree.get("command") or "")):
+            return True  # Monitor du watcher : sans lui, le deport impose par le refus n'aurait plus de suivi
+        commande = _commande_nue(entree)
+        return commande.startswith(("git ", "gh ")) and not _GIT_LECTURE.search(commande)
+    return False
+
+
+def _est_demande_owner(e):
+    if e.get("type") == "attachment":
+        att = e.get("attachment") or {}
+        texte = str(att.get("prompt") or att.get("content") or "") if att.get("type") == "queued_command" else ""
+    elif e.get("type") == "user" and not e.get("isMeta"):
+        contenu = (e.get("message") or {}).get("content")
+        blocs = contenu if isinstance(contenu, list) else []
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in blocs):
+            return False
+        texte = contenu if isinstance(contenu, str) else " ".join(
+            str(b.get("text") or "") for b in blocs if isinstance(b, dict))
+    else:
+        return False
+    debut = texte.lstrip()
+    return bool(debut) and (not debut.startswith("<") or debut.startswith(_DEMANDE_BALISEE))
+
+
+def volume_demande(transcription):
+    """Caracteres rendus, hors budget exclu, depuis la derniere demande de l'owner. Lit la queue de la transcription."""
+    with open(transcription, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        depart = max(0, f.tell() - _QUEUE_TRANSCRIPTION)
+        f.seek(depart)
+        lignes = f.read().split(b"\n")
+    total, appels = 0, {}
+    for brut in lignes[1:] if depart else lignes:
+        try:
+            e = json.loads(brut)
+        except ValueError:
+            continue
+        if _est_demande_owner(e):
+            total, appels = 0, {}
+            continue
+        contenu = (e.get("message") or {}).get("content")
+        for b in contenu if isinstance(contenu, list) else []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use":
+                appels[b.get("id")] = (b.get("name"), b.get("input"))
+            elif b.get("type") == "tool_result":
+                appel = appels.get(b.get("tool_use_id"))
+                if appel and _court(appel[0]) == "AskUserQuestion" and not b.get("is_error"):
+                    total = 0  # l'owner vient de repondre : c'est une demande
+                elif not (appel and _hors_budget(*appel)):
+                    total += len(json.dumps(b.get("content"), ensure_ascii=False))
+    return total
+
+
+def verdict_volume(ev, nom, entree):
+    """(bloque, raison). LAFORGE_VOLUME_PLAFOND=0 coupe le budget, lu a chaque appel. FAIL-OPEN."""
+    global _MESURE_VOLUME
+    _MESURE_VOLUME = None
+    try:
+        plafond = int(os.environ.get("LAFORGE_VOLUME_PLAFOND", PLAFOND_VOLUME_DEFAUT))
+        chemin = (ev or {}).get("transcript_path")
+        if plafond <= 0 or not chemin or _hors_budget(nom, entree):
+            return False, ""
+        volume = volume_demande(chemin)
+        if volume < plafond:
+            _MESURE_VOLUME = (volume, plafond)
+            return False, ""
+        return True, ("BUDGET_VOLUME: %d caracteres rendus par les outils depuis la derniere demande (plafond %d). "
+                      "Deporter en run_job et lire par job_status, ou consigner l'etat en memoire et rendre la main."
+                      % (volume, plafond))
+    except Exception:  # noqa: BLE001 - muet-ok
+        return False, ""
+
+
+def _verdict_git_grep(ev, nom, entree):
+    """`git grep` consomme le meme budget de recon que Grep : il servait de tunnel une fois Grep refuse."""
+    try:
+        if _court(nom) != "Bash" or not _GIT_GREP.search(_commande_nue(entree)):
+            return False, ""
+        import forge_recon_breaker as disjoncteur
+        decision, raison, _n = disjoncteur.verdict((ev or {}).get("session_id") or "", "search", True)
+        return decision == "deny", raison
+    except Exception:  # noqa: BLE001 - muet-ok
+        return False, ""
+
+
+def _refuser(raison):
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": raison,
+        }
+    }))
+
+
+def _signaler_approche():
+    """Une ligne d'etat pres du plafond (owner 5/11 : « pourquoi tu lances qqch qui va etre refuse ? »)."""
+    if not _MESURE_VOLUME or _MESURE_VOLUME[0] < _MESURE_VOLUME[1] * SEUIL_ETAT_VOLUME:
+        return
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": "[budget-volume] %d/%d caracteres depuis la demande : la suite en run_job, lue par job_status."
+                             % _MESURE_VOLUME}}))
+
+
 def traiter(ev):
-    """Aiguille l'evenement. Retourne le code de sortie. N'ecrit QUE sur refus."""
+    """Aiguille l'evenement. Retourne le code de sortie. N'ecrit que sur refus ou pres du plafond."""
     try:
         evenement = str((ev or {}).get("hook_event_name") or "")
         nom = (ev or {}).get("tool_name") or ""
@@ -229,19 +369,22 @@ def traiter(ev):
         if evenement != "PreToolUse" or not nom:
             return 0
 
+        for verdict_bloquant in (verdict_volume, _verdict_git_grep):
+            bloque, raison = verdict_bloquant(ev, nom, entree)
+            if bloque:
+                _compter_observation(nom, raison)
+                _refuser(raison)
+                return 0
+
         bloque, raison = verdict_pre(nom, entree)
         if not bloque:
-            return 0  # RIEN. Pas un mot.
+            _signaler_approche()
+            return 0
         if MODE != "enforce":
             _compter_observation(nom, raison)
-            return 0  # observe : on mesure, on ne refuse pas, on se tait
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": raison,
-            }
-        }))
+            _signaler_approche()
+            return 0  # observe : on mesure, on ne refuse pas
+        _refuser(raison)
         return 0
     except Exception:  # noqa: BLE001 - muet-ok
         # muet-ok : FAIL-OPEN jusqu'au bout.

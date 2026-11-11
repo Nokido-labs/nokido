@@ -3,9 +3,7 @@ name: forge-env
 description: >-
   À utiliser avant d'exécuter un script, de lire la base RAG ou un journal, ou face à
   une erreur de chemin, un PermissionError ou un accès refusé depuis un compte
-  restreint. Donne les chemins et constantes canoniques (LAFORGE_PYTHON, dépôt, bases),
-  les comptes d'exécution (owner, bac à sable du hub) et les voies gouvernées pour agir
-  sur les services.
+  restreint. LAFORGE_PYTHON, comptes owner et bac à sable, voies gouvernées des services.
 ---
 
 # LaForge — Environnement Système

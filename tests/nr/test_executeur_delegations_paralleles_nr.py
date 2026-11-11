@@ -52,6 +52,13 @@ def _pouls_factice(monkeypatch):
     monkeypatch.setitem(sys.modules, "nokido_agent.app.forge_heartbeat", faux)
 
 
+def _isoler_pouls(monkeypatch, tmp_path):
+    """`beat_daemon` ecrit sous `_ROOT/sandbox` : sans ceci le test deposait `hb.heartbeat` (agent « * »)
+    dans le VRAI sandbox (07/11, orphelin mesure)."""
+    from nokido_agent.app import forge_heartbeat as _FH
+    monkeypatch.setattr(_FH, "beat_daemon", lambda nom, **extra: True)
+
+
 def test_delegations_paralleles_et_limite(tmp_path, monkeypatch):
     """2 délégations tournent en même temps, la 3e n'est pas réclamée tant que la limite est atteinte."""
     TE = _charger_executor()
@@ -72,6 +79,7 @@ def test_delegations_paralleles_et_limite(tmp_path, monkeypatch):
     monkeypatch.setattr(TE, "LAFORGE_TASK_PARALLEL", 2)
     monkeypatch.setattr(TE, "_load_token", lambda: "fake_token")
     monkeypatch.setattr(TE, "_hb_file", lambda ag: tmp_path / "hb")
+    _isoler_pouls(monkeypatch, tmp_path)
     monkeypatch.setattr(TE, "reclaim_expired", lambda: {"reprises": 0, "abandonnees": 0})
     monkeypatch.setattr(TE, "requalifier_orphelines", lambda ag: {"requalifiees": [], "abstenues": []})
     monkeypatch.setattr(TE, "_palier_pression", lambda: "CALME")
@@ -150,6 +158,7 @@ def test_exception_delegation_ne_tue_pas_la_boucle(tmp_path, monkeypatch):
     monkeypatch.setattr(TE, "LAFORGE_TASK_PARALLEL", 2)
     monkeypatch.setattr(TE, "_load_token", lambda: "fake_token")
     monkeypatch.setattr(TE, "_hb_file", lambda ag: tmp_path / "hb")
+    _isoler_pouls(monkeypatch, tmp_path)
     monkeypatch.setattr(TE, "reclaim_expired", lambda: {"reprises": 0, "abandonnees": 0})
     monkeypatch.setattr(TE, "requalifier_orphelines", lambda ag: {"requalifiees": [], "abstenues": []})
     monkeypatch.setattr(TE, "_palier_pression", lambda: "CALME")

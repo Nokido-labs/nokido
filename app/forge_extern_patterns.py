@@ -252,8 +252,43 @@ def build_ast_compressed(
 # ---------------------------------------------------------------------------
 
 
+_LICENCES_BLANCHES = ("MIT", "Apache-2.0", "BSD")
+_FICHES: dict[str, dict] = {}
+_SOURCE_REF_RE = r"^(?:[\w.-]+/[\w.-]+@[0-9a-fA-F]{7,40}|[\w.-]+/[\w.-]+:[^\s]+)$"
+
+
+def formater_fiche_pattern(repo, mecanisme, plan_adaptation, metrique, licence, source_ref) -> dict:
+    """Fiche [EXTERNAL_PATTERN] validee. Refus nomme (ValueError) sinon ; jamais de fiche partielle.
+    Licence: liste blanche stricte, mesuree en amont (pas deduite). Pas de code tiers, pas de reseau."""
+    import re
+
+    champs = {"repo": repo, "mecanisme": mecanisme, "plan_adaptation": plan_adaptation,
+              "metrique": metrique, "licence": licence, "source_ref": source_ref}
+    for nom, val in champs.items():
+        if not isinstance(val, str) or not val.strip():
+            raise ValueError(f"champ obligatoire vide ou illisible : {nom}")
+    champs = {k: v.strip() for k, v in champs.items()}
+    if champs["licence"] not in _LICENCES_BLANCHES:
+        raise ValueError(f"licence refusee (liste blanche {_LICENCES_BLANCHES}) : {champs['licence']!r}")
+    if not re.match(_SOURCE_REF_RE, champs["source_ref"]):
+        raise ValueError("source_ref non verifiable : attendu 'depot@commit' ou 'depot:chemin'")
+    texte = " ".join(champs[k] for k in ("mecanisme", "plan_adaptation", "metrique"))
+    from app.forge_prompt_guard import admis_a_l_ingestion
+
+    if not admis_a_l_ingestion("extern_pattern:" + champs["repo"], texte):
+        raise ValueError("refus du garde d'ingestion : texte tiers suspect")
+    fiche = {"tag": "[EXTERNAL_PATTERN]", **champs}
+    _FICHES[champs["repo"]] = fiche
+    return fiche
+
+
 def query_extern_pattern(lib: str, question: str) -> str:
     """Consulte le RAG pour patterns d'implémentation sur une lib externe."""
+    fiche = _FICHES.get(lib)
+    if fiche:
+        return (f"{fiche['tag']} {fiche['repo']} ({fiche['licence']}, {fiche['source_ref']})\n"
+                f"mecanisme: {fiche['mecanisme']}\nadaptation: {fiche['plan_adaptation']}\n"
+                f"metrique: {fiche['metrique']}")
     from nokido_agent.app.forge_self_correction import preflight_check_verbose
 
     query = f"pattern implementation {lib} {question}"
@@ -376,6 +411,9 @@ def ingest_ast_nodes_to_rag(
             bases = ", ".join(node.get("bases", []))
             text = f"class {name}({bases}): {node.get('docstring', '')[:120]}"
         source = f"ast:{lib_name}:{kind}:{name}"
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(source, text):
+            return
         chunk_id = hashlib.sha256(f"{source}:{text}".encode()).hexdigest()[:16]
         meta_json = json.dumps({"ast_kind": kind, "lib": lib_name, "node": node}, ensure_ascii=False)
         try:

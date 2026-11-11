@@ -70,18 +70,82 @@ def check_embed_backlog(armed: bool) -> dict:
         snap = _ma.snapshot()
     except Exception as e:  # noqa: BLE001 - producteur illisible : INCONNU, jamais un balayage
         return {"etat": "INCONNU", "vector_pending": None, "raison": "snapshot illisible (%s)" % type(e).__name__,
-                "alert_threshold": EMBED_BACKLOG_ALERT}
+                "alert_threshold": EMBED_BACKLOG_ALERT, "signaled": _signaler_dette_non_mesuree(None)}
     if not snap.get("frais"):
         return {"etat": "INCONNU", "vector_pending": None, "raison": snap.get("raison", ""),
-                "age_s": snap.get("age_s"), "alert_threshold": EMBED_BACKLOG_ALERT}
+                "age_s": snap.get("age_s"), "alert_threshold": EMBED_BACKLOG_ALERT,
+                "signaled": _signaler_dette_non_mesuree(snap.get("age_s"))}
     n = snap.get("vector_pending")
+    age = snap.get("age_s")
+    if not isinstance(age, (int, float)) or age > EMBED_ALERT_AGE_MAX_S:
+        # « frais » selon le TTL de 26 h du producteur ne suffit pas pour une alerte de panne : le drain a pu
+        # resorber la dette depuis. Mesure trop vieille = INCONNU (ni panne ni sante), chiffre gardé à titre daté.
+        return {"etat": "INCONNU", "vector_pending": None, "vector_pending_ancien": n, "age_s": age,
+                "raison": "mesure trop vieille pour decider d'une panne (%s s > %.0f s)"
+                          % (None if age is None else round(age), EMBED_ALERT_AGE_MAX_S),
+                "alert_threshold": EMBED_BACKLOG_ALERT, "signaled": _signaler_dette_non_mesuree(age)}
     out = {"etat": "MESURE", "vector_pending": n, "vector_refused": snap.get("vector_refused"),
-           "age_s": snap.get("age_s"), "alert_threshold": EMBED_BACKLOG_ALERT}
+           "age_s": age, "alert_threshold": EMBED_BACKLOG_ALERT}
     if isinstance(n, int) and n > EMBED_BACKLOG_ALERT:
+        pouls = _pouls_drain_embed()
+        if pouls.get("progresse") is True:
+            etat_drain = "le drain progresse (journal ecrit il y a %.0f s)" % pouls["age_s"]
+        elif pouls.get("etat") == "ECHOUE":
+            etat_drain = "le journal du drain ne montre que des erreurs"
+        elif pouls.get("progresse") is False:
+            etat_drain = "aucune ecriture du drain depuis %.0f s (journal)" % pouls["age_s"]
+        else:
+            etat_drain = "pouls du drain illisible"
         out["signaled"] = _signal("embed_consolidation_debt", "warn",
-                                  {"vector_pending": n, "remedy": "embed daemon (:8099) en retard ou mort — "
-                                   "vérifier NokidoEmbedTrigger ; drain: forge_embed_auto_trigger --once"})
+                                  {"vector_pending": n, "mesure_age_s": age, "drain": pouls,
+                                   "remedy": "%d chunks en attente, mesure vieille de %.1f h ; %s ; "
+                                   "si besoin : forge_embed_auto_trigger --once" % (n, age / 3600.0, etat_drain)})
     return out
+
+
+EMBED_ALERT_AGE_MAX_S = 7200.0  # 2 h : ~ plusieurs cycles de drain ; au-dela la quantite a pu changer d'ordre
+_DRAIN_LOG_ACTIF_S = 900.0
+_DRAIN_LOG_QUEUE_OCTETS = 16384
+_DRAIN_LOG_LIGNES = 40
+import re as _re  # noqa: E402
+_RE_EMBED_PROGRES = _re.compile(r"embed\s+\d+/\d+\s+\(\d+%\)")
+_RE_EMBED_ERREUR = _re.compile(r"Traceback|Error|Exception", _re.I)
+
+
+def _pouls_drain_embed() -> dict:
+    """Le drain avance-t-il ? Lu sur les DERNIERES lignes (bornees) du journal de NokidoDeportEmbed -- aucune base
+    ouverte. Le mtime seul ne prouve rien : un Traceback en boucle ecrit aussi.
+    PROGRESSE = ligne `embed 818/5754 (14%) ~0.8/s` vue ; ECHOUE = erreurs seules ; ILLISIBLE = rien de lisible."""
+    try:
+        chemin = ROOT / "logs" / "supervisor" / "NokidoDeportEmbed.log"
+        st = chemin.stat()
+        age = round(time.time() - st.st_mtime, 1)
+        with open(chemin, "rb") as f:
+            f.seek(max(0, st.st_size - _DRAIN_LOG_QUEUE_OCTETS))
+            lignes = f.read().decode("utf-8", errors="replace").splitlines()[-_DRAIN_LOG_LIGNES:]
+    except Exception:  # noqa: BLE001
+        return {"etat": "ILLISIBLE", "progresse": None, "age_s": None}
+    if any(_RE_EMBED_PROGRES.search(ln) for ln in lignes):
+        return {"etat": "PROGRESSE", "progresse": age < _DRAIN_LOG_ACTIF_S, "age_s": age}
+    if any(_RE_EMBED_ERREUR.search(ln) for ln in lignes):
+        return {"etat": "ECHOUE", "progresse": False, "age_s": age}
+    return {"etat": "ILLISIBLE", "progresse": None, "age_s": age}
+
+
+_INCONNU_ESPACEMENT_S = 6 * 3600.0
+_INCONNU_DERNIER_SIGNAL: dict = {}
+
+
+def _signaler_dette_non_mesuree(age) -> int:
+    """Capteur muet = signal de faible gravite (info), sans parler de panne ; au plus un par _INCONNU_ESPACEMENT_S."""
+    now = time.time()
+    if now - _INCONNU_DERNIER_SIGNAL.get("t", -1e12) < _INCONNU_ESPACEMENT_S:
+        return 0
+    _INCONNU_DERNIER_SIGNAL["t"] = now
+    depuis = ("%.0f h" % (age / 3600.0)) if isinstance(age, (int, float)) else "duree inconnue"
+    return _signal("embed_debt_unmeasured", "info",
+                   {"age_s": age, "remedy": "dette d'embedding non mesuree depuis %s (mesure absente ou trop "
+                                            "vieille) ; ni sante ni defaut constate" % depuis})
 
 
 # ── 2. Thrombose circulatoire (lock DB) ──────────────────────────────────────
@@ -346,8 +410,195 @@ def check_port_zombie(armed: bool) -> dict:
     return out
 
 
+# ── 10. Integrite de livraison : verifier, soigner, ne remonter que les decisions (7/11) ─────────────────────
+# Owner 7/11 : « si le corps recoit des signaux il doit savoir les traiter de facon autonome », « a part les relayer
+# je ne peux pas en faire grand chose ». Mesure : 52 constats jamais acquittes, aucun consommateur de `ack`. Ce
+# controle re-mesure chaque constat ouvert (forge_delivery_integrity.remesurer, lecture seule), acquitte le resolu ou
+# le contredit et depose UNE tache de reverification par suspect confirme -- les deux SEULEMENT si `armed`.
+# Il n'emet AUCUN signal (inhibiteur) : son produit ne doit pas relancer la coagulation.
+INTEGRITE_MAX_PASSE = 60                     # constats re-mesures par passe (borne le cout git/gh)
+REVERIF_MAX_JOUR = int(os.environ.get("LAFORGE_INTEGRITE_REVERIF_MAX_JOUR", "3"))
+REVERIF_AGENT_DEFAUT = "OPENCODE_GLM"        # surface gratuite (meme choix que les enquetes de code epistemiques)
+# Miroir de tools/forge_task_executor._SURFACES_PAYANTES (non importe : module lourd, effets de bord au chargement).
+_SURFACES_PAYANTES = ("CLAUDE_HEADLESS",)
+_REVERIF_ETAT = ROOT / "sandbox" / "integrite_reverif.json"
+
+
+def _agent_reverif() -> str:
+    """Surface de reverification ; une surface payante n'est retenue que sur opt-in explicite."""
+    a = (os.environ.get("LAFORGE_INTEGRITE_REVERIF_AGENT") or REVERIF_AGENT_DEFAUT).strip().upper()
+    if a in _SURFACES_PAYANTES and os.environ.get("LAFORGE_INTEGRITE_REVERIF_PAYANT") != "1":
+        return REVERIF_AGENT_DEFAUT
+    return a
+
+
+def _deposer_reverif(description: str, agent: str) -> dict:
+    """Primitive d'assignation existante (`task action=assign` du hub), meme voie que
+    forge_epistemic_daemon._deposer_enquete. {"task_id"} | {"error"} ; ne leve jamais."""
+    try:
+        from nokido_agent.app.forge_hub_client import HubClient
+
+        txt = HubClient(agent="COAGULATION", timeout=30.0).tool("task", {
+            "action": "assign", "agent": agent, "intent": "HANDOFF_NEXT", "description": description})
+        d = json.loads(txt or "")
+    except Exception as e:  # noqa: BLE001 - rendu, jamais cache
+        return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+    tid = d.get("task_id") if isinstance(d, dict) else None
+    return {"task_id": tid} if tid else {"error": "pas de task_id : %s" % str(d)[:160]}
+
+
+def _lire_reverif():
+    """Etat des depots ({"findings": {id: ...}, "jours": {date: n}}) ; absent = vide ; illisible = None."""
+    try:
+        etat = json.loads(_REVERIF_ETAT.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"findings": {}, "jours": {}}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(etat, dict):
+        return None
+    etat.setdefault("findings", {})
+    etat.setdefault("jours", {})
+    return etat
+
+
+def _description_reverif(f: dict, m: dict) -> str:
+    desc = ("REVERIFICATION D'UNE LIVRAISON (lecture seule : ne modifie, ne committe et ne pousse rien).\n"
+            "La tache %s (agent %s) est marquee done en citant le commit %s, anterieur a sa creation ; "
+            "l'executeur n'a observe aucun commit produit (constat delivery_integrity %s).\n"
+            "Verifie dans le depot si le travail demande par cette tache existe (fichiers, fonctions, tests) et "
+            "rends : FAIT avec le SHA reel du livrable (7 a 40 hexadecimaux existant dans le depot), NON FAIT "
+            "avec ce qui manque, ou ILLISIBLE.\n"
+            "Consigne d'origine (extrait) :\n%s\n"
+            "pointer_ref attendu : le SHA reel du livrable, jamais un gabarit (ex. sha_vrai_du_livrable)"
+            % (m.get("tache"), m.get("agent"), m.get("sha"), f.get("id"), m.get("consigne") or "(illisible)"))
+    # Contrat `aucun` dans la forme que lit tools/forge_task_executor._contrat_livrable : la reverification ne
+    # produit aucun artefact, l'executeur ne commite pas pour elle, et tout ecrit est un RIEN_PRODUIT nomme.
+    return desc + '\n[LIVRABLE_CONTRAT] {"livrable": {"type": "aucun"}}'
+
+
+def _reverifier_une_fois(etat, f: dict, m: dict) -> dict:
+    """UNE tache par constat (dedup sur l'id du constat), au plus REVERIF_MAX_JOUR par jour."""
+    ref = "%s:%s" % (f["kind"], f["target"])
+    if etat is None:
+        return {"ref": ref, "statut": "ETAT_ILLISIBLE", "detail": "%s illisible : aucun depot (doublon possible)"
+                % _REVERIF_ETAT.name}
+    deja = etat["findings"].get(f["id"])
+    if deja:
+        return {"ref": ref, "statut": "DEJA_DEPOSEE", "task_id": deja.get("task_id")}
+    jour = time.strftime("%Y-%m-%d")
+    if int(etat["jours"].get(jour, 0)) >= REVERIF_MAX_JOUR:
+        return {"ref": ref, "statut": "PLAFOND_JOUR", "plafond": REVERIF_MAX_JOUR}
+    agent = _agent_reverif()
+    res = _deposer_reverif(_description_reverif(f, m), agent)
+    if not res.get("task_id"):
+        return {"ref": ref, "statut": "REFUS", "detail": res.get("error")}
+    etat["findings"][f["id"]] = {"task_id": res["task_id"], "ts": time.time(), "agent": agent}
+    etat["jours"][jour] = int(etat["jours"].get(jour, 0)) + 1
+    return {"ref": ref, "statut": "DEPOSEE", "task_id": res["task_id"], "agent": agent}
+
+
+def _description_ci(m: dict) -> str:
+    return ("ANALYSE D'UNE CI EN ECHEC PERSISTANT (lecture seule : ne relance PAS la CI, ne modifie, ne committe et "
+            "ne pousse rien).\n"
+            "Workflow %s sur la branche %s, commit %s : le dernier run termine est en echec apres re-mesure.\n"
+            "Analyse le run rouge (journal des etapes en echec) et rends : la cause probable et le correctif propose, "
+            "ou NON FAIT avec ce qui manque.\n"
+            "pointer_ref attendu : le rapport d'analyse."
+            % (m.get("workflow"), m.get("branche") or "?", m.get("commit")))
+
+
+def _analyser_ci_une_fois(etat, f: dict, m: dict) -> dict:
+    """UNE tache d'analyse par couple (workflow, commit), au plus REVERIF_MAX_JOUR par jour (meme plafond)."""
+    ref = "%s:%s" % (f["kind"], f["target"])
+    if etat is None:
+        return {"ref": ref, "statut": "ETAT_ILLISIBLE", "detail": "%s illisible : aucun depot (doublon possible)"
+                % _REVERIF_ETAT.name}
+    if not m.get("workflow") or not m.get("commit"):
+        return {"ref": ref, "statut": "CLE_INCOMPLETE"}
+    cle = "ci:%s@%s" % (m["workflow"], m["commit"])
+    deja = etat["findings"].get(cle)
+    if deja:
+        return {"ref": ref, "statut": "DEJA_DEPOSEE", "task_id": deja.get("task_id")}
+    jour = time.strftime("%Y-%m-%d")
+    if int(etat["jours"].get(jour, 0)) >= REVERIF_MAX_JOUR:
+        return {"ref": ref, "statut": "PLAFOND_JOUR", "plafond": REVERIF_MAX_JOUR}
+    agent = _agent_reverif()
+    res = _deposer_reverif(_description_ci(m), agent)
+    if not res.get("task_id"):
+        return {"ref": ref, "statut": "REFUS", "detail": res.get("error")}
+    etat["findings"][cle] = {"task_id": res["task_id"], "ts": time.time(), "agent": agent}
+    etat["jours"][jour] = int(etat["jours"].get(jour, 0)) + 1
+    return {"ref": ref, "statut": "DEPOSEE", "task_id": res["task_id"], "agent": agent}
+
+
+def check_delivery_integrity(armed: bool) -> dict:
+    """Re-mesure les constats ouverts ; armed : acquitte le resolu/contredit et depose les reverifications."""
+    try:
+        from nokido_agent.app import forge_delivery_integrity as DI
+    except Exception as e:  # noqa: BLE001
+        return {"etat": "INCONNU", "raison": "organe illisible (%s)" % type(e).__name__,
+                "resume": "soin impossible : forge_delivery_integrity illisible"}
+    ouverts = DI.findings_ouverts(INTEGRITE_MAX_PASSE)
+    if ouverts is None:
+        return {"etat": "INCONNU", "raison": "table des constats illisible",
+                "resume": "soin impossible : constats illisibles"}
+    out: dict[str, Any] = {"etat": "MESURE", "armed": armed, "ouverts": len(ouverts), "acquittes": [],
+                           "a_acquitter": [], "suspects": [], "taches": [], "persistants": [], "inconnus": []}
+    etat_rv, ecrire = None, False
+    for f in ouverts:
+        ref = "%s:%s" % (f["kind"], f["target"])
+        m = DI.remesurer(f["kind"], f["target"])
+        e = m.get("etat")
+        if e in ("RESOLU", "CONTREDIT"):
+            if not armed:
+                out["a_acquitter"].append(ref)
+            elif DI.ack(f["kind"], f["target"], "soin %s : %s" % (e, m.get("motif"))):
+                out["acquittes"].append(ref)
+            else:
+                out["inconnus"].append(ref)
+        elif e == "SUSPECT":
+            out["suspects"].append(ref)
+            if armed:
+                if etat_rv is None:
+                    etat_rv = _lire_reverif()
+                t = _reverifier_une_fois(etat_rv, f, m)
+                ecrire = ecrire or t["statut"] == "DEPOSEE"
+                out["taches"].append(t)
+        elif e == "PERSISTE":
+            out["persistants"].append(ref)
+            if armed and f["kind"] == "ci_en_echec":
+                if etat_rv is None:
+                    etat_rv = _lire_reverif()
+                t = _analyser_ci_une_fois(etat_rv, f, m)
+                ecrire = ecrire or t["statut"] == "DEPOSEE"
+                out["taches"].append(t)
+        else:
+            out["inconnus"].append(ref)
+    if ecrire:
+        try:
+            _REVERIF_ETAT.parent.mkdir(parents=True, exist_ok=True)
+            tmp = _REVERIF_ETAT.with_suffix(".tmp")
+            tmp.write_text(json.dumps(etat_rv, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, _REVERIF_ETAT)
+        except OSError as e:  # noqa: BLE001 - dit : la dedup ne tiendra pas
+            out["etat_reverif"] = "NON ECRIT (%s) : doublon de tache possible" % type(e).__name__
+    deposees = sum(1 for t in out["taches"] if t.get("statut") == "DEPOSEE")
+    if armed:
+        out["resume"] = ("soin arme : %d constat(s) relu(s), %d acquitte(s), %d suspect(s) (%d tache(s) deposee(s)), "
+                         "%d persistant(s), %d illisible(s)"
+                         % (len(ouverts), len(out["acquittes"]), len(out["suspects"]), deposees,
+                            len(out["persistants"]), len(out["inconnus"])))
+    else:
+        out["resume"] = ("soin NON ARME (dry-run, decision owner : --armed) : %d constat(s) relu(s), "
+                         "%d acquittable(s), %d suspect(s), %d persistant(s), %d illisible(s)"
+                         % (len(ouverts), len(out["a_acquitter"]), len(out["suspects"]),
+                            len(out["persistants"]), len(out["inconnus"])))
+    return out
+
+
 CHECKS = [check_embed_backlog, check_db_contention, check_orphans, check_phantom_slots,
-          check_cffi, check_oauth, check_balance_402, check_stale, check_port_zombie]
+          check_cffi, check_oauth, check_balance_402, check_stale, check_port_zombie, check_delivery_integrity]
 
 
 # Soin CIBLE : type de lesion (fragment du `kind` du signal) -> son remede. Un signal connu ne declenche
@@ -358,8 +609,11 @@ LESION_REMEDE = {
     "orphan": "check_orphans", "phantom": "check_phantom_slots", "cffi": "check_cffi",
     "oauth": "check_oauth", "balance": "check_balance_402", "402": "check_balance_402",
     "quota": "check_balance_402", "stale": "check_stale", "sarcopenia": "check_stale",
-    "zombie": "check_port_zombie",
+    "zombie": "check_port_zombie", "delivery_integrity": "check_delivery_integrity",
 }
+# Controles lances SEULEMENT quand une lesion les cible, jamais par le balayage complet (lesions absentes ou
+# inconnues, dont forge_autonomous_loops.pat_remediation a chaque tick).
+SUR_LESION_SEULEMENT = frozenset({"check_delivery_integrity"})
 
 
 def controles_pour(lesions):
@@ -387,6 +641,8 @@ def run_remediation_cycle(armed: bool = False, lesions=None) -> dict:
     for chk in CHECKS:
         if cibles is not None and chk.__name__ not in cibles:
             continue
+        if cibles is None and chk.__name__ in SUR_LESION_SEULEMENT:
+            continue  # 7/11 : soin d'integrite (git, gh, 60 constats) jamais dans le balayage de chaque tick
         try:
             r = chk(armed)
         except Exception as e:  # noqa: BLE001

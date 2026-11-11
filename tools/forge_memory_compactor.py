@@ -81,7 +81,7 @@ _PLANCHER_JOURS = 5
 #                       silencieuse) -- c'est la raison d'etre du compacteur.
 # Crier au seuil comme au cap fabrique du bruit ; ne crier qu'au seuil laisse la
 # perte arriver sans un mot. Le signal est donc GRADUE.
-_SEUIL_DEFAUT_KB = 17.0
+_SEUIL_DEFAUT_KB = 22.0
 _CAP_CHARGEMENT_KB = 24.4
 
 
@@ -487,6 +487,173 @@ def compact(memory_dir: Path = _DEFAULT_DIR, cutoff: str = "2026-06-20", dry_run
     return res
 
 
+_RX_CROCHETS = re.compile(r"\[\[([^\]|#\r\n]+)")
+_RX_NOM_FICHE = re.compile(r"^name:[ \t]*[\"']?([^\"'\r\n]+)", re.MULTILINE)
+
+
+def _cle_fiche(nom: str) -> str:
+    """Un [[lien]] cite un nom de fichier ou un `name:`, tirets et soulignes confondus."""
+    return nom.strip().removesuffix(".md").replace("-", "_").lower()
+
+
+def audit_index(memory_dir, strict: bool = False) -> dict:
+    """Taille de MEMORY.md et portee de ses fiches. Lecture seule, rien ne se supprime.
+
+    `strict` resout un [[lien]] comme Obsidian, par nom de fichier seul (casse ignoree) ;
+    sans lui, `name:` et tirets/soulignes confondus suffisent, ce qui masque des liens
+    morts (owner 5/11). `crochets_reparables` = lien mort a cible UNIQUE par ces equivalences.
+
+    Saut 1 = cite par l'index ; saut 2 = cite par une fiche du saut 1. `au_dela` reste
+    atteignable, `orphelines` ne l'est par aucun chemin. Index illisible : ILLISIBLE, et
+    pas de liste d'orphelines, qui se lirait comme un constat.
+    Verrouille par tests/nr/test_memory_audit_index_nr.py.
+    """
+    memory_dir = Path(memory_dir)
+    index = memory_dir / "MEMORY.md"
+    try:
+        brut = index.read_bytes()  # octets disque : read_text normalise CRLF (mesure 2026-09-11)
+    except OSError as e:
+        return {"etat": "ILLISIBLE", "raison": "%s: %s" % (type(e).__name__, e)}
+
+    textes, illisibles = {}, []
+    for p in sorted(memory_dir.glob("*.md")):
+        if p.name == "MEMORY.md":
+            continue
+        try:
+            textes[p.name] = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            illisibles.append(p.name)
+
+    cles = {_cle_fiche(nom): nom for nom in textes}
+    exactes = {Path(nom).stem.casefold(): nom for nom in textes}
+    candidats: dict = {}
+    for nom, txt in textes.items():
+        candidats.setdefault(_cle_fiche(nom), set()).add(nom)
+        m = _RX_NOM_FICHE.search(txt[:800])
+        if m:
+            cles.setdefault(_cle_fiche(m.group(1)), nom)
+            candidats.setdefault(_cle_fiche(m.group(1)), set()).add(nom)
+
+    crochets_morts = set()
+
+    def _cites(chemin: Path, txt: str) -> tuple:
+        pointeurs = {Path(x).name for x in _index_liens(chemin)}
+        trouves = {x for x in pointeurs if x in textes}
+        for c in _RX_CROCHETS.findall(txt):
+            cite = c.strip().removesuffix(".md").casefold()
+            nom = exactes.get(cite) if strict else cles.get(_cle_fiche(c))
+            if nom:
+                trouves.add(nom)
+            else:
+                crochets_morts.add(c.strip())
+        return trouves, pointeurs - set(textes) - set(illisibles)
+
+    graphe, morts_fiches = {}, {}
+    for nom, txt in textes.items():
+        graphe[nom], morts_fiches[nom] = _cites(memory_dir / nom, txt)
+    saut1, morts_index = _cites(index, brut.decode("utf-8", errors="replace"))
+    saut2 = set().union(*(graphe[n] for n in saut1)) - saut1 if saut1 else set()
+
+    vus, frontiere = saut1 | saut2, set(saut2)
+    au_dela = set()
+    while frontiere:
+        frontiere = set().union(*(graphe[n] for n in frontiere)) - vus
+        au_dela |= frontiere
+        vus |= frontiere
+    orphelines = set(textes) - vus
+
+    archive = graphe.get("MEMORY_ARCHIVE.md", set())
+    reparables = {c: next(iter(candidats[_cle_fiche(c)])) for c in crochets_morts
+                  if strict and len(candidats.get(_cle_fiche(c), ())) == 1}
+    return {
+        "etat": "OK",
+        "index_lignes": brut.count(b"\n"),
+        "index_octets": len(brut),
+        "fiches": len(textes),
+        "a_1_saut": sorted(saut1),
+        "a_2_sauts": sorted(saut2),
+        "au_dela": sorted(au_dela),
+        "orphelines": sorted(orphelines),
+        "orphelines_citees_par_archive": sorted(orphelines & archive),
+        "liens_morts_index": sorted(morts_index),
+        "crochets_morts": sorted(crochets_morts),
+        "crochets_reparables": reparables,
+        "illisibles": illisibles,
+    }
+
+
+def _synchroniser_ledger(memory_dir) -> None:
+    """Filet : chaque version d'avant reste dans la chaine."""
+    from nokido_agent.tools import forge_memory_ledger as _ml
+
+    _ml.sync(memory_dir)
+
+
+def reparer_crochets(memory_dir: Path = _DEFAULT_DIR, dry_run: bool = True) -> dict:
+    """Recrit en nom de fichier les [[liens]] morts a cible unique, alias et section gardes.
+
+    Reecriture de memoire, donc bornee comme `corriger_renommages` : lien EXACT rendu par
+    l'audit strict, ledger synchronise avant, octets intacts ailleurs. MEMORY.md n'y passe
+    jamais (consigne du 2026-09-06 : l'index se compacte a la main).
+    """
+    memory_dir = Path(memory_dir)
+    a = audit_index(memory_dir, strict=True)
+    reparables = a.get("crochets_reparables")
+    if not reparables:
+        return {"liens_repares": 0, "fiches": 0, "dry_run": dry_run, "etat": a.get("etat")}
+    if not dry_run:
+        try:
+            _synchroniser_ledger(memory_dir)
+        except Exception as exc:  # noqa: BLE001 - sans filet, on n'ecrit rien
+            return {"ARRET": "ledger indisponible (%s) -- rien reecrit" % type(exc).__name__}
+    motif = re.compile(r"\[\[\s*(%s)\s*(?=[\]|#])" % "|".join(
+        re.escape(c) for c in sorted(reparables, key=len, reverse=True)))
+    n_liens, n_fiches, echecs = 0, 0, []
+    for p in sorted(memory_dir.glob("*.md")):
+        if p.name == "MEMORY.md":
+            continue
+        try:
+            txt = p.read_bytes().decode("utf-8")
+            neuf, n = motif.subn(lambda m: "[[%s" % Path(reparables[m.group(1)]).stem, txt)
+            if n and not dry_run:
+                p.write_bytes(neuf.encode("utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            echecs.append({"fiche": p.name, "err": type(exc).__name__})
+            continue
+        if n:
+            n_liens += n
+            n_fiches += 1
+    return {"liens_repares": n_liens, "fiches": n_fiches, "dry_run": dry_run, "echecs": echecs}
+
+
+def _file_ingest_lire(chemin: Path) -> list:
+    """File des fiches a reingerer. Absente = vide ; illisible = vide, mais dit."""
+    import json as _json
+
+    try:
+        valeur = _json.loads(chemin.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        print("[memory_ingest] file illisible (%s) : repartie a vide" % type(exc).__name__)
+        return []
+    return [x for x in valeur if isinstance(x, str)] if isinstance(valeur, list) else []
+
+
+def _file_ingest_ecrire(chemin: Path, file: list) -> None:
+    """Ecriture atomique ; une file vide retire le fichier."""
+    import json as _json
+    import os as _os
+
+    if not file:
+        chemin.unlink(missing_ok=True)
+        return
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    tmp = chemin.with_name("%s.tmp.%d" % (chemin.name, _os.getpid()))
+    tmp.write_text(_json.dumps(file, ensure_ascii=False, indent=2), encoding="utf-8")
+    _os.replace(tmp, chemin)
+
+
 def main():
     import sys
     try:
@@ -500,6 +667,12 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--audit", action="store_true",
                     help="orphelins (ni chaud ni froid) + memoires dementies par le depot")
+    ap.add_argument("--audit-index", action="store_true",
+                    help="taille de l'index, fiches a 2 sauts, orphelines (lecture seule) ; compteurs seuls")
+    ap.add_argument("--sortie", default=None, help="--audit-index : ecrit les listes completes (JSON)")
+    ap.add_argument("--strict", action="store_true", help="--audit-index : [[liens]] resolus comme Obsidian")
+    ap.add_argument("--reparer-crochets", action="store_true",
+                    help="recrit les [[liens]] morts a cible unique (ledger sync avant ; --dry-run pour voir)")
     ap.add_argument("--repo-root", default=None, help="racine Nokido (defaut : parent de tools/)")
     ap.add_argument("--rattacher", action="store_true",
                     help="remet les orphelines dans un index (timeless -> chaud, reste -> froid)")
@@ -508,15 +681,31 @@ def main():
     ap.add_argument("--auto", action="store_true", help="hook SessionStart : ledger + compaction si deborde")
     ap.add_argument("--sans-compaction", action="store_true",
                     help="--auto : ledger + reingestion SEULS, l'index n'est jamais reecrit")
-    # 17.0 et non 22.0 : le cap de LECTURE de l'index est 24.4 Ko, mais le harness
-    # reclame une compaction des 17.1 Ko -- viser 22 laissait l'index deborder la
-    # cible en se croyant en regle (mesure 2026-08-20, index a 23.8 Ko).
+    # 22.0, choix owner du 2026-11-05 : plafond de l'index a 25 Ko, soit le cap de
+    # LECTURE (24.4 Kio) ; l'alarme sonne avant, pour replier a la main sans perte.
+    # Valait 17.0 : le harness reclamait une compaction des 17.1 Ko (mesure du
+    # 2026-08-20, index a 23.8 Ko, non revalidee depuis).
     ap.add_argument("--threshold-kb", type=float, default=_SEUIL_DEFAUT_KB)
     args = ap.parse_args()
     import json
     mdir = Path(args.memory_dir)
     mem = mdir / "MEMORY.md"
     cutoff = args.cutoff or (datetime.date.today() - datetime.timedelta(days=args.keep_days)).isoformat()
+    if args.reparer_crochets:
+        print(json.dumps(reparer_crochets(mdir, dry_run=args.dry_run), ensure_ascii=False))
+        return
+    if args.audit_index:
+        r = audit_index(mdir, strict=args.strict)
+        if args.sortie:
+            Path(args.sortie).write_text(json.dumps(r, ensure_ascii=False, indent=1), encoding="utf-8")
+        compteurs = {k: len(v) if isinstance(v, (list, dict)) else v for k, v in r.items()}
+        types = {}
+        for nom in r.get("orphelines", []):
+            t = nom.split("_", 1)[0]
+            types[t] = types.get(t, 0) + 1
+        compteurs["orphelines_par_prefixe"] = dict(sorted(types.items(), key=lambda kv: -kv[1])[:12])
+        print(json.dumps(compteurs, ensure_ascii=False))
+        return
     if args.audit:
         root = Path(args.repo_root) if args.repo_root else None
         print(json.dumps(audit(mdir, root), ensure_ascii=False, indent=1))
@@ -535,6 +724,7 @@ def main():
             if not mem.exists():
                 return
             # Gate de secours BLOCKCHAIN : ledger append-only de la memoire (rien perdu).
+            _changees = []
             try:
                 from nokido_agent.tools import forge_memory_ledger as _ml
                 # rapide : ne rouvre pas les 975 fiches a chaque demarrage (6 s a
@@ -542,9 +732,19 @@ def main():
                 _lr = _ml.sync(mdir, rapide=True)
                 if _lr.get("appended"):
                     print(f"[memory_ledger] +{_lr['appended']} versions chainees")
+                _changees = list(_lr.get("changees") or [])
                 _ml.prune()  # borne la croissance (garde chaine+sha, vide vieux contenu)
             except Exception as _le:
                 print(f"[memory_ledger] skip ({_le})")
+            # La file est ecrite AVANT toute ingestion : le hook peut etre tue a 8 s, et le
+            # ledger ne redira jamais ces fiches (revue du chantier AGY 2, 5/11).
+            _pending_file = _Path_amorce(_RACINE_AMORCE) / "sandbox" / "memory_ingest_pending.json"
+            _queue = _file_ingest_lire(_pending_file)
+            for _f in _changees:
+                if _f != "MEMORY.md" and _f not in _queue:
+                    _queue.append(_f)
+            if _queue:
+                _file_ingest_ecrire(_pending_file, _queue)
             # L'index vient peut-etre d'etre REECRIT par la session precedente :
             # sans reingestion, le lexical continue de servir la version d'avant.
             # C'est le defaut repare le 2026-09-04 (chemin VOLATIL de
@@ -552,17 +752,20 @@ def main():
             # personne ne rebranchait la chaine ici.
             #
             # L'appel est AVANT le test de seuil, et non apres la compaction :
-            # l'index change a chaque session sans forcement franchir les 17 Ko,
+            # l'index change a chaque session sans forcement franchir le seuil,
             # donc le cas le PLUS FREQUENT est justement celui ou l'on ne
             # compacte pas. L'ingestion est idempotente (id par position,
             # empreinte sur le texte entier) : si rien n'a bouge, elle n'ecrit
             # rien.
             try:
                 import io as _io
+                import os as _os
+                import time as _time
                 from contextlib import redirect_stdout as _rs
 
                 from nokido_agent.tools import forge_memory_ingest as _mi
 
+                # Reingestion de MEMORY.md (index chaud)
                 _buf = _io.StringIO()
                 with _rs(_buf):  # l'ingestion est bavarde ; le hook ne doit pas l'etre
                     _mi.ingerer(appliquer=True, fichier="MEMORY.md")
@@ -572,6 +775,32 @@ def main():
                               % _ligne.split(":", 1)[1].rstrip())
                     elif "volatil" in _ligne or "[!]" in _ligne:
                         print("[memory_ingest]%s" % _ligne.split("]", 1)[-1])
+
+                # Fiches en file, budget de temps borne (0 ou illisible = la file seule).
+                try:
+                    _budget_s = float(_os.environ.get("LAFORGE_MEMORY_INGEST_BUDGET_S", "3.0"))
+                except ValueError:
+                    _budget_s = 0.0
+                _traitees = 0
+                _debut_ingest = _time.monotonic()
+                _reste = list(_queue)
+                _refus = None
+                while _budget_s > 0 and _reste and (_time.monotonic() - _debut_ingest) < _budget_s:
+                    if not (mdir / _reste[0]).is_file():  # fiche retiree depuis : rien a ingerer
+                        _reste.pop(0)
+                        continue
+                    _buf_f = _io.StringIO()
+                    with _rs(_buf_f):
+                        _rc = _mi.ingerer(appliquer=True, fichier=_reste[0])
+                    if _rc:  # 2 ou 3 (NO_VERDICT, plan refuse) ne sont pas un succes
+                        _refus = _rc
+                        break
+                    _reste.pop(0)
+                    _traitees += 1
+                _file_ingest_ecrire(_pending_file, _reste)
+                if _traitees or _reste:
+                    print("[memory_ingest] fiches reingerees : %d traitee(s), %d en attente%s"
+                          % (_traitees, len(_reste), " ; ingerer a refuse (rc=%s)" % _refus if _refus else ""))
             except Exception as _ie:
                 # Jamais fatal : le hook SessionStart ne doit pas mourir pour ca.
                 # Mais jamais MUET non plus — un lexical perime qui se tait est

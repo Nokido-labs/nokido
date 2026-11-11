@@ -68,6 +68,12 @@ DOMAINES = {
 OUTILS_ACTION = ("__run", "__orchestrate", "__task", "__forge_spawn_swarm", "__auto_test")
 OUTILS_MEMOIRE = ("__rag", "__query", "__read_function_body", "__read", "__biblio",
                   "__forge_deep_explore", "__skill")
+# Outils d'orchestration / assignation de tache : `task` portant `action=assign`
+# (ou variantes sans action explicite d'execution) ne fait qu'ecrire une consigne
+# pour un worker ; les mots qu'elle contient decrivent le contexte delegue, pas une
+# instrumentation directe par l'agent appelant. Le garde doit la laisser passer sans
+# bloquer sur les mots de la consigne (NokidoTaskExecutorAntigravity, delivery_integrity, etc.).
+OUTILS_TASK = ("__task",)
 # Outils qui CREENT un module. L'anti-dup de RULES_SHARED protege la creation, et
 # c'est le motif le plus recidivant mesure par forge_recurrence_audit : re-consigne
 # sur mai->juillet, alors que la regle existe depuis toujours. Une regle qu'on doit
@@ -146,7 +152,8 @@ def _pieges_anterieurs(ev: dict, charge: str, vus: dict) -> int:
     # de l'action qu'on invoque.
     _STRUCTURELS = {"action", "script", "path", "file_path", "timeout", "limit",
                     "agent", "to", "service", "desired_state", "offset", "lines",
-                    "domain", "pattern", "glob", "output_mode", "name", "id"}
+                    "domain", "pattern", "glob", "output_mode", "name", "id",
+                    "job_id", "task_id", "lane", "explanation"}
     _entree = ev.get("tool_input") or {}
     if isinstance(_entree, dict):
         charge = json.dumps(
@@ -248,6 +255,18 @@ def _historique_module(charge: str) -> str:
               " AVANT toute nouvelle construction.\n")
 
 
+def _est_outil_task_assign(outil: str, entree: dict) -> bool:
+    """Verifie si l'appel est un outil `task` avec `action=assign`."""
+    if not isinstance(entree, dict):
+        return False
+    # Nom d'outil : supporte mcp__nokido-oauth__task, mcp__laforge-sovereign-hub__task, __task, task
+    if not (any(t in outil for t in OUTILS_TASK) or outil.endswith("task")):
+        return False
+    # status, claim et result ne portent qu'un identifiant ou un rendu : `task_id` a mordu le 6/11.
+    action = str(entree.get("action") or "").strip().lower()
+    return action in ("assign", "status", "claim", "result")
+
+
 def main() -> int:
     try:
         ev = json.load(sys.stdin)
@@ -255,8 +274,15 @@ def main() -> int:
         return 0
 
     outil = str(ev.get("tool_name") or "")
-    charge = json.dumps(ev.get("tool_input") or {}, ensure_ascii=False)
+    entree = ev.get("tool_input") or {}
+    charge = json.dumps(entree, ensure_ascii=False)
     vus = _charger()
+
+    # Exception task action=assign : ne pas bloquer l'assignation de tache a cause
+    # des mots decrivant la consigne / le contexte delegue (ex: NokidoTaskExecutorAntigravity,
+    # delivery_integrity, tmp_path, etc.). L'outil task assign n'instrumente rien directement.
+    if _est_outil_task_assign(outil, entree):
+        return 0
 
     # Consultation memoire -> le domaine est marque, le garde se taira. On marque
     # aussi le fait BRUT d'avoir consulte : c'est ce que le garde de creation exige.

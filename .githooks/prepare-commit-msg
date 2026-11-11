@@ -6,6 +6,22 @@ import os
 import subprocess
 import sys
 
+# --- sans fenetre (owner 3/11 : « git n'arrete pas de faire poper des terminaux ») : sous Windows, tout
+# sous-processus de ce hook part en CREATE_NO_WINDOW ; les petits-enfants (gate, git) heritent d'une console SANS
+# fenetre. Le drapeau d'un appelant est respecte. NR tests/nr/test_githooks_sans_fenetre_nr.py
+if os.name == "nt":
+    class _PopenSansFenetre(subprocess.Popen):
+        def __init__(self, *a, **k):
+            k.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+            # sans fenetre, l'enfant ecrirait dans SA console cachee (messages du gate perdus, 672d52764)
+            for _nom, _flux in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+                if k.get(_nom) is None and _flux is not None:
+                    k[_nom] = _flux
+            super().__init__(*a, **k)
+
+    subprocess.Popen = _PopenSansFenetre
+# --- fin sans fenetre
+
 root = subprocess.run(
     ["git", "rev-parse", "--show-toplevel"],
     capture_output=True, text=True, encoding="utf-8",

@@ -25,6 +25,8 @@ def _module():
 class _Superviseur:
     """Simule l'arret LENT de l'ancien process : 3 sondes « running + port tenu » apres le stop."""
 
+    reponse_wake = (200, '{"ok": true, "action": "wake", "def_refreshed": true}')
+
     def __init__(self, demarre=True):
         self.statut, self.port_tenu, self.appels, self.sondes_avant_arret = "running", True, [], 3
         self.demarre = demarre
@@ -39,6 +41,10 @@ class _Superviseur:
                     self.statut, self.port_tenu = "stopped", False
             vue = "running" if self.statut == "stopping" else self.statut
             return 200, json.dumps({"services": {"NokidoX": {"status": vue, "port": 8999, "pid": 42}}})
+        if "/supervisor/wake/" in path:
+            if isinstance(self.reponse_wake, Exception):
+                raise self.reponse_wake
+            return self.reponse_wake
         if "/service/stop/" in path:
             self.statut = "stopping"
             return 200, '{"ok": true}'
@@ -59,6 +65,42 @@ def _brancher(monkeypatch, m, sup):
     monkeypatch.setattr(time, "monotonic", lambda: horloge[0])
     monkeypatch.setattr(time, "sleep", lambda s: horloge.__setitem__(0, horloge[0] + s))
     monkeypatch.setattr(sys, "argv", ["forge_supervisor_ctl.py", "restart", "NokidoX"])
+
+
+def test_restart_relit_la_definition_entre_stop_et_start(monkeypatch, capsys):
+    """5/11, NokidoLogRetention : stop + service/start gardait l'ancienne env du TOML."""
+    m = _module()
+    sup = _Superviseur()
+    _brancher(monkeypatch, m, sup)
+    assert m.main() == 0
+    pos = {k: next(i for i, a in enumerate(sup.appels) if k in a)
+           for k in ("/service/stop/", "/supervisor/wake/", "/service/start/")}
+    assert pos["/service/stop/"] < pos["/supervisor/wake/"] < pos["/service/start/"], sup.appels
+    assert "definition relue" in capsys.readouterr().out
+
+
+def test_relecture_impossible_est_dite_et_ne_bloque_pas_la_relance(monkeypatch, capsys):
+    for refus in ((404, '{"error": "unknown service"}'), OSError("HTTP 404")):
+        m = _module()
+        sup = _Superviseur()
+        sup.reponse_wake = refus
+        _brancher(monkeypatch, m, sup)
+        assert m.main() == 0
+        assert any("/service/start/" in a for a in sup.appels), sup.appels
+        assert "definition NON relue" in capsys.readouterr().out
+
+
+def test_relire_ne_reveille_pas_un_service_en_sommeil(monkeypatch, capsys):
+    """wake sur sleeping ou quarantine DEMARRE le service : ce n'est plus une relecture."""
+    for statut in ("sleeping", "quarantine"):
+        m = _module()
+        sup = _Superviseur()
+        sup.statut = statut
+        _brancher(monkeypatch, m, sup)
+        monkeypatch.setattr(sys, "argv", ["forge_supervisor_ctl.py", "relire", "NokidoX"])
+        assert m.main() == 1
+        assert not any("/supervisor/wake/" in a for a in sup.appels), sup.appels
+        assert "definition NON relue" in capsys.readouterr().out
 
 
 def test_le_start_attend_l_arret_effectif(monkeypatch, capsys):

@@ -1184,9 +1184,23 @@ def _args_avec_provenance(name, args, request):
     if not isinstance(args, dict):
         return args
     args.pop("_provenance", None)
-    if name == "governed_edit":
+    args.pop("_tache", None)
+    if name in ("governed_edit", "forge_spawn_swarm"):
         args["_provenance"] = _provenance_http(request)
+        args["_tache"] = _tache_http(request)
     return args
+
+
+def _tache_http(request) -> str:
+    """En-tete LaForge-Tache, VALIDE ([A-Za-z0-9]+) ; invalide -> "INVALIDE", jamais la valeur brute ; absent -> ""."""
+    import re as _re
+    try:
+        brut = str(request.headers.get("LaForge-Tache") or "").strip()
+    except Exception:  # noqa: BLE001
+        return "INVALIDE"
+    if not brut:
+        return ""
+    return brut if _re.fullmatch(r"[A-Za-z0-9]+", brut) else "INVALIDE"
 
 
 def _provenance_http(request) -> str:
@@ -1217,11 +1231,44 @@ def _resoudre_jwt_standard(parts: list) -> tuple[int, str]:
         return json.loads(base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
 
     try:
-        if not isinstance(_dec(parts[0]), dict) or not isinstance(_dec(parts[1]), dict):
+        _entete = _dec(parts[0])
+        if not isinstance(_entete, dict) or not isinstance(_dec(parts[1]), dict):
             raise ValueError("segments non objets")
     except Exception as _e:  # noqa: BLE001
         logger.warning("bearer a 3 parties illisible: %s", type(_e).__name__)
         return -1, "malformed_bearer"
+    if _entete.get("typ") == "at+jwt" and _entete.get("alg") == "ES256":
+        # 3/11 E5 (plan docs/PLAN_OAUTH_MCP_HUB_20261102.md ; etape 4 du chantier jeton maitre) : jeton d'acces
+        # OAuth RFC 9068 emis par l'autorite des clients du hub. Verification COMPLETE par l'autorite (signature
+        # ES256 cle TPM HUB, iss, aud, exp, jti/famille revoques) ; sujet OAUTH_* seulement ; ring = max(registre
+        # (defaut 3), jeton) -- le jeton RESTREINT, n'eleve jamais ; passage par le videur (empreinte, jamais le
+        # jeton). Interrupteur eteint = refus. NR tests/nr/test_oauth_e5_jeton_sur_mcp_nr.py
+        import hashlib as _hl
+        _jeton = ".".join(parts)
+        try:
+            from app import forge_oauth_http as _oh
+            _charge, _motif = _oh.verifier_jeton_client(_jeton)
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("jeton OAuth non verifiable (%s)", type(_e).__name__)
+            return -1, "jeton_oauth_illisible"
+        if _charge is None:
+            logger.warning("jeton OAuth refuse : %s", _motif)
+            return -1, "jeton_oauth_refuse"
+        _sujet = str(_charge.get("sub") or "")
+        if not _sujet.startswith("OAUTH_"):
+            logger.warning("jeton OAuth au sujet hors espace OAUTH_ refuse")
+            return -1, "jeton_oauth_sujet_invalide"
+        _ring_jeton = _charge.get("ring")
+        _ring_jeton = int(_ring_jeton) if isinstance(_ring_jeton, int) and _ring_jeton >= 1 else 3
+        _ring = max(int(_agent_ring(_sujet, 3)), _ring_jeton, 1)
+        try:
+            from nokido_agent.app.forge_videur import capture as _vcap
+            _vcap({"agent": _sujet, "ring": _ring, "via": "oauth_rfc9068", "channel": "HTTP_DIRECT",
+                   "transport": "http", "token_h": _hl.sha256(_jeton.encode()).hexdigest()[:16]},
+                  "_resolve_ring", {"client_id": _charge.get("client_id"), "scope": _charge.get("scope")})
+        except Exception as _e:  # noqa: BLE001 - une trace qui echoue ne change pas la decision ; dit
+            logger.warning("[videur] identite OAuth NON journalisee (%s)", type(_e).__name__)
+        return _ring, _sujet
     logger.warning("bearer a 3 parties hors format maison refuse (JWT standard non pris en charge)")
     return -1, "jwt_standard_non_pris_en_charge"
 
@@ -2766,6 +2813,16 @@ def _identite_inbox(request) -> dict:
         # videur ne connait que le magasin statique -> il l'etiquetait `bad_token`, sujet non prouve
         # (mesure 24/10 : RSS_WATCHER, STATE_ENCODER, ... ; boite /inbox refusee). On rend ici la
         # MEME verification : decode signe + non expire = sujet prouve ; sinon on retombe au videur.
+        if len(jeton.split(".")) == 3:
+            # 3/11 (derogation owner, fichier critique) : JWS OAuth RFC 9068 -- MEME verification qu'E5
+            # (_resoudre_jwt_standard : signature ES256 TPM, iss, aud, exp, revocations, ring = max(registre, jeton)).
+            # Valide = OAUTH_<client> PROUVE ; refuse = non prouve, JAMAIS repeche par le videur sur le nom declare.
+            # Avant : restart-hub refuse depuis Claude Code en OAuth (« requete sans Mcp-Session-Id »).
+            # NR : tests/nr/test_oauth_identite_prouvee_nr.py
+            _r_oauth, _sujet_oauth = _resoudre_jwt_standard(jeton.split("."))
+            if _r_oauth >= 1 and str(_sujet_oauth).startswith("OAUTH_"):
+                return {"agent": str(_sujet_oauth), "ring": int(_r_oauth), "via": "oauth_rfc9068", "sujet_prouve": True}
+            return vide
         if len(jeton.split(".")) == 2:
             try:
                 from nokido_agent.app.forge_integrity import CapabilityToken, get_manager
@@ -3377,7 +3434,15 @@ async def _build_app():
                 # (cf. _origine_appelant) : sans lui, 114 406 rejets anonymes.
                 request=request,
             )
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            # 3/11 E5 : defi de decouverte OAuth (RFC 9728 §5.1) quand les clients OAuth sont armes ; eteint = {}.
+            try:
+                from app.forge_oauth_http import entetes_defi_401 as _defi
+                _entetes_401 = _defi((os.environ.get("NOKIDO_HUB_EMETTEUR") or "http://127.0.0.1:8766").rstrip("/"),
+                                     bool(request.headers.get("Authorization")))
+            except Exception as _e_defi:  # noqa: BLE001 - dit : 401 sans defi, comme avant
+                logger.warning("defi OAuth du 401 non pose (%s)", type(_e_defi).__name__)
+                _entetes_401 = {}
+            return JSONResponse({"error": "Unauthorized"}, status_code=401, headers=_entetes_401)
 
         try:
             body = await request.json()
@@ -4829,7 +4894,8 @@ Retourne exactement ce JSON:
             )
 
             # Stocker les métadonnées LLM dans rag_chunks directement
-            if text:
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if text and admis_a_l_ingestion(url or "qualify", " ".join((title, summary, text))):
                 chunk_id = "qch_" + hashlib.md5(f"{url}{now}".encode()).hexdigest()[:12]
                 enriched_text = f"[QUALIFY] {title}\n{summary}\nTags: {tags_str}\nDomain: {domain}\n\n{text[:4000]}"
                 conn.execute(
@@ -4976,7 +5042,8 @@ Retourne exactement ce JSON:
                     now,
                 ),
             )
-            if text:
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if text and admis_a_l_ingestion(url or "sidebar", " ".join((title, summary, text))):
                 cid = "ich_" + hashlib.md5((uid + now).encode()).hexdigest()[:12]
                 ts2 = ",".join(tags)
                 enriched = (
@@ -5607,6 +5674,9 @@ Retourne exactement ce JSON:
                 if len(chunk) < 50:
                     continue
                 src = f"repo:{name}/{rel}"
+                from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+                if not admis_a_l_ingestion(src, chunk):
+                    continue
                 cid = _hl.sha256((src + chunk).encode()).hexdigest()[:16]
                 try:
                     cur.execute(
@@ -6834,10 +6904,94 @@ Retourne exactement ce JSON:
         except Exception as _e:  # noqa: BLE001
             return JSONResponse({"erreur": type(_e).__name__}, status_code=503)
 
+    def _routes_oauth_clients():
+        """3/11 E3 (plan docs/PLAN_OAUTH_MCP_HUB_20261102.md) : routes OAuth des CLIENTS MCP, emises par Nokido.
+
+        Interrupteur NOKIDO_OAUTH_CLIENTS ETEINT par defaut (lu a chaque requete) : eteint, decouverte = 404
+        « Bearer only » et /oauth/token delegue au flot RFC 8693 des jobs -- comportement inchange. L'autorite est
+        construite a la PREMIERE requete armee : cle TPM de l'identite declaree HUB (SYSTEM y a acces, prouve le
+        3/11), donnees sous racine_donnees(). Montees AVANT l'attrape-tout /.well-known (premiere route servie).
+        Montage valide par l'owner le 3/11 (allow_critical trace). NR : tests/nr/test_oauth_routes_montees_dans_le_hub_nr.py
+        """
+        try:
+            from app import forge_oauth_http as _oh
+            from nokido_agent.app import forge_ordres_bureau as _ob
+        except Exception as _e:  # noqa: BLE001 - dit : sans ces routes, le hub reste « Bearer only »
+            logger.warning("[oauth-clients] routes non montees (%s)", type(_e).__name__)
+            return []
+        _emetteur = (os.environ.get("NOKIDO_HUB_EMETTEUR") or "http://127.0.0.1:8766").rstrip("/")
+        _etat = {}
+
+        def _autorite():
+            if "a" not in _etat:
+                from app import forge_oauth_clients as _oc
+                from app import forge_signature_hub as _sh
+                _sig = _sh.obtenir_signataire(identite="HUB")
+                logger.warning("[oauth-clients] signataire %s (kid %s)", _sig.origine, _sig.kid[:12])
+                _etat["a"] = _oc.AutoriteClientsHub(_oc.dossier_defaut(), _sig, _emetteur + "/mcp", _emetteur)
+            return _etat["a"]
+
+        # 3/11 E4 : chaque demande d'autorisation DEPOSE un ordre oauth-consentement (a_valider) : le tray ouvre la
+        # fenetre Oui/Non et renvoie la decision (demander_ordre decision-oui|non), que forge_ordres_bureau n'admet
+        # QUE du tray qui a pris l'ordre. Le decideur applique : identite OAUTH_<client_id>, ring 3 (le plus bas).
+        # (import de forge_ordres_bureau DANS le try ci-dessus : un echec n'empeche jamais le hub de demarrer)
+
+        def _notifier(ident, demande):
+            client = _autorite().client(demande.get("client_id", "")) or {}
+            resume = "%s (%s) demande %s sur %s" % (client.get("client_name") or demande.get("client_id"),
+                                                     demande.get("redirect_uri"), demande.get("scope"),
+                                                     demande.get("resource"))
+            _ob.deposer("oauth-consentement", "HUB", resume, a_valider=True, cible=ident)
+
+        def _decideur(cible, oui, ring=None):
+            demande = _autorite().demande(cible) or {}
+            _identite = "OAUTH_" + str(demande.get("client_id", ""))[:40]
+            if oui and ring is not None:
+                # 3/11 (decision owner « ring choisi au tray + inscrit au registre ») : le ring choisi a la 2e fenetre
+                # du tray est INSCRIT au registre pour CE client (autorite unique, aucun ring lu du jeton seul) ; un
+                # client public se re-inscrit a chaque re-authentification, d'ou la decision a chaque consentement.
+                from nokido_agent.app.forge_ring_admin import inscrire_client_oauth as _inscrire
+                _client = _autorite().client(demande.get("client_id", "")) or {}
+                _r = _inscrire(_identite, ring, "consentement owner au tray %s : client %r, redirection %s"
+                               % (time.strftime("%Y-%m-%d %H:%M"), _client.get("client_name"),
+                                  demande.get("redirect_uri")))
+                if not _r.get("ok"):
+                    logger.warning("[oauth-clients] ring choisi NON inscrit (%s) : jeton au ring du registre",
+                                   _r.get("error"))
+            # ring du REGISTRE des identites pour CET identifiant (jamais le nom du client), 3 par defaut. Le hub
+            # verifie ensuite max(registre, jeton) : abaisser le registre restreint aussitot.
+            return _oh.decider(cible, accord=oui, identite=_identite, ring=int(_agent_ring(_identite, 3)))
+
+        _ob.enregistrer_decideur("oauth-consentement", _decideur)
+
+        def _decideur_revocation(cible, oui):
+            # 3/11 (owner « fais revoquer_client ») : DECISION owner au tray. Deux verrous independants : familles de
+            # jetons revoquees (tout jeton existant refuse) ET entree du registre retiree (un jeton restant retombe au
+            # ring 3 par max(registre, jeton)). Politique AS conforme RFC 7009 §2.2 / RFC 7591-7592.
+            if not oui:
+                return "revocation refusee par l'owner"
+            from nokido_agent.app.forge_ring_admin import retirer_client_oauth as _retirer
+            _r = _autorite().revoquer_client(cible)
+            _g = _retirer("OAUTH_" + str(cible)[:40], "revocation owner au tray %s" % time.strftime("%Y-%m-%d %H:%M"))
+            logger.warning("[oauth-clients] client %s revoque : %s ; registre : %s", str(cible)[:20], _r, _g)
+            return "client %s : %s / registre %s" % (str(cible)[:20], "revoque" if _r.get("ok") else _r.get("raison"),
+                                                     "retire" if _g.get("retire") else _g.get("note") or _g.get("error"))
+
+        _ob.enregistrer_decideur("oauth-revocation", _decideur_revocation)
+
+        try:
+            from nokido_agent.tools.forge_ci_check import decideur_ci as _decideur_ci
+
+            _ob.enregistrer_decideur("ci-lancement", _decideur_ci)
+        except Exception as _e:  # noqa: BLE001 - dit : sans ce decideur, seul l'ordre ci-lancer est indisponible
+            logger.warning("route CI indisponible, ordre ci-lancer sans decideur : %s", type(_e).__name__)
+        return _oh.routes(_autorite, _emetteur, delegue_jeton=_oauth_token_route, notifier=_notifier)
+
     app = Starlette(
         routes=[
             Route("/.well-known/acp-jwks.json", acp_jwks, methods=["GET"]),
             Route("/acp/sign", acp_sign, methods=["POST"]),
+            *_routes_oauth_clients(),
             Route("/.well-known/{wk_path:path}", oauth_discovery, methods=["GET"]),
             Route("/mcp/.well-known/{wk_path:path}", oauth_discovery, methods=["GET"]),
             Route("/admin/restart", admin_restart, methods=["POST"]),
@@ -7560,6 +7714,14 @@ if __name__ == "__main__":
         logger.info("ProviderWatcher démarré — ping toutes les 5min")
     except Exception as _pwe:
         logger.debug(f"[provider_watcher] skip: {_pwe}")
+
+    # LECTURES DU HUB (owner 4/11) : qui ouvre quoi quand les compteurs sautent, sandbox/hub_lectures.jsonl.
+    try:
+        from nokido_agent.app.forge_fils_hub import armer_sonde_lectures as _armer_lectures
+
+        _armer_lectures()
+    except Exception as _le:  # noqa: BLE001
+        logger.warning(f"[lectures] sonde interne non armee : {type(_le).__name__}: {_le}")
 
     # INSPECTOR — monitoring autonome sys/réseau/zombies (toutes les 30s)
     try:

@@ -66,7 +66,7 @@ def _prepare(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "")
     monkeypatch.setattr(T, "_preserver_livraison", lambda *a, **k: "")
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, w, avant, autorises=None, desc=None: (ok, "commits produits : 1", None))
+                        lambda ok, detail, w, avant, autorises=None, desc=None, **_k: (ok, "commits produits : 1", None))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda i: "jeton")
     monkeypatch.setattr(T, "_lire_cle_fournisseur", lambda n: "cle")
     monkeypatch.setattr(T, "_battement_delegation", lambda a, t: __import__("contextlib").nullcontext())

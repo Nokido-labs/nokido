@@ -47,8 +47,13 @@ try:
     import pystray
     from PIL import Image, ImageDraw, ImageFont
 except ImportError:
-    print("pip install pystray pillow")
-    sys.exit(1)
+    pystray = None
+    Image = ImageDraw = ImageFont = None
+    if __name__ == "__main__":
+        print("pip install pystray pillow")
+        sys.exit(1)
+    else:
+        raise ImportError("Le module pystray est requis pour l'exécution du tray. Exécutez : pip install pystray pillow")
 
 ROOT = Path(__file__).resolve().parent.parent
 AUTH_F = ROOT / "config" / "authority_state.json"
@@ -61,9 +66,23 @@ LANCEUR = ROOT / "tools" / "nokido_launcher.py"
 # Le panneau de l'owner, celui du Bureau : le tray l'OUVRE (demande owner 2026-09-26),
 # il ne lance plus le launcher en direct. Le .bat relaie ses arguments (`%*`).
 PANNEAU_BAT = ROOT / "tools" / "Nokido Control Panel.bat"
+# Gardien du Funnel (owner 2026-11-03) : le tray, SEULE session a laquelle l'API Tailscale
+# repond, lance `nokido_launcher.py --action funnel-garder` a cette cadence. NR :
+# tests/nr/test_gardien_funnel_tray_nr.py
+GARDE_FUNNEL_SEC = 300
+JOURNAL_GARDIEN_FUNNEL = ROOT / "logs" / "gardien_funnel.jsonl"
+# Gardien de mise a jour d'Ollama (owner 3/11) : l'installateur doit tourner dans la session de l'owner, NokidoOllama
+# arrete -- le tray est le seul organe dans cette session (cf. nokido_launcher._action_ollama_maj).
+GARDE_OLLAMA_SEC = 900
+JOURNAL_GARDIEN_OLLAMA = ROOT / "logs" / "gardien_maj_ollama.jsonl"
+#: 3/11 E4 (plan OAuth MCP) : ordres qui demandent une DECISION de l'owner (fenetre Oui/Non), renvoyee au hub par
+#: `demander_ordre decision-oui|decision-non` -- jamais une action du panneau. Miroir de forge_ordres_bureau.DECISIONS.
+DECISIONS_TRAY = ("oauth-consentement", "oauth-revocation", "ci-lancement")
 ACTIONS_PANNEAU = ("start", "stop", "restart", "restart-hub", "status",
                    # Tailscale (2026-09-29) : seule la session owner peut le piloter.
                    "tailscale-statut", "funnel-ouvrir", "funnel-fermer",
+                   # Audit des processus (6/11) : l'UAC n'apparait que dans la session de l'owner.
+                   "audit-processus",
                    # Mode DEV (2026-10-16) : console administrateur, l'UAC est le geste owner.
                    "dev-armer")
 # 31/10 (owner) : « audio-relancer » RETIRE du tray -- la fuite de handles d'audiodg venait de l'APO Razer 7.1
@@ -360,6 +379,77 @@ def _open_logs(icon, item):
 # NSSM NokidoMCP est arrete PAR DESIGN, le hub :8766 est un ENFANT du superviseur, et le
 # relancer par NSSM ouvrait un second hub sur le meme port (voie retiree du panneau le
 # 2026-09-06). Le tray ne garde plus de copie : il lance ce que lance le panneau.
+def _garder_funnel(maintenant: float | None = None) -> bool:
+    """Lance le gardien (sans console) si la cadence est echue. Rend True s'il est lance."""
+    t = time.time() if maintenant is None else maintenant
+    if t - float(_state.get("funnel_garde_ts") or 0.0) < GARDE_FUNNEL_SEC:
+        return False
+    _state["funnel_garde_ts"] = t
+    try:
+        subprocess.Popen([_python_console(), str(LANCEUR), "--action", "funnel-garder"],
+                         cwd=str(ROOT), creationflags=subprocess.CREATE_NO_WINDOW)
+    except Exception as e:
+        _notify(f"Gardien Funnel non lancé : {e}")
+        return False
+    return True
+
+
+def _garder_ollama_maj(maintenant: float | None = None) -> bool:
+    """Lance le gardien de mise a jour d'Ollama (sans console) si la cadence est echue."""
+    t = time.time() if maintenant is None else maintenant
+    if t - float(_state.get("ollama_garde_ts") or 0.0) < GARDE_OLLAMA_SEC:
+        return False
+    _state["ollama_garde_ts"] = t
+    try:
+        subprocess.Popen([_python_console(), str(LANCEUR), "--action", "ollama-maj"],
+                         cwd=str(ROOT), creationflags=subprocess.CREATE_NO_WINDOW)
+    except Exception as e:
+        _notify(f"Gardien Ollama non lancé : {e}")
+        return False
+    return True
+
+
+def _relever_gardien_ollama() -> None:
+    """Notifie UNE fois par passage : une installation faite, ou un echec."""
+    try:
+        with open(JOURNAL_GARDIEN_OLLAMA, "rb") as h:
+            h.seek(0, 2)
+            h.seek(max(0, h.tell() - 4000))
+            derniere = h.read().decode("utf-8", "replace").strip().splitlines()[-1]
+        e = json.loads(derniere)
+    except Exception:  # muet-ok : pas encore de passage, ou ligne illisible
+        return
+    if e.get("ts") == _state.get("ollama_vu_ts"):
+        return
+    _state["ollama_vu_ts"] = e.get("ts")
+    final = e.get("verdict_final")
+    if final == "ok" and e.get("gestes"):
+        _notify("Ollama mis à jour par Nokido : " + ", ".join(e.get("gestes") or []))
+    elif final in ("echec_moteur_absent", "geste_owner"):
+        _notify(f"Ollama : {final} (génération locale indisponible)")
+
+
+def _relever_gardien_funnel() -> None:
+    """Notifie UNE fois par passage nouveau : un geste fait, ou un etat final non sain."""
+    try:
+        with open(JOURNAL_GARDIEN_FUNNEL, "rb") as h:
+            h.seek(0, 2)
+            h.seek(max(0, h.tell() - 4000))
+            derniere = h.read().decode("utf-8", "replace").strip().splitlines()[-1]
+        e = json.loads(derniere)
+    except Exception:  # muet-ok : pas encore de passage, ou ligne illisible
+        return
+    if e.get("ts") == _state.get("funnel_vu_ts"):
+        return
+    _state["funnel_vu_ts"] = e.get("ts")
+    final, gestes = e.get("verdict_final"), e.get("gestes") or []
+    if gestes and final == "ok":
+        _notify(f"Funnel réparé : {', '.join(gestes)}")
+    elif final not in ("ok", "rien") and final != _state.get("funnel_alerte"):
+        _notify(f"Funnel non sain : {final} (claude.ai Nokido injoignable)")
+    _state["funnel_alerte"] = final if final not in ("ok", "rien") else None
+
+
 def _python_console() -> str:
     """L'interpreteur du tray, en version console : sous pythonw, la console du panneau
     resterait vide."""
@@ -438,6 +528,49 @@ def _set_mode(mode: str):
         _notify(f"Mode → {mode}")
 
     return _action
+
+
+def _titre_alerte(alert):
+    """Retourne le libellé lisible d'une alerte."""
+    sujet = str(alert.get("sujet", ""))
+    detail = str(alert.get("detail", ""))
+    max_len = 200
+    if len(detail) > max_len:
+        ecarte = len(detail) - max_len
+        detail = f"{detail[:max_len]}… ({ecarte} car. écartés)"
+    return f"{sujet} – {detail}"
+
+
+def _fenetre_alertes(alertes: list):
+    """Fenetre au premier plan, dans son propre fil : le tray continue de tourner tant qu'elle est ouverte.
+    Les dicts d'alertes recus ne sont jamais mutes (owner 7/11)."""
+    lignes = []
+    for a in alertes:
+        grav = a.get("gravite", "?")
+        nom_lig = _titre_alerte(a)
+        lignes.append(f"[{grav}] {nom_lig}")
+    texte = "\n\n".join(lignes)
+    try:
+        import ctypes
+
+        # MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST
+        ctypes.windll.user32.MessageBoxW(None, texte, "Nokido — alerte", 0x30 | 0x10000 | 0x40000)
+    except Exception as exc:  # noqa: BLE001 - fenetre impossible : le dire par l'autre canal du tray
+        _notify(f"Alerte Nokido ({type(exc).__name__}, fenêtre impossible) : {texte[:150]}")
+
+
+def _relever_alertes():
+    """Alertes high et critical du registre owner (choix owner 4/11). Le registre illisible est dit au menu, jamais tu."""
+    try:
+        from nokido_agent.app.forge_critical_events import alertes_en_attente, marquer_vues
+
+        alertes = alertes_en_attente("tray", gravite_min="high", limit=5)
+        if alertes:
+            marquer_vues([a["id"] for a in alertes], "tray")
+            threading.Thread(target=_fenetre_alertes, args=(alertes,), name="tray-alertes", daemon=True).start()
+        _state["alertes_why"] = ""
+    except Exception as exc:  # noqa: BLE001
+        _state["alertes_why"] = f"registre d'alertes illisible ({type(exc).__name__})"[:80]
 
 
 def _relever_commandes():
@@ -566,6 +699,30 @@ def _prendre_ordre():
         return
     ordre = r.get("ordre") or {}
     action = ordre.get("action")
+    if action in DECISIONS_TRAY:
+        # 3/11 E4 (plan OAuth MCP) : une DECISION de l'owner (consentement d'un client OAuth), pas une action du
+        # panneau. Fenetre Oui/Non ; la reponse revient au hub, qui n'admet que le tray qui a pris l'ordre.
+        # Fenetre impossible = NON : rien n'est accorde sans le Oui.
+        oui = _valider_par_fenetre(ordre)
+        # 3/11 (decision owner « ring choisi au tray + inscrit au registre ») : apres le Oui SEULEMENT, 2e fenetre ;
+        # Oui = droits eleves (ring 1, inscrits au registre pour CE client), Non = ring 3 standard.
+        # la 2e fenetre (droits eleves) n'existe QUE pour le consentement, jamais pour une revocation
+        eleves = bool(oui) and action == "oauth-consentement" and _droits_eleves_par_fenetre(ordre)
+        decision = ("decision-oui-ring1" if eleves else "decision-oui") if oui else "decision-non"
+        try:
+            r2 = _mcp("hub", {"action": "demander_ordre", "ordre": decision, "cible": ordre.get("id")})
+        except Exception as exc:  # noqa: BLE001 - dit : la decision n'a pas atteint le hub
+            r2 = {"etat": "ERREUR", "raison": f"{type(exc).__name__}: {exc}"[:80]}
+        etat2 = r2.get("etat") if isinstance(r2, dict) else str(r2)[:60]
+        if action == "oauth-revocation":
+            _notify(f"Révocation OAuth {'ACCORDÉE' if oui else 'refusée'} ({ordre.get('id')}) — hub : {etat2}")
+            return
+        if action == "ci-lancement":
+            _notify(f"Lancement CI {'ACCORDÉ' if oui else 'refusé'} ({ordre.get('cible') or ordre.get('id')}) — hub : {etat2}")
+            return
+        _notify(f"Client OAuth {'AUTORISÉ' + (' (ring 1)' if eleves else ' (ring 3)') if oui else 'refusé'} "
+                f"({ordre.get('id')}) — hub : {etat2}")
+        return
     if action not in ACTIONS_PANNEAU:
         _notify(f"Ordre {ordre.get('id')} ignoré : action inconnue {action!r}")
         return
@@ -579,15 +736,45 @@ def _prendre_ordre():
     lancer_panneau(action, origine=f"ordre {ordre.get('id')} de {ordre.get('demandeur')}, confirmé par l'owner")
 
 
+def _droits_eleves_par_fenetre(ordre: dict) -> bool:
+    """3/11 : 2e fenetre du consentement OAuth -- droits eleves (ring 1) pour CE client ? Seul Oui rend True ;
+    fenetre impossible = NON (ring 3 standard), et le dire."""
+    try:
+        import ctypes
+
+        texte = ("Accorder les DROITS ÉLEVÉS (ring 1) à ce client ?\n%s\n\nOui : ring 1, inscrit au registre pour CE "
+                 "client.\nNon : ring 3 (standard)." % (ordre.get("raison") or ""))
+        rep = ctypes.windll.user32.MessageBoxW(None, texte, "Nokido — droits du client OAuth",
+                                               0x4 | 0x30 | 0x10000 | 0x40000)    # YESNO | ICONWARNING | fg | top
+        return rep == 6
+    except Exception as exc:  # noqa: BLE001 - fenetre impossible = ring 3, et le dire
+        _notify(f"Fenêtre des droits impossible ({type(exc).__name__}) : client au ring 3")
+        return False
+
+
 def _valider_par_fenetre(ordre: dict) -> bool:
     """Fenetre Oui/Non au premier plan pour un ordre `a_valider` (owner 30/10). Seul Oui rend True ; une fenetre
     impossible a ouvrir rend False et le DIT : jamais une execution sans validation."""
     try:
         import ctypes
 
-        texte = ("Nokido demande : %s\nDemandé par %s%s\n\nValider cet ordre ?"
-                 % (ordre.get("action"), ordre.get("demandeur") or "?",
-                    (" : %s" % ordre.get("raison")) if ordre.get("raison") else ""))
+        action = ordre.get("action")
+        if action == "ci-lancement":
+            cible = str(ordre.get("cible") or "")
+            wf, _, ref = cible.partition("@")
+            texte = (
+                f"Lancement de CI GitHub demande :\n"
+                f"Workflow : {wf}\n"
+                f"Branche/Ref : {ref or 'alpha'}\n"
+                f"Demandeur : {ordre.get('demandeur') or '?'}\n"
+                f"Raison : {ordre.get('raison') or '-'}\n\n"
+                f"Attention : le lancement consomme du quota GitHub Actions.\n\n"
+                f"Lancer ce workflow ?"
+            )
+        else:
+            texte = ("Nokido demande : %s\nDemandé par %s%s\n\nValider cet ordre ?"
+                     % (ordre.get("action"), ordre.get("demandeur") or "?",
+                        (" : %s" % ordre.get("raison")) if ordre.get("raison") else ""))
         # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST ; IDYES = 6
         rep = ctypes.windll.user32.MessageBoxW(None, texte, "Nokido — ordre à valider", 0x4 | 0x20 | 0x10000 | 0x40000)
         return rep == 6
@@ -712,7 +899,19 @@ def _ligne_agent(e: dict) -> str:
     if e.get("client"):
         prov += f" · client {e['client']}" + (f" ({e['reseau']})" if e.get("reseau") else "")
     outil = f" · {e['dernier_outil']}" if e.get("dernier_outil") else ""
-    return f"{e['agent']} — {quand} — {prov} — ring {e.get('ring', '?')}{outil}"
+    try:
+        import os
+        import sys
+        repo_root = os.getenv("REPO_ROOT") or str(Path(__file__).resolve().parents[1])
+        if repo_root and repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from nokido_agent.tools.forge_presence import nom_lisible
+        qui = nom_lisible(e.get("agent") or "")
+        if qui == e.get("agent") and e.get("nom_reel"):
+            qui = f"{e['nom_reel']} ({e['agent']})"
+    except Exception:  # noqa: BLE001  # muet-ok : repli affichage historique
+        qui = f"{e['nom_reel']} ({e['agent']})" if e.get("nom_reel") else e["agent"]
+    return f"{qui} — {quand} — {prov} — ring {e.get('ring', '?')}{outil}"
 
 
 def _ligne_ordre(o: dict) -> str:
@@ -729,8 +928,13 @@ def _build_menu(icon) -> pystray.Menu:
     last_ok = f"Dernier ping : {_state['last_ok'] or 'jamais'}"
     mode_why = _state.get("mode_why") or ""
     presence = _state.get("presence") or []
-    interlocuteurs = [e for e in presence if e.get("interlocuteur")]
-    organes = [e for e in presence if not e.get("interlocuteur")]
+    try:  # owner 3/11 : no_auth n'est pas un agent -> colonne a part
+        from nokido_agent.tools.forge_presence import repartir
+        interlocuteurs, organes, anonymes = repartir(presence)
+    except Exception:  # noqa: BLE001  # muet-ok : repli sur l'ancien partage, anonymes filtres sur le drapeau
+        interlocuteurs = [e for e in presence if e.get("interlocuteur") and not e.get("anonyme")]
+        organes = [e for e in presence if not e.get("interlocuteur") and not e.get("anonyme")]
+        anonymes = [e for e in presence if e.get("anonyme")]
 
     def _sous_menu(titre, lignes, vide):
         if not lignes:
@@ -746,6 +950,8 @@ def _build_menu(icon) -> pystray.Menu:
                    "Agents actifs : aucun < 15 min" + (f" ({_state['presence_why']})" if _state.get("presence_why") else "")),
         _sous_menu(f"Organes internes ({len(organes)}, < 15 min)", [_ligne_agent(e) for e in organes],
                    "Organes internes : aucun < 15 min"),
+        _sous_menu(f"Requêtes sans jeton refusées ({len(anonymes)} libellé(s), < 15 min)",
+                   [_ligne_agent(e) for e in anonymes], "Requêtes sans jeton refusées : aucune < 15 min"),
     ]
 
     return pystray.Menu(
@@ -782,6 +988,7 @@ def _build_menu(icon) -> pystray.Menu:
         pystray.MenuItem("🌐 Tailscale : FERMER le Funnel", _panneau("funnel-fermer")),
         _sous_menu("Ordres récents (journal)", [_ligne_ordre(o) for o in reversed(_state.get("ordres") or [])],
                    "Ordres récents : aucun"),
+        pystray.MenuItem("🔎 Activer l'audit des processus (UAC)", _panneau("audit-processus")),
         _menu_commandes(),
         *(
             [pystray.MenuItem(f"Ordres : {_state['ordre_why']}", None, enabled=False)]
@@ -804,6 +1011,11 @@ def _poll_loop(icon: pystray.Icon):
         _poll_hub()
         _prendre_ordre()
         _relever_commandes()
+        _relever_alertes()
+        _relever_gardien_funnel()
+        _garder_funnel()
+        _relever_gardien_ollama()
+        _garder_ollama_maj()
         # Mettre à jour icône + title + menu
         state_key = _icon_state()
         icon.icon = _make_icon(state_key)
@@ -835,7 +1047,27 @@ def _instance_unique() -> bool:
         return True
 
 
+def _horodater_sorties():
+    """3/11 (bilan a 100) : stdout/stderr rediriges vers logs/tray.log (nokido_launcher) -> chaque ligne datee.
+    Console interactive ou flux absent (pythonw) : rien a faire."""
+    try:
+        from nokido_agent.app.forge_timecode import FluxHorodate
+    except ImportError:  # muet-ok : sans forge_timecode le tray marche, ses lignes restent non datees
+        return
+    for nom in ("stdout", "stderr"):
+        flux = getattr(sys, nom, None)
+        if flux is None or isinstance(flux, FluxHorodate):
+            continue
+        try:
+            if flux.isatty():
+                continue
+        except (AttributeError, ValueError):  # muet-ok : flux sans isatty ou ferme -> on le laisse tel quel
+            continue
+        setattr(sys, nom, FluxHorodate(flux))
+
+
 def main():
+    _horodater_sorties()
     if "--attendre-pid" in sys.argv:
         _i = sys.argv.index("--attendre-pid")
         if _i + 1 < len(sys.argv) and sys.argv[_i + 1].isdigit():

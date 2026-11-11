@@ -367,7 +367,10 @@ def _index_skill_in_rag(slug: str, skill_dir: Path) -> int:
         if curbuf:
             chunks.append("\n\n".join(curbuf))
         ts = datetime.now().isoformat()
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
         for i, ch_text in enumerate(chunks):
+            if not admis_a_l_ingestion(f"clawhub:{slug}", ch_text):
+                continue
             chunk_id = f"skill_{slug}_{md.stem}_{i}"
             ch_hash = hashlib.sha256(ch_text.encode()).hexdigest()[:16]
             try:

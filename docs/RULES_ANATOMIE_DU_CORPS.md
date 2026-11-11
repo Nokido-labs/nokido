@@ -90,3 +90,17 @@ jamais importé, dette du volet identification). Statuts d'instruction : `INSTAL
 · `OUTIL` · `ASSET` · `GELE` · `NON_CABLE` · `INDETERMINE` (ce qu'on n'a PAS pu voir,
 nommé — `register_autopoiesis_cp.ps1` est illisible au sandbox, pas absent).
 
+## Le corps humain nourrit le code — consulter le corpus de physiologie (owner 20/10, payé 3/11)
+
+Concevoir ou corriger un organe : nommer son homologue biologique, puis le VÉRIFIER dans le corpus ouvert
+au RAG, cité au module (OpenStax Anatomy & Physiology 2e, CC BY 4.0, sources
+`github:openstax/osbooks-anatomy-physiology/modules/<mXXXXX>`), pas de mémoire.
+
+- **La recherche hybride l'ENTERRE** sous d'autres sources, et le filtre `domain=physiologie` a expiré 3 fois le
+  3/11 : « pas trouvé » n'y vaut rien. Voie qui marche : `rag_fts MATCH '"OpenStax" AND <termes anglais>'`,
+  `EXPLAIN QUERY PLAN` d'abord (attendu : `VIRTUAL TABLE INDEX`), lecture seule (`mode=ro`), jamais de balayage.
+  Script : `C:/tmp/laforge_jobs/openstax_fts_20261103.py`.
+- Exemples ancrés le 3/11 : m46058 (inflammation : confiner PUIS réparer → transe de guérison du RSI),
+  m45989 (homéostasie : capteur, centre de contrôle, effecteur, rétroaction négative vers une consigne).
+  Le sommeil est peu couvert par OpenStax : la consolidation en sommeil vient de la veille (Wilson & McNaughton 1994).
+

@@ -97,12 +97,15 @@ def analyser_commit(sha: str, root: Path | None = None) -> dict | None:
     Rendre None n'est pas un echec : c'est le cas majoritaire, et le compter est
     ce qui permet de dire quelle FRACTION de l'historique nourrit la memoire.
     """
-    brut = _git("show", "-s", "--format=%H%n%ad%n%s%n%b", "--date=short", sha,
+    # 3/11 (bilan a 100) : `ts` = date-heure ISO stricte du commit (%aI) ; `date` garde sa forme AAAA-MM-JJ
+    # pour ses lecteurs (_jours, recidive). Le jour seul ne datait pas le journal.
+    brut = _git("show", "-s", "--format=%H%n%aI%n%s%n%b", sha,
                 root=root).strip()
     if not brut:
         return None
     lignes = brut.split("\n")
-    plein, date, sujet = lignes[0], lignes[1], lignes[2]
+    plein, ts, sujet = lignes[0], lignes[1], lignes[2]
+    date = ts[:10]
     corps = "\n".join(lignes[3:])
     m = _RE_SUJET.match(sujet.strip())
     if not m or m.group("type") not in _PREFIXES_CORRECTIFS:
@@ -113,6 +116,7 @@ def analyser_commit(sha: str, root: Path | None = None) -> dict | None:
     return {
         "commit": plein[:12],
         "date": date,
+        "ts": ts,
         "symptome": m.group("sujet").strip(),
         "scope": m.group("scope") or "",
         "jetons": _jetons(sujet + " " + corps[:600]),

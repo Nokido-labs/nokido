@@ -1,354 +1,94 @@
-# 04 — PRD : le produit Nokido
+# 04 — PRD : perimetre produit, anatomie et acteurs mesures
 
-> **Règle de preuve.** Chaque capacité, chiffre ou état cité porte sa source : `fichier:ligne`, test NR, ou clé de roadmap. Un fait non lu est écrit `NON TROUVE`. Aucun raisonnement interne n'est rédigé dans ce document.
->
-> **Périmètre de sources.** `docs/roadmap_arbre.json` (inventaire item-par-item), `docs/specs/06_PLAN.md`, `docs/specs/01_SCHEMA.md`, `docs/specs/02_TRD.md`, `docs/specs/03_APPFLOW.md`, `docs/specs/05_UX_AX.md`, `LICENSE`, `README.md`, `config/agent_identities.json`, `docs/roadmap_state.json`.
->
-> **Constat de source, non résolu.** `docs/roadmap_arbre.json` est **absent de ce worktree** : `glob docs/roadmap_arbre.json` et `glob **/roadmap_arbre*.json` ne rendent aucun fichier. Les chiffres agrégés et les items non clos sont donc lus dans `docs/specs/06_PLAN.md:3-6` (généré par introspection, commit `f28b4219e`, 2026-10-26 22:00). L'horodatage `22:33:30` du même jour est lu dans `docs/roadmap_state.json:7`. L'inventaire des 174 items CLOS n'est pas disponible dans ce worktree : **NON TROUVE**. Aucune clé CLOS n'est donc inventée dans la matrice §1.2.
+> Genere par `tools/forge_spec_extractor.py` (introspection deterministe, aucun horodatage) -- commit `bffa9f1a0`. Ne pas editer : relancer l'extracteur.
 
----
 
-## 0. Résumé exécutable
+## 1. ETAT STATIQUE — Architecture, capacites et contrats (genere au commit)
 
-| Élément | État | Source |
-|---|---|---|
-| Définition | runtime local-first pour un organisme artificiel : système nerveux et physiologie pour faire travailler plusieurs IA sur la machine de l'owner | `README.md:70-73` |
-| Couche produit | routage, mémoire longue avec provenance, régulation CPU/RAM/files/providers, portes déterministes, messagerie M2M, introspection, hub MCP unique | `README.md:82-89` |
-| Avancement roadmap | **174 / 273 CLOS = 63,7 %** | `docs/specs/06_PLAN.md:6` |
-| États déclarés | CLOS 174, GELE 1, OUVERT 20, OWNER_PLANIFIE 7, PARTIEL 64, SANS_MARQUEUR 7 | `docs/specs/06_PLAN.md:6` |
-| Reste à faire | 23 items bloqués par un geste/décision owner + 75 réalisables sans l'owner | `docs/specs/06_PLAN.md:8,36` |
-| Modèle de preuve | séparation déclaré / observé / vérifié ; une sonde qui ne peut pas lire rend `ILLISIBLE`, jamais « non » | `README.md:91-98`, `README.md:1009` |
-| Licence | GNU Affero General Public License v3 ou ultérieure | `LICENSE:1-3`, `README.md:1100-1110` |
-| Distribution | `pip install nokido-agent` **pas encore sur PyPI** ; installation depuis un clone | `README.md:107-111` |
-| Branche de développement | `alpha` | `README.md:16`, `README.md:1069-1073` |
+> Architecture, contrats d'outils, anneaux de droits et jalons lus dans les sources versionnees du depot.
 
----
+### 1.1 Identite du paquet et entrypoints CLI (`pyproject.toml`)
 
-## 1. Ce que Nokido FAIT — capacités prouvées
+Paquet `nokido-agent` — licence `AGPL-3.0-or-later`.
 
-### 1.1 Ce qui compte comme preuve dans ce document
+| Entrypoint CLI | Cible |
+|---|---|
+| `nokido` | `nokido_agent.tools.llama_cli:main` |
+| `nokido-cli` | `nokido_agent.tools.llama_cli:main` |
+| `nokido-composants` | `nokido_agent.tools.forge_composants:main` |
+| `nokido-doctor` | `nokido_agent.tools.nokido_doctor:main` |
+| `nokido-hub` | `nokido_agent.tools.nokido_hub_cli:main` |
+| `nokido-secrets` | `nokido_agent.app.forge_secrets:main` |
+| `nokido-vault` | `nokido_agent.app.forge_machine_vault:main` |
 
-1. **Preuve de contrat** : un test NR présent dans `tests/nr/` prouve l'invariant qu'il nomme, pas la vitalité du service au moment de la lecture. Cette distinction est explicite dans `README.md:995-996` (« a service that answers proves the transport, not the capability »).
-2. **Preuve d'implémentation** : `fichier:ligne` lu dans les specs générées par introspection (`06_PLAN.md:3`, `01_SCHEMA.md:3`, `02_TRD.md:3`, `03_APPFLOW.md:3`) ou dans `05_UX_AX.md`, qui cite le code source.
-3. **Preuve de roadmap** : clé d'item et état, lus dans `06_PLAN.md`. En l'absence de `roadmap_arbre.json` dans ce worktree, une capacité n'est **pas** déclarée CLOS sur la seule base de son test.
-4. **Vitalité** : non prouvée par ce document. La commande prévue est `nokido-doctor --vivant` (`README.md:951-959`).
+### 1.2 Anatomie fonctionnelle par organe (`tools/forge_module_census.py`)
 
-### 1.2 Matrice « capacité | preuve | clé roadmap / état »
+| Organe | Familles lexicales declarees (`ORGANS`) |
+|---|---|
+| Cognition/Agentique/Raisonnement | `active_inference`, `reasoning`, `arbitrat`, `actor`, `agentic`, `agent` |
+| Digestif/Sens (ingestion/web) | `crawl`, `web`, `browser`, `gitingest`, `egress`, `ingest` |
+| Graph/Connaissances | `graph`, `ppr`, `edge`, `cve`, `project_state`, `callgraph` |
+| Immunitaire (firewall/garde) | `firewall`, `guard`, `membrane`, `integrity`, `sanitiz`, `rbac` |
+| Infra/Bootstrap/Config | `__init__`, `bootstrap`, `bridge`, `facade`, `debug`, `diag` |
+| Interface/UI (peau/expression) | `_form`, `web_hub`, `webhub`, `tui`, `dashboard`, `htmx` |
+| Locomoteur/Orchestration | `orchestr`, `silo_engine`, `swarm`, `handoff`, `goap`, `_plan` |
+| Memoire (hippocampe/RAG) | `rag`, `embed`, `memory`, `vector`, `ingest_self`, `tier` |
+| Metabolisme LLM (routage/backends) | `llm_router`, `provider`, `cascade`, `ollama`, `llama`, `agent_proxy` |
+| Observabilite/Trace | `trace`, `observ`, `span`, `telemetry`, `audit`, `langfuse` |
+| Qualite/Build/Spec | `quality`, `dep_manager`, `spec_clar`, `_test`, `clinical`, `scaffold` |
+| Reseau/Distribue/Sync | `nats`, `zmq`, `sync`, `distrib`, `p2p`, `mesh` |
+| SN vegetatif (autonome) | `inspector`, `watchdog`, `monitor`, `keeper`, `sentinel`, `heartbeat` |
+| SNC (cerveau/moelle/SNP) | `hub`, `mcp`, `registry`, `middleware`, `byte_router`, `nlu` |
+| SWE-bench | `swebench`, `swe_`, `anchor_swe`, `aider` |
 
-> La colonne « clé roadmap » ne porte une clé que lorsque `06_PLAN.md` la nomme. Les 174 items CLOS ne sont pas énumérables ici : `NON TROUVE` signifie « inventaire CLOS absent du worktree », pas « capacité absente ».
+### 1.3 Surface contractuelle MCP (`tests/schemas_mcp_structure.json`)
 
-| Domaine | Capacité prouvée | Preuve (test NR / fichier:ligne) | Clé roadmap / état |
-|---|---|---|---|
-| Communication | Hub MCP unique : les clients sont jetables, le système persiste ; `NokidoMCP` opérationnel par défaut | `README.md:82-89`, `README.md:971` ; `05_UX_AX.md:96` | NON TROUVE (inventaire CLOS absent) |
-| Communication | Validateur M2M (intents, pointers) | `README.md:974` | NON TROUVE |
-| Communication | Blackboard : zones, écriture sérialisée, idempotence par clé | `tests/nr/test_blackboard_fait_synchrone_nr.py`, `tests/nr/test_blackboard_zones_perennes_nr.py`, `tests/nr/test_blackboard_read_zone_cle_nr.py` | NON TROUVE |
-| Communication | Swarm : NR en CI pour 12 des 13 modules, pas le module de base | `README.md:975` | NON TROUVE |
-| Admission | Admission unifiée des jobs : un seul point d'entrée pour MCP et REST | `03_APPFLOW.md:5-58`, `03_APPFLOW.md:198` ; `05_UX_AX.md:12-62` ; `tests/nr/test_admission_deux_observateurs_nr.py`, `tests/nr/test_admission_job_deux_voies_nr.py`, `tests/nr/test_lane_admission_ip007_nr.py` | NON TROUVE |
-| Admission | Seuils de saturation : RAM 85 %, CPU 90 %, réserve 4 Go | `02_TRD.md:10-13` ; `05_UX_AX.md:15` | NON TROUVE |
-| Admission | Bail de lane : 1 job lourd par lane, TTL 7200 s, libération si détenteur terminé | `03_APPFLOW.md:199`, `03_APPFLOW.md:42` | NON TROUVE |
-| Gouvernance | `governed_edit` : AST, scan secret, claim `tree_lock`, écriture atomique, relecture disque | `05_UX_AX.md:159-206` ; `tests/nr/test_governed_edit_args_nr.py`, `tests/nr/test_governed_edit_worktree_par_provenance_nr.py`, `tests/nr/test_governed_edit_trace_non_bloquante_nr.py` | `P1_worktree_par_provenance_et_reconciliation_20261018` — PARTIEL (`06_PLAN.md:22`) |
-| Gouvernance | Refus nommés : hors projet, hors worktree, séparation des pouvoirs, `allow_critical` réservé ring ≤ 1, `critical`, `lost_write` | `05_UX_AX.md:164-183` | NON TROUVE |
-| Gouvernance | `bash_guard` : trois couches (fuite de secret, monitor hors politique, exécution directe interdite) | `05_UX_AX.md:70-99` | NON TROUVE |
-| Gouvernance | Hooks de fin de tour : attente passive et décision owner en prose bloquées | `05_UX_AX.md:100-113` | NON TROUVE |
-| Mémoire | RAG SQLite : 130 tables, 268 objets, journal WAL ; `rag_chunks`, `rag_fts`, `rag_graph_edges` | `01_SCHEMA.md:8-9`, `01_SCHEMA.md:958-1113` | `P2_supersession_rag_dette_60j_20261024` — OUVERT (`06_PLAN.md:103`) |
-| Mémoire | Abstention épistémique : une question non couverte n'est pas marquée vue | `03_APPFLOW.md:93`, `03_APPFLOW.md:107`, `03_APPFLOW.md:200` | NON TROUVE |
-| Mémoire | Provenance des chunks : `origin` calculé depuis source/domain | `01_SCHEMA.md:967-981` | NON TROUVE |
-| Mémoire | Bibliographie : `biblio_raw`, `biblio_link`, `biblio_topics`, `bibliography` | `01_SCHEMA.md:394-446` | NON TROUVE |
-| Cognition | Juge de mutation : verdicts explicites, refus des zones évaluateur, restauration depuis `git HEAD`, held-out disjoint | `02_TRD.md:15-25` ; `03_APPFLOW.md:128-168` ; `README.md:981` | `p1_auto_amelioration_boucle_non_fermee` — PARTIEL (`06_PLAN.md:25`) |
-| Cognition | Self-patcher : `PASSES_MAX = 2`, `_git_commit` désarmé, candidat en attente de commit owner | `02_TRD.md:15-17` ; `03_APPFLOW.md:146-168` | `p1_auto_amelioration_boucle_non_fermee` — PARTIEL (`06_PLAN.md:25`) |
-| Cognition | Bancs BFCL / HumanEval : `CANARI_N = 3`, arrêt `non_mesure`, rc 2 | `02_TRD.md:18-19` ; `03_APPFLOW.md:170-193` | `roadmap_p2_benchmarks_harness_lift_20261016` — PARTIEL (`06_PLAN.md:108`) |
-| Cognition | Routeur de modèles et cascade : providers locaux et cloud par usage | `README.md:84`, `README.md:33` | NON TROUVE |
-| Cognition | Inférence active et modèle du monde : état « actif », couplage homeostat = prototype | `README.md:978-979` | NON TROUVE |
-| Cognition | SNN logiciel expérimental, à la demande | `README.md:990` | NON TROUVE |
-| Supervision | `forge_job_watch_cli` : statut déclaré ≠ artefact ; états `ECHEC`, `ARRET_GARDE`, `VIDE`, `DECLARE`, `TERMINE_NON_VERIFIE`, `INCONNU` | `05_UX_AX.md:212-255` | NON TROUVE |
-| Supervision | Ordres bureau / Tray : dépôt de commande, presse-papier sans shell, acquittement | `05_UX_AX.md:259-294` | NON TROUVE |
-| Interface | Cockpit web : routes HTML, auth JWT, CSP, caviardage | `05_UX_AX.md:298-371` | NON TROUVE |
-| Interface | SSE vitals : 5 signaux, 5 s, sémaphore 8 flux | `05_UX_AX.md:361-364` | NON TROUVE |
-| Immunité | Firewall sémantique + membrane souveraine : état « partiel » | `README.md:986` ; `tests/nr/test_context_firewall_nr.py`, `tests/nr/test_appui_stress_test_firewall_nr.py` | NON TROUVE |
-| Immunité | RBAC / rings : `access_switches`, `forge_tools.min_ring`, registre vivant | `config/agent_identities.json:1-4` ; `01_SCHEMA.md:144-157`, `01_SCHEMA.md:732-743` ; `README.md:980` | NON TROUVE |
-| Physiologie | Système endocrinien et système nerveux : état « opérationnel » | `README.md:984-985` | NON TROUVE |
-| Physiologie | Homéostasie d'urgence : état « atteint » | `README.md:967` | NON TROUVE |
-| Physiologie | Sommeil / circadien : état « partiel » (6 phases tirent ; 6 des 8 cibles désactivées par politique) | `README.md:968` | NON TROUVE |
-| Roadmap | Arbre, page web, chronologie, dépendances, observation des CLOS : tests NR présents | `tests/nr/test_roadmap_arbre_nr.py`, `tests/nr/test_roadmap_arbre_page_nr.py`, `tests/nr/test_roadmap_chronologie_vagues_nr.py`, `tests/nr/test_blackboard_roadmap_clos_observation_nr.py` | `P1_roadmap_chronologie_20261021` — PARTIEL (`06_PLAN.md:73`) |
+Outils declares au contrat CI (detail complet dans `01_SCHEMA.md`) : `absorb_rfc_knowledge`, `acp`, `agy_add_dir`, `agy_config`, `agy_run`, `ask`, `auto_ingest`, `auto_test`, `biblio`, `blackboard_propose_fact`, `blackboard_read_zone`, `bundle`, `crawl`, `cross_platform_fs`, `delegate_to_local_scout`, `docker_action`, `event`, `forge_call_dynamic`, `forge_deep_explore`, `forge_list_dynamic_tools`, `forge_spawn_swarm`, `forge_stats`, `forge_trigger_audit`, `get_file_skeleton`, `get_function_dependencies`, `github`, `governed_edit`, `graph_cve_propagate`, `graph_edge_score`, `graph_ppr`, `hub`, `introspect`, `loop_orchestrate`, `manage_forge_lifecycle`, `md`, `memory`, `netcfg`, `nokido_ensure_service`, `oracle_python_repl`, `orchestrate`, `plan`, `query`, `query_documentation`, `query_local_json`, `rag`, `read`, `read_function_body`, `research_agent`, `route_task`, `run`, `search_local_file`, `secret`, `skill`, `task`, `tool_scope`, `trigger_autonomous_evolution`, `web_search`, `write`.
 
-### 1.3 Ce que cette matrice ne prouve pas
+### 1.4 Acteurs CLI et anneaux RBAC (`config/agent_identities.json`)
 
-- Les **174 clés CLOS** et leurs preuves item-par-item : `NON TROUVE` (fichier `docs/roadmap_arbre.json` absent).
-- La **vitalité** des organes à l'instant de lecture : `README.md:951-959` renvoie à `nokido-doctor --vivant`.
-- La **capacité derrière un port qui répond** : `README.md:995-996` la distingue explicitement du transport.
-- Les états « partiel », « en développement », « en pause », « durcissement » du tableau README ne sont pas des CLOS : `README.md:961-993`.
-
----
-
-## 2. Les écarts
-
-### 2.1 Chiffres et séparation
-
-| Indicateur | Valeur | Source |
-|---|---|---|
-| CLOS | 174 | `06_PLAN.md:6` |
-| GELE | 1 | `06_PLAN.md:6` |
-| OUVERT | 20 | `06_PLAN.md:6` |
-| OWNER_PLANIFIE | 7 | `06_PLAN.md:6` |
-| PARTIEL | 64 | `06_PLAN.md:6` |
-| SANS_MARQUEUR | 7 | `06_PLAN.md:6` |
-| Bloqués par geste/décision owner | 23 | `06_PLAN.md:8` |
-| Réalisables sans l'owner | 75 | `06_PLAN.md:36` |
-
-### 2.2 Bloqués par un geste ou une décision owner (23)
-
-> Recopié de `docs/specs/06_PLAN.md:10-34`. Le champ « Reste » est celui écrit par l'extracteur, y compris lorsqu'il est `(non dit)` ou tronqué.
-
-| Item | État | Prio | Reste |
-|---|---|---|---|
-| `P3_analogie_inverse_code_vers_corps_20261020` | OWNER_PLANIFIE | -- | (non dit) |
-| `roadmap_next_20261015` | PARTIEL | -- | verifier les blocs du registre MCP (fichier critique, derogation owner) et le banc de l'intelligence cumulative |
-| `P1_audit_analogie_corps_apres_ci_20261020` | OWNER_PLANIFIE | P1 | (non dit) |
-| `P1_audit_cloisonnement_inter_llm_ponts_certifies_20261024` | OUVERT | P1 | audit MESURE du cloisonnement entre LLM (owner : « seuls des ponts certifies entre eux doivent exister ») : inventaire de chaque voie par laquelle un modele lit ce qu'un autre client ou un secret port |
-| `P1_audit_pair_efficience_A_G_20261019` | PARTIEL | P1 | C (autres cas), D (relecture owner), G, 04, 06, 07 |
-| `P1_contexte_p1b_hygiene_session_20261020` | OWNER_PLANIFIE | P1 | (non dit) |
-| `P1_contexte_p1c_instructions_residentes_20261020` | OWNER_PLANIFIE | P1 | (non dit) |
-| `P1_essai_mesure_sous_agents_claude_20261017` | PARTIEL | P1 | geste owner : rearmer le hook d'exception (24 h, 6 appels), puis exiger les 6 appels mesures |
-| `P1_ponts_web_chatgpt_gemini_20261018` | PARTIEL | P1 | essai Gemini Chrome des que l'owner a reconnecte l'extension ; pont MCP Gemini web -> vivant (meme contrat que ChatGPT web) |
-| `P1_suivi_delegations_tout_cli_20261022` | PARTIEL | P1 | task action=status sans id -> meme vue (allow_critical owner) ; job_5e85fccc agent OPENCODE pending ~26 h sans executeur de ce nom (a reaffecter) ; reaff=INCONNU a distinguer de « aucune » ; constat d |
-| `P1_worktree_par_provenance_et_reconciliation_20261018` | PARTIEL | P1 | relance du hub (effet), hub transmet LaForge-Provenance a args._provenance (nokido_hub, derogation), parametre racine de governed_write (aujourd'hui libelle <agent>@worktree), constater sur une vraie |
-| `decision_owner_seuils_methodes_20261016` | PARTIEL | P1 | Courir et consigner les lots 2 a 10 de la fenetre (faits bb:discovered_facts/kpi_methode_lot_*), puis trancher avec l'owner : a ce jour 53 % FPY et 15 % RED cites, largement sous les seuils 70 %/90 %. |
-| `essaim_local_mesure_20261017` | PARTIEL | P1 | decision owner d'appliquer (707 fichiers : git apply par l'owner, ou par lots), levier (b) format d'edition par fonction |
-| `p1_auto_amelioration_boucle_non_fermee` | PARTIEL | P1 | construire ces modules (ou dater les docs) pour que les dossiers passent RESOLU, porte armee + PARAMS_L1 (owner) pour une 1re experience PROMUE |
-| `p1_raffinage_inventaire_2026-10-14` | PARTIEL | P1 | phase 0 sur E: (archive verifiee) puis politique par domaine en observation avec held-out ; purge = decision owner |
-| `p1_raffinage_toute_la_base_2026-10-14` | PARTIEL | P1 | phase 0 sur E: (archive verifiee) puis politique par domaine en observation avec held-out ; purge = decision owner |
-| `p1_skills_declenchement_au_moment_2026-10-14` | PARTIEL | P1 | derogation outil memory (forge_mcp_registry), --apply des 8 autres jetons, client_configs, sort de forge-core, silos specialises, push + CI (GO owner 19/10 en cours) |
-| `roadmap_next_20261013` | PARTIEL | P1 | Retrouver les chemins des exports statiques Claude Desktop et Gemini Web (déplacés/supprimés), miner les consignes owner (forge_intent_miner + forge_intent_verifier) et clore le SSoT sur le corpus com |
-| `roadmap_p1_parite_capacites_tous_cli_20261017` | PARTIEL | P1 | sous-agents Vibe INCONNU, mesures --help sur les versions INSTALLEES (profil owner, hors compte du hub) et sondes vivantes par AGY |
-| `P2_claude_headless_plafond_mesure_20261022` | OWNER_PLANIFIE | P2 | (non dit) |
-| `P2_methode_C_cliquets_hygiene_tests_20261020` | OWNER_PLANIFIE | P2 | (non dit) |
-| `P2_methode_D_nettoyer_worktrees_perimes_20261020` | OWNER_PLANIFIE | P2 | (non dit) |
-| `roadmap_p2_priorite_hamilton_deux_boucles` | PARTIEL | P2 | poser la couche reflexe Hamilton sur le ByteRouter (pas sur EventStream), flood sur ce canal, puis taus sur mesure ; decision d'architecture a soumettre a l'owner avant tout code |
-
-### 2.3 Réalisables sans l'owner (75)
-
-> Recopié de `docs/specs/06_PLAN.md:38-114`. Le champ « Reste » est celui écrit par l'extracteur.
-
-| Item | État | Prio | Reste |
-|---|---|---|---|
-| `bug_docker_stop_moteur_non_atteint_20261020` | OUVERT | -- | (non dit) |
-| `bug_file_accepte_executeur_suspendu_20261020` | PARTIEL | -- | (non dit) |
-| `bug_hamilton_oscillation_sleep_wake_20261019` | PARTIEL | -- | relance APRES la CI de reference en cours (aucune charge disque pendant une CI), puis CONSTATER sur une heure : debit disque du service, sommeils du regulateur, vecteurs qui avancent (corpus physiolog |
-| `bug_skill_curator_quarantaine_faux_crash_20261020` | PARTIEL | -- | (non dit) |
-| `constat_demon_gemini_client_mort_actif_20261024` | SANS_MARQUEUR | -- | (non dit) |
-| `decision_owner_a_prendre_rejugement_epistemique_20261017` | PARTIEL | -- | rejouer le rejugement qualifie sur des paires de sources DISTINCTES pour une vraie mesure de corroboration |
-| `decision_owner_debat_anatomie_A_D_20261015` | PARTIEL | -- | GREEN 931881aea (reaffectation automatique sur NON LIVRE) puis remesure ; relier les refus d'admission et du routeur (id de correlation) avant de les compter |
-| `mesure_bancs_gratuits_force_specialite_20261024` | SANS_MARQUEUR | -- | (non dit) |
-| `mesure_bancs_proxy_gratuits_20261024` | SANS_MARQUEUR | -- | (non dit) |
-| `P0_audit_dist_publique_mesure_20261020` | PARTIEL | P0 | (a) Windows/macOS chiffrement NON_TESTE -> provisionnement CI e7888a61c a publier ; (b) Docker conteneurs VIVANTS + liaison WSL sous Windows ; (c) etape « RAG livre » (couverture par domaine) ; (d) le |
-| `P0_jetons_clients_coffre_seul_rfc_20261024` | PARTIEL | P0 | MESURER en sandbox ce que Codex desktop sait lire (bearer_token_env_var seul ? commande/helper ?) AVANT de toucher HKCU, puis retirer FORGE_TOKEN_CODEX de HKCU seulement quand les 2 voies sont prouvee |
-| `P0_regles_memoire_vers_corps_distribue_20261022` | PARTIEL | P0 | (non dit) |
-| `P0_veille_outils_economie_contexte_20261022` | PARTIEL | P0 | AUCUN GAIN MESURE : rejouer tools/forge_contexte_par_source.py avant/apres P1a (et un filtre de sortie rtk-like) sur une transcription ; non clos. Rapports : sandbox/workspace/rapport_P0_veille_outils |
-| `P0_veracrypt_obligatoire_par_defaut_20261020` | PARTIEL | P0 | volume chiffre monte portant data/ ; docs / installateur public ; le bilan (refus_consignes) ne dit pas encore « refus perime » ; effet a la prochaine installation. Rapport : sandbox/workspace/rapport |
-| `reprise_session_22_10_matin_pilotage` | OUVERT | P0 | (non dit) |
-| `P1_atlas_des_donnees_20261021` | OUVERT | P1 | (non dit) |
-| `P1_batch_et_advisor_phases_2_et_3_20261024` | OUVERT | P1 | deployer phases 2 et 3 de l'advisor SQL et du batch processing d'appels |
-| `P1_conformite_mcp_20260728_identite_standard_20261024` | OUVERT | P1 | (non dit) |
-| `P1_conseiller_souverain_executeur_escalade_20261024` | OUVERT | P1 | conseiller consulte aux points de controle des taches des executants gratuits (plan avant delegation, revue du diff avant commit, avis reinjecte dans la relance), escalade Ollama Cloud FREE -> autres |
-| `P1_contexte_p0_mesure_p1a_diete_hooks_20261020` | OUVERT | P1 | (non dit) |
-| `P1_depot_long_securise_des_pairs_20261024` | PARTIEL | P1 | verser et securiser le depot long du rapport des pairs (16 Ko) sur alpha |
-| `P1_doc_surfaces_ingeree_et_comprise_20261024` | OUVERT | P1 | inventaire PAR INDEX des sources claude_docs et des autres surfaces (jamais de balayage), dedoublonnage (la page advisor-tool = 388 morceaux), fiche « quoi / quand / transposition Nokido » par page, b |
-| `P1_identites_distinctes_surfaces_claude_20261022` | PARTIEL | P1 | identite propre par surface Claude Code, boites distinctes, migration lecteurs maitre-seul, RFC 9068 |
-| `P1_ingestion_corpus_rfc_chantier_dedie_20261020` | PARTIEL | P1 | GREEN de la notice par RFC (RED e51c8c386, OpenCode job_33cfbefb en cours) puis composant rfc au manifeste ; vectorisation des nouveaux chunks asynchrone (DeportEmbed, que Hamilton endort par intermit |
-| `P1_installeur_cli_gouvernance_propagee_20261024` | OUVERT | P1 | (non dit) |
-| `P1_migration_phase_b_primitive_mesure_20261024` | OUVERT | P1 | migrer census, catalogue, juge et essaim vers la primitive Mesure |
-| `P1_modulation_effort_modele_par_palier_20261023` | OUVERT | P1 | (non dit) |
-| `P1_modulation_effort_modele_par_palier_20261023__C_rejete` | SANS_MARQUEUR | P1 | (non dit) |
-| `P1_modulation_effort_modele_par_palier_20261023__decisions` | SANS_MARQUEUR | P1 | (non dit) |
-| `P1_moelle_usage_optimal_llm_orchestration_20261024` | SANS_MARQUEUR | P1 | phases B (synthese PAR PAGE) et C (profils consommes) |
-| `P1_passeport_appel_3_axes_20261024` | OUVERT | P1 | implementer le passeport d'appel a 3 axes (identite appelant, routage cognitif, endpoint servi) |
-| `P1_preparation_takehome_anthropic_20261018` | PARTIEL | P1 | (3), effecteur REM (source CPU par fenetre manquante) |
-| `P1_rel_depuis_tests_rouges_20261026` | PARTIEL | P1 | (1) 1re production REELLE hors mode preuve (la CI de reference n'ecrit pas de REL, voulu) ; (2) relancer BFCL groq quand la limite par minute est reposee (reessai 429 en place) ; HumanEval local en co |
-| `P1_roadmap_chronologie_20261021` | PARTIEL | P1 | RED 2 08a41dce5 (heritage priorite/echeance = backward pass CPM, aval sans double compte, empreinte fichiers anti-collision, fusions par fichier, Tarjan) -> AGY job_f4359b8c. Tri des propositions Gemi |
-| `P1_site_utilisateur_masque_env_certifie_20261021` | OUVERT | P1 | (non dit) |
-| `P1_soif_et_auto_amelioration_productives_20261025` | PARTIEL | P1 | 1re PRODUCTION EXPLOITABLE : 0 depuis le 25/10 15 h (0 tache de la soif, 0 SURVIT, 0 REL) -- examen de la soif demande 26/10 ~18 h 30 (--examiner), observe ; puis taux de pertinence (3b0138227) sur le |
-| `P1_tous_cli_execution_supervisee_hub_20261024` | PARTIEL | P1 | tester never en reel sur Vibe, statuer sur Codex/Copilot/Cline et usurpation attribution agent |
-| `P1_tous_cli_execution_supervisee_hub_20261024__mesures` | SANS_MARQUEUR | P1 | (non dit) |
-| `P1_utilitarisme_hedoniste_recompense_par_resultat_20261018` | PARTIEL | P1 | tracer le rejet en relecture dans tasks.db ; reevaluer apres 2 semaines (~5/11) |
-| `avis_externes_echecs_mesure_convergence_20261024` | OUVERT | P1 | appliquer les remedes convergents aux 16 echecs de mesure (statuts explicites, temoins +/-, OK_DONE != DELIVERED) |
-| `bug_homeostat_freine_au_lieu_de_liberer_20261022` | PARTIEL | P1 | OBSERVER apres le prochain redemarrage du hub (spawn_as_sandbox est charge par le hub) : sous pression avec docker_wanted pose, le message du gate doit dire « Docker protege (docker_wanted) ; evince: |
-| `decision_owner_partage_travail_agents_20261016` | PARTIEL | P1 | Finir les roadmaps partielles restantes et organiser le partage du travail inter-agents (tâches AGY autonome, paires claude.ai, créneaux courts Codex) selon les enseignements de la veille méthodes de |
-| `methodes_adoptees_apres_veille_20261016` | PARTIEL | P1 | cabler les 3 Amigos/ATDD (critere d'acceptation executable avant le code) et la theorie des contraintes (goulot CI ~27 min + hub lent) |
-| `p1_digestion_conversations_avancement_2026-10-14` | PARTIEL | P1 | lancer le gel retroactif sur les sessions encore sur disque (requete par PLAGE de source, tours epures ensuite) et lire la mesure par motif de la tache 03:00 (conv_indexer_dernier.json) |
-| `p1_l9_rsi_etat_2026-10-15` | PARTIEL | P1 | remesurer le bruit de embed.max_workers (provisoire) |
-| `p1_miroirs_publics_systematiques_ci_dist_2026-10-14` | PARTIEL | P1 | Constater un 1er run réussi synchronisant les 4 miroirs publics (Codeberg, GitLab, SourceForge, Hugging Face Spaces) lors de la prochaine publication de version. |
-| `p1_toute_la_surface_regulable_2026-10-14` | PARTIEL | P1 | reponse graduee des neverSleep (encore exclus des candidats, forge_resource_manager.py:4034), canal d'acquisition pour run_job, et politique d'armement pilotee par le corps |
-| `p1_wiki_sourceforge_quota` | PARTIEL | P1 | a partir du ~20/10 (quota Allura de 50 operations epuise) : creations 22-24-fr, 20 reecritures EN (liens (X.fr)->(X-fr)) et les 4 pages modifiees par 0.20.12 (06-Hub-API-Reference, 20-Modules-Referenc |
-| `roadmap_p1_ci_github_apres_0212_20261015` | PARTIEL | P1 | la partie fiabilite de l'ancien reste (menage-preuves sparse, relance de stack) |
-| `roadmap_p1_methode_dev_par_couches_20261016` | PARTIEL | P1 | GREEN, branchement sur le retriever REEL (nomme), mesure temoin, 3 mesures espacees de 24 h, NR des instruments couche 2 |
-| `roadmap_p1_orchestration_par_nokido_20261017` | PARTIEL | P1 | consignes avec lignes exactes, decoupage en taches < 25 min (2 GREEN et 1 lot ont echoue sur la borne) et routage par fiabilite mesuree (bb:discovered_facts/mesure_fiabilite_executeurs_verif_roadmaps_ |
-| `roadmap_p1_quatre_correctifs_prets_apres_ci_20261017` | PARTIEL | P1 | brancher la regle d'or validate_payload(agentique=True) (app/core/payload_validator.py:58, aucun appelant agentique=True) en OBSERVER sur les VRAIS emetteurs agentiques -- forge_handoff (_llm_round), |
-| `roadmap_p1_registre_demandes_owner_20261017` | PARTIEL | P1 | ranger chaque [A FAIRE |
-| `roadmap_p1_retenu_du_collage_hassabis_lean_20261017` | PARTIEL | P1 | REPL Lean persistant (lean4-repl absent), garde d'émission sur les payloads d'agent (orchestrate, exécuteurs, A2A) en mode observer, seuil de signification fixé avant dans forge_darwinian_arena.evalua |
-| `roadmap_p1_voie_longue_embedding_20261008` | PARTIEL | P1 | etape 2 (revectorisation 2048 a la demande quand la RAM le permet) |
-| `P2_construire_event_mesh_accelerator_voice_20261019` | PARTIEL | P2 | (non dit) |
-| `P2_distribution_winget_npm_20261021` | OUVERT | P2 | (non dit) |
-| `P2_docker_macos_runner_mesure_20261020` | PARTIEL | P2 | (non dit) |
-| `P2_paliers_internes_cli_veille_20261017` | PARTIEL | P2 | Implémenter d'abord le routage par difficulté entre exécuteurs distincts (P1_routage_executeur_par_difficulte_20261017) avant d'instancier des sous-paliers propres à chaque CLI. |
-| `P2_pilote_routage_appris_sur_issue_reelle_20261026` | PARTIEL | P2 | (3) baseline scores_hedonistes_mesure evaluee sur holdout TEMPOREL 15 % ; (4) contexte plus fin que taille x mode seulement si (3) le justifie ; exploiter les REAFFECTATIONS (seules paires contrefactu |
-| `P2_rag_fts_optimize_mesure_20261021` | OUVERT | P2 | (non dit) |
-| `P2_rsi_elargissement3_candidats_l1_20261018` | PARTIEL | P2 | construire un instrument par reglage avant toute declaration L1 |
-| `P2_snn_mesures_20261021` | PARTIEL | P2 | banc forge_snn_router vs regle simple sur les routages REELS avec jeu tenu a part ; unification surrogate ; attribution du docstring (Neftci 2019 / SpikingJelly) a sourcer. |
-| `P2_supersession_rag_dette_60j_20261024` | OUVERT | P2 | purger ou archiver les chunks perimes de plus de 60 jours |
-| `P2_taux_autonomie_locale_instrument_20261021` | OUVERT | P2 | (non dit) |
-| `lora_signal_usage_cause_2026-10-02` | PARTIEL | P2 | palier 2 (noter() dans _rag_bm25_search + [chunk:id |
-| `p2_agy_autonome_repond_par_groq_et_relais_hors_sujet_2026-10-14` | PARTIEL | P2 | Filtrer le sujet dans pat_m2m_debate_relay et éliminer le double consommateur concurrent sur la boîte ANTIGRAVITY (session interactive acquittant sans claim) ; régler l'invite UAC (--sandbox) selon dé |
-| `p2_turbo_worker_mort_sans_trace_2026-10-14` | PARTIEL | P2 | temoin positif d'armement (ligne de session ecrite a l'armement) puis attendre une mort de worker reelle -- silence != resolu |
-| `roadmap_p2_benchmarks_harness_lift_20261016` | PARTIEL | P2 | identifier le sous-ensemble SCB v2, faisabilite GPU de 2 taches TB, lancer la campagne gratuite |
-| `roadmap_p2_convergence_census_matrice_20261015` | PARTIEL | P2 | re-mesurer matrice ET profiling (reseau, leger, hors CI), puis faire consommer le DEBIT (tok/s, seul apport propre du profiling) |
-| `roadmap_p2_convergence_sondes_plan_20261015` | PARTIEL | P2 | Faire converger forge_provider_catalogue, forge_tool_call_probe et forge_free_tier_census vers forge_endpoint_commun (lire/catalogue), poser le cliquet interdisant l'appel direct à urllib.request.urlo |
-| `roadmap_p2_hamilton_suite_mesuree_20261013` | PARTIEL | P2 | Implémenter la porte temporelle composable (fiche V9) pour l'admission réutilisant le second observateur RAM, formaliser les tables de reprise par phases (fiche V8), valider le repli LLM sur un cycle |
-| `roadmap_p2_lora_retrieval_2026-09-27` | PARTIEL | P2 | accumuler le signal ( effet au redemarrage du hub), cabler la verite terrain (citations), puis reranker, embedder cote requete et routeur dans l'ordre recommande |
-| `roadmap_p2_rust_wasm_cible_20261016` | PARTIEL | P2 | Poste résiduel de la question lente (5,8 s), profil du hub en charge de jour, puis candidat suivant. |
-| `roadmap_p2_sources_de_rel_hors_ci_20261026` | OUVERT | P2 | mesurer d'abord le debit des REL de la CI baseline (d810283fd) avant d'ajouter des sources |
-
-### 2.4 Écarts documentaires et de source constatés
-
-| Écart | Constat | Source |
-|---|---|---|
-| Inventaire des CLOS absent | `docs/roadmap_arbre.json` introuvable dans le worktree ; les 174 CLOS ne sont pas énumérables | `glob docs/roadmap_arbre.json` (aucun résultat), `glob **/roadmap_arbre*.json` (aucun résultat) |
-| Horodatage | `06_PLAN.md` est daté 22:00 ; l'état système voisin est daté `2026-10-26T22:33:30` ; le fichier à 22:34 n'existe pas dans le worktree | `06_PLAN.md:3`, `docs/roadmap_state.json:7` |
-| Ring OPENCODE contradictoire | champ `ring: 1` et note « RESTE ring 3 » dans la même entrée | `config/agent_identities.json:1140`, `config/agent_identities.json:1157` |
-| Ring VIBE contradictoire | champ `ring: 1` et note « Ring 2 depuis le 2026-07-29 » | `config/agent_identities.json:1080`, `config/agent_identities.json:1102` |
-| Proxy OpenAI sans auth entrante | la passerelle `:7777` choisit l'identité depuis l'en-tête, sans preuve ; la délégation borne le ring mais ne ferme pas l'usurpation | `config/agent_identities.json:396` |
-| Distribution PyPI | pas encore publié ; installation depuis un clone uniquement | `README.md:107-111` |
-| Distribution winget/npm | item OUVERT | `06_PLAN.md:96` |
-| Périmètre non revendiqué | pas d'AGI, pas de self-healing garanti, pas d'autonomie parfaite, pas de support neuromorphique de production | `README.md:1013-1025` |
-
----
-
-## 3. Acteurs et droits
-
-### 3.1 Modèle de droits lu
-
-- **Ring 0 = le plus de droits ; ring 4 = le moins** : `config/agent_identities.json:2` (« ring 0=plus de droits »).
-- **Chaque outil porte un `min_ring`** : `forge_tools.min_ring`, défaut 2 (`01_SCHEMA.md:732-743`).
-- **Chaque identité peut porter des `write_paths`** : liste blanche de préfixes, ou `["*"]` pour CLAUDE (`config/agent_identities.json:39-41`) et BRIDGE (`config/agent_identities.json:687-689`).
-- **Les hooks sont ring 4** et « observent et refusent, ils n'agissent pas » : `config/agent_identities.json:1173`, `config/agent_identities.json:1189`.
-- **Un nom sans jeton apparié ne donne aucun droit** (plancher anti-spoof) : `config/agent_identities.json:481`.
-- **Une délégation est bornée par `ring_min_delegue`** : OPENAI_PROXY et WEBHUB ne peuvent pas atteindre le ring 0 (`config/agent_identities.json:393-396`, `config/agent_identities.json:1027-1031`).
-
-### 3.2 Acteurs enregistrés
-
-| Acteur / entrée | kind | Ring | Droits / écriture | Source |
+| Identite | Kind | Ring | Surface | Ecriture (`write_paths`) |
 |---|---|---|---|---|
-| Owner (humain) | — | 0 par définition du registre | Le plus haut ; aucun enregistrement nommé « owner » dans `agents` (`NON TROUVE`) | `config/agent_identities.json:2` |
-| LAFORGE_CLI | surface | 1 | — | `config/agent_identities.json:6-20` |
-| CLAUDE | cli_agent | 1 | `write_paths: ["*"]` | `config/agent_identities.json:37-53` |
-| CLAUDE_CLI | surface | 1 | — | `config/agent_identities.json:22-35` |
-| CLAUDE_DESKTOP | surface | 1 | — | `config/agent_identities.json:70-83` |
-| CLAUDE_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:55-68` |
-| AGY / GEMINI / ANTIGRAVITY | cli_agent (même acteur) | 1 | `app/`, `tools/`, `proxy_deno/`, `src/`, `tests/`, `docs/`, `config/`, `migrations/`, `logs/`, `sandbox/` | `config/agent_identities.json:85-115`, `config/agent_identities.json:212-269` |
-| AGY_HEADLESS / AGY_DAEMON | daemon | 1 | dépile `postal`, répond, n'exécute pas | `config/agent_identities.json:116-160` |
-| AGY_HOOK / GEMINI_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:161-181`, `config/agent_identities.json:271-288` |
-| CODEX | cli_agent | 1 | mêmes préfixes que AGY | `config/agent_identities.json:355-381` |
-| CODEX_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:1470-1483` |
-| VIBE | cli_agent | **1 (champ)** ; note dit 2 | mêmes préfixes que AGY | `config/agent_identities.json:1079-1111` |
-| VIBE_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:1184-1198` |
-| MAMMOUTH | cli_agent | 3 | `sandbox/`, `docs/`, `tests/` | `config/agent_identities.json:1113-1137` |
-| MAMMOUTH_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:1168-1182` |
-| OPENCODE | cli_agent | **1 (champ)** ; note dit « RESTE ring 3 » | `sandbox/`, `docs/`, `tests/`, `app/web_hub/`, `design_handoff_nokido/` | `config/agent_identities.json:1139-1166` |
-| COPILOT / COPILOT_CLI | cli_agent / surface | 3 | — | `config/agent_identities.json:310-338` |
-| COPILOT_HOOK | hook | 4 | observe/refuse | `config/agent_identities.json:340-353` |
-| CLINE / CLINE_ACT | cli_agent / surface | 1 | `app/`, `tests/`, `src/`, `sandbox/`, `docs/` | `config/agent_identities.json:574-624` |
-| CLINE_PLAN | surface | 2 | — | `config/agent_identities.json:596-609` |
-| ROO_ACT | surface | 1 | — | `config/agent_identities.json:641-654` |
-| ROO_PLAN | surface | 2 | — | `config/agent_identities.json:626-639` |
-| SIXTH | cli_agent | 2 | — | `config/agent_identities.json:656-669` |
-| ZCODE | cli_agent | 2 | `reviews/` | `config/agent_identities.json:1061-1077` |
-| OPENAI_PROXY | relay | 2 | délégation bornée `ring_min_delegue: 1` ; n'authentifie pas ses entrants | `config/agent_identities.json:383-401` |
-| WEBHUB | service | 2 | délégation bornée `ring_min_delegue: 1` ; authentifie ses entrants (JWT/cookie) | `config/agent_identities.json:1025-1044` |
-| BRIDGE | relay | 2 | `write_paths: ["*"]` | `config/agent_identities.json:686-702` |
-| SUPERVISOR | service | 1 | régule le cycle veille/sommeil ; jeton propre attendu | `config/agent_identities.json:470-490` |
-| CI_REFERENCE | service | 2 | demande le bail de priorité, pas d'écriture dépôt | `config/agent_identities.json:434-451` |
-| TRAY | service | 2 | lit le mode, prend les ordres owner confirmés ; `set_mode` reste ring 0 | `config/agent_identities.json:403-418` |
-| SERVICES | service | 4 | badge commun des organes | `config/agent_identities.json:419-433` |
-| RESCUE | service | 3 | minimum pour `notify` | `config/agent_identities.json:491-511` |
-| ORGAN_PULSE | service | 3 | minimum pour `notify` | `config/agent_identities.json:512-531` |
-| RSS_WATCHER | service | 3 | minimum pour ingérer dans le RAG | `config/agent_identities.json:452-468` |
-| COAGULATION | service | 3 | minimum pour notifier une escalade | `config/agent_identities.json:553-572` |
-| NETCFG | service | 1 | — | `config/agent_identities.json:719-732` |
-| LLAMACPP | endpoint | 3 | — | `config/agent_identities.json:734-747` |
-| LMSTUDIO | endpoint | 3 | — | `config/agent_identities.json:764-777` |
-| Providers cloud (ANTHROPIC_API, CEREBRAS, COHERE…) | provider | 3 | — | `config/agent_identities.json:1230-1243`, `config/agent_identities.json:1320-1334`, `config/agent_identities.json:1485-1499` |
+| `AGENT_PROXY` | relay | 4 | internal | -- |
+| `AGY` | cli_agent | 1 | interactive | `sandbox/`, `docs/`, `tests/`, `logs/`, `migrations/`... |
+| `ANTIGRAVITY` | cli_agent | 1 | interactive | `app/`, `tools/`, `proxy_deno/`, `src/`, `tests/`... |
+| `BRIDGE` | relay | 2 | internal | `*` |
+| `CLAUDE` | cli_agent | 1 | interactive | `*` |
+| `CLINE` | cli_agent | 1 | interactive | `app/`, `tests/`, `src/`, `sandbox/`, `docs/` |
+| `CODEX` | cli_agent | 1 | interactive | `app/`, `tools/`, `proxy_deno/`, `src/`, `tests/`... |
+| `COLLAB_BROKER` | relay | 2 | internal | -- |
+| `COPILOT` | cli_agent | 3 | interactive | -- |
+| `GEMINI` | cli_agent | 1 | interactive | `sandbox/`, `docs/`, `tests/`, `logs/`, `migrations/`... |
+| `GEMINI_RELAY` | relay | 2 | internal | -- |
+| `MAMMOUTH` | cli_agent | 3 | interactive | `sandbox/`, `docs/`, `tests/` |
+| `OPENAI_PROXY` | relay | 2 | internal | -- |
+| `OPENCODE` | cli_agent | 1 | interactive | `sandbox/`, `docs/`, `tests/`, `app/web_hub/`, `design_handoff_nokido/` |
+| `ROO` | cli_agent | 2 | interactive | -- |
+| `SIXTH` | cli_agent | 2 | interactive | -- |
+| `TASK_EXECUTOR` | relay | 2 | internal | -- |
+| `VIBE` | cli_agent | 1 | interactive | `app/`, `tools/`, `proxy_deno/`, `src/`, `tests/`... |
+| `VSCODE` | cli_agent | 1 | interactive | -- |
+| `WORKER_CODE` | relay | 2 | autonomous | -- |
+| `ZCODE` | cli_agent | 2 | interactive | `reviews/` |
 
-### 3.3 Lecture de la séparation
+### 1.5 Jalons prioritaires P0 de la roadmap (`docs/roadmap_arbre.json`)
 
-- **Clients MCP interactifs** : CLAUDE, AGY, CODEX, VIBE, MAMMOUTH, OPENCODE, COPILOT, CLINE, ROO, SIXTH, ZCODE. Leur Ring est porté par l'entrée (`config/agent_identities.json:5-1199`).
-- **Démons** : AGY_HEADLESS, AGY_DAEMON, CLAUDE_DAEMON, CLAUDE_HEADLESS, CLINE_DAEMON, CODEX_DAEMON, etc. Même acteur, autre façon d'agir (`config/agent_identities.json:116-160`, `config/agent_identities.json:228-237`).
-- **Hooks** : tous ring 4 (`config/agent_identities.json:55-68`, `161-181`, `340-353`, `1168-1198`, `1470-1483`).
-- **Le swarm n'est pas aligné sur le CLI** : la note VIBE précise « CLI seulement (pas le swarm : MISTRAL reste ring 3) » (`config/agent_identities.json:1081`).
-- **Deux contradictions de ring** (OPENCODE, VIBE) sont listées en §2.4 ; elles ne sont pas résolues dans ce document.
+| Item | Etat | Prio | Categorie | Reste |
+|---|---|---|---|---|
+| `P0_audit_dist_publique_mesure_20261020` | PARTIEL | P0 | autonome P0 | (a) Windows/macOS chiffrement NON_TESTE -> provisionnement CI e7888a61c a publier ; (b) Docker conte |
+| `P0_jetons_clients_coffre_seul_rfc_20261024` | PARTIEL | P0 | autonome P0 | MESURER en sandbox ce que Codex desktop sait lire (bearer_token_env_var seul ? commande/helper ?) AV |
+| `P0_veille_outils_economie_contexte_20261022` | PARTIEL | P0 | autonome P0 | AUCUN GAIN MESURE : rejouer tools/forge_contexte_par_source.py avant/apres P1a (et un filtre de sort |
+| `P0_veracrypt_obligatoire_par_defaut_20261020` | PARTIEL | P0 | autonome P0 | volume chiffre monte portant data/ ; docs / installateur public ; le bilan (refus_consignes) ne dit  |
+| `reprise_session_22_10_matin_pilotage` | OUVERT | P0 | autonome P0 | (non dit) |
 
----
+## 2. ETAT DYNAMIQUE — Pointeurs vers les sources vivantes (aucun chiffre fige)
 
-## 4. VISION ET POSITIONNEMENT — PROPOSITION
+> Aucun compteur volatil (nombre de tables, de chunks, de tests, de modules vivants ou d'avancement en %) n'est fige en prose : consulter les sources vivantes ci-dessous.
 
-> **Statut : PROPOSITION.** Cette section n'est pas un fait mesuré. Elle est soumise à l'arbitrage de l'owner. Les citations qui l'accompagnent rappellent le socle factuel ; les choix, eux, restent à décider.
-
-### 4.1 Position proposée
-
-**Nokido n'est pas un framework d'agents de plus.** C'est la **couche organisme** autour des modèles : un hub MCP unique, une mémoire longue avec provenance, une régulation physiologique et des portes déterministes (`README.md:70-89`). Le client reste jetable ; le système persiste (`README.md:89`).
-
-**Proposition de phrase de positionnement, à arbitrer :**
-
-> « Nokido est le runtime local-first qui transforme plusieurs IA en un organisme gouverné : mémoire persistante, régulation des ressources, portes déterministes et preuve de chaque capacité — sur votre machine, avec votre matériel, pour vos données. »
-
-### 4.2 Axes de valeur proposés
-
-| Axe | Ce que le produit vend | Socle factuel | Décision owner attendue |
-|---|---|---|---|
-| Souveraineté | données, mémoire et décisions critiques restent sur l'infrastructure de l'owner ; contrôle explicite des sorties | `README.md:100-103` | arbitrer le niveau de garantie contractuelle (architecture ≠ conformité) |
-| Preuve | chaque capacité est séparée en déclaré / observé / vérifié ; une sonde qui ne lit pas dit `ILLISIBLE` | `README.md:91-98`, `README.md:1009` | arbitrer l'exposition publique de la matrice de preuve |
-| Mémoire | RAG local avec provenance, FTS, graphe, abstention | `01_SCHEMA.md:8-9`, `01_SCHEMA.md:958-1113`, `03_APPFLOW.md:93` | arbitrer la politique de purge / supersession (60 jours) |
-| Gouvernance | écriture par `governed_edit`, RBAC par rings, scan secret, hooks | `05_UX_AX.md:70-99`, `05_UX_AX.md:159-206`, `config/agent_identities.json:1-4` | arbitrer la fermeture de l'auth entrante de `:7777` |
-| Multi-modèles | routage local/cloud par usage, repli local | `README.md:84`, `README.md:33` | arbitrer le périmètre des 20 vendors / 39 slots |
-| Licence | AGPLv3-or-later + licence commerciale | `LICENSE:1-3`, `README.md:1096-1122` | arbitrer la politique commerciale (SaaS, OEM, embarqué) |
-
-### 4.3 Cinq arbitrages proposés à l'owner
-
-1. **Inventaire des CLOS.** Publier `docs/roadmap_arbre.json` dans le worktree ou rendre la matrice de preuve générée à partir de lui. Sans ce fichier, aucune capacité ne peut être reliée à une clé CLOS (`NON TROUVE`).
-2. **Contradictions de ring.** Trancher OPENCODE et VIBE : le champ `ring` et la note historique ne disent pas la même chose (`config/agent_identities.json:1140` vs `1157` ; `1080` vs `1102`). Une identité qui s'authentifie doit avoir un ring unique et lisible.
-3. **Fermeture de `:7777`.** La passerelle OPENAI_PROXY n'authentifie pas ses entrants ; la délégation borne le dégât mais ne le supprime pas (`config/agent_identities.json:396`). Décider entre authentification entrante par client et maintien assumé de la limite.
-4. **Distribution.** Maintenir la règle « PyPI seulement après preuve d'installation Linux/Windows/macOS » (`README.md:107-111`) et ordonner winget/npm après cette preuve (`06_PLAN.md:96`).
-5. **Boucle d'auto-amélioration.** La mécanique est prouvée (juge, held-out, restauration `git HEAD`, commit désarmé) mais la boucle n'est pas fermée : item `p1_auto_amelioration_boucle_non_fermee` PARTIEL (`06_PLAN.md:25`). Décider si l'objectif produit est « proposition prouvée » ou « production autonome ».
-
-### 4.4 Ce que la vision ne doit pas promettre
-
-La section « What Nokido does not claim » interdit déjà : AGI, self-healing garanti, autonomie parfaite, conscience parfaite, compatibilité universelle, stabilité de production de chaque sous-système, support neuromorphique de production (`README.md:1013-1025`). Toute communication produit doit reprendre cette liste.
-
-### 4.5 Critères de succès proposés (à arbitrer)
-
-| Critère | Mesure proposée | Source du socle |
+| Dimension dynamique | Pointeur vers la source vivante | Contrat de lecture |
 |---|---|---|
-| Preuve traçable | 100 % des capacités affichées ont un test NR ou un `fichier:ligne` | `README.md:944-949` |
-| Roadmap lisible | 174/273 CLOS exposés item-par-item, avec `reste` pour chaque non-CLOS | `06_PLAN.md:6` |
-| Zéro capacité fantôme | un service qui répond n'est jamais affiché comme capacité prouvée | `README.md:995-996` |
-| Rings cohérents | une seule valeur de ring par identité, champ et note alignés | `config/agent_identities.json:2` |
-| Distribution prouvée | PyPI seulement après installation réussie sur les 3 OS | `README.md:107-111` |
-
----
-
-## 5. Limites de sources
-
-| Source | État | Conséquence |
-|---|---|---|
-| `docs/roadmap_arbre.json` | **absent** (`glob` sans résultat) | pas d'inventaire CLOS item-par-item ; chiffres repris de `06_PLAN.md:6` |
-| `docs/roadmap_state.json` | présent, mais `roadmap_clos: []` et `roadmap.P0/P1/P2: []` | ne porte pas les CLOS |
-| `docs/roadmap_instruits.json` | registre d'instruction des intentions, pas la liste des CLOS | non utilisé comme preuve de capacité |
-| `docs/roadmap_dependances.json` | graphe de dépendances, pas la liste des CLOS | non utilisé comme preuve de capacité |
-| `06_PLAN.md` | généré le 2026-10-26 22:00, commit `f28b4219e` | chiffres agrégés et items non clos |
-| `01_SCHEMA.md` | généré par introspection, commit `f28b4219e` | schéma des bases et contrats |
-| `02_TRD.md` | généré par introspection, commit `f28b4219e` | constantes et verdicts |
-| `03_APPFLOW.md` | généré par lecture du code | machines d'état et transitions |
-| `05_UX_AX.md` | reconstitution empirique depuis le code | messages, refus, routes, sorties CLI |
-| `README.md` | présent | positionnement, tableau de statut, licence, non-claims |
-| `LICENSE` | présent | AGPLv3 |
-| `config/agent_identities.json` | présent | rings, write_paths, kinds, contradictions signalées |
-
-**Fait non lu, donc non écrit :** la liste des 174 clés CLOS, leurs commits et leurs tests item-par-item. Elle reste `NON TROUVE` tant que `docs/roadmap_arbre.json` n'est pas présent dans le worktree.
+| Etat global du corps et compteurs vivants | `nokido_agent.app.forge_ssot::point` et `hub action=whoami` | lecture temps reel en base |
+| Avancement vivant de la roadmap et taches | `tools/forge_roadmap_keeper.py --arbre` (`docs/roadmap_arbre.json`) et `task action=status` (`sandbox/tasks.db`) | liste complete dans `06_PLAN.md` et recalcul vivant |
+| Recensement vivant des modules par organe | `tools/forge_module_census.py` (`sandbox/workspace/organ_map_full.json`) | scan AST de `app/` et `tools/` |
+| Verification des capacites a chaud | `nokido-doctor --vivant` et `tools/forge_feature_checklist.py` | separe declare / observe / verifie (abstention si sonde muette) |
+| Quotas modeles et fournisseurs | `hub action=quota_status` (`nokido_agent.app.forge_quota_tracker`) | etat courant des budgets et replis |

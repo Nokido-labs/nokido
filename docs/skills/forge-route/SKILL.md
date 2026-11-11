@@ -27,6 +27,7 @@ Appelle le hub `run` action=`trusted_script`, path=`tools/forge_cli_route.py` :
 - **Fallback** : routage ON mais hub `:8766` down → le wrapper retombe en **NATIF** auto (0 casse).
 - **copilot** : BYOK via env (`COPILOT_PROVIDER_BASE_URL=:7777/v1` + MODEL_ID claude-sonnet-4.5 +
   WIRE_MODEL + WIRE_API completions), posé par `copilot-lf` quand ON → **0 quota GitHub** (cf `copilot help providers`).
+- **Authentification ingress & mode agent** : Les proxys ingress (`:7776`, `:7778`) exigent un jeton Bearer valide (CapabilityToken ou jeton agent) injecté dans l'environnement de l'enfant (`ANTHROPIC_AUTH_TOKEN`, `GEMINI_API_KEY` avec `GEMINI_API_KEY_AUTH_MECHANISM=bearer`). Le mode agent n'est pas servi par ces proxys : tout appel transmettant des définitions d'outils (`tools`, `tool_choice`, `tool_config`) est refusé en HTTP 400.
 
 ## Pré-requis
 

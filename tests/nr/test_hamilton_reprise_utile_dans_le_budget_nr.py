@@ -74,7 +74,8 @@ def test_l_absence_de_demande_prouvee_reste_endormie():
     demandes = {"Svc00": False}
     r = rm.regulation_hamilton_ram({}, 40.0, TOTAL_GB, _etat(n=5, poids=100.0), T, demandes=demandes)
     assert "Svc00" not in _reprises(r) and "Svc00" in _en_pause(r)
-    assert len(_reprises(r)) == 4  # les autres (aucun signal : UNKNOWN != NO) repartent dans le budget
+    # les autres (aucun signal : UNKNOWN != NO) repartent dans le budget -- 7/11 : par lot, jamais les 4 d'un coup
+    assert len(_reprises(r)) == min(4, rm._HAMILTON_REPRISE_LOT)
 
 
 def test_poids_inconnu_compte_prudemment():

@@ -34,7 +34,7 @@ class _Rep:
 
 def _poser(monkeypatch, ok=True, cle="cle-factice"):
     monkeypatch.setenv("LAFORGE_WEB_OLLAMA", "1")  # le conftest NR le coupe par defaut
-    monkeypatch.setattr(wf, "_searxng_diag", lambda q, n, moteurs: ([], "searxng: moteurs suspendus"))
+    monkeypatch.setattr(wf, "_searxng_diag", lambda q, n, *a, **k: ([], "searxng: moteurs suspendus"))
     monkeypatch.setattr(wf, "_cle_ollama", lambda: cle)
     monkeypatch.setattr(wf, "_pre_flight", lambda q: (ok, "" if ok else "DLP : chemin Windows"))
     envoyes = []

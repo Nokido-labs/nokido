@@ -21,6 +21,20 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT))
 
 OUT = ROOT / "docs" / "swarm_debate_organ_tiers.md"
+DEFAULT_SUJET = "Organes Nokido -> agents bas-niveau ?"
+
+
+def deriver_titre_et_fichier(sujet: str, root: Path = ROOT) -> tuple[str, Path]:
+    s = (sujet or "").strip()
+    if not s or s == DEFAULT_SUJET:
+        return DEFAULT_SUJET, root / "docs" / "swarm_debate_organ_tiers.md"
+    import re
+    import unicodedata
+    slug = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^\w\s-]", "", slug).strip().lower()
+    slug = re.sub(r"[-\s]+", "_", slug)[:60].strip("_")
+    nom_fichier = f"swarm_debate_{slug}.md" if slug else "swarm_debate_sujet.md"
+    return s, root / "docs" / nom_fichier
 
 # Spécialistes DISTINCTS (rôle, provider ask). Noms ask courts (cf. list_providers).
 SPECIALISTS = [
@@ -53,19 +67,75 @@ async def _ask_one(role: str, prov: str, task: str) -> tuple:
         r = await asyncio.wait_for(
             ask(prov, f"TON RÔLE = {role}.\n\n{task}", max_tokens=420, rag_context=False), timeout=_to)
         txt = (r.get("text") or "").strip()
-        return (role, prov, txt, bool(r.get("ok")) and bool(txt))
+        ok = bool(r.get("ok")) and bool(txt)
+        # 3/11 : un echec garde son MOTIF (402, 403, « Provider inconnu ») -- l'avaler a rendu 2 debats invalides
+        # 8/11 : reponse vide = echec du participant (cause « vide »), jamais compte au quorum
+        motif = r.get("error") or ("vide" if not txt else "erreur")
+        return (role, prov, txt if ok else "[KO: %s]" % motif, ok)
     except asyncio.TimeoutError:
         return (role, prov, f"[timeout {_to}s]", False)
     except Exception as e:  # noqa: BLE001
         return (role, prov, f"[KO: {type(e).__name__}: {e}]", False)
 
 
-async def _round(task: str, label: str) -> list:
+REMPLACANTS: list[str] = []
+
+
+async def _round(task: str, label: str, remplacants: list | None = None) -> list:
     print(f"[{label}] {len(SPECIALISTS)} spécialistes en parallèle...")
     res = await asyncio.gather(*[_ask_one(r, p, task) for r, p in SPECIALISTS])
-    ok = [x for x in res if x[3]]
+    subs = list(remplacants if remplacants is not None else REMPLACANTS)
+    pris = {p for _, p in SPECIALISTS}
+    ok = []
+    for role, prov, txt, bon in res:
+        if bon and txt and not txt.startswith("[KO:"):
+            ok.append((role, prov, txt, bon))
+        else:
+            print(f"[{label}] MUET {prov} ({role[:40]}) : {txt[:160]}")
+            # Remplacement comme le fait sonder_panel (l.76)
+            remplace = False
+            while subs:
+                sub = subs.pop(0)
+                if sub in pris:
+                    continue
+                pris.add(sub)
+                sub_res = await _ask_one(role, sub, task)
+                s_role, s_prov, s_txt, s_bon = sub_res
+                if s_bon and s_txt and not s_txt.startswith("[KO:"):
+                    ok.append(sub_res)
+                    remplace = True
+                    print(f"[{label}] REMPLACE {prov} par {sub} ({role[:40]})")
+                    break
+                else:
+                    print(f"[{label}] REMPLACANT {sub} ECHEC : {s_txt[:160]}")
     print(f"[{label}] {len(ok)}/{len(SPECIALISTS)} ont répondu")
     return ok
+
+
+async def sonder_panel(roles: list, remplacants: list | None = None, minimum: int = 4,
+                       question: str = "Reponds seulement par OK.") -> tuple:
+    """Pre-vol par la CAPACITE (3/11) : chaque fournisseur recoit une question minuscule ; n'est garde que celui qui
+    REPOND. Un muet est remplace par un remplacant lui aussi sonde (un remplacant ne sert qu'une fois). Moins de
+    `minimum` roles vivants -> ValueError (fail-closed). Rend (panel, ecartes[(fournisseur, motif)]).
+    NR : tests/nr/test_swarm_debate_panel_sonde_nr.py"""
+    candidats = list(dict.fromkeys([p for _, p in roles] + list(remplacants or [])))
+    sondes = await asyncio.gather(*[_ask_one("SONDE", p, question) for p in candidats])
+    vivant = {p: ok for _, p, _, ok in sondes}
+    motif = {p: txt for _, p, txt, ok in sondes if not ok}
+    panel, pris = [], set()
+    for role, prov in roles:
+        if vivant.get(prov) and prov not in pris:
+            panel.append((role, prov)); pris.add(prov)
+            continue
+        sub = next((r for r in (remplacants or []) if vivant.get(r) and r not in pris), None)
+        if sub:
+            panel.append((role, sub)); pris.add(sub)
+    ecartes = [(p, motif[p]) for p in candidats if p in motif]
+    for p, m in ecartes:
+        print(f"[sonde] ecarte {p} : {m[:160]}")
+    if len(panel) < minimum:
+        raise ValueError("panel insuffisant : %d role(s) vivant(s) < %d -- debat refuse" % (len(panel), minimum))
+    return panel, ecartes
 
 
 async def _synth(answers: list, instr: str) -> str:
@@ -78,18 +148,34 @@ async def _synth(answers: list, instr: str) -> str:
     return (s.get("text") or "").strip() or "[synthèse vide]"
 
 
-async def main() -> int:
+async def main(argv: list[str] | None = None) -> int:
     # PRÉ-VOL via le RÉSOLVEUR : écarte les providers morts/inadaptés au contexte +
     # redirige le write si non-inscriptible. Plus d'erreur qui passe dans le flux.
     global SPECIALISTS, OUT
     import os
+    import argparse
     from nokido_agent.app.forge_resolver import resolve_provider_panel, writable_path
+
+    parser = argparse.ArgumentParser(description="Débat SWARM multi-spécialistes.")
+    parser.add_argument("sujet_pos", nargs="?", default=None, help="Sujet du débat (positionnel)")
+    parser.add_argument("--sujet", "--subject", dest="sujet_opt", default=None, help="Sujet du débat")
+    args = parser.parse_args(argv)
+
+    sujet_effectif = args.sujet_opt or args.sujet_pos or DEFAULT_SUJET
+    titre_effectif, out_effectif = deriver_titre_et_fichier(sujet_effectif, ROOT)
+    OUT = out_effectif
+
     _ctx = os.environ.get("LAFORGE_CTX", "trusted")
     SPECIALISTS = resolve_provider_panel(SPECIALISTS, context=_ctx) or SPECIALISTS
     OUT, _red = writable_path(OUT, context=_ctx)
     print(f"[resolver] panel={[p for _, p in SPECIALISTS]} ctx={_ctx} out={OUT.name}")
 
-    r1 = await _round(SEED + "\n\nDepuis ton rôle : VALIDE / RAFFINE / CONTESTE. 4-6 points denses, "
+    seed_effectif = (
+        SEED if sujet_effectif == DEFAULT_SUJET
+        else f"SUJET : {sujet_effectif}\n\nQUESTION : {sujet_effectif}\nDepuis ton rôle d'expert : analyse, risques, arbitrages et recommandations concrètes."
+    )
+
+    r1 = await _round(seed_effectif + "\n\nDepuis ton rôle : VALIDE / RAFFINE / CONTESTE. 4-6 points denses, "
                       "risques concrets, zéro blabla.", "R1")
     s1 = await _synth(r1, "Synthétise ce débat : points d'ACCORD + TENSIONS structurelles.")
 
@@ -103,8 +189,8 @@ async def main() -> int:
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(
-        "# Débat Swarm — Organes Nokido -> agents bas-niveau ?\n\n"
-        f"_Panel : {', '.join(p for _, p in SPECIALISTS)} (5 rôles distincts) · 3 tours._\n\n"
+        f"# Débat Swarm — {titre_effectif}\n\n"
+        f"_Panel : {', '.join(p for _, p in SPECIALISTS)} ({len(SPECIALISTS)} rôles distincts) · 3 tours._\n\n"
         f"## Tour 1 — prises de position\n{s1}\n\n"
         f"## Tour 2 — challenge des tensions\n{s2}\n\n"
         f"## RECO FINALE (convergence)\n{s3}\n",

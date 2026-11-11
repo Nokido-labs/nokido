@@ -22,6 +22,7 @@ LECTURE_MAX_OCTETS = 65536
 INTERVALLE_S = 1.0
 
 _RE_PANNE = re.compile(r"Free usage limit reached|AI_RetryError", re.I)
+_RE_EPUISE = re.compile(r"Free usage limit reached|reached your (?:monthly |daily )?usage limit|insufficient balance|quota exceeded", re.I)
 _RE_NIVEAU_ERREUR = re.compile(r"level=ERROR|^\s*ERROR\b")
 _RE_TS = re.compile(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z)?")
 _RE_SESSION = re.compile(r"session(?:\.id|ID|Id)=(\S+)")
@@ -121,7 +122,11 @@ def prompt_avec_veilleur(client, sid, text, timeout, chemin=None, quota_re=None,
             break
         ligne = chercher_panne(chemin, debut, sid, quota_re)
         if ligne:
-            raise QuotaJournalOpenCode(f"quota exceeded (journal OpenCode) : {ligne}")
+            if _RE_EPUISE.search(ligne):
+                libelle = "quota exceeded (journal OpenCode)"
+            else:
+                libelle = "panne flux fournisseur (journal OpenCode)"
+            raise QuotaJournalOpenCode(f"{libelle} : {ligne}")
     if "exc" in sortie:
         raise sortie["exc"]
     return sortie.get("res")

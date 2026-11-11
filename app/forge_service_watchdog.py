@@ -380,7 +380,28 @@ class ServiceWatchdog:
         if not port:
             return None
 
-        # Primary: psutil (exact, cross-platform)
+        # Primary: forge_ports_ecoute (listeners fiables)
+        try:
+            try:
+                from nokido_agent.app.forge_ports_ecoute import ecouteurs_tcp
+            except ImportError:
+                try:
+                    from app.forge_ports_ecoute import ecouteurs_tcp
+                except ImportError:
+                    from forge_ports_ecoute import ecouteurs_tcp
+            ecoute = ecouteurs_tcp()
+            if ecoute is not None:
+                # Table lisible : elle fait foi. Absent ou plusieurs PID -> None, sans repli sur psutil, dont la colonne
+                # d'etat est fausse (6/11), et sans designer un processus au hasard.
+                pids = ecoute.get(port) or ()
+                if len(pids) > 1:
+                    logger.warning(f"[watchdog] :{port} ambigu, plusieurs PID {sorted(pids)} : aucun rendu")
+                    return None
+                return next(iter(pids), None)
+        except Exception:
+            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_service_watchdog.py', 382, exc_info=True)
+
+        # Secondary: psutil (exact, cross-platform)
         try:
             import psutil  # type: ignore
 

@@ -201,9 +201,11 @@ manifest lets users verify they got the file the maintainer signed.
 
 > No. The export filter explicitly drops `agent_messages`,
 > `conversation_log`, `shared_prompt_log`, and any chunk matching PII
-> heuristics. The only domains exported are `nokido_code`,
-> `nokido_docs`, `curated_skills`, `policy_rules` — all source-code-
-> equivalent content.
+> heuristics. The only domains exported are `nokido_doc`, `doctrine`,
+> `forge_core`, `nokido_code`, `docs`, `policy_rules`, `policy_roles`,
+> `policy_security` — all source-code-equivalent content
+> (list pinned by `DOMAINES` in `forge_knowledge_pack_export.py`,
+> verified 2026-11-08 ; the earlier `nokido_docs`/`curated_skills` list was stale).
 
 ### Q. What if the BGE-M3 model version changes upstream?
 

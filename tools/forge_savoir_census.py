@@ -53,6 +53,9 @@ _RACINE_AMORCE = str(_Path_amorce(__file__).resolve().parent.parent)
 if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
 
+from dataclasses import asdict, is_dataclass
+from app.forge_mesure import Mesure
+
 ROOT = Path(__file__).resolve().parent.parent
 SORTIE = ROOT / "sandbox" / "census_savoir.json"
 EXCLUS = ("sandbox", "archive", "_attic", "node_modules", ".git", "RAG_plain_bak")
@@ -448,7 +451,9 @@ def evaluer_magasin(decl: dict, maintenant: float | None = None) -> dict:
     if not ch:
         fiche.update(localise="chemin inconnu", ouvert="non applicable",
                      requete="non verifiee", integrite="non controlee",
-                     fraicheur="non controlee")
+                     fraicheur="non controlee",
+                     integrite_mesure=Mesure("ABSENT", source=decl.get("nom") or "?", motif="chemin non renseigne"),
+                     fraicheur_mesure=Mesure("ABSENT", source=decl.get("nom") or "?", motif="chemin non renseigne"))
         fiche["lacunes"].append("chemin non resolu")
         return fiche
     etat, octets, mtime = _etat_chemin(ch)
@@ -456,13 +461,24 @@ def evaluer_magasin(decl: dict, maintenant: float | None = None) -> dict:
     fiche["octets"] = octets
     if etat != "present":
         fiche.update(ouvert="non applicable", requete="non verifiee",
-                     integrite="non controlee", fraicheur="non controlee")
+                     integrite="non controlee", fraicheur="non controlee",
+                     integrite_mesure=Mesure("ABSENT" if etat == "absent" else "ILLISIBLE",
+                                             source=ch, motif="etat chemin : %s" % etat),
+                     fraicheur_mesure=Mesure("ABSENT" if etat == "absent" else "ILLISIBLE",
+                                             source=ch, motif="etat chemin : %s" % etat))
         fiche["lacunes"].append("localise: %s" % etat)
         return fiche
     if os.path.isdir(ch):
+        fr_str = _fraicheur(mtime, maintenant)
+        is_perime = fr_str.startswith("PERIME")
         fiche.update(ouvert="non applicable (repertoire)", requete="non verifiee",
                      integrite="non applicable (repertoire)",
-                     fraicheur=_fraicheur(mtime, maintenant))
+                     fraicheur=fr_str,
+                     integrite_mesure=Mesure("NON_APPLICABLE", source=ch, motif="repertoire"),
+                     fraicheur_mesure=Mesure("STALE" if is_perime else "VALEUR",
+                                             valeur=mtime, source=ch,
+                                             temoin_positif=True, mesure_le=maintenant,
+                                             motif=fr_str))
         return fiche
     conn = _ouvrir(Path(ch))
     ok = False
@@ -483,8 +499,30 @@ def evaluer_magasin(decl: dict, maintenant: float | None = None) -> dict:
         fiche["requete"] = "non declaree (aucune requete representative)"
     else:
         fiche["requete"] = "non verifiee (base non ouverte)"
-    fiche["integrite"] = integrite(conn if ok else None, octets)
-    fiche["fraicheur"] = _fraicheur(mtime, maintenant)
+    int_str = integrite(conn if ok else None, octets)
+    fr_str = _fraicheur(mtime, maintenant)
+    fiche["integrite"] = int_str
+    fiche["fraicheur"] = fr_str
+
+    # Mesure typee integrite
+    if not ok:
+        m_int = Mesure("ILLISIBLE", source=ch, motif=fiche["ouvert"])
+    elif int_str == "integrite controlee: ok":
+        m_int = Mesure("VALEUR", valeur="ok", temoin_positif=True, source=ch, mesure_le=maintenant)
+    elif int_str == NON_CONTROLEE_GROS:
+        m_int = Mesure("NON_APPLICABLE", source=ch, motif=NON_CONTROLEE_GROS)
+    else:
+        m_int = Mesure("ILLISIBLE", source=ch, motif=int_str)
+    fiche["integrite_mesure"] = m_int
+
+    # Mesure typee fraicheur
+    if mtime is None:
+        m_fr = Mesure("ILLISIBLE", source=ch, motif="mtime absent")
+    elif fr_str.startswith("PERIME"):
+        m_fr = Mesure("STALE", valeur=mtime, source=ch, mesure_le=maintenant, motif=fr_str)
+    else:
+        m_fr = Mesure("VALEUR", valeur=mtime, temoin_positif=True, source=ch, mesure_le=maintenant, motif=fr_str)
+    fiche["fraicheur_mesure"] = m_fr
     if conn is not None:
         conn.close()
     for cle in ("ouvert", "requete", "integrite"):
@@ -497,20 +535,35 @@ def evaluer_magasin(decl: dict, maintenant: float | None = None) -> dict:
     return fiche
 
 
+def _serialiser_mesures(obj):
+    if is_dataclass(obj):
+        return asdict(obj)
+    raise TypeError("Type non serialisable en JSON : %r" % type(obj))
+
+
 def atlas_donnees(declarations: list[dict] | None = None) -> dict:
     """Atlas par magasin + liste des lacunes. Aucune ecriture, aucun index."""
     decls = declarations if declarations is not None else (
         _chemins_canoniques() + _magasins_hors_depot())
     magasins = [evaluer_magasin(d) for d in decls]
     lacunes = ["%s: %s" % (m["nom"], x) for m in magasins for x in m["lacunes"]]
-    return {"genere": time.strftime("%Y-%m-%d %H:%M:%S"), "magasins": magasins,
+    # Serialisation propre pour compatibilite JSON complete
+    magasins_json = []
+    for m in magasins:
+        item = dict(m)
+        if is_dataclass(item.get("integrite_mesure")):
+            item["integrite_mesure"] = asdict(item["integrite_mesure"])
+        if is_dataclass(item.get("fraicheur_mesure")):
+            item["fraicheur_mesure"] = asdict(item["fraicheur_mesure"])
+        magasins_json.append(item)
+    return {"genere": time.strftime("%Y-%m-%d %H:%M:%S"), "magasins": magasins_json,
             "lacunes": lacunes}
 
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--atlas" in argv:
-        print(json.dumps(atlas_donnees(), indent=1, ensure_ascii=False))
+        print(json.dumps(atlas_donnees(), indent=1, ensure_ascii=False, default=_serialiser_mesures))
         return 0
     ech = 25
     if "--echantillon" in argv:
@@ -562,7 +615,7 @@ def main(argv=None) -> int:
         print("  %-42s %7.0f Mo  %s" % (rel[:42], p.stat().st_size / 1e6, resume))
 
     SORTIE.parent.mkdir(parents=True, exist_ok=True)
-    SORTIE.write_text(json.dumps(rapport, indent=1, ensure_ascii=False), encoding="utf-8")
+    SORTIE.write_text(json.dumps(rapport, indent=1, ensure_ascii=False, default=_serialiser_mesures), encoding="utf-8")
 
     print("\n--- COUVERTURE PAR JOINTURE (fait foi)")
     for f in rapport["bases"]:

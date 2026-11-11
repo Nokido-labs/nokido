@@ -4,6 +4,10 @@ import sqlite3
 import time
 from pathlib import Path
 
+import sys as _sys_amorce  # le garde d'ingestion vit sous `nokido_agent`
+if str(Path(__file__).resolve().parent.parent) not in _sys_amorce.path:
+    _sys_amorce.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 # Configuration
 # On cible le gitingest de litellm pour l'exemple
 SRC_DIR = Path(
@@ -73,6 +77,9 @@ def main():
                 chunks = chunk_text(text)
                 for chunk in chunks:
                     if len(chunk.strip()) < 50:
+                        continue
+                    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+                    if not admis_a_l_ingestion("gitingest:" + str(src), chunk):
                         continue
                     cid = sha256_id(src, chunk)
                     con.execute(

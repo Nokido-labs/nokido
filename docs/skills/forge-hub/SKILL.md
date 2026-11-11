@@ -4,7 +4,7 @@ description: >-
   À utiliser pour parler au hub Nokido (:8766) depuis n'importe quelle surface : un
   outil répond « action inconnue » ou une action manque au schéma en cache, notifier
   un pair, interroger un modèle par `ask`, connaître son identité et son ring, sonder
-  le hub. Donne les actions du schéma, le recours `hub_call.py` et ses limites.
+  le hub. Recours `hub_call.py`.
 ---
 
 # forge-hub — parler au hub Nokido (:8766)
@@ -91,6 +91,13 @@ inconnu de `ask` (piège payé : `gemini_flash`, 9 tours sur 9 en réponse vide)
 `hub action=whoami` (services dégradés, tâches en souffrance) ou
 `forge_ssot.point('point system_state')`. Pas d'instantané figé : celui qu'indiquait
 cette skill datait d'avril.
+
+## Ce que le hub lit et fait
+
+`sandbox/hub_lectures.jsonl` : quand les compteurs du hub sautent de plus de 5 Mo, ce qui venait d'être ouvert, par quel
+appelant, et les fils actifs. C'est l'instrument pour une lecture de 30 ms ; `hub action=fils` échantillonne à 1 s et la
+rate presque toujours. Entrées volumineuses : les résumer par un job, ne pas les lire. Coupure : créer
+`sandbox/hub_lectures.off`. py-spy ne peut pas lire le hub, même sous `LaForgeTrusted` (accès refusé).
 
 ## Quand le hub ne répond plus
 

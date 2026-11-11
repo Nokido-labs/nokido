@@ -213,6 +213,14 @@ def test_anchor_solution_inserts_and_indexes(temp_rag_db, monkeypatch):
 5. **Tester via `asyncio.run` au lieu de `pytest.mark.asyncio`** → loops
    conflict, race conditions intermittentes.
 
+6. **NR vert sur une FICTION (payé deux fois le 3/11)** → un garde lisait `ior`/`iow` dans un snapshot fabriqué par
+   le test, que le vrai sampler ne porte pas (garde aveugle en vrai : `io_mo_s` null) ; le NR de l'interpréteur du RSI
+   est resté vert 3 fois SANS correctif, car sous pytest `~`, `sys.executable` et `forge_python_bin` (calculé à
+   l'IMPORT) désignent le python de base, alors que sous le SERVICE c'est `envs\nokido_services` sans pytest.
+   Règles : construire l'entrée du test d'après une valeur NON NULLE lue chez l'émetteur réel ; rediriger tout ce qui
+   varie entre job et service (USERPROFILE/HOME, `sys.executable`, modules calculés à l'import) ; exiger de voir le
+   test ROUGE sans le correctif ; la preuve finale est le journal du service après restart.
+
 ## Workflow complet pour un nouveau module forge_*.py
 
 1. **Preflight RAG** (Règles d'Or) :

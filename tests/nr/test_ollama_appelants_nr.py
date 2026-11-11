@@ -66,3 +66,36 @@ def test_tick_ecrit_jsonl_rotation_bornee_et_cadence(tmp_path):
     assert chemin.stat().st_size <= 2000 + 400
     row = json.loads(chemin.read_text(encoding="utf-8").splitlines()[-1])
     assert set(row) >= {"ts", "pid", "nom", "service"}
+
+
+# --- 8/11 : un python.exe ephemere charge le GPU puis meurt avant identification ---
+# Le releve doit capturer A CHAUD ce que le processus execute (script/module) et la chaine
+# de ses parents, sinon l'appelant reste ILLISIBLE pour toujours.
+
+def test_script_de_rend_le_script_ou_le_module_jamais_les_arguments():
+    py = r"C:\miniforge3\python.exe"
+    assert P._script_de([py, r"C:\x\app\forge_silo_fragmenter.py", "--token", "SECRET"]) == r"C:\x\app\forge_silo_fragmenter.py"
+    assert P._script_de([py, "-u", "-m", "pytest", "-k", "SECRET"]) == "-m pytest"
+    assert P._script_de([py, "-c", "import os; print('SECRET')"]) == "-c"
+    assert P._script_de([py, "--cle=a.py"]) == "python.exe"     # une option n'est pas un script
+    assert P._script_de([]) is None and P._script_de(None) is None
+
+
+def test_appelant_illisible_garde_script_et_chaine_des_parents():
+    vivants = {
+        300: {"nom": "python.exe", "ppid": 301, "script": r"C:\tmp\x.py"},
+        301: {"nom": "cmd.exe", "ppid": 302, "script": "cmd.exe"},
+        302: {"nom": "deno.exe", "ppid": 1, "script": "deno.exe"},
+    }
+    lignes, _ = P.releve_appelants([_c(300, 50003)], vivants, PID_SERVICE, {}, set(), now=1.0)
+    r = lignes[0]
+    assert r["service"] == "ILLISIBLE" and r["script"] == r"C:\tmp\x.py"
+    assert [m["nom"] for m in r["chaine"]] == ["cmd.exe", "deno.exe"]
+    assert r["chaine"][0] == {"pid": 301, "nom": "cmd.exe", "script": "cmd.exe"}
+
+
+def test_appelant_identifie_garde_son_script_sans_chaine():
+    vivants = dict(VIVANTS)
+    vivants[100] = {"nom": "python.exe", "ppid": 50, "script": r"C:\x\app\forge_clawhub_bridge.py"}
+    lignes, _ = P.releve_appelants([_c(100, 50001)], vivants, PID_SERVICE, {}, set(), now=1.0)
+    assert lignes[0]["script"].endswith("forge_clawhub_bridge.py") and "chaine" not in lignes[0]

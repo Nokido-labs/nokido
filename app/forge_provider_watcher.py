@@ -15,7 +15,28 @@ if _RACINE_AMORCE not in _sys_amorce.path:
     _sys_amorce.path.insert(0, _RACINE_AMORCE)
 
 ROOT = Path(__file__).resolve().parent.parent
-DB = ROOT / "RAG" / "embeddings.db"
+_DB_DEFAUT = ROOT / "RAG" / "embeddings.db"
+DB = _DB_DEFAUT  # repli seulement : le chemin vivant vient de forge_db_path (_chemin_db) ; une REDIRECTION explicite de DB prime
+
+
+def _chemin_db() -> Path:
+    """Base RAG resolue A CHAQUE appel par l'interrupteur unique forge_db_path (audit Z.ai verifie 8/11, geste 3 :
+    `DB` code en dur ignorait toute redirection). Interrupteur illisible -> repli DB, et le DIRE.
+    Une redirection EXPLICITE de `DB` (test, appelant) prime : sans elle, un test qui redirigeait DB ecrirait dans la base
+    VIVANTE (mesure 8/11 : test_provider_watcher_transport_pas_capacite_nr)."""
+    if Path(DB) != _DB_DEFAUT:
+        return Path(DB)
+    try:
+        try:
+            from forge_db_path import db_path
+        except ImportError:
+            from nokido_agent.app.forge_db_path import db_path
+        return Path(db_path())
+    except Exception as e:  # noqa: BLE001 - interrupteur illisible : repli explicite, jamais muet
+        import logging
+        logging.getLogger("forge_provider_watcher").warning(
+            "forge_db_path illisible (%s) -- repli %s", type(e).__name__, DB)
+        return DB
 
 _PROVIDERS_TO_WATCH = [
     {"name": "github_gpt41_mini", "url": "https://models.github.ai/inference/health", "headers": {}},
@@ -31,7 +52,7 @@ _thread = None
 
 def _write_scores(results: dict):
     try:
-        conn = sqlite3.connect(str(DB), timeout=5)
+        conn = sqlite3.connect(str(_chemin_db()), timeout=5)
         # Schéma géré par nokido_hub.py — ne pas recréer
         for name, r in results.items():
             # 21/10 : ces URL sont des CATALOGUES (/api/tags, /v1/models) -- une reponse prouve le TRANSPORT, jamais la

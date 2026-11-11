@@ -44,6 +44,12 @@ def _iter_hook_commands(settings):
             for h in entry.get("hooks") or []:
                 cmd = isinstance(h, dict) and h.get("command")
                 if cmd:
+                    # Format {command, args} (2026-11-04) : le script vit dans `args`. Ne lire que
+                    # `command` ne voyait que python.exe -> tous les gardes « CABLAGE ABSENT ».
+                    # Chaque argument est re-cite : un chemin avec espaces reste UN jeton.
+                    args = h.get("args") if isinstance(h.get("args"), list) else []
+                    if args:
+                        cmd = " ".join(['"%s"' % cmd] + ['"%s"' % a for a in args if isinstance(a, str)])
                     yield _event, entry.get("matcher", ""), cmd
 
 
@@ -334,6 +340,9 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true", help="sortie JSON (tests)")
     ap.add_argument("--capture", action="store_true",
                     help="fige le cablage courant dans docs/claude_hooks_expected.json")
+    ap.add_argument("--detail", action="store_true",
+                    help="tout le detail (ecarts, orphelins, recouvrements, dormants) ; par defaut UNE "
+                         "ligne au demarrage quand rien n'est mort ni illisible (owner 4/11 : contexte)")
     args = ap.parse_args(argv)
 
     rows = run_check(args.settings)
@@ -364,6 +373,11 @@ def main(argv=None):
         print("[hook-integrity] reference capturee : %d entrees -> %s"
               % (_capture(rows), _REFERENCE))
         return 0
+    # Owner 4/11 (« 16 % de contexte au demarrage ») : le detail est COLLECTE, puis imprime en entier
+    # seulement sur --detail, filet TROUE ou reference absente/illisible ; sinon UNE ligne de compteurs.
+    import io
+    _vrai_stdout, _detail = sys.stdout, io.StringIO()
+    sys.stdout = _detail
     inv = _inventaire_settings(args.settings)
     n_lus = sum(1 for _, e in inv if e == "lu")
     for chemin, etat in inv:
@@ -424,6 +438,16 @@ def main(argv=None):
         for d in dormants:
             suff = "" if d["compile"] == "ok" else " [%s]" % d["compile"]
             print("  DORMANT   %s%s" % (d["garde"], suff))
+    sys.stdout = _vrai_stdout
+    if args.detail or morts or illisibles or ref is None:
+        sys.stdout.write(_detail.getvalue())
+        return 0
+    ecarts = _ecarts_au_reference(rows, ref)
+    print("[hook-integrity] %d cablages OK (%d settings lus) ; reference : %d absent(s), %d derive(s) ; "
+          "%d orphelin(s), %d doublon(s), %d recouvrement(s), %d dormant(s) -- detail : tools/hook_integrity_check.py --detail"
+          % (len(rows), n_lus, sum(1 for e in ecarts if e[0] == "ABSENT"),
+             sum(1 for e in ecarts if e[0] == "DERIVE"), len(_settings_orphelins(args.settings)),
+             len(_doublons(rows)), len(_recouvrements(rows)), len(dormants)))
     return 0
 
 

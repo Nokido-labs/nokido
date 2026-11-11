@@ -175,7 +175,7 @@ def manifeste(target_sha, process_state, certification_state, test_plan_hash,
               failure_stage=None, proof_root=None, execution_id=None,
               dependency_lock_hash=None, dependency_match=None,
               contrat_illisible=(), extra=None, substrat=None,
-              proof_write_error=None) -> dict:
+              proof_write_error=None, observed_tree=None) -> dict:
     """Le manifeste, sans jugement : il DECLARE, `certifie()` decide.
 
     Il s'ecrit sur TOUS les chemins de sortie, y compris rouges : une preuve qui
@@ -190,6 +190,9 @@ def manifeste(target_sha, process_state, certification_state, test_plan_hash,
         # on ne sait pas quel arbre a tourne, et le taire serait pretendre le savoir.
         "target_sha": str(target_sha or "") or None,
         "observed_head": str(observed_head or "") or None,
+        # `HEAD^{tree}` : l'identite du CONTENU suivi. Un sha change avec le message, l'auteur, la date ; l'arbre
+        # non. Deux sha du meme arbre jugent les memes fichiers (verdict par arbre, owner 2026-11-10).
+        "observed_tree": str(observed_tree or "") or None,
         "process_state": process_state,
         "certification_state": certification_state,
         # OBSERVATION, pas synthese : ne transforme jamais un echec d'IDENTITE en
@@ -334,8 +337,10 @@ def reprenable(m, sha, attendu):
     ok, motif = certifie(m, exiger=("dependency_lock_hash",))
     if not ok:
         return False, motif
-    if not sha or (m.get("observed_head") or "") != sha:
-        return False, "sha observe %s != %s" % (str(m.get("observed_head"))[:12], str(sha)[:12])
+    if not meme_sujet(m, sha, attendu):
+        return False, "sha observe %s != %s et arbre %s != %s" % (
+            str(m.get("observed_head"))[:12], str(sha)[:12],
+            str(m.get("observed_tree"))[:12], str((attendu or {}).get("tree"))[:12])
     for cle, champ in (("plan", "test_plan_hash"), ("contrat", "ci_contract_hash"), ("lock", "dependency_lock_hash")):
         if not attendu.get(cle) or m.get(champ) != attendu[cle]:
             return False, "%s different (preuve %s, repreneur %s)" % (
@@ -348,6 +353,15 @@ def reprenable(m, sha, attendu):
         if not sub_m.get(k) or sub_m.get(k) != sub_a.get(k):
             return False, "substrat %s different (%r != %r) : pas la meme machine" % (k, sub_m.get(k), sub_a.get(k))
     return True, ""
+
+
+def meme_sujet(m, sha, attendu):
+    """La preuve juge-t-elle le MEME contenu ? Meme sha, ou meme `HEAD^{tree}` mesure des DEUX cotes. Un arbre
+    absent d'un cote ne vaut pas accord (UNKNOWN n'est pas OUI) : seul le sha decide alors."""
+    if sha and (m.get("observed_head") or "") == sha:
+        return True
+    arbre = (attendu or {}).get("tree")
+    return bool(arbre) and (m.get("observed_tree") or "") == arbre
 
 
 def chercher_reprise(sha, racines, attendu):
@@ -368,7 +382,7 @@ def chercher_reprise(sha, racines, attendu):
         if m is None:
             refus.append(motif)
             continue
-        if (m.get("observed_head") or "") != sha:
+        if not meme_sujet(m, sha, attendu):
             continue
         ok, pourquoi = reprenable(m, sha, attendu)
         if ok:

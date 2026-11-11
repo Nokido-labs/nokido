@@ -3,8 +3,7 @@ name: forge-capability
 description: >-
   À utiliser quand un agent (toute surface) se demande ce que Nokido sait faire, où
   vit un module, quel organe porte une capacité, quels outils MCP existent, ou doit
-  vérifier la doctrine avant d'agir. Donne la carte des capacités par organe (census),
-  les outils MCP clés, les règles d'or et où lire l'état vivant (SSoT, mémoire,
+  vérifier la doctrine avant d'agir. Census, règles d'or, état vivant (SSoT, mémoire,
   tableau noir, RAG).
 metadata:
   source: census organ_map_full.json + forge_ssot + RULES_SHARED (deterministe)
@@ -40,7 +39,7 @@ L'état courant : le census `sandbox/workspace/organ_map_full.json` (régénér�
 | Graph/Connaissances | 40 | forge_ast_index.py, forge_binary_graph.py, forge_callgraph_jit.py, forge_code_surgery.py, forge_coherence_checker.py, forge_coherence_gate.py |
 | Digestif/Sens (ingestion/web) | 35 | forge_anchor_swebench.py, forge_audit_swebench.py, forge_auto_ingest_daemon.py, forge_browser_tool.py, forge_bulk_import.py, forge_crawl_tool.py |
 | Observabilite/Trace | 33 | forge_anatomy_state.py, forge_audit.py, forge_audit_log.py, forge_audit_personas.py, forge_audit_reducer.py, forge_audit_worker.py |
-| Reseau/Distribue/Sync | 18 | forge_acp_adapter.py, forge_codeberg_sync.py, forge_cross_fs.py, forge_dataset_sync.py, forge_demo_netcfg_topology.py, forge_dt_router_wire.py |
+| Reseau/Distribue/Sync | 17 | forge_codeberg_sync.py, forge_cross_fs.py, forge_dataset_sync.py, forge_demo_netcfg_topology.py, forge_dt_router_wire.py |
 | Offensif/CTF | 10 | forge_autopwn_scaffold.py, forge_continual_backprop.py, forge_ctf_agent.py, forge_ctf_solver.py, forge_exploit_chain.py, forge_exploitdb_scraper.py |
 | SWE-bench | 3 | forge_pydantic_tools.py, forge_swe_ast_whole_func.py, forge_swe_multifile.py |
 

@@ -29,20 +29,44 @@ def test_le_texte_hors_worktree_est_fixe_avant_la_partie_variable():
     assert c.index(T._CONSIGNE_HORS_WORKTREE_AGY.strip()[:40]) < c.index(WD)
 
 
+def test_la_consigne_ne_fige_pas_un_nom_de_serveur():
+    """3/11 (E7 OAuth) : AGY joint le hub sous `nokido-oauth` ; une consigne qui cite `laforge-sovereign-hub` l'envoie
+    vers une entree a jeton qu'on retire."""
+    assert "laforge-sovereign-hub" not in T._CONSIGNE_HORS_WORKTREE_AGY
+    assert "hub Nokido" in T._CONSIGNE_HORS_WORKTREE_AGY
+
+
 def test_chemins_hors_bac_nommes():
     desc = (r"Lis C:\tmp\laforge_jobs\x.py puis %s\app\forge_ssot.py et %USERPROFILE%/.gemini/settings.json ; "
             r"source github:cheaper-inference/OmniRoute") % WD
     hors = T._chemins_hors_bac(desc, WD)
-    assert any("laforge_jobs" in h for h in hors) and any(".gemini" in h for h in hors)
+    assert any(".gemini" in h for h in hors)
     assert not any("forge_ssot" in h for h in hors)
 
 
 def test_worktree_a_espaces_n_est_pas_hors_bac():
     # 31/10 08:02 (job_f74513a2) : « C:\...\Script python IA\nokido_worktrees\... » coupe a l'espace -> faux positif
     wd = r"C:\Users\N\Script python IA\nokido_worktrees\taches\antigravity_f7"
-    desc = r"Lis %s\app\web_hub\index.html puis C:\Users\N\Script python IA\Nokido\tools\x.py" % wd
+    desc = r"Lis %s\app\web_hub\index.html puis C:\Users\N\Script python IA\Other\tools\x.py" % wd
     hors = T._chemins_hors_bac(desc, wd)
-    assert hors == [r"C:\Users\N\Script python IA\Nokido\tools\x.py"]
+    assert hors == [r"C:\Users\N\Script python IA\Other\tools\x.py"]
+
+
+def test_meme_ring_meme_visibilite_tmp_et_depot_principal_lisibles():
+    """8/11 owner « meme ring = meme visibilite » : un dossier de debat sous C:\\tmp etait illisible pour AGY
+    (job_34e4ef7e, rapport 85e7cb93e). Le profil agy lit desormais C:\\tmp et le depot principal (lecture seule) ;
+    l'executeur ne doit plus les signaler hors bac ni interdire leur lecture dans la consigne."""
+    desc = (r"Lis C:\tmp\debat_contexte_servi_20261108.md puis "
+            r"C:\Users\N\Script python IA\Nokido\tools\forge_task_executor.py")
+    assert T._chemins_hors_bac(desc, WD) == []
+    c = T._CONSIGNE_HORS_WORKTREE_AGY
+    assert "ne lis jamais C:\\tmp" not in c
+    assert "C:\\tmp" in c and "lecture seule" in c.lower()
+
+
+def test_fichier_env_du_depot_reste_hors_bac():
+    p = r"C:\Users\N\Script python IA\Nokido\Nokido.env"
+    assert T._chemins_hors_bac("Lis %s" % p, WD) == [p]
 
 
 def test_aucun_chemin_hors_bac():

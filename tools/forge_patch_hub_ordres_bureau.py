@@ -49,10 +49,10 @@ PATCH_REGISTRE = [
      '                                "demander_ordre",\n'
      '                                "quota_model",\n'),
     ("R2 aiguillage",
-     '            r = await confirmer_owner(str(args.get("message") or ""), str(args.get("detail") or ""))\n'
-     '            return _json.dumps(r, ensure_ascii=False)\n',
-     '            r = await confirmer_owner(str(args.get("message") or ""), str(args.get("detail") or ""))\n'
-     '            return _json.dumps(r, ensure_ascii=False)\n'
+     '            r = await _aio.to_thread(liberer_ram_pour_hub, args.get("needed_ram_gb", 4.5), _prouve_ram)\n'
+     '            return _json.dumps(r, ensure_ascii=False, default=str)\n',
+     '            r = await _aio.to_thread(liberer_ram_pour_hub, args.get("needed_ram_gb", 4.5), _prouve_ram)\n'
+     '            return _json.dumps(r, ensure_ascii=False, default=str)\n'
      '        if action in ("redemarrer_stack", "ordre_bureau", "demander_ordre"):\n'
      '            # Ordres confies a la session de l\'owner (app/forge_ordres_bureau.py, 2026-09-26) :\n'
      '            # redemarrer_stack questionne l\'owner par elicitation et ne depose l\'ordre que\n'

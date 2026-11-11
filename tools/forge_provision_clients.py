@@ -10,10 +10,11 @@ CE QUE ÇA FAIT :
   1. Pour chaque agent client : si FORGE_TOKEN_<AGENT> absent du vault -> mint
      (secrets.token_hex) + set_secret (DPAPI). Idempotent (garde l'existant).
   2. Lit les tokens du vault.
-  3. ÉMET les blocs de config client (avec les VRAIS tokens) -> C:/tmp/mcp_client_configs.txt.
+  3. ÉMET les blocs de config client (SANS jeton depuis le 3/11 : OAuth ou pont stdio au coffre).
      (N'écrase AUCUN client en cours : tu colles/revues toi-même.) Seulement sans mode
      ciblé (--apply, --patch-codex, --check), ou sur demande explicite (--emettre).
-  4. --apply : POSE les jetons en variables d'environnement UTILISATEUR (HKCU\\Environment).
+  4. --apply : FERME le 3/11 (owner : variables FORGE_TOKEN_* retirees de HKCU). Historique :
+     il POSAIT les jetons en variables d'environnement UTILISATEUR (HKCU\\Environment).
      C'est le geste qui manquait. Mesure 2026-08-03 : `~/.codex/config.toml` déclare
      `bearer_token_env_var = 'FORGE_TOKEN_CODEX'` et l'URL correcte, le jeton est au coffre
      et le hub l'accepte (HTTP 200) — mais la VARIABLE n'existait nulle part, donc codex
@@ -48,36 +49,33 @@ NEW = {"CLAUDE_DESKTOP", "VSCODE", "LMSTUDIO", "ANTIGRAVITY", "DSPY_ROUTER"}
 
 
 def _cfg_blocks(tok: dict) -> str:
-    def hdr(name):
-        return f'"Authorization": "Bearer {tok[name]}", "LaForge-Agent-Name": "{name}"'
+    """Blocs de config cliente SANS AUCUN JETON (owner 3/11).
+
+    Clients HTTP : serveur `nokido-oauth`, URL seule -- le client s'inscrit (DCR), l'owner consent
+    au tray, le jeton OAuth reste dans le stockage du client. Clients stdio : le pont lit le coffre
+    par LAFORGE_AGENT, rien dans `env`. `tok` n'est plus lu (signature gardee pour les appelants).
+    Avant : en-tete d'autorisation avec le vrai jeton de chaque agent, ecrit en clair dans C:/tmp.
+    """
+    oauth = {"type": "http", "url": URL}
     b = []
-    b.append("===== Claude Code  (~/.claude.json -> mcpServers) =====\n" + json.dumps(
-        {"laforge-sovereign-hub": {"type": "http", "url": URL,
-         "headers": {"Authorization": f"Bearer {tok['CLAUDE']}", "LaForge-Agent-Name": "CLAUDE"}}}, indent=2))
-    b.append("===== Gemini CLI  (~/.gemini/settings.json -> mcpServers) =====\n" + json.dumps(
-        {"laforge-sovereign-hub": {"url": URL,
-         "headers": {"Authorization": f"Bearer {tok['GEMINI']}", "LaForge-Agent-Name": "GEMINI"},
-         "timeout": 30000}}, indent=2))
+    b.append("===== Claude Code  (~/.claude.json -> mcpServers ; puis /mcp pour se connecter) =====\n"
+             + json.dumps({"nokido-oauth": oauth}, indent=2))
+    b.append("===== AGY / Gemini  (mcp_config.json -> mcpServers) =====\n"
+             + json.dumps({"mcpServers": {"nokido-oauth": {"httpUrl": URL}}}, indent=2))
     b.append("===== Codex  (~/.codex/config.toml) =====\n"
-             f'[mcp_servers.nokido]\nurl = "{URL}"\n'
-             f'http_headers = {{ "Authorization" = "Bearer {tok["CODEX"]}", "LaForge-Agent-Name" = "CODEX" }}\n'
-             "# (si ta version codex ne supporte pas http_headers inline : "
-             'bearer_token_env_var = "FORGE_TOKEN_CODEX" + exporter cette var pour le process codex)')
-    b.append("===== Cline/Roo  (cline_mcp_settings.json -> mcpServers) =====\n" + json.dumps(
-        {"laforge": {"type": "streamableHttp", "url": URL,
-         "headers": {"Authorization": f"Bearer {tok['CLINE']}", "LaForge-Agent-Name": "CLINE"}}}, indent=2))
-    b.append("===== VS Code  (.vscode/mcp.json) =====\n" + json.dumps(
-        {"servers": {"laforge": {"type": "http", "url": URL,
-         "headers": {"Authorization": f"Bearer {tok['VSCODE']}", "LaForge-Agent-Name": "VSCODE"}}}}, indent=2))
-    b.append("===== LM Studio  (mcp.json) =====\n" + json.dumps(
-        {"mcpServers": {"laforge": {"url": URL,
-         "headers": {"Authorization": f"Bearer {tok['LMSTUDIO']}", "LaForge-Agent-Name": "LMSTUDIO"}}}}, indent=2))
-    b.append("===== Claude Desktop  (claude_desktop_config.json -> mcpServers ; STDIO bridge) =====\n" + json.dumps(
-        {"laforge": {"command": PY, "args": [BRIDGE],
-         "env": {"FORGE_TOKEN_CLAUDE_DESKTOP": tok["CLAUDE_DESKTOP"], "LAFORGE_AGENT": "CLAUDE_DESKTOP", "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}}, indent=2))
-    b.append("===== Antigravity (agy)  (mcpServers) =====\n" + json.dumps(
-        {"mcpServers": {"laforge-sovereign-hub": {"type": "http", "url": URL,
-         "headers": {"Authorization": f"Bearer {tok['ANTIGRAVITY']}", "LaForge-Agent-Name": "ANTIGRAVITY"}}}}, indent=2))
+             f'[mcp_servers.nokido-oauth]\nurl = "{URL}"\n'
+             "# puis : codex mcp login nokido-oauth (consentement au tray)")
+    b.append("===== Cline  (cline_mcp_settings.json -> mcpServers) =====\n"
+             + json.dumps({"nokido-oauth": {"type": "streamableHttp", "url": URL}}, indent=2))
+    b.append("===== VS Code / Copilot  (User/mcp.json) =====\n"
+             + json.dumps({"servers": {"nokido-oauth": oauth}}, indent=2))
+    b.append("===== LM Studio  (mcp.json) =====\n"
+             + json.dumps({"mcpServers": {"nokido-oauth": {"url": URL}}}, indent=2))
+    b.append("===== OpenCode  (~/.config/opencode/opencode.json) =====\n"
+             + json.dumps({"mcp": {"nokido-oauth": {"type": "remote", "url": URL, "oauth": {}}}}, indent=2))
+    b.append("===== Claude Desktop / Roo / Vibe  (STDIO, le pont lit le coffre) =====\n" + json.dumps(
+        {"Nokido": {"command": PY, "args": ["-u", BRIDGE],
+         "env": {"LAFORGE_AGENT": "CLAUDE_DESKTOP", "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}}, indent=2))
     return "\n\n".join(b)
 
 
@@ -431,29 +429,22 @@ def main() -> int:
     print("\n".join(report))
     print(f"\nmissing après seed: {missing or 'aucun'}")
     if emettre:
-        print(f"configs (VRAIS tokens, en clair) -> {OUT}")
-        print("  ATTENTION : ce fichier porte les jetons de TOUS les agents en clair, hors"
-              " coffre. Le supprimer une fois les configs collees.")
+        print(f"configs (SANS jeton : OAuth ou pont stdio au coffre) -> {OUT}")
     elif not dry:
-        print("configs NON emises (mode cible) ; --emettre pour les ecrire en clair dans %s" % OUT)
+        print("configs NON emises (mode cible) ; --emettre pour les ecrire dans %s" % OUT)
     else:
         print("[dry-run] aucune config écrite")
+    # Owner 3/11 : codex est en OAuth (nokido-oauth, codex mcp login) et les FORGE_TOKEN_* ont quitte HKCU.
+    # --patch-codex ecrivait le jeton en clair dans config.toml, --apply le reposait dans l'environnement :
+    # les deux branches sont FERMEES (les fonctions restent, pour l'audit et leurs NR).
     if "--patch-codex" in sys.argv:
-        print("\n=== bascule de la config codex vers http_headers ===")
-        _j = tok.get("CODEX")
-        if not _j or _j == "<MISSING>":
-            print("  aucun jeton CODEX au coffre -> abandon")
-        else:
-            print("\n".join(_patch_codex(_j, dry)))
+        print("\n--patch-codex FERME (3/11) : codex passe par OAuth -> `codex mcp login nokido-oauth`")
     if "--check" in sys.argv:
         print("\n=== etat coffre / registre / session (aucune ecriture) ===")
         print("\n".join(_check_env(tok)))
     if "--apply" in sys.argv:
-        print("\n=== synchronisation de l'environnement utilisateur ===")
-        print("\n".join(_sync_env(tok, dry)))
-    else:
-        print("\n(--apply pour POSER les jetons en variables d'environnement — "
-              "requis par les clients qui lisent bearer_token_env_var, dont codex)")
+        print("\n--apply FERME (3/11) : plus aucun jeton en variable d'environnement ; "
+              "clients HTTP en OAuth, ponts stdio au coffre")
     print("\nSUITE: reload hub (stop/start desktop UAC) pour charger les nouveaux tokens.")
     return 0 if not missing else 1
 

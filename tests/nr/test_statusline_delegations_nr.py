@@ -44,5 +44,53 @@ def test_aucune_delegation_pas_de_segment(tmp_path):
     assert S._delegations(db) == ""
 
 
+def _base_causes(tmp_path, lignes):
+    db = tmp_path / "causes.db"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, from_agent TEXT, cause_echec TEXT, updated_at TEXT)")
+    c.executemany("INSERT INTO tasks VALUES (?,'CLAUDE',?,?)", lignes)
+    c.commit()
+    c.close()
+    return db
+
+
+def test_acquittement_masque_les_causes_traitees_pas_les_suivantes(tmp_path, monkeypatch):
+    """Owner 6/11 « Masquer si traite » : un echec acquitte s'efface sans attendre 2 h, une panne NOUVELLE s'affiche."""
+    now = datetime(2026, 11, 6, 19, 30)
+    db = _base_causes(tmp_path, [("a", "NON_LIVRE", (now - timedelta(minutes=60)).isoformat()),
+                                 ("b", "FAUX_VERT", (now - timedelta(minutes=5)).isoformat())])
+    marque = tmp_path / "acquit.txt"
+    monkeypatch.setattr(S, "_ACQUIT", marque, raising=False)
+    assert "NON_LIVRE" in S._causes_recentes(db, [], now)
+
+    marque.write_text((now - timedelta(minutes=30)).isoformat(), encoding="utf-8")
+    segment = S._causes_recentes(db, [], now)
+    assert "NON_LIVRE" not in segment and "FAUX_VERT" in segment
+
+
+def test_marque_illisible_laisse_les_causes_visibles(tmp_path, monkeypatch):
+    """UNKNOWN != NO : une marque illisible ne masque jamais un echec."""
+    now = datetime(2026, 11, 6, 19, 30)
+    db = _base_causes(tmp_path, [("a", "NON_LIVRE", (now - timedelta(minutes=5)).isoformat())])
+    marque = tmp_path / "acquit.txt"
+    marque.write_text("pas une date", encoding="utf-8")
+    monkeypatch.setattr(S, "_ACQUIT", marque, raising=False)
+    assert "NON_LIVRE" in S._causes_recentes(db, [], now)
+
+
+def test_drapeau_acquitter_ecrit_la_marque_sans_lire_stdin(tmp_path, monkeypatch, capsys):
+    marque = tmp_path / "acquit.txt"
+    monkeypatch.setattr(S, "_ACQUIT", marque, raising=False)
+    monkeypatch.setattr(sys, "argv", ["nokido_statusline.py", "--acquitter"])
+
+    class SansStdin:
+        def read(self):
+            raise AssertionError("--acquitter ne lit pas stdin")
+
+    monkeypatch.setattr(sys, "stdin", SansStdin())
+    assert S.main() == 0
+    datetime.fromisoformat(marque.read_text(encoding="utf-8").strip())
+
+
 def test_base_illisible_dit_inconnu(tmp_path):
     assert S._delegations(tmp_path / "absente.db") == "DÉL ?"

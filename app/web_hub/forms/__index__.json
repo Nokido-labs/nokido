@@ -1,4 +1,5 @@
 [
+ "acp",
  "agy_add_dir",
  "agy_config",
  "agy_run",
@@ -27,10 +28,12 @@
  "graph_cve_propagate",
  "graph_edge_score",
  "graph_ppr",
+ "github",
  "hub",
  "introspect",
  "loop_orchestrate",
  "manage_forge_lifecycle",
+ "memory",
  "netcfg",
  "nokido_ensure_service",
  "oracle_python_repl",

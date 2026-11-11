@@ -312,11 +312,11 @@ TOPICS_MIROIR = ["local-first", "mcp", "ai-agents", "rag", "multi-agent", "pytho
 # Surface REDUITE (owner 13/10 « securise un max ») : tout ce qu'un miroir n'utilise pas est ferme -- demandes
 # d'acces, registre de conteneurs, paquets, snippets, environnements, feature flags, infrastructure, monitor,
 # exigences. Releases et wiki restent ouverts (alignes sur GitHub). Mesure du 13/10 : tous ces acces etaient ouverts.
-# CI/CD (owner 13/10 « set up CI/CD ») : builds ACTIFS -- la pipeline part des que le depot public porte
-# .gitlab-ci.yml (verification seule, cf. ce fichier) ; variables surchargeables par les seuls mainteneurs, journaux
-# publics (aucun secret n'y passe). Auto DevOps reste ferme : il fabriquerait une pipeline que personne n'a ecrite.
+# CI/CD : builds DESACTIVES (owner 2/11) -- le job parcours-paquet doublonnait le run GitHub (meme acceptation ;
+# GitHub prouve le chiffrement sur VM) et restait rouge 13/13 faute de runner privilegie. GitLab = pur miroir, sans
+# .gitlab-ci.yml. Auto DevOps reste ferme : il fabriquerait une pipeline que personne n'a ecrite.
 FICHE_GITLAB = {"description": DESCRIPTION_MIROIR, "topics": TOPICS_MIROIR, "auto_devops_enabled": False,
-                "builds_access_level": "enabled", "public_jobs": True, "restrict_user_defined_variables": True,
+                "builds_access_level": "disabled", "public_jobs": True, "restrict_user_defined_variables": True,
                 "issues_access_level": "disabled",
                 "merge_requests_access_level": "disabled", "wiki_access_level": "enabled",
                 "request_access_enabled": False, "container_registry_access_level": "disabled",

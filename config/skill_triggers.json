@@ -4,7 +4,7 @@
     {
       "skill": "forge-systematic-debugging",
       "evenement": "PostToolUse",
-      "outils": ["mcp__laforge-sovereign-hub__run", "Bash", "PowerShell"],
+      "outils": ["mcp__laforge-sovereign-hub__run", "mcp__nokido-oauth__run", "Bash", "PowerShell"],
       "un_de": [
         "(?m)^=+ .*\\b\\d+ (failed|errors?)\\b.* in [0-9.]+s",
         "Traceback \\(most recent call last\\)",
@@ -15,7 +15,7 @@
     {
       "skill": "forge-workflow-autopsy",
       "evenement": "PostToolUse",
-      "outils": ["mcp__laforge-sovereign-hub__run"],
+      "outils": ["mcp__laforge-sovereign-hub__run", "mcp__nokido-oauth__run"],
       "un_de": ["\"status\": \"(failed|dead|killed|lost|orphan|zombie)\""],
       "pourquoi": "un job ou un daemon autonome est mort ou figé ; autopsier la chaîne producteur → consommateur avant de relancer"
     },
@@ -105,7 +105,7 @@
     {
       "skill": "forge-database-state",
       "evenement": "PostToolUse",
-      "outils": ["mcp__laforge-sovereign-hub__run", "mcp__laforge-sovereign-hub__memory", "Bash", "PowerShell"],
+      "outils": ["mcp__laforge-sovereign-hub__run", "mcp__laforge-sovereign-hub__memory", "mcp__nokido-oauth__run", "mcp__nokido-oauth__memory", "Bash", "PowerShell"],
       "un_de": [
         "database is locked",
         "OperationalError: no such (column|table)"

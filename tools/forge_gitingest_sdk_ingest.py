@@ -8,8 +8,14 @@ import glob
 import hashlib
 import re
 import sqlite3
+import sys
 import time
 from pathlib import Path
+
+# Amorce namespace (point d'entree) : lance par son chemin, `sys.path[0]` vaut tools/ ; le garde d'ingestion vit sous `nokido_agent`.
+_RACINE_AMORCE = str(Path(__file__).resolve().parent.parent)
+if _RACINE_AMORCE not in sys.path:
+    sys.path.insert(0, _RACINE_AMORCE)
 
 try:
     from tqdm import tqdm
@@ -196,6 +202,11 @@ def ingest_file(path: Path, conn: sqlite3.Connection, pendant=None,
             if not chunk:
                 continue
             source = filename or path.name
+            # Prefixe : ces sources sont des chemins nus (`docs/x.md`), un depot de tiers passerait pour une source de chez nous.
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion("gitingest:" + source, chunk):
+                skipped += 1
+                continue
             chunk_id = hashlib.sha256((source + chunk).encode()).hexdigest()[:16]
             # DEJA PRESENT -> rien a ecrire (2026-10-01). Le trigger `rag_chunks_fts_bi`
             # (BEFORE INSERT) retirait l'entree lexicale de l'id existant AVANT que

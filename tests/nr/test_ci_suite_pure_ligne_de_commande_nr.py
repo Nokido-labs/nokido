@@ -50,7 +50,9 @@ def test_le_gate_suite_pure_passe_la_liste_par_fichier():
     assert '"pytest", *_paralleles' not in src
     assert "_args_suite_pure(_paralleles, _liste_pur, _turbo)" in src
     # la variable qui porte la liste atteint bien le processus pytest de la suite pure
-    assert '"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", **_env_liste})' in src
+    # 10/11 : `**_impacte_env` (testmon) suit desormais `**_env_liste` dans le meme dict ; on exige la
+    # presence de la liste dans l'env du processus, pas la position de fin de l'appel.
+    assert '"PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1", **_env_liste' in src
 
 
 def test_hors_turbo_une_seule_racine_et_la_liste_en_variable(tmp_path):

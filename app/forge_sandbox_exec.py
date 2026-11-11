@@ -1065,7 +1065,7 @@ def fallback_same_session_allowed(sid_cible, sid_courant) -> bool:
         return False
 
 
-_WTS_ACTIVE, _WTS_CONNECTED = 0, 1
+_WTS_ACTIVE, _WTS_CONNECTED, _WTS_DISCONNECTED = 0, 1, 4
 
 
 def _compte_owner() -> str | None:
@@ -1097,7 +1097,9 @@ def _session_avec_jeton(ts) -> tuple:
         sessions = []
         import logging as _lg
         _lg.getLogger("Nokido.Sandbox").debug("enumeration des sessions ILLISIBLE (%s) -- console seule", type(e).__name__)
-    for etat in (_WTS_ACTIVE, _WTS_CONNECTED):
+    # 7/11 : console au nom VIDE, seule candidate -> plus aucun executeur interactif ne demarrait. Une session
+    # deconnectee garde son jeton ; le filtre sur le compte owner ci-dessous s'applique a elle comme aux autres.
+    for etat in (_WTS_ACTIVE, _WTS_CONNECTED, _WTS_DISCONNECTED):
         for s in sessions:
             sid = s.get("SessionId")
             if s.get("State") == etat and sid not in vus and sid != 0:

@@ -59,4 +59,5 @@ def test_opt_out_et_outil_hors_liste(tmp_path, monkeypatch):
 
 
 def test_le_dispatcher_passe_par_le_plafond():
-    assert "self._plafonner_sortie(result, name, agent)" in inspect.getsource(M)
+    # La signature s'est etendue (args=args, pour le fenetrage des relectures) : le dispatcher doit toujours y passer.
+    assert "self._plafonner_sortie(result, name, agent" in inspect.getsource(M)

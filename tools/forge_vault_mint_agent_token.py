@@ -68,14 +68,20 @@ def _ring_declare(agent: str):
 
 
 def _etat(cle: str) -> dict:
-    """Presence et empreinte, JAMAIS la valeur."""
+    """Presence, JAMAIS la valeur ni une empreinte."""
     from nokido_agent.app.forge_secrets import get_secret, invalidate_cache
     invalidate_cache(cle)
     v = get_secret(cle)
     if not v:
         return {"present": False}
-    return {"present": True, "longueur": len(v),
-            "empreinte_sha256_8": hashlib.sha256(v.encode()).hexdigest()[:8]}
+    return {"present": True, "longueur": len(v)}
+
+
+def _valeur(cle: str):
+    """Lecture interne (verification de rotation), jamais affichee."""
+    from nokido_agent.app.forge_secrets import get_secret, invalidate_cache
+    invalidate_cache(cle)
+    return get_secret(cle)
 
 
 def main(argv=None) -> int:
@@ -102,6 +108,7 @@ def main(argv=None) -> int:
     print("[mint] agent=%s ring_declare=%s cle=%s" % (agent, ring, cle))
 
     avant = _etat(cle)
+    _avant_v = _valeur(cle) if avant.get("present") else None
     print("[mint] avant : %s" % json.dumps(avant, ensure_ascii=False))
     if a.verify:
         return 0
@@ -118,14 +125,14 @@ def main(argv=None) -> int:
         return 1
 
     apres = _etat(cle)
+    _apres_v = _valeur(cle) if apres.get("present") else None
     print("[mint] apres : %s" % json.dumps(apres, ensure_ascii=False))
     if not apres.get("present"):
         print("[mint] ecriture rapportee OK mais relecture VIDE — ne pas conclure "
               "au succes.")
         return 1
-    if avant.get("present") and avant.get("empreinte_sha256_8") == apres.get(
-            "empreinte_sha256_8"):
-        print("[mint] l'empreinte n'a PAS change : la rotation n'a rien remplace.")
+    if _avant_v is not None and _avant_v == _apres_v:
+        print("[mint] la rotation n'a rien remplace.")
         return 1
     print("[mint] OK. Le hub charge ses jetons au BOOT (_load_agent_tokens) : "
           "un redemarrage est necessaire pour que cette identite soit reconnue.")

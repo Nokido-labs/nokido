@@ -118,6 +118,10 @@ def _keeper(monkeypatch, tmp_path, palier="CALME", n=0):
     monkeypatch.setattr(K, "_audit", lambda action, reason="", **kw: audits.append((action, reason, kw)))
     monkeypatch.setattr(K, "palier_courant", lambda: palier)
     monkeypatch.setattr(K, "intentions_docker_en_attente", lambda *a, **k: n)
+    # Isolation (10/11 soir) : _tick_release_at lit les intentions VIVANTES ; 8 veilles reelles en file retenaient
+    # Docker et rendaient deux tests rouges selon l'etat de la machine.
+    from nokido_agent.app import forge_resource_manager as _RM
+    monkeypatch.setattr(_RM, "get_active_intents", lambda *a, **k: [])
     return arrets, audits
 
 

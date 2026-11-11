@@ -138,12 +138,60 @@ def _armer_faulthandler(config) -> str | None:
         return None  # le dossier illisible n'empeche pas la suite : ci_local le dira (aucun fichier)
 
 
+# Enregistreur de vol (owner 5/11) : un worker mort dit QUEL test et, si c'est os._exit, QUELLE pile. Meme interrupteur que
+# faulthandler. Le controleur xdist n'en a pas : il recoit les tests de tous les workers et ne dirait rien d'un seul.
+_VOL_WORKER = None
+
+
+def _armer_vol_worker(config) -> None:
+    global _VOL_WORKER
+    dossier = os.environ.get("NOKIDO_FAULTHANDLER_DIR")
+    if not dossier:
+        return
+    entree = getattr(config, "workerinput", None)
+    if entree is None and config.getoption("numprocesses", None):
+        return
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("forge_vol_worker", Path(__file__).resolve().parents[1] / "tools" / "forge_vol_worker.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _VOL_WORKER = module.armer(dossier, (entree or {}).get("workerid", "principal"))
+    except (OSError, ImportError) as e:
+        print("[vol] enregistreur non arme (%s)" % type(e).__name__, file=sys.stderr)
+
+
+def pytest_runtest_logstart(nodeid, location):
+    if _VOL_WORKER is not None:
+        _VOL_WORKER.debut(nodeid)
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    if _VOL_WORKER is not None:
+        _VOL_WORKER.fin(nodeid)
+
+
 @pytest.hookimpl(trylast=True)
+def _armer_borne_socket():
+    """P5 veille CI (choix owner 10/11 soir) : borne native des sockets SOUS --timeout=30. Sous Windows,
+    pytest-timeout est en methode `thread` et ne peut pas interrompre un appel natif bloque : le worker xdist figeait
+    a 99 %. Une socket sans delai explicite leve desormais socket.timeout. NOKIDO_TEST_SOCKET_TIMEOUT=0 coupe."""
+    import socket as _socket
+    try:
+        borne = float(os.environ.get("NOKIDO_TEST_SOCKET_TIMEOUT", "20"))
+    except ValueError:
+        borne = 20.0
+    if borne > 0 and _socket.getdefaulttimeout() is None:
+        _socket.setdefaulttimeout(borne)
+
+
 def pytest_configure(config):
     global _LISTE_CI, _DOSSIERS_CI, _ORDRE_CI, _CHEMIN_CI
     # trylast : APRES le faulthandler natif de pytest, qui reecrirait sinon la cible vers le stderr du worker.
     _armer_faulthandler(config)
+    _armer_vol_worker(config)
     _armer_coffre_factice()
+    _armer_borne_socket()
     chemin = (os.environ.pop("NOKIDO_CI_LISTE", None)
               or (getattr(config, "workerinput", None) or {}).get(_CLE_XDIST))
     if not chemin:

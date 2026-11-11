@@ -70,6 +70,9 @@ def test_aucun_executeur_vivant_laisse_la_tache_ou_elle_est(monkeypatch, base):
 
 def test_jamais_de_ping_pong(monkeypatch, base):
     monkeypatch.setattr(T, "_executeur_bat", lambda agent, **k: True)
+    # 3/11 : la chaine par defaut s'est allongee (OpenCode) ; l'invariant teste ici (jamais revenir a un agent deja
+    # essaye) ne depend pas de sa composition -> chaine fixee par le test.
+    monkeypatch.setattr(T, "_ORDRE_REPLI", ("ANTIGRAVITY", "MISTRAL", "CODEX", "WORKER_CODE"))
     assert T._reaffecter({"id": "t1", "agent": "CODEX"}, "quota") == "ANTIGRAVITY"
     assert T._reaffecter({"id": "t1", "agent": "ANTIGRAVITY"}, "agy indisponible") == "MISTRAL"
     assert T._reaffecter({"id": "t1", "agent": "MISTRAL"}, "vibe indisponible") == "WORKER_CODE"

@@ -237,6 +237,37 @@ def canonical(nom: str) -> str:
     return _index_boites().get(n, n)
 
 
+_CLE_CACHE = {"mtime": None, "index": {}}
+
+
+def cle_registre(nom: str):
+    """Nom ou alias -> CLE de l'identite au registre (`CLAUDE_CLI`), None si inconnu.
+
+    Distinct de `canonical` (qui rend la BOITE de l'acteur) : le RBAC du hub doit juger une
+    SURFACE sur ses propres droits, jamais sur ceux de l'acteur qu'elle sert (10/11 : la surface
+    OAuth de Claude Code est alias de CLAUDE_CLI ; l'acteur CLAUDE porte vault_read, task_approve).
+    Registre illisible : None, et c'est dit (le garde reste alors fail-closed).
+    """
+    try:
+        m = _STORE.stat().st_mtime
+        if m != _CLE_CACHE["mtime"]:
+            reg = json.loads(_STORE.read_text(encoding="utf-8"))
+            idx = {}
+            for cle, e in (reg.get("agents") or {}).items():
+                idx[cle.upper()] = cle
+                for a in (e or {}).get("aliases") or []:
+                    idx[str(a).upper()] = cle
+            _CLE_CACHE.update({"mtime": m, "index": idx})
+    except Exception as e:  # noqa: BLE001
+        import logging as _lg
+
+        _lg.getLogger("forge.videur").warning(
+            "[videur] registre ILLISIBLE pour cle_registre (%s: %s) | consequence: aucun alias "
+            "resolu, le RBAC refuse les surfaces sans entite propre", type(e).__name__, str(e)[:90])
+        return None
+    return _CLE_CACHE["index"].get((nom or "").upper().strip())
+
+
 # LISTE BLANCHE des `via` qui PROUVENT le sujet. Jamais une liste noire : une
 # valeur inattendue — un `via` ajoute demain — tomberait du cote prouve par
 # simple absence de la liste de refus, et heriterait d'une confiance que

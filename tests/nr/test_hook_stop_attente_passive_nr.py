@@ -68,7 +68,10 @@ def _env_isole(tmp_path, monitors=None, rc=()):
         etat.write_text(json.dumps({"monitors": monitors}), encoding="utf-8")
     for jid in rc:
         (jobs / ("%s.rc" % jid)).write_text("0", encoding="utf-8")
-    return dict(os.environ, NOKIDO_GATE_ETAT=str(etat), NOKIDO_GATE_JOBS=str(jobs))
+    # job_watch_etat absent -> barriere inactive, sauf ce que le test eprouve
+    job_watch = tmp_path / "job_watch_etat.json"
+    return dict(os.environ, NOKIDO_GATE_ETAT=str(etat), NOKIDO_GATE_JOBS=str(jobs),
+                NOKIDO_JOB_WATCH_ETAT=str(job_watch))
 
 
 def test_point_d_entree_reel_bloque_et_journalise(tmp_path, monkeypatch):

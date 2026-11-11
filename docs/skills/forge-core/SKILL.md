@@ -1700,7 +1700,6 @@ description: >
 ### Modules Python modifiés
 - `app/forge_cowork.py`
 - `app/forge_grounder.py`
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit 9bce7744 — 2026-06-09 16:51
@@ -1728,7 +1727,6 @@ description: >
 **feat(cowork): P4a exposition ACP — un hote (Zed/terminal) pilote le collegue cowork**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit 7d05cd8a — 2026-06-09 15:54
@@ -3231,7 +3229,6 @@ description: >
 **feat(acp phase2): per-session provider+rag_context, progressive chunked streaming, authenticate, richer capabilities**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit 209495b1 — 2026-06-03 15:55
@@ -3245,28 +3242,24 @@ description: >
 **polish(acp): unwrap ask JSON -> stream clean .text to ACP host**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit f4c50d0f — 2026-06-03 15:44
 **fix(acp): Bearer auth + vault token fallback for hub route (was 401)**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit 37067d28 — 2026-06-03 15:42
 **test(acp): add --selftest mode (in-process ACP flow + real Nokido route)**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit c946c922 — 2026-06-03 15:40
 **feat(acp): PoC ACP agent adapter — Nokido as sovereign agent backend for ACP hosts**
 
 ### Modules Python modifiés
-- `tools/forge_acp_adapter.py`
 
 
 ## Commit f71db815 — 2026-06-03 14:56

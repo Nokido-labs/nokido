@@ -193,6 +193,9 @@ def fetch_and_ingest(url: str, extra_role: str = "") -> dict:
         hpath = c.get("header_path", "")
         head = f"{title} — {hpath}" if hpath else title
         full = f"{head}\n\n{c['text']}"
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(url, full):
+            continue
         conn.execute(
             "INSERT OR REPLACE INTO rag_chunks "
             "(id,text,source,domain,role_hint,author,ingested_at) VALUES (?,?,?,?,?,?,?)",

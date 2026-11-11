@@ -134,6 +134,11 @@ def test_echec_transport_pas_de_repli_aplati(monkeypatch, serveur):
 
 def test_cli_pointeur_traverse_chemin_reel(monkeypatch, serveur, tmp_path):
     import forge_cli_swarm as sw
+    import forge_acp_client
+
+    # Neutraliser tout demarrage de client ACP reel et appel de voie externe
+    monkeypatch.setattr(forge_acp_client.ACPClient, "start", lambda self: None)
+    monkeypatch.setattr(sw, "_appeler_voie", lambda voie, prompt, timeout=None: {"text": "", "error": "mock"})
 
     _installer(monkeypatch, serveur)
     sonde = tmp_path / "sonde.json"
@@ -144,10 +149,13 @@ def test_cli_pointeur_traverse_chemin_reel(monkeypatch, serveur, tmp_path):
     monkeypatch.setattr(sw, "SONDE", str(sonde))
     monkeypatch.setattr(sw, "SORTIE_DIR", tmp_path)
     monkeypatch.setattr(sw, "_outils_lecture", lambda *a, **k: {"lire_x": _agent().tools[0]})
-    assert sw.main(["--pointeur", str(cons), "--ptr", "x", "--membres", "groq_fast:openai/gpt-oss-20b"]) == 0
-    res = json.loads(next(tmp_path.glob("cli_swarm_ptr_*.json")).read_text(encoding="utf-8"))
-    a = res["answers"][0]
-    assert a["ok"] is True and a["outils_appeles"] == ["lire_x"] and a["tours"] >= 2
+    try:
+        assert sw.main(["--pointeur", str(cons), "--ptr", "x", "--membres", "groq_fast:openai/gpt-oss-20b"]) == 0
+        res = json.loads(next(tmp_path.glob("cli_swarm_ptr_*.json")).read_text(encoding="utf-8"))
+        a = res["answers"][0]
+        assert a["ok"] is True and a["outils_appeles"] == ["lire_x"] and a["tours"] >= 2
+    finally:
+        pass
 
 
 def test_cli_pointeur_echec_transport_motif(monkeypatch, serveur):

@@ -21,6 +21,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Amorce namespace (point d'entree) : lance par son chemin, `sys.path[0]` vaut tools/ ; le garde d'ingestion vit sous `nokido_agent`.
+_RACINE_AMORCE = str(Path(__file__).resolve().parent.parent)
+if _RACINE_AMORCE not in sys.path:
+    sys.path.insert(0, _RACINE_AMORCE)
+
 ROOT = Path(__file__).resolve().parent.parent
 DB = ROOT / "RAG" / "embeddings.db"
 
@@ -78,6 +83,8 @@ def ingest_file(path: Path, domain: str = "general", source_override: str | None
     cols = {r[1] for r in conn.execute("PRAGMA table_info(rag_chunks)").fetchall()}
     now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     n_written = 0
+    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+    chunks = [c for c in chunks if admis_a_l_ingestion(source, c)]  # avant les deux boucles : rag_chunks et FTS
     for chunk in chunks:
         cid = _chunk_id(source, chunk)
         payload = {

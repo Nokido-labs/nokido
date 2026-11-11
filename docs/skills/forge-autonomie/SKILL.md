@@ -1,6 +1,6 @@
 ---
 name: forge-autonomie
-description: "Posture d'action de tout agent de Nokido, sur toute surface : agir sans attendre dès qu'une action n'est pas critique, se réparer avant d'avouer un échec, passer par le hub. À utiliser dès qu'on hésite à demander, qu'on est tenté d'attendre, ou qu'une action touche un état partagé. Donne le test des 4 portes et la table de décision."
+description: "Posture d'action de tout agent de Nokido, sur toute surface : agir sans attendre dès qu'une action n'est pas critique, se réparer avant d'avouer un échec, passer par le hub. À utiliser dès qu'on hésite à demander, qu'on est tenté d'attendre, ou qu'une action touche un état partagé."
 ---
 
 # forge-autonomie — agir par défaut, demander seulement au franchissement d'une porte

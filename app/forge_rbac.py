@@ -198,6 +198,55 @@ class RBACMiddleware:
         self._cache[entity_id] = p
         return p
 
+    def octroyer(self, entity_id: str, capabilities: list, *, actor: str = "system",
+                 motif: str = "", ecrire: bool = False) -> dict:
+        """AJOUTE des capacites a une entite EXISTANTE -- jamais n'en retire. DRY-RUN par defaut.
+
+        Voie d'octroi (10/11) : `forge_rbac_mapping` sait creer une entite (compte OS derive,
+        audit) mais aucun chemin ne posait de capacite. La CREATION reste a `create_mapping` :
+        une entite inconnue est refusee ici, pas de second chemin de naissance. Une capacite hors
+        `CAPABILITY_REGISTRY` est refusee. L'octroi ecrit au meme journal `rbac_mapping_audit`.
+        """
+        demandees = sorted({str(c) for c in (capabilities or []) if c})
+        inconnues = [c for c in demandees if c not in CAPABILITY_REGISTRY]
+        out = {"entity_id": entity_id, "demandees": demandees, "inconnues": inconnues,
+               "ecrit": False, "motif": motif}
+        if inconnues or not demandees or not entity_id:
+            out["refus"] = "capacite inconnue" if inconnues else "demande vide"
+            return out
+        conn = self._conn()
+        try:
+            row = conn.execute("SELECT capabilities FROM forge_entities WHERE entity_id=?",
+                               (entity_id,)).fetchone()
+            if row is None:
+                out["refus"] = ("entite inconnue : la creer d'abord par "
+                                "forge_rbac_mapping.create_mapping (compte OS + audit)")
+                return out
+            avant = json.loads(row[0] or "[]")
+            apres = sorted(set(avant) | set(demandees))
+            out.update({"avant": avant, "apres": apres})
+            if not ecrire or apres == sorted(avant):
+                return out
+            conn.execute("UPDATE forge_entities SET capabilities=? WHERE entity_id=?",
+                         (json.dumps(apres), entity_id))
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "rbac_mapping_audit" in tables:
+                conn.execute(
+                    "INSERT INTO rbac_mapping_audit(ts,entity_id,actor,old_value,new_value,reason) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (datetime.datetime.utcnow().timestamp(), entity_id, actor,
+                     json.dumps({"capabilities": avant}), json.dumps({"capabilities": apres}),
+                     ("octroi: " + (motif or ""))[:300]))
+            else:
+                out["audit"] = "ILLISIBLE : table rbac_mapping_audit absente"
+            conn.commit()
+            out["ecrit"] = True
+        finally:
+            conn.close()
+        self._cache.pop(entity_id, None)
+        logger.warning("RBAC OCTROI %s +%s (motif: %s)", entity_id, demandees, motif)
+        return out
+
     def check(self, entity_id: str, capability: str, token: str = "") -> bool:
         # ORDRE STRICT — jamais inverse
         # 1. Break-glass

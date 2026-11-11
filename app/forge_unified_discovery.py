@@ -297,6 +297,9 @@ def _anchor_chunks(chunks: List[Dict], collection: str = "disco") -> int:
         for chunk in chunks:
             if chunk["source"] in existing:
                 continue  # Déduplique
+            from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+            if not admis_a_l_ingestion(chunk["source"], chunk["text"]):
+                continue
 
             meta = json.dumps(
                 {

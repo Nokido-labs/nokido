@@ -68,8 +68,15 @@ Méthode A — direct Python (recommandé, contourne bug 500 sur /api/watch/jobs
 
 ```python
 import os, sys
-sys.path.insert(0, os.path.expanduser(r"~\Script python IA\Nokido\app"))
+# RACINE du depot ET app/ : forge_watch_agent importe `nokido_agent.app.*` -- avec app/ seul, le job meurt en
+# « No module named 'nokido_agent' » (paye le 2/11 : 4 veilles jamais creees, rc=1 non verifie).
+# Chemin ABSOLU, jamais `~` : sous run_job, `~` = profil du compte bac a sable -> « No module named
+# 'forge_watch_agent' » (paye le 10/11, job_074f5a4cb65c rc=1).
+_R = r"%NOKIDO_ROOT%"
+sys.path[:0] = [_R, os.path.join(_R, "app")]
 from forge_watch_agent import create_job
+# URL CONNUES (owner 2/11, 724498394) : create_job(theme, urls=[...]) -> chaine courte crawl4ai -> ingest -> store,
+# par le MEME workflow officiel (http(s) seulement). Jamais un script maison pour « gagner du temps ».
 
 chain_id = create_job(
     theme="Spin Fermyon WebAssembly framework SpinKube WASI components 2026",
@@ -149,7 +156,8 @@ Ou stream SSE temps réel : `GET /api/watch/stream` (Hub :8766).
 | `completed` | rétention non nulle, toutes les étapes terminées |
 | `completed_partial` | une étape cassée, mais du résultat a survécu |
 | `completed_dedup` | rien de neuf : la base possédait déjà (pas un échec) |
-| `completed_empty` | rien retenu, aucune étape cassée (vide assumé) |
+| `completed_empty` | rien retenu, aucune étape cassée, recherche web PROUVÉE (vide assumé) |
+| `bloque_par_dependance` | recherche web n'a pas eu lieu (SearXNG muet, moteurs bloqués) et rien retenu — relancer après `nokido_ensure_service searxng` (583d1c08a, 10/11) |
 | `failed` | une étape obligatoire cassée ET rien retenu |
 | `en_cours` | une étape sans statut terminal : pas encore de verdict |
 | `indetermine` | étapes illisibles : ni succès ni échec, ne rien conclure |

@@ -81,6 +81,7 @@ REACT_MODEL = "qwen3:8b"
 
 
 def _ollama_chat(messages, tools):
+    # Règle d'or en observation : avant l'envoi, valider le payload
     payload = {
         "model": REACT_MODEL,
         "messages": messages,
@@ -88,6 +89,14 @@ def _ollama_chat(messages, tools):
     }
     if tools:
         payload["tools"] = tools
+    
+    # Validation en mode OBSERVATION (ne bloque jamais, seulement log)
+    try:
+        from nokido_agent.app.core.payload_validator import validate_payload_observateur
+        validate_payload_observateur(payload, "forge_orchestrate_react", tools)
+    except Exception:  # noqa: BLE001 - muet-ok : l'observation ne doit JAMAIS bloquer l'envoi
+        pass
+    
     r = requests.post(OLLAMA_CHAT, json=payload, timeout=120)
     r.raise_for_status()
     choice = r.json()["choices"][0]["message"]

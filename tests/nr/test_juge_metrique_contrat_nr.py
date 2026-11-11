@@ -1,6 +1,6 @@
-"""NR 18/10 -- juge POLY-METRIQUE, pas 1 (chantier 1 de bb P1_preparation_takehome_anthropic_20261018).
+"""NR 18/10 -- juge POLY-METRIQUE, pas 1 (chantier 1).
 
-Carto AGY (job_53f21306) : juger_gain ne connait que tests_* et duree_s (marge 10 %). Sur le takehome
+Carto AGY (job_53f21306) : juger_gain ne connait que tests_* et duree_s (marge 10 %). Sur un banc de cycles
 (cycles simules a MINIMISER), un candidat 18 532 -> 1 487 cycles a duree pytest egale sortait NEUTRE -- et
 juger_module_avec_gain le DEFAISAIT. Contrat : baseline et candidat portent `metrique` = {nom, valeur, bruit,
 sens MIN|MAX} ; elle REMPLACE duree_s comme dimension de performance ; la CORRECTION reste eliminatoire

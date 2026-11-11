@@ -56,7 +56,9 @@ def _tray(monkeypatch, reponse_hub, oui):
     g = {"_state": {"hub_up": True}, "_mcp": lambda *a, **k: reponse_hub,
          "lancer_panneau": lambda action, **k: lances.append(action), "_notify": lambda *a, **k: None,
          "_valider_par_fenetre": lambda ordre: vues.append(ordre["id"]) or oui,
-         "ACTIONS_PANNEAU": ("start", "stop", "restart", "restart-hub", "status")}
+         "ACTIONS_PANNEAU": ("start", "stop", "restart", "restart-hub", "status"),
+         # 3/11 : nouvelle dependance de _prendre_ordre (decisions OAuth, test_tray_consentement_oauth_nr)
+         "DECISIONS_TRAY": ("oauth-consentement",)}
     _fonction_du_tray("_prendre_ordre", g)()
     return lances, vues
 

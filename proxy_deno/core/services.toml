@@ -221,7 +221,12 @@ heartbeat_tier = "normal"
 # registre) ; sans preuve LIEE -> 401. Mesure qui l'autorise : 17:02:29, les deux appels
 # /admin/run_job du superviseur, emis depuis SON compte, sont LIEE (preuve valide) ; le GC
 # NREM3 porte la preuve depuis le meme commit. Rollback = retirer la cle + relance du hub.
-env = { PYTHONIOENCODING = "utf-8", SANDBOX_EXEC = "1", PYTHONUTF8 = "1", LAFORGE_VEC_SIDECAR_PORT = "8098", LAFORGE_PROXY_MEMORY = "1", LAFORGE_PROXY_MEMORY_WRITE = "1", LAFORGE_M2M_ENVELOPE = "1", LAFORGE_EVICT_DYNAMIC = "conditioned", LAFORGE_SAMPLER_AUTOSTART = "1", LAFORGE_SWITCHES_DB_PATH = "${ROOT}/sandbox/access_switches.db", LAFORGE_MASTER_BORNE = "1", LAFORGE_ADMIN_TPM_ENFORCE = "1" }
+# NOKIDO_OAUTH_CLIENTS = "1" (2026-11-03, DECISION OWNER « allumer maintenant ») : les clients MCP s'authentifient
+# par OAuth emis par Nokido (plan docs/PLAN_OAUTH_MCP_HUB_20261102.md, E1-E5) : decouverte RFC 9728/8414, inscription
+# RFC 7591, PKCE S256, consentement OWNER au tray pour chaque client (ring 3), jetons JWS ES256 signes par la cle TPM
+# MACHINE de HUB, defi 401. Les jetons d'agent existants restent valides (rien ne change pour eux).
+# Rollback = retirer la cle + relance du hub (la decouverte redevient « Bearer only »).
+env = { PYTHONIOENCODING = "utf-8", SANDBOX_EXEC = "1", PYTHONUTF8 = "1", LAFORGE_VEC_SIDECAR_PORT = "8098", LAFORGE_PROXY_MEMORY = "1", LAFORGE_PROXY_MEMORY_WRITE = "1", LAFORGE_M2M_ENVELOPE = "1", LAFORGE_EVICT_DYNAMIC = "conditioned", LAFORGE_SAMPLER_AUTOSTART = "1", LAFORGE_SWITCHES_DB_PATH = "${ROOT}/sandbox/access_switches.db", LAFORGE_MASTER_BORNE = "1", LAFORGE_ADMIN_TPM_ENFORCE = "1", NOKIDO_OAUTH_CLIENTS = "1" }
 # PYTHONTRACEMALLOC 25 -> 1 (mesure 2026-08-20). 25 frames de pile conservees
 # par ALLOCATION VIVANTE : mesure comparee, meme interpreteur, memes imports —
 # 124,4 Mo sans / 394,5 Mo avec, soit x3,17 (+270 Mo) pour 63 Mo reellement
@@ -496,8 +501,11 @@ cmd = "${PYTHON}"
 args = ["tools/forge_qdrant_server.py"]
 cwd = "${ROOT}"
 essential = false
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_QDRANT_BIN = "${QDRANT_BIN}" }
+# 6/11 : 6,25 Go de working set dont 0,18 Go prives, precharges au demarrage (mmap prefetch). no_populate : doc
+# qdrant_docs ops-configuration/administration, ne change rien de persistant ; premieres requetes plus lentes.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_QDRANT_BIN = "${QDRANT_BIN}", QDRANT__STORAGE__LOW_MEMORY_MODE = "no_populate" }
 port = 6333
+health_path = "/healthz"  # 2026-11-05 : muet depuis 08:56, le superviseur disait `running` sans pid ni sonde
 capabilities = ["dense_search"]
 
 [[service]]
@@ -669,7 +677,7 @@ name = "NokidoCoagulation"
 logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 wave = 4
 cmd = "${PYTHON}"
-args = ["tools/forge_coagulation.py", "--watch", "300"]
+args = ["tools/forge_coagulation.py", "--watch", "300", "--armer-integrite"]
 cwd = "${ROOT}"
 deps = [8766]
 essential = false
@@ -930,6 +938,22 @@ env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
 heartbeat = "sandbox/ingestion_pipeline.heartbeat"
 
 [[service]]
+# DEPOT SURVEILLE data/rag_files (choix owner 2/11 : service supervise dedie). Avant, PERSONNE ne le surveillait : le
+# watcher ne demarrait que sur l'outil hub « auto_ingest start », et sans moteur RAG il abandonnait les fichiers en
+# silence. Ingestion canonique hors TUI, repli OCR, gardes anti-injection, anneau EXTERNE sauf depot owner.
+# ACTIVE sur accord owner du 2/11 (« activer + corriger la reprise »). NR : tests/nr/test_service_depot_surveille_nr.py
+name = "NokidoHotFolder"
+disabled = false
+wave = 4
+cmd = "${PYTHON}"
+args = ["app/forge_auto_ingest_daemon.py"]
+cwd = "${ROOT}"
+deps = [8766]
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/hot_folder.heartbeat"
+
+[[service]]
 # SOIF DE CONNAISSANCE : lit query_log, mesure la couverture (rerank double-seuil +
 # abstention), emet un ressenti sur gap CERTAIN et propose au blackboard. Veille
 # effective desarmee par defaut (LAFORGE_EPISTEMIC_AUTO_VEILLE=1 pour armer).
@@ -1040,6 +1064,11 @@ cwd = "${ROOT}"
 deps = [8766]
 port = 8443
 essential = false
+# neverSleep (2026-11-07) : PORTE D'ENTREE (OAuth publique du connecteur claude.ai), meme motif que NokidoWebHub et
+# :7777. Mesure 6-7/11 : 23 demarrages le 6/11, endormie par l'executif Hamilton dans des rafales de 33 services
+# (sandbox/lifecycle_actions.jsonl, hamilton_arme) pour un gain de quelques dizaines de Mo -- chaque sommeil = 502
+# cote client. Hamilton lit ce champ a chaque tick (classe_hamilton -> VITAL) ; le superviseur au rechargement.
+neverSleep = true
 env = { PYTHONIOENCODING = "utf-8" }
 
 [[service]]
@@ -1736,6 +1765,25 @@ heartbeat = "sandbox/task_executor_worker_code.heartbeat"
 heartbeat_tier = "slow"
 
 [[service]]
+# Relais AGY (ex-gemini CLI) en SESSION OWNER, owner 4/11 : hors de cette session agy n'est ni lancable (jobs :
+# WinError 5) ni authentifiable (hub : « authentication failed »). Ecoute 127.0.0.1:8770 (/v1/ask), deja tente en
+# premier par GeminiCLI. A LA DEMANDE : `tools/forge_supervisor_ctl.py ensure NokidoAgyRelay` avant une serie ;
+# s'arrete SEUL apres 15 min sans demande (on rend ce qu'on reveille). tools/forge_agy_relay.py.
+name = "NokidoAgyRelay"
+logboot = true
+disabled = true
+wave = 5
+cmd = "${PYTHON}"
+args = ["tools/forge_agy_relay.py"]
+cwd = "${ROOT}"
+runAs = "interactive"
+deps = []
+essential = false
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+heartbeat = "sandbox/agy_relay.heartbeat"
+heartbeat_tier = "slow"
+
+[[service]]
 name = "NokidoTaskExecutorAntigravity"
 logboot = true  # journal sans pipe (2026-10-01, extension apres pilotes)
 disabled = false
@@ -1753,7 +1801,9 @@ runAs = "interactive"
 deps = [8766]
 essential = false
 # Jeton court injecte + projete par le lanceur (2026-09-28) : meme identite TASK_EXECUTOR.
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR" }
+# Owner 7/11 : profil agy distinct de l'interactif, et 1 session a la fois : des agy paralleles sur un meme profil
+# rejouent le meme jeton de renouvellement, et le hub revoque la famille (11:33 le 6/11, 00:11 le 7/11).
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", PYTHONDONTWRITEBYTECODE = "1", NOKIDO_IDENTITE = "TASK_EXECUTOR", LAFORGE_AGY_HOME = "%USERPROFILE%\\agy_exec", LAFORGE_TASK_PARALLEL = "1" }
 heartbeat = "sandbox/task_executor_antigravity.heartbeat"
 heartbeat_tier = "slow"
 
@@ -1846,7 +1896,7 @@ heartbeat_tier = "slow"
 [[service]]
 name = "NokidoTaskExecutorOpencodeDefaut2"
 logboot = true
-disabled = false
+disabled = false  # owner 8/11 : rallume, modele distinct depuis le 7/11 (opencode/deepseek-v4.1-flash-free) ; 6/11 coupe comme doublon mistral/codestral
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT2"]
@@ -1861,7 +1911,7 @@ heartbeat_tier = "slow"
 [[service]]
 name = "NokidoTaskExecutorOpencodeDefaut3"
 logboot = true
-disabled = false
+disabled = false  # owner 8/11 : rallume, modele distinct depuis le 7/11 (opencode/glm-5.3-flash-free) ; 6/11 coupe comme doublon mistral/codestral
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT3"]
@@ -1876,7 +1926,7 @@ heartbeat_tier = "slow"
 [[service]]
 name = "NokidoTaskExecutorOpencodeDefaut4"
 logboot = true
-disabled = false
+disabled = true  # owner 6/11 : une voie par modele gratuit ; doublon mistral/codestral de GPTOSS, reversible
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT4"]
@@ -1891,7 +1941,7 @@ heartbeat_tier = "slow"
 [[service]]
 name = "NokidoTaskExecutorOpencodeDefaut5"
 logboot = true
-disabled = false
+disabled = true  # owner 6/11 : une voie par modele gratuit ; doublon mistral/codestral de GPTOSS, reversible
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_DEFAUT5"]
@@ -1906,7 +1956,7 @@ heartbeat_tier = "slow"
 [[service]]
 name = "NokidoTaskExecutorOpencodeNemotron"
 logboot = true
-disabled = false
+disabled = true  # owner 6/11 : une voie par modele gratuit ; doublon mistral/codestral de GPTOSS, reversible
 wave = 5
 cmd = "${PYTHON}"
 args = ["${NOKIDO_DEPOT}/tools/forge_task_executor.py", "--agent", "OPENCODE_NEMOTRON"]
@@ -2068,7 +2118,8 @@ args = ["tools/forge_trace_sidecar.py"]
 cwd = "${ROOT}"
 deps = [8766]
 essential = false
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+# 3/11 (bilan a 100) : les barres tqdm « Batches » de l'encodeur remplissaient le journal de lignes sans date.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", TQDM_DISABLE = "1" }
 
 [[service]]
 # Collecteur traces riches 1024d (cognition unification c-phase3) : tick 30s,
@@ -2116,7 +2167,9 @@ args = ["tools/forge_log_retention.py", "--daemon"]
 cwd = "${ROOT}"
 deps = [8766]
 essential = false
-env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8" }
+# Decisions owner 2026-11-05 : rotation de C:/tmp/laforge_jobs (essai a blanc job_9f21fa6d38f8), coupe des vieux
+# journaux de sandbox/jobs, fin de 64 Ko gardee (essai a blanc job_bcc69bacff6f). Retirer une variable = retour a blanc.
+env = { PYTHONNOUSERSITE = "1", PYTHONIOENCODING = "utf-8", LAFORGE_JOBS_PURGE = "applique", LAFORGE_JOBS_REGISTRE_PURGE = "applique" }
 heartbeat = "sandbox/log_retention.heartbeat"
 # cycle_s PROUVE : INTERVAL_S = 86400 dans tools/forge_log_retention.py.
 cycle_s = 86400

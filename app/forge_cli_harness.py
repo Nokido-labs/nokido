@@ -288,7 +288,8 @@ def agent_bin(name):
 # -> cle du coffre. L'executeur recoit aussi NOTRE cle Mistral (forme b, owner 16/10 : Codestral mesure 125 req/min),
 # sous un nom DEDIE pour ne pas ecraser la cle propre de Vibe.
 _SECRETS_PAR_AGENT = {
-    "vibe": {"FORGE_TOKEN_VIBE_HEADLESS": "FORGE_TOKEN_VIBE_HEADLESS", "NOKIDO_MISTRAL_API_KEY": "MISTRAL_API_KEY"},
+    # 9/11 (owner) : cle de PORTEE Vibe (« Nokido ») ; la cle Studio (MISTRAL_API_KEY) renvoie 402 pour Vibe.
+    "vibe": {"FORGE_TOKEN_VIBE_HEADLESS": "FORGE_TOKEN_VIBE_HEADLESS", "NOKIDO_MISTRAL_API_KEY": "MISTRAL_VIBE_API_KEY"},
     "vibe_cli": {"FORGE_TOKEN_VIBE_CLI": "FORGE_TOKEN_VIBE_CLI"},
     # `claude_api` = `claude -p` headless, facture sur les CREDITS API de l'owner (owner 22/10). `claude` (pilotage
     # interactif, connexion Max) n'est PAS dans cette table : il ne recoit jamais de cle API.

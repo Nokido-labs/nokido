@@ -650,14 +650,38 @@ def perimetre_mesure_detail(rel: str, racine=None, max_tests: int = 8) -> dict:
             vus.add(c)
             convention.append(c)
 
+    # 3/11 (debat 1 tour 2, NR 3) : le NR de l'INVARIANT physiologique declare par le module (__FORGE_HOMOLOGUE__)
+    # entre d'office, EN TETE : une mutation qui casse l'homologue doit etre vue avant tout le reste.
+    par_homologue = []
+    nr = _nr_homologue(r, rel)
+    if nr and (r / nr).is_file() and nr != str(rel).replace("\\", "/"):
+        par_homologue = [nr]
+        convention = [c for c in convention if c != nr]
+        vus.add(nr)
+
     par_import = [t for t in _importateurs(r).get(stem, []) if t not in vus]
     for t in par_import:
         vus.add(t)
 
-    ordonne = convention + par_import  # la convention passe DEVANT
+    ordonne = par_homologue + convention + par_import  # l'homologue, puis la convention, DEVANT
     borne = max(0, int(max_tests))
-    return {"retenus": ordonne[:borne], "ecartes": ordonne[borne:],
+    return {"retenus": ordonne[:borne], "ecartes": ordonne[borne:], "par_homologue": par_homologue,
             "par_convention": convention, "par_import": par_import, "borne": borne}
+
+
+def _nr_homologue(racine, rel) -> "str | None":
+    """Chemin du NR declare par `__FORGE_HOMOLOGUE__` dans la tete du module (lecteur du census, jamais execute) ;
+    absent ou illisible -> None."""
+    try:
+        try:
+            from forge_module_census import HEAD_CHARS, homologue_de_texte
+        except ImportError:
+            from nokido_agent.tools.forge_module_census import HEAD_CHARS, homologue_de_texte
+        texte = (Path(racine) / str(rel)).read_text(encoding="utf-8", errors="replace")[:HEAD_CHARS]
+        h = homologue_de_texte(texte)
+    except Exception:  # noqa: BLE001 - module ou lecteur illisible : aucun homologue, le perimetre reste celui d'avant
+        return None
+    return str(h["nr"]).replace("\\", "/") if h and h.get("nr") else None
 
 
 EXTRAIT_ECHEC_MAX = 600
@@ -692,7 +716,7 @@ _PROCHAINE_EXPERIENCE = {
 
 
 def capsule_autopsie(verdict: dict, baseline: dict, mesure_candidat: dict, candidat: str = "") -> str:
-    """Capsule d'autopsie (chantier 2 du takehome, 18/10) : ~200 tokens pour la tentative suivante.
+    """Capsule d'autopsie (chantier 2, 18/10) : ~200 tokens pour la tentative suivante.
 
     Uniquement des pieces TRACABLES -- identifiant du candidat, verdict et sa raison, delta de metrique, tests
     perdus avec leur extrait pytest -- et une prochaine experience tiree de la CATEGORIE du verdict (table
@@ -761,7 +785,7 @@ _SENS_METRIQUE = ("MIN", "MAX")
 
 
 def juger_metrique(base, cand) -> dict:
-    """Contrat de metrique commun (chantier 1 du takehome, 18/10) : {nom, valeur, bruit, sens MIN|MAX}.
+    """Contrat de metrique commun (chantier 1, 18/10) : {nom, valeur, bruit, sens MIN|MAX}.
 
     Delta ORIENTE (MIN : base - cand ; MAX : cand - base) compare a la bande de bruit (la plus large des deux).
     Contrat invalide ou incomparable = INDECIDABLE, jamais NEUTRE : NEUTRE dirait « aucun gain », la
@@ -870,6 +894,15 @@ def held_out(selection: list[str] | None = None, n: int = HELD_OUT_N, racine: Pa
 
     r = Path(racine) if racine else ROOT
     sel = os.environ.get("LAFORGE_HELD_OUT_SEL", "")
+    if not sel:
+        # 4/11 : le sel est un SECRET -- absent de l'environnement du service, le jeu etait previsible par qui lit ce
+        # code. Coffre (forge_secrets) a defaut ; muet ou illisible -> « absent », dit. Jamais affiche ni journalise.
+        # NR tests/nr/test_held_out_sel_du_coffre_nr.py.
+        try:
+            from nokido_agent.app.forge_secrets import get_secret
+            sel = str(get_secret("LAFORGE_HELD_OUT_SEL") or "")
+        except Exception:  # noqa: BLE001 - coffre illisible : sel absent, le resultat le dit
+            sel = ""
     exclus = {str(t).split("::", 1)[0].replace("\\", "/").lstrip("./") for t in (selection or [])}
     nr = sorted(p.relative_to(r).as_posix() for p in (r / "tests" / "nr").glob("test_*.py"))
     candidats = [t for t in nr if t not in exclus]

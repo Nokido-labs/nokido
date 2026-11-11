@@ -196,7 +196,7 @@ _AUDIT = {"capture", "_vcapture", "_append_audit", "audit_log", "log_audit"}
 #: d'etre, et le sens « un handler qui GAGNE une trace » est le bon.
 JOURNALISENT = {
     # via `_resolve_ring -> _vcapture` (chemin videur)
-    "mcp_post", "mcp_get", "mcp_batch", "admin_restart",
+    "mcp_post", "mcp_get", "mcp_batch", "admin_restart", "inbox_stream",
     "rings_set", "rings_ui", "swarm_run", "recon_run", "ctf_run",
     # via `_admin_tok_ok -> _journaliser_refus_admin` (refus seulement)
     "admin_heap", "admin_ingest_repo", "admin_job_status", "admin_job_stop",

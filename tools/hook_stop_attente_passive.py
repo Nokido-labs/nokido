@@ -41,7 +41,9 @@ _ATTENTE = re.compile(
 # Rendre la main est LEGITIME quand l'owner a quelque chose a faire ou a trancher : le message le dit.
 _RENDU_LEGITIME = re.compile(
     r"(\bil\s+te\s+reste\b|\bte\s+revient\b|\bton\s+accord\b|\bta\s+d[eé]cision\b|\b[aà]\s+toi\s+de\b"
-    r"|\bgeste\s+owner\b|\bj'ai\s+besoin\s+de\s+toi\b|\bje\s+te\s+(soumets|demande)\b|\?\s*$)",
+    r"|\bgeste\s+owner\b|\bj'ai\s+besoin\s+de\s+toi\b|\bje\s+te\s+(soumets|demande)\b"
+    r"|\bvous\s+revient\b|\bvotre\s+(accord|d[eé]cision|go)\b|\b[aà]\s+vous\s+de\b|\bje\s+vous\s+(soumets|demande)\b"
+    r"|\?\s*$)",
     re.IGNORECASE | re.MULTILINE)
 
 # 2e garde (19/10, owner, 2e recidive) : une decision owner en attente se POSE en choix multiple (AskUserQuestion),
@@ -53,7 +55,19 @@ _DECISION_OWNER = re.compile(
     r"|\bporte\s+owner\b"
     r"|\b[aà]\s+trancher\b"
     r"|\ben\s+attente\s+de\s+toi\b"
-    r"|\battend(ent)?\s+ta\s+d[eé]cision\b)",
+    r"|\battend(ent)?\s+ta\s+d[eé]cision\b"
+    # 10/11 (owner, 4e recidive) : « en attente de ta decision : ... GO push » est passe en prose.
+    r"|\ben\s+attente\s+de\s+(ta|ton|votre)\s+(d[eé]cision|accord|go|choix|feu)\b"
+    r"|\bd[eé]cisions?\s+en\s+attente\b"
+    r"|\battend(ent)?\s+(ton|votre)\s+(accord|go|choix|feu)\b"
+    # 6/11 (owner, 3e recidive) : le garde ne connaissait que le tutoiement, l'agent vouvoie depuis.
+    r"|\bdites\s+[«\"]?\s*go\b"
+    r"|\bd[eé]cision\s+[aà]\s+vous\b"
+    r"|\bvotre\s+d[eé]cision\b"
+    r"|\bvous\s+revient\b"
+    r"|\b[aà]\s+vous\s+de\b"
+    r"|\bj'attends\s+votre\b"
+    r"|\bvoulez-vous\b)",
     re.IGNORECASE)
 CONSIGNE_PROSE = ("Decision owner evoquee en prose (« %s ») sans AskUserQuestion dans le tour. Consigne owner "
                   "permanente (18/10, 19/10) : toute decision owner en attente se pose en liste a choix multiples, "
@@ -63,6 +77,30 @@ CONSIGNE = ("Fin de tour sur une attente passive (« %s »). Consigne owner perm
             "une CI ou un parcours, enchainer une autre tache du backlog -- le Monitor reveillera au verdict. "
             "Ne rendre la main que pour un geste owner ou irreversible, une decision qui lui revient, ou un backlog "
             "vide, et alors lister ce qui reste.")
+
+
+def barriere_active(maintenant: float | None = None, frais_s: float = 120.0) -> bool:
+    """True si une barriere de surveillance est active (sandbox/job_watch_etat.json frais)."""
+    etat = Path(os.environ.get("NOKIDO_JOB_WATCH_ETAT") or ROOT / "sandbox" / "job_watch_etat.json")
+    try:
+        if not etat.is_file():
+            return False
+        st = etat.stat()
+        t = time.time() if maintenant is None else maintenant
+        if t - st.st_mtime > frais_s:
+            return False
+        contenu = json.loads(etat.read_text(encoding="utf-8"))
+        if isinstance(contenu, dict):
+            # Si le json declare une expiration ou horodatage interne
+            exp = contenu.get("expire") or contenu.get("expiration") or contenu.get("expires_at")
+            if exp is not None and float(exp) <= t:
+                return False
+            actif = contenu.get("actif")
+            if actif is False or contenu.get("active") is False:
+                return False
+        return True
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def monitor_arme(maintenant: float | None = None) -> str | None:
@@ -172,16 +210,26 @@ def main() -> int:
     texte = dernier_message(Path(chemin))
     raison = decider(texte, bool(charge.get("stop_hook_active")))
     if raison:
-        veille = monitor_arme()
-        if veille:                            # le Monitor reveillera le tour : ne pas payer un tour de plus
+        if barriere_active():
             try:
                 JOURNAL.parent.mkdir(parents=True, exist_ok=True)
                 with JOURNAL.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps({"ts": time.time(), "session": charge.get("session_id"),
-                                         "muet_monitor": veille}, ensure_ascii=False) + "\n")
+                                         "muet_barriere": True}, ensure_ascii=False) + "\n")
             except OSError as exc:
                 print("[stop_attente_passive] journal non ecrit (%s)" % type(exc).__name__, file=sys.stderr)
             raison = None
+        else:
+            veille = monitor_arme()
+            if veille:                            # le Monitor reveillera le tour : ne pas payer un tour de plus
+                try:
+                    JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+                    with JOURNAL.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps({"ts": time.time(), "session": charge.get("session_id"),
+                                             "muet_monitor": veille}, ensure_ascii=False) + "\n")
+                except OSError as exc:
+                    print("[stop_attente_passive] journal non ecrit (%s)" % type(exc).__name__, file=sys.stderr)
+                raison = None
     # Garde « decision owner en prose » : OBSERVATION (decision owner 19/10) -- journalise toujours, ne bloque que
     # sous l'interrupteur NOKIDO_GARDE_DECISION_PROSE=bloquant, une fois le bruit mesure.
     prose = decider_decision_prose(texte, outils_du_tour(Path(chemin)))

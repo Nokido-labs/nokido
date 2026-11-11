@@ -3,9 +3,8 @@ name: forge-m2m-debat-mesure
 description: >
   À utiliser pour lancer ou reprendre un débat entre agents, quand un pair ne répond
   pas, quand un score paraît trop beau (100 %, 0 raté), ou avant d'admettre un axe ou
-  un capteur anti-régression. Donne le canal qui marche (tableau noir, accusé ACK
-  vérifié en base), l'admission d'un axe sur backtest git seulement, et les pièges
-  déjà payés.
+  un capteur anti-régression. Canal : tableau noir, accusé ACK vérifié en base ;
+  admission d'axe sur backtest git.
 ---
 
 # Debat M2M mesure — workflow verifie (2026-08-13)
@@ -95,7 +94,7 @@ Le backtest lui rend **rappel** et **bruit hors-cible** sans discussion possible
 
 ## 6. Pieges d execution (couteux, tous payes le 13/08)
 
-- **DEUX espaces de noms de providers** : `hub list_providers` (registry) ≠ noms acceptes par `ask()`. `gemini_flash` existe au registry et est **INCONNU** de `ask` → 9 tours sur 9 en "reponse vide". Noms `ask` valides : `gemini, groq, mistral, cohere, deepseek, grok, openrouter_free, gemini_cli, claude_cli, codex_cli, copilot_cli...`. Forme `provider:model` supportee (`groq:llama-3.3-70b-versatile`).
+- **DEUX espaces de noms de providers** : `hub list_providers` (registry) ≠ noms acceptes par `ask()`. `gemini_flash` existe au registry et est **INCONNU** de `ask` → 9 tours sur 9 en "reponse vide". Noms `ask` valides : `gemini, groq, mistral, cohere, deepseek, grok, openrouter_free, gemini_cli, claude_cli, codex_cli, copilot_cli...`. ⚠️ **3/11 : la forme `provider:model` est REFUSEE par `ask`** (`groq:llama-3.3-70b-versatile` → « Provider inconnu ») et le pre-vol `resolve_provider_panel` la laisse passer (il juge `groq`), comme les 402/403 sans `status`. Avant un debat : `forge_swarm_debate.sonder_panel(roles, remplacants, minimum)` garde ce qui REPOND (89859e14b).
 - **`gemini_cli` = AGY** (`agy.exe`, abonnement owner). Ne pas le remplacer par des noms de registry.
 - **Le shell du hub tourne en `LaForgeSbxOffline`** : pas d egress (tout cloud rend `Connection refused`), pas d acces a `%LOCALAPPDATA%` owner, pas de trousseau, `git` en `dubious ownership` (utiliser `git -c safe.directory=*`). **Un echec la-bas vaut INDETERMINE, jamais un verdict sur un tiers** — c est ainsi qu un pair parfaitement vivant a ete declare mort.
 - **Le juge/panel doit etre distinct des debatteurs** : un panel qui se note lui-meme se donne raison.

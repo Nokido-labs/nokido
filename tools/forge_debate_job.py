@@ -34,6 +34,32 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT))
 
+try:
+    from nokido_agent.tools.forge_swarm_debate import sonder_panel, SPECIALISTS
+except ImportError:
+    try:
+        from tools.forge_swarm_debate import sonder_panel, SPECIALISTS
+    except ImportError:
+        try:
+            from forge_swarm_debate import sonder_panel, SPECIALISTS
+        except ImportError:
+            sonder_panel = None
+            SPECIALISTS = []
+
+
+def _run_async(coro_or_val):
+    if not asyncio.iscoroutine(coro_or_val):
+        return coro_or_val
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(asyncio.run, coro_or_val).result()
+    return asyncio.run(coro_or_val)
+
 DEFAULT_OBJECTIVE = (
     "Définir la mécanique de CRISTALLISATION DU TRANSIENT (état RAM éphémère d'un agent → "
     "Blackboard persistant souverain) VS isolation RING 4 (Cloud/untrusted) : quand un état "
@@ -372,12 +398,34 @@ def panel_pour(objectif: str, frais_s: float = FRAICHEUR_MAX_S) -> tuple:
     Le role ne vient plus d'une constante : un cadrage metier fige survit a l'objectif
     qu'il servait, et produit alors une sortie techniquement valide mais EPISTEMIQUEMENT
     hors sujet — defaut mesure le 2026-09-05.
+    Repli (08/11) : si aucun participant n'est eligible avec une mesure plus fraiche que
+    frais_s (mesure transport exclue), repli sur sonder_panel (forge_swarm_debate) au lieu
+    de rendre un panel vide.
     """
     pf = preflight_providers(frais_s)
     parts = []
     for i, d in enumerate(pf["eligibles"][:len(_ROLES)]):
         nom, role = _ROLES[i]
         parts.append((nom, d["provider"], role))
+    if not parts and sonder_panel is not None:
+        try:
+            specs = SPECIALISTS if SPECIALISTS else [
+                ("ARCHITECTE", "groq"), ("SRE", "cerebras"),
+                ("SÉCURITÉ", "mistral"), ("DISTRIBUÉS", "nvidia_nim"),
+                ("FRUGALITÉ", "cohere"),
+            ]
+            candidats = [(nom, prov) for (nom, _), (_, prov) in zip(_ROLES, specs)]
+            remplacants = [prov for _, prov in specs[len(_ROLES):]]
+            coro = sonder_panel(candidats, remplacants=remplacants, minimum=QUORUM_MIN)
+            panel, ecartes = _run_async(coro)
+            for i, (_r, prov) in enumerate(panel[:len(_ROLES)]):
+                nom, role = _ROLES[i]
+                parts.append((nom, prov, role))
+            pf["repli_sonde"] = True
+            pf["panel_sonde"] = panel
+            pf["ecartes_sonde"] = ecartes
+        except Exception as exc:
+            pf["repli_sonde_erreur"] = "%s: %s" % (type(exc).__name__, exc)
     return parts, pf
 
 
@@ -402,10 +450,7 @@ async def run_debate(objective: str, constraint: str, participants: list, rounds
                                                      "tensions": [], "acquis": []},
         }
 
-    safe_ctx = _rag_context(
-        "transient state blackboard ring isolation crystallization qualified perception "
-        "RAG semantic firewall trust"
-    )
+    safe_ctx = _rag_context(objective)
     transcript = []  # (name, provider, text, ok)
 
     # --- Mode LATENT (RecursiveMAS Path 1) : le tour precedent est compresse en K=8

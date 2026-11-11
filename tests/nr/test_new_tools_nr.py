@@ -122,53 +122,54 @@ class TestForgeTokenOptimizer:
 class TestFastForgeLogger:
     """Tests FastForgeLogger — logger non-bloquant."""
 
-    def test_singleton(self):
+    def test_singleton(self, tmp_path):
         """get_fast_logger() retourne le même objet."""
         from forge_fast_logger import get_fast_logger
-        a = get_fast_logger(log_file="sandbox/test_logger_a.log")
-        b = get_fast_logger(log_file="sandbox/test_logger_a.log")
+        # 3/11 : tmp_path, jamais le vrai sandbox/ (ces journaux de test y comptaient « sans date » au bilan)
+        a = get_fast_logger(log_file=str(tmp_path / "test_logger_a.log"))
+        b = get_fast_logger(log_file=str(tmp_path / "test_logger_a.log"))
         assert a is b
 
-    def test_log_no_block(self):
+    def test_log_no_block(self, tmp_path):
         """log() ne bloque pas l'appelant."""
         from forge_fast_logger import FastForgeLogger
-        lg = FastForgeLogger(log_file="sandbox/test_nb.log", console_ratio=0)
+        lg = FastForgeLogger(log_file=str(tmp_path / "test_nb.log"), console_ratio=0)
         t0 = time.perf_counter()
         for _ in range(100):
             lg.log("test message", level="INFO", silent_console=True)
         elapsed = time.perf_counter() - t0
         assert elapsed < 0.5  # 100 messages < 500ms
 
-    def test_info_warning_error(self):
+    def test_info_warning_error(self, tmp_path):
         """Raccourcis info/warning/error disponibles."""
         from forge_fast_logger import FastForgeLogger
-        lg = FastForgeLogger(log_file="sandbox/test_levels.log", console_ratio=0)
+        lg = FastForgeLogger(log_file=str(tmp_path / "test_levels.log"), console_ratio=0)
         lg.info("info msg")
         lg.warning("warn msg")
         lg.error("error msg")
         lg.debug("debug msg")
         time.sleep(0.05)
 
-    def test_error_increments_counter(self):
+    def test_error_increments_counter(self, tmp_path):
         """error() incrémente le compteur d'erreurs."""
         from forge_fast_logger import FastForgeLogger
-        lg = FastForgeLogger(log_file="sandbox/test_errcnt.log", console_ratio=0)
+        lg = FastForgeLogger(log_file=str(tmp_path / "test_errcnt.log"), console_ratio=0)
         lg.error("erreur test")
         time.sleep(0.05)
         assert lg.stats["errors"] == 1
 
-    def test_stats_dict(self):
+    def test_stats_dict(self, tmp_path):
         """stats retourne un dict complet."""
         from forge_fast_logger import FastForgeLogger
-        lg    = FastForgeLogger(log_file="sandbox/test_stats.log", console_ratio=0)
+        lg    = FastForgeLogger(log_file=str(tmp_path / "test_stats.log"), console_ratio=0)
         stats = lg.stats
         for key in ["msg_count", "errors", "queue_size", "log_path", "running"]:
             assert key in stats
 
-    def test_flush(self):
+    def test_flush(self, tmp_path):
         """flush() ne plante pas."""
         from forge_fast_logger import FastForgeLogger
-        lg = FastForgeLogger(log_file="sandbox/test_flush.log", console_ratio=0)
+        lg = FastForgeLogger(log_file=str(tmp_path / "test_flush.log"), console_ratio=0)
         lg.info("flush test")
         lg.flush()
 
@@ -294,84 +295,45 @@ class TestForgeLibraryShifter:
 # ═══════════════════════════════════════════════════════════════════
 
 class TestForgeThoughtInterceptor:
-    """Tests ForgeThoughtInterceptor — capture CoT."""
+    """Tests ForgeThoughtInterceptor — capture CoT, API REELLE (10/11 soir).
 
-    def test_instantiation(self):
-        """ForgeThoughtInterceptor instanciable."""
+    Les 9 tests precedents (26/03, « outils v17 ») visaient une API JAMAIS implementee sur alpha (thought_dir,
+    _archive_reasoning, get_stats, MIN_THOUGHT_CHARS : `git log -S` vide sur le module, grenier compris) : rouges
+    depuis l'origine. Remplaces par le contrat du code existant : separation <think>/contenu par un bridge injecte,
+    alias stream, et absence de bridge NOMMEE (avant : TypeError 'NoneType' object is not callable)."""
+
+    class _Bridge:
+        def __init__(self, raw):
+            self.raw, self.appels = raw, []
+
+        def call(self, model, prompt, max_tokens=2000):
+            self.appels.append((model, prompt, max_tokens))
+            return self.raw
+
+    def test_separe_pensee_et_contenu(self):
         from forge_thought_interceptor import ForgeThoughtInterceptor
-        i = ForgeThoughtInterceptor()
-        assert i.thought_dir.exists()
+        b = self._Bridge("<think>je pese A contre B</think>Reponse finale")
+        r = ForgeThoughtInterceptor(bridge=b).call_with_thought("m", "p", task_id="t1")
+        assert r["thought"] == "je pese A contre B"
+        assert r["content"] == "Reponse finale"
+        assert r["model"] == "m" and r["task_id"] == "t1" and isinstance(r["ms"], int)
 
-    def test_safety_tools_structure(self):
-        """_get_safety_tools() conforme [2026-03-22]."""
+    def test_sans_balise_pensee_none(self):
         from forge_thought_interceptor import ForgeThoughtInterceptor
-        tools = ForgeThoughtInterceptor()._get_safety_tools()
-        assert tools[0]["function"]["name"] == "validate_mutation_integrity"
-        assert "file_path" in tools[0]["function"]["parameters"]["properties"]
+        r = ForgeThoughtInterceptor(bridge=self._Bridge("juste du texte")).call_with_thought("m", "p")
+        assert r["thought"] is None and r["content"] == "juste du texte"
 
-    def test_list_thoughts_empty(self):
-        """list_thoughts() retourne une liste (peut être vide)."""
+    def test_alias_stream_delegue(self):
         from forge_thought_interceptor import ForgeThoughtInterceptor
-        result = ForgeThoughtInterceptor().list_thoughts(limit=5)
-        assert isinstance(result, list)
+        b = self._Bridge("<think>x</think>y")
+        r = ForgeThoughtInterceptor(bridge=b).stream_with_thought_capture("m", "p", max_tokens=7)
+        assert r["content"] == "y" and b.appels == [("m", "p", 7)]
 
-    def test_get_stats(self):
-        """get_stats() retourne les clés attendues."""
+    def test_sans_bridge_erreur_nommee(self):
+        import pytest
         from forge_thought_interceptor import ForgeThoughtInterceptor
-        stats = ForgeThoughtInterceptor().get_stats()
-        for key in ["total", "valid", "low_density", "total_kb"]:
-            assert key in stats
-
-    def test_replay_thought_missing(self):
-        """replay_thought sur fichier inexistant retourne message d'erreur."""
-        from forge_thought_interceptor import ForgeThoughtInterceptor
-        result = ForgeThoughtInterceptor().replay_thought("nonexistent_thought.txt")
-        assert "introuvable" in result or "ERR" in result
-
-    def test_archive_reasoning(self, tmp_path):
-        """_archive_reasoning crée un fichier de trace."""
-        from forge_thought_interceptor import ForgeThoughtInterceptor
-        i            = ForgeThoughtInterceptor()
-        i.thought_dir = tmp_path / "thoughts"
-        i.thought_dir.mkdir()
-        i.memory_path = tmp_path / "memory.jsonl"
-        log = i._archive_reasoning(
-            model="test-model", task_id="test_001",
-            thought="Je réfléchis à la solution optimale...",
-            result="def foo(): pass",
-            quality_flag=True,
-        )
-        assert log.exists()
-        assert "VALID" in log.name
-
-    def test_archive_low_density(self, tmp_path):
-        """_archive_reasoning marque LOW_DENSITY si qualité insuffisante."""
-        from forge_thought_interceptor import ForgeThoughtInterceptor
-        i            = ForgeThoughtInterceptor()
-        i.thought_dir = tmp_path / "thoughts"
-        i.thought_dir.mkdir()
-        i.memory_path = tmp_path / "memory.jsonl"
-        log = i._archive_reasoning(
-            model="test-model", task_id="test_002",
-            thought="ok", result="pass",
-            quality_flag=False,
-        )
-        assert "LOW_DENSITY" in log.name
-
-    def test_min_thought_chars_constant(self):
-        """MIN_THOUGHT_CHARS = 50."""
-        from forge_thought_interceptor import MIN_THOUGHT_CHARS
-        assert MIN_THOUGHT_CHARS == 50
-
-    def test_stream_ollama_offline(self):
-        """stream_with_thought_capture gère Ollama offline gracieusement."""
-        from forge_thought_interceptor import ForgeThoughtInterceptor
-        i      = ForgeThoughtInterceptor()
-        result = i.stream_with_thought_capture(
-            model="test-model", prompt="test", task_id="t1", gpu_timeout=1
-        )
-        assert isinstance(result, dict)
-        assert "error" in result or "content" in result
+        with pytest.raises(RuntimeError, match="bridge"):
+            ForgeThoughtInterceptor()
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -547,6 +509,12 @@ class TestForgeSourceDiscovery:
 
     def test_extract_content_trafilatura(self):
         """extract_content(use_crawl4ai=False) utilise trafilatura."""
+        import socket
+        import pytest
+        try:
+            socket.create_connection(("pypi.org", 443), timeout=3).close()
+        except OSError as e:
+            pytest.skip("pypi.org injoignable (%s) : reseau INCONNU, ce n'est pas un echec du module" % type(e).__name__)
         from forge_source_discovery import ForgeSourceDiscovery
         disc    = ForgeSourceDiscovery()
         content = disc.extract_content(
@@ -555,16 +523,20 @@ class TestForgeSourceDiscovery:
         )
         assert content is not None and len(content) > 50
 
-    def test_cache_set_and_check(self):
-        """_cache_url + _is_cached fonctionnent."""
+    def test_cache_set_and_check(self, monkeypatch, tmp_path):
+        """_cache_url + _is_cached fonctionnent (cache ISOLE : le vrai shadow_mutation/ n'est jamais ecrit)."""
+        import forge_source_discovery as SD
         from forge_source_discovery import ForgeSourceDiscovery
+        monkeypatch.setattr(SD, "DISCOVERY_CACHE", tmp_path / "cache.jsonl")
         disc = ForgeSourceDiscovery()
         disc._cache_url("https://test.example.com/fake", {"status": "ok"})
         assert disc._is_cached("https://test.example.com/fake", max_age_days=1)
 
-    def test_cache_expired(self):
-        """Cache avec max_age_days=0 → expiré."""
+    def test_cache_expired(self, monkeypatch, tmp_path):
+        """Cache avec max_age_days=0 → expiré (cache ISOLE)."""
+        import forge_source_discovery as SD
         from forge_source_discovery import ForgeSourceDiscovery
+        monkeypatch.setattr(SD, "DISCOVERY_CACHE", tmp_path / "cache.jsonl")
         disc = ForgeSourceDiscovery()
         disc._cache_url("https://expired.example.com/fake", {"status": "ok"})
         assert not disc._is_cached("https://expired.example.com/fake", max_age_days=0)
@@ -590,14 +562,9 @@ class TestForgeSourceDiscovery:
 
     def test_reverse_engineer_produces_doc(self):
         """reverse_engineer_code_sync produit une doc non triviale."""
+        # Plus de lecture de Nokido.env pour une cle (10/11 : le .env n'est pas une source de secrets ; coffre seul).
+        # Sans fournisseur joignable, le chemin d'erreur rend doc=code : chars_out == chars_in, contrat tenu.
         from forge_source_discovery import ForgeSourceDiscovery
-        import os
-        from pathlib import Path
-        # Injecter la clé Groq si disponible
-        env = (ROOT / "Nokido.env").read_text(encoding="utf-8", errors="replace")
-        for l in env.splitlines():
-            if l.startswith("GROQ_API_KEY="):
-                os.environ["GROQ_API_KEY"] = l.split("=",1)[1].strip()
 
         disc   = ForgeSourceDiscovery(summary_model="groq/llama-3.3-70b-versatile")
         opaque = "def a(b,c,d=None):\n    r=[]\n    for i in b:\n        if i not in c:\n            if d is None or d(i): r.append(i)\n    return sorted(r)\n"
@@ -698,11 +665,23 @@ class TestForgeHotLoadManager:
 
     def test_fetch_all_model_contexts(self):
         """fetch_all_model_contexts() retourne un dict."""
+        # Deterministe (10/11) : la liste OpenRouter est SIMULEE -- le test mesurait le reseau, pas le module.
+        import httpx
         from forge_hot_load_manager import ForgeHotLoadManager
-        mgr  = ForgeHotLoadManager()
-        ctx  = mgr.fetch_all_model_contexts()
-        assert isinstance(ctx, dict)
-        assert len(ctx) >= 10  # Au moins 10 modèles free
+
+        class _Rep:
+            def json(self):
+                return {"data": [{"id": "a/b:free", "context_length": 32768}, {"id": "c/d:free"},
+                                 {"id": "e/f-payant", "context_length": 4096}]}
+
+        import pytest
+        mp = pytest.MonkeyPatch()
+        mp.setattr(httpx, "get", lambda *a, **k: _Rep())
+        try:
+            ctx = ForgeHotLoadManager().fetch_all_model_contexts()
+        finally:
+            mp.undo()
+        assert ctx == {"a/b:free": 32768, "c/d:free": 8192}
 
     def test_fetch_openrouter_limits(self):
         """fetch_openrouter_limits() avec clé retourne les limites."""

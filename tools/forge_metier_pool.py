@@ -149,6 +149,8 @@ def _seed_kb(slug: str, name: str, kb_domain: str, res: dict | None, fiche_text:
             continue
         cid = "kb_" + hashlib.sha256((kb_domain + str(i) + f[:40]).encode()).hexdigest()[:16]
         rows.append((cid, f"[{name}] {f}"))
+    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+    rows = [r for r in rows if admis_a_l_ingestion(f"metier/{slug}", r[1])]
     try:
         with open_writer() as con:
             for cid, text in rows:
@@ -200,6 +202,8 @@ def _deep_kb(slug: str, name: str, kb_domain: str, provider: str) -> str:
             continue
         cid = "kbd_" + hashlib.sha256((kb_domain + str(i) + f[:48]).encode()).hexdigest()[:16]
         rows.append((cid, f"[{name}] {f}"))
+    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+    rows = [r for r in rows if admis_a_l_ingestion(f"metier/{slug}", r[1])]
     if not rows:
         return "deep_empty"
     try:

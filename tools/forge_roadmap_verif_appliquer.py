@@ -56,6 +56,33 @@ def preuve_ok(p, cles_tableau_noir=()) -> bool:
     return bool(m and _git("cat-file", "-e", "alpha:" + m.group(1)).returncode == 0)
 
 
+# Zones ou une cle de roadmap peut vivre, lues sans filtre de categorie : `decompte_roadmap` les compte ainsi, et un
+# filtre ou une borne basse feraient passer une cle reelle pour absente.
+ZONES = ("architecture_rules", "roadmap", "active_bugs")
+
+
+def lire_zones(bb) -> dict:
+    """{zone: {cle: ligne}} pour chaque zone de ZONES."""
+    return {z: {r["key"]: r for r in bb.read_zone(z, limit=5000)} for z in ZONES}
+
+
+def nouvelle_valeur(valeur: str, pre: str) -> str:
+    """Valeur ecrite : le prefixe devant le texte. JSON a champ `etat` : `etat` recoit le MOT du marqueur, le seul que
+    lit le SSoT, et le prefixe (preuve, date) va dans `verification` ; le JSON reste valide."""
+    try:
+        obj = json.loads(valeur)
+    except (json.JSONDecodeError, TypeError):
+        return pre + valeur
+    if isinstance(obj, dict) and "etat" in obj:
+        mot = re.match(r"\[\s*([A-Za-z_]+)", pre)
+        if not mot:
+            return pre + valeur
+        obj["etat"] = mot.group(1)
+        obj["verification"] = pre.strip()
+        return json.dumps(obj, ensure_ascii=False)
+    return pre + valeur
+
+
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     sha, lot = argv[0], argv[1]
@@ -76,27 +103,41 @@ def main(argv=None) -> int:
         data = json.loads(re.sub(r'\\(?![\\/"bfnrtu])', r"\\\\", brut))  # antislashs non echappes (vecu 17/10)
     if isinstance(data, dict):
         data = next((v for v in data.values() if isinstance(v, list)), [])
-    rows = {r["key"]: r for r in bb.read_zone("architecture_rules", category="roadmap", limit=500)}
+    zones = lire_zones(bb)
+    cles = set().union(*(set(rows) for rows in zones.values()))
     src = "verif %s (lot %s)" % (sha, lot)
     plan = []
     for d in data:
         k, v = d.get("key"), d.get("verdict")
-        if k in exclus or k not in rows:
-            print("SAUTE", k, "(exclu)" if k in exclus else "(absent du tableau noir)")
+        if k in exclus:
+            print("SAUTE", k, "(exclu)")
             continue
-        ok = [p for p in (d.get("preuves") or []) if preuve_ok(p, set(rows) - {k})]
-        plan.append((k, prefixe(v, ok, d.get("reste"), date, src)))
-        print("%-9s preuves_ok %d/%d %s" % (v, len(ok), len(d.get("preuves") or []), k))
+        trouvees = [z for z in ZONES if k in zones[z]]
+        if not trouvees:
+            print("SAUTE", k, "(absent du tableau noir ; zones cherchees : %s)" % ", ".join(ZONES))
+            continue
+        if len(trouvees) > 1:
+            print("SAUTE", k, "(present dans plusieurs zones : %s ; ecriture non devinee)" % ", ".join(trouvees))
+            continue
+        zone = trouvees[0]
+        ok = [p for p in (d.get("preuves") or []) if preuve_ok(p, cles - {k})]
+        plan.append((k, prefixe(v, ok, d.get("reste"), date, src), zone))
+        print("%-9s preuves_ok %d/%d %s (%s)" % (v, len(ok), len(d.get("preuves") or []), k, zone))
     if "--apply" in argv:
-        for k, pre in plan:
-            r = rows[k]
-            bb.apply_fact_sync("architecture_rules", pre + str(r["value"]), category="roadmap",
+        attendus = {}
+        for k, pre, zone in plan:
+            r = zones[zone][k]
+            nouvelle = nouvelle_valeur(str(r["value"]), pre)
+            attendus[(zone, k)] = nouvelle
+            bb.apply_fact_sync(zone, nouvelle, category=r.get("category") or "roadmap",
                                trust=r.get("trust") or 0.5, key=k, source="CLAUDE", ring=0)
-        relus = {r["key"]: str(r["value"]) for r in bb.read_zone("architecture_rules", category="roadmap", limit=500)}
-        print("APPLY relus", sum(1 for k, pre in plan if relus.get(k, "").startswith(pre[:40])), "/", len(plan))
+        relus = lire_zones(bb)
+        relus_ok = sum(1 for (z, k), n in attendus.items() if k in relus[z] and str(relus[z][k]["value"]) == n)
+        print("APPLY relus", relus_ok, "/", len(plan))
     print("BILAN clos=%d a_verifier=%d autres=%d" % (
-        sum(1 for _, p in plan if p.startswith("[CLOS")), sum(1 for _, p in plan if p.startswith("[VERIF_A_FAIRE")),
-        sum(1 for _, p in plan if not p.startswith(("[CLOS", "[VERIF_A_FAIRE")))))
+        sum(1 for _, p, _z in plan if p.startswith("[CLOS")),
+        sum(1 for _, p, _z in plan if p.startswith("[VERIF_A_FAIRE")),
+        sum(1 for _, p, _z in plan if not p.startswith(("[CLOS", "[VERIF_A_FAIRE")))))
     return 0
 
 

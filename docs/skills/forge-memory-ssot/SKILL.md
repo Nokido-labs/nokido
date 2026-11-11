@@ -3,8 +3,8 @@ name: forge-memory-ssot
 description: >-
   À utiliser avant de répondre « où en est X », d'affirmer qu'une chose existe ou non,
   de rouvrir une enquête, ou pour consigner une décision ou une erreur, depuis toute
-  surface. Donne où vit chaque mémoire (SSoT, RAG, tableau noir, mémoire de l'agent),
-  l'ordre de consultation, comment écrire sans doublon ni perte, et les pièges payés.
+  surface. Où vit chaque mémoire (SSoT, RAG, tableau noir, mémoire de l'agent), écrire
+  sans doublon.
 ---
 
 # forge-memory-ssot — la mémoire de Nokido : où lire, où écrire

@@ -22,8 +22,9 @@ class DummySettings:
     rag_docs_topk = 5
 
 @pytest.mark.asyncio
-async def test_rag_injection_hard_filter():
-    # Instancier RAGEngine sans arguments invalides
+async def test_rag_injection_hard_filter(monkeypatch):
+    # Chargement simule : aucune lecture de %NOKIDO_DATA%\embeddings.db
+    monkeypatch.setattr(RAGEngine, "_load_embeddings", lambda self: None)
     engine = RAGEngine()
     
     # Mock settings

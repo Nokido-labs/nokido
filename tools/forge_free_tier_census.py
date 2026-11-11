@@ -101,6 +101,9 @@ def echeance_quota(detail: str, maintenant: float | None = None) -> float | None
     if m:
         unite = (m.group(2) or "s").lower()[0]
         return t + float(m.group(1)) * _UNITE_S.get(unite, 1)
+    _m = re.search(r"retry-after=([0-9.]+)s?", d, re.I)
+    if _m:
+        return t + float(_m.group(1))
     try:
         from forge_provider_catalogue import _quota_journalier, echeance_quota as _minuit_utc
     except ImportError:  # repli checkout
@@ -181,12 +184,12 @@ def extraire_delai_rate_limit(entetes: dict | object, maintenant: float | None =
     if val:
         try:
             return max(0.0, float(val))
-        except ValueError:
+        except ValueError:  # muet-ok : pas un nombre, essai suivant en date HTTP
             pass
         try:
             dt = parsedate_to_datetime(val)
             return max(0.0, dt.timestamp() - now)
-        except Exception:
+        except Exception:  # noqa: BLE001  # muet-ok : ni nombre ni date, en-tete suivant ; aucun delai invente
             pass
 
     # 2. En-têtes x-ratelimit-reset*
@@ -197,12 +200,12 @@ def extraire_delai_rate_limit(entetes: dict | object, maintenant: float | None =
                 if sec > 1_000_000_000:
                     return max(0.0, sec - now)
                 return max(0.0, sec)
-            except ValueError:
+            except ValueError:  # muet-ok : pas un nombre, essai suivant en date HTTP
                 pass
             try:
                 dt = parsedate_to_datetime(v)
                 return max(0.0, dt.timestamp() - now)
-            except Exception:
+            except Exception:  # noqa: BLE001  # muet-ok : forme suivante (`1m26s`) essayee juste apres
                 pass
             m = _RE_ECHEANCE.search(v)
             if m:
@@ -222,8 +225,9 @@ def verifier_et_sauter_fournisseur(fournisseur: str, env_key: str | None = None,
         from forge_provider_quota import should_skip
         if should_skip(fournisseur):
             return True, "SAUTE", f"quota fournisseur epuise (should_skip: {fournisseur})"
-    except Exception:
-        pass
+    except Exception as e:  # noqa: BLE001 - INCONNU n'est pas NON : on tente la mesure, mais la panne se dit
+        print(f"[census] should_skip illisible pour {fournisseur} ({type(e).__name__}) : quota INCONNU, mesure tentee",
+              file=sys.stderr)
     return False, "", ""
 ECHANTILLON = 2        # completions reelles par fournisseur
 TIMEOUT = 25

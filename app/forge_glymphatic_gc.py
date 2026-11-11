@@ -148,7 +148,7 @@ def _clear_caches() -> dict[str, Any]:
     # 1. backup quotidien (snapshot consistent .backup() API). 2. rotate keep 7.
     # 3. purge events processed > 7 jours.
     try:
-        from nokido_agent.app.forge_critical_events import backup as ce_backup, rotate_backups, purge_older_than
+        from nokido_agent.app.forge_critical_events import backup as ce_backup, purger_alertes, rotate_backups, purge_older_than
 
         bak = ce_backup()
         cleared.append(f"critical_events_backup={'ok' if bak.get('ok') else 'fail'}")
@@ -156,6 +156,7 @@ def _clear_caches() -> dict[str, Any]:
         cleared.append(f"critical_events_rotated={n_rot}")
         n_purge = purge_older_than(days=7)
         cleared.append(f"critical_events_purged={n_purge}")
+        cleared.append(f"alertes_owner_purgees={purger_alertes(jours=30)}")
     except Exception as exc:
         cleared.append(f"critical_events_skip={str(exc)[:80]}")
     # Phase 29 — audit log purge integre glymphatic NREM3 (TTL 30j default)

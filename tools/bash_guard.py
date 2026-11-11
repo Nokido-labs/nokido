@@ -145,8 +145,14 @@ _MONITOR_OK = re.compile(
     # option (`--max-s`) ni porter un chemin ; meme script, toujours en lecture seule.
     # `--delegations [--de AGENT]` ajoute le 2026-10-22 (owner, choix multiple) : suivre TOUTES les delegations par un
     # seul Monitor ; l'agent est un identifiant, jamais un chemin ; meme script, lecture seule (tasks.db en mode=ro).
-    r"(?:--(?:job|task)\s+[A-Za-z0-9_]+|--pair(?:\s+[A-Za-z0-9][A-Za-z0-9-]*)?"
-    r"|--delegations(?:\s+--de\s+[A-Za-z0-9_]+)?)"
+    # `--hub-restart` ajoute le 2026-11-09 (owner : « tu es cense recuperer automatiquement apres les ordres de
+    # reboot hub ») : option SANS argument, meme script, lecture seule (pid :8766 + /health).
+    # « : » admis le 2026-11-10 : `task assign` derive l'id de l'intent (`..._ci_local_:_arreter_..`) ;
+    # sans lui le suivi gratuit d'une delegation etait refuse. « . » idem (intent « faux.py »). Toujours ni
+    # `/`, `\` ni espace : sans separateur, un point ne designe aucun chemin.
+    r"(?:--(?:job|task)\s+[A-Za-z0-9_:.]+|--pair(?:\s+[A-Za-z0-9][A-Za-z0-9-]*)?"
+    r"|--delegations(?:\s+--de\s+[A-Za-z0-9_]+)?|--hub-restart)"
+    r"(?:\s+--(?:barriere|flux))?"
     r"(?:\s+--[a-z-]+\s+\d+)*\s*$"
 )
 
@@ -157,8 +163,8 @@ if (data.get("tool_name") or "").strip() == "Monitor":
             "  Monitor execute du shell natif : une seule forme est sanctionnee,\n"
             "  le CLI de surveillance git-tracke (lecture seule).\n"
             '  Forme : "<LAFORGE_PYTHON>" "<repo>/tools/forge_job_watch_cli.py" '
-            "--job <job_id> | --task <task_id> | --pair [client] | --delegations [--de AGENT] "
-            "[--gel-s N] [--max-s N] [--intervalle N]\n"
+            "--job <job_id> | --task <task_id> | --pair [client] | --delegations [--de AGENT] | --hub-restart "
+            "[--barriere | --flux] [--gel-s N] [--max-s N] [--intervalle N]\n"
             f"  Cmd : {command[:200]}",
             file=sys.stderr,
         )
@@ -189,6 +195,53 @@ ALLOWED_RECOVERY = (
 # qui est de l'expansion de variable et n'execute rien -- un garde qui crie a
 # faux se fait desarmer.
 _SUBSTITUTION_CMD = re.compile(r"\$\(|`")
+
+
+# 5/11 (owner) : `git show > fichier` lisait le depot hors budget de recon. `git diff > patch` reste la voie d'integration.
+_GIT_LECTURE_VERS_FICHIER = re.compile(
+    r"(?:^|\s)(?:(?:show|grep|blame|cat-file)(?:\s.*)?|log\s(?:.*\s)?(?:-p|--patch)(?:\s.*)?)\s*(?<![0-9&])>(?!&)")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GIT / GITHUB CENTRALISES (owner 6/11 : « tout ce qui touche a git et github
+# centralise par nokido »). Source unique : app/forge_git_shell_guard.py
+# ─────────────────────────────────────────────────────────────────────────
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+try:
+    try:
+        from app.forge_git_shell_guard import (
+            refus_git_gh,
+            _refus_git,
+            _refus_gh,
+            split_segments,
+            _REFUS_PUSH,
+            _REFUS_HOOKS,
+            _REFUS_GH,
+            _GH_GROUPES_LECTURE,
+            _GH_VERBES_LECTURE,
+            _GIT_OPTS_A_VALEUR,
+            _GIT_CONFIG_SENSIBLE,
+        )
+    except ImportError:
+        from nokido_agent.app.forge_git_shell_guard import (
+            refus_git_gh,
+            _refus_git,
+            _refus_gh,
+            split_segments,
+            _REFUS_PUSH,
+            _REFUS_HOOKS,
+            _REFUS_GH,
+            _GH_GROUPES_LECTURE,
+            _GH_VERBES_LECTURE,
+            _GIT_OPTS_A_VALEUR,
+            _GIT_CONFIG_SENSIBLE,
+        )
+except Exception:
+    # Fail-closed : refus de tout segment git/gh si l'import est impossible
+    refus_git_gh = lambda seg: "garde git/gh indisponible (import forge_git_shell_guard echoue) : refuse (fail-closed)" if re.search(r"\b(git|gh)\b", seg, re.I) else None
+    split_segments = lambda cmd: re.split(r"&&|\|\||;|\n", cmd)
 
 
 def segment_ok(seg: str) -> bool:
@@ -224,7 +277,7 @@ def segment_ok(seg: str) -> bool:
     # repo + pas de reseau sortant). LAYER 1 bloque deja les variantes qui
     # fuient un secret (remote -v, config --list/--get remote.*, gh auth token).
     if sl == "git" or sl.startswith("git ") or sl.startswith("git\t"):
-        return True
+        return not _GIT_LECTURE_VERS_FICHIER.search(re.sub(r'"[^"]*"|\'[^\']*\'', "''", sl))
     if sl == "gh" or sl.startswith("gh ") or sl.startswith("gh\t"):
         return True
     # echo : marqueur de sortie inoffensif. Rend lisible le chainage
@@ -262,49 +315,12 @@ def segment_ok(seg: str) -> bool:
     return False
 
 
-def split_segments(cmd: str) -> list:
-    """Decoupe sur && || ; et retours ligne, SANS couper a l'interieur d'une
-    chaine quotee : un && / ; / saut de ligne dans `git commit -m "a && b"`
-    n'est PAS un separateur shell. Fallback strict (split naif) si une quote
-    reste ouverte = parse douteux -> on prefere sur-bloquer.
-    PAS de decoupe sur le pipe `|` seul : Layer 1 bloque deja la source d'un
-    secret, garder `|` entier preserve `git log | grep ...`."""
-    segs, buf, i, n, quote = [], [], 0, len(cmd), None
-    while i < n:
-        c = cmd[i]
-        if quote:
-            buf.append(c)
-            if c == quote:
-                quote = None
-            elif c == "\\" and quote == '"' and i + 1 < n:
-                i += 1
-                buf.append(cmd[i])
-            i += 1
-            continue
-        if c in "\"'":
-            quote = c
-            buf.append(c)
-            i += 1
-            continue
-        if c in ";\n":
-            segs.append("".join(buf))
-            buf = []
-            i += 1
-            continue
-        if c in "&|" and i + 1 < n and cmd[i + 1] == c:
-            segs.append("".join(buf))
-            buf = []
-            i += 2
-            continue
-        buf.append(c)
-        i += 1
-    segs.append("".join(buf))
-    if quote is not None:  # quote non fermee = parse douteux
-        return re.split(r"&&|\|\||;|\n", cmd)  # fail-safe : decoupe stricte
-    return segs
-
-
 segments = split_segments(command)
+for _seg in segments:
+    _motif = refus_git_gh(_seg)
+    if _motif:
+        print(f"[bash_guard] BLOCKED - {_motif}\n  Cmd : {_seg.strip()[:200]}", file=sys.stderr)
+        sys.exit(2)
 if all(segment_ok(seg) for seg in segments):
     sys.exit(0)
 
@@ -316,12 +332,12 @@ if all(segment_ok(seg) for seg in segments):
 # refuser par le SCM, a conclu « aucune relance possible cote agent » et a rendu
 # la main : 18 minutes de hub mort pour une commande qui passait.
 # Un garde qui decrit ses regles de memoire finit par mentir sur ce qu'il permet.
-_PASSTHROUGHS = ["curl vers :8766", "git", "gh", "schtasks /tn Nokido-*"] + list(ALLOWED_RECOVERY)
+_PASSTHROUGHS = ["curl vers :8766", "git (sans push)", "gh (lecture)", "schtasks /tn Nokido-*"] + list(ALLOWED_RECOVERY)
 print(
     "[bash_guard] BLOCKED - execution directe interdite.\n"
     f"  Cmd : {command[:300]}\n"
     "  Regle : toute execution passe par le hub :8766 "
-    "(mcp__laforge-sovereign-hub__run, action=shell/python).\n"
+    "(outil MCP `run` du hub, action=shell/python).\n"
     "  Passthroughs (chaque segment doit en etre un) : " + " | ".join(_PASSTHROUGHS) + ".",
     file=sys.stderr,
 )

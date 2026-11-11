@@ -298,8 +298,8 @@ class KaggleBridge:
                     source = f"kaggle/{ref}/{f.name}"
                     from nokido_agent.app.forge_db_path import ecrire_chunk  # type: ignore
 
-                    ecrire_chunk(conn, source, domain, text)
-                    ingested += 1
+                    if not ecrire_chunk(conn, source, domain, text).get("refuse"):
+                        ingested += 1
                 except Exception:
                     __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_kaggle_bridge.py', 303, exc_info=True)
             conn.commit()

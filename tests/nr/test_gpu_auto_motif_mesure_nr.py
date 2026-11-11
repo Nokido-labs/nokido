@@ -1,4 +1,4 @@
-"""NR -- le motif distingue MESURE et EXTRAPOLE (methode du takehome : n'est attribue a la mesure que ce qui a ete mesure).
+"""NR -- le motif distingue MESURE et EXTRAPOLE (methode : n'est attribue a la mesure que ce qui a ete mesure).
 
 Acceptation reelle 29/10 12 h 54 (job_88df8ba1b2f0) : moondream, nomic-embed-text et bge-m3, jamais bances, recevaient
 num_gpu 0 avec le motif « mesure : prompt 3x plus lent » ; seuls qwen2.5-coder:1.5b et laforge-qwen l'ont ete

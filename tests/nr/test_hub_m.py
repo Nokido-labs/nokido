@@ -164,7 +164,10 @@ class TestLauncherPage:
     def test_has_open_button_css(self, client):
         html = client.get("/launcher").text
         assert "a.open" in html
-        assert "background:#2563eb" in html  # couleur du bouton Ouvrir
+        # 2/11 : la page est passee aux jetons laforge-ds (4d4f4f20c, cliquet test_ui_couleurs_en_dur_nr) -- le
+        # bouton Ouvrir prend sa couleur d'un JETON, plus d'un hexadecimal fige (ancien #2563eb).
+        regle = html[html.index("a.open {"):html.index("}", html.index("a.open {"))]
+        assert "background:var(--" in regle and "#" not in regle, regle
 
     def test_has_cli_badge_css(self, client):
         html = client.get("/launcher").text

@@ -31,7 +31,10 @@ _APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 if _APP not in sys.path:
     sys.path.insert(0, _APP)
 
-from nokido_agent.app.forge_secrets import get_secret  # noqa: E402 - apres le bootstrap de sys.path
+try:  # motif forge_task_executor : paquet d'abord, repli checkout (app/ est deja dans sys.path)
+    from nokido_agent.app.forge_secrets import get_secret
+except ImportError:  # repli checkout : ensure-simple, pas nokido_agent installe
+    from forge_secrets import get_secret  # noqa: E402 - apres le bootstrap de sys.path
 
 LLAMA_BASE = "http://127.0.0.1:8091"
 # Le port suit LAFORGE_HUB_PORT, comme le hub lui-meme (un CLI fige sur 8766 parlait a un AUTRE hub, 13/10).

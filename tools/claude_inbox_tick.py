@@ -140,7 +140,9 @@ def _sense() -> str | None:
         if str(ROOT / "app") not in sys.path:
             sys.path.insert(0, str(ROOT))
         from nokido_agent.app import forge_critical_events as _ce  # type: ignore
-        unproc = _ce.unprocessed(12) if hasattr(_ce, "unprocessed") else []
+        # `info` (arrivee d'un CLI, cli_present) n'est pas une alerte : ecarte par la requete,
+        # pour ne pas boucher la fenetre de 12. Toute autre severite reste visible.
+        unproc = _ce.unprocessed(12, sauf_severites=("info",)) if hasattr(_ce, "unprocessed") else []
         if unproc:
             # DÉTAILLER, pas seulement COMPTER (2026-08-10, exigence owner « en écoute
             # il rate constamment des informations »). L'ancien affichage rendait
@@ -478,6 +480,7 @@ _SESSION_ID = ""
 # La demande ENTIERE : l'intention est coupee a 400 caracteres pour la memoire, le rappel de
 # skill a besoin de l'URL et du verbe, ou qu'ils soient dans la demande.
 _PROMPT = ""
+_NOTIFICATION_SYSTEME = ("<task-notification>", "[SYSTEM NOTIFICATION")
 
 # ─── Une strate ne se repete pas tant qu'elle n'a pas change (2026-09-24) ───
 # Mesure en session reelle : les MEMES dettes (75,9 j, 69 j...) et le meme score
@@ -504,6 +507,147 @@ def _sans_repetition(texte, session: str, maintenant: float | None = None, etat_
     return forge_hook_rappel.filtrer(texte, session, maintenant, etat_dir or _ETAT_HOOK, _RAPPEL_MEMOIRE_S)
 
 
+_TRANSCRIPT = ""
+_VERSIONS_CLI = Path.home() / ".local" / "share" / "claude" / "versions"
+
+
+def _semver(nom: str):
+    """'2.1.318' -> (2, 1, 318) ; tout autre nom -> None."""
+    morceaux = nom.split(".")
+    if len(morceaux) != 3 or not all(m.isdigit() for m in morceaux):
+        return None
+    return tuple(int(m) for m in morceaux)
+
+
+def _alerte_maj_cli(transcript: str, dossier=None) -> str:
+    """Une ligne si un CLI plus recent que celui de cette session est installe, sinon rien.
+
+    Owner 4/11 : la banniere « Update installed · Restart to update » n'atteint pas le modele.
+    Version en cours = champ `version` du transcript ; installee = dossier des versions.
+    Une source illisible ne conclut pas : pas d'alerte, et ce silence ne vaut pas « a jour »."""
+    if not transcript:
+        return ""
+    outils = str(Path(__file__).resolve().parent)
+    if outils not in sys.path:
+        sys.path.insert(0, outils)
+    from claude_session_start import version_du_transcript
+
+    en_cours = version_du_transcript(transcript, 262_144)
+    sv = _semver(en_cours or "")
+    if sv is None:
+        return ""
+    try:
+        noms = os.listdir(dossier or _VERSIONS_CLI)
+    except OSError:
+        return ""  # muet-ok : dossier illisible, rien a conclure
+    installees = [s for s in map(_semver, noms) if s]
+    if not installees or max(installees) <= sv:
+        return ""
+    plus_recente = ".".join(str(n) for n in max(installees))
+    return (
+        f"[maj-cli] CLI {plus_recente} installé, cette session tourne en {en_cours} "
+        "(équivaut à « Update installed · Restart to update »). Sauvegarde l'état de reprise "
+        "(project_reprise_<date>.md + ligne MEMORY.md), puis propose une nouvelle session par "
+        "AskUserQuestion, recommandée en premier. " + _PROCEDURE_REPRISE
+    )
+
+
+# Owner 9/11 « si reprise de sessions à faire écris-moi systématiquement la procédure, ancre-le ».
+_PROCEDURE_REPRISE = (
+    "Écris aussi À L'OWNER la procédure de reprise, pas à pas : phrase à coller dans la nouvelle "
+    "session, fiche à lire, état prouvé (sha, jobs), premier geste, gestes suivants, ce qui attend sa décision."
+)
+
+
+_FENETRE_USAGE_OCTETS = 512 * 1024
+
+
+def _jetons_contexte(p: Path):
+    """Jetons réellement envoyés au modèle au dernier tour : usage du dernier message assistant.
+
+    Lit la FIN de la transcription seulement (jamais le fichier entier). Le JSONL gonfle de
+    hooks, métadonnées et sorties d'outils : sa taille n'est pas le contexte (owner 9/11).
+    Rend None si aucun usage lisible (UNKNOWN, jamais 0).
+    """
+    with p.open("rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        fin = fh.tell()
+        fh.seek(max(0, fin - _FENETRE_USAGE_OCTETS))
+        queue = fh.read().decode("utf-8", errors="replace")
+    for ligne in reversed(queue.splitlines()):
+        if '"usage"' not in ligne:
+            continue
+        try:
+            evt = json.loads(ligne)
+        except ValueError:  # muet-ok : 1re ligne de la fenêtre coupée net, l'usage cherché est plus bas
+            continue
+        msg = evt.get("message") if isinstance(evt, dict) else None
+        usage = msg.get("usage") if isinstance(msg, dict) else None
+        if not isinstance(usage, dict):
+            continue
+        return sum(int(usage.get(k) or 0) for k in
+                   ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return None
+
+
+def _alerte_taille_contexte(transcript: str, session: str, etat_dir=None) -> str:
+    """Une ligne quand le CONTEXTE du dernier tour dépasse un seuil en jetons (défaut 700 000,
+    sous l'autocompactage auto ~967K d'Opus 5.5).
+
+    Mesure = usage du dernier message assistant, pas la taille du fichier : 854 Ko de JSONL
+    portaient un contexte bien plus petit et forçaient des reprises inutiles (owner 9/11).
+    Une ligne, une fois par palier de doublement (seuil * 2^k).
+    Usage illisible : silence et journal, jamais un faux seuil atteint ni un repli sur les octets.
+    """
+    if not transcript:
+        return ""
+    try:
+        p = Path(transcript)
+        if not p.is_file():
+            return ""
+        taille = _jetons_contexte(p)
+    except OSError as exc:
+        print(f"[contexte] transcription illisible ({type(exc).__name__})", file=sys.stderr)
+        return ""
+    if taille is None:
+        print("[contexte] usage illisible en fin de transcription : contexte non mesuré", file=sys.stderr)
+        return ""
+    seuil = float(os.environ.get("LAFORGE_SEUIL_CONTEXTE_JETONS", "700000"))
+    if seuil <= 0 or taille < seuil:
+        return ""
+    palier = int(taille // seuil)
+    # Plus grande puissance de 2 <= palier
+    k = 1
+    while k * 2 <= palier:
+        k *= 2
+    palier_actuel = k
+
+    etat_dossier = Path(etat_dir or _ETAT_HOOK)
+    etat_fichier = etat_dossier / f"contexte_jetons_{session or 'default'}.json"
+    vu_palier = 0
+    try:
+        if etat_fichier.is_file():
+            donnees = json.loads(etat_fichier.read_text(encoding="utf-8"))
+            if isinstance(donnees, dict):
+                vu_palier = int(donnees.get("palier_doublement") or 0)
+    except Exception:
+        vu_palier = 0
+
+    if palier_actuel <= vu_palier:
+        return ""
+
+    try:
+        etat_dossier.mkdir(parents=True, exist_ok=True)
+        etat_fichier.write_text(json.dumps({"palier_doublement": palier_actuel, "taille": taille}), encoding="utf-8")
+    except OSError as exc:
+        print(f"[contexte] journal etat non ecrit ({type(exc).__name__})", file=sys.stderr)
+
+    return (
+        f"[contexte] Contexte du dernier tour à {taille} jetons (seuil {int(seuil)} jetons atteint). "
+        "Écris l'état de reprise en mémoire et propose une nouvelle session. " + _PROCEDURE_REPRISE
+    )
+
+
 def _intention() -> str:
     """Le sujet du tour, s'il nous est offert.
 
@@ -522,9 +666,14 @@ def _intention() -> str:
     try:
         evt = json.loads(brut)
         if isinstance(evt, dict):
-            global _SESSION_ID, _PROMPT
+            global _SESSION_ID, _PROMPT, _TRANSCRIPT
             _SESSION_ID = str(evt.get("session_id") or "")
+            _TRANSCRIPT = str(evt.get("transcript_path") or "")
             _PROMPT = str(evt.get("prompt") or evt.get("user_prompt") or "")
+            # Notification systeme : le tour n'a pas de sujet. Mesure du 2026-11-05 : ses mots
+            # (event, stream, user) designaient des modules sans rapport, a chaque fin de job.
+            if any(balise in _PROMPT[:600] for balise in _NOTIFICATION_SYSTEME):
+                _PROMPT = ""
             return _PROMPT[:400]
     except Exception:  # noqa: BLE001 — pas du JSON : on prend le texte tel quel
         __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'tools/claude_inbox_tick.py', 556, exc_info=True)
@@ -589,6 +738,20 @@ def main() -> None:
             out.append(s)
     except Exception as e:
         print(f"[claude-hook] sense error: {e}", file=sys.stderr)
+    # 1bis. MISE A JOUR DU CLI : une ligne, dedoublonnee comme les autres rappels.
+    try:
+        maj = _sans_repetition(_alerte_maj_cli(_TRANSCRIPT), _SESSION_ID)
+        if maj:
+            out.append(maj)
+    except Exception as e:  # noqa: BLE001
+        print(f"[claude-hook] maj-cli error: {e}", file=sys.stderr)
+    # 1ter. ALARME CONTEXTE : une ligne, une fois par palier de doublement
+    try:
+        alerte_ctx = _alerte_taille_contexte(_TRANSCRIPT, _SESSION_ID)
+        if alerte_ctx:
+            out.append(alerte_ctx)
+    except Exception as e:  # noqa: BLE001
+        print(f"[claude-hook] contexte error: {e}", file=sys.stderr)
     # 2. INBOX
     try:
         conn = _db()

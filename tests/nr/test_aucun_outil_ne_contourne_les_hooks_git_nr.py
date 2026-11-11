@@ -28,6 +28,13 @@ _SHELL = re.compile(r"\bgit\b[^\n]*--no-verify")
 EXCEPTIONS = {
     "tools/nokido_historical_consolidation.py":
         "commit de TEST dans un worktree EPHEMERE (forge_worktree), reinitialise ensuite, jamais pousse",
+    # (2026-11-09) Garde central des commandes git (succede a `_refus_git` de bash_guard, exception retiree : le
+    # motif n'y vit plus) : la ligne DETECTE --no-verify et ses abreviations pour le REFUSER (_REFUS_HOOKS).
+    "app/forge_git_shell_guard.py":
+        "motif de REFUS de --no-verify (_REFUS_HOOKS) dans le garde git du hub, aucun appel git ne le porte",
+    # (2026-11-09) Message de la table des formes qui marchent : « jamais `git push` ni `--no-verify` ».
+    "tools/hook_capability_gate.py":
+        "texte d'AVERTISSEMENT qui interdit --no-verify, aucun appel git ne le porte",
     # (24/09) L'exception `forge_git_gate.py` -- le gate conseillait lui-meme `--no-verify` comme
     # soupape anti-perte -- est RETIREE : decision owner, soupape etroite par controle nomme
     # (test_git_gate_soupape_etroite_nr). Le cliquet interdit desormais son retour.

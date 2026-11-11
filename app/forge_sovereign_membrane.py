@@ -25,6 +25,7 @@ Intégration Engrid :
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -53,6 +54,174 @@ logger = logging.getLogger(__name__)
 
 
 # ── Lazy import NoiseGuardian (évite import circulaire) ───────────────────────
+# --- Sujets prives (choix owner du 6/11 : classer la tache, pas le modele) --------------------------------------------
+# Une seule definition du prive : `forge_git_egress.sujets_prives`, qui ne protegeait que la publication. Mesure du 6/11 :
+# 86 appels d'agents OpenCode et Vibe touchaient un mot ou un chemin prive en octobre. `caviarder` n'en fait pas partie :
+# c'est une liste de documents publics a nettoyer, pas un sujet.
+MASQUE_SUJET = "[SUJET_PRIVE]"
+# Liste blanche : tout client LLM hors d'ici est expose. Un demon interne n'envoie rien a un modele et reste hors du filtre.
+_AGENTS_SANS_FILTRE = frozenset({"CLAUDE", "CLAUDE_HEADLESS", "CLAUDE_API", "ANTIGRAVITY", "AGY", "GEMINI"})
+_CLIENTS_OAUTH_SANS_FILTRE = frozenset({"Claude Code (nokido-oauth)", "Google Antigravity"})
+_PREFIXES_EXPOSES = ("OPENCODE", "VIBE", "MISTRAL", "CODEX", "CLINE", "COPILOT", "MAMMOUTH", "BRIDGE")
+_CACHE_SUJETS: dict = {"cle": None, "valeur": None}
+_CACHE_CLIENTS: dict = {"cle": None, "valeur": {}}
+_CACHE_IDENTITES: dict = {"cle": None, "valeur": set()}
+
+
+# Choix owner 6/11 : le cloud ne recoit un texte du RAG que si sa PROVENANCE est publique. Liste blanche : conversations,
+# memoires, sessions, documents internes et domaine inconnu ne sortent pas. Un motif ne reconnait pas une conversation privee.
+DOMAINES_PUBLICS = frozenset({"sdk_gitingest", "ext_repo", "veille_code", "watch_veille", "claude_docs"})
+
+
+def preparer_pour_cloud(requete, docs, textes, mission="rerank_cloud"):
+    """(requete, textes) sous membrane si TOUS les `docs` sont de provenance publique ; None sinon. Panne : None, rien ne sort."""
+    try:
+        if not docs or any(str((d or {}).get("domain")) not in DOMAINES_PUBLICS for d in docs):
+            return None
+        m = SovereignMembrane.for_mission(mission)
+        return m.wrap_objet(str(requete or "")), m.wrap_objet(list(textes))
+    except Exception as exc:  # noqa: BLE001 - voir la docstring
+        logger.warning("[membrane] preparation cloud impossible (%s) : rien n'est envoye", type(exc).__name__)
+        return None
+
+
+def _motifs_secrets() -> list:
+    """Cles et mots de passe : la definition de `forge_secret_guard`, sans son heuristique de forme (un sha n'est pas un secret)."""
+    from nokido_agent.app.forge_secret_guard import _OUTBOUND_PATTERNS
+    return [(p, "SECRET") for p, nom in _OUTBOUND_PATTERNS if not str(nom).startswith("Hex-64")]
+
+
+def _lire_sujets() -> dict:
+    from nokido_agent.app.forge_git_egress import sujets_prives
+    return sujets_prives()
+
+
+def _cle_sujets():
+    from nokido_agent.app.forge_git_egress import SUJETS_PRIVES
+    try:
+        return Path(SUJETS_PRIVES).stat().st_mtime_ns
+    except OSError:  # muet-ok : liste absente (distribution publique) : rien a proteger, le lecteur rend du vide
+        return 0
+
+
+def _sujets_compiles() -> dict:
+    """{'mots': motifs refuses dans une consigne, 'masques': mots + retirer, 'chemins': globs}. Relu si la liste change."""
+    cle = _cle_sujets()
+    if _CACHE_SUJETS["valeur"] is not None and _CACHE_SUJETS["cle"] == cle:
+        return _CACHE_SUJETS["valeur"]
+    brut = _lire_sujets()
+    mots = [re.compile(m, re.I) for m in brut.get("mots", [])]
+    retirer = [re.compile(m, re.I) for m in brut.get("retirer", [])]
+    valeur = {"mots": mots, "masques": mots + retirer, "chemins": [str(g).replace("\\", "/") for g in brut.get("chemins", [])]}
+    _CACHE_SUJETS.update(cle=cle, valeur=valeur)
+    return valeur
+
+
+def _nom_client_oauth(client_id: str) -> str | None:
+    """Nom inscrit d'un client OAuth (`clients.json`), ou None : un client inconnu reste expose."""
+    try:
+        from nokido_agent.app.forge_oauth_clients import dossier_defaut
+        p = Path(dossier_defaut()) / "clients.json"
+        cle = p.stat().st_mtime_ns
+        if _CACHE_CLIENTS["cle"] != cle:
+            d = json.loads(p.read_text(encoding="utf-8"))
+            _CACHE_CLIENTS.update(cle=cle, valeur={str(k).casefold(): str((v or {}).get("client_name") or "") for k, v in d.items()})
+        return _CACHE_CLIENTS["valeur"].get(str(client_id).casefold())
+    except Exception as exc:  # noqa: BLE001 - None = expose : le filtre se ferme, et on le dit
+        logger.warning("[membrane] clients OAuth illisibles (%s) : client traite comme expose", type(exc).__name__)
+        return None
+
+
+def _est_interne(nom: str) -> bool:
+    """Vrai si le registre declare cette identite comme interne (service, hook). Absente ou illisible : non, elle reste exposee."""
+    try:
+        p = Path(__file__).resolve().parent.parent / "config" / "agent_identities.json"
+        cle = p.stat().st_mtime_ns
+        if _CACHE_IDENTITES["cle"] != cle:
+            d = json.loads(p.read_text(encoding="utf-8")).get("agents") or {}
+            internes = set()
+            for k, v in d.items():
+                if isinstance(v, dict) and (str(v.get("kind")) in ("service", "hook", "daemon") or str(v.get("surface")) == "internal"):
+                    internes.update(str(x).upper() for x in [k, *(v.get("aliases") or [])])
+            _CACHE_IDENTITES.update(cle=cle, valeur=internes)
+        return str(nom).upper() in _CACHE_IDENTITES["valeur"]
+    except Exception as exc:  # noqa: BLE001 - registre illisible : le filtre se ferme, et on le dit
+        logger.warning("[membrane] registre des identites illisible (%s) : identite traitee comme exposee", type(exc).__name__)
+        return False
+
+
+def agent_expose(agent, ring=None) -> bool:
+    """Vrai si les sujets prives doivent etre retenus pour cet agent. Mesure du 6/11 : `read` et `rag` s'ouvrent aux rings 3 et 4 ;
+    une identite inconnue de ces rings est donc exposee, sauf service declare au registre (liste blanche)."""
+    a = str(agent or "").strip()
+    if a.casefold().startswith("agt_"):
+        a = a[4:]
+    if a.casefold().startswith("oauth_"):
+        return _nom_client_oauth(a[6:]) not in _CLIENTS_OAUTH_SANS_FILTRE
+    a = a.upper()
+    if a in _AGENTS_SANS_FILTRE:
+        return False
+    if a.startswith(_PREFIXES_EXPOSES):
+        return True
+    return bool(a) and isinstance(ring, int) and ring >= 3 and not _est_interne(a)
+
+
+def _chemin_prive(valeur, globs) -> bool:
+    v = str(valeur or "").replace("\\", "/")
+    candidats = {v, v.split("/Nokido/")[-1], v.lstrip("./")}
+    return any(fnmatch.fnmatch(c, g) for c in candidats for g in globs)
+
+
+def fichiers_prives(fichiers) -> list:
+    """Ceux de `fichiers` (chemins relatifs au depot) que `sujets_prives` declare prives."""
+    globs = _sujets_compiles()["chemins"]
+    return [f for f in fichiers if _chemin_prive(f, globs)]
+
+
+def _caviarder_objet(obj, motifs):
+    if isinstance(obj, str):
+        for motif in motifs:
+            obj = motif.sub(MASQUE_SUJET, obj)
+        return obj
+    if isinstance(obj, dict):
+        return {k: _caviarder_objet(v, motifs) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_caviarder_objet(v, motifs) for v in obj]
+    return obj
+
+
+def filtrer_sortie_agent(result, agent, args=None, ring=None):
+    """Point d'envoi du hub : retient le prive pour un agent expose. Pas d'alias : ces agents n'ont pas d'`unwrap`.
+    Un filtre en panne se ferme pour eux : retenir une sortie se rattrape, une fuite non."""
+    if not agent_expose(agent, ring):
+        return result
+    try:
+        s = _sujets_compiles()
+        args = args if isinstance(args, dict) else {}
+        if any(_chemin_prive(args.get(c), s["chemins"]) for c in ("path", "file_path", "script") if args.get(c)):
+            return "[SUJET PRIVE] fichier prive retenu pour cet agent : tache a confier a un modele sans retention ou local."
+        return _caviarder_objet(result, s["masques"])
+    except Exception as exc:  # noqa: BLE001 - voir la docstring
+        logger.warning("[membrane] filtre des sujets prives en panne (%s) : sortie retenue pour %s", type(exc).__name__, agent)
+        return "[SUJET PRIVE] filtre indisponible (%s) : sortie retenue pour cet agent." % type(exc).__name__
+
+
+def refus_sujet_prive(description, agent) -> str | None:
+    """Motif de refus si une consigne touche un sujet prive et que l'agent est expose. Ne cite jamais le sujet."""
+    if not agent_expose(agent):
+        return None
+    try:
+        s = _sujets_compiles()
+        texte = str(description or "")
+        jetons = re.findall(r"[\w./\\:\-]+", texte)
+        if any(m.search(texte) for m in s["mots"]) or any(_chemin_prive(j, s["chemins"]) for j in jetons):
+            return ("[SUJET PRIVE] consigne touchant un sujet prive refusee pour %s : a confier a un modele sans retention "
+                    "ou local (choix owner du 6/11)." % agent)
+        return None
+    except Exception as exc:  # noqa: BLE001 - liste illisible : on n'envoie pas, et on le dit
+        return "[SUJET PRIVE] filtre indisponible (%s) : consigne non envoyee a %s." % (type(exc).__name__, agent)
+
+
 def _get_guardian():
     import sys
 
@@ -439,6 +608,19 @@ class SovereignMembrane:
                 result = result.replace(val, alias)
                 count += 1
 
+        # Sujets prives : meme definition que la publication.
+        try:
+            for pattern in _sujets_compiles()["masques"]:
+                for val in {m.group(0) for m in pattern.finditer(result)}:
+                    result = result.replace(val, self._make_alias(val, "SUJET_PRIVE"))
+                    count += 1
+            for pattern, category in _motifs_secrets():
+                for val in {m.group(0) for m in pattern.finditer(result)}:
+                    result = result.replace(val, self._make_alias(val, category))
+                    count += 1
+        except Exception as exc:  # noqa: BLE001 - sans la liste, la couverture baisse : on le DIT
+            logger.warning("[membrane] sujets prives ou secrets illisibles (%s) : couverture reduite", type(exc).__name__)
+
         return result, count
 
     # ── PUBLIC API ────────────────────────────────────────────────────────────
@@ -461,7 +643,8 @@ class SovereignMembrane:
     _GROSSIERS_POUR_LE_CODE = {"WINPATH", "NIXPATH", "WINUSER"}
 
     def _motifs_reversibles(self) -> list[tuple[re.Pattern, str]]:
-        motifs: list[tuple[re.Pattern, str]] = []
+        # Sujets d'abord, sans repli : une liste illisible leve, et la passerelle ne laisse alors rien partir (503).
+        motifs: list[tuple[re.Pattern, str]] = [(p, "SUJET_PRIVE") for p in _sujets_compiles()["masques"]] + _motifs_secrets()
         try:
             from nokido_agent.app.forge_semantic_firewall import _REDACT_PATTERNS
 

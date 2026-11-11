@@ -78,10 +78,12 @@ STATUS = ROOT / "sandbox" / "comm_watch_status.json"
 
 # ── Briques de comm surveillees : (label, path, kind) ────────────────────────
 # kind=file -> hash du contenu ; kind=dir -> empreinte du LISTING (set d'outils
-# exposes = surface critique : un outil read/write qui apparait/disparait).
+# exposes = surface critique : un outil read/write qui apparait/disparait) ;
+# kind=json_mcp -> hash des seuls mcpServers (global et par projet) : ~/.claude.json
+# porte aussi des compteurs reecrits a chaque session, sans rapport avec la comm.
 WATCHED: list[tuple[str, Path, str]] = [
     # Clients CLI (bras armes)
-    ("claude_code.mcp", HOME / ".claude.json", "file"),
+    ("claude_code.mcp", HOME / ".claude.json", "json_mcp"),
     ("gemini.settings", HOME / ".gemini" / "settings.json", "file"),
     ("agy.mcp_config", HOME / ".gemini" / "config" / "mcp_config.json", "file"),
     ("agy.tools_exposed", HOME / ".gemini" / "antigravity-cli" / "mcp" / "laforge-sovereign-hub", "dir"),
@@ -97,6 +99,20 @@ WATCHED: list[tuple[str, Path, str]] = [
 ]
 
 
+def _empreinte_serveurs(mcp: dict) -> dict:
+    """{serveur: {champ: hash court}} : de quoi dire QUOI a change, sans valeur ni URL ni en-tete
+    (~/.claude.json peut porter des jetons). Un serveur de projet est prefixe par son projet."""
+    def _h(v) -> str:
+        return hashlib.sha256(json.dumps(v, sort_keys=True).encode("utf-8")).hexdigest()[:8]
+
+    sortie = {}
+    groupes = [("", mcp["global"])] + [(f"{k}::", v) for k, v in mcp["projets"].items()]
+    for prefixe, serveurs in groupes:
+        for nom, conf in serveurs.items():
+            sortie[prefixe + nom] = {c: _h(v) for c, v in conf.items()} if isinstance(conf, dict) else {"*": _h(conf)}
+    return sortie
+
+
 def _fingerprint(path: Path, kind: str) -> dict:
     """Empreinte d'une brique : existe ? + hash (file) / set d'entrees (dir)."""
     if not path.exists():
@@ -109,7 +125,22 @@ def _fingerprint(path: Path, kind: str) -> dict:
         data = path.read_bytes()
     except Exception as e:  # noqa: BLE001
         return {"exists": True, "hash": f"ERR:{e}", "entries": None}
-    return {"exists": True, "hash": hashlib.sha256(data).hexdigest()[:16], "entries": None}
+    serveurs = None
+    if kind == "json_mcp":
+        try:
+            conf = json.loads(data)
+            mcp = {"global": conf.get("mcpServers") or {},
+                   "projets": {k: v.get("mcpServers") for k, v in (conf.get("projects") or {}).items()
+                               if v.get("mcpServers")}}
+            data = json.dumps(mcp, sort_keys=True).encode("utf-8")
+            serveurs = _empreinte_serveurs(mcp)
+        except (ValueError, AttributeError) as e:
+            # Illisible n'est pas inchange : le changement se voit, avec sa nature.
+            return {"exists": True, "hash": f"ILLISIBLE:{type(e).__name__}", "entries": None}
+    fp = {"exists": True, "hash": hashlib.sha256(data).hexdigest()[:16], "entries": None}
+    if serveurs is not None:
+        fp["serveurs"] = serveurs
+    return fp
 
 
 def snapshot() -> dict:
@@ -131,6 +162,16 @@ def _save_state(snap: dict) -> None:
         log.error("save state KO: %s", e)
 
 
+def _detail_serveurs(avant: dict, apres: dict) -> str:
+    """Serveurs ajoutes, retires, et modifies avec le nom de leurs champs : jamais une valeur."""
+    modifies = []
+    for nom in sorted(set(avant) & set(apres)):
+        champs = sorted(c for c in set(avant[nom]) | set(apres[nom]) if avant[nom].get(c) != apres[nom].get(c))
+        if champs:
+            modifies.append(f"{nom}({','.join(champs)})")
+    return f"serveurs +{sorted(set(apres) - set(avant))} -{sorted(set(avant) - set(apres))} ~{modifies}"
+
+
 def diff(prev: dict, cur: dict) -> list[dict]:
     """Changements essentiels entre deux snapshots."""
     changes = []
@@ -150,6 +191,11 @@ def diff(prev: dict, cur: dict) -> list[dict]:
                 removed = sorted(set(p.get("entries") or []) - set(c["entries"]))
                 if added or removed:
                     d["detail"] = f"outils +{added} -{removed}"
+            if c.get("serveurs") is not None:
+                if p.get("serveurs") is not None:
+                    d["detail"] = _detail_serveurs(p["serveurs"], c["serveurs"])
+                else:
+                    d["detail"] += " ; serveur non nomme : l'etat d'avant n'a pas le detail"
             changes.append(d)
     return changes
 

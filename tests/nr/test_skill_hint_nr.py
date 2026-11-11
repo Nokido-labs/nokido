@@ -160,7 +160,7 @@ def test_verifier_refuse_une_skill_absente_ou_retiree(tmp_path):
 
 def test_point_d_entree_verifier():
     r = subprocess.run([sys.executable, str(TOOLS / "forge_skill_hint.py"), "--verifier"],
-                       capture_output=True, text=True, errors="replace", timeout=60, cwd=str(ROOT))
+                       capture_output=True, text=True, errors="replace", timeout=25, cwd=str(ROOT))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "skill_triggers : CONFORME" in r.stdout
 

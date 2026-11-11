@@ -212,9 +212,39 @@ def releve_appelants(conns, vivants: dict, pid_service: dict, identites: dict, v
         else:
             anc = inv.ancetre_identifie(c.pid, vivants, pid_service, identites)
             service = anc["identite"] if anc else "ILLISIBLE"
-        lignes.append({"ts": now, "pid": c.pid, "nom": (vivants.get(c.pid) or {}).get("nom"),
-                       "service": service})
+        moi = vivants.get(c.pid) or {}
+        ligne = {"ts": now, "pid": c.pid, "nom": moi.get("nom"), "service": service,
+                 "script": moi.get("script")}
+        if service == "ILLISIBLE":
+            # capture A CHAUD : un appelant ephemere meurt avant toute identification differee
+            chaine, pid = [], moi.get("ppid")
+            for _ in range(_PROFONDEUR_PARENTS):
+                v = vivants.get(pid)
+                if not v:
+                    break
+                chaine.append({"pid": pid, "nom": v.get("nom"), "script": v.get("script")})
+                pid = v.get("ppid")
+            ligne["chaine"] = chaine
+        lignes.append(ligne)
     return lignes, courants
+
+
+_EXT_SCRIPT = (".py", ".pyw", ".ps1", ".bat", ".cmd", ".js", ".ts", ".mjs")
+
+
+def _script_de(cmdline) -> str | None:
+    """Ce que le processus EXECUTE (script ou module -m), JAMAIS ses arguments (secrets possibles)."""
+    if not cmdline:
+        return None
+    args = list(cmdline)
+    for i, a in enumerate(args[1:], start=1):
+        if a == "-m" and i + 1 < len(args):
+            return "-m " + args[i + 1]
+        if a == "-c":
+            return "-c"
+        if not a.startswith("-") and a.lower().endswith(_EXT_SCRIPT):
+            return a
+    return os.path.basename(str(args[0]).replace("\\", "/")) or None
 
 
 def _vivants_des_chaines(conns, port: int = PORT_OLLAMA) -> dict:
@@ -232,6 +262,10 @@ def _vivants_des_chaines(conns, port: int = PORT_OLLAMA) -> dict:
             try:
                 p = psutil.Process(pid)
                 out[pid] = {"nom": p.name(), "ppid": p.ppid(), "cree": p.create_time()}
+                try:
+                    out[pid]["script"] = _script_de(p.cmdline())
+                except Exception:  # noqa: BLE001 - cmdline refusee : dit, pas devine
+                    out[pid]["script"] = "ILLISIBLE"
                 pid = out[pid]["ppid"]
             except Exception:  # noqa: BLE001 - processus parti/refuse : la chaine s'arrete, service = ILLISIBLE
                 break

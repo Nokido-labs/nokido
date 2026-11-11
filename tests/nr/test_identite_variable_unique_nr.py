@@ -12,7 +12,9 @@ def _src(rel):
 
 
 def _env_blocs(rel):
-    return [b for b in _ENV.findall(_src(rel)) if "FORGE_TOKEN_CLAUDE_DESKTOP" in b]
+    # Repere par l'agent, plus par le jeton : depuis le 3/11 le bloc env ne porte plus aucun jeton
+    # (le pont lit le coffre) -- cf. test_generateurs_clients_sans_jeton_nr.
+    return [b for b in _ENV.findall(_src(rel)) if "CLAUDE_DESKTOP" in b]
 
 
 def test_provision_pose_laforge_agent():

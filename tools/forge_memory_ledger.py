@@ -140,6 +140,7 @@ def sync(memory_dir=None, rapide=False):
     db = memory_dir / "_memory_ledger.db"
     conn = _conn(db)
     n = 0
+    changees = []
     present = set()
     # Sous Windows, DirEntry.stat() vient du listage du dossier : aucune fiche ouverte.
     stats = {e.name: e.stat() for e in os.scandir(memory_dir)} if rapide else {}
@@ -159,6 +160,7 @@ def sync(memory_dir=None, rapide=False):
         nm, mt, ds = _meta(text)
         ev = "created" if last_sha is None else ("recreated" if last_ev == "deleted" else "updated")
         _append(conn, f.name, nm or f.stem, mt, ds, sha, len(raw), ev, text)
+        changees.append(f.name)
         n += 1
     for (fn,) in conn.execute("SELECT DISTINCT fname FROM memory_ledger").fetchall():
         if fn in present:
@@ -169,7 +171,7 @@ def sync(memory_dir=None, rapide=False):
             n += 1
     conn.commit()
     conn.close()
-    return {"appended": n, "db": str(db)}
+    return {"appended": n, "db": str(db), "changees": changees}
 
 
 def verify():

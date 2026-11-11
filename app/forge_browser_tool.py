@@ -138,7 +138,10 @@ async def browser_ingest_to_rag(
     conn = sqlite3.connect(db_path, timeout=5)
     conn.execute("PRAGMA journal_mode=WAL")
     inserted = 0
+    from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
     for i, chunk in enumerate(chunks):
+        if not admis_a_l_ingestion(source_url, chunk):
+            continue
         cid = "brw_" + hashlib.md5(f"{source_url}{i}".encode()).hexdigest()[:12]
         conn.execute(
             "INSERT OR REPLACE INTO rag_chunks"

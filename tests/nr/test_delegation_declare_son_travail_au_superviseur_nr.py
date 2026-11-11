@@ -97,7 +97,7 @@ def test_opencode_declare_son_travail_pendant_le_tour(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "_etat_git", lambda wt_: None)
     monkeypatch.setattr(T, "_committer_pour_agent", lambda *a, **k: "commit ok")
     monkeypatch.setattr(T, "_juger_livraison",
-                        lambda ok, detail, wt_, avant, autorises=None, desc=None: (ok, "commits produits : 1", "OK_DONE"))
+                        lambda ok, detail, wt_, avant, autorises=None, desc=None, **_k: (ok, "commits produits : 1", "OK_DONE"))
     monkeypatch.setattr(T, "_jeton_opencode_instance", lambda inst: "jeton_coffre_%s" % inst)
     monkeypatch.setattr(T, "_clore_delegation", lambda *a, **k: None)
     T._delegate_to_opencode({"id": "job_pouls_01", "agent": "OPENCODE_GLM",

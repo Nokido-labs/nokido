@@ -197,8 +197,78 @@ def _log_crash(events: list[dict]):
         return False
 
 
+def _query_sorties_nssm(last_record_id: int = 0) -> list[dict]:
+    """Sorties d'un enfant de NSSM (journal Application, 1013). NSSM le relance sans passer par le gestionnaire de services :
+    aucun 7031/7034. 6/11 : le superviseur tue deux fois sans aucune trace dans Nokido. Journal muet -> [] et WARNING."""
+    script = f"""
+$ErrorActionPreference='SilentlyContinue'
+Get-WinEvent -FilterHashtable @{{LogName='Application';ProviderName='nssm';Id=1013}} -MaxEvents 100 |
+  Where-Object {{ $_.RecordId -gt {last_record_id} }} |
+  ForEach-Object {{
+    [PSCustomObject]@{{
+      record_id = $_.RecordId
+      service = [string]$_.Properties[1].Value
+      event_id = $_.Id
+      code = [string]$_.Properties[2].Value
+      time = $_.TimeCreated.ToString('o')
+    }} | ConvertTo-Json -Compress
+  }}
+"""
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                           text=True, timeout=30, errors="replace")
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"journal nssm illisible : {e}")
+        return []
+    sorties = []
+    for ligne in (r.stdout or "").splitlines():
+        ligne = ligne.strip()
+        if not ligne.startswith("{"):
+            continue
+        try:
+            evt = json.loads(ligne)
+            evt["record_id"] = int(evt["record_id"])
+            sorties.append(evt)
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning(f"sortie nssm illisible : {e}")
+    return sorties
+
+
+def _sorties_anormales(sorties: list[dict]) -> list[dict]:
+    """Un code 0 est un arret propre (18:45:58, avant le reboot du 6/11) ; un code illisible reste signale."""
+    return [e for e in sorties if str(e.get("code")) != "0"]
+
+
+def _curseur_initial(cle: str = "last_record_id") -> int:
+    """Le curseur du dernier passage, deja ecrit dans le heartbeat. 6/11 : il ne vivait qu'en memoire, chaque redemarrage
+    de la stack re-emettait tous les crashs Nokido encore presents dans les 500 derniers evenements du journal."""
+    try:
+        return int(json.loads(HEARTBEAT.read_text(encoding="utf-8")).get(cle) or 0)
+    except (OSError, ValueError, TypeError, AttributeError):  # muet-ok : sans curseur, main filtre par age
+        return 0
+
+
+def _retenir_au_demarrage(events: list[dict], maintenant: float | None = None, age_max_s: float = 3600.0) -> list[dict]:
+    """Sans curseur lisible : ni rejouer tout l'historique, ni tout taire. Une date illisible n'est pas une preuve
+    d'anciennete : l'evenement reste."""
+    instant = time.time() if maintenant is None else maintenant
+    garde = []
+    for evt in events:
+        try:
+            quand = _evt_epoch(evt)
+            if quand is None or instant - float(quand) <= age_max_s:
+                garde.append(evt)
+        except (TypeError, ValueError):  # muet-ok : date illisible, evenement garde
+            garde.append(evt)
+    return garde
+
+
 def main():
     global _LAST_RECORD_ID
+    _LAST_RECORD_ID = _curseur_initial()
+    sans_curseur = _LAST_RECORD_ID == 0
+    curseur_nssm = _curseur_initial("last_record_id_nssm")
+    nssm_sans_curseur = curseur_nssm == 0
     signal.signal(signal.SIGINT, _signal_handler)
     signal.signal(signal.SIGTERM, _signal_handler)
 
@@ -210,16 +280,28 @@ def main():
         iter_count += 1
         events = _query_crash_events(_LAST_RECORD_ID)
         if events:
-            _log_crash(events)
-            total_events += len(events)
+            a_emettre = _retenir_au_demarrage(events) if sans_curseur else events
+            sans_curseur = False
+            if a_emettre:
+                _log_crash(a_emettre)
+            total_events += len(a_emettre)
             max_rid = max(e["record_id"] for e in events)
             if max_rid > _LAST_RECORD_ID:
                 _LAST_RECORD_ID = max_rid
+        sorties = _query_sorties_nssm(curseur_nssm)
+        if sorties:
+            a_emettre = _sorties_anormales(_retenir_au_demarrage(sorties) if nssm_sans_curseur else sorties)
+            nssm_sans_curseur = False
+            if a_emettre:
+                _log_crash(a_emettre)
+            total_events += len(a_emettre)
+            curseur_nssm = max(curseur_nssm, max(e["record_id"] for e in sorties))
         _heartbeat(
             {
                 "iter": iter_count,
                 "total_events_logged": total_events,
                 "last_record_id": _LAST_RECORD_ID,
+                "last_record_id_nssm": curseur_nssm,
                 "health": "ok",
             }
         )

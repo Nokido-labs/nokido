@@ -9,12 +9,23 @@ meme faute que publier une skill non prouvee.
 SECURITY BY DESIGN, pas apres coup (consigne owner n.4). L'authentification est
 posee a la premiere ligne, pas ajoutee ensuite :
 
-  - jeton lu au COFFRE, compare en temps constant ;
-  - FAIL-CLOSED : coffre illisible => REFUS. Ouvrir parce qu'on n'a pas pu lire le
-    secret est le defaut `sandbox=<inconnu>` du 2026-09-01, ou une entree invalide
-    obtenait PLUS de droits qu'une valide ;
-  - l'identite vient du JETON : `X-Agent-Name` n'est retenu que si le Bearer est
-    valide (un nom non adosse a un jeton DEGRADE l'identite, mesure 2026-08-10) ;
+  - l'identite vient du JETON et de lui seul (07/11) : le Bearer passe par
+    `verifier_slot` (app/forge_llm_format_bridge.py), qui rend le slot (agent)
+    prouve par le jeton. Aucun en-tete declaratif n'est lu ; le jeton du hub ne
+    designe aucun slot et n'est plus accepte ;
+  - FAIL-CLOSED : verificateur introuvable ou en echec => REFUS. Ouvrir parce qu'on
+    n'a pas pu verifier est le defaut `sandbox=<inconnu>` du 2026-09-01, ou une
+    entree invalide obtenait PLUS de droits qu'une valide ;
+  - CLOISONNEMENT (spec A2A 13.1) : une tache n'est lue ou annulee que par le slot
+    qui l'a creee ; la recherche est indexee par (proprietaire, id), donc le
+    controle precede la lecture, et un autre appelant recoit EXACTEMENT la reponse
+    d'une tache inconnue. `tasks/get` / `tasks/cancel` ne rendent qu'une liste
+    blanche : id, contextId, status.state, metadata{attempt, cause_echec,
+    empreinte opaque} ;
+  - `taskId` fourni par le client : tache inconnue (ou d'autrui) => TaskNotFound,
+    jamais de creation ni d'ecrasement ; une tache terminale ne redemarre pas ;
+  - registre BORNE (`MAX_TACHES`) : eviction bornee des seules taches terminales,
+    jamais d'une active ; plein d'actives => refus explicite ;
   - `/.well-known/agent-card.json` est PUBLIQUE (c'est sa fonction : la decouverte),
     la carte ETENDUE exige le jeton ;
   - tout est journalise avec correlation `agent` / `request_id` / `task_id`, et le
@@ -39,6 +50,8 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 __FORGE_COLOR__ = "reseau/interoperabilite-a2a"
 
+import copy
+import hashlib
 import hmac
 import json
 import logging
@@ -46,18 +59,36 @@ import os
 import secrets
 import sys
 import time
+from collections import OrderedDict, deque
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PORT_DEFAUT = int(os.environ.get("A2A_PORT", "7783"))
+
+# Version SERVIE : majeure.mineure (spec A2A, AgentCard.protocolVersion : « Use the
+# latest supported minor version per major version. Examples: "0.3", "1.0" »).
+# Les methodes JSON-RPC servies sont celles de la liaison 0.3 (`message/send`,
+# `tasks/get`, `tasks/cancel`) ; annoncer "1.0" serait promettre `SendMessage`.
+PROTOCOLE_SERVI = "0.3"
 
 # Cycle de vie A2A. `canceled` est un ETAT, pas une suppression : une tache
 # annulee reste consultable par `tasks/get` — sinon on perd la trace de ce qui a
 # ete demande, et l'annulation devient indiscernable de l'inexistence.
 SOUMISE, TRAVAIL, TERMINEE, ANNULEE, ECHOUEE = (
     "submitted", "working", "completed", "canceled", "failed")
+ACTIFS = (SOUMISE, TRAVAIL)
+TERMINAUX = (TERMINEE, ANNULEE, ECHOUEE)
 
-_TACHES: dict = {}
+# Registre BORNE, indexe par (proprietaire, id) : le cloisonnement EST la cle, la
+# lecture d'une tache d'autrui est impossible par construction (spec 13.1 : le
+# controle d'autorisation precede toute lecture qui trahirait l'existence).
+MAX_TACHES = int(os.environ.get("A2A_MAX_TACHES", "1000"))
+_EVICTION_MAX = 16          # evictions par insertion : cout borne
+_TACHES: "OrderedDict[tuple, dict]" = OrderedDict()
+_A_EXECUTER: deque = deque()  # cles (proprietaire, id) soumises en non bloquant
+# Cle d'empreinte propre au PROCESSUS : l'empreinte est opaque (ne se recalcule
+# pas hors du serveur, ne permet pas de deviner le contenu par dictionnaire).
+_CLE_EMPREINTE = secrets.token_bytes(32)
 
 
 def _journal(evenement: str, **champs) -> None:
@@ -94,36 +125,36 @@ def _journal(evenement: str, **champs) -> None:
     print("[a2a] %s %s" % (evenement, detail), file=sys.stderr, flush=True)
 
 
-def _secret_attendu():
-    """(jeton, source) depuis le coffre ; (None, raison) si illisible."""
-    try:
+def _verificateur():
+    """La voie UNIQUE de preuve d'identite : `verifier_slot` (import paresseux).
+
+    Paresseux pour que charger ce module ne charge pas le pont LLM (qui lit le
+    coffre a l'import). Une ImportError remonte : `admission` la traduit en refus.
+    """
+    if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_secrets import get_secret
-    except Exception as e:  # noqa: BLE001
-        return None, "coffre indisponible (%s)" % type(e).__name__
-    for cle in ("FORGE_A2A_TOKEN", "FORGE_MCP_TOKEN"):
-        try:
-            v = get_secret(cle)
-        except Exception:  # noqa: BLE001  # muet-ok : on essaie la clef suivante
-            continue
-        if v and v.strip():
-            return v.strip(), cle
-    return None, "aucun jeton au coffre"
+    from nokido_agent.app.forge_llm_format_bridge import verifier_slot
+    return verifier_slot
 
 
 def admission(entetes) -> tuple:
-    """(ok, agent, motif). Aucune identite declaree n'est crue avant le jeton."""
-    attendu, source = _secret_attendu()
-    if not attendu:
-        return False, None, "FAIL-CLOSED: %s" % source
-    brut = entetes.get("Authorization", "") or ""
-    presente = brut[7:].strip() if brut[:7].lower() == "bearer " else ""
-    if not presente:
-        return False, None, "aucun Bearer presente"
-    if not hmac.compare_digest(presente, attendu):
-        return False, None, "jeton invalide"
-    nom = (entetes.get("X-Agent-Name") or "").strip()[:40]
-    return True, (nom or "anonyme-authentifie"), "jeton %s accepte" % source
+    """(ok, agent, motif). L'agent est le slot PROUVE par le jeton, rien d'autre.
+
+    Aucun en-tete declaratif n'est lu. Fail-closed : verificateur introuvable, qui
+    leve, ou qui rend un slot sans agent => refus. Le jeton n'est jamais journalise.
+    """
+    try:
+        verifier = _verificateur()
+    except Exception as e:  # noqa: BLE001 - introuvable = rien ne se prouve = refus
+        return False, None, "FAIL-CLOSED: verificateur indisponible (%s)" % type(e).__name__
+    try:
+        ok, motif, slot = verifier(entetes.get("Authorization", "") or "")
+    except Exception as e:  # noqa: BLE001 - verification en echec = refus
+        return False, None, "FAIL-CLOSED: verification en echec (%s)" % type(e).__name__
+    if not ok or not isinstance(slot, dict) or not slot.get("agent"):
+        return False, None, str(motif or "slot non prouve")
+    agent = str(slot["agent"]).upper()
+    return True, agent, "slot %s prouve (voie %s)" % (agent, slot.get("voie", "?"))
 
 
 def _erreur(rid, code, message):
@@ -131,68 +162,221 @@ def _erreur(rid, code, message):
             "error": {"code": code, "message": message}}
 
 
-def traiter(methode: str, params: dict, rid, agent: str) -> dict:
-    """Les trois verbes Tier 1. Toute transition d'etat est journalisee."""
-    if methode == "message/send":
-        msg = (params or {}).get("message") or {}
-        textes = [p.get("text", "") for p in (msg.get("parts") or [])
-                  if p.get("kind") == "text" or "text" in p]
-        tid = params.get("taskId") or "task-" + secrets.token_hex(8)
-        tache = {
-            "id": tid,
-            "contextId": params.get("contextId") or "ctx-" + secrets.token_hex(6),
-            "status": {"state": SOUMISE, "timestamp": time.time()},
-            "history": [{"role": msg.get("role", "user"), "parts": msg.get("parts", [])}],
-            "artifacts": [],
-            "nokido:agent": agent,
-        }
-        _TACHES[tid] = tache
-        _journal("TASK_CREATED", agent=agent, request_id=rid, task_id=tid,
-                 parts=len(msg.get("parts") or []))
-        # Traitement synchrone borne : on ne PRETEND pas etre asynchrone tant
-        # qu'aucun worker ne l'est. L'etat final est donc immediat et VRAI.
-        tache["artifacts"].append({
+def _introuvable(rid):
+    """UNE seule forme pour « inconnue » et « d'autrui » : rien ne trahit l'existence."""
+    return _erreur(rid, -32001, "Task not found")
+
+
+def _cle(agent, tid):
+    """Cle cloisonnee, ou None si l'id n'est pas une chaine (jamais de lecture)."""
+    if not isinstance(tid, str) or not tid or not agent:
+        return None
+    return (agent, tid)
+
+
+def _etat(rec, etat, cause=None):
+    rec["tache"]["status"] = {"state": etat, "timestamp": time.time()}
+    if cause is not None:
+        rec["cause_echec"] = cause
+    _journal("TASK_STATE", agent=rec["proprio"], task_id=rec["tache"]["id"], state=etat)
+
+
+def _empreinte(rec) -> str:
+    """Empreinte OPAQUE (HMAC a cle de processus) du contenu et de l'etat."""
+    t = rec["tache"]
+    brut = json.dumps([t["status"]["state"], t["history"], t["artifacts"]],
+                      sort_keys=True, ensure_ascii=False, default=str).encode()
+    return hmac.new(_CLE_EMPREINTE, brut, hashlib.sha256).hexdigest()[:24]
+
+
+def _vue(rec) -> dict:
+    """Liste blanche de sortie de `tasks/get` / `tasks/cancel`.
+
+    Champs du schema Task (id, contextId, status) + `metadata` (map cle/valeur
+    libre prevue par la spec) : attempt, cause_echec, empreinte. Ni historique, ni
+    artefact, ni proprietaire.
+    """
+    t = rec["tache"]
+    return {"id": t["id"], "contextId": t["contextId"],
+            "status": {"state": t["status"]["state"],
+                       "timestamp": t["status"]["timestamp"]},
+            "metadata": {"attempt": rec["attempt"],
+                         "cause_echec": rec["cause_echec"],
+                         "empreinte": _empreinte(rec)}}
+
+
+def _faire_place() -> bool:
+    """Borne `_TACHES` : evince au plus `_EVICTION_MAX` taches TERMINALES, les plus
+    anciennes d'abord. Une active n'est JAMAIS evincee ; plein d'actives => False."""
+    if len(_TACHES) < MAX_TACHES:
+        return True
+    evincees = 0
+    for cle in list(_TACHES):
+        if len(_TACHES) < MAX_TACHES or evincees >= _EVICTION_MAX:
+            break
+        if _TACHES[cle]["tache"]["status"]["state"] in TERMINAUX:
+            del _TACHES[cle]
+            evincees += 1
+            _journal("TASK_EVICTED", agent=cle[0], task_id=cle[1])
+    return len(_TACHES) < MAX_TACHES
+
+
+def _executer(rec) -> None:
+    """Le travail lui-meme (borne, synchrone). Une tache non active n'est pas touchee."""
+    if rec["tache"]["status"]["state"] not in ACTIFS:
+        return
+    rec["attempt"] += 1
+    _etat(rec, TRAVAIL)
+    try:
+        t = rec["tache"]
+        textes = [p.get("text", "") for m in t["history"]
+                  for p in (m.get("parts") or [])
+                  if isinstance(p, dict) and (p.get("kind") == "text" or "text" in p)]
+        t["artifacts"].append({
             "artifactId": "a-" + secrets.token_hex(6),
             "parts": [{"kind": "text",
-                       "text": "recu par Nokido : %s" % (" ".join(textes)[:400] or "(vide)")}],
+                       "text": "recu par Nokido : %s"
+                               % (" ".join(map(str, textes))[:400] or "(vide)")}],
         })
-        tache["status"] = {"state": TERMINEE, "timestamp": time.time()}
-        _journal("TASK_STATE", agent=agent, task_id=tid, state=TERMINEE)
-        return {"jsonrpc": "2.0", "id": rid, "result": tache}
+    except Exception as e:  # noqa: BLE001 - l'echec devient un ETAT, pas un silence
+        _etat(rec, ECHOUEE, cause=type(e).__name__)
+        return
+    _etat(rec, TERMINEE)
+
+
+def executer_en_attente(maxi: int = 64) -> int:
+    """Executeur DIFFERE des taches soumises en non bloquant. Rend le nombre traite.
+
+    Une tache annulee entre-temps est sautee (l'annulation gagne) ; une cle evincee
+    ou disparue est ignoree. Appele par le serveur apres la reponse, jamais par
+    `tasks/get` : lire n'execute rien.
+    """
+    n = 0
+    while _A_EXECUTER and n < maxi:
+        rec = _TACHES.get(_A_EXECUTER.popleft())
+        if rec is not None and rec["tache"]["status"]["state"] == SOUMISE:
+            _executer(rec)
+            n += 1
+    return n
+
+
+def _envoyer(params: dict, rid, agent: str) -> dict:
+    msg = params.get("message") or {}
+    if not isinstance(msg, dict):
+        return _erreur(rid, -32602, "Invalid params: message")
+    parts = msg.get("parts") or []
+    if not isinstance(parts, list):
+        return _erreur(rid, -32602, "Invalid params: message.parts")
+    config = params.get("configuration") or {}
+    non_bloquant = isinstance(config, dict) and config.get("blocking") is False
+    entree = {"role": msg.get("role", "user"), "parts": parts}
+
+    # Spec 3.4.2 : un taskId fourni designe une tache EXISTANTE ; inconnu =>
+    # TaskNotFound, et le client ne cree jamais de tache par ce champ.
+    tid_client = msg.get("taskId") or params.get("taskId")
+    if tid_client is not None:
+        cle = _cle(agent, tid_client)
+        rec = _TACHES.get(cle) if cle else None
+        if rec is None:
+            _journal("TASK_CONTINUE", agent=agent, request_id=rid, resultat="introuvable")
+            return _introuvable(rid)
+        if rec["tache"]["status"]["state"] in TERMINAUX:
+            # Une tache terminale ne redemarre pas (A2A, life-of-a-task). Le code
+            # d'erreur A2A dedie n'est pas lisible dans le corpus : JSON-RPC standard.
+            _journal("TASK_CONTINUE", agent=agent, task_id=tid_client,
+                     resultat="terminale", state=rec["tache"]["status"]["state"])
+            return _erreur(rid, -32602, "Invalid params: task is in a terminal state")
+        rec["tache"]["history"].append(entree)
+        _journal("TASK_CONTINUE", agent=agent, request_id=rid, task_id=tid_client,
+                 parts=len(parts))
+    else:
+        if not _faire_place():
+            _journal("TASK_REFUSED", agent=agent, request_id=rid,
+                     motif="registre plein de taches actives", max=MAX_TACHES)
+            return _erreur(rid, -32603, "Task store full: retry later")
+        tid = "task-" + secrets.token_hex(8)
+        ctx = msg.get("contextId") or params.get("contextId")
+        rec = {"proprio": agent, "attempt": 0, "cause_echec": None,
+               "tache": {"id": tid,
+                         "contextId": ctx if isinstance(ctx, str) and ctx
+                         else "ctx-" + secrets.token_hex(6),
+                         "status": {"state": SOUMISE, "timestamp": time.time()},
+                         "history": [entree],
+                         "artifacts": []}}
+        _TACHES[(agent, tid)] = rec
+        _journal("TASK_CREATED", agent=agent, request_id=rid, task_id=tid,
+                 parts=len(parts))
+
+    if non_bloquant:
+        # Spec : non bloquant => retour IMMEDIAT apres creation ; l'executeur
+        # differe fera le travail. Entre-temps, `tasks/cancel` peut l'annuler.
+        _A_EXECUTER.append((agent, rec["tache"]["id"]))
+    else:
+        _executer(rec)
+    return {"jsonrpc": "2.0", "id": rid, "result": copy.deepcopy(rec["tache"])}
+
+
+def traiter(methode: str, params: dict, rid, agent: str) -> dict:
+    """Les trois verbes Tier 1. `agent` = slot prouve par le jeton (cf. admission)."""
+    params = params if isinstance(params, dict) else {}
+    if methode == "message/send":
+        return _envoyer(params, rid, agent)
 
     if methode == "tasks/get":
-        tid = (params or {}).get("id")
-        t = _TACHES.get(tid)
+        tid = params.get("id")
+        cle = _cle(agent, tid)
+        rec = _TACHES.get(cle) if cle else None
         _journal("TASK_GET", agent=agent, request_id=rid, task_id=tid,
-                 trouve=bool(t))
-        if not t:
-            return _erreur(rid, -32001, "Task not found")
-        return {"jsonrpc": "2.0", "id": rid, "result": t}
+                 trouve=rec is not None)
+        if rec is None:
+            return _introuvable(rid)
+        return {"jsonrpc": "2.0", "id": rid, "result": _vue(rec)}
 
     if methode == "tasks/cancel":
-        tid = (params or {}).get("id")
-        t = _TACHES.get(tid)
-        if not t:
+        tid = params.get("id")
+        cle = _cle(agent, tid)
+        rec = _TACHES.get(cle) if cle else None
+        if rec is None:
             _journal("TASK_CANCEL", agent=agent, task_id=tid, resultat="introuvable")
-            return _erreur(rid, -32001, "Task not found")
-        if t["status"]["state"] in (TERMINEE, ECHOUEE):
+            return _introuvable(rid)
+        etat = rec["tache"]["status"]["state"]
+        if etat == ANNULEE:
+            # Idempotent (spec 3.3.1) : re-annuler rend l'etat, pas une erreur.
+            _journal("TASK_CANCEL", agent=agent, task_id=tid, resultat="deja annulee")
+            return {"jsonrpc": "2.0", "id": rid, "result": _vue(rec)}
+        if etat in TERMINAUX:
             # Refus EXPLICITE plutot que silence : annuler l'acheve n'a pas de sens,
             # et le dire evite qu'un appelant croie avoir annule.
             _journal("TASK_CANCEL", agent=agent, task_id=tid,
-                     resultat="non annulable", state=t["status"]["state"])
+                     resultat="non annulable", state=etat)
             return _erreur(rid, -32002, "Task cannot be canceled")
-        t["status"] = {"state": ANNULEE, "timestamp": time.time()}
-        _journal("TASK_STATE", agent=agent, task_id=tid, state=ANNULEE)
-        return {"jsonrpc": "2.0", "id": rid, "result": t}
+        _etat(rec, ANNULEE)
+        return {"jsonrpc": "2.0", "id": rid, "result": _vue(rec)}
 
     _journal("METHODE_INCONNUE", agent=agent, request_id=rid, methode=methode)
-    return _erreur(rid, -32601, "Method not found: %s" % methode)
+    return _erreur(rid, -32601, "Method not found: %s" % str(methode)[:80])
 
 
-def serve(port: int = PORT_DEFAUT, host: str = "127.0.0.1"):
+def carte_servie(etendue: bool = False, port: int = PORT_DEFAUT) -> dict:
+    """La carte generee, avec la version de protocole REELLEMENT servie ici."""
+    try:
+        from nokido_agent.tools.forge_a2a_card import carte
+    except ImportError:
+        from forge_a2a_card import carte  # execution hors namespace (tests, script)
+    c = carte(etendue=etendue, port=port)
+    c["protocolVersion"] = PROTOCOLE_SERVI
+    return c
+
+
+def construire_app(port: int = PORT_DEFAUT):
+    """L'application aiohttp, SANS la demarrer (les NR la montent en processus)."""
+    import asyncio
+
     from aiohttp import web
     sys.path.insert(0, str(ROOT))
-    from nokido_agent.tools.forge_a2a_card import carte
+
+    def carte(etendue, port):
+        return carte_servie(etendue=etendue, port=port)
 
     async def _card(request):
         # PUBLIQUE par construction : la decouverte doit fonctionner sans jeton.
@@ -223,14 +407,27 @@ def serve(port: int = PORT_DEFAUT, host: str = "127.0.0.1"):
         except Exception:  # noqa: BLE001
             _journal("JSON_INVALIDE", agent=agent)
             return web.json_response(_erreur(None, -32700, "Parse error"))
+        if not isinstance(corps, dict):
+            _journal("REQUETE_INVALIDE", agent=agent)
+            return web.json_response(_erreur(None, -32600, "Invalid Request"))
         rep = traiter(corps.get("method", ""), corps.get("params") or {},
                       corps.get("id"), agent)
-        return web.json_response(rep)
+        reponse = web.json_response(rep)   # serialisee ICI, avant tout travail differe
+        if _A_EXECUTER:
+            # Travail non bloquant : APRES la reponse, dans la boucle du serveur.
+            asyncio.get_running_loop().call_soon(executer_en_attente)
+        return reponse
 
     app = web.Application()
     app.router.add_get("/.well-known/agent-card.json", _card)
     app.router.add_get("/a2a/extended-card", _card_etendue)
     app.router.add_post("/a2a", _rpc)
+    return app
+
+
+def serve(port: int = PORT_DEFAUT, host: str = "127.0.0.1"):
+    from aiohttp import web
+    app = construire_app(port)
     if host not in ("127.0.0.1", "::1", "localhost"):
         _journal("BIND_NON_LOOPBACK", host=host, avertissement="surface elargie")
     _journal("DEMARRAGE", host=host, port=port)

@@ -144,16 +144,18 @@ PATCH_REGISTRE = [
     ("R1 schema de hub",
      '                                "quota_model",\n'
      '                                "quota_report",\n'
+     '                                "fils",\n'
+     '                                "liberer_ram",\n'
      '                            ],\n',
      '                                "quota_model",\n'
      '                                "quota_report",\n'
      '                                "confirmer_owner",\n'
+     '                                "fils",\n'
+     '                                "liberer_ram",\n'
      '                            ],\n'),
+    # Ancre = la branche qui SUIT : le 4/11 action fils ; le 9/11 action liberer_ram s'est inseree apres confirmer_owner.
     ("R2 aiguillage de hub",
-     '        if action == "whoami":\n'
-     '            return await self.handle_whoami(args, agent, ring)\n',
-     '        if action == "whoami":\n'
-     '            return await self.handle_whoami(args, agent, ring)\n'
+     '        if action == "liberer_ram":\n',
      '        if action == "confirmer_owner":\n'
      '            # Elicitation MCP : le dialogue s\'affiche chez l\'owner, le modele ne le remplit\n'
      '            # pas. Seul etat qui autorise : ACCEPTE (app/forge_mcp_elicitation.py).\n'
@@ -161,7 +163,8 @@ PATCH_REGISTRE = [
      '            from nokido_agent.app.forge_mcp_elicitation import confirmer_owner\n'
      '\n'
      '            r = await confirmer_owner(str(args.get("message") or ""), str(args.get("detail") or ""))\n'
-     '            return _json.dumps(r, ensure_ascii=False)\n'),
+     '            return _json.dumps(r, ensure_ascii=False)\n'
+     '        if action == "liberer_ram":\n'),
 ]
 
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -207,6 +208,41 @@ def _bad_volume(argv: list) -> bool:
     return False
 
 
+# `docker mcp` (owner 2/11, « etendre le broker, limite ») : un SEUL acces gouverne par Nokido au MCP Toolkit.
+# Lecture des catalogues / profils / serveurs / clients / outils ; ecriture SEULEMENT sur le catalogue « nokido » et
+# le profil « laforge » (Nokido expose dans le Toolkit) ; passerelle et connexion des clients = decision owner (PARK).
+# NR : tests/nr/test_docker_broker_mcp_limite_nr.py
+_MCP_GROUPES = {"catalog", "profile", "server", "client", "tools"}
+_MCP_LECTURE = {"ls", "list", "show", "inspect"}
+_MCP_CIBLES_ECRITURE = {"catalog": "nokido", "profile": "laforge"}
+_MCP_ECRITURE = {"create", "add", "rm", "remove", "update", "import"}
+
+
+def _decide_mcp(rest: list) -> tuple:
+    pos = [a for a in rest if not a.startswith("-")]
+    if not pos:
+        return ("PARK", "mcp sans sous-commande")
+    if pos[0] == "version":
+        return ("ALLOW", "read-only:mcp version")
+    grp, act = pos[0], (pos[1] if len(pos) > 1 else "")
+    if grp not in _MCP_GROUPES:
+        return ("PARK", "mcp %s hors politique (decision owner)" % grp)
+    if act in _MCP_LECTURE:
+        return ("ALLOW", "read-only:mcp %s %s" % (grp, act))
+    cible = _MCP_CIBLES_ECRITURE.get(grp)
+    if cible is None:
+        return ("PARK", "mcp %s %s : ecriture hors politique (decision owner)" % (grp, act))
+    if act in _MCP_ECRITURE:
+        visee = pos[2] if len(pos) > 2 else ""
+    elif grp == "profile" and act == "server" and len(pos) > 3 and pos[2] in ("add", "rm", "remove"):
+        visee = pos[3]
+    else:
+        return ("PARK", "mcp %s %s non instruit" % (grp, act))
+    if visee != cible:
+        return ("PARK", "mcp %s : seule la cible %r est autorisee en ecriture (vise %r)" % (grp, cible, visee))
+    return ("ALLOW", "mcp %s %s sur %s" % (grp, act, cible))
+
+
 def decide(argv: list) -> tuple:
     """Retourne (ALLOW|PARK|DENY, reason). default-DENY."""
     if not argv:
@@ -251,6 +287,9 @@ def decide(argv: list) -> tuple:
         if sub not in _COMPOSE_VERBS:
             return ("PARK", f"compose {sub} non autorise (up/down/ps/logs)")
         return ("ALLOW", f"compose:{sub}")
+
+    if verb == "mcp":
+        return _decide_mcp(rest)
 
     return ("PARK", f"verbe docker hors politique: {verb}")
 
@@ -452,6 +491,73 @@ def daemon_up() -> bool:
         return False
 
 
+# ── Reglages Docker Desktop (owner 2026-11-10 : « tous les reglages dans docker desktop via le lien mcp ») ──────
+# settings-store.json vit dans le PROFIL OWNER ; ACL additive LaForgeTrusted:(M) posee par l'owner (cmd-5ae504fb4fe5),
+# donc la voie est `trusted_script app/forge_docker_agent.py --desktop-...`. Profil owner derive comme
+# forge_conv_indexer.OWNER_HOME (LAFORGE_OWNER_HOME, sinon deux crans au-dessus du depot) : aucun nom en dur.
+# parents[1] = depot (ROOT de conv_indexer) ; ROOT.parent.parent = parents[3]. Mesure du 10/11 : parents[2] visait
+# « Script python IA », d'ou un ILLISIBLE sur un chemin inexistant.
+_OWNER_HOME = Path(os.environ.get("LAFORGE_OWNER_HOME") or Path(__file__).resolve().parents[3])
+SETTINGS_DESKTOP = _OWNER_HOME / "AppData" / "Roaming" / "Docker" / "settings-store.json"
+SAUVEGARDES_DESKTOP = Path(os.environ.get("NOKIDO_DD_SAUVEGARDES") or r"C:\tmp\nokido_dd_sauvegardes")
+# Liste BLANCHE typee : seules ces cles s'ecrivent, avec ce type. Le reste se lit masque (default-deny).
+DESKTOP_ECRITURE = {k: bool for k in (
+    "AutoDownloadUpdates", "AutoStart", "DesktopTerminalEnabled", "DisableUpdate",
+    "EnableDockerAI", "EnableInference", "EnableIntegrationWithDefaultWslDistro", "EnableLogsTab",
+    "EnableWasmShims", "SilentModulesUpdate", "UseContainerdSnapshotter", "UseResourceSaver")}
+# DisableHardwareAcceleration vaut « always » (chaine, lecture reelle 10/11) : lue, jamais ecrite en booleen.
+DESKTOP_LECTURE = set(DESKTOP_ECRITURE) | {"DisableHardwareAcceleration", "DefaultNetworkingMode",
+                                           "EngineTypeWindows", "IntegratedWslDistros",
+                                           "SettingsVersion", "WslEngineEnabled", "UpdatePreviousVersion"}
+
+
+def _lire_store(chemin):
+    try:
+        return json.loads(Path(chemin).read_text(encoding="utf-8")), ""
+    except (OSError, ValueError) as e:
+        return None, "%s illisible (%s) : ILLISIBLE n'est pas absent" % (chemin, type(e).__name__)
+
+
+def desktop_reglages_lire(chemin=None) -> dict:
+    """Valeurs des cles de la liste de lecture ; les autres masquees, et les cles inconnues NOMMEES."""
+    d, motif = _lire_store(chemin or SETTINGS_DESKTOP)
+    if d is None:
+        return {"etat": "ILLISIBLE", "motif": motif}
+    return {"etat": "LU", "reglages": {k: (v if k in DESKTOP_LECTURE else "<masque>") for k, v in sorted(d.items())},
+            "cles_inconnues": sorted(k for k in d if k not in DESKTOP_LECTURE)}
+
+
+def desktop_reglage_ecrire(cle: str, valeur: str, chemin=None, sauvegardes=None) -> dict:
+    """Ecrit UNE cle de la liste blanche, au type impose, apres sauvegarde HORS du dossier Docker. L'effet n'est
+    atteint qu'au redemarrage de Desktop (REQUESTED != ACHIEVED) : c'est dit dans le verdict."""
+    chemin = Path(chemin or SETTINGS_DESKTOP)
+    if cle not in DESKTOP_ECRITURE:
+        return {"verdict": "PARK", "motif": "cle %r hors liste blanche d'ecriture (decision owner)" % cle}
+    brut = str(valeur).strip().lower()
+    if DESKTOP_ECRITURE[cle] is bool:
+        if brut not in ("true", "false"):
+            return {"verdict": "REFUS_TYPE", "motif": "%s attend true ou false, recu %r" % (cle, valeur)}
+        neuve = brut == "true"
+    d, motif = _lire_store(chemin)
+    if d is None:
+        return {"verdict": "ILLISIBLE", "motif": motif}
+    avant = d.get(cle)
+    if avant is not None and type(avant) is not DESKTOP_ECRITURE[cle]:
+        return {"verdict": "REFUS_TYPE", "motif": "%s vaut une valeur de type %s, pas %s : Desktop l'a change, "
+                "la liste blanche est a revoir" % (cle, type(avant).__name__, DESKTOP_ECRITURE[cle].__name__)}
+    if avant == neuve:
+        return {"verdict": "INCHANGE", "cle": cle, "avant": avant, "apres": neuve, "redemarrage_requis": False}
+    sauv = Path(sauvegardes or SAUVEGARDES_DESKTOP)
+    sauv.mkdir(parents=True, exist_ok=True)
+    copie = sauv / ("settings-store.%s.json" % time.strftime("%Y%m%d-%H%M%S"))
+    copie.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    d[cle] = neuve
+    chemin.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    _audit({"ts": time.time(), "desktop_reglage": cle, "avant": avant, "apres": neuve, "sauvegarde": str(copie)})
+    return {"verdict": "ECRIT", "cle": cle, "avant": avant, "apres": neuve, "sauvegarde": str(copie),
+            "redemarrage_requis": True}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--argv", help="JSON list des arguments docker (ex: '[\"ps\",\"-a\"]')")
@@ -462,7 +568,19 @@ def main() -> int:
     ap.add_argument("--release-daemon", dest="release_daemon", action="store_true",
                     help="retire la demande Docker (respecte un arret manuel)")
     ap.add_argument("--timeout", type=int, default=120)
+    ap.add_argument("--desktop-lire", dest="desktop_lire", action="store_true",
+                    help="reglages Docker Desktop (liste blanche, le reste masque)")
+    ap.add_argument("--desktop-regler", dest="desktop_regler", metavar="CLE=VALEUR",
+                    help="ecrit UNE cle de la liste blanche (sauvegarde avant ; redemarrage de Desktop requis)")
     a = ap.parse_args()
+    if a.desktop_lire:
+        print(json.dumps(desktop_reglages_lire(), ensure_ascii=False))
+        return 0
+    if a.desktop_regler:
+        cle, _, val = a.desktop_regler.partition("=")
+        r = desktop_reglage_ecrire(cle.strip(), val)
+        print(json.dumps(r, ensure_ascii=False))
+        return 0 if r["verdict"] in ("ECRIT", "INCHANGE") else 1
 
     if a.check:
         import getpass

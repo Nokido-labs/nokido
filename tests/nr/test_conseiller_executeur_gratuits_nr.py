@@ -58,7 +58,7 @@ def banc(tmp_path, monkeypatch):
 
 def _juge(monkeypatch, verdicts):
     it = iter(verdicts)
-    monkeypatch.setattr(T, "_juger_livraison", lambda ok, d, wt, avant, autorises=None, desc=None: next(it))
+    monkeypatch.setattr(T, "_juger_livraison", lambda ok, d, wt, avant, autorises=None, desc=None, **_k: next(it))
 
 
 TASK = {"id": "t1", "agent": "OPENCODE_GPTOSS", "description": "Corrige tools/foo.py"}

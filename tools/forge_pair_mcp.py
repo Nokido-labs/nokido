@@ -222,6 +222,7 @@ def lire_derniere_capsule() -> dict:
 
 
 MOTIF_PAIR_HORS_POLITIQUE = "pair hors politique : ring inconnu, acces refuse (config/pairs_rings.json)"
+MOTIF_OUTIL_HORS_LISTE = "outil hors liste blanche de ce pair : acces refuse (config/pairs_rings.json)"
 
 
 def _nom_du_client(client: str) -> str | None:
@@ -307,6 +308,58 @@ def _ring_du_pair(client: str) -> int | None:
             return None
     _LOG.warning("[pair] '%s' absent de config/pairs_rings.json : ferme (ring INCONNU)", nom)
     return None
+
+
+def _outils_permis(client: str):
+    """Liste blanche d'outils du PAIR (config/pairs_rings.json, cle `outils_par_pair`).
+
+    Rend None si le pair n'a PAS de liste (comportement historique : claude.ai, ChatGPT) ;
+    sinon un frozenset (vide = tout refuse). ECHEC FERME : politique illisible, section ou
+    liste mal formee, nom illisible -> frozenset() (aucun outil), jamais None.
+    """
+    nom = _nom_du_client(client) if _client_valide(client) else None
+    politique = _politique_rings()
+    if not nom or politique is None:
+        return frozenset()
+    if "outils_par_pair" not in politique:
+        return None
+    section = politique["outils_par_pair"]
+    if not isinstance(section, dict):
+        _LOG.warning("[pair] outils_par_pair MAL FORME : tout refuse")
+        return frozenset()
+    cible = nom.casefold()
+    trouves = [v for k, v in section.items() if isinstance(k, str) and k.casefold() == cible]
+    if not trouves:
+        return None
+    liste = trouves[0]
+    if not isinstance(liste, list) or not all(isinstance(o, str) for o in liste):
+        _LOG.warning("[pair] liste d'outils MAL FORMEE pour '%s' : tout refuse", nom)
+        return frozenset()
+    return frozenset(liste)
+
+
+def _outil_autorise(client: str, outil: str) -> bool:
+    permis = _outils_permis(client)
+    return permis is None or outil in permis
+
+
+def _filtrer_liste_outils(serveur, module_oauth) -> None:
+    """tools/list : un pair a liste blanche ne voit QUE ses outils (le refus a l'appel reste le verrou)."""
+    from mcp import types
+
+    gestionnaires = serveur._mcp_server.request_handlers
+    d_origine = gestionnaires.get(types.ListToolsRequest)
+    if d_origine is None:
+        return
+
+    async def filtre(req):
+        rep = await d_origine(req)
+        client = client_courant(module_oauth)
+        permis = _outils_permis(client) if client else None
+        if permis is not None:
+            rep.root.tools = [t for t in rep.root.tools if t.name in permis]
+        return rep
+    gestionnaires[types.ListToolsRequest] = filtre
 
 
 def _decouper_en_pages(texte: str, max_sortie: int = MAX_SORTIE) -> list[str]:
@@ -852,6 +905,9 @@ def _poser_journal_acces(serveur, module_oauth) -> None:
                 if client and _ring_du_pair(client) is None:
                     _ecrire_acces(client, nom, "deny", 200)
                     return rediger({"ok": False, "erreur": MOTIF_PAIR_HORS_POLITIQUE}, nom)
+                if client and not _outil_autorise(client, nom):
+                    _ecrire_acces(client, nom, "deny", 200)
+                    return rediger({"ok": False, "erreur": MOTIF_OUTIL_HORS_LISTE}, nom)
                 res = fn(*args, **kwargs)
                 if inspect.isawaitable(res):
                     res = await res
@@ -885,6 +941,46 @@ def _poser_journal_acces(serveur, module_oauth) -> None:
     serveur.streamable_http_app = streamable_http_app
 
 
+# Annotations MCP de CHAQUE outil (3/11) : (lecture seule ?, titre). Exigence du repertoire Anthropic
+# (review-criteria : « every tool must include a title and the applicable hint ») ; elles pilotent les permissions
+# automatiques de Claude. Les depots sont ADDITIFS et en quarantaine : jamais lecture seule, jamais destructifs.
+# Un outil absent d'ici casse construire_serveur (KeyError) -- NR tests/nr/test_pair_outils_annotes_nr.py
+ANNOTATIONS_OUTILS = {
+    "etat_corps": (True, "État de santé de Nokido"),
+    "point_ssot": (True, "Point SSoT (roadmap, règles)"),
+    "recherche_rag": (True, "Recherche dans le RAG public"),
+    "journal_commits": (True, "Derniers commits publiés"),
+    "derniere_capsule": (True, "Dernière capsule cognitive"),
+    "lire_document": (True, "Lire un document déposé"),
+    "suivre": (True, "Suivre un dépôt"),
+    "lire_reponses": (True, "Lire les réponses reçues"),
+    "lire_annexe": (True, "Lire une annexe de capsule"),
+    "lire_vivant": (True, "Lire le code vivant (alpha)"),
+    "proposer_fait": (False, "Proposer un fait"),
+    "deposer_fragment": (False, "Déposer un fragment de document"),
+    "envoyer_message": (False, "Envoyer un message M2M"),
+    "soumettre_tache": (False, "Soumettre une tâche"),
+}
+
+
+def _annoter_outils(serveur) -> None:
+    """Enrobe `serveur.tool` : chaque enregistrement recoit titre + indications depuis ANNOTATIONS_OUTILS."""
+    from mcp.types import ToolAnnotations
+
+    brut = serveur.tool
+
+    def outil(*args, name=None, **kw):
+        lecture, titre = ANNOTATIONS_OUTILS[name]
+        kw.setdefault("title", titre)
+        kw.setdefault("annotations", ToolAnnotations(title=titre, readOnlyHint=lecture,
+                                                     destructiveHint=None if lecture else False,
+                                                     idempotentHint=True if lecture else False,
+                                                     openWorldHint=False))
+        return brut(*args, name=name, **kw)
+
+    serveur.tool = outil
+
+
 def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
     from mcp.server.fastmcp import FastMCP
 
@@ -899,7 +995,9 @@ def construire_serveur(port: int = PORT_PAR_DEFAUT, oauth: bool = True):
         reglages["auth"] = module_oauth.reglages(base_publique(port), CHEMIN_HTTP,
                                                  "http://%s:%d" % (HOTE, int(port)))
     serveur = FastMCP("nokido-pair", **reglages)
+    _annoter_outils(serveur)
     _poser_journal_acces(serveur, module_oauth)
+    _filtrer_liste_outils(serveur, module_oauth)
 
     def _client():
         return client_courant(module_oauth)

@@ -22,7 +22,7 @@ via hub, exécution **déportée**). **Réutiliser > reconstruire.**
 | Checkpoint CODE | `forge_loop.post_loop_safe_check` (ZIP+AST+merge/rollback) — **code-only** |
 | Daemon supervisé | `services.toml` / LaForge-Master (heartbeat, reboot-survival, hot-add) |
 | Visibilité live | Observatory :7600 / anatomy :7400 / swarm_bus SSE |
-| Exposer comme agent | `forge_acp_adapter` (backend ACP → Zed/terminal) |
+| Exposer comme agent | `forge_acp_server` (backend ACP → Zed/terminal ; ancien PoC `forge_acp_adapter` retiré) |
 
 ## Pièces neuves
 1. **CoworkProject** — entité persistante (SQLite-WAL).

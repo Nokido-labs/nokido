@@ -25,7 +25,10 @@ pytestmark = pytest.mark.timeout(60)
 @pytest.mark.parametrize("taille", ["S", "M", "L"])
 def test_modele_leger_jamais_argon(taille):
     r = pe.resoudre("agy", taille)
-    assert r["modele"] and r["modele"].startswith("gemini-3.8-flash-"), r
+    # owner 6/11 17:30 : Argon a tres peu de quota, « reste sur 3.8 et en dessous si necessaire »
+    assert r["modele"] and r["modele"].startswith(("gemini-3.8-flash", "claude-sonnet", "claude-opus")), r
+    # Paye le 6/11 : « --model gemini-3.8-flash-high conflicts with --effort=low », aucune session ne demarrait.
+    assert r["modele"].rsplit("-", 1)[-1] == r["effort"], r
     assert "argon" not in r["modele"]
 
 

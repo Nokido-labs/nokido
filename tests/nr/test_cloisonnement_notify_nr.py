@@ -74,3 +74,16 @@ def test_broadcast_ne_passe_pas_par_la_poste_point_a_point(faux):
     assert rep.startswith("OK broadcast")
     assert appels["post"] == []
     assert all(f.to_agent != "agt_claude" for f in appels["inbox"])  # l'emetteur ne se notifie pas lui-meme
+
+
+def test_handle_notify_spoofed_sender(faux):
+    """NR porte du lot 6 (preserve/opencode_defaut4-20261031-140422, via 63bd678cd) : un notify ne peut pas usurper
+    l'expediteur par reply_to/from glisses dans le message ; l'expediteur reste l'agent authentifie."""
+    soi, appels = faux
+    message = '{"to":"destinataire","reply_to":"spoofed_sender","from":"spoofed_sender","content":"test"}'
+    _notifier(soi, {"message": message, "to": "CODEX"}, "OPENCODE_GLM")
+    assert len(appels["post"]) == 1
+    p = appels["post"][0]
+    assert p["to"] == "CODEX"
+    assert p["reply_to"] == "OPENCODE_GLM"
+    assert p["from"] == "OPENCODE_GLM"

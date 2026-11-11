@@ -15,14 +15,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HUB = "http://127.0.0.1:8766/mcp"
 def _jeton_sonde() -> str:
-    """Coffre d'abord (16/10), jeton maitre puis jeton CLAUDE ; sans le paquet nokido_agent : repli env DIT."""
-    try:
-        from nokido_agent.app.forge_secrets import get_secret
+    """Coffre SEUL, jeton maitre puis jeton CLAUDE (owner 3/11 : les FORGE_TOKEN_* ont quitte HKCU).
 
+    Plus de repli sur l'environnement : il ressuscitait une copie en clair, et ces variables
+    n'existent plus. Sans le paquet nokido_agent, l'arbre local (app.forge_secrets) ; sinon
+    jeton vide DIT (le hub rendra 401, visiblement)."""
+    for _mod in ("nokido_agent.app.forge_secrets", "app.forge_secrets"):
+        try:
+            if str(ROOT) not in sys.path:
+                sys.path.insert(0, str(ROOT))
+            get_secret = __import__(_mod, fromlist=["get_secret"]).get_secret
+        except ImportError:  # muet-ok : on essaie le module suivant ; l'echec final est DIT ci-dessous
+            continue
         return get_secret("FORGE_MCP_TOKEN") or get_secret("FORGE_TOKEN_CLAUDE") or ""
-    except ImportError:
-        print("[freetier_probe] coffre inaccessible : repli sur l'environnement", file=sys.stderr)
-        return os.environ.get("FORGE_MCP_TOKEN") or os.environ.get("FORGE_TOKEN_CLAUDE") or ""
+    print("[freetier_probe] coffre inaccessible : sonde SANS jeton (401 attendu)", file=sys.stderr)
+    return ""
 
 
 TOK = _jeton_sonde()

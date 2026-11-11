@@ -27,9 +27,17 @@ def _bilan(tmp_path, age_s):
     return p
 
 
+def _hermetique(monkeypatch, tmp_path, ram):
+    """RAM et demarrage de la stack FIGES : sinon le verdict depend de la machine (8/11, CI en lots : 2 rouges quand
+    la RAM reelle s'ecartait de plus de 5 points de celle du bilan)."""
+    monkeypatch.setattr(ma, "SANDBOX", tmp_path)
+    monkeypatch.setattr(ma, "_mesure_ram_directe", lambda: ram)
+    monkeypatch.setattr(ma, "_dernier_demarrage_stack", lambda: time.time() - 86400)
+
+
 def test_un_bilan_ancien_porte_son_age_sur_chaque_ligne(tmp_path, monkeypatch):
     _bilan(tmp_path, 48 * 60)
-    monkeypatch.setattr(ma, "SANDBOX", tmp_path)
+    _hermetique(monkeypatch, tmp_path, 94.7)
     entrees, note = ma._proprioceptive()
     ram = [e["texte"] for e in entrees if "RAM" in e["texte"]]
     assert ram and "il y a 48 min" in ram[0], ram
@@ -39,6 +47,23 @@ def test_un_bilan_ancien_porte_son_age_sur_chaque_ligne(tmp_path, monkeypatch):
 
 def test_un_bilan_frais_n_est_pas_surcharge(tmp_path, monkeypatch):
     _bilan(tmp_path, 5)
-    monkeypatch.setattr(ma, "SANDBOX", tmp_path)
+    _hermetique(monkeypatch, tmp_path, 94.7)
     entrees, _ = ma._proprioceptive()
     assert not any("il y a" in e["texte"] for e in entrees)
+
+
+def test_ram_contredite_nomme_la_ram_et_date_le_bilan(tmp_path, monkeypatch):
+    _bilan(tmp_path, 48 * 60)
+    _hermetique(monkeypatch, tmp_path, 73.0)
+    entrees, _ = ma._proprioceptive()
+    ram = [e["texte"] for e in entrees if "RAM" in e["texte"]]
+    assert ram and "bilan perime" in ram[0] and "il y a 48 min" in ram[0] and "73.0" in ram[0], ram
+
+
+def test_ram_contredite_bilan_frais_sans_age(tmp_path, monkeypatch):
+    _bilan(tmp_path, 5)
+    _hermetique(monkeypatch, tmp_path, 73.0)
+    entrees, _ = ma._proprioceptive()
+    ram = [e["texte"] for e in entrees if "RAM" in e["texte"]]
+    assert ram and "bilan perime" in ram[0], ram
+    assert not any("il y a" in e["texte"] for e in entrees), entrees

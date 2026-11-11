@@ -3,6 +3,13 @@
   "decision": "bb:decision_owner_politiques_autonomie_et_pairs_20261017",
   "pairs": {
     "claude": 2,
-    "chatgpt": 2
+    "chatgpt": 2,
+    "huggingchat": 3,
+    "huggingchat – desktop-xxxx.tailXXXX.ts.net": 3
+  },
+  "_doc_outils_par_pair": "Liste blanche d'outils PAR pair (cle = client_name, sans casse). Pair SANS entree ici : tous les outils comme avant (claude, chatgpt inchanges). Entree presente : tout autre outil est refuse a l'appel ET absent de tools/list ; entree mal formee ou politique illisible = rien n'est permis. Owner 2026-11-07 : HuggingChat = depot de taches seul.",
+  "outils_par_pair": {
+    "huggingchat": ["soumettre_tache", "lire_reponses"],
+    "huggingchat – desktop-xxxx.tailXXXX.ts.net": ["soumettre_tache", "lire_reponses"]
   }
 }

@@ -202,11 +202,28 @@ def _tracer_payload(charge):
 _COURT = {"CLAUDE_HEADLESS": "HEADLESS", "ANTIGRAVITY": "AGY"}
 
 
-def _delegations(db=None, maintenant=None) -> str:
+def _identites_claude(registre=None) -> list:
+    """Noms et alias (minuscules) des agents d'acteur CLAUDE au registre. 3/11 : Claude Code signe en OAuth
+    (`agt_oauth_nkc_...`) -- un mot dans le nom ne suffit plus. Registre illisible -> [] (filtre historique seul)."""
+    p = Path(registre) if registre else RACINE / "config" / "agent_identities.json"
+    try:
+        reg = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # muet-ok : registre illisible -> filtre historique « claude » seul
+        return []
+    ag = reg.get("agents") if isinstance(reg, dict) and isinstance(reg.get("agents"), dict) else reg
+    out = []
+    for nom, spec in (ag or {}).items():
+        if isinstance(spec, dict) and spec.get("actor") == "CLAUDE":
+            out += [str(nom).lower()] + [str(a).lower() for a in spec.get("aliases", [])]
+    return sorted(set(out))
+
+
+def _delegations(db=None, maintenant=None, registre=None) -> str:
     """Segment des delegations de Claude en cours (▶) ou en attente (⏸), avec leur age (owner 24/10).
 
     Lecture seule, delai court : la ligne d'etat ne doit jamais attendre. Base illisible = « DÉL ? »
-    (jamais 0) ; aucune delegation = segment absent. NR : tests/nr/test_statusline_delegations_nr.py
+    (jamais 0) ; aucune delegation = segment absent. NR : tests/nr/test_statusline_delegations_nr.py,
+    tests/nr/test_statusline_delegations_oauth_nr.py (identite OAuth, 3/11).
     """
     import sqlite3
     from datetime import datetime
@@ -214,30 +231,94 @@ def _delegations(db=None, maintenant=None) -> str:
     db = Path(db) if db else RACINE / "sandbox" / "tasks.db"
     if not db.exists():
         return "DÉL ?"
+    ids = _identites_claude(registre)
     try:
         cx = sqlite3.connect("file:%s?mode=ro" % db.as_posix(), uri=True, timeout=0.3)
         try:
             rows = cx.execute(
                 "SELECT agent, status, updated_at FROM tasks WHERE status IN ('running','pending') "
-                "AND lower(from_agent) LIKE '%claude%' ORDER BY updated_at").fetchall()
+                "AND (lower(from_agent) LIKE '%%claude%%'%s) ORDER BY updated_at"
+                % (" OR lower(from_agent) IN (%s)" % ",".join("?" * len(ids)) if ids else ""), ids).fetchall()
         finally:
             cx.close()
     except Exception:  # noqa: BLE001 - muet-ok : dit « DÉL ? », jamais un faux zero
         return "DÉL ?"
-    if not rows:
-        return ""
     now = maintenant or datetime.now()
+    echecs = _causes_recentes(db, ids, now)
+    if not rows and not echecs:
+        return ""
     morceaux = []
     for agent, statut, maj in rows[:4]:
         nom = str(agent or "?")
-        nom = _COURT.get(nom, nom.split("_", 1)[1] if nom.startswith("OPENCODE_") else nom)
+        if nom.upper().startswith("OAUTH_"):
+            try:
+                import os
+                import sys
+                repo_root = os.getenv("REPO_ROOT") or str(Path(__file__).resolve().parents[1])
+                if repo_root and repo_root not in sys.path:
+                    sys.path.insert(0, repo_root)
+                from nokido_agent.tools.forge_presence import nom_lisible
+                nom = nom_lisible(nom)
+            except Exception:  # noqa: BLE001  # muet-ok : repli identifiant brut
+                pass
+        else:
+            nom = _COURT.get(nom, nom.split("_", 1)[1] if nom.startswith("OPENCODE_") else nom)
         try:
             age = "%dm" % max(0, int((now - datetime.fromisoformat(str(maj)[:26])).total_seconds() // 60))
         except Exception:  # noqa: BLE001 - muet-ok : age illisible affiche « ? »
             age = "?"
         morceaux.append("%s%s%s" % (nom, "▶" if statut == "running" else "⏸", age))
     reste = " +%d" % (len(rows) - 4) if len(rows) > 4 else ""
-    return "DÉL %d %s%s" % (len(rows), " ".join(morceaux), reste)
+    return ("DÉL %d %s%s" % (len(rows), " ".join(morceaux), reste)).rstrip() + echecs
+
+
+_ACQUIT = RACINE / "sandbox" / "delegations_acquittees.txt"
+
+
+def _acquittees_jusqu_a():
+    """Date de la derniere marque (owner 6/11 « Masquer si traite »). Absente ou illisible -> None : rien n'est masque."""
+    from datetime import datetime
+
+    try:
+        return datetime.fromisoformat(_ACQUIT.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):  # muet-ok : marque absente ou illisible = causes visibles, jamais masquees
+        return None
+
+
+def _causes_recentes(db, ids, now, fenetre_s: int = 7200) -> str:
+    """3/11 (owner « vois-tu et diagnostiques-tu les raisons des echecs ? ») : causes CLASSEES (tasks.cause_echec,
+    ecrite par forge_task_executor) des delegations de Claude closes dans les 2 dernieres heures -> « ✗ CAUSE×n ».
+    Un echec anterieur a la marque d'acquittement (--acquitter) n'est plus compte.
+    Colonne absente ou base illisible -> rien (l'affichage d'avant), jamais une cause inventee."""
+    import sqlite3
+    from collections import Counter
+    from datetime import datetime
+
+    try:
+        cx = sqlite3.connect("file:%s?mode=ro" % Path(db).as_posix(), uri=True, timeout=0.3)
+        try:
+            rows = cx.execute(
+                "SELECT cause_echec, updated_at FROM tasks WHERE cause_echec IS NOT NULL "
+                "AND (lower(from_agent) LIKE '%%claude%%'%s) ORDER BY updated_at DESC LIMIT 50"
+                % (" OR lower(from_agent) IN (%s)" % ",".join("?" * len(ids)) if ids else ""), ids).fetchall()
+        finally:
+            cx.close()
+    except Exception:  # noqa: BLE001 - muet-ok : colonne absente (executeur d'avant le 3/11) -> pas de segment
+        return ""
+    compte = Counter()
+    borne = _acquittees_jusqu_a()
+    for cause, maj in rows:
+        try:
+            quand = datetime.fromisoformat(str(maj)[:26])
+            if borne and quand <= borne:
+                continue
+            if (now - quand).total_seconds() <= fenetre_s:
+                compte[str(cause)] += 1
+        except Exception:  # noqa: BLE001 - muet-ok : date illisible -> ligne ignoree, pas comptee
+            continue
+    if not compte:
+        return ""
+    return " ✗ " + " ".join(c if n == 1 else "%s×%d" % (c, n) for c, n in compte.most_common(3))
 
 
 def _tours(charge, etat=None):
@@ -291,6 +372,12 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")  # ▶ ⏸ hors cp1252 (sous-processus Windows)
     except Exception:  # noqa: BLE001 - muet-ok
         pass
+    if "--acquitter" in sys.argv[1:]:
+        from datetime import datetime
+
+        _ACQUIT.write_text(datetime.now().isoformat(), encoding="utf-8")
+        print("causes de delegation acquittees jusqu'a maintenant")
+        return 0
     try:
         _BRUT = sys.stdin.read()
         charge = json.loads(_BRUT)

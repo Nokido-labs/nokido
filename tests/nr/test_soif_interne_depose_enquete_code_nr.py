@@ -20,6 +20,9 @@ PREUVES = ["tools/forge_epistemic_daemon.py"]
 
 
 def _arme(monkeypatch, tmp_path, actif):
+    # Hermetique : sans cela le verdict depend de la charge reelle de la machine. Mesure du 5/11, CI : DIFFEREE sous la charge de
+    # la suite. La tension elle-meme est couverte par test_soif_garde_metabolique_nr.
+    monkeypatch.setattr(daemon.ev, "corps_sous_tension", lambda: (False, "test"))
     monkeypatch.setattr(daemon, "_ENQUETE_CODE_ETAT", tmp_path / "etat.json")
     if actif:
         monkeypatch.setenv("LAFORGE_EPISTEMIC_ENQUETE_CODE", "1")

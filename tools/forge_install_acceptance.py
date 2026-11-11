@@ -227,6 +227,17 @@ def arguments_chiffrement_recette(present, systeme, provision=None):
     return ["--sans-chiffrement", "--motif-refus", motif]
 
 
+# 2/11 (decision owner « runner privilegie exige ») : un conteneur Docker NON privilegie (runner partage GitLab) n'a pas
+# de device-mapper -- le chiffrement at-rest n'y est pas prouvable. Le job reste ROUGE, mais le motif DIT la cause.
+DM_CONTROL = Path("/dev/mapper/control")
+
+
+def _motif_luks(motif: str) -> str:
+    if DM_CONTROL.exists():
+        return motif
+    return motif + " -- conteneur non privilegie (pas de %s) : runner privilegie requis (decision owner 2/11)" % DM_CONTROL
+
+
 def mesurer_volume_luks():
     """Cree, monte, ecrit et relit un VRAI volume LUKS pour PROUVER que le chiffrement at-rest fonctionne sous Linux.
     Rend (etat, detail). Cle ALEATOIRE temporaire (une cle vide serait refusee par cryptsetup : le FAIL accuserait le
@@ -248,15 +259,15 @@ def mesurer_volume_luks():
         rc, out = sh(["sudo", "-n", "cryptsetup", "luksFormat", "--batch-mode", "--type", "luks2",
                       "--key-file", str(cle), str(fichier)], timeout=120)
         if rc != 0:
-            return "FAIL", "luksFormat refuse : %s" % out.strip()[-400:]
+            return "FAIL", _motif_luks("luksFormat refuse : %s" % out.strip()[-400:])
         rc, out = sh(["sudo", "-n", "losetup", "--show", "-f", str(fichier)], timeout=60)
         if rc != 0 or not out.strip():
-            return "FAIL", "losetup refuse : %s" % out.strip()[-400:]
+            return "FAIL", _motif_luks("losetup refuse : %s" % out.strip()[-400:])
         loop = out.strip().splitlines()[-1].strip()
         rc, out = sh(["sudo", "-n", "cryptsetup", "luksOpen", loop, "nokido_luks_mesure", "--key-file", str(cle)],
                      timeout=60)
         if rc != 0:
-            return "FAIL", "luksOpen refuse : %s" % out.strip()[-400:]
+            return "FAIL", _motif_luks("luksOpen refuse : %s" % out.strip()[-400:])
         ouvert = True
         rc, out = sh(["sudo", "-n", "mkfs.ext4", "-q", "/dev/mapper/nokido_luks_mesure"], timeout=120)
         if rc != 0:
@@ -1116,9 +1127,21 @@ def _p_venv():
     return ("PASS", str(VENV_P)) if _bin("python").exists() else ("FAIL", "venv cree sans interpreteur")
 
 
+# 1/11 : run main de la v0.20.17 lance 2 min apres la publication -- pip ne voyait pas encore la version (« Could not
+# find a version that satisfies »). Une propagation d'index n'est pas une panne : on reessaie sur CE seul motif, borne.
+_NON_SERVIE = ("Could not find a version that satisfies the requirement", "No matching distribution found")
+_REESSAIS_INDEX, _PAS_INDEX_S = 6, 30
+
+
 @etape("paquet_install", "paquet_venv")
 def _p_install():
-    rc, out = _sh_p([_bin("python"), "-m", "pip", "install", "--no-cache-dir", PAQUET], timeout=2700)
+    for essai in range(1, _REESSAIS_INDEX + 1):
+        rc, out = _sh_p([_bin("python"), "-m", "pip", "install", "--no-cache-dir", PAQUET], timeout=2700)
+        if not rc or not any(m in out for m in _NON_SERVIE) or essai == _REESSAIS_INDEX:
+            break
+        print("[paquet_install] version pas encore servie par l'index (essai %d/%d) : nouvel essai dans %d s"
+              % (essai, _REESSAIS_INDEX, _PAS_INDEX_S), flush=True)
+        time.sleep(_PAS_INDEX_S)
     if rc:
         return "FAIL", out[-1500:]
     # pip ne fait qu'AVERTIR quand l'extra demande n'existe pas dans la version servie, et rend 0 : l'inconnu croit
@@ -1328,6 +1351,29 @@ def _p_desinstallation():
         "crees dans HOME %s ; crees dans le cwd %s" % (len(code_reste), entrees, donnees, home, cwd))
 
 
+def ecrire_junit(r: dict, chemin: Path, suite: str = "acceptance") -> Path:
+    """Etapes du rapport en JUnit XML (owner 2/11, GitLab « Unit test reports ») : PASS/MESURE = cas reussi,
+    FAIL = <failure> portant le motif, NON_TESTE = <skipped> portant le motif. L'onglet Tests du pipeline montre
+    l'etape en echec sans traces ni JSON a ouvrir."""
+    import xml.etree.ElementTree as ET
+    racine = ET.Element("testsuites")
+    s = ET.SubElement(racine, "testsuite", name=suite, tests=str(len(r)),
+                      failures=str(sum(1 for v in r.values() if isinstance(v, dict) and v.get("etat") == "FAIL")))
+    for nom, v in r.items():
+        v = v if isinstance(v, dict) else {"etat": "FAIL", "detail": str(v)}
+        c = ET.SubElement(s, "testcase", classname=suite, name=str(nom), time=str(v.get("duree_s", 0) or 0))
+        detail = str(v.get("detail", ""))[:4000]
+        if v.get("etat") == "FAIL":
+            ET.SubElement(c, "failure", message=detail[:200]).text = detail
+        elif v.get("etat") == "NON_TESTE":
+            ET.SubElement(c, "skipped", message=detail[:200]).text = detail
+        elif detail:
+            ET.SubElement(c, "system-out").text = detail
+    Path(chemin).parent.mkdir(parents=True, exist_ok=True)
+    ET.ElementTree(racine).write(chemin, encoding="utf-8", xml_declaration=True)
+    return Path(chemin)
+
+
 def main() -> int:
     if any(a == "--paquet" or a.startswith("--paquet=") for a in sys.argv[1:]):
         for f in (_p_venv, _p_install, _p_hors_clone, _p_composants, _p_doctor, _p_secrets, _p_hub, _p_mcp_doc,
@@ -1337,6 +1383,7 @@ def main() -> int:
         RUNTIME.mkdir(parents=True, exist_ok=True)
         (RUNTIME / "rapport_paquet.json").write_text(json.dumps(R, ensure_ascii=False, indent=1, default=str),
                                                     encoding="utf-8")
+        ecrire_junit(R, RUNTIME / "rapport_paquet.xml", suite="parcours-paquet")
         md = resume()
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:

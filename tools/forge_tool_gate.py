@@ -366,6 +366,21 @@ def _essai_sous_agent(tool_args: dict, session: str | None) -> tuple[bool, str]:
                                                                sub, modele)
 
 
+# Doc de CLI dont l'ingestion est CONSTATEE dans le RAG (recherches du 5/11), prefixe d'URL -> source.
+# AGY n'y est pas : une recherche n'a rendu que son guide local et les conversations, ce qui ne prouve rien.
+_DOCS_CLI_INGEREES = {
+    "code.claude.com/docs": "claude_code_docs",
+    "developers.openai.com/codex": "openai_docs",
+    "opencode.ai/docs": "anomalyco_opencode",
+}
+
+
+def _doc_cli_ingeree(tool_args: dict | None) -> str | None:
+    """Source RAG de la doc visee par une URL, None si l'URL n'est pas une doc ingeree."""
+    url = str((tool_args or {}).get("url") or "").lower().split("://", 1)[-1].removeprefix("www.")
+    return next((source for prefixe, source in _DOCS_CLI_INGEREES.items() if url.startswith(prefixe)), None)
+
+
 def decide(cli: str, agent: str, tool_name: str, tool_args: dict, ring: int | None = None,
            session: str | None = None) -> dict:
     """Décision unifiée. Retourne {action, target, reason, ring, enforce}."""
@@ -411,6 +426,11 @@ def decide(cli: str, agent: str, tool_name: str, tool_args: dict, ring: int | No
 
     # 2. DÉPORT souverain : web/search/read selon politique dynamique
     if kind == "web":
+        source_doc = _doc_cli_ingeree(tool_args)
+        if source_doc:
+            return {"action": "deport", "target": "hub:rag", "ring": ring, "enforce": "hard",
+                    "reason": ("doc de CLI déjà ingérée (source %s) : rag action=search topic=<réglage> limit=3 rend le "
+                               "passage utile ; une page entière coûte des dizaines de milliers de caractères" % source_doc)}
         return {"action": "deport", "target": _DEPORT_TARGET["web"], "ring": ring, "enforce": "hard",
                 "reason": "souveraineté : SearXNG/crawl du hub au lieu de Google"}
     if kind in ("read", "search", "recon_agent"):

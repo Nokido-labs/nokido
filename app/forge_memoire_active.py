@@ -48,6 +48,8 @@ import math
 import os
 import sys
 import time
+import unicodedata
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -61,6 +63,10 @@ for _p in (ROOT / "app", ROOT / "tools"):
 
 ZONE_DETTES = "active_bugs"
 STRATES = ("immediate", "courte", "longue", "introspective", "proprioceptive")
+
+# Au-dela, un jeton ne designe plus rien. Mesure du 2026-11-05 sur 1 878 modules :
+# local 12, broker 10, agent 27 (communs) ; code 8, budget 4, event 3 (parlants).
+_JETON_COMMUN = 8
 
 # Le hook par tour paie ce texte a CHAQUE tour, et l'historique est re-facture : une
 # memoire genereuse coute plus cher que l'oubli qu'elle repare.
@@ -339,6 +345,9 @@ def _courte(intention: str, limit: int = 3):
     return vus[:limit], None
 
 
+_PLAFOND_RAPPEL_S = 1.0
+
+
 def _longue(intention: str, limit: int = 3):
     """Rappel lexical sur le corpus consolide.
 
@@ -349,25 +358,65 @@ def _longue(intention: str, limit: int = 3):
     if not intention.strip():
         return [], "aucune intention fournie"
     try:
-        from nokido_agent.app.forge_keeper_base import find
+        from nokido_agent.app.forge_keeper_base import find, find_fiches, requete_fts_legere
     except Exception as e:  # noqa: BLE001
         return [], "rappel lexical injoignable (%s)" % type(e).__name__
+    # Jamais de langage naturel brut dans MATCH : `?` et `.` levaient une erreur FTS5, et cette
+    # panne s'affichait « corpus, pas panne » (mesure 5/11 : 2 phrases reelles sur 5).
+    import re as _re
+
+    mots = _re.findall(r"\w+", intention)
+    # Repli : `requete_fts` ecarte les mots de 3 lettres ou moins, et « hub » seul ne doit pas devenir vide.
+    requete = requete_fts_legere(intention) or " OR ".join(mots)
+    if not requete:
+        return [], "aucun rappel sur ces termes (corpus, pas panne)"
     try:
-        hits = find(intention, limit=limit) or []
+        # Les fiches d'abord : `find` lit `rag_fts`, qui ne les porte pas. OR seulement ici : mesure 5/11
+        # sur la vraie base, fiches 34-192 ms ; `rag_fts` en OR 1,5 s a plus de 15 s, donc tous mots requis
+        # et entre guillemets (la semantique d'avant, sans l'erreur de syntaxe). Plafond : hook a chaque message.
+        hits = ((find_fiches(requete, limit=limit, plafond_s=_PLAFOND_RAPPEL_S) or [])
+                + (find(" ".join('"%s"' % m for m in mots), limit=limit, sources_fiables=True,
+                        plafond_s=_PLAFOND_RAPPEL_S) or []))
     except Exception as e:  # noqa: BLE001
         return [], "rappel lexical en echec (%s)" % type(e).__name__
+    erreur = next((h["error"] for h in hits if isinstance(h, dict) and h.get("error")), None)
+    hits = [h for h in hits if not (isinstance(h, dict) and h.get("error"))]
+    if erreur and not hits:  # une panne de canal se dit ; l'autre canal, s'il rend, n'est pas perdu
+        msg_err = str(erreur)
+        if "interrupted" in msg_err:
+            detail = "interrompu (plafond)"
+        else:
+            detail = msg_err.split(":", 1)[0]
+        return [], "rappel lexical en echec (%s)" % detail
     sortie = []
+    vues = set()
     for h in hits:
         if not isinstance(h, dict):
             continue
-        apercu = str(h.get("preview") or "").strip()[:150]
+        if h.get("source") in vues:
+            continue
+        apercu = str(h.get("preview") or "").strip()
+        if apercu.startswith("[episodic_memory:memory:"):
+            fin = apercu.find("]")
+            if fin != -1:
+                apercu = apercu[fin + 1:].strip()
+        apercu = apercu[:150]
         if not apercu:
             # Un rappel sans contenu occupe du budget sans rien dire. Mesure du
             # 2026-08-25 : `find` rend parfois une entree sans `preview`, qui
             # s'affichait « [?] » et volait la place d'une strate utile.
             continue
-        sortie.append(_entree("[%s] %s" % (h.get("source") or "?", apercu),
-                              "keeper/find"))
+        src = str(h.get("source") or "?")
+        vues.add(h.get("source"))
+        is_mem = src.startswith("memory:")
+        if is_mem:
+            stem = src.split(":", 1)[1]
+            texte = "[[%s]] %s" % (stem, apercu)
+        else:
+            texte = "[%s] %s" % (src, apercu)
+        sortie.append((0 if is_mem else 1, _entree(texte, "keeper/find")))
+    sortie.sort(key=lambda x: x[0])
+    sortie = [item[1] for item in sortie[:limit]]
     if not sortie:
         # Regle 1 de cet organe, appliquee a lui-meme : une strate vide qui se TAIT
         # disparait du rendu, et son silence devient indiscernable d'une panne. Ma
@@ -381,8 +430,51 @@ def _mots(texte: str):
     return [m for m in bas.split() if m]
 
 
+def _sans_accents(texte: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", texte) if not unicodedata.combining(c))
+
+
+def _radical(mot: str) -> str:
+    """Le pluriel rejoint le nom du module : « gardes » designe forge_garde_tokens."""
+    return mot[:-1] if len(mot) > 4 and mot.endswith("s") else mot
+
+
+def _jetons(module) -> set:
+    return {_radical(j) for j in _mots(_sans_accents(Path(str(module)).stem)) if j != "forge"}
+
+
+def _selection(intention: str, data, limit: int) -> list:
+    """Les modules du SUJET, les mieux designes d'abord : (module, organe).
+
+    Jeton entier du nom, jamais sous-chaine (« tool » designait forge_bench_ragtool).
+    Un jeton porte par trop de modules ne designe rien ; un module NOMME dans
+    l'intention passe en tete quels que soient ses jetons.
+    """
+    texte = _sans_accents(intention).lower()
+    nommes = {m for m in _re.findall(r"\w+", texte) if "_" in m}
+    mots = {_radical(m) for m in _mots(texte) if len(m) >= 4}
+    paires = [(str(mod), str(org)) for org, mods in _paires(data) for mod in mods]
+    jetons = {mod: _jetons(mod) for mod, _ in paires}
+    freq = Counter(j for js in jetons.values() for j in js)
+    classes = []
+    for mod, org in paires:
+        nomme = Path(mod).stem.lower() in nommes
+        portes = [j for j in jetons[mod] & mots if freq[j] <= _JETON_COMMUN]
+        if nomme or portes:
+            classes.append((not nomme, -len(portes), -sum(1 / freq[j] for j in portes), mod, org))
+    return [(mod, org) for *_, mod, org in sorted(classes)[:limit]]
+
+
 def _paires(data):
-    """La carte a connu deux formes ; on accepte les deux au lieu d'en imposer une."""
+    """La carte a connu plusieurs formes ; on accepte chacune au lieu d'en imposer une.
+
+    Forme du recensement : {"module_organ": {module: organe}, "tally": ..., "provenance": ...}.
+    Ses autres cles racines ne sont ni des organes ni des modules.
+    """
+    if isinstance(data, dict) and isinstance(data.get("module_organ"), dict):
+        for module, organe in data["module_organ"].items():
+            yield organe, [module]
+        return
     if isinstance(data, dict):
         for organe, v in data.items():
             if isinstance(v, list):
@@ -413,13 +505,8 @@ def _introspective(intention: str, limit: int = 4):
     mots = [m for m in _mots(intention) if len(m) >= 4]
     if not mots:
         return [], "intention sans mot exploitable"
-    trouves = []
-    for organe, modules in _paires(data):
-        for mod in modules:
-            if any(m in str(mod).lower() for m in mots):
-                trouves.append((str(mod), str(organe)))
     vus = [_entree("%s - organe %s" % (mod, org), "census/organ_map", age_s=age_s)
-           for mod, org in trouves[:limit]]
+           for mod, org in _selection(intention, data, limit)]
     note = None
     if age_s > 86400:
         note = "carte du corps vieille de %.1f j (recensement a relancer)" % (
@@ -427,6 +514,85 @@ def _introspective(intention: str, limit: int = 4):
     if not vus and not note:
         note = "aucun module ne porte ces mots"
     return vus, note
+
+
+def _mesure_ram_directe():
+    """Mesure directe de la RAM via GlobalMemoryStatusEx (< 5 ms).
+
+    Retourne le pourcentage de RAM utilisée (float), ou None si la mesure échoue.
+    """
+    if os.name != "nt":
+        try:
+            import psutil
+            return round(float(psutil.virtual_memory().percent), 1)
+        except Exception:
+            return None
+    try:
+        import ctypes
+
+        class _MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        ms = _MEMORYSTATUSEX()
+        ms.dwLength = ctypes.sizeof(ms)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):
+            if ms.ullTotalPhys > 0:
+                used = ms.ullTotalPhys - ms.ullAvailPhys
+                return round((used / ms.ullTotalPhys) * 100, 1)
+            return round(float(ms.dwMemoryLoad), 1)
+    except Exception as e:  # noqa: BLE001
+        __import__("logging").getLogger(__name__).debug("Zero RAM ctypes : repli psutil (%s)", e)
+    try:
+        import psutil
+        return round(float(psutil.virtual_memory().percent), 1)
+    except Exception:
+        return None
+
+
+def _dernier_demarrage_stack():
+    """Timestamp (secondes epoch) du dernier demarrage de la stack (hub / superviseur / OS).
+
+    Retourne None si l'information n'est pas disponible.
+    """
+    candidats = []
+    # 1. boot_sentinel.json (tenu par l'orchestrateur / reboot sentinel)
+    sp = SANDBOX / "boot_sentinel.json"
+    if sp.exists():
+        try:
+            bt = json.loads(sp.read_text(encoding="utf-8")).get("boot_time")
+            if bt:
+                candidats.append(float(bt))
+        except Exception as e:  # noqa: BLE001
+            # muet-ok : sentinelle corrompue, on passe au candidat suivant (boot_time systeme)
+            __import__("logging").getLogger(__name__).debug("Sentinelle boot corrompue (%s)", e)
+    # 2. supervisor / hub logs ou heartbeats récents
+    for nom in ("hub.heartbeat", "supervisor.heartbeat"):
+        hb = SANDBOX / nom
+        if hb.exists():
+            try:
+                candidats.append(hb.stat().st_mtime)
+            except Exception as e:  # noqa: BLE001
+                # muet-ok : heartbeat illisible, candidat suivant suffit
+                __import__("logging").getLogger(__name__).debug("Heartbeat %s illisible (%s)", nom, e)
+    # 3. psutil.boot_time
+    try:
+        import psutil
+
+        candidats.append(float(psutil.boot_time()))
+    except Exception as e:  # noqa: BLE001
+        # muet-ok : psutil absent/echoue, les autres candidats suffisent
+        __import__("logging").getLogger(__name__).debug("psutil.boot_time indisponible (%s)", e)
+    return max(candidats) if candidats else None
 
 
 def _proprioceptive(limit: int = 4):
@@ -439,7 +605,8 @@ def _proprioceptive(limit: int = 4):
     p = SANDBOX / "health_diagnostic.json"
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
-        age_s = time.time() - p.stat().st_mtime
+        mtime = p.stat().st_mtime
+        age_s = time.time() - mtime
     except Exception as e:  # noqa: BLE001
         return [], "bilan de sante illisible (%s)" % type(e).__name__
     conf = d.get("confiance")
@@ -449,8 +616,69 @@ def _proprioceptive(limit: int = 4):
     date = "" if age_s < 60 else " (bilan il y a %.0f min)" % (age_s / 60)
     entrees = [_entree("score %s/100%s%s" % (d.get("score"), suffixe, date),
                        "health_diagnostic", age_s=age_s)]
-    for g in [g for g in (d.get("gaps") or []) if str(g).startswith("❌")][:limit - 1]:
-        entrees.append(_entree(str(g)[:190] + date, "health_diagnostic", age_s=age_s))
+
+    # Relire la RAM EN DIRECT pour toute valeur de vitaux hôte (RAM)
+    ram_directe = _mesure_ram_directe()
+    boot_stack = _dernier_demarrage_stack()
+    bilan_anterieur_reboot = (boot_stack is not None and mtime < boot_stack)
+
+    # Vitaux hôte depuis le bilan si disponibles
+    hv = d.get("host_vitals") or {}
+    ram_bilan = hv.get("ram_pct")
+
+    # Extraire aussi les gaps ❌
+    gaps_raw = [str(g) for g in (d.get("gaps") or []) if str(g).startswith("❌")]
+
+    for g in gaps_raw:
+        if len(entrees) >= limit:
+            break
+        if "RAM" in g:
+            # Traitement spécifique vitaux hôte (RAM)
+            # Si le bilan est antérieur au dernier démarrage, il est STALE : jamais affiché comme alerte présente.
+            if bilan_anterieur_reboot:
+                continue
+
+            # Si la mesure directe est illisible
+            if ram_directe is None:
+                entrees.append(_entree("RAM ILLISIBLE" + date, "health_diagnostic", age_s=age_s))
+                continue
+
+            # Si ram_bilan n'était pas dans hv, essayer de l'extraire du texte de gap
+            ram_b = ram_bilan
+            if ram_b is None:
+                m = _re.search(r"(\d+(?:\.\d+)?)\s*%", g)
+                if m:
+                    try:
+                        ram_b = float(m.group(1))
+                    except Exception:
+                        ram_b = None
+
+            if ram_b is not None and abs(ram_directe - float(ram_b)) > 5.0:
+                # Contredit le bilan de plus de 5 points
+                # « RAM » sur la ligne : sans lui, « bilan perime (94.7%) » ne dit pas QUOI est perime (NR
+                # test_proprioception_age_sur_la_ligne_nr) ; l'age seulement s'il y en a un (bilan < 60 s : aucun).
+                entrees.append(_entree(
+                    "RAM hôte : bilan perime (%.1f%%%s), mesure directe %.1f%%" % (
+                        float(ram_b), "" if age_s < 60 else " il y a %.0f min" % (age_s / 60), ram_directe
+                    ),
+                    "health_diagnostic", age_s=age_s
+                ))
+            else:
+                # Affiche la valeur directe au lieu de la valeur recopiee du bilan
+                if ram_directe >= 90.0:
+                    entrees.append(_entree(
+                        f"❌ RAM hôte à {ram_directe}% — au-delà du seuil où le gate P1 refuse tout spawn (85%){date}",
+                        "health_diagnostic", age_s=age_s
+                    ))
+                elif ram_directe >= 85.0:
+                    entrees.append(_entree(
+                        f"⚠ RAM hôte à {ram_directe}% — au seuil de blocage P1{date}",
+                        "health_diagnostic", age_s=age_s
+                    ))
+                # Si ram_directe < 85%, ce n'est plus une alerte présente (pas de ❌)
+        else:
+            entrees.append(_entree(g[:190] + date, "health_diagnostic", age_s=age_s))
+
     note = None
     if age_s > 1800:
         note = "bilan vieux de %.0f min - l'organe de diagnostic bat-il ?" % (age_s / 60)

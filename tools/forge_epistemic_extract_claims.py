@@ -772,11 +772,9 @@ LANE_NUIT = "consolidation_nuit"
 
 
 def lire_etat_nuit() -> dict:
-    try:
-        d = json.loads(ETAT_NUIT.read_text(encoding="utf-8"))
-        return d if isinstance(d, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    from nokido_agent.app.forge_utils import lire_json_dict
+
+    return lire_json_dict(ETAT_NUIT)
 
 
 def ecrire_etat_nuit(maj: dict) -> None:

@@ -413,7 +413,10 @@ def test_pilotage_se_note_et_se_relit():
     E.marquer_pilotage(True)
     assert E.est_pilote("lmstudio") is True
     # Un demarrage compte comme un usage, sinon le tick suivant le couperait.
-    assert (E.inactif_depuis("lmstudio") or 999) < 5.0
+    # 3/11 : `(x or 999)` faisait echouer le test quand l'inactivite valait EXACTEMENT 0.0 (machine rapide) :
+    # 0.0 est falsy. On distingue « zero » de « illisible » (None).
+    _inactif = E.inactif_depuis("lmstudio")
+    assert _inactif is not None and _inactif < 5.0, _inactif
     E.marquer_pilotage(False)
     assert E.est_pilote("lmstudio") is False
 

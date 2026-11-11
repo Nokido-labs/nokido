@@ -147,24 +147,9 @@ def _sys_metrics() -> dict:
         net = psutil.net_io_counters()
         metrics["net_sent_mb"] = round(net.bytes_sent / 1e6, 1)
         metrics["net_recv_mb"] = round(net.bytes_recv / 1e6, 1)
-        # Connexions actives sur ports critiques
-        conns = psutil.net_connections(kind="inet")
-        for port, name in CRITICAL_PORTS.items():
-            listening = [c for c in conns if c.laddr.port == port and c.status == "LISTEN"]
-            metrics[f"port_{port}"] = "OK" if listening else "DOWN"
+        metrics.update(_ports_pour_metriques())
     except ImportError:
-        # psutil absent — fallback netstat minimal
-        try:
-            # errors="replace" OBLIGATOIRE : netstat n'ecrit pas de l'UTF-8 sur un
-            # Windows localise (cp1252/cp850). Sans lui, UnicodeDecodeError dans le
-            # thread lecteur -> l'except ci-dessous avale TOUT et le capteur devient
-            # aveugle en silence (anti-regression incident 47 Go).
-            r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=5)
-            for port, name in CRITICAL_PORTS.items():
-                metrics[f"port_{port}"] = "OK" if f":{port} " in r.stdout else "DOWN"
-        except Exception:
-            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 166, exc_info=True)
+        metrics.update(_ports_pour_metriques())  # psutil absent : les ports ne dependent pas de lui
     except Exception as e:
         metrics["error"] = str(e)[:80]
     return metrics
@@ -264,56 +249,54 @@ def _kill_zombies(procs: dict) -> list:
 
 
 # ── 3. PORT SENTINEL ─────────────────────────────────────────────────────────
-def _check_ports() -> dict:
-    """Vérifie les ports critiques depuis netstat."""
-    result = {}
-    try:
-        # errors="replace" : cf. _sys_metrics. Ici l'enjeu est plus grave — sans lui,
-        # une seule ligne non decodable fait echouer TOUTE la sentinelle de ports,
-        # et un capteur qui ne peut pas voir se lit comme « aucun port DOWN ».
-        r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=8)
-        listeners: dict[int, list] = {}
-        for line in (r.stdout or "").splitlines():
-            if "LISTENING" not in line:
-                continue
-            parts = line.strip().split()
-            if len(parts) < 5:
-                continue
-            try:
-                port = int(parts[1].split(":")[-1])
-                pid = parts[-1]
-                if port in CRITICAL_PORTS:
-                    listeners.setdefault(port, []).append(pid)
-            except ValueError:
-                __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_inspector.py', 288, exc_info=True)
+try:
+    from nokido_agent.app.forge_ports_ecoute import ecouteurs_tcp
+except ImportError:  # muet-ok : module charge hors du paquet (tests, outils), meme fichier
+    from forge_ports_ecoute import ecouteurs_tcp
 
-        for port, name in CRITICAL_PORTS.items():
-            pids = list(set(listeners.get(port, [])))
-            if not pids:
-                result[port] = "DOWN"
+
+def _port_repond(port: int, delai: float = 3.0) -> str:
+    """OK | DOWN | INCONNU : seule la connexion tranche. Delai de 3 s : sous Windows, le refus d'un port ferme
+    prend pres de 2 s, un delai plus court ferait d'un vrai DOWN un INCONNU."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=delai):
+            return "OK"
+    except ConnectionRefusedError:
+        return "DOWN"
+    except OSError:  # muet-ok : delai ou erreur reseau = capteur muet, rendu INCONNU et jamais lu comme DOWN
+        return "INCONNU"
+
+
+def _ports_pour_metriques() -> dict:
+    """OK si un processus ecoute (un doublon ecoute : OK, _check_ports le signale), DOWN si la table le dit absent,
+    INCONNU si la table est illisible. Sans sonde ni journal : _check_ports les fait deja, une fois par cycle."""
+    ecoute = ecouteurs_tcp()
+    if ecoute is None:
+        return {f"port_{p}": "INCONNU" for p in CRITICAL_PORTS}
+    return {f"port_{p}": "OK" if ecoute.get(p) else "DOWN" for p in CRITICAL_PORTS}
+
+
+def _check_ports() -> dict:
+    """Vérifie les ports critiques : la table des listeners voit les doublons, une connexion confirme toute absence.
+
+    Mesure du 6/11 (job_c00ec2f251fb) : la colonne d'etat de `netstat -ano` est fausse sur ce build. :8766 vu 0 fois sur
+    49 (connexion 49/49), et une connexion morte de PID 0 marquee LISTENING. L'absence relancait `nssm start NokidoMCP`
+    sur un hub vivant, le faux doublon a tue deux fois le superviseur. NR : tests/nr/test_inspector_sonde_port_nr.py.
+    """
+    result = {}
+    ecoute = ecouteurs_tcp()  # None = table illisible : chaque port se confirme par connexion
+    for port, name in CRITICAL_PORTS.items():
+        pids = sorted((ecoute or {}).get(port, ()))
+        if len(pids) > 1:
+            # Signal, jamais ordre de tuer : un PID bas n'est pas « le plus ancien ».
+            result[port] = "DUPLICATE"
+            _log("OUT", "inspector.port", "WARN", f"DUPLICATE :{port} PIDs={pids} (observation, aucun kill)")
+        elif pids:
+            result[port] = "OK"
+        else:
+            result[port] = _port_repond(port)
+            if result[port] == "DOWN":
                 _log("OUT", "inspector.port", "ERR", f"PORT DOWN :{port} {name}")
-            elif len(pids) > 1:
-                result[port] = "DUPLICATE"
-                _log("OUT", "inspector.port", "WARN", f"DUPLICATE :{port} PIDs={pids}")
-                # Tuer les doublons — garder le PID le plus bas (le plus ancien = le bon)
-                for pid in sorted(pids, key=int)[1:]:
-                    subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=5)
-            else:
-                result[port] = "OK"
-    except Exception as e:
-        _log("OUT", "inspector.port", "ERR", f"check_ports: {e}")
-    # Si résultat vide (race condition boot ou netstat timeout) — fallback socket
-    if not result:
-        for port, name in CRITICAL_PORTS.items():
-            try:
-                s = socket.socket()
-                s.settimeout(1)
-                s.connect(("127.0.0.1", port))
-                s.close()
-                result[port] = "OK"
-            except Exception:
-                result[port] = "DOWN"
     return result
 
 
@@ -613,6 +596,8 @@ def _update_heartbeats(ports: dict, metrics: dict):
         # Bridges et services
         for node_id, port in [("hub_nokido", 8766), ("netcfg_agent", 8767)]:
             st = ports.get(port, "DOWN")
+            if st == "INCONNU":  # UNKNOWN != NO : capteur muet, on ne compte pas un battement manque
+                continue
             missed = 0 if st == "OK" else 1
             conn.execute(
                 "INSERT INTO fleet_heartbeats (node_id,node_type,status,missed_count,last_ping_at) "
@@ -631,6 +616,8 @@ def _update_heartbeats(ports: dict, metrics: dict):
         # Compute nodes — vérifier ollama/llamacpp via metrics
         for node_id, port_key in [("ollama_local", "port_11434"), ("llamacpp_local", "port_1234")]:
             port_val = metrics.get(port_key, "DOWN")
+            if port_val == "INCONNU":  # UNKNOWN != NO : capteur muet, le dernier etat connu reste
+                continue
             st = "ready" if port_val == "OK" else "offline"
             conn.execute("UPDATE compute_nodes SET status=?,last_seen=datetime('now') WHERE node_id=?", (st, node_id))
         # Alerte si un noeud VIVANT rate ses battements. Mesure 2026-08-02 : la requete

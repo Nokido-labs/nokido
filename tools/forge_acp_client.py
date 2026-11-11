@@ -3,7 +3,7 @@
 """forge_acp_client.py — Nokido comme CLIENT/HOST ACP : pilote un agent-CLI
 externe parlant Agent Client Protocol (ex: `gemini --experimental-acp`).
 
-Dual de forge_acp_adapter (qui fait de Nokido un agent ACP SERVI). Ici Nokido
+Dual de forge_acp_server (qui fait de Nokido un agent ACP SERVI). Ici Nokido
 SPAWN l'agent, fait le handshake initialize -> session/new -> session/prompt et
 agrege le stream session/update. But : exposer Gemini CLI comme membre/provider
 SOUVERAIN sans cle API (reutilise l'OAuth deja loggé du CLI) -> evite
@@ -13,11 +13,11 @@ Transport : JSON-RPC 2.0 newline-delimited sur stdin/stdout du subprocess.
 Spec ACP (origine Zed) : protocolVersion ENTIER ; session/update.update porte un
 discriminant STRING `sessionUpdate` ; l'agent peut RE-questionner le client
 (session/request_permission, fs/read_text_file, fs/write_text_file). Client
-TOLERANT : accepte aussi la forme objet {type:...} (celle de forge_acp_adapter)
+TOLERANT : accepte aussi la forme objet {type:...} (ancienne forme du PoC retire)
 pour selftest loopback SANS gemini.
 
 Usage :
-  LAFORGE_PYTHON forge_acp_client.py --selftest        # loopback vs forge_acp_adapter (pas besoin de gemini)
+  LAFORGE_PYTHON forge_acp_client.py --selftest        # loopback vs forge_acp_server --echo (pas besoin de gemini)
   LAFORGE_PYTHON forge_acp_client.py --probe           # handshake gemini seul (initialize) — contexte user/trusted
   LAFORGE_PYTHON forge_acp_client.py --ask "explique X"# spawn gemini, 1 prompt complet
   GEMINI_ACP_CMD='["gemini","--experimental-acp"]'     # override commande (JSON liste)
@@ -312,6 +312,24 @@ class ACPClient:
             return annule
         return res
 
+    def _chemin_borne(self, chemin):
+        """Chemin resolu (liens et `..` suivis) et contenu dans le cwd de session. Sinon PermissionError
+        (journalise). Echec ferme : cwd inconnu ou chemin illisible = refus."""
+        racine = self.cwd
+        if not racine or not isinstance(chemin, str) or not chemin:
+            self.on_log("[fs/read] REFUS : repertoire de session ou chemin inconnu")
+            raise PermissionError("lecture refusee : hors session")
+        try:
+            r = os.path.realpath(racine)
+            p = os.path.realpath(chemin if os.path.isabs(chemin) else os.path.join(r, chemin))
+            dedans = os.path.commonpath([os.path.normcase(r), os.path.normcase(p)]) == os.path.normcase(r)
+        except ValueError:  # autre lecteur Windows
+            dedans = False
+        if not dedans:
+            self.on_log(f"[fs/read] REFUS hors session : {os.path.basename(str(chemin))!r}")
+            raise PermissionError("lecture refusee : hors du repertoire de session")
+        return p
+
     def _handle_agent_request(self, obj):
         """L'agent re-questionne le client. Politique SOUVERAINE par defaut :
         permission -> refuse ; fs/read -> lit borne ; fs/write -> refuse."""
@@ -323,7 +341,8 @@ class ACPClient:
                         "result": {"outcome": self._decider_permission(params)}})
         elif method in ("fs/read_text_file", "readTextFile"):
             try:
-                with open(params.get("path", ""), "r", encoding="utf-8") as f:
+                chemin = self._chemin_borne(params.get("path"))
+                with open(chemin, "r", encoding="utf-8") as f:
                     self._send({"jsonrpc": "2.0", "id": rid,
                                 "result": {"content": f.read(200000)}})
             except Exception as exc:  # noqa: BLE001
@@ -472,17 +491,16 @@ def ask(prompt_text, cmd=None, timeout=DEFAULT_TIMEOUT, on_log=None, agent="gemi
 
 
 def _selftest() -> int:
-    """Pilote forge_acp_adapter.py (serveur ACP Nokido) en loopback subprocess
-    -> teste le handshake + prompt + routing cowork SANS gemini. Le texte de
-    reponse depend du hub (peut etre une erreur si hub down) : on valide le
-    PROTOCOLE (stopReason, sessionId, cowork), pas la qualite de la reponse."""
+    """Pilote forge_acp_server.py (serveur ACP Nokido, stdio, cerveau --echo)
+    en loopback subprocess -> teste handshake + prompt + streaming SANS gemini
+    ni hub. On valide le PROTOCOLE (stopReason, sessionId, texte streame)."""
     here = os.path.dirname(os.path.abspath(__file__))
-    adapter = os.path.join(here, "forge_acp_adapter.py")
+    adapter = os.path.join(here, "forge_acp_server.py")
     if not os.path.exists(adapter):
-        print(json.dumps({"ok": False, "err": f"adapter introuvable: {adapter}"}))
+        print(json.dumps({"ok": False, "err": f"serveur introuvable: {adapter}"}))
         return 1
     logs = []
-    cli = ACPClient(cmd=[sys.executable, adapter], on_log=logs.append)
+    cli = ACPClient(cmd=[sys.executable, adapter, "--echo"], on_log=logs.append)
     cli.start()
     try:
         init = cli.initialize()
@@ -493,10 +511,10 @@ def _selftest() -> int:
         # (peut etre vide) -> ne pas l'asserter ici.
         r1 = cli.prompt(sid, "explique en une phrase ce qu'est Nokido", timeout=90)
         assert r1["stopReason"] == "end_turn", f"prompt stopReason KO: {r1}"
-        # r2 : cowork = reponse LOCALE deterministe non-vide -> prouve que
-        # l'accumulation du texte streamé (session/update) fonctionne.
-        r2 = cli.prompt(sid, "cowork list", timeout=30)
-        assert "[cowork]" in r2["text"], f"cowork routing/streaming KO: {r2}"
+        # r2 : l'echo est LOCAL et deterministe -> prouve que l'accumulation
+        # du texte streame (session/update) fonctionne.
+        r2 = cli.prompt(sid, "bonjour acp", timeout=30)
+        assert "bonjour acp" in r2["text"], f"echo/streaming KO: {r2}"
     except Exception as exc:  # noqa: BLE001
         print(json.dumps({"ok": False, "err": str(exc), "logs": logs[-6:]},
                          ensure_ascii=False, indent=2))
@@ -506,7 +524,7 @@ def _selftest() -> int:
     print(json.dumps({
         "ok": True, "agent": init.get("agentInfo"), "sessionId": sid,
         "ask_text": r1["text"][:160], "ask_stop": r1["stopReason"],
-        "cowork": r2["text"][:120], "logs": logs[-4:],
+        "echo": r2["text"][:120], "logs": logs[-4:],
     }, ensure_ascii=False, indent=2))
     return 0
 

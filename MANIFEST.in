@@ -20,6 +20,7 @@ recursive-exclude go_services/forge_dispatcher *.exe *.exe.*
 # Identite des auteurs (bloquee aussi par la politique publique, a regenerer pseudonymise par son producteur).
 exclude seed/commit_intel.jsonl
 prune app/_attic
+prune tools/_attic
 prune app/legacy
 prune app/tests
 prune app/build_cython
@@ -27,6 +28,7 @@ prune tools/bench_fixtures
 # Liste PRIVEE des identites de l'owner : une wheel construite depuis la source
 # (et non depuis le dist, ou elle est deja bloquee) l'embarquerait sinon.
 exclude config/identites_privees.txt
+exclude config/sujets_prives.txt
 global-exclude *.py[cod]
 prune **/__pycache__
 include README.md

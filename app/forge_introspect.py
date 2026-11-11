@@ -51,6 +51,8 @@ __FORGE_COLOR__ = "SNC/introspection"
 
 import json
 import re
+import sqlite3
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -61,6 +63,25 @@ INDEX_ENQUETES = ROOT / "sandbox" / "enquetes_index.json"
 MAX_SYMBOLES = 5
 MAX_DEFS = 3
 MAX_CANDIDATS = 12          # bornes le cout : chaque candidat coute un grep
+MAX_LITTERAUX = 5           # un seul git grep pour tous
+MAX_OCCURRENCES = 3
+MAX_POINTEURS = 3           # par terme et par famille
+_FTS_MAX_REQUETES = 6
+_FTS_PAR_TERME_S = 0.2      # mesure 5/11 : terme rare 14 a 73 ms, terme courant > 400 ms
+_FTS_TOTAL_S = 0.5
+_BASES_RAG = (ROOT / "RAG" / "embeddings.db", Path("%NOKIDO_DATA%\embeddings.db"))
+# rag_fts, jamais rag_chunks_fts : autonome (texte et source dans l'index, aucune lecture de
+# rag_chunks), et seul alimente par l'ingestion de veille (94b56f548e7c). Interdit de balayage :
+# MATCH seul, LIMIT, connexion en lecture seule. Le texte n'est PAS rendu : la veille est du
+# contenu externe, un pointeur ne peut rien injecter et coute peu ; on lit ensuite par `rag`.
+_SQL_POINTEURS = "SELECT source FROM rag_fts WHERE rag_fts MATCH ? ORDER BY rank LIMIT 20"
+_PREFIXES_VEILLE = ("github:", "gitingest", "ext_repo", "veille", "crawl")
+_MOTIFS_LECONS = ("memory:", "session:", "lesson", "lecon", "rule", "error")
+_ORGANE_VEILLE = "rag_fts (veille, lecons, conversations)"
+# Les fiches `memory:` ne vivent PAS dans rag_fts (mesure 5/11) : rag_chunks_fts si,
+# lues par `forge_keeper_base.find_fiches` — requete INDEXEE (MATCH), jamais un balayage.
+_ORGANE_FICHES = "rag_chunks_fts (fiches memory: via find_fiches)"
+_BUDGET_MEMOIRE_ACTIVE = 1200  # meme serrement que claude_inbox_tick._memoire : paye a chaque tour
 
 # Mots trop communs pour designer un symbole : les retenir ferait grepper le
 # depot entier pour rien.
@@ -71,6 +92,13 @@ _VIDES = {
     "the", "with", "what", "why", "when", "this", "that", "from",
 }
 _RE_MOT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+# Trois lettres admises et accents compris : RTK, CCR, MCP, « economie » accentue.
+_RE_TERME = re.compile(r"[^\W\d]\w{2,}")
+_VIDES_COURTS = {
+    "les", "des", "une", "est", "sur", "par", "que", "qui", "pas", "aux", "ces", "ses", "son", "mon", "ton",
+    "nos", "vos", "ont", "tes", "mes", "and", "for", "not", "are", "was", "you", "mais", "plus", "tout", "tous",
+    "aussi", "encore", "etre", "avoir",
+}
 # Trace de la consultation de l'index d'enquetes (voir `_enquetes`).
 _META_ENQUETES: dict = {}
 
@@ -90,6 +118,185 @@ def _candidats(question: str) -> list[str]:
     vus.sort(key=lambda s: (0 if s.startswith("forge_") else 1,
                             0 if "_" in s else 1, -len(s)))
     return vus[:MAX_CANDIDATS]
+
+
+def _est_identifiant(mot: str) -> bool:
+    """Allure de nom propre au code : `BUDGET_VOLUME`, `OmniRoute`, `RTK`, jamais un mot courant."""
+    return "_" in mot or any(c.isdigit() for c in mot) or any(c.isupper() for c in mot[1:])
+
+
+def _termes(question: str) -> list[str]:
+    """Mots a chercher hors des `def`, les plus specifiques d'abord."""
+    vus: list[str] = []
+    for m in _RE_TERME.findall(question or ""):
+        b = m.lower()
+        if b in _VIDES or b in _VIDES_COURTS or m in vus:
+            continue
+        vus.append(m)
+    vus.sort(key=lambda s: (0 if _est_identifiant(s) else 1, -len(s)))
+    return vus
+
+
+def _litteraux(question: str, code: list, non_consulte: list, racine: Path | None = None) -> list:
+    """Ou vit un nom qui n'est pas un `def` : constante, message de refus, cle de config.
+
+    Mesure 5/11 : `BUDGET_VOLUME` rendait `symboles_trouves: []`, et le garde qui l'emet restait
+    invisible. Un seul git grep pour tous les termes. Rend des `fichier:ligne`, jamais la ligne :
+    `config/` en fait partie, et un pointeur suffit a la lecture suivante.
+    """
+    connus = {s.get("symbole") for s in code}
+    termes = [t for t in _termes(question) if _est_identifiant(t) and t not in connus][:MAX_LITTERAUX]
+    if not termes:
+        return []
+    motifs = [x for t in termes for x in ("-e", t)]
+    try:
+        g = subprocess.run(
+            ["git", "-c", "safe.directory=*", "-c", "core.quotepath=off", "-C", str(racine or ROOT), "grep", "-n", "-F", "-w",
+             "--untracked", *motifs, "--", "app", "tools", "config", ":(exclude)app/forge_introspect.py"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        non_consulte.append({"organe": "litteraux (git grep)", "raison": type(exc).__name__})
+        return []
+    if g.returncode not in (0, 1):  # 1 = lu, et rien de trouve ; au-dela, git n'a pas lu
+        non_consulte.append({"organe": "litteraux (git grep)", "raison": "rc=%d" % g.returncode})
+        return []
+    par_terme: dict = {t: [] for t in termes}
+    for ligne in g.stdout.splitlines():
+        rel, _, reste = ligne.partition(":")
+        num, _, texte = reste.partition(":")
+        for t in termes:
+            if t in texte:
+                par_terme[t].append("%s:%s" % (rel, num))
+    rendu = []
+    for t, lieux in par_terme.items():
+        if lieux:
+            gardes = [x for x in lieux if x.startswith("tools/hook_")]
+            ailleurs = [x for x in lieux if not x.startswith("tools/hook_")]
+            rendu.append({"terme": t, "occurrences": len(lieux), "gardes": gardes[:MAX_OCCURRENCES],
+                          "ailleurs": ailleurs[:MAX_OCCURRENCES]})
+    return rendu
+
+
+def _famille_source(source: str) -> str:
+    s = (source or "").lower()
+    if s.startswith(_PREFIXES_VEILLE):
+        return "veille"
+    if s.startswith("conv_"):
+        return "conversations"
+    return "lecons" if any(m in s for m in _MOTIFS_LECONS) else "autres"
+
+
+def _fiches_memory(question: str, non_consulte: list, plafond_s: float = _FTS_PAR_TERME_S) -> list:
+    """Fiches `memory:*` repondant a la question, via `forge_keeper_base.find_fiches`.
+
+    Mesure 5/11 : `rag_fts` (lu par `_veille`) ne porte PAS les fiches `memory:` ;
+    `rag_chunks_fts` si. Import et lecture TOLERANTS : un echec est NOMME dans
+    `non_consulte`, jamais une exception ne casse introspect. La requete est une
+    expression FTS MATCH sur les memes termes que la veille — jamais un balayage.
+    """
+    termes = _termes(question)
+    if not termes:
+        return []
+    try:
+        from nokido_agent.app.forge_keeper_base import find_fiches  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        non_consulte.append({"organe": _ORGANE_FICHES,
+                             "raison": "illisible : %s" % type(exc).__name__})
+        return []
+    pattern = " OR ".join('"%s"' % t.replace('"', '""') for t in termes[:4])
+    try:
+        return find_fiches(pattern, limit=4, plafond_s=plafond_s)
+    except Exception as exc:  # noqa: BLE001
+        non_consulte.append({"organe": _ORGANE_FICHES,
+                             "raison": "illisible : %s" % type(exc).__name__})
+        return []
+
+
+def _memoire_active(query: str, budget_chars: int = _BUDGET_MEMOIRE_ACTIVE) -> str:
+    """Projection de la memoire de travail pour CETTE question (geste 2b du 8/11).
+
+    `forge_memoire_active.rendre(projeter(...))` est le meme reflexe que
+    `claude_inbox_tick._memoire`, jusqu'ici seul appelant : un client non-Claude
+    qui interroge introspect recoit ainsi ce que Claude recoit a chaque tour.
+    Import et appel TOLERANTS : tout echec rend un champ ILLISIBLE avec la cause —
+    jamais silencieux, jamais une exception qui casse introspect.
+    """
+    try:
+        from nokido_agent.app.forge_memoire_active import projeter, rendre  # noqa: PLC0415
+        return rendre(projeter(query or "", budget_chars=budget_chars)) or ""
+    except Exception as exc:  # noqa: BLE001
+        return "<ILLISIBLE : %s %s>" % (type(exc).__name__, str(exc)[:120])
+
+
+def _veille(question: str, non_consulte: list, base: Path | None = None, plafond_s: float = _FTS_TOTAL_S) -> list:
+    """Ce que le RAG sait des termes de la question : des POINTEURS par famille, jamais son texte.
+
+    Trois formes, parce qu'un mot courant isole ramene n'importe quoi (mesure 5/11 : `marche` ->
+    un fr.json) : un identifiant est servi tel quel ; les mots ensemble (ET) cherchent le theme ;
+    un mot seul n'est garde que si une source le NOMME (`rtk` -> github:rtk-ai/rtk), les plus
+    courts d'abord car un nom de projet l'est souvent.
+
+    Bornes : quelques requetes, chacune coupee a `_FTS_PAR_TERME_S`, le tout a `plafond_s`. Une
+    requete coupee ou jamais lancee est NOMMEE : le silence d'un index ne prouve pas l'absence.
+    """
+    termes = _termes(question)
+    mots = [t for t in termes if not _est_identifiant(t)]
+
+    def _quote(t: str) -> str:  # du TEXTE, pas une requete FTS5 (voir `_requete_fts`)
+        return '"%s"' % t.replace('"', '""')
+
+    requetes = [(t, _quote(t), False) for t in termes if _est_identifiant(t)]
+    if len(mots) > 1:
+        requetes.append((" + ".join(mots[:4]), " ".join(_quote(m) for m in mots[:4]), False))
+    requetes += [(m, _quote(m), True) for m in sorted(mots, key=len)]
+    requetes = requetes[:_FTS_MAX_REQUETES]
+    if not requetes:
+        return []
+    chemin = base or next((b for b in _BASES_RAG if b.exists()), None)
+    if chemin is None or not chemin.exists():
+        non_consulte.append({"organe": _ORGANE_VEILLE, "raison": "base RAG absente"})
+        return []
+    fin = time.monotonic() + plafond_s
+    rendu, coupes = [], []
+    try:
+        con = sqlite3.connect("%s?mode=ro" % chemin.resolve().as_uri(), uri=True, timeout=1)
+    except sqlite3.Error as exc:
+        non_consulte.append({"organe": _ORGANE_VEILLE, "raison": "illisible : %s" % type(exc).__name__})
+        return []
+    try:
+        for t, requete, doit_nommer in requetes:
+            reste = fin - time.monotonic()
+            if reste <= 0:
+                coupes.append(t)
+                continue
+            limite = time.monotonic() + min(reste, _FTS_PAR_TERME_S)
+            con.set_progress_handler(lambda limite=limite: time.monotonic() > limite, 1000)
+            try:
+                sources = [r[0] for r in con.execute(_SQL_POINTEURS, (requete,))]
+            except sqlite3.OperationalError as exc:
+                if "interrupted" in str(exc):
+                    coupes.append(t)
+                else:
+                    non_consulte.append({"organe": _ORGANE_VEILLE, "raison": "illisible : %s" % str(exc)[:80]})
+                continue
+            familles: dict = {"veille": [], "lecons": [], "conversations": []}
+            autres = 0
+            for s in dict.fromkeys(sources):
+                if doit_nommer and t.lower() not in str(s).lower():
+                    continue
+                f = _famille_source(s)
+                if f == "autres":
+                    autres += 1
+                elif len(familles[f]) < MAX_POINTEURS:
+                    familles[f].append(str(s)[:90])
+            if any(familles.values()) or (sources and not doit_nommer):
+                rendu.append({"terme": t, **{k: v for k, v in familles.items() if v}, "autres": autres})
+    finally:
+        con.close()
+    if coupes:
+        non_consulte.append({"organe": _ORGANE_VEILLE,
+                             "raison": "requetes trop couteuses ou plafond atteint : %s" % ", ".join(coupes)})
+    return rendu
 
 
 def _code(question: str, non_consulte: list, jit=None) -> list:
@@ -199,16 +406,13 @@ def _modules(question: str, non_consulte: list, jit) -> list:
         # commentaire, et il ressortait comme consommateur. Un module cite en
         # prose passe alors pour utilise, et un organe muet parait vivant --
         # exactement l'inverse de ce que ce verbe doit rendre.
-        _imp = re.compile(r"(?m)^\s*(?:from\s+%s\s+import|import\s+%s)\b"
-                          % (re.escape(mot), re.escape(mot)))
+        # L'AST du panorama (cache par mtime) voit les imports qualifies et differes ; l'ancienne
+        # regex rendait importe_par=0 pour un module importe, et le plafond de 20 citants se taisait.
+        from nokido_agent.app.forge_panorama_builder import _extract_imports
         importeurs, mentions = [], []
-        for f in citants[:20]:
-            try:
-                (importeurs if _imp.search(
-                    Path(f).read_text(encoding="utf-8", errors="replace"))
-                 else mentions).append(f)
-            except OSError:
-                mentions.append(f)   # illisible : compte comme mention, jamais import
+        for f in citants:
+            (importeurs if str(f).endswith(".py") and mot in _extract_imports(Path(f))
+             else mentions).append(f)
 
         def _rel(f):
             return str(Path(f).relative_to(Path(jit.ROOT))).replace("\\", "/")
@@ -334,11 +538,14 @@ def _voisinage(seeds: list, non_consulte: list, k: int = 4) -> dict:
                              "raison": "import impossible (%s)" % type(exc).__name__})
         return {}
     try:
-        brut = scan_forge_modules()
+        brut = scan_forge_modules(include_tools=True)
     except Exception as exc:  # noqa: BLE001
         non_consulte.append({"organe": "scan_forge_modules",
                              "raison": type(exc).__name__})
         return {}
+    non_consulte.append({"organe": "voisinage structurel (angle mort)",
+                         "raison": "imports dynamiques (importlib), app/*.py hors forge_* et proxy_deno (TS) "
+                                   "absents du graphe : un module sans appelant ici n'est pas prouve orphelin"})
     aval = {n: sorted(v) for n, v in brut.items()}
     amont: dict = {n: [] for n in aval}
     for n, cibles in aval.items():
@@ -420,12 +627,159 @@ def _enquetes(question: str, non_consulte: list, index_path: Path) -> list:
     return sortie[:MAX_SYMBOLES]
 
 
+# --- Le corps : organe, service, reflexes. Lectures bon marche et sans base. ---
+_CENSUS = ROOT / "sandbox" / "workspace" / "organ_map_full.json"
+_SERVICES_TOML = ROOT / "proxy_deno" / "core" / "services.toml"
+_HOOK_INTEGRITY = ROOT / "tools" / "hook_integrity_check.py"
+_CORPS_MODULES_MAX = 5
+_CORPS_LISTE_MAX = 60
+_ILLISIBLE = "ILLISIBLE"
+_RE_QUESTION_REFLEXES = re.compile(r"\b(r[eé]flexes?|hooks?|gardes?)\b", re.IGNORECASE)
+
+
+def _corps_census(non_consulte: list) -> dict | None:
+    """module -> organe. None = carte illisible, et c'est nomme : pas un module non classe."""
+    try:
+        carte = json.loads(_CENSUS.read_text(encoding="utf-8", errors="replace"))["module_organ"]
+        if isinstance(carte, dict):
+            return carte
+        raison = "module_organ n'est pas une table"
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        raison = type(e).__name__
+    non_consulte.append({"organe": "census organ_map_full.json", "raison": raison})
+    return None
+
+
+def _corps_services(non_consulte: list) -> dict | None:
+    """module -> services qui le portent, lus dans services.toml."""
+    try:
+        import tomllib  # noqa: PLC0415
+        with open(_SERVICES_TOML, "rb") as f:
+            blocs = tomllib.load(f).get("service") or []
+    except (OSError, ValueError, ImportError) as e:
+        non_consulte.append({"organe": "services.toml (services du corps)", "raison": type(e).__name__})
+        return None
+    portes: dict = {}
+    for bloc in blocs:
+        nom = bloc.get("name")
+        for arg in bloc.get("args") or []:
+            if isinstance(arg, str) and arg.endswith(".py"):
+                portes.setdefault(Path(arg).stem, []).append(nom)
+                break
+    return portes
+
+
+def _hook_integrity():
+    """Le lecteur de cablages qui existe deja : charge a la demande, par chemin."""
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("hook_integrity_check", _HOOK_INTEGRITY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _settings_a_lire() -> list:
+    """Les settings du CLI de l'owner, vus de n'importe quel compte : le hub tourne sous SYSTEM,
+    dont le profil n'en porte aucun. La resolution du profil existe deja dans forge_comm_watch."""
+    import importlib.util  # noqa: PLC0415
+    spec = importlib.util.spec_from_file_location("forge_comm_watch", ROOT / "tools" / "forge_comm_watch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    chemins = [module._owner_home() / ".claude" / "settings.json"]
+    # Le CLI s'ouvre sur le dossier parent, le hub tourne dans le depot : les deux projets comptent.
+    for base in (ROOT.parent, ROOT):
+        for nom in ("settings.json", "settings.local.json"):
+            if (base / ".claude" / nom).is_file():
+                chemins.append(base / ".claude" / nom)
+    return chemins
+
+
+def _corps_reflexes(non_consulte: list) -> dict | None:
+    """script -> cablages. Un settings non lu se NOMME : sous le compte du hub, celui de
+    l'owner ressort absent alors qu'il existe, et « aucun reflexe » y serait faux."""
+    try:
+        hic = _hook_integrity()
+        inventaire = hic._inventaire_settings(_settings_a_lire())
+    except (ImportError, OSError, AttributeError, ValueError, SyntaxError) as e:
+        non_consulte.append({"organe": "reflexes (hook_integrity_check)", "raison": type(e).__name__})
+        return None
+    reflexes: dict = {}
+    lus = 0
+    for chemin, etat in inventaire:
+        if etat != "lu":
+            non_consulte.append({"organe": "reflexes de %s" % chemin,
+                                 "raison": "%s pour ce compte : ses cablages manquent ici" % etat})
+            continue
+        try:
+            settings = json.loads(Path(chemin).read_text(encoding="utf-8", errors="replace"))
+            cablages = list(hic._iter_hook_commands(settings))
+        except (OSError, ValueError, AttributeError, TypeError) as e:
+            non_consulte.append({"organe": "reflexes de %s" % chemin, "raison": type(e).__name__})
+            continue
+        lus += 1
+        for evenement, filtre, commande in cablages:
+            for cible in hic._targets_from_command(commande):
+                script = Path(str(cible))
+                if script.suffix.lower() == ".exe":
+                    continue
+                entree = {"evenement": evenement, "filtre": filtre or ""}
+                lignes = reflexes.setdefault(script.stem, [])
+                if entree not in lignes:
+                    lignes.append(entree)
+    return reflexes if lus else None
+
+
+def _corps(graines: list, query: str, non_consulte: list,
+           census=None, services=None, reflexes=None) -> dict:
+    """Ou vit ce dont parle la question : organe, service porteur, reflexes cables.
+
+    Trois etats, jamais deux : source illisible = ILLISIBLE, source lue sans entree = vide.
+    Les sources sont injectables pour le NR ; par defaut, les lectures reelles.
+    """
+    carte = (census or _corps_census)(non_consulte)
+    portes = (services or _corps_services)(non_consulte)
+    cables = (reflexes or _corps_reflexes)(non_consulte)
+    mots = set(re.findall(r"[\w-]+", (query or "").lower()))
+    nommes = sorted(h for h in (cables or {}) if h.lower() in mots)
+    nommes += sorted(m for m, noms in (portes or {}).items() if any(str(n).lower() in mots for n in noms))
+    nommes += sorted(m[:-3] for m in (carte or {}) if m.endswith(".py") and m[:-3].lower() in mots)
+    # Un settings non lu : un compte n'est qu'un minimum, et « aucun cablage vu » n'est pas « aucun reflexe ».
+    partiel = any(str(n.get("organe", "")).startswith("reflexes de ") for n in non_consulte)
+    choisis: list = []
+    for nom in nommes + [Path(g).stem for g in graines]:
+        if nom not in choisis:
+            choisis.append(nom)
+    res = {
+        "modules": [{
+            "module": nom,
+            "organe": _ILLISIBLE if carte is None else carte.get(nom + ".py", "non classe"),
+            "services": _ILLISIBLE if portes is None else portes.get(nom, []),
+            "reflexes": _ILLISIBLE if cables is None else cables.get(nom) or (_ILLISIBLE if partiel else []),
+        } for nom in choisis[:_CORPS_MODULES_MAX]],
+        "ensemble": {
+            "reflexes_cables": _ILLISIBLE if cables is None else len(cables),
+            "services_portant_un_module": _ILLISIBLE if portes is None else len(portes),
+        },
+    }
+    if partiel:
+        res["ensemble"]["reflexes_partiels"] = True
+    if cables is not None and _RE_QUESTION_REFLEXES.search(query or ""):
+        tous = sorted(cables)
+        res["reflexes_cables"] = tous[:_CORPS_LISTE_MAX]
+        if len(tous) > _CORPS_LISTE_MAX:
+            res["reflexes_non_listes"] = len(tous) - _CORPS_LISTE_MAX
+    return res
+
+
 def introspect(query: str, budget_tokens: int = 2000,
                index_enquetes: Path | None = None, jit=None,
-               oplog: Path | None = None) -> dict:
+               oplog: Path | None = None, base_rag: Path | None = None,
+               racine_litteraux: Path | None = None) -> dict:
     """Interroge le corps avant d'agir. Rend une reponse BORNEE et HONNETE."""
     non_consulte: list = []
     code = _code(query, non_consulte, jit=jit)
+    litteraux = _litteraux(query, code, non_consulte, racine=racine_litteraux)
+    veille = _veille(query, non_consulte, base=base_rag)
     _j = jit
     if _j is None:
         try:
@@ -445,6 +799,9 @@ def introspect(query: str, budget_tokens: int = 2000,
             if tige not in graines:
                 graines.append(tige)
     voisinage = _voisinage(graines[:5], non_consulte)
+    corps = _corps(graines, query, non_consulte)
+    fiches = _fiches_memory(query, non_consulte)
+    memoire = _memoire_active(query)
 
     # Organes volontairement hors du v1 : les NOMMER, sinon leur absence se lit
     # comme une reponse complete.
@@ -452,12 +809,19 @@ def introspect(query: str, budget_tokens: int = 2000,
                                    "forge_reachability_ledger",
                          "raison": "hors v1 : reserves aux questions de SERVICE, "
                                    "pas de symbole"})
+    non_consulte.append({"organe": "usage des CLI (token_usage) et refus de gardes",
+                         "raison": "pas encore lus par introspect (lot 2)"})
 
     res = {
         "question": query,
         "symboles_trouves": code,
+        "litteraux_trouves": litteraux,
+        "veille_et_lecons": veille,
         "modules_trouves": modules,
         "voisinage_structurel": voisinage,
+        "corps": corps,
+        "memoire_active": memoire,
+        "fiches_memory": fiches,
         # En TETE du resultat : c'est ce qu'un agent doit lire en premier.
         "procedures_connues": procedures,
         # PERIMETRE COMPLET, jamais rogne. Ce que le budget retire de
@@ -468,6 +832,10 @@ def introspect(query: str, budget_tokens: int = 2000,
         "enquetes_consultation": dict(_META_ENQUETES) or {"index": "non consulte"},
         "non_consulte": non_consulte,
     }
+    # Avant le sacrifice : il vide ces listes EN PLACE, et « retire par le budget » se lisait
+    # ensuite « n'existe pas » (mesure 2026-11-05, 2 symboles et 5 procedures retires, verdict d'absence).
+    procedures_vues = list(procedures)
+    rien_trouve = not (code or modules or enquetes or procedures or litteraux or veille)
     # Le budget est une PROMESSE : la tenir, et dire quand on tronque.
     estime = len(json.dumps(res, ensure_ascii=False)) // 4
     res["budget"] = {"demande": budget_tokens, "estime": estime,
@@ -478,14 +846,21 @@ def introspect(query: str, budget_tokens: int = 2000,
     # proteger. Mesure : meme question, meme budget 500, 5 procedures rendues a un
     # appel et 0 a un autre — seule la taille des enquetes avait change, et aucun
     # champ ne disait laquelle des sections avait saute.
-    _ORDRE = ("voisinage_structurel", "enquetes_anterieures", "symboles_trouves",
-              "modules_trouves", "procedures_connues")
+    # 8/11 : `fiches_memory` et `memoire_active` (geste 2b cognition) etaient sacrifiees EN PREMIER : leur retrait
+    # suffisait au budget, enquetes et corps ne tombaient plus (NR test_introspect_corps_nr rouges) -- et c'est
+    # l'inverse du choix owner (la memoire centralisee doit ATTEINDRE le client). Elles tombent apres le corps.
+    _ORDRE = ("voisinage_structurel", "veille_et_lecons", "enquetes_anterieures", "corps", "fiches_memory", "memoire_active",
+              "litteraux_trouves", "symboles_trouves", "modules_trouves", "procedures_connues")
     while estime > budget_tokens and any(res[s] for s in _ORDRE):
         for sec in _ORDRE:
             if not res[sec]:
                 continue
-            if isinstance(res[sec], dict):
+            if sec == "corps" and len(res[sec].get("modules") or []) > 1:
+                res[sec]["modules"].pop()  # module par module : ceux que la question nomme sont en tete
+            elif isinstance(res[sec], dict):
                 res[sec] = {}
+            elif isinstance(res[sec], str):
+                res[sec] = ""  # memoire_active : un texte entier se sacrifie d'un bloc
             else:
                 res[sec].pop()
             # DIRE ce qui a saute : `[]` par manque de place et `[]` par absence
@@ -495,15 +870,18 @@ def introspect(query: str, budget_tokens: int = 2000,
         res["budget"]["tronque"] = True
         estime = len(json.dumps(res, ensure_ascii=False)) // 4
     res["budget"]["estime"] = estime
-    if procedures:
-        prouvees = [p for p in procedures if p.get("etat") == "PROUVE"]
+    if procedures_vues:
+        prouvees = [p for p in procedures_vues if p.get("etat") == "PROUVE"]
         res["recommandation"] = (
             "%d procedure(s) deja appliquee(s) sur un symptome proche%s. Les "
             "INSPECTER avant d'en concevoir une nouvelle." %
-            (len(procedures),
+            (len(procedures_vues),
              ", dont %d PROUVE(s)" % len(prouvees) if prouvees else
              " — toutes a l'etat CONSTATE, donc a revalider"))
-    if not code and not modules and not enquetes and not procedures:
+    if not rien_trouve and not code and not modules and not enquetes and not procedures and not litteraux and not veille:
+        res["verdict"] = ("budget trop court : des resultats existent mais tout a ete retire, voir "
+                          "budget.retire ; relancer avec un budget_tokens plus haut")
+    if rien_trouve:
         res["verdict"] = ("ni symbole ni module de la question n'existe dans "
                           "app/ ou tools/, aucune enquete anterieure et aucune "
                           "procedure connue — ce n'est PAS une preuve "

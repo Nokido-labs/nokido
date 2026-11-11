@@ -29,9 +29,11 @@ __FORGE_COLOR__ = "immunitaire/guard : porte de merge wip vers alpha, jugee sur 
 import argparse
 import glob
 import json
+import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -147,16 +149,15 @@ def evaluer(agent, tests=None):
             "pourquoi": g["pourquoi"], "baseline": baseline, "candidat": candidat}
 
 
-def merger(agent, tests=None, apply=False):
+def merger(agent, tests=None, apply=False, allow_critical=False):
     """evaluer + merge wip->alpha SI AMELIORE et apply. Sinon rejet (wip conserve)."""
     ev = evaluer(agent, tests)
     ev["applique"] = False
-    if ev.get("verdict") != "AMELIORE":
-        ev["decision"] = "REJET (%s) -- le wip reste pour revue" % ev.get("verdict")
-        return ev
-    if apply:
+    if apply and ev.get("verdict") == "AMELIORE":
         # PORTE DE L'EVOLUTION (2026-10-01) : appliquer est une mutation du canonique. Jugee AVANT tout appel git, y
-        # compris la lecture de l'arene (312aa797c l'avait placee devant : porte fermee, git appele quand meme).
+        # compris la lecture de l'arene (312aa797c l'avait placee devant : porte fermee, git appele quand meme) ET la
+        # lecture `git diff` de la garde CRITICAL_FILE (98d7d39af l'avait placee devant : meme recidive, NR
+        # test_porte_evolution_nr::test_la_fusion_appliquee_s_arrete rouge en CI 42536997123).
         from nokido_agent.app.forge_mutation_judge import evolution_autorisee
 
         porte = evolution_autorisee()
@@ -164,6 +165,16 @@ def merger(agent, tests=None, apply=False):
             ev["porte"] = porte
             ev["decision"] = "HALTED (%s) : %s -- le wip reste pour revue" % (porte["etat"], porte["motif"])
             return ev
+    _fichiers_wip = _git(["diff", "--name-only", "alpha..." + _wip_branch(agent)])[1].splitlines()
+    critiques = _garde_critique_integration([f for f in _fichiers_wip if f.strip()], allow_critical,
+                                            Path(__file__).resolve().parent.parent, tracer=apply)
+    ev["critiques"] = critiques
+    if apply and critiques and not allow_critical:
+        ev["decision"] = "CRITICAL_FILE REFUSE : %s (derogation --allow-critical requise) -- le wip reste" % critiques
+        return ev
+    if ev.get("verdict") != "AMELIORE":
+        ev["decision"] = "REJET (%s) -- le wip reste pour revue" % ev.get("verdict")
+        return ev
     ev["arene"] = _observer_arene(ev)
     if not apply:
         ev["decision"] = "AMELIORE -- merge PROPOSE (dry-run ; relancer avec --apply)"
@@ -228,13 +239,42 @@ def _remettre_alpha(fichiers, root) -> None:
         _git(["checkout", "HEAD", "--"] + existants, root)
 
 
-def reconcilier(sha, fichiers_nommes, apply=False, agent="?", sujet="", tests=None) -> dict:
-    root = Path(__file__).resolve().parent.parent
-    rc, out, err = _git(["show", "--name-only", "--format=", sha], root)
+def _garde_critique_integration(fichiers, allow_critical, root, tracer=False) -> list:
+    """Choix owner 8/11 : le garde CRITICAL_FILE vit a l'ENTREE dans alpha (plus au commit du worktree de tache).
+    Rend la liste des fichiers critiques. FAIL-CLOSED : garde indisponible -> TOUS les fichiers comptent comme
+    critiques (refus sans derogation), et c'est DIT. La derogation n'est tracee qu'a son USAGE (tracer = apply)."""
+    try:
+        try:
+            from nokido_agent.tools import forge_critical_gate as _cg
+        except ImportError:
+            import forge_critical_gate as _cg
+        critiques = list(_cg.fichiers_critiques(fichiers))
+    except Exception as e:  # noqa: BLE001
+        print("[merge_gate] garde CRITICAL_FILE INDISPONIBLE (%s) : tout fichier traite comme critique"
+              % type(e).__name__, file=sys.stderr)
+        critiques = list(fichiers)
+    if tracer and allow_critical and critiques:
+        d = Path(root) / "sandbox"
+        d.mkdir(parents=True, exist_ok=True)
+        with open(d / "git_gate_derogations.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": int(time.time()), "fichiers": critiques, "origine": "integration"},
+                               ensure_ascii=False) + "\n")
+    return critiques
+
+
+def reconcilier(sha, fichiers_nommes, apply=False, agent="?", sujet="", tests=None, root=None, allow_critical=False):
+    root = Path(root) if root else Path(__file__).resolve().parent.parent
+    # 9/11 : l'executeur livre en DEUX commits (RED : le test ; puis le code). Le plan couvre toute la livraison
+    # (alpha...sha) -- toujours filtree par les fichiers NOMMES ; repli sur le seul commit si alpha est illisible.
+    rc, out, err = _git(["diff", "--name-only", "alpha..." + sha], root)
+    if rc != 0 or not (out or "").strip():
+        rc, out, err = _git(["show", "--name-only", "--format=", sha], root)
     if rc != 0:
         return {"sha": sha, "applique": False, "decision": "ABANDON : commit illisible (%s)" % (err or out)[:160]}
     plan = plan_reconciliation(out.splitlines(), fichiers_nommes)
     r = {"sha": sha, "plan": plan, "applique": False}
+    critiques = _garde_critique_integration(plan["a_integrer"], allow_critical, root, tracer=apply)
+    r["critiques"] = critiques
     if not plan["a_integrer"]:
         r["decision"] = "RIEN A INTEGRER : aucun fichier nomme dans le commit"
         return r
@@ -242,15 +282,32 @@ def reconcilier(sha, fichiers_nommes, apply=False, agent="?", sujet="", tests=No
         r["decision"] = "DRY-RUN : %d fichier(s) a integrer, %d ecarte(s) hors consigne" % (
             len(plan["a_integrer"]), len(plan["hors_consigne"]))
         return r
+    if critiques and not allow_critical:
+        r["decision"] = "CRITICAL_FILE REFUSE : %s (derogation --allow-critical requise)" % critiques
+        r["applique"] = False
+        return r
     rc, head, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
     if head != "alpha":
         r["decision"] = "ABANDON : le canonique n'est pas sur alpha (HEAD=%s)" % head
         return r
+    # 9/11 : l'extraction est par FICHIER ENTIER. Un fichier du plan modifie dans alpha depuis la base de la livraison
+    # serait ECRASE (commits d'alpha perdus en silence ; cas reel : livraison AGY 236c816c3). Refus, voie dite.
+    rc_b, base, _ = _git(["merge-base", "alpha", sha], root)
+    if rc_b == 0 and (base or "").strip():
+        _, chg, _ = _git(["diff", "--name-only", base.strip(), "alpha", "--"] + plan["a_integrer"], root)
+        avances = [f for f in (chg or "").splitlines() if f.strip()]
+        if avances:
+            r["decision"] = ("ABANDON : %s modifie(s) dans alpha depuis la base de la livraison ; l'extraction par "
+                             "fichier entier ecraserait alpha -- fusion 3 voies requise (git cherry-pick -n des "
+                             "commits de la livraison), puis relecture" % ", ".join(avances))
+            return r
     rc, _, err = _git(["checkout", sha, "--"] + plan["a_integrer"], root)
     if rc != 0:
         _remettre_alpha(plan["a_integrer"], root)
         r["decision"] = "ABANDON : extraction refusee (%s) -- arbre remis a l'etat d'alpha" % _motif_git(err)
         return r
+    if allow_critical and critiques:
+        r["derogation_critique"] = True
     return _achever(r, plan, root, tests, message_reconciliation(sha, agent, sujet), origine={"sha": sha})
 
 
@@ -281,7 +338,7 @@ def _achever(r, plan, root, tests, message, origine=None) -> dict:
     return r
 
 
-def reconcilier_sauvegarde(dossier, fichiers_nommes, apply=False, agent="?", sujet="", tests=None, root=None) -> dict:
+def reconcilier_sauvegarde(dossier, fichiers_nommes, apply=False, agent="?", sujet="", tests=None, root=None, allow_critical=False):
     """Integre une SAUVEGARDE d'executeur (sandbox/sauvegardes_executeurs/<agent>/<tache>/, manifeste.json) par les
     memes regles que `reconcilier` (19/10 : d31564f96 sauvait le travail, rien ne l'integrait -- 1ad5425fd recopie a
     la main)."""
@@ -295,6 +352,8 @@ def reconcilier_sauvegarde(dossier, fichiers_nommes, apply=False, agent="?", suj
         return {"sauvegarde": str(d), "applique": False, "decision": "ABANDON : manifeste illisible (%s)" % type(e).__name__}
     plan = plan_reconciliation(man.get("fichiers") or [], fichiers_nommes)
     r = {"sauvegarde": str(d), "tache": man.get("tache"), "plan": plan, "applique": False}
+    critiques = _garde_critique_integration(plan["a_integrer"], allow_critical, root, tracer=apply)
+    r["critiques"] = critiques
     absents = [f for f in plan["a_integrer"] if not (d / f).is_file()]
     if absents:
         r["decision"] = "ABANDON : %d fichier(s) nomme(s) absent(s) de la sauvegarde : %s" % (len(absents), absents)
@@ -305,6 +364,10 @@ def reconcilier_sauvegarde(dossier, fichiers_nommes, apply=False, agent="?", suj
     if not apply:
         r["decision"] = "DRY-RUN : %d fichier(s) a integrer, %d ecarte(s) hors consigne" % (
             len(plan["a_integrer"]), len(plan["hors_consigne"]))
+        return r
+    if critiques and not allow_critical:
+        r["decision"] = "CRITICAL_FILE REFUSE : %s (derogation --allow-critical requise)" % critiques
+        r["applique"] = False
         return r
     rc, head, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], root)
     if head != "alpha":
@@ -323,7 +386,7 @@ def reconcilier_sauvegarde(dossier, fichiers_nommes, apply=False, agent="?", suj
     return _achever(r, plan, root, tests, message, origine={"sauvegarde": man.get("tache")})
 
 
-# ── ORACLE GELE (chantier 5 de la preparation du takehome, decision owner 18/10) ──────────────────────────────
+# ── ORACLE GELE (chantier 5, decision owner 18/10) ──────────────────────────────
 # Risque n°1 nomme par l'owner : des resultats spectaculaires invalides parce que des agents avaient modifie
 # les tests. L'oracle evalue un candidat dans un worktree ISOLE, detache au SHA de reference, refuse toute
 # ecriture sous un chemin protege, et ne promeut que correction validee ET gain confirme par l'evaluateur.
@@ -501,6 +564,8 @@ def main():
                     help="merge si AMELIORE (defaut: dry-run)")
     ap.add_argument("--tests", nargs="*", default=None,
                     help="suite de tests (defaut: tests/nr/*)")
+    ap.add_argument("--allow-critical", action="store_true",
+                    help="integration : autorise les fichiers critiques (derogation owner, tracee)")
     ap.add_argument("--verifier-livraison", action="store_true",
                     help="verifier une livraison d'executeur (schema nokido.delivery-verdict/1), sans rien integrer")
     ap.add_argument("--depot", default=str(ROOT), help="verifier-livraison : racine du depot (defaut: ce depot)")
@@ -518,15 +583,15 @@ def main():
     if a.commit or a.sauvegarde:
         if a.sauvegarde:
             r = reconcilier_sauvegarde(a.sauvegarde, a.fichiers or [], apply=a.apply, agent=a.agent or "?",
-                                       sujet=a.sujet, tests=a.tests)
+                                       sujet=a.sujet, tests=a.tests, allow_critical=a.allow_critical)
         else:
             r = reconcilier(a.commit, a.fichiers or [], apply=a.apply, agent=a.agent or "?", sujet=a.sujet,
-                            tests=a.tests)
+                            tests=a.tests, allow_critical=a.allow_critical)
         print(json.dumps(r, ensure_ascii=False, indent=1))
         return 0 if (r.get("applique") or not a.apply) and not str(r.get("decision", "")).startswith(("ABANDON", "REJET")) else 1
     if not a.agent:
         ap.error("--agent requis (ou --commit pour une reconciliation)")
-    r = merger(a.agent, a.tests, a.apply)
+    r = merger(a.agent, a.tests, a.apply, allow_critical=a.allow_critical)
     print(json.dumps(r, ensure_ascii=False, indent=1))
     return 0 if r.get("verdict") in ("AMELIORE", "NEUTRE", "RIEN_A_MERGER",
                                      "PAS_DE_WORKTREE", "PAS_DE_BRANCHE") else 1

@@ -14,6 +14,7 @@ La veille (`forge-veille-approfondie`) n'est qu'une chaîne parmi d'autres.
 | Besoin | Moteur | Appel | Suivi, reprise |
 |---|---|---|---|
 | Déléguer un maillon à un agent qui EXÉCUTE (AGY, worker code) | file de tâches | `task action=assign agent=ANTIGRAVITY` (ou `WORKER_CODE`) | `task action=status` ; résultat renvoyé en `task_result` M2M ; l'artefact se juge sur son `pointer_ref` |
+| Déléguer SANS choisir la surface (3/11) : Nokido choisit | file de tâches | `task action=assign agent=AUTO`, consigne en tête `exigences: shell` (TDD) ou `exigences: ring0` (→ revient à CLAUDE, jamais délégué) | routage par l'exécuteur (pré-vol, quota, manques prouvés : AGY et MISTRAL sans shell, ordre mesuré) tracé dans `reaffectations` ; échec → `tasks.cause_echec` (QUOTA, OUTIL_REFUSE, RING, DELAI, NON_LIVRE, FAUX_VERT, INCONNU), visible en barre du bas `✗` |
 | Script multi-étapes, long ou déterministe | job détaché | `run action=run_job script=...` (survit au redémarrage du hub) | `forge_job_watch_cli --job <id>` ; `forge_job_watch_notify` pour être réveillé |
 | Objectif à décomposer en étapes | planificateur GOAP | `plan goal=...` (`forge_goap.GoalPlanner`) | étapes rendues en JSON-RPC, à exécuter et vérifier une à une |
 | Boucle autonome sur un patron récurrent | boucle GOAP | `loop_orchestrate pattern=...` (ex. `health_check`, `git_hygiene`) | état dans `autonomous_loop_state` |

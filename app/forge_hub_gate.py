@@ -70,13 +70,27 @@ class Verdict:
 # ── Resolvers RÉELS (wrappent les modules existants, off-loop via to_thread) ──
 async def _check_rbac(name, args, agent, ring, token):
     def _f():
-        from nokido_agent.app.forge_rbac import get_rbac, TOOL_CAPABILITY_MAP
+        from nokido_agent.app.forge_rbac import get_rbac, TOOL_CAPABILITY_MAP, EntityNotFound
         entity = f"agt_{agent.lower()}" if agent != "HUB" else "wrk_laforge"
         cap = next((v for k, v in TOOL_CAPABILITY_MAP.items() if k in name.lower()), None)
         if not cap:
             return (True, "aucune capability requise")
-        ok = bool(get_rbac().check(entity, cap, token=token))
-        return (ok, f"cap={cap}")
+        rbac = get_rbac()
+        # Repli ALIAS (10/11) : une surface sans entite propre (ex. OAuth de Claude Code, alias de
+        # CLAUDE_CLI au registre) est jugee sur la CLE du registre -- jamais sur l'acteur qu'elle
+        # sert. Entite brute presente : elle decide seule. Rien de resolu : refus (fail-closed).
+        try:
+            rbac.get_entity(entity)
+        except EntityNotFound:
+            try:
+                from nokido_agent.app.forge_videur import cle_registre
+                cle = cle_registre(entity) or cle_registre(agent)
+            except Exception:  # noqa: BLE001
+                cle = None
+            if cle and f"agt_{cle.lower()}" != entity:
+                entity = f"agt_{cle.lower()}"
+        ok = bool(rbac.check(entity, cap, token=token))
+        return (ok, f"cap={cap} entite={entity}")
     return await asyncio.to_thread(_f)
 
 

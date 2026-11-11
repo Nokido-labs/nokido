@@ -419,7 +419,7 @@ REGLES_JOB_SEULEMENT: list[tuple[str, str]] = [
     (r"tools[/\\]ci_local\.py",
      "TRAVAIL LONG lance : ne le surveille PAS en pollant le log. Arme un Monitor "
      "VISIBLE de l'owner (owner 1/11 « je ne vois aucun monitor ») : Monitor command="
-     "`\"<LAFORGE_PYTHON>\" \"<repo>/tools/forge_job_watch_cli.py\" --job <job_id>` "
+     "`\"<LAFORGE_PYTHON>\" \"<repo>/tools/forge_job_watch_cli.py\" --job <job_id> [--barriere]` "
      "(seule forme admise par bash_guard). Client sans Monitor : run_job "
      "tools/forge_job_watch_notify.py script_args=\"--progress sandbox/jobs/<job>.progress.json "
      "--rc sandbox/jobs/<job>.rc --to CLAUDE\" (--progress et --to OBLIGATOIRES). "
@@ -467,6 +467,27 @@ REGLES_CMD_SEULEMENT: list[tuple[str, str]] = [
      "`find`/`findstr`, ou passer en `sandbox=\"trusted\"` (qui EST du PowerShell)."),
 ]
 
+# GIT ET GH PAR LE HUB -- selection par `action == "shell"` EXPLICITE : sous Bash (action
+# vide) git/gh sont des passthroughs de bash_guard et tournent sous le compte de session,
+# proprietaire du depot et authentifie ; la meme commande y est JUSTE. Owner 2026-11-08
+# « tu fais constamment cette erreur » ; verrouille par tests/nr/test_gate_git_gh_par_le_hub_nr.py.
+REGLES_HUB_SHELL_SEULEMENT: list[tuple[str, str]] = [
+    (r"(?<![\w.\\/-])git(?:\.exe)?\s+(?![^\n]*safe\.directory)",
+     "git par `run action=shell` : le bac (LaForgeSbxOffline) n'est PAS proprietaire du depot "
+     "-> « dubious ownership » (mesure 2026-11-08). -> forme qui MARCHE par le hub : "
+     "`git -c safe.directory=* -C \"<depot>\" <sous-commande>` (lecture, add, commit). "
+     "Push = UNIQUEMENT tools/forge_push_sovereign.py en run_job, sur GO owner (pre-push "
+     "forge_git_egress) ; jamais `git push` ni `--no-verify`. Repli Bash : "
+     "UN seul segment `git -C \"<depot>\" ...`, sans `cd`, `;`, `date` ni pipe vers grep "
+     "(bash_guard exige que CHAQUE segment soit passthrough)."),
+    (r"(?<![\w.\\/-])gh(?:\.exe)?\s+(?!--version)",
+     "gh par `run action=shell` : aucun jeton dans le bac -> « gh auth login » (mesure "
+     "2026-11-08, meme avec network=true). -> gh en LECTURE = passthrough Bash, un seul "
+     "segment (`gh run view <id> --json conclusion`), compte de session authentifie. "
+     "gh en ECRITURE (pr create/merge, release, repo create, api non-GET) = geste owner, "
+     "CI = `demander_ordre ordre=ci-lancer` : gh n'echappe JAMAIS au push souverain."),
+]
+
 REGLES_POWERSHELL_SEULEMENT: list[tuple[str, str]] = [
     (r"(?i)\bif\s+(not\s+)?exist\b|%\w+%|\b2>nul\b|\bdir\s+/[bs]\b",
      "sous `sandbox=\"trusted\"`/`\"online\"` le shell est POWERSHELL, pas cmd.exe : "
@@ -486,6 +507,7 @@ _COMPILED_JOB_ONLINE = [(re.compile(p, re.IGNORECASE), msg)
                         for p, msg in REGLES_JOB_ONLINE_SEULEMENT]
 _COMPILED_CMD = [(re.compile(p, re.IGNORECASE), msg) for p, msg in REGLES_CMD_SEULEMENT]
 _COMPILED_PS = [(re.compile(p, re.IGNORECASE), msg) for p, msg in REGLES_POWERSHELL_SEULEMENT]
+_COMPILED_HUB_SHELL = [(re.compile(p, re.IGNORECASE), msg) for p, msg in REGLES_HUB_SHELL_SEULEMENT]
 
 
 def _regles_du_shell(entree: dict) -> list:
@@ -511,9 +533,10 @@ def _regles_du_shell(entree: dict) -> list:
     if action not in ("shell", ""):
         return _COMPILED
     sbx = str(entree.get("sandbox") or "local").lower()
+    hub = _COMPILED_HUB_SHELL if action == "shell" else []
     if sbx in ("trusted", "online"):
-        return _COMPILED + _COMPILED_PS
-    return _COMPILED + _COMPILED_CMD
+        return _COMPILED + _COMPILED_PS + hub
+    return _COMPILED + _COMPILED_CMD + hub
 
 
 # Un message de commit CITE des commandes ; il n'en exécute aucune. Mesuré
@@ -721,6 +744,15 @@ _CLES_FAUTIVES = {
 }
 
 
+# Le dossier memoire sous ses deux formes (lien `.claude/projects/<p>/memory` et cible
+# `Nokido/memory`), sous-dossiers compris, jamais un fichier nomme : ripgrep lit un
+# fichier explicite malgre le .gitignore.
+_RX_DOSSIER_MEMOIRE = re.compile(
+    r"(?:^|/)(?:\.claude/projects/[^/]+|nokido)/memory(?:/[^/.]+)*/?$|^(?:\./)?memory/?$",
+    re.IGNORECASE,
+)
+
+
 def verdict_forme(tool_name, entree):
     """(touche, message). Fonction PURE : tout le NR passe par elle.
 
@@ -761,6 +793,40 @@ def verdict_forme(tool_name, entree):
                 "lieu de `script_args` (2026-08-31, un digest parti sur le "
                 "mauvais provider avec la limite par defaut)."
                 % (fautive, court, bonne))
+
+    # 2bis. Une tache deleguee sans veilleur : on la suit ensuite a coups de `task status`,
+    #    chaque sonde re-facture l'historique. Owner 2026-11-08. Verrouille par
+    #    tests/nr/test_gate_assign_arme_monitor_nr.py.
+    if court == "task" and action == "assign":
+        return True, (
+            "[forme] tache deleguee : arme TOUT DE SUITE le veilleur gratuit, jamais des "
+            "`task status` en rafale.\n"
+            "  -> Monitor command=`\"<LAFORGE_PYTHON>\" \"<repo>/tools/forge_job_watch_cli.py\" "
+            "--task <task_id rendu>` timeout_ms=1800000 (re-armer a l'expiration) : zero "
+            "token jusqu'au rendu ou au gel.")
+
+    # 2ter. Un ordre de restart sans veilleur : le client attend que l'owner lui dise « c'est fait ».
+    #    Owner 9/11 « tu es censé récupérer automatiquement après les ordres de reboot hub envoyés,
+    #    tu régresses ». Verrouille par tests/nr/test_veille_restart_hub_nr.py.
+    if court == "hub" and action == "demander_ordre" and str(entree.get("ordre") or "") in ("restart", "restart-hub"):
+        return True, (
+            "[forme] ordre de restart : arme AUSSITOT le veilleur, n'attends pas que l'owner dise « c'est fait ».\n"
+            "  -> Monitor command=`\"<LAFORGE_PYTHON>\" \"<repo>/tools/forge_job_watch_cli.py\" --hub-restart` "
+            "timeout_ms=900000 : reveil sur HUB RELANCE (nouveau processus sain), NON_RELANCE ou ILLISIBLE ; "
+            "puis constater l'effet du nouveau code et REPRENDRE la tache.")
+
+    # 3. Grep sur le dossier memoire sans glob : le `.gitignore` le rend muet, et le
+    #    silence se lit comme une absence. Verrouille par
+    #    tests/nr/test_gate_grep_memoire_sans_glob_nr.py.
+    if court == "Grep" and not entree.get("glob"):
+        if _RX_DOSSIER_MEMOIRE.search(str(entree.get("path") or "").replace("\\", "/")):
+            return True, (
+                "[forme] Grep sur le dossier memoire SANS `glob` : `Nokido/.gitignore:511` "
+                "porte `memory/`, Grep le respecte et rend « No files found » QUEL QUE "
+                "SOIT le motif.\n"
+                "  -> forme qui MARCHE : ajouter `glob: \"*.md\"`.\n"
+                "  Ce resultat ne prouve aucune absence. Mesure 2026-11-05 : "
+                "`autoCompactWindow` = 0 fichier sans glob, des fiches avec.")
 
     return False, ""
 
@@ -1374,6 +1440,14 @@ def main() -> int:
     entree = ev.get("tool_input") or {}
     tool_name = ev.get("tool_name") or ""
     court = str(tool_name or "").rsplit("__", 1)[-1]
+
+    # Grep n'est au matcher que pour sa FORME : il ne doit pas entrer dans le compte
+    # de l'anti-polling, de l'impulsion ni du mur de depense.
+    if court == "Grep":
+        touche_grep, pourquoi_grep = verdict_forme(tool_name, entree)
+        if touche_grep:
+            _appliquer_decision_avertissement(pourquoi_grep, ev.get("session_id"))
+        return 0
 
     # --- VERDICTS SOUVERAINS : anti-polling et rafale d'impulsion ---
     bloque_poll, pourquoi_poll = verdict_anti_polling(tool_name, entree)

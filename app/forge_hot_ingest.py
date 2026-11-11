@@ -42,6 +42,7 @@ Provenance   : 'tui_drop' ou 'hot_folder'
 
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -67,8 +68,175 @@ HUMAN_PRIORITY = 0  # FLASH — passe devant tout
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _build_human_meta(source: str, provenance: str = "tui_drop") -> Dict:
-    """Construit le meta JSON pour une ingestion humaine directe."""
+# 2/11 (owner, « attention aux injections de prompt ici aussi ») : un fichier DEPOSE par l'owner est le plus souvent
+# ecrit par d'AUTRES (articles, PDF) et sera relu par des modeles. TRUSTED seulement pour un document ECRIT par l'owner
+# (sous-dossier owner/ ou prefixe owner_) ; sinon ring EXTERNE. Et analyse anti-injection AVANT toute ingestion.
+EXTERNAL_RING = 3
+EXTERNAL_TRUST = 0.5
+# caracteres invisibles par POINTS DE CODE (jamais litteraux dans le source : le hub les refuse, a juste titre)
+# Analyse du contenu : forge_prompt_guard.analyser_contenu_tiers, garde commun a toute ingestion de tiers.
+_REFUS = Path(__file__).resolve().parents[1] / "sandbox" / "hot_ingest_refus.jsonl"
+
+
+def _auteur_owner(path: Path) -> bool:
+    return path.parent.name.lower() == "owner" or path.name.lower().startswith("owner_")
+
+
+# Repli OCR (owner 2/11, « version auteur d'abord, OCR sinon ») : un PDF sans couche texte (scan, impression image)
+# etait refuse sans recours. rapidocr_onnxruntime vit HORS des environnements de services (pip --target, incident du
+# 1/11 : une montee pip a chaud a arrete 4 services) ; son dossier est ajoute EN FIN de sys.path pour que les paquets
+# deja installes (numpy, onnxruntime) gardent la priorite. NR : tests/nr/test_hot_ingest_ocr_repli_nr.py
+_RACINE = Path(__file__).resolve().parent.parent
+_OCR_DIR = _RACINE / "sandbox" / "ocr_textes"
+
+
+def _ajouter_libs_ocr() -> str:
+    import os
+    import sys
+
+    libs = os.environ.get("LAFORGE_OCR_LIBS") or str(_RACINE / "sandbox" / "ocr_libs")
+    if Path(libs).exists() and libs not in sys.path:
+        sys.path.append(libs)
+    return libs
+
+
+def ocr_disponible() -> tuple:
+    """(bool, motif) : l'OCR est-il importable DANS CE PROCESSUS (compte + interpreteur) ? Dit des le demarrage du
+    service, pas au premier PDF image refuse (2/11)."""
+    import getpass
+
+    libs = _ajouter_libs_ocr()
+    try:
+        import pdfplumber  # noqa: F401
+        import rapidocr_onnxruntime  # noqa: F401
+        return True, "rapidocr importable (libs %s)" % libs
+    except Exception as e:  # noqa: BLE001 - dit avec le compte et la visibilite du dossier
+        return False, "%s: %s ; libs=%s visible=%s ; compte=%s" % (
+            type(e).__name__, str(e)[:160], libs, Path(libs).exists(), getpass.getuser())
+
+
+def _ocr_pdf(path: Path) -> str:
+    """Texte d'un PDF image par OCR (rapidocr, pages rendues a 200 dpi par pdfplumber). Leve si l'OCR manque."""
+    _ajouter_libs_ocr()
+    import numpy as np
+    import pdfplumber
+    from rapidocr_onnxruntime import RapidOCR
+
+    moteur = RapidOCR()
+    pages = []
+    with pdfplumber.open(str(path)) as pdf:
+        for page in pdf.pages:
+            res, _ = moteur(np.array(page.to_image(resolution=200).original.convert("RGB")))
+            pages.append("\n".join(x[1] for x in (res or [])))
+    return "\n\n".join(pages)
+
+
+def _ecrire_fragments(source: str, domain: str, fragments: list) -> int:
+    """Voie d'ecriture CANONIQUE (celle des veilles rapides) : `ecrire_chunk` (id canonique, aucune troncature muette)
+    dans `write_retry`, + `rag_fts` pour les seuls fragments NEUFS (existence par cle primaire -- jamais
+    `WHERE chunk_id` sur rag_fts, colonne UNINDEXED = plein scan). Rend le nombre de fragments neufs."""
+    from nokido_agent.app import forge_db_path as D
+
+    def ecrire(c):
+        neufs = 0
+        for t in fragments:
+            cid = D.chunk_id(source, t)
+            existait = c.execute("SELECT 1 FROM rag_chunks WHERE id=?", (cid,)).fetchone() is not None
+            if D.ecrire_chunk(c, source, domain, t).get("refuse"):
+                continue
+            if not existait:
+                c.execute("INSERT INTO rag_fts(chunk_id, text, source, domain) VALUES(?,?,?,?)",
+                          (cid, t, source, domain))
+                neufs += 1
+        return neufs
+
+    return D.write_retry(ecrire)
+
+
+class IngesteurCanonique:
+    """Moteur d'ingestion du depot surveille HORS de la TUI (2/11). `RAGEngine()` est interdit hors hub (il charge toute
+    la base) et `app_ctx().rag_engine` y vaut None : sans ce moteur, le demon marquait chaque fichier vu puis
+    l'abandonnait en silence. Meme interface que RAGEngine pour `add_document`.
+    NR : tests/nr/test_depot_surveille_ingere_sans_moteur_nr.py"""
+
+    async def add_document(self, path, delete_after: bool = False) -> bool:
+        from nokido_agent.app.forge_rag_store import MarkdownChunker
+
+        path = Path(path)
+        brut = MarkdownChunker.chunk(_extraire_texte(path), 2000, 200)
+        frags = [f if isinstance(f, str) else (getattr(f, "text", None) or f.get("text", "")) for f in brut]
+        frags = [f for f in frags if f.strip()]
+        if not frags:
+            return False
+        _ecrire_fragments(path.name, _detect_domain(str(path)), frags)
+        if delete_after:
+            path.unlink(missing_ok=True)
+        return True
+
+
+def _extraire_texte(path: Path) -> str:
+    if path.suffix.lower() == ".pdf":
+        import pypdf
+        return "\n".join((p.extract_text() or "") for p in pypdf.PdfReader(str(path)).pages)
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def analyser_avant_ingestion(path: Path) -> Dict:
+    """{ok, motif, ...} : injection (forge_prompt_guard.detect_injection par fenetres de 2 000 caracteres), caracteres
+    invisibles (bidi : 1 suffit ; largeur nulle : plus de 5), PDF sans couche texte. Extraction illisible = refus."""
+    try:
+        texte = _extraire_texte(path)
+    except Exception as e:  # noqa: BLE001 - illisible : on ne l'ingere pas a l'aveugle, et c'est DIT
+        return {"ok": False, "motif": "texte illisible (%s) : non ingere" % type(e).__name__}
+    ocr = False
+    if path.suffix.lower() == ".pdf" and len(texte.strip()) < 200:
+        n_couche = len(texte.strip())
+        try:
+            texte = _ocr_pdf(path)
+        except Exception as e:  # noqa: BLE001 - OCR absent ou en echec : refus DIT, jamais une ingestion a vide
+            return {"ok": False, "motif": "PDF sans couche texte (%d caracteres extraits) et OCR indisponible (%s: %s) : "
+                                          "non ingere" % (n_couche, type(e).__name__, str(e)[:160])}
+        if len(texte.strip()) < 200:
+            return {"ok": False, "motif": "PDF sans couche texte : OCR trop court (%d caracteres) : non ingere"
+                                          % len(texte.strip())}
+        ocr = True  # le texte OCR passe les MEMES gardes que tout texte (invisibles, injection) : pas de porte derobee
+    from nokido_agent.app.forge_prompt_guard import analyser_contenu_tiers
+    verdict = analyser_contenu_tiers(texte)
+    if not verdict["ok"]:
+        return verdict
+    if ocr:
+        return {"ok": True, "motif": "aucune alerte (texte OCR)", "caracteres": len(texte), "ocr": True, "texte": texte}
+    return {"ok": True, "motif": "aucune alerte", "caracteres": len(texte)}
+
+
+def _noter_refus(path: Path, verdict: Dict) -> None:
+    import json as _json
+    try:
+        _REFUS.parent.mkdir(parents=True, exist_ok=True)
+        with _REFUS.open("a", encoding="utf-8") as f:
+            f.write(_json.dumps({"ts": datetime.now(timezone.utc).isoformat(), "fichier": str(path),
+                                 "motif": verdict.get("motif")}, ensure_ascii=False) + "\n")
+    except OSError:
+        logger.warning("[hot_ingest] refus non journalise pour %s", path)
+
+
+def _build_human_meta(source: str, provenance: str = "tui_drop", auteur_owner: bool = False) -> Dict:
+    """Construit le meta JSON pour une ingestion humaine directe : TRUSTED seulement si l'owner en est l'AUTEUR."""
+    if not auteur_owner:
+        return {
+            "ring": EXTERNAL_RING,
+            "ring_label": "EXTERNAL",
+            "consensus_level": HUMAN_CONSENSUS,
+            "trust_score": EXTERNAL_TRUST,
+            "mutable": True,
+            "verified_by": [{"agent": HUMAN_AUTHOR, "ring": HUMAN_RING, "check": "owner_depot_contenu_tiers",
+                             "score": EXTERNAL_TRUST, "ts": datetime.now(timezone.utc).isoformat()}],
+            "qualified_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "origin_type": "document",
+            "provenance": provenance,
+            "author": "tiers",
+            "cove_skip": False,
+        }
     return {
         "ring": HUMAN_RING,
         "ring_label": "TRUSTED",
@@ -132,36 +300,56 @@ async def hot_ingest_file(
     from nokido_agent.app.forge_app_context import app_ctx as _actx
 
     _ac = _actx()
-    rag_engine = _ac.rag_engine
+    # moteur de la TUI s'il existe, sinon celui passe, sinon la voie canonique (demon, jobs) -- jamais un abandon muet
+    rag_engine = getattr(_ac, "rag_engine", None) or rag_engine or IngesteurCanonique()
     if not path.exists():
         return {"ok": False, "chunks": 0, "source": str(path), "trust": 0, "msg": f"Fichier introuvable: {path}"}
 
-    log_fn(f"[dim]⚡ Fast-track : [bold]{path.name}[/bold] (ring=TRUSTED)…[/dim]")
+    verdict = analyser_avant_ingestion(path)
+    if not verdict["ok"]:
+        _noter_refus(path, verdict)
+        log_fn(f"[red]⛔ {path.name} NON ingere : {verdict['motif']}[/]")
+        return {"ok": False, "quarantaine": True, "chunks": 0, "source": path.name, "trust": 0,
+                "msg": verdict["motif"]}
+    owner = _auteur_owner(path)
+    log_fn(f"[dim]⚡ Fast-track : [bold]{path.name}[/bold] (ring={'TRUSTED' if owner else 'EXTERNAL'})…[/dim]")
     t0 = time.monotonic()
 
+    # PDF image passe par l'OCR : add_document reextrairait le PDF VIDE -- on ingere le texte OCR deja analyse.
+    a_ingerer = path
+    if verdict.get("ocr"):
+        _OCR_DIR.mkdir(parents=True, exist_ok=True)
+        a_ingerer = _OCR_DIR / (path.stem + ".ocr.md")
+        a_ingerer.write_text("# %s (texte OCR)\n\n%s" % (path.name, verdict["texte"]), encoding="utf-8")
+        log_fn(f"[dim]🔎 {path.name} : sans couche texte, OCR -> {a_ingerer.name}[/dim]")
+    source = a_ingerer.name
+
     # Ingestion via RAGEngine standard
-    ok = await rag_engine.add_document(path, delete_after=delete_after)
+    ok = await rag_engine.add_document(a_ingerer, delete_after=delete_after and a_ingerer == path)
     if not ok:
         return {
             "ok": False,
             "chunks": 0,
-            "source": path.name,
+            "source": source,
             "trust": 0,
-            "msg": f"add_document a échoué pour {path.name}",
+            "msg": f"add_document a échoué pour {source}",
         }
+    if delete_after and a_ingerer != path:
+        path.unlink(missing_ok=True)
 
     # Patcher le meta des chunks nouvellement insérés avec ring=TRUSTED
-    human_meta = _build_human_meta(path.name, provenance)
-    _patch_source_meta(path.name, human_meta)
+    human_meta = _build_human_meta(source, provenance, auteur_owner=owner)
+    _patch_source_meta(source, human_meta)
 
     # Promouvoir immédiatement dans la file prioritaire
-    _enqueue_source_promotion(path.name, priority=HUMAN_PRIORITY)
+    _enqueue_source_promotion(source, priority=HUMAN_PRIORITY)
 
     elapsed = (time.monotonic() - t0) * 1000
-    n = _count_source_chunks(path.name)
-    msg = f"[green]⚡ {path.name}[/] — {n} chunks · ring=TRUSTED · trust=0.8 · {elapsed:.0f}ms"
+    n = _count_source_chunks(source)
+    msg = f"[green]⚡ {source}[/] — {n} chunks · ring={human_meta['ring_label']} · " \
+          f"trust={human_meta['trust_score']} · {elapsed:.0f}ms"
     log_fn(msg)
-    return {"ok": True, "chunks": n, "source": path.name, "trust": HUMAN_TRUST, "msg": msg}
+    return {"ok": True, "chunks": n, "source": source, "trust": human_meta["trust_score"], "msg": msg}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,6 +533,14 @@ class HotFolderWatcher:
         self._getter = rag_engine_getter  # callable() → rag_engine
         self._log_fn = log_fn or (lambda m: logger.info(m))
         self._seen: set = set()
+        # Memoire persistante des fichiers TRAITES (2/11) : sans elle, un depot fait pendant un arret du service etait
+        # marque vu au redemarrage et jamais ingere. NR : tests/nr/test_depot_surveille_reprise_nr.py
+        # Comparaison au dossier de PRODUCTION litteral, jamais au global `_RAG_DIR` : un test qui le remplace ecrivait
+        # sinon dans le vrai sandbox (paye le 2/11).
+        _prod = (_RACINE / "data" / "rag_files").resolve()
+        self._memo_path = (_RACINE / "sandbox" / "hot_folder_vus.json" if Path(rag_dir).resolve() == _prod
+                           else Path(rag_dir).parent / "hot_folder_vus.json")
+        self._memo: dict = {}
         self._running = False
         self._thread: Optional[threading.Thread] = None
         # Indexer les fichiers déjà présents sans les ré-ingérer
@@ -352,9 +548,44 @@ class HotFolderWatcher:
 
     def _init_seen(self) -> None:
         """Marque les fichiers existants comme déjà connus."""
-        if self._dir.exists():
-            self._seen = {f.name for f in self._dir.iterdir() if f.suffix.lower() in self.SUPPORTED_EXT}
-            logger.debug(f"[watcher] {len(self._seen)} fichiers existants marqués")
+        if not self._dir.exists():
+            return
+        presents = {f.name: f.stat().st_size for f in self._dir.iterdir() if f.suffix.lower() in self.SUPPORTED_EXT}
+        try:
+            memo = json.loads(self._memo_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            memo = None
+        except Exception as e:  # noqa: BLE001 - memoire illisible : amorce, et c'est DIT
+            logger.warning(f"[watcher] memoire {self._memo_path.name} illisible ({type(e).__name__}) : amorce")
+            memo = None
+        if memo is None:
+            # AMORCE (premier demarrage) : les presents sont reputes traites, comme avant -- on ne reingere pas
+            # tout l'historique du dossier.
+            self._memo = dict(presents)
+            self._seen = set(presents)
+            self._ecrire_memo()
+        else:
+            self._memo = dict(memo)
+            self._seen = {n for n, t in presents.items() if self._memo.get(n) == t}
+            a_faire = sorted(set(presents) - self._seen)
+            if a_faire:
+                logger.info(f"[watcher] {len(a_faire)} fichier(s) depose(s) pendant l'arret : {a_faire[:5]}")
+        logger.debug(f"[watcher] {len(self._seen)} fichiers deja traites")
+
+    def _ecrire_memo(self) -> None:
+        try:
+            self._memo_path.parent.mkdir(parents=True, exist_ok=True)
+            self._memo_path.write_text(json.dumps(self._memo, ensure_ascii=False, indent=0), encoding="utf-8")
+        except OSError as e:
+            logger.warning(f"[watcher] memoire NON ecrite ({type(e).__name__}) : la reprise apres arret est aveugle")
+
+    def _marquer_vu(self, fname: str) -> None:
+        self._seen.add(fname)
+        try:
+            self._memo[fname] = (self._dir / fname).stat().st_size
+        except OSError:
+            self._memo[fname] = -1
+        self._ecrire_memo()
 
     def start(self) -> None:
         """Start."""
@@ -398,24 +629,33 @@ class HotFolderWatcher:
                 __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_hot_ingest.py', 397, exc_info=True)
                 continue
 
-            self._seen.add(fname)
             logger.info(f"[watcher] Nouveau fichier détecté : {fname}")
-            self._log_fn(f"[dim]📂 Hot-folder : [bold]{fname}[/bold] détecté → ingestion TRUSTED…[/dim]")
+            self._log_fn(f"[dim]📂 Hot-folder : [bold]{fname}[/bold] détecté → analyse puis ingestion…[/dim]")
 
-            # Lancer l'ingestion dans l'event loop de la TUI
+            # 2/11 : plus de `if rag_engine:` -- sans moteur (demon, hors TUI), hot_ingest_file prend la voie
+            # canonique. Avant, le fichier etait marque vu PUIS abandonne en silence. Un fichier n'est desormais
+            # marque vu qu'une fois traite (ingere ou mis en quarantaine) ; un echec est DIT et retente au scan suivant.
             rag_engine = self._getter() if self._getter else None
-            if rag_engine:
+            coro = hot_ingest_file(fpath, rag_engine, log_fn=self._log_fn, provenance="hot_folder")
+            try:
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.run_coroutine_threadsafe(
-                            hot_ingest_file(fpath, rag_engine, log_fn=self._log_fn, provenance="hot_folder"),
-                            loop,
-                        )
-                    else:
-                        asyncio.run(hot_ingest_file(fpath, rag_engine, log_fn=self._log_fn, provenance="hot_folder"))
-                except Exception as e:
-                    logger.warning(f"[watcher] ingestion {fname}: {e}")
+                    boucle = asyncio.get_running_loop()
+                except RuntimeError:
+                    boucle = None
+                if boucle is not None:  # boucle de la TUI vivante : le resultat arrive plus tard
+                    asyncio.run_coroutine_threadsafe(coro, boucle)
+                    self._marquer_vu(fname)
+                    continue
+                r = asyncio.run(coro)
+            except Exception as e:  # noqa: BLE001 - dit, et retente au prochain scan
+                logger.warning(f"[watcher] ingestion {fname}: {e}")
+                self._log_fn(f"[red]⛔ {fname} : echec d'ingestion ({type(e).__name__}: {e}) -- retente au "
+                             f"prochain scan[/]")
+                continue
+            if r.get("ok") or r.get("quarantaine"):
+                self._marquer_vu(fname)
+            else:
+                self._log_fn(f"[red]⛔ {fname} non ingere : {r.get('msg')} -- retente au prochain scan[/]")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -205,7 +205,9 @@ _REDACT_PATTERNS = [
     # donnée encodée à entropie, pas un long mot naturel). L'ancien `{12,}=?` flaguait
     # les mots FR longs (amelioration, investissement) + "appelants/deps" (le / était
     # dans le charset) -> faux positifs qui bloquaient des prompts bénins.
-    (re.compile(r"\b(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{24,}={0,2}\b"), "BASE64_SUSPECT"),
+    # 6/11 : un nom d'executeur (NokidoTaskExecutorOpencode...) n'est pas une donnee encodee ;
+    # exemption bornee a 24 car. apres le prefixe, pour qu'elle ne porte pas de charge longue.
+    (re.compile(r"\b(?!NokidoTaskExecutor[A-Za-z0-9]{1,24}\b)(?=[A-Za-z0-9+/]*[A-Z])(?=[A-Za-z0-9+/]*[0-9])[A-Za-z0-9+/]{24,}={0,2}\b"), "BASE64_SUSPECT"),
     # SSH keys
     (re.compile(r"-----BEGIN [A-Z ]+KEY-----.*?-----END [A-Z ]+KEY-----", re.DOTALL), "SSH_KEY"),
     # Emails
@@ -710,7 +712,12 @@ class SemanticFirewall:
                         reason="Kill-switch semantique actif (network_kill) — egress cloud bloque",
                     )
             except Exception as e:
-                logger.warning(f"[firewall] kill-switch check indisponible (fail-open): {e}")
+                self._stats["pre_blocked"] += 1
+                logger.warning(f"[firewall] kill-switch check indisponible (fail-closed): {e}")
+                return PreFlightResult(
+                    ok=False,
+                    reason=f"Kill-switch check indisponible (fail-closed): {type(e).__name__}: {e}",
+                )
 
         # ── 1. Ring check ─────────────────────────────────────────────────────
         # Audit 2026-06-16 : ring <= 0 (SYSTEM et MASTER) interdit de sortie cloud.
@@ -737,7 +744,14 @@ class SemanticFirewall:
                     injection=True,
                 )
         except Exception as e:
-            logger.debug(f"[firewall] detect_injection skip: {e}")
+            if _is_cloud:
+                self._stats["pre_blocked"] += 1
+                logger.warning(f"[firewall] detect_injection indisponible (fail-closed): {e}")
+                return PreFlightResult(
+                    ok=False,
+                    reason=f"detect_injection indisponible (fail-closed): {type(e).__name__}: {e}",
+                )
+            logger.warning(f"[firewall] detect_injection skip: {e}")
 
         # ── 3. DLP ────────────────────────────────────────────────────────────
         safe_task = task

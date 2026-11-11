@@ -30,11 +30,28 @@ def _sh(cmd: str) -> str:
 
 def reload_proxy(port: int, script: str) -> dict:
     out: dict = {"port": port, "script": script}
-    ns = _sh(f'netstat -ano | findstr ":{port}"')
-    pids = sorted({ln.split()[-1] for ln in ns.splitlines()
-                   if "LISTENING" in ln and ln.split() and ln.split()[-1].isdigit()})
-    out["listen_pids"] = pids
-    out["kill"] = {pid: _sh(f"taskkill /F /PID {pid}").strip()[:90] for pid in pids}
+    try:
+        from nokido_agent.app.forge_ports_ecoute import ecouteurs_tcp
+    except ImportError:
+        try:
+            from app.forge_ports_ecoute import ecouteurs_tcp
+        except ImportError:
+            from forge_ports_ecoute import ecouteurs_tcp
+    
+    ecoute = ecouteurs_tcp()
+    if ecoute is None:
+        pids = []
+        out["listen_pids"] = pids
+        out["kill"] = {}
+        out["error"] = "ecouteurs_tcp indisponible (None)"
+    else:
+        pids = sorted(ecoute.get(port, set()))
+        out["listen_pids"] = pids
+        if not pids:
+            out["kill"] = {}
+            out["info"] = f"aucun listener actif trouve sur le port {port}"
+        else:
+            out["kill"] = {str(pid): _sh(f"taskkill /F /PID {pid}").strip()[:90] for pid in pids}
     time.sleep(3)
     try:
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP

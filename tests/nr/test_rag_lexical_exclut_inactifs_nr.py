@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import sqlite3
 import textwrap
 from pathlib import Path
@@ -95,6 +96,55 @@ def test_un_chunk_retire_ne_remonte_pas(tmp_path):
 def test_un_chunk_actif_remonte(tmp_path):
     rendu = _fonction_reelle()(_Registre(_base(tmp_path)), MOT, 10)
     assert "[src/actif]" in rendu, "le filtre a jete aussi les chunks actifs"
+
+
+def test_la_requete_classe_avant_de_joindre(tmp_path, monkeypatch):
+    """Paye le 5/11 : la jointure chargeait `text` pour CHAQUE ligne du MATCH avant de trier. Avec des mots frequents, le hub a lu
+    75 Mo/s sur le NVMe sans fin, et l'expiration cote client n'arrete rien. La FTS classe seule, on ne joint que les N meilleurs."""
+    vu = []
+    vrai = sqlite3.connect
+
+    def espion(*a, **k):
+        c = vrai(*a, **k)
+        c.set_trace_callback(vu.append)
+        return c
+
+    monkeypatch.setattr(sqlite3, "connect", espion)
+    _fonction_reelle()(_Registre(_base(tmp_path)), MOT, 10)
+    requete = " ".join(next(s for s in vu if "MATCH" in s).split())
+    assert re.search(r"FROM \( ?SELECT .*rag_fts.*MATCH.*ORDER BY.*LIMIT \d+ ?\).*JOIN rag_chunks", requete), requete
+
+
+def test_le_bonus_du_non_vectorise_tient_toujours(tmp_path):
+    db = tmp_path / "rag.db"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE rag_chunks (id TEXT PRIMARY KEY, source TEXT, domain TEXT, text TEXT, embedding BLOB, active INTEGER, access_count INTEGER);"
+                      "CREATE VIRTUAL TABLE rag_fts USING fts5(chunk_id UNINDEXED, text);")
+    for cid, source, emb in (("a", "src/avec", b"x"), ("b", "src/sans", None)):
+        con.execute("INSERT INTO rag_chunks VALUES (?,?,?,?,?,1,0)", (cid, source, "test", MOT + " meme contenu", emb))
+        con.execute("INSERT INTO rag_fts(chunk_id, text) VALUES (?,?)", (cid, MOT + " meme contenu"))
+    con.commit()
+    con.close()
+    rendu = _fonction_reelle()(_Registre(db), MOT, 10)
+    assert rendu.index("[src/sans]") < rendu.index("[src/avec]")
+
+
+def test_le_contenu_de_tiers_est_marque_et_le_notre_non(tmp_path):
+    from nokido_agent.app.forge_prompt_guard import MARQUE_TIERS
+
+    db = tmp_path / "rag.db"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE rag_chunks (id TEXT PRIMARY KEY, source TEXT, domain TEXT, text TEXT, embedding BLOB, active INTEGER, access_count INTEGER);"
+                      "CREATE VIRTUAL TABLE rag_fts USING fts5(chunk_id UNINDEXED, text);")
+    for cid, source in (("a", "github:o/d/a.md"), ("b", "session:2026-11-05:solution")):
+        con.execute("INSERT INTO rag_chunks VALUES (?,?,?,?,NULL,1,0)", (cid, source, "test", MOT + " contenu " + cid))
+        con.execute("INSERT INTO rag_fts(chunk_id, text) VALUES (?,?)", (cid, MOT + " contenu " + cid))
+    con.commit()
+    con.close()
+    blocs = _fonction_reelle()(_Registre(db), MOT, 10).split("\n\n")
+    tiers = next(b for b in blocs if "[github:o/d/a.md]" in b)
+    notre = next(b for b in blocs if "[session:2026-11-05:solution]" in b)
+    assert MARQUE_TIERS in tiers and MARQUE_TIERS not in notre
 
 
 def test_active_null_n_est_pas_un_retrait(tmp_path):

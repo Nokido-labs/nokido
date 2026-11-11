@@ -58,6 +58,30 @@ def _module():
     return pytest.importorskip("app.forge_lane_admission")
 
 
+@pytest.fixture(autouse=True)
+def _hermetique(monkeypatch):
+    """HERMETIQUE pour TOUT le fichier (10/11, enregistreur de vol gw2).
+
+    `test_le_refus_est_journalise` n'avait pas recu la neutralisation du 26/10 :
+    le 2e observateur (snapshot RAM REEL, machine a ~85 % pendant la CI) faisait
+    refuser la RAM, donc `_try_reserve()` REEL -> request_resources(allow_evict=True)
+    + `_relacher_substrat_async()` depuis un test unitaire. Plus de 30 s ->
+    pytest-timeout (methode thread) -> os._exit(1) -> worker gw2 mort a 19:21:44
+    -> controleur xdist en attente a vie (pre-vol fige a 99 %).
+    Fil-piege : une eviction reelle depuis ce fichier echoue VITE et NOMMEE.
+    """
+    m = _module()
+    monkeypatch.setattr(m, "_lire_snapshot_ram", lambda: None)
+
+    def _piege(*_a, **_k):
+        pytest.fail("eviction REELLE declenchee depuis un test unitaire "
+                    "(_try_reserve/_relacher_substrat_async) : test non hermetique")
+
+    monkeypatch.setattr(m, "_try_reserve", _piege)
+    monkeypatch.setattr(m, "_relacher_substrat_async", _piege, raising=False)
+    monkeypatch.setattr(m, "_observer_pi", lambda *_a, **_k: None)
+
+
 def test_la_sante_nomme_sa_source():
     """Sans source, une sentinelle est indiscernable d'une mesure."""
     m = _module()

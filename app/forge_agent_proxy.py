@@ -639,25 +639,49 @@ def _firewall_post(response, fw_map):
 _PASSEPORT_JOURNAL_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "passeport_appels.jsonl"
 )
-
+_PASSEPORT_FALLBACK_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sandbox", "passeport_appels.jsonl"
+)
 
 _PASSEPORT_MAX_OCTETS = 5 * 1024 * 1024
+_PASSEPORT_REPLI_NOTIFIE = False
+_ASK_BLOCK_REPLI_NOTIFIE = False
+
+
+def _ecrire_fichier_avec_rotation(chemin: str, ligne_str: str, max_octets: int) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(chemin)), exist_ok=True)
+    try:
+        if os.path.getsize(chemin) > max_octets:
+            os.replace(chemin, chemin + ".1")
+    except OSError:
+        pass  # muet-ok : journal absent (premiere ligne) ou rotation impossible -> on continue d'ajouter
+    with open(chemin, "a", encoding="utf-8") as f:
+        f.write(ligne_str + "\n")
 
 
 def _ecrire_passeport_fichier(ligne: dict) -> None:
     """Ecrit de facon atomique/append la ligne JSON dans logs/passeport_appels.jsonl.
 
     Borne (30/10) : une ligne par appel provider, sans rotation le journal grossissait sans fin. Au-dela de
-    _PASSEPORT_MAX_OCTETS, il passe en `.1` (une generation gardee, l'ancienne `.1` est remplacee)."""
+    _PASSEPORT_MAX_OCTETS, il passe en `.1` (une generation gardee, l'ancienne `.1` est remplacee).
+    Repli (08/11) : sur PermissionError (compte des jobs), repli sous sandbox/ journalise une fois,
+    jamais de perte silencieuse."""
+    global _PASSEPORT_REPLI_NOTIFIE
+    ligne_str = json.dumps(ligne, ensure_ascii=False)
     journal_path = _PASSEPORT_JOURNAL_PATH
-    os.makedirs(os.path.dirname(os.path.abspath(journal_path)), exist_ok=True)
     try:
-        if os.path.getsize(journal_path) > _PASSEPORT_MAX_OCTETS:
-            os.replace(journal_path, journal_path + ".1")
-    except OSError:
-        pass  # muet-ok : journal absent (premiere ligne) ou rotation impossible -> on continue d'ajouter
-    with open(journal_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
+        _ecrire_fichier_avec_rotation(journal_path, ligne_str, _PASSEPORT_MAX_OCTETS)
+    except PermissionError as exc:
+        if not _PASSEPORT_REPLI_NOTIFIE:
+            _PASSEPORT_REPLI_NOTIFIE = True
+            logger.warning(
+                "PermissionError sur %s (%s) -> repli sous %s",
+                journal_path, exc, _PASSEPORT_FALLBACK_PATH,
+            )
+        try:
+            _ecrire_fichier_avec_rotation(_PASSEPORT_FALLBACK_PATH, ligne_str, _PASSEPORT_MAX_OCTETS)
+        except Exception as e_fb:
+            logger.error("Echec ecriture repli passeport %s : %s", _PASSEPORT_FALLBACK_PATH, e_fb)
 
 
 def _extraire_endpoint(provider) -> str:
@@ -806,6 +830,10 @@ def _cached_ready(key: str, probe) -> bool:
 _SYMBIOSE_SEUIL = int(os.environ.get("NOKIDO_SYMBIOSE_SEUIL", "2000"))
 _SYMBIOSE_TIMEOUT_S = float(os.environ.get("NOKIDO_SYMBIOSE_TIMEOUT_S", "20"))
 _SYMBIOSE_LOCAUX = ("ollama", "llamacpp", "lmstudio", "local", "brain", "llama_")
+# 4/11 : un payload qui porte du CODE A MODIFIER part TEL QUEL -- un SEARCH exige le texte exact, et une compression
+# (meme reussie) le detruit : Nemotron rendait 3/3 SANS_BLOC sur le banc rappel_lexical (« 2041 -> 392 chars »).
+# Marqueurs construits, jamais litteraux (les outils d'edition interpretent les marqueurs SEARCH).
+_SYMBIOSE_CODE = ("```", "<" * 7 + " SEARCH", "SEARCH/REPLACE")
 
 
 class Provider(ABC):
@@ -844,6 +872,12 @@ class Provider(ABC):
             return message
         nom = (getattr(provider, "name", "") or "").lower()
         if any(m in nom for m in _SYMBIOSE_LOCAUX):
+            return message
+        if any(m in message for m in _SYMBIOSE_CODE):
+            # 4/11 (NR tests/nr/test_symbiose_epargne_le_code_nr.py) : la regle vise les JOURNAUX massifs ; du code a
+            # modifier compresse ne peut plus etre patche. Mieux vaut payer des tokens que detruire la matiere.
+            _lg.getLogger("forge.symbiose").info(
+                "[symbiose] payload de CODE (%d chars) envoye TEL QUEL vers %s", len(message), nom or "cloud")
             return message
         try:
             from nokido_agent.app.forge_symbiotic_bridge import SymbioticBridge
@@ -1626,25 +1660,42 @@ class GeminiCLI(Provider):
     _BIN = next((p for p in _BIN_CANDIDATES if p and os.path.exists(p)), _BIN_CANDIDATES[-1])
     _AGY_HOME = r"%USERPROFILE%"  # OAuth agy vit dans <home>\AppData\Local\agy
 
+    @staticmethod
+    def _demander_relais(message, system_prompt):
+        """Relais AGY en SESSION OWNER (tools/forge_agy_relay.py, :8770) -> texte, ou None s'il ne sert pas.
+
+        4/11 (owner, mesure job_c21ccd6e8336) : hors session owner, agy n'est pas lancable (compte des jobs : WinError 5)
+        ni authentifiable (hub : « authentication failed or timed out ») ; le relais la-bas le peut. Le delai etait de
+        5 s : toute vraie reponse d'agy (20 s a 20 min) etait coupee. Depuis le relais lui-meme
+        (LAFORGE_AGY_RELAY_INTERNE) : None, on lance agy ici. NR tests/nr/test_agy_relais_session_nr.py."""
+        import os as _os, json as _j, logging as _lg, urllib.request as _ur
+
+        if _os.environ.get("LAFORGE_AGY_RELAY_INTERNE"):
+            return None
+        _url = "http://127.0.0.1:%s/v1/ask" % _os.environ.get("LAFORGE_AGY_RELAY_PORT", "8770")
+        _payload = _j.dumps({"provider": "gemini_cli", "prompt": message, "system_prompt": system_prompt}).encode()
+        try:
+            _req = _ur.Request(_url, data=_payload, headers={"Content-Type": "application/json"})
+            with _ur.urlopen(_req, timeout=float(_os.environ.get("LAFORGE_AGY_RELAY_TIMEOUT_S", "1500"))) as _r:
+                _resp = _j.loads(_r.read())
+        except Exception as _e:  # noqa: BLE001
+            _lg.getLogger(__name__).info("relais AGY :8770 non joignable (%s) -- lancement direct d'agy (echoue hors "
+                                         "session owner : reveiller NokidoAgyRelay)", type(_e).__name__)
+            return None
+        if _resp.get("error"):
+            _lg.getLogger(__name__).warning("relais AGY : %s", str(_resp["error"])[:200])
+            return None
+        return _resp.get("response") or ""
+
     async def ask(self, message, thread_messages, system_prompt, max_tokens, timeout):
         import subprocess as _sp, asyncio as _a, os as _os, json as _j, urllib.request as _ur
 
         prompt = system_prompt + "\n\n" + message if system_prompt else message
 
-        # Tentative via Daemon V14 (port 8770) — Élimine le Cold Start
-        try:
-            _daemon_url = "http://127.0.0.1:8770/v1/ask"
-            _payload = _j.dumps({
-                "provider": "gemini_cli",
-                "prompt": message,
-                "system_prompt": system_prompt
-            }).encode("utf-8")
-            _req = _ur.Request(_daemon_url, data=_payload, headers={"Content-Type": "application/json"})
-            with _ur.urlopen(_req, timeout=5) as _r:
-                _resp = _j.loads(_r.read())
-                return _resp.get("response") or ""
-        except Exception:
-            __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 1466, exc_info=True)
+        # Relais AGY en session owner (:8770) d'abord -- 4/11 : l'ancien demon V14 avait disparu, on perdait 5 s.
+        _rel = await _a.get_event_loop().run_in_executor(None, self._demander_relais, message, system_prompt)
+        if _rel is not None:
+            return _rel
 
         # AGY (Antigravity CLI) : OAuth vit dans <owner>\AppData\Local\agy. On pointe
         # l'env sur le profil owner pour que agy lise son auth (le service ne tourne pas
@@ -2858,10 +2909,12 @@ class LMStudio(Provider):
                 msgs.append({"role": "system", "content": system_prompt})
             msgs.extend(thread_messages)
             msgs.append({"role": "user", "content": message})
+            # Owner 3/11 : modele charge A LA DEMANDE puis DECHARGE apres LMSTUDIO_TTL_S d'inactivite (ttl JIT de LM
+            # Studio). Un 7B resident (~5,7 Go) faisait refuser les jobs par le garde RAM. NR test_lmstudio_ttl_nr.
+            _corps = {"model": model, "messages": msgs, "max_tokens": max_tokens or 1400,
+                      "ttl": int(os.environ.get("LMSTUDIO_TTL_S", "600"))}
             try:
-                d = _req("POST", "/v1/chat/completions",
-                         {"model": model, "messages": msgs,
-                          "max_tokens": max_tokens or 1400})
+                d = _req("POST", "/v1/chat/completions", _corps)
             except Exception as exc:  # noqa: BLE001
                 # MESURE 2026-08-18, corps de la reponse : {"error":"Model is
                 # unloaded."}. Ce 400 ne dit PAS « requete malformee » ni « JIT
@@ -2879,9 +2932,7 @@ class LMStudio(Provider):
                         f"delai imparti. Si aucun chargement n'a demarre, activer "
                         f"« Just-In-Time Model Loading » cote LM Studio."
                     ) from exc
-                d = _req("POST", "/v1/chat/completions",
-                         {"model": model, "messages": msgs,
-                          "max_tokens": max_tokens or 1400})
+                d = _req("POST", "/v1/chat/completions", _corps)
             # Dater APRES la completion : un usage est une reponse SERVIE, pas une
             # intention. Dater avant ferait prolonger la vie du serveur par des
             # appels qui n'ont rien produit.
@@ -3803,9 +3854,23 @@ async def ask(
             # logs/ = in-zone (C:/tmp bloque par WORKSPACE_GUARD process-wide) ; env override.
             _rp = os.environ.get("LAFORGE_ASK_BLOCK_FILE") or os.path.join(
                 os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs", "ask_block_report.jsonl")
+            _rec_str = json.dumps(_rec, ensure_ascii=False) + "\n"
             try:
                 with open(_rp, "a", encoding="utf-8") as _fh:
-                    _fh.write(json.dumps(_rec, ensure_ascii=False) + "\n")
+                    _fh.write(_rec_str)
+            except PermissionError as _pe:
+                global _ASK_BLOCK_REPLI_NOTIFIE
+                _fb_rp = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sandbox", "ask_block_report.jsonl")
+                if not _ASK_BLOCK_REPLI_NOTIFIE:
+                    _ASK_BLOCK_REPLI_NOTIFIE = True
+                    logger.warning("PermissionError sur %s (%s) -> repli sous %s", _rp, _pe, _fb_rp)
+                try:
+                    os.makedirs(os.path.dirname(os.path.abspath(_fb_rp)), exist_ok=True)
+                    with open(_fb_rp, "a", encoding="utf-8") as _fh:
+                        _fh.write(_rec_str)
+                except Exception as _fbe:
+                    logger.error("Echec ecriture repli ask_block_report %s : %s", _fb_rp, _fbe)
             except Exception as _we:  # anti-silence : tracer via logger si le fichier echoue
                 logger.error("ASK_BLOCK_REPORT provider=%s innermost=%s (file err %s) stack=%s",
                              provider_name, inner, _we, stack)
@@ -3817,8 +3882,14 @@ async def ask(
                 _b = _iot.StringIO()
                 _fhh.dump_traceback(file=_b, all_threads=True)
                 _tp = os.path.join(os.path.dirname(_rp), "ask_block_threads.txt")
-                with open(_tp, "a", encoding="utf-8") as _tf:
-                    _tf.write("=== %s provider=%s ===\n%s\n" % (round(time.time(), 1), provider_name, _b.getvalue()))
+                try:
+                    with open(_tp, "a", encoding="utf-8") as _tf:
+                        _tf.write("=== %s provider=%s ===\n%s\n" % (round(time.time(), 1), provider_name, _b.getvalue()))
+                except PermissionError:
+                    _fb_tp = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sandbox", "ask_block_threads.txt")
+                    os.makedirs(os.path.dirname(os.path.abspath(_fb_tp)), exist_ok=True)
+                    with open(_fb_tp, "a", encoding="utf-8") as _tf:
+                        _tf.write("=== %s provider=%s ===\n%s\n" % (round(time.time(), 1), provider_name, _b.getvalue()))
             except Exception:
                 __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_agent_proxy.py', 3635, exc_info=True)
         except Exception:

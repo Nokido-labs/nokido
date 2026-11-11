@@ -70,6 +70,16 @@ try:
 except ImportError:  # pragma: no cover
     _PSUTIL_OK = False
 
+# Homologue biologique (owner 3/11, debat 1 tour 2, proposition Q3).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "torpeur / depression metabolique / charge allostatique",
+    "nature": "biologie",
+    "termes": "torpor metabolic depression allostatic load energy conservation",
+    "sources": ["openstax:m46552"],
+    "invariant": "la regulation reveille ce qu'elle endort lorsque la pression de ressources retombe",
+    "nr": "tests/nr/test_regulation_reveille_ce_qu_elle_endort_nr.py",
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Background sampler — lock-free read snapshot
@@ -196,6 +206,22 @@ def _dire_echec_vitaux(exc: Exception) -> None:
                                             "l'historique tant que ce type d'echec dure", nom, str(exc)[:120])
 
 
+# 3/11 (preuve apres restart : io_mo_s null a l'admission) : le debit disque ior/iow (Mo/s, forge_vitals_channels) ne
+# vivait QUE dans l'historique -- aucun garde ne pouvait le lire. Il est publie ici, horodate, a chaque ecriture.
+_DEBIT_DISQUE: dict = {}
+
+
+def dernier_debit_disque(max_age_s: float = 90.0):
+    """Dernier debit disque mesure (lecture + ecriture, Mo/s), ou None s'il est perime ou jamais mesure."""
+    try:
+        d = dict(_DEBIT_DISQUE)
+        if not d or time.time() - float(d["ts"]) > float(max_age_s):
+            return None
+        return float(d["ior"]) + float(d["iow"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _append_vitals_history(snap: dict) -> None:
     """Append une ligne compacte de vitaux a la serie bornee. Ne leve JAMAIS.
 
@@ -248,6 +274,10 @@ def _append_vitals_history(snap: dict) -> None:
 
             _canaux = _canaux_echantillon("serie")
             row.update(_canaux)
+            try:  # 3/11 : debit publie pour les gardes (admission des jobs)
+                _DEBIT_DISQUE.update(ts=float(now), ior=float(_canaux["ior"]), iow=float(_canaux["iow"]))
+            except (KeyError, TypeError, ValueError):
+                pass  # muet-ok : canal disque absent ce tick -> dernier_debit_disque le dira perime
         except Exception as _ce:  # noqa: BLE001
             # Un capteur qui casse le journal serait pire que le trou qu'il laisse,
             # mais un echec MUET rendrait le capteur indistinguable d'un capteur
@@ -433,38 +463,18 @@ def read_vitals_history(since_ts: float = 0.0, limit: int = 400) -> list[dict]:
 
 
 def _sample_gpu_win32() -> float | None:
-    """Best-effort GPU usage via Windows perf counters. None if unavailable.
+    """Charge GPU lue en memoire par PDH (forge_vitals_channels.lire_gpu_pct), ~1,3 ms. None si la mesure n'existe pas.
 
-    Reads `\\GPU Engine(*engtype_3D)\\Utilization Percentage` via PowerShell
-    Get-Counter. Sums all engines. Returns None on any failure.
+    Remplace un PowerShell plafonne a 2 s qui ne lisait que le moteur 3D (mesure 4/11 : gpu_sample_ms 2019,7, 3 None sur 3).
     """
     if sys.platform != "win32":
         return None
     try:
-        ps = (
-            'Get-Counter "\\GPU Engine(*engtype_3D)\\Utilization Percentage" '
-            "-MaxSamples 1 -ErrorAction SilentlyContinue | "
-            "Select-Object -ExpandProperty CounterSamples | "
-            "Measure-Object CookedValue -Sum | "
-            "Select-Object -ExpandProperty Sum"
-        )
-        # errors= seul, SANS forcer l'encodage : la sortie PowerShell est localisee
-        # (cp1252 ici) et imposer utf-8 changerait le codec d'un capteur qui marche.
-        # On ajoute la tolerance, pas un nouveau decodeur.
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
-            capture_output=True,
-            text=True, errors="replace",
-            timeout=2,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        out = result.stdout.strip()
-        if not out:
-            return None
-        val = float(out.replace(",", "."))
-        # Cap at 100 (multi-engine sum can overflow on multi-GPU)
-        return min(val, 100.0)
-    except Exception:
+        from nokido_agent.app.forge_vitals_channels import lire_gpu_pct
+
+        return lire_gpu_pct()
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger(__name__).debug("[gpu] lecture PDH impossible (%s)", type(e).__name__)
         return None
 
 
@@ -613,7 +623,7 @@ def attribuer_pression(force: bool = False) -> dict:
     if not force and _ATTRIB_CACHE["val"] is not None and now - _ATTRIB_CACHE["ts"] < _ATTRIB_TTL_S:
         return _ATTRIB_CACHE["val"]
     out: dict = {"verdict": "INCERTAIN", "soi_gb": 0.0, "non_soi_gb": 0.0, "incertain_gb": 0.0,
-                 "illisibles": 0, "top_non_soi": [], "top_handles": [], "raison": "",
+                 "illisibles": 0, "top_non_soi": [], "top_soi": [], "top_handles": [], "raison": "",
                  "fuyards": [], "mesure_ts": now}
     out.update(_perf_systeme() or {})
     if not _PSUTIL_OK:
@@ -622,9 +632,13 @@ def attribuer_pression(force: bool = False) -> dict:
     try:
         from nokido_agent.app.forge_service_rss_watch import _registre
 
-        corps = {int(p) for p in (_registre() or {}).values()}
+        _reg = _registre() or {}
+        corps = {int(p) for p in _reg.values()}
+        # 9/11 (owner « visibilite parfaite, sinon pas d'autoregulation ») : pid du registre -> NOM d'organe.
+        organe_de = {int(p): str(s) for s, p in _reg.items()}
     except Exception as e:  # noqa: BLE001
         corps = set()
+        organe_de = {}
         out["raison"] = "registre illisible: %s" % type(e).__name__
     procs = {}
     for p in psutil.process_iter(["pid", "ppid", "name"]):
@@ -651,8 +665,19 @@ def attribuer_pression(force: bool = False) -> dict:
             cur = parent.get(cur)
         return False
 
+    def _organe(pid: int):
+        vus, cur = set(), pid
+        for _ in range(8):
+            if cur in organe_de:
+                return organe_de[cur]
+            if cur in vus or cur is None:
+                return None
+            vus.add(cur)
+            cur = parent.get(cur)
+        return None
+
     parts = {"soi": 0.0, "non_soi": 0.0, "incertain": 0.0}
-    non_soi, handles = [], []
+    non_soi, handles, paires_soi = [], [], []
     for pid, p in procs.items():
         nom = p.info.get("name") or "?"
         try:
@@ -672,6 +697,9 @@ def attribuer_pression(force: bool = False) -> dict:
             classe = "non_soi"
             non_soi.append((prive, pid, nom))
         parts[classe] += prive
+        if classe == "soi":
+            paires_soi.append((prive, _organe(pid) or "%s (identite %s)" % (
+                nom, (ids.get(pid) or {}).get("preuve") or "?")))
         try:
             handles.append((p.num_handles(), pid, nom, classe))
         except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
@@ -682,6 +710,7 @@ def attribuer_pression(force: bool = False) -> dict:
     non_soi.sort(reverse=True)
     handles.sort(reverse=True)
     out["top_non_soi"] = [{"name": n, "pid": pid, "gb": round(g, 2)} for g, pid, n in non_soi[:3]]
+    out["top_soi"] = top_par_organe(paires_soi, n=3)
     out["top_handles"] = [{"name": n, "pid": pid, "handles": h, "classe": c}
                           for h, pid, n, c in handles[:3]]
     # Historique pour la pente : les 5 plus gros detenteurs (le top 3 du rendu ne suit pas
@@ -708,6 +737,15 @@ def attribuer_pression(force: bool = False) -> dict:
     return out
 
 
+def top_par_organe(paires, n: int = 3) -> list:
+    """(go, organe) -> les n organes les plus lourds, memoire agregee par organe (un organe = ses processus)."""
+    agr: dict = {}
+    for gb, organe in paires:
+        agr[organe] = agr.get(organe, 0.0) + float(gb)
+    rang = sorted(agr.items(), key=lambda kv: kv[1], reverse=True)[:n]
+    return [{"organe": o, "gb": round(g, 2)} for o, g in rang]
+
+
 def resume_attribution(a: dict | None) -> str:
     """Une ligne lisible pour un journal ou le message THROTTLED du gate P1."""
     if not a:
@@ -719,6 +757,9 @@ def resume_attribution(a: dict | None) -> str:
         s += ", noyau %.1f+%.1f Go, %s handles systeme" % (
             a["noyau_pagine_gb"], a["noyau_non_pagine_gb"], a.get("handles_systeme"))
     s += ")"
+    # 9/11 : les organes du CORPS les plus lourds en tete -- c'est l'entree de l'autoregulation (qui delester).
+    if a.get("top_soi"):
+        s += " | soi: " + ", ".join("%s %.1f Go" % (t["organe"], t["gb"]) for t in a["top_soi"])
     # Les detenteurs de handles AVANT le hors-corps : l'audit tronque vers 200 caracteres et le 19/10 la ligne
     # finissait sur « | handles: » -- audiodg.exe (690 705 handles) etait coupe, le remede invisible.
     if a.get("top_handles"):
@@ -989,7 +1030,7 @@ def _sample_once() -> dict[str, Any]:
                 # Une sonde qui echoue en boucle paie le spawn sans rien rendre.
                 _gpu_suspended_until_ts = _now_gpu + 600.0
                 _gpu_consecutive_fail = 0
-            out["gpu_pct"] = _SNAPSHOT.get("gpu_pct")
+            out["gpu_pct"] = None   # une mesure ratee n'est pas l'ancienne mesure : UNKNOWN, pas une valeur (4/11)
         else:
             _gpu_consecutive_fail = 0
             out["gpu_pct"] = _gpu
@@ -3002,6 +3043,54 @@ def _audit_lifecycle(action: str, domain: str, reason: str = "", **extra) -> Non
         logging.getLogger(__name__).debug("[audit] %s NON trace (%s)", action, type(e).__name__)
 
 
+def _veilles_admissibles() -> bool:
+    """3/11 : une veille en file peut-elle demarrer bientot ? Vrai seulement si la RAM est PROUVEE hors satiete (meme
+    mesure que _etaler_veilles, forge_chain_executor._ram_en_satiete). Illisible -> False (regle du 2/11 inchangee)."""
+    try:
+        from nokido_agent.app.forge_chain_executor import _ram_en_satiete
+        return _ram_en_satiete() is False
+    except Exception:  # noqa: BLE001 - admissibilite illisible : la veille en file ne retient rien (2/11)
+        return False
+
+
+# 4/11 (debat 2 tour 2, owner 3/11 ; 3 delegations ratees) : etapes d'une veille qui se SERVENT de Docker
+# (app/forge_watch_agent.py::create_job : search = SearXNG, crawl = crawl4ai). Les autres (keywords via Ollama,
+# verify_kw, refine, ingest, store) ne doivent pas retenir Docker.
+ETAPES_DOCKER = ("search", "crawl")
+
+
+def _chaines_docker(lignes) -> int:
+    """Chaines DEMARREES qui ont besoin de Docker MAINTENANT ou a l'etape SUIVANTE (anticipation : on ne coupe pas
+    Docker juste avant un crawl). lignes = (chain_id, step_index, step_name, status). NR test_intention_par_etape_nr."""
+    par = {}
+    for cid, idx, nom, st in lignes:
+        par.setdefault(cid, []).append((int(idx or 0), str(nom or ""), str(st or "")))
+    n = 0
+    for noeuds in par.values():
+        noeuds.sort()
+        if all(st == "pending" for _, _, st in noeuds):
+            continue   # non admise : elle redemandera Docker elle-meme (regle du 2/11)
+        actifs = [(i, nom) for i, nom, st in noeuds if st in ("running", "retry_pending")]
+        if any(nom in ETAPES_DOCKER for _, nom in actifs):
+            n += 1
+            continue
+        suivant = next(((i, nom) for i, nom, st in noeuds if st == "pending"), None)
+        if suivant and suivant[1] in ETAPES_DOCKER and (not actifs or suivant[0] == max(i for i, _ in actifs) + 1):
+            n += 1
+    return n
+
+
+def intention_docker(intents) -> bool:
+    """Une chaine de travail retient-elle Docker ? Lu par TOUS les decideurs de relache (keeper, ensure_service).
+    chains_docker illisible (None) ou intentions absentes = on ne coupe pas. Ancien format (chains_active seul,
+    doublures de test) = chains_active, comme avant."""
+    intents = intents or {}
+    if "chains_docker" in intents:
+        v = intents["chains_docker"]
+        return v is None or v > 0
+    return bool(intents.get("chains_active"))   # ancien format (doublures) : meme lecture qu'avant le 4/11
+
+
 def get_active_intents() -> dict:
     """Intentions VIVANTES du corps — a consulter AVANT toute eviction.
 
@@ -3011,6 +3100,7 @@ def get_active_intents() -> dict:
     pending/running). Best-effort, ne leve jamais.
     """
     out: dict = {"docker_wanted": False, "chains_active": 0,
+                 "chains_docker": None,   # 4/11 : None = illisible -> intention_docker ne coupe pas
                  "llama_wanted": False, "lmstudio_wanted": False,
                  "rerank_wanted": False}
     _sb = Path(__file__).resolve().parent.parent / "sandbox"
@@ -3080,9 +3170,38 @@ def get_active_intents() -> dict:
         from nokido_agent.app.forge_db_path import db_path
 
         conn = sqlite3.connect(db_path(), timeout=2.0)
+        # 2/11 : seule une chaine DEMARREE retient les ressources (un noeud running / retry_pending / termine).
+        # Une chaine entierement `pending` attend son admission (satiete RAM de `_etaler_veilles`) : la compter
+        # interdisait la relache de Docker, qui maintenait la RAM au-dessus du seuil -- interblocage mesure sur
+        # wj_851500cc12. Elle redemandera Docker elle-meme (`_ensure_searxng` pose docker.wanted).
+        # NR : tests/nr/test_chaine_non_demarree_ne_retient_pas_docker_nr.py
         out["chains_active"] = conn.execute(
-            "SELECT COUNT(*) FROM agent_chain_nodes WHERE status IN ('pending','running','retry_pending')"
+            "SELECT COUNT(*) FROM agent_chain_nodes n "
+            "WHERE n.status IN ('pending','running','retry_pending') "
+            "AND EXISTS (SELECT 1 FROM agent_chain_nodes d WHERE d.chain_id = n.chain_id "
+            "AND d.status <> 'pending')"
         ).fetchone()[0]
+        try:   # 4/11 : son propre try -- un schema sans step_name ne doit pas couper le reste du calcul
+            out["chains_docker"] = _chaines_docker(conn.execute(
+                "SELECT n.chain_id, n.step_index, n.step_name, n.status FROM agent_chain_nodes n "
+                "WHERE n.chain_id IN (SELECT DISTINCT d.chain_id FROM agent_chain_nodes d WHERE d.status <> 'pending') "
+                "AND n.chain_id IN (SELECT DISTINCT e.chain_id FROM agent_chain_nodes e "
+                "WHERE e.status IN ('pending','running','retry_pending'))"
+            ).fetchall())
+        except sqlite3.Error as e:   # chains_docker reste None = illisible -> intention_docker ne coupe pas
+            logging.getLogger(__name__).debug("[intentions] chains_docker ILLISIBLE (%s)", type(e).__name__)
+        # 3/11 (owner « pourquoi tu coupes docker entre chaque veille ? ») : Docker coupe/relance 3 fois en 15 min entre
+        # deux vagues de veilles. HORS satiete, une VEILLE en file (wj_*, entierement pending) va demarrer : elle est une
+        # intention. En satiete, la regle du 2/11 tient (interblocage). NR test_veille_en_file_admissible_nr.
+        if _veilles_admissibles():
+            out["veilles_en_file"] = conn.execute(
+                "SELECT COUNT(DISTINCT chain_id) FROM agent_chain_nodes n WHERE n.chain_id LIKE 'wj_%' "
+                "AND n.status = 'pending' AND NOT EXISTS (SELECT 1 FROM agent_chain_nodes d "
+                "WHERE d.chain_id = n.chain_id AND d.status <> 'pending')"
+            ).fetchone()[0]
+            out["chains_active"] += out["veilles_en_file"]
+            if out["chains_docker"] is not None:   # 3/11 (owner) : la file admissible reste une intention
+                out["chains_docker"] += out["veilles_en_file"]
         conn.close()
     except Exception as e:  # noqa: BLE001 -- chains_active absent = INCONNU, dit
         logging.getLogger(__name__).debug("[intentions] chaines actives ILLISIBLES (%s)", type(e).__name__)
@@ -3468,6 +3587,29 @@ def _preuve_service_coder() -> tuple:
 
 def _preuve_port_coder() -> tuple:
     """Le port ecoute-t-il ? OUI / NON / INCONNU, plus le pid proprietaire."""
+    try:
+        from nokido_agent.app.forge_ports_ecoute import ecouteurs_tcp
+    except ImportError:
+        try:
+            from app.forge_ports_ecoute import ecouteurs_tcp
+        except ImportError:
+            try:
+                from forge_ports_ecoute import ecouteurs_tcp
+            except ImportError:
+                ecouteurs_tcp = None
+
+    if ecouteurs_tcp is not None:
+        try:
+            ecoute = ecouteurs_tcp()
+            if ecoute is None:
+                return "INCONNU", 0
+            pids = ecoute.get(_LLAMACPP_NATIVE_PORT)
+            if pids:
+                return "OUI", min(pids)
+            return "NON", 0
+        except Exception as e:  # noqa: BLE001 - dit : capteur en panne, repli sur l'ancienne lecture ci-dessous
+            __import__("logging").getLogger(__name__).warning("capteur de ports indisponible (%s)", type(e).__name__)
+
     try:
         import psutil as _ps
 
@@ -4338,11 +4480,33 @@ def _taches_de_l_agent(agent: str):
         return None
 
 
+# 7/11 : les agents dont l'executeur delegue par le harness. Leur demande VAUT demande pour NokidoHarnessWorker :
+# l'endormir pendant leur tache faisait echouer la tache (BLOQUE_PAR_DEPENDANCE n'est pas DEAD).
+_SERVICE_HARNESS = "NokidoHarnessWorker"
+_AGENTS_PAR_HARNESS = ("CLAUDE_HEADLESS", "MISTRAL")
+
+
+def _demande_du_harness():
+    """True si une tache attend/vole pour un agent passant par le harness ; False = absence prouvee pour TOUS ;
+    None sinon (illisible : jamais un NO). Le delestage RAM (detresse) garde le dernier mot : cette demande ne
+    s'applique qu'au sommeil de confort/reveil, voir _sleep_service_verdict."""
+    inconnu = False
+    for agent in _AGENTS_PAR_HARNESS:
+        n = _taches_de_l_agent(agent)
+        if n is None:
+            inconnu = True
+        elif n > 0:
+            return True
+    return None if inconnu else False
+
+
 def _demande_du_service(service: str):
     """La demande PROUVEE qui rend `service` utile maintenant (owner 31/10 : « la cognition doit nourrir le reveil utile
     des surfaces utiles »). True = demande prouvee (taches pour son agent) ; False = ABSENCE prouvee (executeur dedie,
     tasks.db lisible, aucune tache) ; None = aucun signal ou illisible -- UNKNOWN n'est pas NO, et un None ne garde
     jamais un service endormi : seul False le fait. Seuls les executeurs dedies ont aujourd'hui un emetteur de demande."""
+    if service == _SERVICE_HARNESS:
+        return _demande_du_harness()
     if not str(service).startswith("NokidoTaskExecutor"):
         return None
     try:
@@ -4357,17 +4521,21 @@ def _demande_du_service(service: str):
 
 def _travail_en_vol(service: str):
     """Taches en vol de l'agent porte par `service` (--agent de services.toml). [] = oisif ; None = ILLISIBLE."""
-    if not str(service).startswith("NokidoTaskExecutor"):
+    harness = service == _SERVICE_HARNESS
+    if not harness and not str(service).startswith("NokidoTaskExecutor"):
         return []
     try:
         import sqlite3 as _sq
-        agent = _agent_du_service(service)
-        if not agent:
+        agents = _AGENTS_PAR_HARNESS if harness else (_agent_du_service(service),)
+        if not agents[0]:
             return []  # executeur generique : taches courtes, reprises au bail
         c = _sq.connect("file:%s?mode=ro" % Path(_TASKS_DB_REGUL).as_posix(), uri=True, timeout=2)
         try:
+            _ph = ",".join("?" * len(agents))
+            # le harness porte aussi les taches EN ATTENTE de ses agents (dependance), pas seulement celles en vol
+            _st = "'pending','running','claimed','assigned'" if harness else "'running','claimed','assigned'"
             return [r[0] for r in c.execute(
-                "SELECT id FROM tasks WHERE status IN ('running','claimed','assigned') AND upper(agent)=?", (agent,))]
+                f"SELECT id FROM tasks WHERE status IN ({_st}) AND upper(agent) IN ({_ph})", agents)]
         finally:
             c.close()
     except Exception:  # noqa: BLE001
@@ -4999,9 +5167,20 @@ def ordre_delestage(candidats: list, verdict: str | None, detresse: bool = False
     rss_mb par defaut (RAM), io_mo_s pour la regulation disque (debit d'E/S, owner 19/10)."""
     if verdict != "SOI":
         motif = "pression %s : signalee, jamais delestee" % (verdict or "ILLISIBLE")
-        return {"delester": [], "motif": motif,
+        plan = {"delester": [], "motif": motif,
                 "epargnes": [{"service": c.get("service"), "classe": c.get("classe"), "motif": motif}
                              for c in candidats]}
+        # 3/11 (debat 2 tour 2, accord Claude x AGY) : delestage AUXILIAIRE (DIFFERABLE seul) sous detresse NON_SOI --
+        # en OBSERVATION seulement. Le rejeu de la fenetre reelle du 28/10 (test_regulation_replay_nr) montre qu'actif
+        # il aurait endormi des executeurs EN TACHE (la detresse leve la protection du travail en vol) pour une
+        # pression que le corps ne porte pas. On mesure ce qu'il FERAIT avant toute promotion (decision owner).
+        if verdict == "NON_SOI" and detresse:
+            plan["auxiliaire_observe"] = [
+                {"service": c.get("service"), "classe": "DIFFERABLE", grandeur: c.get(grandeur)}
+                for c in sorted((c for c in candidats if c.get("classe") == "DIFFERABLE"),
+                                key=lambda c: (0, -c[grandeur]) if isinstance(c.get(grandeur), (int, float))
+                                and not isinstance(c.get(grandeur), bool) else (1, 0))]
+        return plan
     admis = ("DIFFERABLE", "UTILE") if detresse else ("DIFFERABLE",)
     delester, epargnes = [], []
     for c in candidats:
@@ -5155,7 +5334,8 @@ def _admettre_reprises(eligibles: list, etat: dict, budget: dict | None) -> list
     une fois meme SOUS pression (79 %, verdict NON_SOI) ; le redemarrage recreait la pression, trois oscillations.
     Ordre d'utilite : demande prouvee d'abord, puis sans signal (UNKNOWN != NO), plus legers d'abord ; ABSENCE de demande
     prouvee (False) = reste endormi. Budget : RAM projetee (ram_pct + poids retenu a la cession, prudent si inconnu)
-    sous `plafond_pct`. RAM ou RAM totale illisible = aucune reprise. `budget` None = comportement d'avant (tout)."""
+    sous `plafond_pct`. RAM ou RAM totale illisible = aucune reprise. `budget` None = comportement d'avant (tout).
+    7/11 : au plus `lot_max` admis par appel (defaut _HAMILTON_REPRISE_LOT) -- jamais en bloc, meme dans le budget."""
     if budget is None:
         return list(eligibles)
     ram, total_gb = budget.get("ram_pct"), budget.get("ram_total_gb")
@@ -5164,6 +5344,8 @@ def _admettre_reprises(eligibles: list, etat: dict, budget: dict | None) -> list
     mo_par_pt = float(total_gb) * 1024.0 / 100.0
     plafond = float(budget.get("plafond_pct"))
     demandes = budget.get("demandes") or {}
+    lot = budget.get("lot_max")
+    lot = _HAMILTON_REPRISE_LOT if lot is None else int(lot)
 
     def _poids(s):
         p = (etat.get(s) or {}).get("rss_mb")
@@ -5174,6 +5356,8 @@ def _admettre_reprises(eligibles: list, etat: dict, budget: dict | None) -> list
                        key=lambda s: (0 if demandes.get(s) is True else 1, _poids(s), s))
     projete, admis = float(ram), []
     for s in candidats:
+        if len(admis) >= lot:
+            break  # le reste attend le tick suivant, RAM relue
         apres = projete + _poids(s) / mo_par_pt
         if apres > plafond:
             continue  # un plus leger peut encore tenir
@@ -5184,15 +5368,18 @@ def _admettre_reprises(eligibles: list, etat: dict, budget: dict | None) -> list
 
 def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: float | None = None,
                     calme_min_s: float | None = None, poids: dict | None = None,
-                    budget: dict | None = None) -> tuple:
+                    budget: dict | None = None, sommeil_min_s: float | None = None) -> tuple:
     """Pause AVANT arret, reprise apres calme durable (decision owner 19/10) -- pur, aucune action.
 
     `delester` = services que le plan cederait maintenant ; `etat` = {service: {pause_ts, calme_ts}} des pauses en
     cours. Rend ({service: SUSPENDRE|MAINTENIR_PAUSE|ARRETER|REPRENDRE}, nouvel etat). Une suspension gele croissance
     et CPU mais ne libere PAS la memoire privee : une pression qui dure au-dela de `pause_max_s` mene a ARRETER.
-    Reprise seulement apres `calme_min_s` hors de la liste sans interruption (une rechute remet le calme a zero)."""
+    Reprise seulement apres `calme_min_s` hors de la liste sans interruption (une rechute remet le calme a zero).
+    `sommeil_min_s` (7/11) : et jamais moins de cette duree apres la cession (`pause_ts`) ; None = 0 (primitive pure,
+    l'executif arme passe _HAMILTON_SOMMEIL_MIN_S)."""
     pause_max = _HAMILTON_PAUSE_MAX_S if pause_max_s is None else pause_max_s
     calme_min = _HAMILTON_CALME_MIN_S if calme_min_s is None else calme_min_s
+    sommeil_min = 0.0 if sommeil_min_s is None else float(sommeil_min_s)
     etat = {k: dict(v) for k, v in (etat or {}).items()}
     # HYSTERESIS (19/10, oscillation mesuree : sleep/wake toutes les ~3 min, le demarrage du service recreant la
     # pression) : une rechute moins de _HAMILTON_RECHUTE_FENETRE_S apres une reprise double le calme exige (x16 max).
@@ -5228,7 +5415,8 @@ def gestes_observes(delester: list, etat: dict, maintenant: float, pause_max_s: 
         if e.get("calme_ts") is None:
             e["calme_ts"] = maintenant
             gestes[s] = "MAINTENIR_PAUSE"
-        elif maintenant - float(e["calme_ts"]) >= exige:
+        elif (maintenant - float(e["calme_ts"]) >= exige
+              and maintenant - float(e.get("pause_ts") or 0.0) >= sommeil_min):
             eligibles.append(s)
         else:
             gestes[s] = "MAINTENIR_PAUSE"
@@ -5397,6 +5585,126 @@ def regulation_disque(echantillons, couts, total_mo_s, toml, registre, etat, mai
             "gestes": gestes, "etat": nouvel_etat, "motif": motif}
 
 
+# 3/11 (owner, reparation 3 : « regulateur disque etendu aux jobs ») : regulation_disque ne voyait que les services
+# supervises ; quatre jobs ont parcouru plus d'un million de fichiers sur C: sans frein. Sous saturation PROUVEE, les jobs
+# au-dessus du plancher passent en priorite d'E/S TRES BASSE (reversible, rien n'est tue) ; calme -> priorite rendue.
+# OBSERVE par defaut (NOKIDO_REGULATION_DISQUE_JOBS=observer|bloquant). NR tests/nr/test_regulation_disque_jobs_nr.py.
+_IOPRIO_BASSE = getattr(psutil, "IOPRIO_VERYLOW", 0) if _PSUTIL_OK else 0
+_IOPRIO_NORMALE = getattr(psutil, "IOPRIO_NORMAL", 2) if _PSUTIL_OK else 2
+_JOBS_DIR = Path(__file__).resolve().parent.parent / "sandbox" / "jobs"
+_DISQUE_JOBS_ETAT_PATH = Path(__file__).resolve().parent.parent / "sandbox" / "regulation_disque_jobs.json"
+_DISQUE_JOBS_JOURNAL = Path(__file__).resolve().parent.parent / "sandbox" / "workspace" / "regulation_disque_jobs.jsonl"
+_JOB_PID_TOLERANCE_S = 120.0
+
+
+def _jobs_vivants_detail(dossier=None, maintenant=None, fenetre_s: float = 6 * 3600) -> dict:
+    """{job_id: (pid, debut_ts|None)} des fiches RECENTES sans `.rc`. os.scandir : la date vient de l'entree de
+    repertoire, seules les fiches retenues sont lues (jamais les 35 000)."""
+    import json as _j
+    import datetime as _dt
+
+    d = Path(dossier) if dossier else _JOBS_DIR
+    t = time.time() if maintenant is None else float(maintenant)
+    try:
+        entrees = {e.name: e for e in os.scandir(d)}
+    except OSError:
+        return {}
+    out = {}
+    for nom, e in entrees.items():
+        if not (nom.startswith("job_") and nom.endswith(".json")) or nom[:-5] + ".rc" in entrees:
+            continue
+        try:
+            if t - e.stat().st_mtime > fenetre_s:
+                continue
+            fiche = _j.loads(Path(e.path).read_text(encoding="utf-8"))
+            try:
+                debut = _dt.datetime.fromisoformat(str(fiche.get("started"))).timestamp()
+            except (TypeError, ValueError):
+                debut = None
+            out[nom[:-5]] = (int(fiche["pid"]), debut)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # muet-ok : fiche illisible -> ce job n'est pas candidat
+    return out
+
+
+def jobs_vivants(dossier=None, maintenant=None, fenetre_s: float = 6 * 3600) -> dict:
+    """{job_id: pid} des jobs vivants (fiche recente sans `.rc`)."""
+    return {j: pid for j, (pid, _d) in _jobs_vivants_detail(dossier, maintenant, fenetre_s).items()}
+
+
+def _pid_coherent(pid: int, debut) -> bool:
+    """Le processus `pid` est-il bien ne au depart du job ? Sinon pid recycle : jamais freine (preuve ecartee)."""
+    if debut is None or not _PSUTIL_OK:
+        return False
+    try:
+        return abs(psutil.Process(pid).create_time() - float(debut)) <= _JOB_PID_TOLERANCE_S
+    except Exception:  # noqa: BLE001 - processus disparu ou illisible : pas de geste
+        return False
+
+
+def jobs_a_freiner(pression, couts: dict, io_min_mo_s: float | None = None) -> list:
+    """[(job, Mo/s)] a freiner : seulement sous pression SATUREE, au-dessus du plancher, les plus gros d'abord."""
+    if pression != "SATUREE":
+        return []
+    io_min = _DISQUE_IO_MIN_MO_S if io_min_mo_s is None else float(io_min_mo_s)
+    out = []
+    for job, cout in (couts or {}).items():
+        try:
+            io = float(cout[0])
+        except (TypeError, ValueError, IndexError):
+            continue  # muet-ok : cout illisible -> pas de geste
+        if io >= io_min:
+            out.append((job, io))
+    return sorted(out, key=lambda x: -x[1])
+
+
+def _priorite_es_arbre(pid: int, basse: bool, _process=None) -> int:
+    """Priorite d'E/S (tres basse ou normale) sur le processus et ses enfants. Rend le nombre de processus touches."""
+    fabrique = _process or (lambda p: psutil.Process(p))
+    try:
+        racine = fabrique(pid)
+        procs = [racine] + list(racine.children(recursive=True))
+    except Exception:  # noqa: BLE001 - processus disparu : rien a faire
+        return 0
+    n = 0
+    for p in procs:
+        try:
+            p.ionice(_IOPRIO_BASSE if basse else _IOPRIO_NORMALE)
+            n += 1
+        except Exception:  # noqa: BLE001 - muet-ok : enfant disparu ou acces refuse, compte par n
+            continue
+    return n
+
+
+def regulation_disque_jobs(pression, vivants: dict, couts: dict, etat: dict, mode: str = "observer",
+                           journal=None, io_min_mo_s: float | None = None) -> dict:
+    """Un pas de regulation des JOBS. Rend le nouvel etat {job: pid freine}. Observer : journal seul, etat inchange."""
+    import json as _j
+
+    freiner = jobs_a_freiner(pression, couts, io_min_mo_s)
+    etat = {j: p for j, p in (etat or {}).items() if j in (vivants or {})}   # jobs finis : oublies
+    rendre = list(etat) if pression != "SATUREE" else []
+    nouveaux = [j for j, _io in freiner if j not in etat and j in (vivants or {})]
+    if mode == "bloquant":
+        for j in nouveaux:
+            if _priorite_es_arbre(vivants[j], True):
+                etat[j] = vivants[j]
+        for j in rendre:
+            _priorite_es_arbre(etat[j], False)
+            etat.pop(j, None)
+    if nouveaux or rendre:
+        try:
+            f = Path(journal) if journal else _DISQUE_JOBS_JOURNAL
+            f.parent.mkdir(parents=True, exist_ok=True)
+            with f.open("a", encoding="utf-8") as fh:
+                fh.write(_j.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": mode, "pression": pression,
+                                   "freiner": nouveaux, "rendre": rendre,
+                                   "io_mo_s": {j: round(io, 1) for j, io in freiner}}) + "\n")
+        except OSError:
+            pass  # muet-ok : journal best-effort, la decision est rendue
+    return etat
+
+
 def _echantillons_disque(n: int | None = None) -> list:
     """Les n dernieres valeurs `dbsy` (disque.occupation_pct) de la serie vitale ; [] si illisible.
 
@@ -5502,6 +5810,22 @@ def _regulation_disque_tick() -> dict:
         if os.environ.get("NOKIDO_REGULATION_DISQUE") != "observer":
             for svc, geste in (r.get("gestes") or {}).items():
                 _ordre_superviseur(svc, geste)
+        # 3/11 : les JOBS aussi (priorite d'E/S), meme pression, pid verifie contre le depart du job
+        try:
+            _mode_j = os.environ.get("NOKIDO_REGULATION_DISQUE_JOBS", "observer").strip().lower()
+            _det = _jobs_vivants_detail()
+            _viv = {j: pid for j, (pid, debut) in _det.items() if _pid_coherent(pid, debut)}
+            _couts_j = _cout_des_pids(_viv) if _viv and r.get("pression") == "SATUREE" else {}
+            try:
+                _etat_j = _j.loads(_DISQUE_JOBS_ETAT_PATH.read_text(encoding="utf-8")) \
+                    if _DISQUE_JOBS_ETAT_PATH.exists() else {}
+            except (OSError, ValueError):
+                _etat_j = {}
+            _etat_j = regulation_disque_jobs(r.get("pression"), _viv, _couts_j, _etat_j, mode=_mode_j)
+            _DISQUE_JOBS_ETAT_PATH.write_text(_j.dumps(_etat_j), encoding="utf-8")
+            r["jobs_freines"] = sorted(_etat_j)
+        except Exception as _e_jobs:  # noqa: BLE001 -- la regulation des jobs ne casse jamais celle des services
+            logging.getLogger(__name__).warning("[regulation_disque] jobs ILLISIBLES (%s)", type(_e_jobs).__name__)
         if r.get("gestes"):
             try:
                 _audit_lifecycle("regulation_disque", "disque", str(r.get("motif"))[:300],
@@ -5527,6 +5851,18 @@ _HAMILTON_CIBLE_PCT = float(os.environ.get("NOKIDO_HAMILTON_CIBLE_PCT", str(_SUP
 # cette marge (le demarrage d'un service depasse son RSS de croisiere) ; un poids inconnu compte ce forfait, jamais 0.
 _HAMILTON_MARGE_REPRISE_PCT = float(os.environ.get("NOKIDO_HAMILTON_MARGE_REPRISE_PCT", "5"))
 _HAMILTON_POIDS_INCONNU_MB = float(os.environ.get("NOKIDO_HAMILTON_POIDS_INCONNU_MB", "400"))
+# OSCILLATION SOMMEIL/REVEIL (7/11, NR test_oscillation_sommeil_reveil_nr). Mesure : 00:33:58Z « 33 service(s) pour
+# 4920 Mo a rendre (1861 Mo vises) » -- ~56 Mo chacun, dont NokidoCaddyTLS ; la somme n'atteignant jamais le besoin, la
+# boucle les prenait TOUS. 00:53:18Z vidage du cache de Qdrant (5,43 Go) -> RAM 58,3 % -> 00:53:29Z « 33 reprise(s) dans le
+# budget » -> 00:55:40Z rendormis. Trois gardes, aucun nouveau registre :
+#  - GAIN_MIN : un gain MESURE (memoire privee du plan) sous ce plancher n'est pas endormi hors palier CRITIQUE -- meme
+#    grandeur que DELESTAGE_GAIN_MIN_KO (64 Mo) de supervisor.ts ; un gain illisible reste ordonne en dernier ;
+#  - REPRISE_LOT : au plus N reprises par tick (60 s), RAM relue a chaque tick -- WAKE_BATCH du superviseur ;
+#  - SOMMEIL_MIN : jamais de reprise avant cette duree depuis la cession (une chute de RAM due au vidage du cache mappe
+#    de Qdrant se recharge en ~2 min ; elle ne doit pas rendre ce qui vient d'etre cede).
+_HAMILTON_GAIN_MIN_MB = float(os.environ.get("NOKIDO_HAMILTON_GAIN_MIN_MB", "64"))
+_HAMILTON_REPRISE_LOT = int(os.environ.get("NOKIDO_HAMILTON_REPRISE_LOT", "2"))
+_HAMILTON_SOMMEIL_MIN_S = float(os.environ.get("NOKIDO_HAMILTON_SOMMEIL_MIN_S", "600"))
 
 
 def _reprise_budgetee() -> bool:
@@ -5666,25 +6002,51 @@ def publier_palier_pression(palier: str) -> bool:
     return True
 
 
-def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos=None,
+def regulation_hamilton_ram(plan, ram_pct=None, ram_total_gb=None, etat=None, maintenant=None, vetos=None,
                             seuil_sommeil=None, cible=None, critique: bool = False, demandes=None) -> dict:
     """Pur. Sous pression (ram_pct >= seuil) ET verdict SOI : suspend les DIFFERABLE du plan, plus gros d'abord,
     seulement jusqu'a couvrir la memoire a rendre ((ram_pct - cible) % de la RAM totale) ; vetos ecartes ;
     puis gestes_observes (pause avant arret, reprise apres calme durable). Motif toujours dit.
-    `critique` (palier CRITIQUE, libre < seuil vital) : l'intention (veto) est OUTREPASSEE, et le motif le dit."""
+    `critique` (palier CRITIQUE, libre < seuil vital) : l'intention (veto) est OUTREPASSEE, et le motif le dit.
+    Sous detresse critique NON_SOI : propose delester_auxiliaires sans kill reel."""
+    maintenant = time.time() if maintenant is None else float(maintenant)
+    etat = {} if etat is None else etat
     seuil = _SUPERVISOR_SLEEP_RAM_THRESHOLD if seuil_sommeil is None else float(seuil_sommeil)
     vise = _HAMILTON_CIBLE_PCT if cible is None else float(cible)
     vetos, plan, choisis = vetos or {}, plan or {}, []
+    ram_libre_gb = ((100.0 - float(ram_pct)) / 100.0 * float(ram_total_gb)
+                    if (ram_pct is not None and ram_total_gb is not None and float(ram_total_gb) > 0.0)
+                    else None)
     if ram_pct is None:
         motif = "RAM ILLISIBLE : aucun nouveau sommeil"
     elif float(ram_pct) < seuil:
         motif = "RAM %.1f %% < seuil %.0f %% : rien de neuf a ceder" % (float(ram_pct), seuil)
+    elif plan.get("verdict") == "NON_SOI" and (critique or (ram_libre_gb is not None and ram_libre_gb < _CRITIQUE_LIBRE_GB)):
+        # Detresse critique NON_SOI : proposition de delester les auxiliaires (sans kill reel)
+        motif = "detresse critique malgre NON_SOI"
+        poids = {d.get("service"): d.get("rss_mb") for d in (plan.get("auxiliaire_observe") or plan.get("delester") or []) if d.get("service")}
+        budget = ({"ram_pct": ram_pct, "ram_total_gb": ram_total_gb, "demandes": demandes or {},
+                   "plafond_pct": seuil - _HAMILTON_MARGE_REPRISE_PCT} if _reprise_budgetee() else None)
+        gestes, nouvel = gestes_observes([], etat or {}, maintenant, poids=poids, budget=budget,
+                                         sommeil_min_s=_HAMILTON_SOMMEIL_MIN_S)
+        auxiliaires = [c.get("service") for c in (plan.get("auxiliaire_observe") or plan.get("delester") or []) if c.get("service")]
+        return {
+            "gestes": gestes,
+            "etat": nouvel,
+            "choisis": [],
+            "action": "delester_auxiliaires",
+            "proposition": "delester_auxiliaires",
+            "motif": motif,
+            "journal": [],
+            "auxiliaires": auxiliaires,
+        }
     elif plan.get("verdict") != "SOI" or not plan.get("delester"):
         motif = plan.get("motif") or "plan Hamilton sans candidat"
     else:
         besoin_mb = max(0.0, (float(ram_pct) - vise) / 100.0 * float(ram_total_gb or 0.0) * 1024.0)
         rendu = 0.0
         outrepasses = []
+        negligeables = []
         for d in plan["delester"]:
             svc = d.get("service")
             if not svc:
@@ -5695,21 +6057,47 @@ def regulation_hamilton_ram(plan, ram_pct, ram_total_gb, etat, maintenant, vetos
                 outrepasses.append(svc)
             if rendu >= besoin_mb and choisis:
                 break
-            choisis.append(svc)
             rss = d.get("rss_mb")
-            rendu += float(rss) if isinstance(rss, (int, float)) and not isinstance(rss, bool) else 0.0
+            mesure = isinstance(rss, (int, float)) and not isinstance(rss, bool)
+            # 7/11 : gain MESURE negligeable = jamais endormi hors CRITIQUE (Caddy ~25 Mo coupait l'entree OAuth
+            # publique pour ne rien rendre). Le plan est ordonne du plus gros au plus petit : les suivants aussi.
+            if mesure and float(rss) < _HAMILTON_GAIN_MIN_MB and not critique:
+                negligeables.append(svc)
+                continue
+            choisis.append(svc)
+            rendu += float(rss) if mesure else 0.0
         motif = "%s : %d service(s) pour %.0f Mo a rendre (%.0f Mo vises)" % (
             plan.get("motif") or "pression SOI", len(choisis), besoin_mb, rendu)
+        if negligeables:
+            motif = "%s ; %d epargne(s) a gain negligeable (< %.0f Mo)" % (motif, len(negligeables),
+                                                                         _HAMILTON_GAIN_MIN_MB)
         if outrepasses:
             motif = "CRITIQUE : intention outrepassee pour %s -- %s" % (", ".join(outrepasses), motif)
     poids = {d.get("service"): d.get("rss_mb") for d in (plan.get("delester") or []) if d.get("service")}
     budget = ({"ram_pct": ram_pct, "ram_total_gb": ram_total_gb, "demandes": demandes or {},
                "plafond_pct": seuil - _HAMILTON_MARGE_REPRISE_PCT} if _reprise_budgetee() else None)
-    gestes, nouvel = gestes_observes(choisis, etat or {}, maintenant, poids=poids, budget=budget)
+    gestes, nouvel = gestes_observes(choisis, etat or {}, maintenant, poids=poids, budget=budget,
+                                     sommeil_min_s=_HAMILTON_SOMMEIL_MIN_S)
     n_rep = sum(1 for g in gestes.values() if g == "REPRENDRE")
     if n_rep and budget:
         motif = "%s ; %d reprise(s) dans le budget (plafond %.0f %%)" % (motif, n_rep, budget["plafond_pct"])
-    return {"gestes": gestes, "etat": nouvel, "choisis": choisis, "motif": motif}
+    # 7/11 (c) : une ligne par sommeil et par reveil -- service, gain mesure, motif (l'audit agrege tronque a 300 car.).
+    journal = []
+    for svc, g in gestes.items():
+        if g == "SUSPENDRE":
+            journal.append({"service": svc, "geste": "sommeil", "gain_mb": poids.get(svc),
+                            "motif": "RAM %.1f %% >= seuil %.0f %%, plan SOI, gain >= %.0f Mo" % (
+                                float(ram_pct), seuil, _HAMILTON_GAIN_MIN_MB)})
+        elif g == "REPRENDRE":
+            e = (etat or {}).get(svc) or {}
+            journal.append({"service": svc, "geste": "reveil", "gain_mb": e.get("rss_mb"),
+                            "motif": "calme ecoule, sommeil >= %.0f s, lot <= %d, demande=%s, RAM %s %% projetee "
+                                     "sous le budget (plafond %s %%)" % (
+                                         _HAMILTON_SOMMEIL_MIN_S, _HAMILTON_REPRISE_LOT,
+                                         {True: "PROUVEE", None: "INCONNUE"}.get((demandes or {}).get(svc), "?"),
+                                         "?" if ram_pct is None else "%.1f" % float(ram_pct),
+                                         "%.0f" % budget["plafond_pct"] if budget else "aucun")})
+    return {"gestes": gestes, "etat": nouvel, "choisis": choisis, "motif": motif, "journal": journal}
 
 
 def _regulation_hamilton_tick() -> dict:
@@ -5753,6 +6141,16 @@ def _regulation_hamilton_tick() -> dict:
             logging.getLogger(__name__).warning("[hamilton] etat des pauses non persiste (%s)", type(e).__name__)
         for svc, geste in (r.get("gestes") or {}).items():
             _ordre_superviseur(svc, geste)
+        # 7/11 (c) : chaque sommeil et chaque reveil, un par un (service, gain mesure, motif) -- compte des bascules
+        # par heure : actions hamilton_sommeil / hamilton_reveil de sandbox/lifecycle_actions.jsonl.
+        for j in (r.get("journal") or []):
+            try:
+                logging.getLogger(__name__).info("[hamilton] %s %s (gain mesure %s Mo) : %s", j.get("geste"),
+                                                 j.get("service"), j.get("gain_mb"), j.get("motif"))
+                _audit_lifecycle("hamilton_%s" % j.get("geste"), "ram", str(j.get("motif"))[:300],
+                                 target=j.get("service"), gain_mb=j.get("gain_mb"))
+            except Exception:  # noqa: BLE001 -- muet-ok : trace d'audit best-effort, l'ordre est deja parti
+                pass
         # Log tick summary (never raises)
         try:
             _row = {
@@ -5764,6 +6162,10 @@ def _regulation_hamilton_tick() -> dict:
                 "n_candidats": len(plan.get("delester", [])) if isinstance(plan, dict) else 0,
                 "n_vetos": len(vetos_sommeil_actifs()),
             }
+            # 4/11 (owner « tracer + prolonger ») : le delestage AUXILIAIRE en observation (c02568264) n'etait ecrit
+            # nulle part -- 0 ligne mesurable depuis le 3/11. NR test_hamilton_auxiliaire_trace_nr.
+            if isinstance(plan, dict) and plan.get("auxiliaire_observe"):
+                _row["auxiliaire_observe"] = list(plan["auxiliaire_observe"])[:12]
             if not (_REGULATION_TICK_PATH == _REGULATION_TICK_PATH_DEFAUT and "PYTEST_CURRENT_TEST" in os.environ):
                 _ecrire_jsonl(_REGULATION_TICK_PATH, _row, _REGULATION_TICK_MAX_BYTES)
         except Exception as _e:
@@ -6142,6 +6544,26 @@ def _evincer_ollama_lru(needed: float, horloge=time.time, refresh=None) -> list[
             if refresh:
                 refresh()
     return actions
+
+
+def liberer_ram_pour_hub(needed_ram_gb: Any, prouve: bool) -> dict[str, Any]:
+    """Action `hub action=liberer_ram` (choix owner 9/11 : « Exposer la primitive »).
+
+    Hors hub, `request_resources` délègue à POST /api/resource/request, qui exige un jeton d'organe
+    du coffre : aucun CLI ne pouvait l'appeler sans exposer le secret. Ici on est DANS le hub :
+    `deleguer=False` (sinon le hub s'appellerait lui-même). Endormir des services n'est pas anodin :
+    identité prouvée exigée. Rend le dict de `request_resources` (`action` = ce qui a été endormi,
+    à RENDRE ensuite).
+    """
+    if prouve is not True:
+        return {"ok": False, "error": "identite non prouvee : liberer_ram refuse"}
+    try:
+        besoin = float(needed_ram_gb)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "needed_ram_gb illisible"}
+    if not 0 < besoin <= 12:
+        return {"ok": False, "error": "needed_ram_gb hors bornes (0, 12]"}
+    return request_resources(besoin, allow_evict=True, deleguer=False)
 
 
 def request_resources(

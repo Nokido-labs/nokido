@@ -69,4 +69,4 @@ lire `sandbox/gemini_keeper.heartbeat` champ `mode`.** C'est le seul moyen de sa
 ## Souveraineté / éco
 Tout local (le CLI parle à Google via SA propre session OAuth ; le keeper ne fait que tenir+relayer).
 Réutilise : pattern keeper (`forge_llama_keeper`/`docker_keeper`) · SSE (`forge_swarm_bus`) · ACP
-(`forge_acp_adapter`, ici côté CLIENT vers Gemini = dual) · `gemini_poll_daemon` (déjà un loop Gemini CLI).
+(`forge_acp_client` ; l'ancien PoC `forge_acp_adapter` est retiré — ici côté CLIENT vers Gemini = dual) · `gemini_poll_daemon` (déjà un loop Gemini CLI).

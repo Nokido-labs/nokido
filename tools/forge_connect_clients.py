@@ -7,7 +7,7 @@
     ... --dry-run   # montre sans écrire
 
 Pour CHAQUE client : MERGE (jamais overwrite aveugle) l'entrée serveur Nokido dans sa
-config, avec son FORGE_TOKEN_<AGENT> (vault) + header LaForge-Agent-Name. Backup .bak.
+config, SANS jeton (owner 3/11) : `nokido-oauth` en OAuth, ou pont stdio qui lit le coffre. Backup .bak.
 Si le chemin n'existe pas -> reporté (à coller manuellement depuis C:/tmp/mcp_client_configs.txt).
 Les tokens NE transitent PAS hors de la machine (lus du vault, écrits localement).
 """
@@ -29,8 +29,10 @@ HOME = Path.home()
 APPDATA = Path(os.environ.get("APPDATA", HOME / "AppData/Roaming"))
 
 
-def _hdr(agent: str, token: str) -> dict:
-    return {"Authorization": f"Bearer {token}", "X-Agent-Name": agent, "LaForge-Agent-Name": agent}
+# Owner 3/11 : plus aucun jeton ecrit dans une config cliente. Clients HTTP -> `nokido-oauth` (URL seule,
+# inscription dynamique + consentement au tray) ; pont stdio -> LAFORGE_AGENT seul, le pont lit le coffre.
+# Avant : en-tete d'autorisation avec le jeton du coffre recopie en clair dans 6 configs + env du pont.
+OAUTH = "nokido-oauth"
 
 
 def _merge_json(path: Path, root_key: str, entry_key: str, entry: dict, dry: bool) -> str:
@@ -196,45 +198,44 @@ def main() -> int:
 
     # 1. Gemini CLI
     rep["gemini"] = _merge_json(
-        HOME / ".gemini" / "settings.json", "mcpServers", "laforge-sovereign-hub",
-        {"url": URL, "headers": _hdr("GEMINI", tok("GEMINI")), "timeout": 30000}, dry)
+        HOME / ".gemini" / "settings.json", "mcpServers", OAUTH,
+        {"httpUrl": URL, "timeout": 30000}, dry)
 
     # 2. Claude Code
     rep["claude_code"] = _merge_json(
-        HOME / ".claude.json", "mcpServers", "laforge-sovereign-hub",
-        {"type": "http", "url": URL, "headers": _hdr("CLAUDE", tok("CLAUDE"))}, dry)
+        HOME / ".claude.json", "mcpServers", OAUTH,
+        {"type": "http", "url": URL}, dry)
 
     # 3. Claude Desktop (STDIO bridge)
     rep["claude_desktop"] = _merge_json(
         APPDATA / "Claude" / "claude_desktop_config.json", "mcpServers", "laforge",
         {"command": PY, "args": [BRIDGE],
-         "env": {"FORGE_TOKEN_CLAUDE_DESKTOP": tok("CLAUDE_DESKTOP"), "LAFORGE_AGENT": "CLAUDE_DESKTOP", "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}, dry)
+         "env": {"LAFORGE_AGENT": "CLAUDE_DESKTOP", "LAFORGE_AGENT_NAME": "CLAUDE_DESKTOP"}}, dry)
 
     # 4. Cline (VS Code globalStorage)
     cline = _first_existing([
         APPDATA / "Code" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "settings" / "cline_mcp_settings.json",
         APPDATA / "Code - Insiders" / "User" / "globalStorage" / "saoudrizwan.claude-dev" / "settings" / "cline_mcp_settings.json",
     ])
-    rep["cline"] = _merge_json(cline, "mcpServers", "laforge",
-        {"type": "streamableHttp", "url": URL, "headers": _hdr("CLINE", tok("CLINE"))}, dry) if cline else "chemin introuvable — manuel"
+    rep["cline"] = _merge_json(cline, "mcpServers", OAUTH,
+        {"type": "streamableHttp", "url": URL}, dry) if cline else "chemin introuvable — manuel"
 
     # 5. VS Code (user mcp.json)
     rep["vscode"] = _merge_json(
-        APPDATA / "Code" / "User" / "mcp.json", "servers", "laforge",
-        {"type": "http", "url": URL, "headers": _hdr("VSCODE", tok("VSCODE"))}, dry)
+        APPDATA / "Code" / "User" / "mcp.json", "servers", OAUTH,
+        {"type": "http", "url": URL}, dry)
 
     # 6. LM Studio
     lms = _first_existing([HOME / ".lmstudio" / "mcp.json", APPDATA / "LM Studio" / "mcp.json"])
-    rep["lmstudio"] = _merge_json(lms, "mcpServers", "laforge",
-        {"url": URL, "headers": _hdr("LMSTUDIO", tok("LMSTUDIO"))}, dry) if lms else "chemin introuvable — manuel"
+    rep["lmstudio"] = _merge_json(lms, "mcpServers", OAUTH,
+        {"url": URL}, dry) if lms else "chemin introuvable — manuel"
 
     # 7. Codex (TOML — append si absent)
     codex = HOME / ".codex" / "config.toml"
-    block = (f'\n[mcp_servers.nokido]\nurl = "{URL}"\n'
-             f'http_headers = {{ "Authorization" = "Bearer {tok("CODEX")}", "LaForge-Agent-Name" = "CODEX" }}\n')
+    block = f'\n[mcp_servers.{OAUTH}]\nurl = "{URL}"\n'  # puis `codex mcp login nokido-oauth`
     try:
         cur = codex.read_text(encoding="utf-8") if codex.exists() else ""
-        if "[mcp_servers.nokido]" in cur:
+        if "[mcp_servers.%s]" % OAUTH in cur:
             rep["codex"] = "déjà présent — laissé (édite à la main si rotation token)"
         elif dry:
             rep["codex"] = "[dry] append [mcp_servers.nokido]"

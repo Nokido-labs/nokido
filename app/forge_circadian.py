@@ -47,6 +47,16 @@ from typing import Callable
 
 logger = logging.getLogger("Nokido.Circadian")
 
+# Homologue biologique (owner 3/11, debat 1 tour 2, proposition Q3).
+__FORGE_HOMOLOGUE__ = {
+    "mecanisme": "noyau suprachiasmatique, porte circadienne",
+    "nature": "biologie",
+    "termes": "suprachiasmatic nucleus circadian clock gate rhythm",
+    "sources": ["openstax:m46554"],
+    "invariant": "le sommeil consolide NREM3 declenche la curation et le hebbien sans relancer de service fantome",
+    "nr": "tests/nr/test_circadien_sommeil_consolide_nr.py",
+}
+
 
 # === Phases physiologiques ====================================================
 

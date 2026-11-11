@@ -33,6 +33,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+from forge_jeton_hook import jeton_du_hook  # noqa: E402
+
 HUB = "http://127.0.0.1:8766/mcp"
 DB = ROOT / "RAG" / "embeddings.db"
 # Scission M2M : agent_messages suit l'interrupteur sandbox/m2m.switch ; DB reste la
@@ -51,7 +54,7 @@ REGLES = """\
 LAFORGE_PYTHON = %USERPROFILE%/miniforge3/python.exe  (jamais `python` brut)
 Hub :8766 avant tout fichier Read. GitHub sidecar :9200 pour repos RAM.
 1. Jamais SQL LIKE raw - rag_fts ou RAGEngine.search
-2. Jamais forge_*.py sans query rag_fts préalable
+2. Jamais forge_*.py sans introspect puis tools/forge_retrieval_sweep.py <terme>
 3. Jamais INSERT rag_chunks sans id explicite (TEXT PRIMARY KEY)
 4. Jamais envoi cloud sans SemanticFirewall pre_flight + post_flight
 5. anchor_solution après décision architecturale
@@ -205,6 +208,25 @@ def alerte_cout_reprise(entree_brute):
                 "%.2f" % usd if isinstance(usd, (int, float)) else "?"))
 
 
+def alerte_registre_owner():
+    """`[alertes owner] N en attente : ..` -- rien si 0, ILLISIBLE si le registre ne se lit pas (jamais « aucune »).
+    Les alertes montrees ici sont marquees vues pour cette surface : elles ne reviennent pas a chaque demarrage."""
+    try:
+        if str(ROOT / "app") not in sys.path:
+            sys.path.insert(0, str(ROOT / "app"))
+        import forge_critical_events as _ce
+
+        alertes = _ce.alertes_en_attente("demarrage", limit=20)
+        if not alertes:
+            return ""
+        _ce.marquer_vues([a["id"] for a in alertes], "demarrage")
+    except Exception as exc:  # noqa: BLE001
+        return "[alertes owner] registre ILLISIBLE (%s) -- etat INCONNU, pas 0" % type(exc).__name__
+    alertes.sort(key=lambda a: _ce._rang(a["gravite"]), reverse=True)
+    lignes = ["  - [%s] %s : %s" % (a["gravite"], a["sujet"], str(a["detail"])[:160]) for a in alertes[:5]]
+    return "[alertes owner] %d en attente :\n%s" % (len(alertes), "\n".join(lignes))
+
+
 def alerte_file_owner(registre=None):
     """`[arbitrage] N dossier(s) owner en attente (pont ombre) : ..` -- rien si 0, ILLISIBLE si le registre ne se lit pas.
 
@@ -312,33 +334,9 @@ def load_token() -> str:
     ete provisionne au coffre : le hook est ainsi ramene a SON ring, ce qui est
     un durcissement et non une perte.
 
-    L'ordre suit aussi la regle DPAPI : le COFFRE d'abord, `Nokido.env` n'etant
-    plus qu'un repli legacy.
+    L'ordre suit aussi la regle DPAPI : le COFFRE d'abord. Corps unique avec le hook de fin de session.
     """
-    try:
-        sys.path.insert(0, str(ROOT))
-        from nokido_agent.app.forge_secrets import get_secret  # type: ignore
-
-        tok = get_secret("FORGE_TOKEN_CLAUDE_HOOK")
-        if tok:
-            return tok
-    except Exception:  # muet-ok : coffre indisponible -> replis ci-dessous, le hook ne doit jamais casser la session
-        pass
-
-    tok = os.environ.get("FORGE_TOKEN_CLAUDE_HOOK", "") or os.environ.get(
-        "FORGE_TOKEN_CLAUDE", "")
-    if tok:
-        return tok
-    env = ROOT / "Nokido.env"
-    if env.exists():
-        for line in env.read_text(errors="ignore").splitlines():
-            if line.startswith("FORGE_TOKEN_CLAUDE_HOOK="):
-                return line.split("=", 1)[1].strip()
-            if line.startswith("FORGE_TOKEN_CLAUDE="):
-                return line.split("=", 1)[1].strip()
-            if line.startswith("FORGE_MCP_TOKEN=") and not tok:
-                tok = line.split("=", 1)[1].strip()
-    return tok
+    return jeton_du_hook(ROOT)
 
 
 def hub_call(token: str, name: str, args: dict) -> str:
@@ -435,7 +433,9 @@ def fetch_blackboard_inbox(max_age_days: float = 3.0, limit: int = 12) -> list:
         conn = sqlite3.connect(str(db))
         rows = conn.execute(
             "SELECT zone, key, value, worker_id, updated_at FROM swarm_blackboard "
+            # presence_* = pouls d'arrivee, pas un message (8 sur 12 le 4/11, owner : contexte de demarrage)
             "WHERE zone IN ('discovered_facts','scratch') AND upper(worker_id) NOT LIKE 'CLAUDE%' "
+            "AND key NOT LIKE 'presence\\_%' ESCAPE '\\' "
             "AND updated_at > ? ORDER BY updated_at DESC LIMIT ?",
             (cutoff, limit),
         ).fetchall()
@@ -466,7 +466,7 @@ def recent_lessons(max_chars: int = 1200) -> str:
             return True
         return False
     try:
-        text = path.read_text(errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
         # Extraire blocs ### uniques (dedup par titre)
         seen, blocks, current = set(), [], []
         for line in text.splitlines():
@@ -543,7 +543,7 @@ def fetch_postal_inbox(limit: int = 6) -> list:
         return []
 
 
-def refresh_symptom_index(max_age_h: float = 12.0) -> None:
+def refresh_symptom_index(max_age_h: float = 12.0, verbeux: bool = False) -> None:
     """Rafraichit l'index d'enquetes s'il vieillit — DETACHE, jamais bloquant.
 
     Un index d'enquetes PERIME est pire qu'absent : interroge sur un symptome deja
@@ -569,8 +569,9 @@ def refresh_symptom_index(max_age_h: float = 12.0) -> None:
     if idx.exists():
         age_h = (time.time() - idx.stat().st_mtime) / 3600.0
         if age_h < max_age_h:
-            print(f"[claude-hook] index d'enquetes frais ({age_h:.1f} h) — "
-                  f"`forge_symptom_index.py --ask <symptome>` avant toute enquete")
+            if verbeux:
+                print(f"[claude-hook] index d'enquetes frais ({age_h:.1f} h) — "
+                      f"`forge_symptom_index.py --ask <symptome>` avant toute enquete")
             return
         etat = f"perime ({age_h:.0f} h)"
     else:
@@ -658,16 +659,21 @@ def main() -> int:
     token = load_token()
 
     # ── 1. Brief RAG compact ──────────────────────────────────────────────────
-    print(REGLES)
+    # Une ligne quand tout va bien (owner 4/11) : le detail sur drapeau, les alertes reelles toujours.
+    detail = "--detail" in sys.argv
+    alerte = False
+    if detail:
+        print(REGLES)
 
     entree_hook = _entree_hook()
     _oublier_rappels_si_compaction(entree_hook)
     for bloc in (section_audit(entree_hook, ETAT_AUDIT), alerte_cout_reprise(entree_hook)):
         if bloc:
+            alerte = True
             print("\n" + bloc)
 
     # Résumé session précédente (généré par PreCompact hook)
-    if SUMMARY.exists():
+    if detail and SUMMARY.exists():
         try:
             summary_text = SUMMARY.read_text(encoding="utf-8", errors="replace").strip()
             if summary_text:
@@ -676,26 +682,33 @@ def main() -> int:
             print("\n[resume] resume de la session precedente ILLISIBLE (%s) : absent n'est pas vide"
                   % type(exc).__name__)
 
-    lessons = recent_lessons(1200)
-    if lessons:
-        print(f"\n=== Leçons récentes (dédupl.) ===\n{lessons}")
+    if detail:
+        lessons = recent_lessons(1200)
+        if lessons:
+            print(f"\n=== Leçons récentes (dédupl.) ===\n{lessons}")
 
-    anchors = recent_anchors(4)
-    if anchors:
-        print(f"\n{anchors}")
+        anchors = recent_anchors(4)
+        if anchors:
+            print(f"\n{anchors}")
 
-    roadmap = roadmap_summary()
-    if roadmap:
-        print(f"\n{roadmap}")
+        roadmap = roadmap_summary()
+        if roadmap:
+            print(f"\n{roadmap}")
 
     # ── 1bis. PR Dependabot pretes (gh authentifie ici, sous le compte owner) ──
     # Une CI de quarantaine verte qui attend une revue ne doit pas attendre qu'on la
     # redecouvre : l'alerte sort ICI, et rien n'est fusionne (decision owner du 2026-10-14).
+    texte_alertes = alerte_registre_owner()
+    if texte_alertes:
+        alerte = True
+        print("\n" + texte_alertes)
     texte_arbitrage = alerte_file_owner()
     if texte_arbitrage:
+        alerte = True
         print("\n" + texte_arbitrage)
     texte_dependabot = alerte_prs_dependabot()
     if texte_dependabot:
+        alerte = True
         print("\n" + texte_dependabot)
 
     # ── 2. Inbox agent_messages ───────────────────────────────────────────────
@@ -712,6 +725,7 @@ def main() -> int:
     items.extend(fetch_postal_inbox(limit=6))
     fresh = [it for it in items if it.get("id") not in seen]
     if fresh:
+        alerte = True
         print(f"\n[claude-hook] INBOX MULTI-CANAL — {len(fresh)} message(s) non vu(s) :")
         for it in fresh:
             prev = (it.get("preview") or "")[:150].replace("\n", " ")
@@ -720,12 +734,14 @@ def main() -> int:
         for it in fresh:
             seen.add(it.get("id"))
         _save_seen(seen)
-    else:
+    elif detail:
         now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"\n[claude-hook] inbox multi-canal propre ({now})")
 
     # ── 3bis. Index d'enquetes (non bloquant) ─────────────────────────────────
-    refresh_symptom_index()
+    refresh_symptom_index(verbeux=detail)
+    if not alerte and not detail:
+        print("[demarrage] RAS : inbox propre, aucune alerte -- detail : tools/claude_session_start.py --detail")
 
     # ── 4. Notify hub ─────────────────────────────────────────────────────────
     if token:

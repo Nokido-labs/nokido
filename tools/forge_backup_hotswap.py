@@ -89,7 +89,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -125,6 +125,34 @@ BACKUP_ENC_KEY_NAME = "LAFORGE_BACKUP_ENC_KEY"
 EXPECTED_DISK_SIZE_GB = 3726
 DISK_SIZE_TOL = 0.04
 
+
+def _chemin_swarm_db() -> Path:
+    """Chemin REEL de swarm.db, meme resolution que app/forge_swarm_blackboard.py."""
+    env = os.environ.get("FORGE_SWARM_DB")
+    if env:
+        return Path(env)
+    try:  # pragma: no cover - depend de l'env hub
+        from nokido_agent.app.forge_db_path import db_path as _dbp  # type: ignore
+
+        return Path(_dbp()).resolve().parent / "swarm.db"
+    except Exception:
+        return ROOT / "RAG" / "swarm.db"
+
+
+def _chemin_memory_ledger_db() -> Path:
+    """Chemin REEL de _memory_ledger.db via tools/forge_memory_ledger._resolve_dir()."""
+    import importlib.util
+
+    chemin = ROOT / "tools" / "forge_memory_ledger.py"
+    try:
+        spec = importlib.util.spec_from_file_location("_ledger_chemin", chemin)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return Path(mod._resolve_dir()) / "_memory_ledger.db"
+    except Exception:
+        return ROOT / "sandbox" / "_memory_ledger.db"
+
+
 # Sources — "sqlite" = export atomique VACUUM INTO, "tree" = copie via robocopy
 SOURCES = {
     "rag_embeddings": {
@@ -139,6 +167,18 @@ SOURCES = {
         "path": ROOT / "RAG" / "execution_traces.db",
         "dest_subdir": "rag",
         "encrypt": True,   # source sur V: chiffre -> sortie chiffree obligatoire (Fix #1)
+    },
+    "swarm_blackboard": {
+        "kind": "sqlite",
+        "path": _chemin_swarm_db(),
+        "dest_subdir": "rag",
+        "encrypt": True,   # source sur V: chiffre -> sortie chiffree obligatoire (Fix #1)
+    },
+    "memory_ledger": {
+        "kind": "sqlite",
+        "path": _chemin_memory_ledger_db(),
+        "dest_subdir": "memory",
+        "encrypt": True,   # registre des fiches -> memes regles que le RAG (Fix #1)
     },
     "warm_data": {
         "kind": "tree",
@@ -904,10 +944,93 @@ def cmd_backup(dry_run: bool = False, do_offline: bool = True,
     return 0 if result.success else 2
 
 
+MAX_GENERATION_AGE_DAYS = 7
+
+
+def _source_critique(spec: dict) -> bool:
+    """Une source est critique sauf si elle est declaree optionnelle."""
+    if "critical" in spec:
+        return bool(spec["critical"])
+    return not spec.get("optional", False)
+
+
+def _etat_source(spec: dict) -> tuple[str, str]:
+    """ABSENTE / ILLISIBLE (cause) / LISIBLE. Ouvrir la source, jamais la supposer."""
+    src = Path(spec["path"])
+    if not src.exists():
+        return "ABSENTE", str(src)
+    try:
+        if spec.get("kind") == "tree":
+            next(iter(src.iterdir()), None)   # dossier : prouver le droit de parcours
+        else:
+            with src.open("rb") as fh:
+                fh.read(1)
+    except PermissionError as e:
+        return "ILLISIBLE", f"PermissionError: {e}"
+    except OSError as e:
+        return "ILLISIBLE", f"{type(e).__name__}: {e}"
+    return "LISIBLE", ""
+
+
+def _derniere_generation_verifiee(racine: Path, nom: str) -> Optional[datetime]:
+    """Date de la plus recente generation dont le manifeste atteste CETTE source verifiee.
+
+    Aucune preuve => None : une source sans generation attestee n'est jamais saine.
+    """
+    base = Path(racine)
+    if not base.is_dir():
+        return None
+    meilleure = None
+    for gen in base.glob("gen_*"):
+        manifest = gen / "manifest.json"
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        item = (data.get("items") or {}).get(nom)
+        if not isinstance(item, dict) or item.get("skipped") or not item.get("ok"):
+            continue
+        try:
+            ts = datetime.strptime(gen.name, "gen_%Y%m%d_%H%M%S")
+        except ValueError:
+            continue
+        if meilleure is None or ts > meilleure:
+            meilleure = ts
+    return meilleure
+
+
 def cmd_status() -> int:
-    out = _diskpart(["list disk", f"select volume {DRIVE_LETTER}", "detail volume"])
-    print(out)
-    return 0
+    """Etat par source : VERIFIEE avec date / ABSENTE / ILLISIBLE (cause) / NON_VERIFIEE.
+
+    rc != 0 si une source critique n'a pas de generation verifiee de moins de 7 jours.
+    Jamais de liste blanche : seul un manifeste attestant la source rend un etat sain.
+    """
+    try:
+        print(_diskpart(["list disk", f"select volume {DRIVE_LETTER}", "detail volume"]))
+    except Exception as e:
+        print(f"[cible] {DRIVE_LETTER}: inaccessible ({type(e).__name__}: {e})")
+
+    rc = 0
+    maintenant = datetime.now()
+    for nom, spec in SOURCES.items():
+        etat_src, detail_src = _etat_source(spec)
+        if etat_src != "LISIBLE":
+            etat, detail = etat_src, detail_src
+        else:
+            ts = _derniere_generation_verifiee(BACKUP_ROOT, nom)
+            if ts is None:
+                etat, detail = "NON_VERIFIEE", "aucune generation attestee"
+            elif maintenant - ts > timedelta(days=MAX_GENERATION_AGE_DAYS):
+                etat = "PERIMEE"
+                detail = (f"{ts.isoformat()} (age {(maintenant - ts).days} j "
+                          f"> {MAX_GENERATION_AGE_DAYS} j)")
+            else:
+                etat = "VERIFIEE"
+                detail = f"{ts.isoformat()} (age {(maintenant - ts).days} j)"
+        print(f"{nom:20s} {etat:12s} {detail}")
+        if _source_critique(spec) and etat != "VERIFIEE":
+            rc = 1
+    return rc
 
 
 def cmd_list() -> int:

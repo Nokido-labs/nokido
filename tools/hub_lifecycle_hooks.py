@@ -63,6 +63,7 @@ def _m2m() -> str:
 # - read/query: lourds, append diluerait l'output
 _NO_INJECT_TOOLS = {
     "hub",  # hub.poll/whoami/notify handle inbox déjà
+    "get_mode",  # sondage du tray toutes les ~10 s : declenchait 30 Mo de lectures a chaque cycle (mesure 4/11)
     "read",
     "query",
     "rag",
@@ -98,6 +99,36 @@ def _inject_agents() -> set:
 _MAX_PREVIEW_CHARS = 600
 _MAX_MESSAGES = 3
 _MAX_JOBS = 2
+
+# Index partiel : sans lui, SQLite passe par `status` et parcourt les non lus de TOUS les agents (19 782 pour
+# EVENTBUS_ARCHIVE le 4/11), soit 7 330 lectures et 30 Mo pour un agent sans message. Avec lui : 5 lectures.
+SQL_INBOX = ("SELECT id, from_agent, payload, created_at FROM agent_messages INDEXED BY idx_agent_messages_nonlus "
+             "WHERE to_agent IN (?,?) AND status='unread' ORDER BY rowid DESC LIMIT ?")
+_SQL_INBOX_SANS_INDEX = ("SELECT id, from_agent, payload, created_at FROM agent_messages "
+                         "WHERE (to_agent=? OR to_agent=?) AND status='unread' ORDER BY rowid DESC LIMIT ?")
+_INDEX_NONLUS_TENTE = False
+
+
+def _assurer_index_nonlus() -> None:
+    """Cree l'index une fois par processus, et seulement sur m2m.db : `_m2m()` peut se replier sur RAG/embeddings.db
+    (45 Go), ou une modification de schema est interdite. Un echec est journalise, l'inbox retombe sur l'ancienne requete."""
+    global _INDEX_NONLUS_TENTE
+    if _INDEX_NONLUS_TENTE:
+        return
+    _INDEX_NONLUS_TENTE = True
+    chemin = str(_m2m())
+    if os.path.basename(chemin).lower() != "m2m.db":
+        return
+    conn = None
+    try:
+        conn = sqlite3.connect(chemin, timeout=2.0)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_nonlus ON agent_messages(to_agent) WHERE status='unread'")
+        conn.commit()
+    except sqlite3.Error as exc:
+        logger.warning("index des non lus non cree (%s: %s) : l'inbox reste lue, avec parcours", type(exc).__name__, exc)
+    finally:
+        if conn is not None:
+            conn.close()
 
 # ─── Un signal ne se repete pas tant qu'il n'a pas change (2026-09-24) ─────
 # Mesure en session reelle : le MEME bloc de 3 messages etait reinjecte a CHAQUE
@@ -162,16 +193,16 @@ def _query_inbox(agent: str) -> dict:
 
     target_lower = agent.lower()
     target_full = f"agt_{target_lower}"
+    _assurer_index_nonlus()
 
     try:
         with sqlite3.connect(f"file:{_m2m()}?mode=ro&immutable=0", uri=True, timeout=2.0) as conn:
             try:
-                rows = conn.execute(
-                    "SELECT id, from_agent, payload, created_at FROM agent_messages "
-                    "WHERE (to_agent=? OR to_agent=?) AND status='unread' "
-                    "ORDER BY rowid DESC LIMIT ?",
-                    (target_full, target_lower, _MAX_MESSAGES),
-                ).fetchall()
+                try:
+                    rows = conn.execute(SQL_INBOX, (target_full, target_lower, _MAX_MESSAGES)).fetchall()
+                except sqlite3.OperationalError:
+                    # INDEXED BY leve si l'index manque (repli, creation refusee) : l'inbox doit rester lue, jamais vide.
+                    rows = conn.execute(_SQL_INBOX_SANS_INDEX, (target_full, target_lower, _MAX_MESSAGES)).fetchall()
                 for r in rows:
                     out["messages"].append(
                         {

@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+import sys as _sys_amorce  # noqa: E402 -- le garde d'ingestion vit sous `nokido_agent`
+if str(ROOT) not in _sys_amorce.path:
+    _sys_amorce.path.insert(0, str(ROOT))
 DB = ROOT / "RAG" / "embeddings.db"
 DOCS = ROOT / "docs"
 REPORT = ROOT / "sandbox" / "gitingest_index_report.json"
@@ -44,7 +47,10 @@ def main() -> None:
         chunks = _chunk_lines(lines)
         source = f"gitingest/{fp.name}"
         count = 0
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
         for chunk in chunks:
+            if not admis_a_l_ingestion("gitingest:" + str(source), chunk):
+                continue
             chunk_id = hashlib.sha256((source + chunk).encode()).hexdigest()[:16]
             conn.execute(
                 "INSERT OR REPLACE INTO rag_chunks "

@@ -22,6 +22,22 @@ import os
 import sys
 
 SIZE_LIMIT = 14000  # bytes (~200 lines): above this an unbounded Read is waste
+PLAGE_MAX = 150  # lignes : plage Read maximale sur le depot Nokido (CLAUDE.md, mesure 9/11)
+
+
+def _racine_depot() -> str:
+    """Racine du depot = parent de tools/ ou vit ce garde. Le NOM du dossier ne prouve rien :
+    le checkout du runner est .../nokido-private/nokido-private/ (rouge CI du 11/11)."""
+    try:
+        racine = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return racine.replace("\\", "/").lower().rstrip("/") + "/"
+    except Exception:
+        return ""
+
+
+def _dans_le_depot(chemin: str) -> bool:
+    racine = _racine_depot()
+    return "/nokido/" in chemin or bool(racine and chemin.startswith(racine))
 
 
 def main() -> int:
@@ -31,8 +47,23 @@ def main() -> int:
         ti = data.get("tool_input") or {}
 
         if tool == "Read":
-            if ti.get("limit") or ti.get("offset"):
-                return 0  # bounded read -- fine
+            chemin = str(ti.get("file_path", "")).replace("\\", "/").lower()
+            if _dans_le_depot(chemin):
+                # Mesure 9/11 : 33 Read « bornes » du depot = 71 % du volume des Read.
+                # Une plage n'est bornee que si limit <= PLAGE_MAX ; offset seul = non borne.
+                limit = ti.get("limit")
+                if limit and int(limit) > PLAGE_MAX:
+                    print(
+                        f"[search-guard] BLOQUE -- plage Read de {limit} lignes sur le depot "
+                        f"(max {PLAGE_MAX}). Forme permise : offset + limit <= {PLAGE_MAX}, "
+                        "hub read_function_body (une fonction), get_file_skeleton (la structure).",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if limit:
+                    return 0
+            elif ti.get("limit") or ti.get("offset"):
+                return 0  # bounded read outside the repo -- unchanged
             try:
                 size = os.path.getsize(ti.get("file_path", ""))
             except OSError:

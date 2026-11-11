@@ -117,6 +117,15 @@ def _ancre_presente(ancre: str, hay: str) -> bool:
     return re.search(r"(?<![a-z0-9])%s(?![a-z0-9])" % re.escape(ancre), hay) is not None
 
 
+def ancres_discriminantes(anchors: list, resultats: list) -> list:
+    """Ancres presentes dans AU MOINS un resultat du lot (titre + contenu). 2/11 : « cp-sat » et « cegar » (sigles du
+    theme) absentes des 24 resultats faisaient exiger 2 ancres a des articles pertinents qui n'en portaient qu'une ;
+    une ancre que personne ne porte ne discrimine rien. Aucune presente -> liste inchangee (tout le lot hors-sujet)."""
+    textes = [((r.get("title") or "") + " " + (r.get("content") or "")).lower() for r in resultats or ()]
+    eff = [a for a in anchors if any(_ancre_presente(a, t) for t in textes)]
+    return eff or list(anchors)
+
+
 def _plafond_ancrage(final: float, hay: str, anchors: list) -> float:
     """Veto d'ancrage DETERMINISTE. Avant (27/10) : plafond a 5.0 pour un seuil d'ingestion a 4.0 -> le hors-sujet
     passait quand meme (PME nigerianes, ancrees par le seul « stochastic »). Il faut au moins 2 ancres du theme
@@ -253,6 +262,45 @@ def _age_s(created_at) -> float | None:
             __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 73, exc_info=True)
             continue
     return None
+
+
+def attendre_crawl4ai(sonde, demander, dormir, maintenant, budget_s=180.0, pas_s=10.0) -> tuple:
+    """(present ?, motif). Present -> aucune attente ; absent -> UNE reclamation puis sondes toutes les pas_s secondes
+    jusqu'a budget_s ; toujours absent -> motif CRAWL4AI_INDISPONIBLE (jamais un vide silencieux)."""
+    if sonde():
+        return True, "crawl4ai present"
+    demander()
+    t0 = maintenant()
+    while maintenant() - t0 < budget_s:
+        dormir(pas_s)
+        if sonde():
+            return True, "crawl4ai present apres %.0f s d'attente" % (maintenant() - t0)
+    return False, "CRAWL4AI_INDISPONIBLE apres %.0f s (reclame, jamais venu)" % (maintenant() - t0)
+
+
+def _attendre_crawl4ai_reel() -> tuple:
+    import urllib.request
+
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        # meme patron que forge_watch_agent._reveiller_consommateur : sous pytest, ni sonde reseau ni reclamation
+        # reelle (le vrai sandbox/crawl4ai.wanted ne doit pas etre ecrit par un test)
+        return True, "SAUTE_SOUS_TEST"
+    def sonde():
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:11235/health", timeout=3) as r:
+                return r.status == 200
+        except Exception:  # noqa: BLE001 - absent = False, la boucle reclame et attend
+            return False
+
+    def demander():
+        try:
+            from nokido_agent.app.forge_docker_agent import demander_crawl4ai
+            demander_crawl4ai("chaine_veille.crawl", lancer=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[crawl] reclamation crawl4ai impossible (%s)", type(exc).__name__)
+
+    return attendre_crawl4ai(sonde, demander, time.sleep, time.time,
+                             budget_s=float(os.environ.get("LAFORGE_CRAWL4AI_ATTENTE_S", "180")))
 
 
 class ChainExecutor:
@@ -517,6 +565,15 @@ class ChainExecutor:
             print("[EXE] cloture du job %s impossible (%s) : le node est solde, "
                   "le verdict metier ne l'est PAS" % (chain_id, type(exc).__name__))
         conn.close()
+        # FIN = SIGNAL, y compris pour une chaine SOLDEE (2/11) : sans cette relache, sa reclamation Docker survivait
+        # (wj_25a0cecaab / wj_2fa65eaa4e, soldees le 29/10, retenaient encore le moteur 4 jours plus tard).
+        # NR : tests/nr/test_chaine_soldee_relache_docker_nr.py
+        try:
+            from nokido_agent.app import forge_watch_agent as _W  # noqa: PLC0415
+
+            _W._relacher_docker(chain_id)
+        except Exception as exc:  # noqa: BLE001
+            print("[EXE] relache Docker de la chaine soldee %s impossible (%s)" % (chain_id, type(exc).__name__))
         print("[EXE] chaine %s STALLED apres %.0f s : %d node(s) non joues sur %d"
               % (chain_nodes[0].get("chain_id"), age_s, len(a_solder), len(chain_nodes)))
 
@@ -579,6 +636,10 @@ class ChainExecutor:
             conn.close()
             print(f"[EXE] {node_id} done.")
             if role == "SearchAgent" and isinstance(result, list) and not result:
+                if getattr(result, "motif", None):
+                    # vide AVEC motif explicite = recherche qui n'a pas eu lieu (P1), pas un vide assume
+                    self._degradations = getattr(self, "_degradations", {})
+                    self._degradations[chain_id] = result.motif
                 self._arreter_chaine(chain_id, getattr(result, "motif", None) or MOTIF_SEARXNG_MUET)
             elif role == "SearchAgent" and isinstance(result, list) and getattr(result, "motif", None):
                 # Liste NON vide mais degradee (repli academique seul) : la chaine continue, le job le DIT.
@@ -613,6 +674,8 @@ class ChainExecutor:
         « le sujet n'existe pas » quand seule la recherche web n'a pas repondu."""
         self._motifs_arret = getattr(self, "_motifs_arret", {})
         self._motifs_arret[chain_id] = "recherche degradee : %s (repli sans recherche web)" % motif
+        self._degradations = getattr(self, "_degradations", {})
+        self._degradations[chain_id] = self._motifs_arret[chain_id]
 
     def _arreter_chaine(self, chain_id: str, motif: str) -> None:
         """ZERO RESULTAT = VIDE ASSUME : les etapes en aval de search (refine, crawl, ingest, store) ne sont
@@ -628,6 +691,17 @@ class ChainExecutor:
             self._motifs_arret[chain_id] = motif
         finally:
             conn.close()
+        # Owner 3/11 : une chaine ARRETEE (annulation, zero resultat) ne porte plus d'intention vers Docker -> elle
+        # relache SA reclamation tout de suite, sans attendre la fin d'une etape encore en cours (idempotent).
+        self._relaches = getattr(self, "_relaches", set())
+        if chain_id not in self._relaches:
+            self._relaches.add(chain_id)   # une seule relache par chaine : le verdict terminal ne la rejoue pas
+            try:
+                from nokido_agent.app import forge_watch_agent as _W
+
+                _W._relacher_docker(chain_id)
+            except Exception as e:  # noqa: BLE001
+                logging.getLogger("forge.chain_executor").warning("relache Docker de %s KO : %s", chain_id, e)
 
     def _clore_job_si_chaine_terminee(self, chain_id: str) -> Optional[str]:
         """Recalcule le verdict METIER du job quand sa chaine n'a plus d'etape en attente ni en cours.
@@ -652,20 +726,24 @@ class ChainExecutor:
             from nokido_agent.app.forge_watch_agent import verdict_chaine  # noqa: PLC0415
             # `completed_dedup` (la base possedait deja tout) n'est connu que de l'etape qui l'a ecrit : le garder,
             # sinon le recalcul le degraderait en `completed_empty`.
-            verdict = verdict_chaine(etapes, int(row[0] or 0), dedup=(row[1] == "completed_dedup"))
+            motif = getattr(self, "_motifs_arret", {}).get(chain_id)
+            # P1 (10/11) : seule une DEGRADATION de la recherche (pas un vide assume) va au verdict ; avant elle
+            # n'etait ecrite que dans `error`, a cote d'un `completed` -- faux vert.
+            degrade = getattr(self, "_degradations", {}).get(chain_id)
+            verdict = verdict_chaine(etapes, int(row[0] or 0), dedup=(row[1] == "completed_dedup"), degrade=degrade)
             if verdict.startswith("completed") and verdict != "completed_partial":
                 conn.execute("UPDATE watch_jobs SET step='done', status=?, error=NULL, updated_at=? WHERE id=?",
                              (verdict, datetime.now(tz=timezone.utc).isoformat(), chain_id))
             else:
                 conn.execute("UPDATE watch_jobs SET step='done', status=?, updated_at=? WHERE id=?",
                              (verdict, datetime.now(tz=timezone.utc).isoformat(), chain_id))
-            motif = getattr(self, "_motifs_arret", {}).get(chain_id)
             if motif:
                 conn.execute("UPDATE watch_jobs SET error=? WHERE id=?", (motif, chain_id))
             conn.commit()
             print("[EXE] chaine %s terminee -- verdict du job : %s" % (chain_id, verdict))
-            if verdict not in ("en_cours", "indetermine"):
-                # FIN = SIGNAL : verdict TERMINAL -> la chaine relache SA reclamation Docker.
+            if verdict not in ("en_cours", "indetermine") and chain_id not in getattr(self, "_relaches", set()):
+                # FIN = SIGNAL : verdict TERMINAL -> la chaine relache SA reclamation Docker (sauf deja relachee a
+                # l'ARRET, 3/11 : une seule relache par chaine).
                 from nokido_agent.app.forge_watch_agent import _relacher_docker  # noqa: PLC0415
                 _relacher_docker(chain_id)
             return verdict
@@ -1011,6 +1089,12 @@ class ChainExecutor:
                     _anchors = [a.lower() for a in _anchor_terms(_theme)][:6]
             except Exception as _e:  # noqa: BLE001
                 logger.debug(f"refine: ancres indisponibles ({_e}) -> veto desactive")
+            if _anchors:
+                _eff = ancres_discriminantes(_anchors, results)
+                if _eff != _anchors:
+                    logger.info(f"[refine] ancres non discriminantes retirees du veto (absentes du lot) : "
+                                f"{[a for a in _anchors if a not in _eff]} ; restent {_eff}")
+                _anchors = _eff
 
             # Combiner offline + LLM, keep top 5 si score >= seuil
             refined = []
@@ -1236,6 +1320,14 @@ class ChainExecutor:
 
         refined = context.get("refined", [])
         loop = asyncio.get_running_loop()
+        # 2/11 (owner) : une chaine qui COMMENCE au crawl (veille par URL) ne passe jamais par la recherche, seule a
+        # reveiller Docker : crawl4ai eteint -> repli urllib aveugle sur toutes les URL -> completed_empty (mesure).
+        # On reclame crawl4ai et on l'ATTEND (borne) ; absent malgre tout -> motif dit dans le contexte.
+        if refined:
+            ok4ai, motif4ai = await loop.run_in_executor(None, _attendre_crawl4ai_reel)
+            self.update_context(node["chain_id"], {"crawl4ai": motif4ai})
+            if not ok4ai:
+                logger.warning("[crawl] %s -- chaine %s : repli urllib sans navigateur", motif4ai, node["chain_id"])
         # REPRISE PAR URL. Le resultat du node n'etait persiste qu'a la FIN de la
         # boucle : un crash a la 6e URL sur 8 faisait TOUT recrawler au redemarrage.
         # Face a un crawler intermittent, c'est le pire niveau de reprise possible --
@@ -1351,7 +1443,6 @@ class ChainExecutor:
     async def start_loop(self):
         print("Loop started.")
         sandbox = ROOT / "sandbox"
-        hb = sandbox / "chain_executor.heartbeat"
         sandbox.mkdir(exist_ok=True)
 
         async def _hb_ticker():
@@ -1359,6 +1450,7 @@ class ChainExecutor:
             # une chain longue (crawl + LLM). Le superviseur restart si le fichier
             # se fige (services.toml: heartbeat=sandbox/chain_executor.heartbeat).
             # Incident 2026-06-03 : ChainExecutor mort -> chains stuck pending sans alerte.
+            from nokido_agent.app.forge_heartbeat import beat_daemon
             while True:
                 try:
                     by_status: dict = {}
@@ -1371,17 +1463,7 @@ class ChainExecutor:
                         conn.close()
                     except Exception:
                         __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 1047, exc_info=True)
-                    hb.write_text(
-                        json.dumps(
-                            {
-                                "ts": datetime.now(tz=timezone.utc).isoformat(),
-                                "pid": os.getpid(),
-                                "by_status": by_status,
-                            },
-                            ensure_ascii=False,
-                        ),
-                        encoding="utf-8",
-                    )
+                    beat_daemon("chain_executor", by_status=by_status)
                 except Exception:
                     __import__("logging").getLogger(__name__).debug("chemin muet journalise (%s:%d)", 'app/forge_chain_executor.py', 1060, exc_info=True)
                 await asyncio.sleep(20)

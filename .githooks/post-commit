@@ -6,6 +6,22 @@ import os
 import subprocess
 import sys
 
+# --- sans fenetre (owner 3/11 : « git n'arrete pas de faire poper des terminaux ») : sous Windows, tout
+# sous-processus de ce hook part en CREATE_NO_WINDOW ; les petits-enfants (indexation, git) heritent d'une console
+# SANS fenetre. Le drapeau d'un appelant est respecte. NR tests/nr/test_githooks_sans_fenetre_nr.py
+if os.name == "nt":
+    class _PopenSansFenetre(subprocess.Popen):
+        def __init__(self, *a, **k):
+            k.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+            # sans fenetre, l'enfant ecrirait dans SA console cachee (messages du gate perdus, 672d52764)
+            for _nom, _flux in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+                if k.get(_nom) is None and _flux is not None:
+                    k[_nom] = _flux
+            super().__init__(*a, **k)
+
+    subprocess.Popen = _PopenSansFenetre
+# --- fin sans fenetre
+
 
 def _ouvrir_journal(root, nom):
     """Journal d'un lancement de fond, jamais un abandon muet.
@@ -65,6 +81,31 @@ try:
 except Exception as _e:  # noqa: BLE001 - jamais bloquer un commit, mais jamais muet
     sys.stderr.write("[post-commit] note d'identite NON posee (%s: %s)\n"
                      % (type(_e).__name__, _e))
+
+# ENTONNOIR (owner 9/11 : « chaque surface ne derive pas », tout aboutit a la branche principale) : core.hooksPath
+# est relatif, donc dans un worktree de tache c'est la COPIE du worktree qui tourne et lancait, depuis le worktree,
+# l'indexation RAG, le SSoT et l'oplog : un travail non relu entrait en memoire comme s'il faisait foi (et le journal
+# SSoT verrouillait le worktree). Worktree LIE -> on s'arrete apres la note d'identite ; le travail entrera en memoire
+# a son integration dans alpha. Lecture illisible -> pas d'indexation (le doute ne fait jamais foi), et c'est DIT.
+# NR tests/nr/test_post_commit_worktree_lie_nr.py
+def _est_worktree_lie(r):
+    try:
+        g = subprocess.run(["git", "rev-parse", "--git-dir", "--git-common-dir"], cwd=r, capture_output=True,
+                           text=True, encoding="utf-8").stdout.splitlines()   # une valeur par LIGNE : chemins a espaces
+    except Exception as _e:  # noqa: BLE001 - dit ci-dessous, traite comme lie (fail-closed)
+        sys.stderr.write("[post-commit] nature du worktree ILLISIBLE (%s) : indexation sautee\n" % type(_e).__name__)
+        return True
+    if len(g) != 2:
+        sys.stderr.write("[post-commit] nature du worktree ILLISIBLE (%r) : indexation sautee\n" % (g,))
+        return True
+    return os.path.normcase(os.path.abspath(os.path.join(r, g[0]))) != \
+        os.path.normcase(os.path.abspath(os.path.join(r, g[1])))
+
+
+if _est_worktree_lie(root):
+    sys.stderr.write("[post-commit] worktree de tache lie : indexation RAG, SSoT et oplog reserves a l'arbre "
+                     "principal (entonnoir) -- le travail y entrera a son integration\n")
+    sys.exit(0)
 
 # indexation RAG en background
 script = os.path.join(root, "tools", "forge_post_commit.py")

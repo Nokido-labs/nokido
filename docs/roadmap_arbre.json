@@ -111,26 +111,6 @@
       "cite": []
     },
     {
-      "cle": "P1_defi_anthropic_performance_takehome_20261027",
-      "etat": "PARTIEL",
-      "etat_affiche": "PARTIEL",
-      "priorite": "P1",
-      "reste": "changement de STRUCTURE (plateau ~1041 ; CP-SAT par fenetres : 0 gain, glouton localement optimal ; suite = CP-SAT choisissant l'unite des ops flexibles, gain plafonne ~35 cycles), axes B/C/D en cours",
-      "decision": false,
-      "cite": []
-    },
-    {
-      "cle": "P1_preparation_takehome_anthropic_20261018",
-      "etat": "CLOS",
-      "etat_affiche": "CLOS_SANS_PREUVE",
-      "priorite": "P1",
-      "reste": "",
-      "decision": false,
-      "cite": [
-        "P1_defi_anthropic_performance_takehome_20261027"
-      ]
-    },
-    {
       "cle": "P1_essai_mesure_sous_agents_claude_20261017",
       "etat": "CLOS",
       "etat_affiche": "CLOS_SANS_PREUVE",
@@ -494,7 +474,6 @@
       "reste": "",
       "decision": false,
       "cite": [
-        "P1_preparation_takehome_anthropic_20261018",
         "P1_utilitarisme_hedoniste_recompense_par_resultat_20261018"
       ]
     },

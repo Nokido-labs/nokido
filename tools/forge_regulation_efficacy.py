@@ -577,7 +577,7 @@ def association_abstention_detresse(chemin_vitals: str = "",
 
 
 def rem_serie(fenetres: list) -> list:
-    """Ratio d'efficacite metabolique par fenetre (chantier 4b du takehome, 18/10) : gains valides / cout, le cout
+    """Ratio d'efficacite metabolique par fenetre (chantier 4b, 18/10) : gains valides / cout, le cout
     en KILO-JETONS + SECONDES CPU (deux grandeurs d'ordres comparables). `fenetres` = [(gains, jetons, cpu_s)].
     Cout illisible (None) ou nul : REM INCONNU (None), jamais 0 -- 0 dirait « aucun gain », pas « pas mesure »."""
     out = []

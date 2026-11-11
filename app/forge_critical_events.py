@@ -85,6 +85,15 @@ def _init_db() -> None:
                 ON forge_critical_events(processed_at, ts)
                 WHERE processed_at IS NULL
             """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS alertes_owner (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts REAL NOT NULL, sujet TEXT NOT NULL, gravite TEXT NOT NULL, detail TEXT NOT NULL, emetteur TEXT,
+                    vu_demarrage REAL, vu_tray REAL
+                )
+            """)
+            c.execute("CREATE TABLE IF NOT EXISTS alertes_etat (sujet TEXT PRIMARY KEY, dernier_ts REAL NOT NULL, gravite TEXT NOT NULL)")
+            c.execute("CREATE TABLE IF NOT EXISTS alertes_flaps (jour TEXT NOT NULL, service TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (jour, service))")
         _INITIALIZED = True
 
 
@@ -174,14 +183,18 @@ def persist(kind: str, severity: str, payload: dict | None = None) -> int:
         return 0
 
 
-def unprocessed(limit: int = 100) -> list[dict[str, Any]]:
+def unprocessed(limit: int = 100, sauf_severites: tuple[str, ...] = ()) -> list[dict[str, Any]]:
+    """Plus anciens d'abord. `sauf_severites` filtre DANS la requete : filtrer apres coup
+    laisserait des evenements ecartes occuper la fenetre `limit` devant une vraie panne."""
     try:
         _init_db()
+        sauf = tuple(sauf_severites)
+        filtre = (" AND severity NOT IN (%s)" % ",".join("?" * len(sauf))) if sauf else ""
         with _conn() as c:
             rows = c.execute(
                 "SELECT id, ts, kind, severity, payload FROM forge_critical_events "
-                "WHERE processed_at IS NULL ORDER BY id ASC LIMIT ?",
-                (int(limit),),
+                "WHERE processed_at IS NULL" + filtre + " ORDER BY id ASC LIMIT ?",
+                (*sauf, int(limit)),
             ).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
@@ -233,6 +246,140 @@ def purge_older_than(days: int = 7) -> int:
             return cur.rowcount or 0
     except Exception as exc:
         logger.error("purge fail: %s", exc)
+        return 0
+
+
+# Alertes destinees a l'owner (choix du 4/11, sur volume mesure). COAGULATION et ORGAN_PULSE appelaient notify sans
+# destinataire : ~480 NEED_HUMAN_APPROVAL par jour finissaient dans EVENTBUS_ARCHIVE pendant que l'emetteur journalisait
+# « delivree ». Ici : resume quotidien des flaps, hors flap une alerte par sujet avec 24 h de silence, soit ~4 par jour.
+_GRAVITE_RANG = {"info": 0, "warn": 1, "error": 2, "high": 2, "critical": 3}
+_SILENCE_ALERTE_S = 86400.0
+_SURFACES = {"demarrage": "vu_demarrage", "tray": "vu_tray"}
+
+
+def _jour(t: float) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(t))
+
+
+def _rang(gravite: str) -> int:
+    return _GRAVITE_RANG.get(str(gravite).lower(), 1)
+
+
+def _resumer_flaps(c: sqlite3.Connection, maintenant: float) -> None:
+    """Un jour termine devient UNE alerte : le nombre de services et les plus instables. Les evenements restent en base."""
+    lignes = c.execute("SELECT jour, service, n FROM alertes_flaps WHERE jour < ? ORDER BY jour, n DESC", (_jour(maintenant),)).fetchall()
+    jours: dict = {}
+    for r in lignes:
+        jours.setdefault(r["jour"], []).append((r["service"], r["n"]))
+    for jour, services in jours.items():
+        noms = ", ".join("%s (%d)" % s for s in services[:12])
+        reste = len(services) - 12
+        detail = "%d services ont flappe le %s : %s%s" % (len(services), jour, noms, " et %d autres" % reste if reste > 0 else "")
+        c.execute("INSERT INTO alertes_owner (ts, sujet, gravite, detail, emetteur) VALUES (?, ?, 'warn', ?, 'COAGULATION')",
+                  (maintenant, "flaps:%s" % jour, detail))
+        c.execute("DELETE FROM alertes_flaps WHERE jour = ?", (jour,))
+
+
+def alerter_owner(sujet: str, gravite: str, detail: str, emetteur: str = "?", maintenant: float | None = None) -> str:
+    """Rend emise | silence | regroupee | echec, et ne leve jamais : l'appelant journalise ce qui s'est vraiment passe.
+    Une gravite qui monte est un changement d'etat : elle passe le silence."""
+    t = time.time() if maintenant is None else float(maintenant)
+    sujet, c = str(sujet), None
+    try:
+        _init_db()
+        c = _conn()
+        with c:
+            if "flap:" in sujet:
+                service = sujet.split("flap:", 1)[1][:80]
+                c.execute("INSERT INTO alertes_flaps (jour, service, n) VALUES (?, ?, 1) "
+                          "ON CONFLICT (jour, service) DO UPDATE SET n = n + 1", (_jour(t), service))
+                _resumer_flaps(c, t)
+                return "regroupee"
+            _resumer_flaps(c, t)
+            prec = c.execute("SELECT dernier_ts, gravite FROM alertes_etat WHERE sujet = ?", (sujet,)).fetchone()
+            if prec and t - prec["dernier_ts"] < _SILENCE_ALERTE_S and _rang(gravite) <= _rang(prec["gravite"]):
+                return "silence"
+            try:
+                from nokido_agent.app.forge_semantic_firewall import redact_for_log as _scrub
+
+                detail = _scrub({"detail": str(detail)})["detail"]
+            except Exception as e:  # noqa: BLE001
+                logger.error("[alertes] scrub DLP impossible (%s) : detail remplace, jamais stocke non expurge", type(e).__name__)
+                detail = "detail non expurge, voir critical_events"
+            c.execute("INSERT INTO alertes_owner (ts, sujet, gravite, detail, emetteur) VALUES (?, ?, ?, ?, ?)",
+                      (t, sujet, str(gravite), str(detail)[:500], str(emetteur)))
+            c.execute("INSERT INTO alertes_etat (sujet, dernier_ts, gravite) VALUES (?, ?, ?) "
+                      "ON CONFLICT (sujet) DO UPDATE SET dernier_ts = excluded.dernier_ts, gravite = excluded.gravite",
+                      (sujet, t, str(gravite)))
+        return "emise"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[alertes] alerte PERDUE (%s: %s) : %s", type(exc).__name__, str(exc)[:120], sujet)
+        return "echec"
+    finally:
+        if c is not None:
+            c.close()
+
+
+def alertes_recentes(limit: int = 20, gravite_min: str = "info") -> dict[str, Any]:
+    """Alertes les plus recentes, pour tout client : n'ecrit RIEN, ni `vu_*` ni resume de flaps ; ce qui est coupe se compte."""
+    try:
+        c = _conn()
+        try:
+            lignes = c.execute("SELECT id, ts, sujet, gravite, detail, emetteur FROM alertes_owner ORDER BY id DESC").fetchall()
+        finally:
+            c.close()
+    except sqlite3.Error as exc:
+        return {"etat": "ILLISIBLE", "raison": f"{type(exc).__name__}: {str(exc)[:120]}"}
+    filtrees = [dict(r) for r in lignes if _rang(r["gravite"]) >= _rang(gravite_min)]
+    borne = max(1, min(int(limit), 100))
+    return {"etat": "OK", "total": len(filtrees), "coupees": max(0, len(filtrees) - borne), "alertes": filtrees[:borne]}
+
+
+def alertes_en_attente(surface: str, gravite_min: str = "info", limit: int = 20, maintenant: float | None = None) -> list[dict[str, Any]]:
+    """Alertes non encore montrees a cette surface. Une surface inconnue leve : la colonne vient de cette table fermee."""
+    if surface not in _SURFACES:
+        raise ValueError("surface inconnue : %s" % surface)
+    t = time.time() if maintenant is None else float(maintenant)
+    _init_db()
+    c = _conn()
+    try:
+        with c:
+            _resumer_flaps(c, t)
+        lignes = c.execute("SELECT id, ts, sujet, gravite, detail, emetteur FROM alertes_owner WHERE %s IS NULL ORDER BY id" % _SURFACES[surface]).fetchall()
+    finally:
+        c.close()
+    return [dict(r) for r in lignes if _rang(r["gravite"]) >= _rang(gravite_min)][:int(limit)]
+
+
+def marquer_vues(ids: list[int], surface: str, maintenant: float | None = None) -> None:
+    if surface not in _SURFACES:
+        raise ValueError("surface inconnue : %s" % surface)
+    t = time.time() if maintenant is None else float(maintenant)
+    c = _conn()
+    try:
+        with c:
+            c.executemany("UPDATE alertes_owner SET %s = ? WHERE id = ?" % _SURFACES[surface], [(t, int(i)) for i in ids])
+    finally:
+        c.close()
+
+
+def purger_alertes(jours: int = 30, maintenant: float | None = None) -> int:
+    """Retire les alertes anciennes deja vues par les surfaces qui les concernent. Une alerte jamais vue n'est jamais purgee.
+    Le tray ne montre que high et critical : un `warn` n'attend donc pas sa lecture. Rend le nombre d'alertes retirees."""
+    coupure = (time.time() if maintenant is None else float(maintenant)) - int(jours) * 86400
+    try:
+        _init_db()
+        c = _conn()
+        try:
+            with c:
+                n = c.execute("DELETE FROM alertes_owner WHERE ts < ? AND vu_demarrage IS NOT NULL "
+                              "AND (vu_tray IS NOT NULL OR gravite NOT IN ('high', 'error', 'critical'))", (coupure,)).rowcount
+                c.execute("DELETE FROM alertes_etat WHERE dernier_ts < ?", (coupure,))
+            return n or 0
+        finally:
+            c.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("[alertes] purge impossible (%s: %s)", type(exc).__name__, str(exc)[:120])
         return 0
 
 

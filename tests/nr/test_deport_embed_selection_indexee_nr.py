@@ -56,6 +56,79 @@ def test_le_predicat_emprunte_la_forme_indexable_et_l_index_partiel(base):
     assert "idx_emb_null_origin" in plan, plan
 
 
+class _Fre:
+    """Faux forge_rebuild_embeddings : aucun reseau, aucune base."""
+    HF_TOKEN = DEEPINFRA = NVIDIA = CF_ACCOUNT = CF_KEY = ""
+    PROVIDERS: list = []
+
+    @staticmethod
+    def _f(texts):
+        return [[0.0] * 1024 for _ in texts]
+    hf_embed = deepinfra_embed = nvidia_embed = cloudflare_embed = _f
+
+
+def _noms(m, monkeypatch, valide):
+    import nokido_agent.app.forge_secrets as fs
+    monkeypatch.setattr(fs, "get_secret", lambda k, *a, **kw: "")
+    for k in ("HF_TOKEN", "DEEPINFRA", "NVIDIA_NIM_API_KEY", "NVIDIA_API_KEY",
+              "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_AI_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    if valide:
+        monkeypatch.setenv("LAFORGE_EMBED_MODAL_VALIDE", "1")
+    else:
+        monkeypatch.delenv("LAFORGE_EMBED_MODAL_VALIDE", raising=False)
+    fre = _Fre()
+    fre.PROVIDERS = []
+    return m._apply_vault_keys_to_fre(fre), fre
+
+
+def test_modal_reste_derriere_la_verification_des_vecteurs(monkeypatch):
+    m = _module()
+    noms, fre = _noms(m, monkeypatch, valide=False)
+    assert "Modal" not in noms
+    noms, fre = _noms(m, monkeypatch, valide=True)
+    assert "Modal" in noms
+    modal = [p for p in fre.PROVIDERS if p["name"] == "Modal"][0]
+    # le demarrage a froid (~66 s) ne doit pas faire ecarter Modal a l'election
+    assert modal["duree_max"] >= 120
+
+
+def test_election_modal_froid_puis_cloudflare_429_sans_boucle(monkeypatch):
+    m = _module()
+    appels = []
+
+    def modal(t):
+        appels.append("modal")
+        return [[0.0] * 1024 for _ in t]
+
+    def cf(t):
+        appels.append("cf")
+        raise RuntimeError("HTTP 429 sur https://exemple :: quota")
+
+    # Modal repond en 66 s (simule) : retenu, car sa tolerance depasse 66 s
+    horloge = iter([0.0, 66.0])
+    cands = [{"name": "Modal", "fn": modal, "duree_max": 150}, {"name": "Cloudflare", "fn": cf}]
+    assert m._elire_provider(cands, 20, now=lambda: next(horloge))["name"] == "Modal"
+    # Modal HS : Cloudflare 429 -> ecarte UNE fois, puis le local en dernier recours
+    appels.clear()
+
+    def modal_hs(t):
+        raise RuntimeError("modal indisponible")
+
+    local = {"name": "local", "fn": lambda t: [[0.0] * 1024 for _ in t]}
+    cands = [{"name": "Modal", "fn": modal_hs, "duree_max": 150},
+             {"name": "Cloudflare", "fn": cf}, local]
+    assert m._elire_provider(cands, 20)["name"] == "local"
+    assert appels == ["cf"]  # un seul appel Cloudflare : pas de boucle sur le 429
+
+
+def test_un_provider_lent_sans_tolerance_reste_ecarte():
+    m = _module()
+    horloge = iter([0.0, 40.0])
+    cands = [{"name": "X", "fn": lambda t: t}]
+    assert m._elire_provider(cands, 20, now=lambda: next(horloge)) is None
+
+
 def test_le_predicat_selectionne_les_fragments_sans_vecteur(base):
     m = _module()
     n = base.execute("SELECT count(*) FROM rag_chunks WHERE %s" % m.predicat_a_vectoriser(base)).fetchone()[0]

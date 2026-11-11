@@ -29,8 +29,12 @@ import forge_task_executor as te  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def reinit_surfaces(monkeypatch):
+def reinit_surfaces(monkeypatch, tmp_path):
     monkeypatch.delenv("LAFORGE_SURFACE_INDISPO_TTL_S", raising=False)
+    # Registre PARTAGE isole (7/11, CI job_d9e2c3a3500b) : depuis ff679390a (3/11) `surface_est_indisponible` lit aussi
+    # sandbox/surfaces_indisponibles.json. Sur l'arbre vivant il porte CODEX epuise jusqu'au 17/11 : la surface
+    # « jamais marquee » du test etait marquee par la production. Ce NR juge la memoire TTL, pas l'etat du poste.
+    monkeypatch.setattr(te, "_FICHIER_INDISPO", tmp_path / "surfaces_indisponibles.json")
     te.reinitialiser_surfaces_indisponibles()
     yield
     te.reinitialiser_surfaces_indisponibles()

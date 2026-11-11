@@ -93,6 +93,9 @@ def main() -> int:
         texte = (f"[ecosysteme GitHub — {r['axe']}] {r['nom']} ({r['etoiles']} etoiles, "
                  f"{r['langue']}, dernier push {r['push']})\n{r['desc']}\n"
                  f"topics: {', '.join(r['topics'][:12])}\n{r['url']}")
+        from nokido_agent.app.forge_prompt_guard import admis_a_l_ingestion
+        if not admis_a_l_ingestion(r["url"], texte):
+            continue
         cid = "ghe_" + nom.replace("/", "_")
         meta = json.dumps({"repo": nom, "etoiles": r["etoiles"], "topics": r["topics"],
                            "axe": r["axe"], "veille": "ecosysteme_github"}, ensure_ascii=False)

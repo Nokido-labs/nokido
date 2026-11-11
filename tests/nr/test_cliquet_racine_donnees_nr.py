@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DOSSIERS = ("RAG", "data", "logs", "sandbox", "runtime")
 AFFECTATION = re.compile(r"^\s*(\w+)\s*=\s*[^\n]*Path\(\s*__file__\s*\)", re.M)
 # app 245 -> 244 le 31/10 (acp_harness, acp_views migres) ; tools 420 -> 419 le 31/10 (compte sur les fichiers SUIVIS),
-# puis 419 -> 405 (14 modules apparus apres le 19/10 migres ; restent les 3 services ACP et les 2 modules takehome)
+# puis 419 -> 405 (14 modules apparus apres le 19/10 migres ; restent les 3 services ACP et 2 modules de banc)
 PLAFOND = {"app": 244, "tools": 405}
 
 

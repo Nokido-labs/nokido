@@ -1,4 +1,4 @@
-"""NR 18/10 -- ratio d'efficacite metabolique (REM) de l'auto-amelioration (chantier 4b de bb P1_preparation_takehome).
+"""NR 18/10 -- ratio d'efficacite metabolique (REM) de l'auto-amelioration (chantier 4b).
 
 Owner : REM = gains valides / (jetons + CPU) ; s'il baisse 3 cycles, l'exploration ralentit. Le denominateur
 « jetons » a enfin une source vivante (token_events, emise par le routeur depuis 6d0e68942). Contrat : une fenetre

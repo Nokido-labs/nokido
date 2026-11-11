@@ -163,9 +163,11 @@ def test_12_la_valeur_n_est_JAMAIS_imprimee(capsys, coffre, declare):
     assert v not in sortie
     for n in (8, 12, 16, 32):
         assert v[:n] not in sortie, "un prefixe de %d caracteres a fuite" % n
-    # Ce qui DOIT sortir : des metadonnees, et l'empreinte courte du sha256.
+    # Ce qui DOIT sortir : des metadonnees seulement. 9/11 (5322b3372, decision deliberee) : plus AUCUNE empreinte
+    # affichee -- la rotation se verifie en interne. Une livraison qui la retablissait pour verdir ce test a ete
+    # refusee le 10/11 : l'attendu etait perime, pas le code.
     assert "present" in sortie and "longueur" in sortie
-    assert "empreinte_sha256_8" in sortie
+    assert "empreinte" not in sortie
 
 
 def test_13_la_ligne_de_commande_n_accepte_AUCUNE_valeur_de_secret(declare, coffre):

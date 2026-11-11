@@ -1,6 +1,6 @@
 """forge_ordo_demarrage -- ordonnancement CP-SAT du DEMARRAGE de la pile sous budget RAM.
 
-Transposition du takehome (modele indexe par le temps). Discipline : BORNE d'abord, juge
+Transposition d'un banc d'ordonnancement (modele indexe par le temps). Discipline : BORNE d'abord, juge
 deterministe, preuve avant promotion. L'outil est en LECTURE SEULE sur la pile : il lit les
 journaux du superviseur et services.toml, n'ecrit que son rapport sous docs/mesures/. Il ne
 modifie pas services.toml, ne demarre ni n'arrete aucun service ; appliquer un ordre propose

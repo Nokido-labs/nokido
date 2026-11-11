@@ -641,6 +641,15 @@ _OUTBOUND_PATTERNS = [
     (_re.compile(r"FORGE_MCP_TOKEN\s*=\s*[A-Za-z0-9]{20,}"), "Nokido token"),
     (_re.compile(r"[A-Za-z0-9]{64}"), "Hex-64 secret (possible token)"),
 ]
+# Owner 6/11 : un mot de passe de certificat, court et avec ponctuation, passait tous les gardes et a ete committe. Definition
+# unique, lue par la membrane, le pare-feu d'outils et `governed_edit`. `scripts/precommit_secret_scan.py` n'importe rien de
+# l'application : sa copie est tenue egale par tests/nr/test_mots_de_passe_en_clair_nr.py. Bruit mesure le 6/11 : 0 fichier suivi.
+MOTS_DE_PASSE_EN_CLAIR = (
+    ("Mot de passe de certificat", r"""(?i)\b\w*(?:pfx|p12|pkcs12|cert|sign)\w*(?:pwd|pass(?:word|wd|phrase)?)\w*\s*[:=]\s*['"][^'"\s]{4,}['"]"""),
+    ("Mot de passe nu", r"""\b(?:PWD|PASSWD|PASSWORD|PASSPHRASE)\s*=\s*['"][^'"\s{}<>%$]{6,}['"]"""),
+    ("Mot de passe signtool", r"""(?i)signtool\b[^\n]{0,120}\s/p\s+(?![<$%{"'])\S{4,}"""),
+)
+_OUTBOUND_PATTERNS += [(_re.compile(_motif), _nom) for _nom, _motif in MOTS_DE_PASSE_EN_CLAIR]
 
 
 class SecretLeakBlocked(RuntimeError):

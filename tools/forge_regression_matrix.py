@@ -65,7 +65,10 @@ if _RACINE_AMORCE not in _sys_amorce.path:
 
 ROOT = Path(__file__).resolve().parent.parent
 NETLOG_DB = ROOT / "RAG" / "embeddings.db"
-MATRIX = ROOT / "sandbox" / "regression_matrix.json"
+# NOKIDO_REGMATRIX (9/11) : la matrice est une DONNEE d'usage, jamais versionnee. Un worktree de reference
+# (ci_local --reference) ne la porte pas ; la CI lui transmet celle de l'arbre partage par cette variable.
+# NR test_capacites_cliquet_matrice_partagee_nr.
+MATRIX = Path(os.environ.get("NOKIDO_REGMATRIX") or (ROOT / "sandbox" / "regression_matrix.json"))
 
 OK_STATUS = {"ok", "OK", "200", "success", "SUCCESS", "completed"}
 # Un outil qui a REUSSI il y a moins de N heures ne peut pas etre "perdu" : si

@@ -134,6 +134,21 @@ def _port_ouvert(port: int, host: str = "127.0.0.1") -> bool | None:
         return None
 
 
+def _age_heures(brut, maintenant: float | None = None) -> float | None:
+    """Age en heures d'un horodatage ISO (« 2026-09-26T18:43:29 ») ou epoch ; None si illisible, JAMAIS une sentinelle
+    (8/11 : -1.0 s'affichait comme un age, « mesure vieille de -1.0 h » sur un contrat de 43 jours)."""
+    from datetime import datetime as _dt
+    t = time.time() if maintenant is None else float(maintenant)
+    try:
+        return (t - _dt.fromisoformat(str(brut)).timestamp()) / 3600.0
+    except (TypeError, ValueError):  # muet-ok : pas ISO, on essaie l'epoch juste apres ; l'echec final rend None
+        pass
+    try:
+        return (t - float(brut)) / 3600.0
+    except (TypeError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------- 1. CLI declare
 def section_cli_entrypoints() -> None:
     """Les entrypoints console_scripts de pyproject : le module cible est-il importable ?"""
@@ -439,16 +454,18 @@ def section_http_gui() -> None:
     surfaces = doc.get("surfaces") or {}
     # Un contrat perime ne se lit pas comme une mesure : un lien repare depuis se
     # relirait MORT. On date la source, et au-dela d'un jour on refuse de conclure.
-    try:
-        age_h = (time.time() - float(doc.get("genere_le") or 0)) / 3600.0
-    except Exception:  # noqa: BLE001
-        age_h = -1.0
-    perime = age_h < 0 or age_h > 24
+    # 8/11 : `genere_le` est une date ISO (« 2026-09-26T18:43:29 ») ; float() echouait et la sentinelle -1.0
+    # s'affichait comme un AGE (« mesure vieille de -1.0 h » sur un contrat de 43 jours). ISO d'abord, epoch ensuite ;
+    # une date illisible le DIT au lieu de fabriquer un age.
+    brut = doc.get("genere_le")
+    age_h = _age_heures(brut)
+    perime = age_h is None or age_h < 0 or age_h > 24
+    age_txt = "date illisible (%r)" % (brut,) if age_h is None else "mesure vieille de %.1f h" % age_h
     add(
         "GUI",
         "contrat UI genere",
         IND if perime else OK,
-        f"{len(surfaces)} surfaces cartographiees, mesure vieille de {age_h:.1f} h"
+        f"{len(surfaces)} surfaces cartographiees, {age_txt}"
         + (" : trop ancienne pour conclure, relancer forge_ui_nervous_census" if perime else ""),
         f"genere_le={doc.get('genere_le')}",
     )
@@ -467,7 +484,7 @@ def section_http_gui() -> None:
             opaques = actes.get("JS_OPAQUE", 0)
             resume = ", ".join(f"{k}={v}" for k, v in sorted(actes.items()))
             if perime:
-                add("GUI", f"controles {nom}", IND, f"mesure de {age_h:.1f} h - {resume}", base)
+                add("GUI", f"controles {nom}", IND, f"{age_txt} - {resume}", base)
             elif morts:
                 add("GUI", f"controles {nom}", KO, f"{morts} controles pointent dans le vide - {resume}", base)
             elif opaques:

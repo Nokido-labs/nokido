@@ -28,7 +28,7 @@ def test_le_fort_est_appele_d_abord(monkeypatch):
     vus = []
     monkeypatch.setattr(sp, "_hub_call", lambda tool, args, timeout=90: (vus.append(args["provider"]) or _reponse(SPEC)))
     spec = sp._llm_generate_patch(["bfcl"], "")
-    assert vus == ["groq"] and spec["target_file"] == "app/x.py"
+    assert vus == ["nvidia_nemotron_super"] and spec["target_file"] == "app/x.py"   # 3/11 : Nemotron en tete
 
 
 def test_panne_du_fort_repli_local(monkeypatch):
@@ -37,11 +37,12 @@ def test_panne_du_fort_repli_local(monkeypatch):
 
     def hub(tool, args, timeout=90):
         vus.append(args["provider"])
-        return {"error": "HTTP 429"} if args["provider"] == "groq" else _reponse(SPEC)
+        # 3/11 (owner) : Nemotron passe en tete des forts gratuits ; panne des DEUX forts -> repli local
+        return {"error": "HTTP 429"} if args["provider"] != "ollama" else _reponse(SPEC)
 
     monkeypatch.setattr(sp, "_hub_call", hub)
     spec = sp._llm_generate_patch(["bfcl"], "")
-    assert vus == ["groq", "ollama"] and spec["target_file"] == "app/x.py"
+    assert vus == ["nvidia_nemotron_super", "groq", "lmstudio", "ollama"] and spec["target_file"] == "app/x.py"
 
 
 def test_tous_en_panne_reste_un_echec_amont(monkeypatch):

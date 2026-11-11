@@ -77,7 +77,10 @@ def _chaine(tmp_path, monkeypatch):
     return ex, base, relaches
 
 
-def test_zero_resultat_donne_completed_empty_sans_rien_en_aval(monkeypatch, tmp_path):
+def test_moteurs_bloques_donne_bloque_par_dependance_sans_rien_en_aval(monkeypatch, tmp_path):
+    """Contrat DURCI le 10/11 (decision owner P1, lot 1 veille) : un resultat vide PORTANT un motif (moteurs
+    bloques) n'est pas un « vide assume » mais une recherche qui n'a pas eu lieu -> `bloque_par_dependance`
+    (avant : `completed_empty`, lu « le sujet n'existe pas »). Le reste du contrat est inchange."""
     ex, base, relaches = _chaine(tmp_path, monkeypatch)
     joues = []
 
@@ -99,7 +102,7 @@ def test_zero_resultat_donne_completed_empty_sans_rien_en_aval(monkeypatch, tmp_
     aval = [r[0] for r in c.execute("SELECT status FROM agent_chain_nodes WHERE step_index>0")]
     c.close()
     assert joues == ["SearchAgent"]
-    assert statut == "completed_empty", statut
+    assert statut == "bloque_par_dependance", statut
     assert erreur == "moteurs bloqués" and not n_stored
     assert aval == ["skipped"] * 4
     assert relaches == ["wj_t"]          # verdict terminal -> reclamation relachee

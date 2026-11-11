@@ -31,6 +31,15 @@ logger = logging.getLogger("Nokido.WebSearch")
 async def search_tavily(query: str, api_key: str, max_results: int = 5) -> List[Dict[str, Any]]:
     import aiohttp
 
+    res, _err = await search_tavily_diag(query, api_key, max_results)
+    return res
+
+
+async def search_tavily_diag(query: str, api_key: str, max_results: int = 5) -> tuple:
+    """(resultats, erreur NOMMEE ou None) -- l'organe de recherche unique (forge_web_fallback, T2a owner 10/11)
+    doit distinguer « rien trouve » d'un echec ; search_tavily, qui avale l'erreur, lui delegue."""
+    import aiohttp
+
     url = "https://api.tavily.com/search"
     payload = {"api_key": api_key, "query": query, "max_results": max_results}
     try:
@@ -40,10 +49,11 @@ async def search_tavily(query: str, api_key: str, max_results: int = 5) -> List[
                     data = await resp.json()
                     return [
                         {"title": r["title"], "content": r["content"], "url": r["url"]} for r in data.get("results", [])
-                    ]
+                    ], None
+                return [], "tavily: HTTP %s" % resp.status
     except Exception as e:
         logger.debug(f"Tavily search failed: {e}")
-    return []
+        return [], "tavily: %s: %s" % (type(e).__name__, str(e)[:120])
 
 
 async def search_duckduckgo(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
@@ -86,17 +96,17 @@ async def search_searxng(query: str, max_results: int = 5, time_range: str = Non
 
 
 async def aggregate_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-    """SearXNG -> Tavily -> DuckDuckGo"""
-    tavily_key = get_secret("TAVILY_API_KEY")
-    results = []
+    """FACADE de l'organe de recherche unique forge_web_fallback (T2b, decision owner 10/11 ; livrable
+    OPENCODE_GPTOSS 560ce6beb). Fin de la cascade parallele SearXNG -> Tavily NON budgete -> DuckDuckGo (CAPTCHA).
+    Forme historique conservee : [{title, content, url}]."""
+    try:
+        from nokido_agent.app.forge_web_fallback import web_search_diag
+    except ImportError:  # repli checkout
+        from forge_web_fallback import web_search_diag
 
-    results = await search_searxng(query, max_results)
-    if not results and tavily_key:
-        results = await search_tavily(query, tavily_key, max_results)
-    if not results:
-        results = await search_duckduckgo(query, max_results)
-
-    return results
+    d = await web_search_diag(query, max_results=max_results)
+    return [{"title": r.get("title") or "", "content": r.get("content") or "", "url": r.get("url") or ""}
+            for r in (d.get("results") or []) if isinstance(r, dict)]
 
 
 if __name__ == "__main__":

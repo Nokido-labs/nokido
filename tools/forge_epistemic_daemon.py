@@ -747,6 +747,12 @@ def _enquete_code_interne(cle, q, internes, deja_cycle, maintenant=None) -> dict
         _journal("enquete de code SERAIT deposee (observation, LAFORGE_EPISTEMIC_ENQUETE_CODE=1 pour "
                  "deposer) : cle=%s | %s" % (cle, q[:120]))
         return {"statut": "A_BLANC", "description": desc}
+    # 3/11 (owner, arbitre de saillance) : sous tension metabolique l'enquete est DIFFEREE avant tout depot --
+    # ni budget du jour ni cle consommes, elle repart au cycle suivant.
+    tendu, raison = ev.corps_sous_tension()
+    if tendu:
+        _journal("enquete de code DIFFEREE (DIFFERE_METABOLIQUE : %s) : cle=%s" % (raison, cle))
+        return {"statut": "DIFFEREE", "motif": "DIFFERE_METABOLIQUE", "raison": raison}
     res = _deposer_enquete_code(desc)
     if not isinstance(res, dict) or res.get("error") or not res.get("task_id"):
         return _refus("depot_refuse: %s" % ((res or {}).get("error") if isinstance(res, dict) else res))
@@ -1100,7 +1106,12 @@ def run_once(conn: sqlite3.Connection) -> dict:
     # Lot B : les lacunes ACTIVES sont remesurees par le MEME instrument, une fois leur
     # periode refractaire passee. C'est la seule porte de fermeture.
     _lacunes = _remesurer_lacunes()
-    _res = {"examinees": examinees, "gaps": gaps, "veilles": veilles,
+    try:
+        _physio = _mesurer_homologues()
+    except Exception as e:  # noqa: BLE001 - une mesure physiologique en panne ne casse pas le cycle : DITE
+        _journal("mesure physiologique KO: %s: %s" % (type(e).__name__, e))
+        _physio = {"erreur": type(e).__name__}
+    _res = {"examinees": examinees, "gaps": gaps, "veilles": veilles, "physiologie": _physio,
             "hors_variete_ignores": hors_variete, "lacunes": _lacunes,
             "soif_intero": len(_split["soif"]), "soif_intention": len(_intention),
             "intention_gap": intention_gap, "soin": len(_split["soin"]),
@@ -1154,6 +1165,68 @@ MAX_REMESURES_CYCLE = int(os.environ.get("LAFORGE_SOIF_MAX_REMESURES", "5"))
 REMESURE_DELAI_S = float(os.environ.get("LAFORGE_SOIF_REMESURE_DELAI_S", _INTENTION_TTL_S))
 
 
+def _traiter_lacune_stagnante(cle, lac, maintenant, enquetes_cycle, creer=None) -> dict:
+    """Voie d'une lacune ACTIVE (owner 3/11). Une lacune de couverture dont la question est INTERNE (critere existant
+    `_manque_interne` : interne par defaut, externe seulement sur demande explicite) prend l'ENQUETE DE CODE existante,
+    une seule fois -- jamais une veille web (4 veilles de bruit le 3/11). Ces lacunes, ouvertes avant l'armement de
+    l'enquete (26/10), ne la recevaient jamais : le demon ne la deposait qu'a la PREMIERE detection. Une lacune qui ne
+    stagne pas attend ; le reste garde les pistes de methode (lancer_pistes)."""
+    lac = lac or {}
+    if int(lac.get("remesures_sans_effet") or 0) < ev.PISTES_SEUIL_STAGNATION:
+        return {"voie": "attente"}
+    base = str(lac.get("instrument") or "").split("|", 1)[0]
+    q = str(lac.get("question") or "")
+    internes = _manque_interne(q) if (base == "coverage_dense" and q.strip()) else []
+    if internes:
+        try:
+            deja = json.loads(_ENQUETE_CODE_ETAT.read_text(encoding="utf-8")).get("cles") or {}
+        except (OSError, ValueError, AttributeError):
+            deja = {}
+        if cle in deja:
+            return {"voie": "enquete_code", "statut": "DEJA_DEPOSEE"}
+        return dict(_enquete_code_interne(cle, q, internes, enquetes_cycle, maintenant), voie="enquete_code")
+    return dict(ev.lancer_pistes(cle, creer=creer or _creer_veille_soif, maintenant=maintenant), voie="pistes")
+
+
+_HOMOLOGUES_MAX_CYCLE = 10
+
+
+def _mesurer_homologues(maintenant: float | None = None, chemin=None) -> dict:
+    """Owner 3/11 (debat Claude x AGY) : la soif mesure la couverture physiologique de chaque homologue DECLARE
+    (census -> sandbox/workspace/homologues.json). Trou mesure -> lacune EXTERNE (instrument physiologie_fts,
+    remesurable) dont la piste est la veille, sous budget et arbitre de saillance (lancer_pistes). Registre absent ou
+    illisible : DIT, rien d'ouvert (UNKNOWN n'est pas NO)."""
+    from pathlib import Path as _P
+
+    p = _P(chemin) if chemin else _P(__file__).resolve().parent.parent / "sandbox" / "workspace" / "homologues.json"
+    try:
+        homs = (json.loads(p.read_text(encoding="utf-8")) or {}).get("homologues") or []
+    except (OSError, ValueError, AttributeError) as e:
+        _journal("homologues illisibles (%s) : aucune mesure physiologique ce cycle" % type(e).__name__)
+        return {"ouvertes": 0, "illisible": type(e).__name__}
+    r = {"mesures": 0, "ouvertes": 0, "couverts": 0, "illisibles": 0}
+    for h in homs[:_HOMOLOGUES_MAX_CYCLE]:
+        termes = " ".join(str((h or {}).get("termes") or "").split())
+        if not termes:
+            continue
+        cov = ev.mesurer_physiologie(termes, h.get("fts"), cle=h.get("mecanisme"), nature=h.get("nature"))
+        r["mesures"] += 1
+        if not cov.get("ok"):
+            r["illisibles"] += 1
+            continue
+        if cov.get("gap") is False:
+            r["couverts"] += 1
+            continue
+        o = ev.ouvrir_lacune(termes, cov, motif="gap_certain", pistes=[termes],
+                             critere={"termes": termes, "fts": h.get("fts"), "module": h.get("module"),
+                                      "nature": h.get("nature")})
+        if o.get("ok") and not o.get("deja"):
+            r["ouvertes"] += 1
+            _journal("lacune PHYSIOLOGIQUE ouverte : %s (%s, %s source(s))" % (termes[:80], h.get("module"),
+                                                                           cov.get("sources_distinctes")))
+    return r
+
+
 def _remesurer_lacunes(maintenant: float | None = None) -> dict:
     """Remesure les lacunes ACTIVES dont le dernier evenement a passe le delai refractaire.
 
@@ -1161,6 +1234,15 @@ def _remesurer_lacunes(maintenant: float | None = None) -> dict:
     Ne declare JAMAIS une lacune IRRESOLUE : elle releve seulement les propositions a l'owner."""
     t = time.time() if maintenant is None else float(maintenant)
     out = {"remesurees": 0, "fermees": 0, "refus": 0, "aveugles": 0, "irresolution_proposee": []}
+    # 2/11 (owner) : la soif se NOURRIT des manques constates dans tout Nokido (bancs, dettes a NR rouge), par liste
+    # blanche : rien n'entre sans instrument qui sache le fermer. Periodes propres a chaque source.
+    try:
+        out["collecte"] = ev.collecter_sources(t, charger_bancs=_bancs_declares, charger_dettes=_dettes_ouvertes)
+        _journal("collecte des manques : %s" % {k: (v if isinstance(v, str) else
+                                                    {kk: len(vv) for kk, vv in v.items() if isinstance(vv, list)})
+                                                for k, v in out["collecte"].items()})
+    except Exception as e:  # noqa: BLE001 - le collecteur ne bloque jamais la remesure, et c'est DIT
+        _journal("collecte des manques IMPOSSIBLE (%s)" % type(e).__name__)
     try:
         lacunes = ev.lire_lacunes()
     except Exception as e:  # noqa: BLE001 - registre illisible : rien remesure, et DIT
@@ -1198,7 +1280,56 @@ def _remesurer_lacunes(maintenant: float | None = None) -> dict:
     if out["irresolution_proposee"]:
         _journal("IRRESOLUTION PROPOSEE a l'owner (jamais prononcee ici) : %s"
                  % ", ".join(out["irresolution_proposee"][:6]))
+    # 2/11 (owner) : une lacune qui STAGNE derive des pistes de METHODE de son diagnostic et les lance par le workflow
+    # officiel (create_job) -- la soif nourrit les investigations au lieu de seulement remesurer.
+    out["pistes"] = 0
+    out["enquetes_code"] = 0
+    for cle, _lac in actives:
+        try:
+            r = _traiter_lacune_stagnante(cle, _lac, t, out["enquetes_code"])
+        except Exception as e:  # noqa: BLE001 - une lacune illisible n'arrete pas les autres, et c'est DIT
+            _journal("pistes IMPOSSIBLES pour %s (%s)" % (cle, type(e).__name__))
+            continue
+        if r.get("voie") == "enquete_code":
+            if r.get("statut") == "DEPOSEE":
+                out["enquetes_code"] += 1
+                _journal("lacune INTERNE %s -> enquete de code deposee (tache %s)" % (cle, r.get("task_id")))
+            continue
+        if r.get("lancees"):
+            out["pistes"] += r["lancees"]
+            _journal("PISTES lancees (%d) pour lacune %s : %s" % (r["lancees"], cle, r.get("chaines")))
+        for ref in r.get("refusees") or ():
+            _journal("piste REFUSEE (%s) : %s" % (ref.get("motif"), ref.get("theme")))
     return out
+
+
+def _bancs_declares() -> dict:
+    """Bancs d'amelioration VALIDES (config/bancs_amelioration.json via forge_banc_amelioration)."""
+    try:
+        import forge_banc_amelioration as B
+    except ImportError:  # muet-ok : bancs prives (config/sujets_prives.txt), absents de la distribution publique
+        return {}
+    return B.charger_bancs()[0]
+
+
+def _dettes_ouvertes() -> list:
+    """Dettes ouvertes du tableau noir (zone des dettes), texte integral, closes exclues (memes regles que l'affichage)."""
+    from nokido_agent.app import forge_memoire_active as M
+    from nokido_agent.app.forge_swarm_blackboard import read_zone
+    faits = M._faits(read_zone(M.ZONE_DETTES)) or []
+    closes = M._cles_closes_ailleurs(read_zone)
+    return [{"cle": str(f.get("key") or ""), "texte": str(f.get("value") or "")} for f in faits
+            if not M._est_close(str(f.get("key") or ""), str(f.get("value") or ""))
+            and str(f.get("key") or "") not in closes]
+
+
+def _creer_veille_soif(theme: str, urls=None) -> str:
+    """Workflow officiel des veilles (SearXNG + crawl4ai + ingestion), signe par la soif. `urls` (3/11, textes
+    integraux EuropePMC) -> chaine courte crawl -> ingest -> store du meme workflow."""
+    from nokido_agent.app.forge_watch_agent import create_job
+    if urls:
+        return create_job(theme=theme, idea_id="soif_pistes", agent="SOIF_EPISTEMIQUE", urls=list(urls))
+    return create_job(theme=theme, idea_id="soif_pistes", agent="SOIF_EPISTEMIQUE")
 
 
 def _journal(msg: str) -> None:
