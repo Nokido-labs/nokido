@@ -412,11 +412,50 @@
    "inconnus": 0,
    "jour": "2026-11-01",
    "workflow": "installation-complete.yml"
+  },
+  "43001798879": {
+   "comptes": {
+    "nokido-agent": 1
+   },
+   "inconnus": 0,
+   "jour": "2026-11-11",
+   "workflow": "release.yml"
+  },
+  "43002445636": {
+   "comptes": {
+    "netcfg-agent": 6,
+    "netcfg-agent-mcp": 6,
+    "nokido-agent": 3,
+    "pack": 3
+   },
+   "inconnus": 0,
+   "jour": "2026-11-11",
+   "workflow": "installation-complete.yml"
   }
  },
  "dernier": {
-  "ci_runs": {},
-  "date": "2026-11-10",
+  "ci_runs": {
+   "43001798879": {
+    "comptes": {
+     "nokido-agent": 1
+    },
+    "inconnus": 0,
+    "jour": "2026-11-11",
+    "workflow": "release.yml"
+   },
+   "43002445636": {
+    "comptes": {
+     "netcfg-agent": 6,
+     "netcfg-agent-mcp": 6,
+     "nokido-agent": 3,
+     "pack": 3
+    },
+    "inconnus": 0,
+    "jour": "2026-11-11",
+    "workflow": "installation-complete.yml"
+   }
+  },
+  "date": "2026-11-11",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -513,7 +552,8 @@
     "2026-11-05": 1,
     "2026-11-06": 1,
     "2026-11-08": 4,
-    "2026-11-09": 2
+    "2026-11-09": 2,
+    "2026-11-10": 8
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 94,
@@ -539,7 +579,8 @@
     "2026-11-03": 1,
     "2026-11-05": 1,
     "2026-11-08": 5,
-    "2026-11-09": 3
+    "2026-11-09": 3,
+    "2026-11-10": 8
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -577,15 +618,17 @@
     "2026-11-06": 1,
     "2026-11-07": 5,
     "2026-11-08": 9,
-    "2026-11-09": 34
+    "2026-11-09": 34,
+    "2026-11-10": 23
    }
   },
   "releases": {
-   "n": 11,
-   "total": 384
+   "n": 12,
+   "total": 423
   },
   "runs_ci": {
-   "2026-11-01": 3
+   "2026-11-01": 3,
+   "2026-11-11": 1
   }
  },
  "jours": {
@@ -926,6 +969,16 @@
     "netcfg-agent-mcp": 3,
     "nokido-agent": 34
    }
+  },
+  "2026-11-10": {
+   "pypi_robots": {
+    "netcfg-agent": 8,
+    "netcfg-agent-mcp": 8,
+    "nokido-agent": 23
+   }
+  },
+  "2026-11-11": {
+   "runs_ci": 1
   }
  }
 }
