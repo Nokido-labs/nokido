@@ -435,10 +435,9 @@
  },
  "dernier": {
   "ci_runs": {},
-  "date": "2026-11-13",
+  "date": "2026-11-14",
   "etoiles": 1,
   "manques": {
-   "pypi:nokido-agent": "HTTPError: HTTP Error 429: Too Many Requests",
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
   },
   "organisme": {
@@ -449,8 +448,9 @@
    "sha": "0690e3a84"
   },
   "pypi_30j": {
-   "netcfg-agent": 228,
-   "netcfg-agent-mcp": 238
+   "netcfg-agent": 204,
+   "netcfg-agent-mcp": 216,
+   "nokido-agent": 2635
   },
   "pypi_jours": {
    "netcfg-agent": {
@@ -541,7 +541,8 @@
     "2026-11-09": 2,
     "2026-11-10": 8,
     "2026-11-11": 1,
-    "2026-11-12": 7
+    "2026-11-12": 7,
+    "2026-11-13": 3
    },
    "netcfg-agent-mcp": {
     "2026-10-11": 94,
@@ -570,7 +571,8 @@
     "2026-11-09": 3,
     "2026-11-10": 8,
     "2026-11-11": 1,
-    "2026-11-12": 7
+    "2026-11-12": 7,
+    "2026-11-13": 3
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -611,7 +613,8 @@
     "2026-11-09": 34,
     "2026-11-10": 23,
     "2026-11-11": 73,
-    "2026-11-12": 25
+    "2026-11-12": 25,
+    "2026-11-13": 16
    }
   },
   "releases": {
@@ -992,6 +995,13 @@
     "netcfg-agent": 7,
     "netcfg-agent-mcp": 7,
     "nokido-agent": 25
+   }
+  },
+  "2026-11-13": {
+   "pypi_robots": {
+    "netcfg-agent": 3,
+    "netcfg-agent-mcp": 3,
+    "nokido-agent": 16
    }
   }
  }
