@@ -446,7 +446,7 @@
  },
  "dernier": {
   "ci_runs": {},
-  "date": "2026-11-22",
+  "date": "2026-11-23",
   "etoiles": 1,
   "manques": {
    "trafic": "pas de jeton STATS_TOKEN : trafic NON mesure"
@@ -459,9 +459,9 @@
    "sha": "0690e3a84"
   },
   "pypi_30j": {
-   "netcfg-agent": 127,
-   "netcfg-agent-mcp": 134,
-   "nokido-agent": 2404
+   "netcfg-agent": 119,
+   "netcfg-agent-mcp": 129,
+   "nokido-agent": 2387
   },
   "pypi_jours": {
    "netcfg-agent": {
@@ -602,7 +602,8 @@
     "2026-11-16": 1,
     "2026-11-17": 1,
     "2026-11-20": 5,
-    "2026-11-21": 7
+    "2026-11-21": 7,
+    "2026-11-22": 2
    },
    "nokido-agent": {
     "2026-10-04": 1742,
@@ -1108,6 +1109,11 @@
    "pypi_robots": {
     "netcfg-agent": 5,
     "netcfg-agent-mcp": 7
+   }
+  },
+  "2026-11-22": {
+   "pypi_robots": {
+    "netcfg-agent-mcp": 2
    }
   }
  }
